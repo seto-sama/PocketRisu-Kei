@@ -2,7 +2,7 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import SegmentedControl from 'src/lib/UI/GUI/SegmentedControl.svelte';
+    import SegmentedControl from '../../UI/components/SegmentedControl.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
 
@@ -48,7 +48,7 @@
     });
 </script>
 
-<span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+<span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
     {getLabel(item)}
     {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
 </span>

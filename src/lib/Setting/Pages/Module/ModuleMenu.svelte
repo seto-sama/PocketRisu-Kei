@@ -1,27 +1,27 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../../UI/components/Input.svelte";
     import type { loreBook } from "src/ts/storage/database.svelte";
     import LoreBookList from "src/lib/SideBars/LoreBook/LoreBookList.svelte";
     import { type CCLorebook, convertExternalLorebook } from "src/ts/process/lorebook.svelte";
     import type { RisuModule } from "src/ts/process/modules";
-    import { DownloadIcon, FolderPlusIcon, HardDriveUploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
+    import { DownloadIcon, FolderPlusIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
     import TriggerList from "src/lib/SideBars/Scripts/TriggerList.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import Help from "src/lib/Others/Help.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import Textarea from "../../../UI/components/Textarea.svelte";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { alertError, notifySuccess } from "src/ts/alert";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import { selectMultipleFile } from "src/ts/util";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
+    import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
     import { v4 } from "uuid";
 
-    let submenu = $state(0)
-    let loreListEditMode = $state(false)
+    let submenu = $state('basic')
     interface Props {
         currentModule: RisuModule;
     }
@@ -130,70 +130,66 @@
             currentModule.trigger = currentModule.trigger
         }
     }
+
+    function prepareSubmenu(value: string) {
+        if (value === 'lorebook') currentModule.lorebook ??= [];
+        if (value === 'regex') currentModule.regex ??= [];
+        if (value === 'trigger') {
+            currentModule.trigger ??= [{
+                comment: "",
+                type: "manual",
+                conditions: [],
+                effect: [{
+                    type: "v2Header",
+                    code: "",
+                    indent: 0
+                }]
+            }, {
+                comment: "New Event",
+                type: 'manual',
+                conditions: [],
+                effect: []
+            }];
+        }
+        if (value === 'assets') currentModule.assets ??= [];
+    }
 </script>
 
-<div class="flex w-full rounded-md border border-darkborderc mb-4 overflow-x-auto h-16 min-h-16 overflow-y-clip">
-    <button onclick={() => {
-        submenu = 0
-    }} class="p-2 flex-1 border-r border-darkborderc" class:bg-darkbutton={submenu === 0}>
-        <span>{language.basicInfo}</span>
-    </button>
-    <button onclick={() => {
-        currentModule.lorebook ??= []
-        submenu = 1
-    }} class="p2 flex-1 border-r border-darkborderc" class:bg-darkbutton={submenu === 1}>
-        <span>{language.loreBook}</span>
-    </button>
-    <button onclick={() => {
-        currentModule.regex ??= []
-        submenu = 2
-    }} class="p-2 flex-1 border-r border-darkborderc" class:bg-darkbutton={submenu === 2}>
-        <span>{language.regexScript}</span>
-    </button>
-    <button onclick={() => {
-        currentModule.trigger ??= [{
-            comment: "",
-            type: "manual",
-            conditions: [],
-            effect: [{
-                type: "v2Header",
-                code: "",
-                indent: 0
-            }]
-        }, {
-            comment: "New Event",
-            type: 'manual',
-            conditions: [],
-            effect: []
-        }]
-        submenu = 3
-    }} class="p-2 flex-1 border-r border-darkborderc" class:bg-darkbutton={submenu === 3}>
-        <span>{language.triggerScript}</span>
-    </button>
-    <button onclick={() => {
-        currentModule.assets ??= []
-        submenu = 5
-    }} class="p-2 flex-1" class:bg-darkbutton={submenu === 5}>
-        <span>{language.additionalAssets}</span>
-    </button>
-</div>
+<ChoiceGroup
+    variant="pill"
+    size="md"
+    name="moduleSubmenu"
+    bind:value={submenu}
+    options={[
+        { value: 'basic', label: language.basicInfo },
+        { value: 'lorebook', label: language.loreBook },
+        { value: 'regex', label: language.moduleRegexLabel },
+        { value: 'trigger', label: language.moduleTriggerLuaLabel },
+        { value: 'assets', label: language.additionalAssets },
+    ]}
+    activeColor="selected"
+    fullWidth
+    divided
+    onValueChange={prepareSubmenu}
+    className="mb-4"
+/>
 
-{#if submenu === 0}
+{#if submenu === 'basic'}
     <span>{language.name}<Help key="moduleName" /></span>
-    <TextInput bind:value={currentModule.name} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.name} className="mt-2"/>
     <span class="mt-4">{language.description}<Help key="moduleDescription" /></span>
-    <TextInput bind:value={currentModule.description} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.description} className="mt-2"/>
     <span class="mt-4">{language.namespace}<Help key="namespace" /></span>
-    <TextInput bind:value={currentModule.namespace} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.namespace} className="mt-2"/>
     <span class="mt-4">{language.customPromptTemplateToggle}<Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
+    <Textarea commitMode="debounce" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
-        <ShSwitch bind:checked={currentModule.hideIcon}/>
+        <span class="min-w-0 text-maintext">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
+        <Switch bind:checked={currentModule.hideIcon}/>
     </div>
 {/if}
-{#if submenu === 1 && (Array.isArray(currentModule.lorebook))}
-    <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode bind:listEditMode={loreListEditMode} />
+{#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
+    <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
     <IconButtonGroup size="default" className="mt-2 w-full">
         <IconButton onclick={() => {addLorebook()}}>
             <PlusIcon />
@@ -202,17 +198,7 @@
             <DownloadIcon />
         </IconButton>
         <IconButton onclick={() => {importLoreBook()}}>
-            <HardDriveUploadIcon />
-        </IconButton>
-        <IconButton
-            active={loreListEditMode}
-            activeColor="primary"
-            aria-label={language.changeFolderName}
-            onclick={() => {
-                loreListEditMode = !loreListEditMode
-            }}
-        >
-            <PencilIcon />
+            <UploadIcon />
         </IconButton>
         <IconButton className="ml-auto" onclick={() => {
             addLorebookFolder()
@@ -222,10 +208,10 @@
     </IconButtonGroup>
 {/if}
 
-{#if submenu === 2 && (Array.isArray(currentModule.regex))}
+{#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
     <span class="mt-2 flex items-center">{language.backgroundHTML}<Help key="moduleBackgroundEmbedding" /></span>
-    <TextAreaInput bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
-    <span class="mt-4 flex items-center">{language.regexScript}<Help key="moduleRegexList" /></span>
+    <Textarea commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
+    <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
     <IconButtonGroup size="default" className="mt-2">
         <IconButton onclick={() => {
@@ -236,11 +222,11 @@
         }}><DownloadIcon /></IconButton>
         <IconButton onclick={async () => {
             currentModule.regex = await importRegex(currentModule.regex)
-        }}><HardDriveUploadIcon /></IconButton>
+        }}><UploadIcon /></IconButton>
     </IconButtonGroup>
 {/if}
 
-{#if submenu === 5 && (Array.isArray(currentModule.assets))}
+{#if submenu === 'assets' && (Array.isArray(currentModule.assets))}
     <span class="mb-2 flex items-center">{language.additionalAssets}<Help key="moduleAdditionalAssets" /></span>
     <AdditionalAssetsEditor
         assets={currentModule.assets}
@@ -250,10 +236,10 @@
     />
 {/if}
 
-{#if submenu === 3 && (Array.isArray(currentModule.trigger))}
+{#if submenu === 'trigger' && (Array.isArray(currentModule.trigger))}
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
-        <ShSwitch bind:checked={currentModule.lowLevelAccess}/>
+        <span class="min-w-0 text-maintext">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
+        <Switch bind:checked={currentModule.lowLevelAccess}/>
     </div>
 
     <TriggerList bind:value={currentModule.trigger} lowLevelAble={currentModule.lowLevelAccess} />

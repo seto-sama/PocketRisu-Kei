@@ -1,11 +1,11 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import TextInput from 'src/lib/UI/GUI/TextInput.svelte';
-    import ShCombobox from 'src/lib/UI/GUI/ShCombobox.svelte';
+    import Input from '../../UI/components/Input.svelte';
+    import Combobox from '../../UI/components/Combobox.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -22,61 +22,66 @@
         localValue = getSettingValue(item, ctx);
     });
 
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: string) {
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             {#if suggestions.length > 0 && !item.options?.hideText}
-                <ShCombobox
+                <Combobox
                     containerClassName="w-48"
                     className="h-8 w-full text-sm"
                     size="sm"
                     options={suggestions}
                     bind:value={localValue}
                     placeholder={item.options?.placeholder}
+                    oncommit={() => commitValue(localValue)}
                 />
             {:else}
-                <TextInput
+                <Input
                     className="h-8 w-48 text-sm"
                     size="sm"
                     bind:value={localValue}
                     placeholder={item.options?.placeholder}
                     hideText={item.options?.hideText}
+                    commitMode={item.options?.commitMode ?? 'blur'}
+                    debounceMs={item.options?.debounceMs}
+                    oncommit={commitValue}
                 />
             {/if}
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
     {#if suggestions.length > 0 && !item.options?.hideText}
-        <ShCombobox
+        <Combobox
             className="mt-2"
             marginBottom={true}
             options={suggestions}
             bind:value={localValue}
             placeholder={item.options?.placeholder}
+            oncommit={() => commitValue(localValue)}
         />
     {:else}
-        <TextInput
+        <Input
             className="mt-2"
             marginBottom={true}
             bind:value={localValue}
             placeholder={item.options?.placeholder}
             hideText={item.options?.hideText}
+            commitMode={item.options?.commitMode ?? 'blur'}
+            debounceMs={item.options?.debounceMs}
+            oncommit={commitValue}
         />
     {/if}
 {/if}

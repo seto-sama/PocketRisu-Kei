@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { triggerscript } from 'src/ts/storage/database.svelte';
-import { getTriggerScriptMode } from './triggerScriptMode';
+import { getDisplayedTriggerScriptMode, getTriggerScriptMode } from './triggerScriptMode';
 
 const scripts = (effectType?: string) => effectType
     ? [{ comment: '', type: 'manual', conditions: [], effect: [{ type: effectType }] }] as triggerscript[]
@@ -22,5 +22,10 @@ describe('trigger script mode detection', () => {
 
     test('preserves the legacy code-mode distinction', () => {
         expect(getTriggerScriptMode(scripts('triggercode'))).toBe('v1code');
+    });
+
+    test('projects structured V1 data as V2 in the editor', () => {
+        expect(getDisplayedTriggerScriptMode(scripts('setvar'))).toBe('v2');
+        expect(getDisplayedTriggerScriptMode([])).toBe('v2');
     });
 });

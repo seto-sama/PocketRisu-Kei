@@ -7,6 +7,7 @@
 
 import type { Database } from '../storage/database.svelte';
 import type { CustomComponentId, CustomComponentProps } from './customComponents';
+import type { InputCommitMode } from '../inputCommit';
 
 /**
  * Context passed to condition functions for visibility checks
@@ -22,7 +23,7 @@ export interface SettingContext {
      * 'block' is 'row' (label + inline help stacked left, control vertically
      * centered right, border-t divider rhythm) plus a full-width control line
      * below when width is needed: sliders put their enable switch in the row
-     * slot and the ShSlider (real units) underneath; numbers need no extra
+     * slot and the Slider (real units) underneath; numbers need no extra
      * width, so their block rendering IS the row rendering. Currently
      * implemented by SettingSlider / SettingNumber; others fall back to stacked. */
     layout?: 'stacked' | 'row' | 'block';
@@ -32,13 +33,13 @@ export interface SettingContext {
  * Supported setting input types
  */
 export type SettingType = 
-    | 'check'      // Checkbox (CheckInput)
-    | 'text'       // Text input (TextInput)
+    | 'check'      // Boolean switch
+    | 'text'       // Text input
     | 'number'     // Number input (NumberInput)
-    | 'textarea'   // Multiline text (TextAreaInput)
-    | 'slider'     // Slider (SliderInput)
-    | 'select'     // Dropdown (SelectInput)
-    | 'radio'      // Vertical radio group (ShRadio)
+    | 'textarea'   // Multiline text
+    | 'slider'     // Slider
+    | 'select'     // Select
+    | 'radio'      // Vertical single-choice group (ChoiceGroup)
     | 'segmented'  // Sliding segmented control (SegmentedControl)
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)
@@ -86,7 +87,7 @@ export interface SettingOptions {
     max?: number;
     step?: number;
     fixed?: number;         // Decimal places for slider
-    disableable?: boolean;  // Allow -1000 to disable
+    disableable?: boolean;  // Allow -1000 to disable (slider/number)
     customText?: string | ((value: number) => string); // Custom display text for slider
     multiple?: number;      // Multiplier for display value
     nullable?: boolean;     // Allow null for color inputs
@@ -101,8 +102,11 @@ export interface SettingOptions {
     placeholder?: string;
     hideText?: boolean;     // For password-like inputs
     suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
-    defaultValue?: unknown; // Display value when a bound field is undefined
+    /** Display value when undefined; also restored when a disableable numeric field is enabled. */
+    defaultValue?: unknown;
     showTokenCount?: boolean; // Show the CBS-expanded token count below a textarea
+    commitMode?: InputCommitMode; // DB write policy for text/number/textarea fields
+    debounceMs?: number;
     
     // number
     inputClassName?: string;

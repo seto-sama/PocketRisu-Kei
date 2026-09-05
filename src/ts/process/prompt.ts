@@ -1,8 +1,7 @@
 import { tokenizeAccurate } from "../tokenizer";
-import { getDatabase, presetTemplate, setDatabase } from "../storage/database.svelte";
-import { v4 as uuidv4 } from "uuid";
-import { alertError, notifySuccess } from "../alert";
+import type { botPreset } from "../storage/database.svelte";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
+import { safeStructuredClone } from "../polyfill";
 
 export type PromptItem = PromptItemPlain|PromptItemTyped|PromptItemChat|PromptItemAuthorNote|PromptItemChatML|PromptItemCache
 export type PromptType = PromptItem['type'];
@@ -114,44 +113,14 @@ export function detectPromptJSONType(text:string){
         else if(notNull(parsed.temp) && notNull(parsed.rep_pen) && notNull(parsed.min_length)){
             return "PARAMETERS"
         }
-        else if(notNull(parsed.story_string) && notNull(parsed.chat_start)){
-            return "STCONTEXT"
-        }
-        else if(notNull(parsed.input_sequence) && notNull(parsed.output_sequence)){
-            return "STINST"
-        }
     } catch (e) {}
     return 'NOTSUPPORTED'
 }
 
 const typePriority = [
-    'STINST',
     'PARAMETERS',
-    'STCONTEXT',
     'STCHAT',
 ]
-
-
-type InstData = {
-    "system_prompt": string,
-    "input_sequence": string,
-    "output_sequence": string,
-    "last_output_sequence": string,
-    "system_sequence": string,
-    "stop_sequence": string,
-    "system_sequence_prefix": string,
-    "system_sequence_suffix": string,
-    "first_output_sequence": string,
-    "output_suffix": string,
-    "input_suffix": string,
-    "system_suffix": string,
-    "user_alignment_message": string,
-    "system_same_as_user": boolean,
-    "last_system_sequence": string,
-    "first_input_sequence": string,
-    "last_input_sequence": string,
-    "name": string
-}
 
 export function stChatConvert(pre:any){
     //ST preset
@@ -288,31 +257,14 @@ export const OobaParams = [
     "grammar_string"
 ]
 
-export function promptConvertion(files:{ name: string, content: string, type:string }[]){
+export type PromptConversionFile = {
+    name: string
+    content: string
+    type: string
+}
+
+export function convertPromptFiles(files:PromptConversionFile[], presetTemplate:botPreset):botPreset{
     let preset = safeStructuredClone(presetTemplate)
-    preset.id = uuidv4()
-    let instData = {
-        "system_prompt": "",
-        "input_sequence": "",
-        "output_sequence": "",
-        "last_output_sequence": "",
-        "system_sequence": "",
-        "stop_sequence": "",
-        "system_sequence_prefix": "",
-        "system_sequence_suffix": "",
-        "first_output_sequence": "",
-        "output_suffix": "",
-        "input_suffix": "",
-        "system_suffix": "",
-        "user_alignment_message": "",
-        "system_same_as_user": false,
-        "last_system_sequence": "",
-        "first_input_sequence": "",
-        "last_input_sequence": "",
-        "name": ""
-    }
-    let story_string = ''
-    let chat_start = ''
     preset.name = ''
 
     let type = ''
@@ -321,15 +273,12 @@ export function promptConvertion(files:{ name: string, content: string, type:str
         return typePriority.indexOf(a.type) - typePriority.indexOf(b.type)
     })
 
-
-    if(files.findIndex(x=>x.type === 'STINST') !== -1){
-        type = 'STINST'
+    if(files.length === 0){
+        throw new Error('Unsupported prompt preset format.')
     }
+
+
     if(files.findIndex(x=>x.type === 'STCHAT') !== -1){
-        if(type !== ''){
-            alertError(`Both ${type} and STCHAT are not supported together.`)
-            return
-        }
         type = 'STCHAT'
     }
 
@@ -365,19 +314,9 @@ export function promptConvertion(files:{ name: string, content: string, type:str
             }
         }
 
-        preset.name ||= instData.name ?? ''
         switch(file.type){
-            case 'STINST':{
-                instData = data as InstData
-                if(data.system_same_as_user){
-                    instData.system_sequence = ''
-                    instData.system_sequence_prefix = instData.input_sequence
-                    instData.system_sequence_suffix = instData.output_sequence
-                }
-                break
-            }
             case 'PARAMETERS':{
-                samplers = data.samplers
+                samplers = Array.isArray(data.samplers) ? data.samplers : []
                 getParam('temperature', 'temp', {multiplier: 100})
                 getParam('top_p')
                 getParam('top_k')
@@ -393,13 +332,8 @@ export function promptConvertion(files:{ name: string, content: string, type:str
                 }
                 break
             }
-            case 'STCONTEXT':{
-                story_string = data.story_string
-                chat_start = data.chat_start
-                break
-            }
             case 'STCHAT':{
-                samplers = []
+                samplers = Object.keys(data)
                 getParam('temperature', 'temperature', {multiplier: 100})
                 getParam('top_p')
                 getParam('top_k')
@@ -410,16 +344,13 @@ export function promptConvertion(files:{ name: string, content: string, type:str
                 getParam('PresensePenalty', 'presence_penalty', {multiplier: 100})
                 const prompts = stChatConvert(data)
                 preset.promptTemplate = prompts
+                preset.name ||= data.name || 'Imported ST Preset'
             }
         }
     }
 
     if(type === 'STCHAT'){
-        const db = getDatabase()
-        db.botPresets.push(preset)
-    
-        notifySuccess('Preset converted successfully. You can find it in bot setting presets')
-        return
+        return preset
     }
 
     preset.reverseProxyOobaArgs = oobaData
@@ -451,48 +382,6 @@ export function promptConvertion(files:{ name: string, content: string, type:str
 
 
     
-    //build a jinja template from the instData
-    let jinja = ''
-
-    jinja += story_string
-        .replace(/{{user}}/gi, '{{risu_user}}')
-        .replace(/{{user}}/gi, '{{risu_user}}')
-        .replace(/{{system_prompt}}/gi, instData.system_prompt)
-        .replace(/{{system}}/gi, instData.system_prompt)
-        .replace(/{{#if (.+?){{\/if}}/gis, '')
-        .replace(/{{(.+?)}}/gi, '')
-        .replace(/\n\n+/g, '\n\n')
-    jinja += chat_start
-    jinja += `{% for message in messages %}`
-    jinja += `{% if message.role == 'user' %}`
-    jinja += instData.input_sequence
-    jinja += `{{ message.content }}`
-    jinja += instData.input_suffix
-    jinja += `{% endif %}`
-    jinja += `{% if message.role == 'assistant' %}`
-    jinja += instData.output_sequence
-    jinja += `{{ message.content }}`
-    jinja += instData.output_suffix
-    jinja += `{% endif %}`
-    jinja += `{% if message.role == 'system' %}`
-    jinja += instData.system_sequence
-    jinja += instData.system_sequence_prefix
-    jinja += `{{ message.content }}`
-    jinja += instData.system_sequence_suffix
-    jinja += instData.system_suffix
-    jinja += `{% endif %}`
-    jinja += `{% endfor %}`
-    jinja += instData.output_sequence
-
-    preset.instructChatTemplate = "jinja"
-    preset.JinjaTemplate = jinja
-    preset.useInstructPrompt = true
-
     preset.name ||= 'Converted from JSON'
-
-
-    const db = getDatabase()
-    db.botPresets.push(preset)
-
-    notifySuccess('Preset converted successfully. You can find it in bot setting presets')
+    return preset
 }

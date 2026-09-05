@@ -46,9 +46,7 @@ export const LLMProvider = {
     AsIs: 4,
     Mistral: 5,
     NovelList: 6,
-    Cohere: 7,
     NovelAI: 8,
-    WebLLM: 9,
     Horde: 10,
     AWS: 11,
     DeepSeek: 12,
@@ -67,9 +65,7 @@ export const LLMFormat = {
     GoogleCloud: 5,
     VertexAIGemini: 6,
     NovelList: 7,
-    Cohere: 8,
     NovelAI: 9,
-    WebLLM: 10,
     OobaLegacy: 11,
     Plugin: 12,
     Ooba: 13,
@@ -98,8 +94,6 @@ export const LLMTokenizer = {
     Llama3: 8,
     Gemma: 9,
     GoogleCloud: 10,
-    Cohere: 11,
-    Local: 12,
     DeepSeek: 13
 } as const;
 export type LLMTokenizer = (typeof LLMTokenizer)[keyof typeof LLMTokenizer];
@@ -128,9 +122,7 @@ export const ProviderNames = new Map<LLMProvider, string>([
     [LLMProvider.AsIs, 'As Is'],
     [LLMProvider.Mistral, 'MistralAI'],
     [LLMProvider.NovelList, 'NovelList'],
-    [LLMProvider.Cohere, 'Cohere'],
     [LLMProvider.NovelAI, 'NovelAI'],
-    [LLMProvider.WebLLM, 'WebLLM'],
     [LLMProvider.Horde, 'Horde'],
     [LLMProvider.AWS, 'AWS'],
     [LLMProvider.DeepSeek, 'DeepSeek'],

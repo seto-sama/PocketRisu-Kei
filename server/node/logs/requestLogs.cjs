@@ -1,24 +1,10 @@
 'use strict';
 
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
 const { maskSensitive } = require('./logs.cjs');
+const { db } = require('./requestLogDb.cjs');
 
 const MAX_FIELD_BYTES = 4 * 1024 * 1024;
 const REQUEST_LOG_LIST_LIMIT = 100;
-
-const saveDir = path.join(process.cwd(), 'save');
-if (!fs.existsSync(saveDir)) {
-    fs.mkdirSync(saveDir, { recursive: true });
-}
-
-const dbPath = path.join(saveDir, 'request-logs.db');
-const db = new Database(dbPath);
-
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
-db.pragma('busy_timeout = 5000');
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS request_logs (
@@ -34,18 +20,25 @@ db.exec(`
         chat_id TEXT,
         status INTEGER,
         client_id TEXT,
-        platform TEXT
+        platform TEXT,
+        duration_ms INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_request_logs_chat_id_timestamp
         ON request_logs(chat_id, timestamp DESC);
 `);
+const requestLogColumns = new Set(
+    db.prepare(`PRAGMA table_info(request_logs)`).all().map(column => column.name)
+);
+if (!requestLogColumns.has('duration_ms')) {
+    db.exec(`ALTER TABLE request_logs ADD COLUMN duration_ms INTEGER`);
+}
 
 const stmtUpsert = db.prepare(`
     INSERT INTO request_logs
-        (id, timestamp, date, url, body, header, response, success, response_type, chat_id, status, client_id, platform)
+        (id, timestamp, date, url, body, header, response, success, response_type, chat_id, status, client_id, platform, duration_ms)
     VALUES
-        (@id, @timestamp, @date, @url, @body, @header, @response, @success, @responseType, @chatId, @status, @clientId, @platform)
+        (@id, @timestamp, @date, @url, @body, @header, @response, @success, @responseType, @chatId, @status, @clientId, @platform, @durationMs)
     ON CONFLICT(id) DO UPDATE SET
         timestamp = excluded.timestamp,
         date = excluded.date,
@@ -58,7 +51,8 @@ const stmtUpsert = db.prepare(`
         chat_id = excluded.chat_id,
         status = excluded.status,
         client_id = excluded.client_id,
-        platform = excluded.platform
+        platform = excluded.platform,
+        duration_ms = excluded.duration_ms
 `);
 
 const stmtQuery = db.prepare(`
@@ -72,7 +66,8 @@ const stmtQuery = db.prepare(`
         chat_id AS chatId,
         status,
         client_id AS clientId,
-        platform
+        platform,
+        duration_ms AS responseDurationMs
     FROM request_logs
     ORDER BY timestamp DESC, rowid DESC
     LIMIT ?
@@ -88,7 +83,8 @@ const stmtQueryBefore = db.prepare(`
         current.chat_id AS chatId,
         current.status,
         current.client_id AS clientId,
-        current.platform
+        current.platform,
+        current.duration_ms AS responseDurationMs
     FROM request_logs AS current
     JOIN request_logs AS boundary ON boundary.id = ?
     WHERE current.timestamp < boundary.timestamp
@@ -111,7 +107,8 @@ const stmtQueryById = db.prepare(`
         chat_id AS chatId,
         status,
         client_id AS clientId,
-        platform
+        platform,
+        duration_ms AS responseDurationMs
     FROM request_logs
     WHERE id = ?
 `);
@@ -129,7 +126,8 @@ const stmtQueryByChatId = db.prepare(`
         chat_id AS chatId,
         status,
         client_id AS clientId,
-        platform
+        platform,
+        duration_ms AS responseDurationMs
     FROM request_logs
     WHERE chat_id = ?
     ORDER BY timestamp DESC, rowid DESC
@@ -140,7 +138,8 @@ const stmtClearAll = db.prepare(`DELETE FROM request_logs`);
 const stmtDeleteById = db.prepare(`DELETE FROM request_logs WHERE id = ?`);
 const stmtUpdateById = db.prepare(`
     UPDATE request_logs
-    SET response = ?, success = ?, status = COALESCE(?, status), response_type = 'stream'
+    SET response = ?, success = ?, status = COALESCE(?, status), response_type = 'stream',
+        duration_ms = MAX(0, ? - timestamp)
     WHERE id = ?
 `);
 
@@ -165,6 +164,7 @@ function normalizeLog(log) {
         status: Number.isInteger(log.status) ? log.status : null,
         clientId: log.clientId ? String(log.clientId).slice(0, 64) : null,
         platform: log.platform ? String(log.platform).slice(0, 128) : null,
+        durationMs: Number.isFinite(log.durationMs) ? Math.max(0, Math.round(log.durationMs)) : null,
     };
 }
 
@@ -180,12 +180,13 @@ function deleteRequestLog(id) {
     return stmtDeleteById.run(String(id).slice(0, 128)).changes === 1;
 }
 
-function updateRequestLogResponseById(id, response, status, success = true) {
+function updateRequestLogResponseById(id, response, status, success = true, completedAt = Date.now()) {
     if (!id) return false;
     const result = stmtUpdateById.run(
         truncate(response),
         success ? 1 : 0,
         Number.isInteger(status) ? status : null,
+        Number.isFinite(completedAt) ? Math.round(completedAt) : Date.now(),
         String(id).slice(0, 128),
     );
     return result.changes === 1;
@@ -225,16 +226,34 @@ function queryRequestLogByChatId(chatId) {
     return mapRequestLog(stmtQueryByChatId.get(String(chatId).slice(0, 128)));
 }
 
-function installRequestLogRoutes(app, { checkAuth, requireSyncClientId }) {
+function enrichRequestLogs(logs, getUsageByJobIds) {
+    if (!getUsageByJobIds || logs.length === 0) return logs;
+    const usageRows = getUsageByJobIds(logs.map(log => log.id));
+    const usageByJobId = new Map(
+        usageRows.map(usage => [usage.jobId, usage])
+    );
+    return logs.map(log => {
+        const usage = usageByJobId.get(log.id);
+        return {
+            ...log,
+            provider: usage?.provider ?? undefined,
+            model: usage?.model ?? undefined,
+            promptTokens: usage?.promptTokens ?? undefined,
+            completionTokens: usage?.completionTokens ?? undefined,
+        };
+    });
+}
+
+function installRequestLogRoutes(app, { checkAuth, requireSyncClientId, getUsageByJobIds }) {
     app.get('/api/request-logs', async (req, res, next) => {
         if (!await checkAuth(req, res)) return;
         try {
             res.send({
                 success: true,
-                content: queryRequestLogs({
+                content: enrichRequestLogs(queryRequestLogs({
                     limit: req.query.limit,
                     beforeId: req.query.before_id,
-                }),
+                }), getUsageByJobIds),
                 total: countRequestLogs(),
             });
         } catch (error) {

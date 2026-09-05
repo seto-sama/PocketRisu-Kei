@@ -1,7 +1,7 @@
 import { UAParser } from 'ua-parser-js'
 
-// forageStorage is imported lazily inside flush() so log-capture can be imported
-// very early in main.ts without dragging the full globalApi graph into bootstrap.
+// Session auth is loaded through a small storage-only facade inside flush(), so
+// early log capture does not pull the full globalApi graph into bootstrap.
 
 const CLIENT_ID_KEY = 'risu-client-id'
 const FLUSH_DELAY_MS = 500
@@ -109,8 +109,8 @@ async function flush() {
     if (buffer.length === 0) return
     const batch = buffer.splice(0, Math.min(buffer.length, MAX_BUFFER))
     try {
-        const { forageStorage } = await import('./globalApi.svelte')
-        const auth = await forageStorage.createAuth()
+        const { createStorageAuth } = await import('./storage/auth')
+        const auth = await createStorageAuth()
         await fetch('/api/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'risu-auth': auth },

@@ -25,7 +25,7 @@ const REMOTE_HYPA_MODELS = new Set([
 ]);
 const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-    'novellist', 'gemma', 'cohere', 'deepseek',
+    'novellist', 'gemma', 'deepseek',
 ]);
 const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
 
@@ -81,9 +81,34 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
     try { serialized = JSON.stringify(value); }
     catch { return undefined; }
     if (Buffer.byteLength(serialized) > MAX_WORKFLOW_CONTEXT_BYTES) return undefined;
+    if (value.schemaVersion === 1 && value.kind === 'image-generation') {
+        if (
+            typeof value.operationId !== 'string'
+            || !WORKFLOW_KEY_PATTERN.test(value.operationId)
+            || typeof value.messageId !== 'string'
+            || !WORKFLOW_KEY_PATTERN.test(value.messageId)
+            || value.target?.characterId !== characterId
+            || typeof value.target?.roomId !== 'string'
+            || !value.target.roomId
+            || roomId !== `image-generation:${value.target.roomId}`
+            || typeof value.prompt !== 'string'
+            || !value.prompt.trim()
+            || typeof value.negativePrompt !== 'string'
+            || (value.seed !== undefined && (!Number.isFinite(value.seed) || value.seed < 0))
+            || typeof value.label !== 'string'
+            || typeof value.comfyBridgeId !== 'string'
+            || !WORKFLOW_KEY_PATTERN.test(value.comfyBridgeId)
+            || (value.projection !== undefined && !['append', 'reroll'].includes(value.projection))
+        ) return undefined;
+        return JSON.parse(serialized);
+    }
     if (
         value.schemaVersion !== 1
         || value.kind !== 'chat-generation'
+        || (value.comfyBridgeId !== undefined && (
+            typeof value.comfyBridgeId !== 'string'
+            || !WORKFLOW_KEY_PATTERN.test(value.comfyBridgeId)
+        ))
         || value.resume?.schemaVersion !== 1
         || !Number.isInteger(value.resume.chatProcessIndex)
         || typeof value.resume.messageChatId !== 'string'

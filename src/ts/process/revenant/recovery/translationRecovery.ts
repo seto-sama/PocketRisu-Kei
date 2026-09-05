@@ -40,12 +40,18 @@ type RecoverableTranslationJob =
 const recoveringTranslationJobs =
     new Map<string, Promise<RecoverableTranslationJob | null>>()
 
+export function isUsableTranslationResult(
+    value: string | null | undefined,
+): value is string {
+    return Boolean(value?.trim())
+}
+
 export function prepareRevenantTranslationRequest(
     text: string,
     replaceExisting: boolean,
     target: RevenantChatMessageTranslationTarget | null = null,
+    cacheKey = text,
 ): RevenantTranslationRequest {
-    const cacheKey = text
     const styleDecodes: string[] = []
     const requestText = text.replace(
         /<risu-style>(.+?)<\/risu-style>/gms,
@@ -85,7 +91,11 @@ export async function completeRevenantTranslation(
     jobId?: string | null,
 ): Promise<string> {
     const result = decodeRevenantTranslation(content, request.styleDecodes)
-    await cache.store(request.cacheKey, result)
+    // Only usable output is a completed translation cache entry. Keep an older
+    // value intact when a completed request has no content.
+    if (isUsableTranslationResult(result)) {
+        await cache.store(request.cacheKey, result)
+    }
     if (jobId) {
         try {
             await consumeRecoverableAuxiliaryGeneration(jobId)
@@ -131,14 +141,14 @@ async function recoverTranslationJob(
         const context = resolved.operationContext
         let recovered = false
         const projectedContent = resolved.projection?.content ?? ''
-        if (resolved.status === 'generated' && projectedContent.trim()) {
+        if (resolved.status === 'generated' && isUsableTranslationResult(projectedContent)) {
             const existingTranslation = await cache.get(context.cacheKey)
             if (context.replaceExisting || existingTranslation === null) {
                 const result = decodeRevenantTranslation(
                     projectedContent,
                     context.styleDecodes,
                 )
-                if (result !== existingTranslation) {
+                if (isUsableTranslationResult(result) && result !== existingTranslation) {
                     await cache.store(context.cacheKey, result)
                     recovered = true
                 }

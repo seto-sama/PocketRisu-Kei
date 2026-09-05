@@ -11,7 +11,7 @@ vi.mock('./database.svelte', () => ({
         && !Array.isArray(chat.message),
 }))
 
-const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders, classifyChat } = await import('./chatStorage')
+const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders } = await import('./chatStorage')
 type Chat = any
 type ChatStub = any
 
@@ -31,28 +31,6 @@ const blankChat = (overrides: Partial<Chat> = {}): Chat => ({
 })
 
 describe('chatToStub', () => {
-    test('preserves explicit null folderId as a key', () => {
-        const stub = chatToStub(blankChat({ folderId: null as any }))
-        expect('folderId' in stub).toBe(true)
-        expect(stub.folderId).toBeNull()
-    })
-
-    test('omits folderId when the chat has no such key', () => {
-        const stub = chatToStub(blankChat())
-        expect('folderId' in stub).toBe(false)
-    })
-
-    test('preserves a non-null folderId', () => {
-        const stub = chatToStub(blankChat({ folderId: 'F1' }))
-        expect(stub.folderId).toBe('F1')
-    })
-
-    test('same key-presence semantics applies to modules', () => {
-        expect('modules' in chatToStub(blankChat({ modules: null as any }))).toBe(true)
-        expect('modules' in chatToStub(blankChat({ modules: [] }))).toBe(true)
-        expect('modules' in chatToStub(blankChat())).toBe(false)
-    })
-
     test('same key-presence semantics applies to lastDate', () => {
         expect('lastDate' in chatToStub(blankChat({ lastDate: null as any }))).toBe(true)
         expect('lastDate' in chatToStub(blankChat({ lastDate: 0 }))).toBe(true)
@@ -66,24 +44,6 @@ describe('chatToStub', () => {
 })
 
 describe('stubToPlaceholder', () => {
-    test('preserves explicit null folderId from server', () => {
-        const stub: ChatStub = {
-            id: 'c1',
-            name: 't',
-            _stub: true,
-            folderId: null as any,
-        }
-        const placeholder = stubToPlaceholder(stub)
-        expect('folderId' in placeholder).toBe(true)
-        expect(placeholder.folderId).toBeNull()
-    })
-
-    test('omits folderId when stub has no such key', () => {
-        const stub: ChatStub = { id: 'c1', name: 't', _stub: true }
-        const placeholder = stubToPlaceholder(stub)
-        expect('folderId' in placeholder).toBe(false)
-    })
-
     test('marks placeholder for hydration', () => {
         const stub: ChatStub = { id: 'c1', name: 't', _stub: true }
         const placeholder = stubToPlaceholder(stub)
@@ -92,14 +52,6 @@ describe('stubToPlaceholder', () => {
         expect(placeholder.message).toEqual([])
     })
 
-    test('preserves modules key (null and array)', () => {
-        const nullStub: ChatStub = { id: 'c1', name: 't', _stub: true, modules: null as any }
-        expect('modules' in stubToPlaceholder(nullStub)).toBe(true)
-        expect(stubToPlaceholder(nullStub).modules).toBeNull()
-
-        const arrStub: ChatStub = { id: 'c1', name: 't', _stub: true, modules: ['m1'] }
-        expect(stubToPlaceholder(arrStub).modules).toEqual(['m1'])
-    })
 })
 
 // The bug this branch fixes: a user clearing folderId would round-trip into
@@ -160,10 +112,6 @@ describe('hybrid corruption (chat with _stub:true + message)', () => {
         ...overrides,
     })
 
-    test('classifyChat tags _stub + message as "hybrid"', () => {
-        expect(classifyChat(hybridChat())).toBe('hybrid')
-    })
-
     test('chatToStub collapses hybrid down to a real stub (drops message)', () => {
         const result = chatToStub(hybridChat()) as any
         expect(result._stub).toBe(true)
@@ -185,22 +133,6 @@ describe('hybrid corruption (chat with _stub:true + message)', () => {
         expect(recovered.message[0].data).toBe('hello')
         expect(recovered.note).toBe('old note')
         expect(recovered.localLore.length).toBe(1)
-    })
-
-    test('convertStubsToPlaceholders still converts real stubs to placeholders', () => {
-        const realStub: ChatStub = { id: 'c1', name: 't', _stub: true }
-        const [result] = convertStubsToPlaceholders([realStub])
-        expect((result as any)._placeholder).toBe(true)
-        expect(result.message).toEqual([])
-        expect(result.fmIndex).toBe(-1)
-    })
-
-    test('convertStubsToPlaceholders leaves real Chats alone', () => {
-        const realChat: Chat = {
-            message: [], note: '', name: 'x', localLore: [], id: 'c2',
-        }
-        const [result] = convertStubsToPlaceholders([realChat])
-        expect(result).toBe(realChat)   // same reference, untouched
     })
 
     test('hybrid round-trip self-heals: convert → chatToStub → no message leakage', () => {

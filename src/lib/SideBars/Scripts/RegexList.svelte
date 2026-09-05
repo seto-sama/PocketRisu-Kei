@@ -4,12 +4,12 @@
     import Sortable from "sortablejs";
     import { sleep, sortableOptions } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
-    import { DownloadIcon, HardDriveUploadIcon, PlusIcon } from "@lucide/svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import type { IconButtonSize } from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import type { IconButtonSize } from "../../UI/components/IconButton.svelte";
     import {
         groupRegexScripts,
         removeRegexScriptGroup,
@@ -95,9 +95,9 @@
     })
 </script>
 {#key sorted}
-    <ShDisclosureList className={embedded ? '' : 'mt-2'} bind:element={ele}>
+    <DisclosureList className={embedded ? '' : 'mt-2'} bind:element={ele}>
         {#if scriptGroups.length === 0 || !scriptGroups.some(matchesSearch)}
-            <div class="text-textcolor2 text-sm px-3 py-8 text-center">No Scripts</div>
+            <div class="text-subtext text-sm px-3 py-8 text-center">No Scripts</div>
         {/if}
         {#each scriptGroups as group}
             {@const customscript = group.scripts[0]}
@@ -131,7 +131,7 @@
                     }} />
             {/if}
         {/each}
-    </ShDisclosureList>
+    </DisclosureList>
 {/key}
 {#if buttons}
     <IconButtonGroup size={actionIconSize} className="mt-2">
@@ -150,6 +150,6 @@
         }}><DownloadIcon /></IconButton>
         <IconButton onclick={async () => {
             value = await importRegex(value)
-        }}><HardDriveUploadIcon /></IconButton>
+        }}><UploadIcon /></IconButton>
     </IconButtonGroup>
 {/if}

@@ -2,7 +2,7 @@
     import { RefreshCwIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { syncRemoteRegistry } from "src/ts/preset/registry";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import Button from "../../../UI/components/Button.svelte";
 
     let busy = $state(false);
     let status = $state("");
@@ -36,11 +36,11 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.registryRefresh}</span>
-        <p class="text-xs text-textcolor2 mt-0.5">{status || language.registryRefreshHelp}</p>
+        <span class="text-sm text-maintext">{language.registryRefresh}</span>
+        <p class="text-xs text-subtext mt-0.5">{status || language.registryRefreshHelp}</p>
     </div>
-    <ShButton variant="outline" size="sm" onclick={refresh} disabled={busy} className="shrink-0">
+    <Button variant="outline" size="sm" onclick={refresh} disabled={busy} className="shrink-0">
         <RefreshCwIcon class={busy ? "animate-spin" : ""} />
         <span class="ml-1">{busy ? language.registrySyncing : language.registryRefreshNow}</span>
-    </ShButton>
+    </Button>
 </div>

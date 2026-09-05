@@ -1,17 +1,17 @@
 <script lang="ts">
     import type { PromptItem, PromptItemChat, PromptRole } from "src/ts/process/prompt";
-    import OptionInput from "./GUI/OptionInput.svelte";
-    import TextAreaInput from "./GUI/TextAreaInput.svelte";
-    import SelectInput from "./GUI/SelectInput.svelte";
+    import SelectOption from "./components/SelectOption.svelte";
+    import Textarea from "./components/Textarea.svelte";
+    import Select from "./components/Select.svelte";
     import { language } from "src/lang";
-    import NumberInput from "./GUI/NumberInput.svelte";
+    import NumberInput from "./components/NumberInput.svelte";
     import { TrashIcon } from "@lucide/svelte";
-    import TextInput from "./GUI/TextInput.svelte";
+    import Input from "./components/Input.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import ShDisclosureList from "./GUI/ShDisclosureList.svelte";
-    import ShSwitch from "./GUI/ShSwitch.svelte";
-    import IconButton from "./GUI/IconButton.svelte";
-    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import DisclosureList from "./components/DisclosureList.svelte";
+    import Switch from "./components/Switch.svelte";
+    import IconButton from "./components/IconButton.svelte";
+    import IconButtonGroup from "./components/IconButtonGroup.svelte";
     
     interface Props {
         promptItem: PromptItem;
@@ -112,8 +112,8 @@
 
 </script>
 
-<ShDisclosureList className="mb-2" data-risu-idx={currentIndex} data-disclosure-drag-name={getName(promptItem)}>
-<ShDisclosureList
+<DisclosureList className="mb-2" data-risu-idx={currentIndex} data-disclosure-drag-name={getName(promptItem)}>
+<DisclosureList
     variant="item"
     open={isOpened}
     isLast
@@ -131,13 +131,13 @@
 
     <div data-disclosure-field>
         <div data-disclosure-label>{language.name}</div>
-        <div data-disclosure-control><TextInput bind:value={promptItem.name} /></div>
+        <div data-disclosure-control><Input bind:value={promptItem.name} /></div>
     </div>
 
     <div data-disclosure-field>
         <div data-disclosure-label>{language.type}</div>
         <div data-disclosure-control>
-            <SelectInput bind:value={promptItem.type} onchange={() => {
+            <Select bind:value={promptItem.type} onchange={() => {
                 if(promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'){
                     promptItem.text = ""
                     promptItem.role = "system"
@@ -154,22 +154,22 @@
                     promptItem.role = 'system'
                 }
             }}>
-                <OptionInput value="plain">{language.formating.plain}</OptionInput>
-                <OptionInput value="jailbreak">{language.formating.jailbreak}</OptionInput>
-                <OptionInput value="chat">{language.Chat}</OptionInput>
-                <OptionInput value="persona">{language.formating.personaPrompt}</OptionInput>
-                <OptionInput value="description">{language.formating.description}</OptionInput>
-                <OptionInput value="authornote">{language.formating.authorNote}</OptionInput>
-                <OptionInput value="lorebook">{language.formating.lorebook}</OptionInput>
-                <OptionInput value="memory">{language.formating.memory}</OptionInput>
-                <OptionInput value="postEverything">{language.formating.postEverything}</OptionInput>
-                <OptionInput value="chatML">chatML</OptionInput>
-                <OptionInput value="cache">{language.cachePoint}</OptionInput>
+                <SelectOption value="plain">{language.formating.plain}</SelectOption>
+                <SelectOption value="jailbreak">{language.formating.jailbreak}</SelectOption>
+                <SelectOption value="chat">{language.Chat}</SelectOption>
+                <SelectOption value="persona">{language.formating.personaPrompt}</SelectOption>
+                <SelectOption value="description">{language.formating.description}</SelectOption>
+                <SelectOption value="authornote">{language.formating.authorNote}</SelectOption>
+                <SelectOption value="lorebook">{language.formating.lorebook}</SelectOption>
+                <SelectOption value="memory">{language.formating.memory}</SelectOption>
+                <SelectOption value="postEverything">{language.formating.postEverything}</SelectOption>
+                <SelectOption value="chatML">chatML</SelectOption>
+                <SelectOption value="cache">{language.cachePoint}</SelectOption>
 
                 {#if DBState.db.promptSettings.customChainOfThought}
-                    <OptionInput value="cot">{language.cot}</OptionInput>
+                    <SelectOption value="cot">{language.cot}</SelectOption>
                 {/if}
-            </SelectInput>
+            </Select>
         </div>
     </div>
 
@@ -177,11 +177,11 @@
         <div data-disclosure-field>
             <div data-disclosure-label>{language.specialType}</div>
             <div data-disclosure-control>
-                <SelectInput bind:value={promptItem.type2}>
-                    <OptionInput value="normal">{language.noSpecialType}</OptionInput>
-                    <OptionInput value="main">{language.mainPrompt}</OptionInput>
-                    <OptionInput value="globalNote">{language.globalNote}</OptionInput>
-                </SelectInput>
+                <Select bind:value={promptItem.type2}>
+                    <SelectOption value="normal">{language.noSpecialType}</SelectOption>
+                    <SelectOption value="main">{language.mainPrompt}</SelectOption>
+                    <SelectOption value="globalNote">{language.globalNote}</SelectOption>
+                </Select>
             </div>
         </div>
     {/if}
@@ -197,38 +197,38 @@
         <div data-disclosure-field>
             <div data-disclosure-label>{language.role}</div>
             <div data-disclosure-control>
-                <SelectInput bind:value={promptItem.role}>
-                    <OptionInput value="user">{language.user}</OptionInput>
-                    <OptionInput value="assistant">{language.character}</OptionInput>
-                    <OptionInput value="system">{language.systemPrompt}</OptionInput>
-                </SelectInput>
+                <Select bind:value={promptItem.role}>
+                    <SelectOption value="user">{language.user}</SelectOption>
+                    <SelectOption value="assistant">{language.character}</SelectOption>
+                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                </Select>
             </div>
         </div>
     {:else if promptItem.type === 'cache'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.role}</div>
             <div data-disclosure-control>
-                <SelectInput bind:value={promptItem.role}>
-                    <OptionInput value="all">{language.all}</OptionInput>
-                    <OptionInput value="user">{language.user}</OptionInput>
-                    <OptionInput value="bot">{language.character}</OptionInput>
-                    <OptionInput value="system">{language.systemPrompt}</OptionInput>
-                </SelectInput>
+                <Select bind:value={promptItem.role}>
+                    <SelectOption value="all">{language.all}</SelectOption>
+                    <SelectOption value="user">{language.user}</SelectOption>
+                    <SelectOption value="bot">{language.character}</SelectOption>
+                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                </Select>
             </div>
         </div>
     {:else if hasPromptBlockRole(promptItem)}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.role}</div>
             <div data-disclosure-control>
-                <SelectInput value={promptItem.role ?? 'system'} onchange={(event) => {
+                <Select value={promptItem.role ?? 'system'} onchange={(event) => {
                     if(hasPromptBlockRole(promptItem)){
                         promptItem.role = event.currentTarget.value as PromptRole
                     }
                 }}>
-                    <OptionInput value="user">{language.user}</OptionInput>
-                    <OptionInput value="bot">{language.character}</OptionInput>
-                    <OptionInput value="system">{language.systemPrompt}</OptionInput>
-                </SelectInput>
+                    <SelectOption value="user">{language.user}</SelectOption>
+                    <SelectOption value="bot">{language.character}</SelectOption>
+                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                </Select>
             </div>
         </div>
     {/if}
@@ -236,12 +236,12 @@
     {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.prompt}</div>
-            <div data-disclosure-control><TextAreaInput highlight bind:value={promptItem.text} /></div>
+            <div data-disclosure-control><Textarea bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>
         </div>
     {:else if promptItem.type === 'chatML'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.prompt}</div>
-            <div data-disclosure-control><TextAreaInput highlight bind:value={promptItem.text} /></div>
+            <div data-disclosure-control><Textarea bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>
         </div>
     {/if}
 
@@ -262,8 +262,8 @@
                 </div>
             </div>
             <div data-disclosure-row>
-                <span class="text-sm text-textcolor">{language.untilChatEnd}</span>
-                <ShSwitch checked={promptItem.rangeEnd === 'end'} onCheckedChange={(checked) => {
+                <span class="text-sm text-maintext">{language.untilChatEnd}</span>
+                <Switch checked={promptItem.rangeEnd === 'end'} onCheckedChange={(checked) => {
                     if(promptItem.type === 'chat'){
                         promptItem.rangeEnd = checked ? 'end' : 0
                     }
@@ -271,8 +271,8 @@
             </div>
             {#if DBState.db.promptSettings.sendChatAsSystem}
                 <div data-disclosure-row>
-                    <span class="text-sm text-textcolor">{language.chatAsOriginalOnSystem}</span>
-                    <ShSwitch checked={!!promptItem.chatAsOriginalOnSystem} onCheckedChange={(checked) => {
+                    <span class="text-sm text-maintext">{language.chatAsOriginalOnSystem}</span>
+                    <Switch checked={!!promptItem.chatAsOriginalOnSystem} onCheckedChange={(checked) => {
                         if(promptItem.type === 'chat'){
                             promptItem.chatAsOriginalOnSystem = checked
                         }
@@ -281,15 +281,15 @@
             {/if}
         {/if}
         <div data-disclosure-row>
-            <span class="text-sm text-textcolor">{language.advanced}</span>
-            <ShSwitch checked={promptItem.rangeStart !== -1000} onCheckedChange={setAdvancedChat} />
+            <span class="text-sm text-maintext">{language.advanced}</span>
+            <Switch checked={promptItem.rangeStart !== -1000} onCheckedChange={setAdvancedChat} />
         </div>
     {/if}
 
     {#if promptItem.type === 'authornote'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.defaultPrompt}</div>
-            <div data-disclosure-control><TextInput bind:value={promptItem.defaultText} /></div>
+            <div data-disclosure-control><Input bind:value={promptItem.defaultText} /></div>
         </div>
     {/if}
 
@@ -297,17 +297,17 @@
         {#if promptItem.innerFormat}
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.innerFormat}</div>
-                <div data-disclosure-control><TextAreaInput highlight bind:value={promptItem.innerFormat}/></div>
+                <div data-disclosure-control><Textarea bind:value={promptItem.innerFormat} popupTitle={getName(promptItem)}/></div>
             </div>
         {/if}
         <div data-disclosure-row>
-            <span class="text-sm text-textcolor">{language.customInnerFormat}</span>
-            <ShSwitch checked={!!promptItem.innerFormat} onCheckedChange={(checked) => {
+            <span class="text-sm text-maintext">{language.customInnerFormat}</span>
+            <Switch checked={!!promptItem.innerFormat} onCheckedChange={(checked) => {
                 if(promptItem.type === 'persona' || promptItem.type === 'description' || promptItem.type === 'authornote' || promptItem.type === 'memory'){
                     promptItem.innerFormat = checked ? (promptItem.innerFormat || "{{slot}}") : undefined
                 }
             }} />
         </div>
     {/if}
-</ShDisclosureList>
-</ShDisclosureList>
+</DisclosureList>
+</DisclosureList>

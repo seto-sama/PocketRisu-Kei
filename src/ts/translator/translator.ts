@@ -17,8 +17,11 @@ import { getModuleRegexScripts } from "../process/modules"
 import { getNodetextToSentence } from "../util"
 import { processScriptFull } from "../process/scripts"
 import { playNotificationSound } from '../notificationSound'
+import { language } from '../../lang'
 import {
     completeRevenantTranslation,
+    decodeRevenantTranslation,
+    isUsableTranslationResult,
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
 } from '../process/revenant/recovery'
@@ -30,6 +33,25 @@ import type {
 let cache={
     origin: [''],
     trans: ['']
+}
+
+const DEFAULT_TRANSLATOR_LANGUAGE = 'en'
+
+function configuredTranslationLanguages(db = getDatabase()) {
+    return {
+        to: db.translator || DEFAULT_TRANSLATOR_LANGUAGE,
+        from: db.translatorInputLanguage,
+    }
+}
+
+function applyTranslatorContextSlots(
+    prompt: string,
+    context: { from: string; to: string; translatorNote: string },
+): string {
+    return prompt
+        .replaceAll('{{slot::from}}', context.from)
+        .replaceAll('{{slot}}', context.to)
+        .replaceAll('{{slot::tnote}}', context.translatorNote)
 }
 
 let bergamotTranslate: (text: string, from: string, to: string, html?: boolean) => Promise<string>|null = null
@@ -84,7 +106,8 @@ async function flushPendingLLMCacheReads() {
 
         const resolved = requests.map((request, index) => {
             const payload = payloads.get(storageKeys[index])
-            const value = payload?.key === request.text ? payload.value : null
+            const storedValue = payload?.key === request.text ? payload.value : null
+            const value = isUsableTranslationResult(storedValue) ? storedValue : null
             if (value !== null) llmTranslateCache.set(request.text, value)
             return { request, value }
         })
@@ -104,8 +127,11 @@ async function flushPendingLLMCacheReads() {
                     request.resolve(null)
                     return
                 }
-                llmTranslateCache.set(request.text, payload.value)
-                request.resolve(payload.value)
+                const value = isUsableTranslationResult(payload.value)
+                    ? payload.value
+                    : null
+                if (value !== null) llmTranslateCache.set(request.text, value)
+                request.resolve(value)
             }
             catch (error) {
                 request.reject(error ?? batchError)
@@ -146,10 +172,17 @@ async function setPersistentLLMCache(text: string, value: string) {
     })
 }
 
-async function storeLLMTranslation(key: string, value: string) {
+async function storeLLMTranslation(
+    key: string,
+    value: string,
+    notify = true,
+) {
+    // Preserve an older successful retranslation when a provider completes
+    // without usable content.
+    if (!isUsableTranslationResult(value)) return
     llmTranslateCache.set(key, value)
     await setPersistentLLMCache(key, value)
-    notifyLLMTranslationCacheChanged(key)
+    if (notify) notifyLLMTranslationCacheChanged(key)
 }
 
 const revenantTranslationCache = {
@@ -171,6 +204,34 @@ export async function recoverAuxiliaryTranslationJobs(
 
 export function getCurrentTranslatorPreset(): TranslatorPreset {
     return getCurrentTranslatorPresetFromState(getDatabase())
+}
+
+export interface PromptTranslatorOptions {
+    preset: TranslatorPreset
+    modelPresetId: string
+    regenerate?: boolean
+    cache?: boolean
+    onRequestStatusActivate?: () => void
+}
+
+/** Translate with prompt/model choices that apply only to this request. */
+export async function runPromptTranslator(
+    text: string,
+    options: PromptTranslatorOptions,
+    signal?: AbortSignal,
+): Promise<string> {
+    const languages = configuredTranslationLanguages()
+    return translateLLM(text, {
+        to: languages.to,
+        from: languages.from,
+        signal,
+        preset: options.preset,
+        modelPresetId: options.modelPresetId,
+        cacheKey: text,
+        regenerate: options.regenerate,
+        cache: options.cache,
+        onRequestStatusActivate: options.onRequestStatusActivate,
+    })
 }
 
 export async function translate(text:string, reverse:boolean, signal?:AbortSignal) {
@@ -260,54 +321,8 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
 async function translateMain(text:string, arg:{from:string, to:string, host:string, translatorNote?:string}, signal?:AbortSignal){
     let db = getDatabase()
     if(db.translatorType === 'llm'){
-        const tr = arg.to || 'en'
+        const tr = arg.to || DEFAULT_TRANSLATOR_LANGUAGE
         return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote, signal})
-    }
-    if(db.translatorType === 'deepl'){
-        const body = {
-            text: [text],
-            target_lang: arg.to.toLocaleUpperCase(),
-        }
-        let url = db.deeplOptions.freeApi ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate"
-        const f = await globalFetch(url, {
-            headers: {
-                "Authorization": "DeepL-Auth-Key " + db.deeplOptions.key,
-                "Content-Type": "application/json"
-            },
-            body: body,
-            abortSignal: signal
-        })
-
-        if(!f.ok){
-            return 'ERR::DeepL API Error' + (await f.data)
-        }
-        return f.data.translations[0].text
-
-    }
-    if(db.translatorType === 'deeplX'){
-        let url = db.deeplXOptions.url ?? 'http://localhost:1188'
-
-        if(url.endsWith('/')){
-            url = url.slice(0, -1)
-        }
-
-        if(!url.endsWith('/translate')){
-            url += '/translate'
-        }
-
-        let headers = { "Content-Type": "application/json" }
-
-        const body = {text: text, target_lang: arg.to.toLocaleUpperCase(), source_lang: arg.from.toLocaleUpperCase()}
-
-    
-        if(db.deeplXOptions.token.trim() !== '') { headers["Authorization"] = "Bearer " + db.deeplXOptions.token}
-        
-        //Since the DeepLX API is non-CORS restricted, we can use the plain fetch function
-        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true, abortSignal: signal })
-
-        if(!f.ok){ return 'ERR::DeepLX API Error' + (await f.data) }
-
-        return f.data.data;
     }
     if(db.translatorType == "bergamot") {
         if(!bergamotTranslate){
@@ -387,7 +402,7 @@ async function jaTrans(text:string) {
 
 export function isExpTranslator(){
     const db = getDatabase()
-    return db.translatorType === 'llm' || db.translatorType === 'deepl' || db.translatorType === 'deeplX'
+    return db.translatorType === 'llm'
 }
 
 function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTranslationTarget | null {
@@ -427,8 +442,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     let db = getDatabase()
     if(db.translatorType === 'llm'){
-        const tr = db.translator || 'en'
-        const from = db.translatorInputLanguage
+        const { to: tr, from } = configuredTranslationLanguages(db)
         let translated = false
         const r = await translateLLM(html, {
             to: tr,
@@ -447,7 +461,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     if(db.translatorType == "bergamot" && db.htmlTranslation) {
         const from = 'en'
-        const to = db.translator || 'en'
+        const to = db.translator || DEFAULT_TRANSLATOR_LANGUAGE
 
         if(!bergamotTranslate){
             const bergamotTranslator = await import('./bergamotTranslator')
@@ -462,72 +476,8 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     console.log(html)
 
     let promises: Promise<void>[] = [];
-    let translationChunks: {
-        chunks: string[],
-        resolvers: ((text:string) => void)[]
-    }[] = [{
-        chunks: [],
-        resolvers: []
-    }]
-    
-
-    async function translateTranslationChunks(force:boolean = false, additionalChunkLength = 0){
-        if(translationChunks.length === 0 || !needSuperChunkedTranslate()){
-            return
-        }
-
-        const currentChunk = translationChunks[translationChunks.length-1]
-        const text: string = currentChunk.chunks.join('\n■\n')
-
-        if(!force && text.length + additionalChunkLength < 5000){
-            return
-        }
-
-        translationChunks.push({
-            chunks: [],
-            resolvers: []
-        })
-
-        if(!text){
-            return
-        }
-
-        const translated = await translate(text, reverse, signal)
-
-        const split = translated.split('■')
-
-        console.log(split.length, currentChunk.chunks.length)
-
-        if(split.length !== currentChunk.chunks.length){
-            //try translating one by one
-            for(let i = 0; i < currentChunk.chunks.length; i++){
-                currentChunk.resolvers[i](
-                    await translate(currentChunk.chunks[i]
-                , reverse, signal))
-            }
-        }
-        
-        for(let i = 0; i < split.length; i++){
-            console.log(split[i])
-            currentChunk.resolvers[i](split[i])
-        }
-
-
-    }
-
     async function translateNodeText(node:Node, reprocessDisplayScript:boolean = false) {
         if(node.textContent.trim().length !== 0){
-            if(needSuperChunkedTranslate()){
-                const prm = new Promise<string>((resolve) => {
-                    translateTranslationChunks(false, node.textContent.length)
-                    translationChunks[translationChunks.length-1].resolvers.push(resolve)
-                    translationChunks[translationChunks.length-1].chunks.push(node.textContent)
-                })
-    
-                node.textContent = await prm
-                return
-            }
-
             const translateChunks = (node.textContent || '').split(/\n\n+/g);
             let translatedChunksPromises: Promise<string>[] = [];
             for (const chunk of translateChunks) {
@@ -633,8 +583,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     // Start translation from the body element
     await translateNode(dom.body);
 
-    await translateTranslationChunks(true, 0)
-
     await Promise.all(promises)
     // Serialize the DOM back to HTML
     const serializer = new XMLSerializer();
@@ -650,36 +598,30 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     return translatedHTML
 }
 
-function needSuperChunkedTranslate(){
-    return getDatabase().translatorType === 'deeplX'
-}
-
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,cache?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void, preset?:TranslatorPreset, modelPresetId?:string, cacheKey?:string, onRequestStatusActivate?:() => void}):Promise<string>{
+    const cacheKey = arg.cacheKey ?? text
+    const shouldCache = arg.cache !== false
     arg.signal?.throwIfAborted()
-    if(!arg.regenerate){
-        const cacheMatch = llmTranslateCache.get(text)
-        if(cacheMatch){
+    if(shouldCache && !arg.regenerate){
+        const cacheMatch = await getLLMCache(cacheKey)
+        if(cacheMatch !== null){
             arg.onCacheState?.(true)
             return cacheMatch
-        }
-        const persistedCacheMatch = await getPersistentLLMCache(text)
-        if (persistedCacheMatch !== null) {
-            arg.onCacheState?.(true)
-            return persistedCacheMatch
         }
     }
     // A cache miss may belong to a detached revenant job discovered just after
     // the throttled background poll. Force one authoritative recovery pass
     // before creating another model request.
-    await recoverRevenantTranslationJobs(revenantTranslationCache, {
-        force: true,
-        cacheKey: text,
-    })
+    if(shouldCache){
+        await recoverRevenantTranslationJobs(revenantTranslationCache, {
+            force: true,
+            cacheKey,
+        })
+    }
     arg.signal?.throwIfAborted()
-    if(!arg.regenerate){
-        const recoveredCacheMatch = llmTranslateCache.get(text)
-            ?? await getPersistentLLMCache(text)
-        if(recoveredCacheMatch !== null && recoveredCacheMatch !== undefined){
+    if(shouldCache && !arg.regenerate){
+        const recoveredCacheMatch = await getLLMCache(cacheKey)
+        if(recoveredCacheMatch !== null){
             arg.onCacheState?.(true)
             return recoveredCacheMatch
         }
@@ -688,6 +630,7 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         text,
         arg.regenerate === true,
         arg.target ?? null,
+        cacheKey,
     )
     text = revenantRequest.requestText
     const revenantJob = { id: null as string | null }
@@ -696,7 +639,6 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     const charIndex = get(selectedCharID)
     const currentChar = db.characters[charIndex]
     let translatorNote = ""
-    console.log(arg.translatorNote)
     if(arg.translatorNote){
         translatorNote = arg.translatorNote
     }
@@ -705,17 +647,21 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     } else {
         translatorNote = ""
     }
-    console.log(translatorNote)
-
     let formated:OpenAIChat[] = []
-    const preset = getCurrentTranslatorPreset()
+    const preset = arg.preset ?? getCurrentTranslatorPreset()
     let prompt = preset.prompt || defaultTranslatorPrompt
-    let parsedPrompt = parseChatML(prompt.replaceAll('{{slot::from}}', arg.from).replaceAll('{{slot}}', arg.to).replaceAll('{{solt::content}}', text).replaceAll('{{slot::content}}', text).replaceAll('{{slot::tnote}}', translatorNote))
+    prompt = applyTranslatorContextSlots(prompt, {
+        from: arg.from,
+        to: arg.to,
+        translatorNote,
+    })
+    const parsedPrompt = parseChatML(prompt
+        .replaceAll('{{solt::content}}', text)
+        .replaceAll('{{slot::content}}', text))
     if(parsedPrompt){
         formated = parsedPrompt
     }
     else{
-        prompt = prompt.replaceAll('{{slot}}', arg.to).replaceAll('{{slot::tnote}}', translatorNote).replaceAll('{{slot::from}}', arg.from)
         formated = [
             {
                 'role': 'system',
@@ -734,14 +680,16 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         useStreaming: false,
         noMultiGen: true,
         maxTokens: preset.maxResponse,
-        revenantOperationContext: revenantRequest.operationContext,
-        // The shared request pipeline discards failed/superseded attempts but
-        // leaves the final success until completeRevenantTranslation has
-        // durably written the translation cache.
-        revenantAuxiliaryResultPolicy: 'retain-success',
-        onRevenantJobCreated: jobId => {
+        modelPresetOverrideId: arg.modelPresetId,
+        onRequestStatusActivate: arg.onRequestStatusActivate,
+        revenantOperationContext: shouldCache ? revenantRequest.operationContext : undefined,
+        // Cached translations retain the final success until the cache write.
+        // Ephemeral translations omit the operation context and use the shared
+        // request pipeline's automatic acknowledgement instead.
+        revenantAuxiliaryResultPolicy: shouldCache ? 'retain-success' : undefined,
+        onRevenantJobCreated: shouldCache ? jobId => {
             revenantJob.id = jobId
-        },
+        } : undefined,
     }, 'translate', arg.signal)
 
     if(rq.type === 'fail'){
@@ -754,12 +702,18 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         return text
     }
     arg.signal?.throwIfAborted()
-    const result = await completeRevenantTranslation(
-        revenantTranslationCache,
-        revenantRequest,
-        rq.result,
-        revenantJob.id,
-    )
+    const result = shouldCache
+        ? await completeRevenantTranslation(
+            revenantTranslationCache,
+            revenantRequest,
+            rq.result,
+            revenantJob.id,
+        )
+        : decodeRevenantTranslation(rq.result, revenantRequest.styleDecodes)
+    if (!isUsableTranslationResult(result)) {
+        notifyError(language.errors.emptyTranslationResponse)
+        return revenantRequest.cacheKey
+    }
     arg.onCacheState?.(false)
     return result
 }
@@ -771,20 +725,34 @@ export async function clearLLMCache(): Promise<void> {
 }
 
 export async function getLLMCache(text:string):Promise<string | null>{
-    return llmTranslateCache.get(text) ?? await getPersistentLLMCache(text)
+    const memoryMatch = llmTranslateCache.get(text)
+    if (isUsableTranslationResult(memoryMatch)) return memoryMatch
+    const persistentMatch = await getPersistentLLMCache(text)
+    return isUsableTranslationResult(persistentMatch) ? persistentMatch : null
+}
+
+export async function copyLLMCache(sourceKey: string, targetKey: string): Promise<boolean> {
+    const cached = await getLLMCache(sourceKey)
+    if (cached === null) return false
+    if (sourceKey !== targetKey) await storeLLMTranslation(targetKey, cached)
+    return true
 }
 
 export async function searchLLMCache(partialKey:string):Promise<{key: string, value: string}[]>{
     const results:{key: string, value: string}[] = []
     for(const [key, value] of llmTranslateCache){
-        if(key.includes(partialKey)){
+        if(key.includes(partialKey) && isUsableTranslationResult(value)){
             results.push({key, value})
         }
     }
     const storageKeys = await listPersistentKeys(llmTranslateCachePrefix)
     for (const storageKey of storageKeys) {
         const payload = await readPersistentJson<{ key: string, value: string }>(storageKey)
-        if (!payload || !payload.key.includes(partialKey)) {
+        if (
+            !payload
+            || !payload.key.includes(partialKey)
+            || !isUsableTranslationResult(payload.value)
+        ) {
             continue
         }
         if (results.some((entry) => entry.key === payload.key)) {
@@ -810,9 +778,11 @@ export type LLMCacheEntry = {key: string, value: string}
 
 export function loadedLLMCacheEntries(): LLMCacheEntry[] {
     return Array.from(llmTranslateCache, ([key, value]) => ({ key, value }))
+        .filter(entry => isUsableTranslationResult(entry.value))
 }
 
 export function cacheLoadedLLMEntry(key:string, value:string): void {
+    if (!isUsableTranslationResult(value)) return
     llmTranslateCache.set(key, value)
     notifyLLMTranslationCacheChanged(key)
 }
@@ -820,12 +790,16 @@ export function cacheLoadedLLMEntry(key:string, value:string): void {
 export async function exportLLMCacheAsJSON():Promise<Record<string, string>>{
     const result:Record<string, string> = {}
     for(const [key, value] of llmTranslateCache){
-        result[key] = value
+        if (isUsableTranslationResult(value)) result[key] = value
     }
     const storageKeys = await listPersistentKeys(llmTranslateCachePrefix)
     for (const storageKey of storageKeys) {
         const payload = await readPersistentJson<{ key: string, value: string }>(storageKey)
-        if (payload && !(payload.key in result)) {
+        if (
+            payload
+            && isUsableTranslationResult(payload.value)
+            && !(payload.key in result)
+        ) {
             result[payload.key] = payload.value
         }
     }
@@ -836,9 +810,12 @@ export async function importLLMCacheFromJSON(data:Record<string, string>):Promis
     let count = 0
     let failed = 0
     for(const [key, value] of Object.entries(data)){
+        if (!isUsableTranslationResult(value)) {
+            failed++
+            continue
+        }
         try {
-            await setPersistentLLMCache(key, value)
-            llmTranslateCache.set(key, value)
+            await storeLLMTranslation(key, value, false)
             count++
         } catch {
             failed++

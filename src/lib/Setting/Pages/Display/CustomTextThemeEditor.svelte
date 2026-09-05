@@ -1,7 +1,7 @@
 <script lang="ts">
     import { DBState } from 'src/ts/stores.svelte';
     import { updateTextThemeAndCSS } from 'src/ts/gui/colorscheme';
-    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
+    import ColorInput from '../../../UI/components/ColorInput.svelte';
 
     const colors = [
         ['FontColorStandard', 'Normal Text', false],
@@ -16,7 +16,7 @@
 {#if DBState.db.textTheme === 'custom'}
     {#each colors as color}
         <div class="flex items-center justify-between gap-3 py-2">
-            <span class="text-sm text-textcolor min-w-0 truncate">{color[1]}</span>
+            <span class="text-sm text-maintext min-w-0 truncate">{color[1]}</span>
             <div class="shrink-0">
                 <ColorInput
                     nullable={color[2]}

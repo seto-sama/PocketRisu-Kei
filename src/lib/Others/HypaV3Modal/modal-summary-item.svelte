@@ -3,9 +3,9 @@
   import {
     LanguagesIcon,
     StarIcon,
-    RefreshCw,
+    RefreshCwIcon,
     Trash2Icon,
-    ScissorsLineDashed,
+    ScissorsLineDashedIcon,
     XIcon,
     CheckIcon,
     TagIcon,
@@ -30,7 +30,7 @@
     ExpandedMessageState,
     SearchState,
     Category,
-    BulkEditState,
+    ResummarySelectionState,
   } from "./types";
   import {
     alertConfirmTwice,
@@ -39,16 +39,13 @@
     processHypaV3Message,
     getCategoryName,
   } from "./utils";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-  import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
-  import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-  import ShDropdownMenu from "src/lib/UI/GUI/ShDropdownMenu.svelte";
-  import ShDropdownMenuContent from "src/lib/UI/GUI/ShDropdownMenuContent.svelte";
-  import ShDropdownMenuItem from "src/lib/UI/GUI/ShDropdownMenuItem.svelte";
-  import ShDropdownMenuTrigger from "src/lib/UI/GUI/ShDropdownMenuTrigger.svelte";
-  import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+  import Textarea from "../../UI/components/Textarea.svelte";
+  import Badge from "../../UI/components/Badge.svelte";
+  import Button from "../../UI/components/Button.svelte";
+    import * as DropdownMenu from "../../UI/components/dropdown-menu";
+  import Checkbox from "../../UI/components/Checkbox.svelte";
 
   interface Props {
     summaryIndex: number;
@@ -58,8 +55,10 @@
     searchState: SearchState;
     filterSelected: boolean;
     categories: Category[];
-    bulkEditState: BulkEditState;
+    resummarySelectionState: ResummarySelectionState;
     collapsedSummaries: Set<number>;
+    summarySignal: AbortSignal;
+    onRequestStatusActivate: () => void;
     onToggleSummarySelection: (index: number) => void;
     onToggleCollapse: (index: number) => void;
   }
@@ -72,8 +71,10 @@
     searchState = $bindable(),
     filterSelected,
     categories,
-    bulkEditState,
+    resummarySelectionState,
     collapsedSummaries,
+    summarySignal,
+    onRequestStatusActivate,
     onToggleSummarySelection,
     onToggleCollapse,
   }: Props = $props();
@@ -189,10 +190,15 @@
         })
       );
 
-      const summarizeResult = await summarize(toSummarize);
+      const summarizeResult = await summarize(
+        toSummarize,
+        false,
+        { signal: summarySignal, onRequestStatusActivate },
+      );
 
       rerolled = summarizeResult;
     } catch (error) {
+      if (summarySignal.aborted) return;
       rerolled = "Reroll failed";
     } finally {
       isRerolling = false;
@@ -357,20 +363,20 @@
   }
 
   function isSelected(): boolean {
-    return bulkEditState.selectedSummaries.has(summaryIndex);
+    return resummarySelectionState.selectedSummaries.has(summaryIndex);
   }
 </script>
 
 <div
-  class="flex flex-col rounded-md border bg-bgcolor/50 p-2 text-textcolor sm:p-4 {isSelected() ? 'border-borderc' : 'border-darkborderc'}"
+  class="flex flex-col rounded-md border bg-lightbg/50 p-3 text-maintext {isSelected() ? 'border-lightborderc' : 'border-darkborderc'}"
 >
   <!-- Original Summary Header -->
   <div class="flex items-center justify-between">
     <!-- Summary Number / Metrics Container -->
     <div class="flex min-w-0 flex-wrap items-center gap-2">
       <!-- Bulk Edit Checkbox -->
-      {#if bulkEditState.isEnabled}
-        <CheckInput
+      {#if resummarySelectionState.isEnabled}
+        <Checkbox
           card
           check={isSelected()}
           hiddenName
@@ -383,17 +389,17 @@
         />
       {/if}
 
-      <span class="text-sm text-textcolor2"
+      <span class="text-sm text-subtext"
         >{language.hypaV3Modal.summaryNumberLabel.replace(
           "{0}",
           (summaryIndex + 1).toString()
         )}</span
       >
 
-      <ShDropdownMenu>
-        <ShDropdownMenuTrigger>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <ShButton
+            <Button
               {...props}
               size="xs"
               variant="secondary"
@@ -402,12 +408,12 @@
               <TagIcon />
               {getCategoryName(summary.categoryId, categories)}
               <CategoryChevronDownIcon />
-            </ShButton>
+            </Button>
           {/snippet}
-        </ShDropdownMenuTrigger>
-        <ShDropdownMenuContent align="start" class="z-[45] min-w-40">
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="start" class="min-w-40">
           {#each categories as category}
-            <ShDropdownMenuItem
+            <DropdownMenu.Item
               onSelect={() => {
                 summary.categoryId = category.id || undefined;
               }}
@@ -417,32 +423,32 @@
               {#if (summary.categoryId || "") === category.id}
                 <CheckIcon class="text-primary" />
               {/if}
-            </ShDropdownMenuItem>
+            </DropdownMenu.Item>
           {/each}
-        </ShDropdownMenuContent>
-      </ShDropdownMenu>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
 
       {#if filterSelected && hypaV3Data.metrics}
         <div class="flex flex-wrap gap-1">
           {#if hypaV3Data.metrics.lastImportantSummaries.includes(summaryIndex)}
-            <ShBadge variant="info">
+            <Badge variant="info">
               Important
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastRecentSummaries.includes(summaryIndex)}
-            <ShBadge variant="secondary">
+            <Badge variant="secondary">
               Recent
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastSimilarSummaries.includes(summaryIndex)}
-            <ShBadge variant="success">
+            <Badge variant="success">
               Similar
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastRandomSummaries.includes(summaryIndex)}
-            <ShBadge variant="warning">
+            <Badge variant="warning">
               Random
-            </ShBadge>
+            </Badge>
           {/if}
         </div>
       {/if}
@@ -478,7 +484,7 @@
         disabled={isOrphan()}
         onclick={async () => await toggleReroll()}
       >
-        <RefreshCw />
+        <RefreshCwIcon />
       </IconButton>
 
       <!-- Delete This Button -->
@@ -496,16 +502,17 @@
         tabindex={-1}
         onclick={async () => await deleteAfter()}
       >
-        <ScissorsLineDashed />
+        <ScissorsLineDashedIcon />
       </IconButton>
     </IconButtonGroup>
   </div>
 
   <!-- Original Summary -->
-  <div class="mt-2 sm:mt-4">
-    <TextAreaInput
+  <div class="mt-3">
+    <Textarea
       fullwidth
       actionBar
+      commitMode="input"
       className="bg-darkbg"
       bind:textareaRef={summaryItemState.originalRef}
       bind:value={summary.text}
@@ -519,12 +526,12 @@
 
   <!-- Original Summary Translation -->
   {#if translation}
-    <div class="mt-2 sm:mt-4">
-      <div class="mb-2 text-sm text-textcolor2 sm:mb-4">
+    <div class="mt-3">
+      <div class="mb-3 text-sm text-subtext">
         {language.hypaV3Modal.translationLabel}
       </div>
 
-      <TextAreaInput
+      <Textarea
         fullwidth
         actionBar
         className="bg-darkbg"
@@ -538,9 +545,9 @@
 
   {#if rerolled}
     <!-- Rerolled Summary Header -->
-    <div class="mt-2 sm:mt-4">
+    <div class="mt-3">
       <div class="flex items-center justify-between">
-        <span class="text-sm text-textcolor2"
+        <span class="text-sm text-subtext"
           >{language.hypaV3Modal.rerolledSummaryLabel}</span
         >
         <IconButtonGroup>
@@ -579,10 +586,11 @@
     </div>
 
     <!-- Rerolled Summary -->
-    <div class="mt-2 sm:mt-4">
-      <TextAreaInput
+    <div class="mt-3">
+      <Textarea
         fullwidth
         actionBar
+        commitMode="input"
         className="bg-darkbg"
         tabindex={-1}
         bind:value={rerolled}
@@ -591,12 +599,12 @@
 
     <!-- Rerolled Summary Translation -->
     {#if rerolledTranslation}
-      <div class="mt-2 sm:mt-4">
-        <div class="mb-2 text-sm text-textcolor2 sm:mb-4">
+      <div class="mt-3">
+        <div class="mb-3 text-sm text-subtext">
           {language.hypaV3Modal.rerolledTranslationLabel}
         </div>
 
-        <TextAreaInput
+        <Textarea
           fullwidth
           actionBar
           className="bg-darkbg"
@@ -610,10 +618,10 @@
   {/if}
 
   <!-- Connected Messages Header -->
-  <div class="mt-2 sm:mt-4">
+  <div class="mt-3">
     <div class="flex items-center justify-between">
       <button
-        class="flex items-center gap-2 text-sm text-textcolor2 transition-colors risu-interactive-foreground"
+        class="flex items-center gap-2 text-sm text-subtext transition-colors risu-interactive-foreground"
         tabindex="-1"
         onclick={toggleSummaryCollapse}
       >
@@ -647,14 +655,14 @@
 
   {#if !isCollapsed()}
     <!-- Connected Message IDs -->
-    <div class="flex flex-wrap gap-2 mt-2 sm:mt-4">
+    <div class="mt-3 flex flex-wrap gap-2">
       {#key summary.chatMemos.length}
         {#each summary.chatMemos as chatMemo, memoIndex (chatMemo)}
           <button
-            class="rounded-md border border-darkborderc bg-darkbg/40 px-2 py-1.5 text-xs text-textcolor2 transition-colors risu-interactive-surface {isMessageExpanded(
+            class="rounded-md border border-darkborderc bg-darkbg/40 px-2 py-1.5 text-xs text-subtext transition-colors risu-interactive-surface {isMessageExpanded(
               chatMemo
             )
-              ? 'ring-2 ring-borderc'
+              ? 'ring-2 ring-lightborderc'
               : ''}"
             tabindex="-1"
             bind:this={summaryItemState.chatMemoRefs[memoIndex]}
@@ -670,11 +678,11 @@
 
     {#if expandedMessageState?.summaryIndex === summaryIndex}
       <!-- Expanded Message -->
-      <div class="mt-2 sm:mt-4">
+      <div class="mt-3">
         {#await getMessageFromChatMemo(expandedMessageState.selectedChatMemo) then expandedMessage}
           {#if expandedMessage}
             <!-- Role -->
-            <div class="mb-2 text-sm text-textcolor2 sm:mb-4">
+            <div class="mb-3 text-sm text-subtext">
               {language.hypaV3Modal.connectedMessageRoleLabel.replace(
                 "{0}",
                 expandedMessage.role
@@ -682,7 +690,7 @@
             </div>
 
             <!-- Content -->
-            <TextAreaInput
+            <Textarea
               fullwidth
               actionBar
               className="bg-darkbg"
@@ -691,12 +699,12 @@
               value={expandedMessage.data}
             />
           {:else}
-            <span class="text-sm text-draculared"
+            <span class="text-sm text-danger"
               >{language.hypaV3Modal.connectedMessageNotFoundLabel}</span
             >
           {/if}
         {:catch error}
-          <span class="text-sm text-draculared"
+          <span class="text-sm text-danger"
             >{language.hypaV3Modal.connectedMessageLoadingError.replace(
               "{0}",
               error.message
@@ -707,12 +715,12 @@
 
       <!-- Expanded Message Translation -->
       {#if expandedMessageState.translation}
-        <div class="mt-2 sm:mt-4">
-          <div class="mb-2 text-sm text-textcolor2 sm:mb-4">
+        <div class="mt-3">
+          <div class="mb-3 text-sm text-subtext">
             {language.hypaV3Modal.connectedMessageTranslationLabel}
           </div>
 
-          <TextAreaInput
+          <Textarea
             fullwidth
             actionBar
             className="bg-darkbg"

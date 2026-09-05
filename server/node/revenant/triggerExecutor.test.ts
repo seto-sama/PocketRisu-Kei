@@ -252,6 +252,61 @@ describe('revenant output trigger executor', () => {
         })
     })
 
+    it('forwards V1 AxLLM and failed results through current V2 semantics', async () => {
+        const input = recipe()
+        input.auxProviders = {
+            submodel: { backend: 'plugin', modelPreset: { id: 'sub-preset' } },
+        }
+        input.character.triggerscript = [{
+            comment: 'legacy', type: 'output', conditions: [], lowLevelAccess: true,
+            effect: [{ type: 'runAxLLM', value: 'legacy prompt', inputVar: 'legacyResult' }],
+        }] as any
+
+        const waiting = await executeRevenantOutputTriggers({
+            recipe: input, chat: input.chat, text: 'answer',
+        })
+        expect(waiting.action).toMatchObject({
+            actionId: 'trigger.0.0.provider.llm',
+            kind: 'provider.llm',
+            payload: {
+                mode: 'submodel',
+                modelPreset: { id: 'sub-preset' },
+            },
+        })
+
+        const completed = await executeRevenantOutputTriggers({
+            recipe: input,
+            chat: input.chat,
+            text: 'answer',
+            responses: {
+                'trigger.0.0.provider.llm': { success: false, result: 'provider failed' },
+            },
+        })
+        expect(completed.chat.scriptstate.$legacyResult).toBe('null')
+    })
+
+    it('normalizes deprecated V2 lorebook name lookups before execution', async () => {
+        const input = recipe()
+        input.character.globalLore = [
+            { comment: 'Profile', content: 'first' },
+            { comment: 'PROFILE', content: 'second' },
+        ]
+        input.character.triggerscript = [{
+            comment: 'legacy v2', type: 'output', conditions: [],
+            effect: [{
+                type: 'v2GetLorebook', target: 'profile', targetType: 'value',
+                outputVar: 'profile', indent: 0,
+            }],
+        }] as any
+
+        const result = await executeRevenantOutputTriggers({
+            recipe: input, chat: input.chat, text: 'answer',
+        })
+
+        expect(result.errors).toEqual([])
+        expect(result.chat.scriptstate.$profile).toBe('first')
+    })
+
     it('does not let prompt-stop signals truncate terminal output effects', async () => {
         const input = recipe()
         input.character.triggerscript = [{

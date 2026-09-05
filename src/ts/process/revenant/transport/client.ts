@@ -188,6 +188,19 @@ export async function cancelRevenantGeneration(messageChatId: string): Promise<v
     trackRevenantGenerationWorkflow(jobId, undefined)
 }
 
+/** Shared acknowledgement boundary for caller-owned terminal generation jobs. */
+export async function consumeRevenantGenerationJob(jobId: string): Promise<void> {
+    const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/consume`, {
+        method: 'POST',
+        headers: await createRevenantJobMutationHeaders(jobId),
+    })
+    if (!response.ok) {
+        throw new Error(
+            `Failed to consume generation job: ${response.status} ${await response.text()}`,
+        )
+    }
+}
+
 export async function listRecoverableGenerations(): Promise<RecoverableGenerationJob[]> {
     const auth = await createRevenantGenerationAuth()
     if (!revenantRetentionPruned) {

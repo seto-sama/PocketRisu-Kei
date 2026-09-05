@@ -1,13 +1,13 @@
 <script lang="ts">
     import { ArrowLeftIcon, CopyIcon, PlusIcon, RefreshCwIcon, TrashIcon, TriangleAlertIcon } from "@lucide/svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
-    import SchemaFormRenderer from "src/lib/UI/GUI/SchemaFormRenderer.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import SettingPage from "../../../UI/components/SettingPage.svelte";
+    import Accordion from "../../../UI/components/Accordion.svelte";
+    import Alert from "../../../UI/components/Alert.svelte";
+    import SettingTabs from "../../../UI/components/SettingTabs.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import SortableList from "../../../UI/components/SortableList.svelte";
+    import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
+    import Textarea from "../../../UI/components/Textarea.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import type { RegistryFieldSchema, RegistryUiField, RegistryUiGroup } from "src/ts/preset/types";
@@ -159,6 +159,7 @@
                 label: 'Max Context Size',
                 labelKey: 'maxContextSize',
                 helpKey: 'maxContextSize',
+                default: parameterDefaultMaxContext,
                 min: 1,
                 max: parameterMaxContext,
                 step: 1,
@@ -315,7 +316,7 @@
         if (!src) return;
         const copy = safeStructuredClone(src);
         copy.id = uuidv4();
-        copy.name = `${src.name} Copy`;
+        copy.name = `${src.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();
         DBState.db.modelPresets = [...DBState.db.modelPresets, copy];
@@ -484,10 +485,10 @@
 
 <SettingPage title={language.modelPresetMenu}>
     {#if editingId}
-        <ShButton variant="ghost" size="sm" className="mb-4 self-start" onclick={() => { editingId = null }}>
+        <Button variant="ghost" size="sm" className="mb-4 self-start" onclick={() => { editingId = null }}>
             <ArrowLeftIcon/>
             <span class="ml-1">{language.backToList}</span>
-        </ShButton>
+        </Button>
 
         <SettingTabs
             tabs={[
@@ -516,16 +517,16 @@
             {:else if submenu === 2}
                 {#if showCacheSection}
                     <div class="mb-6">
-                        <h3 class="text-sm font-semibold text-textcolor2 uppercase tracking-wide">{language.modelPresetCacheSection}</h3>
+                        <h3 class="text-sm font-semibold text-subtext uppercase tracking-wide">{language.modelPresetCacheSection}</h3>
                         <SettingRenderer items={cacheItems.slice(0, 3)} target={editingPreset} layout="row" />
-                        <ShAlert variant="warning">
+                        <Alert variant="warning">
                             {#snippet icon()}<TriangleAlertIcon />{/snippet}
                             {language.modelPresetCachePluginWarning}
-                        </ShAlert>
+                        </Alert>
                         {#if editingPreset.promptCaching?.enabled}
-                            <ShAccordion name={language.modelPresetCacheAdvanced} variant="card" class="ml-4">
+                            <Accordion name={language.modelPresetCacheAdvanced} variant="card" class="ml-4">
                                 <div class="p-2"><SettingRenderer items={cacheItems.slice(3)} target={editingPreset} layout="row" /></div>
-                            </ShAccordion>
+                            </Accordion>
                         {/if}
                     </div>
                 {/if}
@@ -541,23 +542,24 @@
                     extraValues={editingPreset}
                 />
                 <div class="mt-6">
-                    <h3 class="text-base font-bold mb-1 text-textcolor">{language.modelPresetOtherGroup}</h3>
+                    <h3 class="text-base font-bold mb-1 text-maintext">{language.modelPresetOtherGroup}</h3>
                     <SettingRenderer items={advancedPresetItems} target={editingPreset} layout="row" />
                 </div>
             {:else if submenu === 3}
                 <div class="flex flex-col gap-4 mb-6">
                     <div class="flex flex-col gap-0.5">
-                        <span class="text-sm text-textcolor">{language.modelPresetTestTitle}</span>
-                        <span class="text-xs text-textcolor2">{language.help.modelPresetTestHelp}</span>
+                        <span class="text-sm text-maintext">{language.modelPresetTestTitle}</span>
+                        <span class="text-xs text-subtext">{language.help.modelPresetTestHelp}</span>
                     </div>
-                    <TextAreaInput
+                    <Textarea
+                        commitMode="input"
                         bind:value={testMessage}
                         placeholder={language.modelPresetTestDefault}
                         fullwidth
                         autocomplete="off"
                         height="24"
                     />
-                    <ShButton
+                    <Button
                         variant="default"
                         size="default"
                         className="self-start"
@@ -565,15 +567,15 @@
                         onclick={runTest}
                     >
                         {testing ? language.modelPresetTestSending : language.modelPresetTestSend}
-                    </ShButton>
+                    </Button>
 
                     {#if testResult}
-                        <div class="flex flex-col gap-1 rounded-md border p-3 text-sm {testResult.ok ? 'bg-success/20 border-success/40' : 'bg-draculared/20 border-draculared/40'}">
-                            <span class="font-medium {testResult.ok ? 'text-success' : 'text-draculared'}">
+                        <div class="flex flex-col gap-1 rounded-md border p-3 text-sm {testResult.ok ? 'bg-success/20 border-success/40' : 'bg-danger/20 border-danger/40'}">
+                            <span class="font-medium {testResult.ok ? 'text-success' : 'text-danger'}">
                                 {testResult.ok ? language.modelPresetTestSuccess : language.modelPresetTestFail}
-                                <span class="text-textcolor2 font-normal ml-1">({testResult.latencyMs}ms)</span>
+                                <span class="text-subtext font-normal ml-1">({testResult.latencyMs}ms)</span>
                             </span>
-                            <span class="text-textcolor whitespace-pre-wrap warp-break-words">{testResult.message}</span>
+                            <span class="text-maintext whitespace-pre-wrap warp-break-words">{testResult.message}</span>
                         </div>
                     {/if}
                 </div>
@@ -595,11 +597,11 @@
             <ModelPresetOptions />
         {:else}
             <div class="flex gap-2 mb-4">
-                <ShButton variant="default" size="default" className="flex-1" onclick={createNew}>
+                <Button variant="default" size="default" className="flex-1" onclick={createNew}>
                     <PlusIcon/>
                     <span class="ml-1">{language.modelPresetCreate}</span>
-                </ShButton>
-                <ShButton
+                </Button>
+                <Button
                     variant="outline"
                     size="icon"
                     onclick={refreshAllPresetProfiles}
@@ -608,15 +610,15 @@
                     title={language.modelPresetRefreshAll}
                 >
                     <RefreshCwIcon class={refreshingAllPresets ? "animate-spin" : ""} />
-                </ShButton>
+                </Button>
             </div>
 
             {#if DBState.db.modelPresets.length === 0}
-                <div class="text-textcolor2 text-sm text-center py-8">
+                <div class="text-subtext text-sm text-center py-8">
                     {language.modelPresetEmpty}
                 </div>
             {:else}
-                <ShSortableList
+                <SortableList
                     className="flex flex-col gap-3"
                     dragPreviewText={(id) => DBState.db.modelPresets.find(preset => preset.id === id)?.name}
                     onReorder={(orderedIds) => {
@@ -631,7 +633,7 @@
                     {#each DBState.db.modelPresets as preset, i (preset.id)}
                         <button
                             data-sortable-key={preset.id}
-                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left"
+                            class="flex items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left"
                             onclick={() => {
                                 if (suppressPresetClick) return;
                                 editingId = preset.id;
@@ -639,18 +641,18 @@
                             }}
                         >
                             <div class="flex flex-col min-w-0 grow">
-                                <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                                <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                                     {#if getPresetUpdateStatus(preset) === 'updatable'}
                                         <span class="w-2 h-2 rounded-full bg-highlight shrink-0" title={language.profileUpdateAvailable}></span>
                                     {/if}
                                     <span class="truncate">{preset.name}</span>
                                 </span>
                                 {#if preset.profileSnapshot?.profileId}
-                                    <span class="text-xs text-textcolor2 truncate">{preset.profileSnapshot.profileId}</span>
+                                    <span class="text-xs text-subtext truncate">{preset.profileSnapshot.profileId}</span>
                                 {/if}
                             </div>
                             <div class="no-sort flex gap-2 shrink-0 ml-2">
-                                <div class="text-textcolor2 risu-interactive-accent cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-subtext risu-interactive-accent cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     duplicate(i)
                                 }} onkeydown={(e) => {
@@ -660,7 +662,7 @@
                                 }} aria-label="duplicate">
                                     <CopyIcon size={18}/>
                                 </div>
-                                <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-subtext risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     remove(i)
                                 }} onkeydown={(e) => {
@@ -673,7 +675,7 @@
                             </div>
                         </button>
                     {/each}
-                </ShSortableList>
+                </SortableList>
             {/if}
         {/if}
     {/if}

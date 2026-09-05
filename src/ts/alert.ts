@@ -2,11 +2,12 @@ import { get, writable } from "svelte/store"
 import { toast } from "svelte-sonner"
 import { sleep } from "./util"
 import { language } from "../lang"
-import { nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svelte"
+import { pocketKeiVer, type MessageGenerationInfo } from "./storage/database.svelte"
 import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stores.svelte"
 import { addLog } from "./log"
+import { PRODUCT_NAME } from "./branding"
 import { nativeConsoleError } from "./log-capture"
-import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
+import type { ButtonVariant } from "../lib/UI/components/Button.types"
 
 /**
  * Action descriptor for dialog buttons. Reusable across any alert type
@@ -14,7 +15,7 @@ import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
  */
 export interface AlertAction {
     label: string
-    variant?: ShButtonVariant
+    variant?: ButtonVariant
 }
 
 export interface AlertSelectOptions {
@@ -24,10 +25,10 @@ export interface AlertSelectOptions {
 }
 
 export interface alertData{
-    type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
-            |'input'|'wait2'|'markdown'|'select'|'login'
+    type: 'error'|'normal'|'none'|'ask'|'wait'
+            |'input'|'wait2'|'markdown'|'select'
             |'tos'|'cardexport'|'requestdata'|'addchar'|'selectModule'
-            |'pukmakkurit'|'branches'|'progress'|'pluginconfirm'
+            |'progress'|'pluginconfirm'
             |'confirmMulti',
     msg: string,
     submsg?: string
@@ -45,9 +46,17 @@ export interface NotifyOptions {
     log?: boolean
 }
 
+export const requestDiagnosticsTabs = {
+    overview: 0,
+    prompt: 1,
+    requestLog: 2,
+} as const
+export type RequestDiagnosticsTab = typeof requestDiagnosticsTabs[keyof typeof requestDiagnosticsTabs]
+
 export type AlertGenerationInfoStoreData = {
     genInfo: MessageGenerationInfo,
-    idx: number
+    idx: number,
+    initialTab?: RequestDiagnosticsTab
 }
 export const alertGenerationInfoStore = writable<AlertGenerationInfoStoreData>(null)
 export const alertStore = {
@@ -87,7 +96,7 @@ export function alertError(msg: unknown) {
     // Use nativeConsoleError (pre-monkey-patch) so devtools still shows the error
     // but log-capture does not also persist it — alertError below calls addLog
     // explicitly with source='blocking-alert', avoiding a duplicate entry.
-    nativeConsoleError(`[NodeOnly v${nodeOnlyVer}]`, msg)
+    nativeConsoleError(`[${PRODUCT_NAME} v${pocketKeiVer}]`, msg)
     let { message: errorMessage, stack: stackTrace } = normalizeErrorMessage(msg)
     errorMessage = errorMessage.trim()
     if (!errorMessage) {
@@ -154,16 +163,6 @@ export async function alertAddCharacter() {
     alertStoreImported.set({
         'type': 'addchar',
         'msg': language.addCharacter
-    })
-    await waitAlert()
-
-    return get(alertStoreImported).msg
-}
-
-export async function alertLogin(){
-    alertStoreImported.set({
-        'type': 'login',
-        'msg': 'login'
     })
     await waitAlert()
 
@@ -286,17 +285,6 @@ export function alertClear(){
     })
 }
 
-export async function alertSelectChar(){
-    alertStoreImported.set({
-        'type': 'selectChar',
-        'msg': ''
-    })
-
-    await waitAlert()
-
-    return get(alertStoreImported).msg
-}
-
 export async function alertConfirm(msg:string, description?:string){
 
     alertStoreImported.set({
@@ -318,13 +306,14 @@ export async function alertConfirm(msg:string, description?:string){
  *
  * @returns index of the picked action, or -1 if cancelled.
  */
-export async function alertConfirmMulti(prompt:string, actions:(string | AlertAction)[]){
+export async function alertConfirmMulti(prompt:string, actions:(string | AlertAction)[], description?:string){
     const normalized: AlertAction[] = actions.map(a =>
         typeof a === 'string' ? { label: a, variant: 'default' } : a
     )
     alertStoreImported.set({
         'type': 'confirmMulti',
         'msg': prompt,
+        'submsg': description,
         'actions': normalized,
     })
 

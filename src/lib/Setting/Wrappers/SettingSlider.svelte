@@ -3,11 +3,10 @@
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import { language } from 'src/lang';
-    import SliderInput from 'src/lib/UI/GUI/SliderInput.svelte';
-    import ShSlider from 'src/lib/UI/GUI/ShSlider.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import Slider from '../../UI/components/Slider.svelte';
+    import Switch from '../../UI/components/Switch.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -35,15 +34,9 @@
         });
     });
 
-    let customText = $derived(
-        typeof item.options?.customText === 'function'
-            ? item.options.customText(localValue)
-            : item.options?.customText
-    );
-
-    // Read-only display formatter for the ShSlider row layout: only for sliders
+    // Read-only display formatter for the Slider row layout: only for sliders
     // whose value maps to a word/unit label (customText). Numeric sliders —
-    // including fixed/decimal ones like line height — keep ShSlider's editable
+    // including fixed/decimal ones like line height — keep Slider's editable
     // input so the user can type a precise value.
     let rowFormat = $derived.by(() => {
         const ct = item.options?.customText;
@@ -52,15 +45,16 @@
     });
 
     // ── 'block' layout (ModelPreset-editor field grammar) ──────────────────
-    // Label row + inline help text + FULL-WIDTH ShSlider, with the row layout's
+    // Label row + inline help text + FULL-WIDTH Slider, with the row layout's
     // divider rhythm (border-t, dropped on the first field by SettingRenderer).
-    // The legacy SliderInput operates on RAW stored values (e.g. temperature
-    // 0–200 hundredths) and only scales at display time via `multiple`; ShSlider
+    // Stored slider values may use raw units (e.g. temperature
+    // 0–200 hundredths) and only scales at display time via `multiple`; Slider
     // has no such concept, so the row/block branches convert to real units at the
     // binding boundary (track/input show 0.00–2.00, storage stays 0–200).
-    // The -1000 "slider disabled" sentinel is surfaced as a header ShSwitch
+    // The -1000 "slider disabled" sentinel is surfaced as a header Switch
     // (the slot the ModelPreset editor uses for its Reset affordance); turning
-    // it on restores `min`, matching the legacy checkbox behavior.
+    // it on restores the field default (falling back to `min` when no default
+    // is declared).
     let blockHelpText = $derived(
         item.helpKey ? (language.help as any)[item.helpKey] : undefined
     );
@@ -96,16 +90,20 @@
     }
 
     function setSliderEnabled(on: boolean) {
-        localValue = on ? (item.options?.min ?? 0) : -1000;
+        const defaultValue = item.options?.defaultValue;
+        const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
+            ? defaultValue
+            : (item.options?.min ?? 0);
+        localValue = on ? enabledValue : -1000;
     }
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             {#if !item.options?.disableable || sliderEnabled}
                 <div class="w-48">
-                    <ShSlider
+                    <Slider
                         min={rowSliderMin}
                         max={sliderMax}
                         step={sliderStep}
@@ -117,29 +115,29 @@
                     />
                 </div>
             {:else}
-                <ShSwitch checked={false} onCheckedChange={setSliderEnabled} />
+                <Switch checked={false} onCheckedChange={setSliderEnabled} />
             {/if}
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else if ctx.layout === 'block'}
-    <!-- SettingRowLayout grammar (label + inline help stacked left, affordance
+    <!-- SettingRow grammar (label + inline help stacked left, affordance
          vertically centered right), plus a full-width slider third line. Markup
-         is replicated rather than nesting SettingRowLayout because the divider
+         is replicated rather than nesting SettingRow because the divider
          (border-t/py-3) must wrap the slider line too. -->
     <div class="py-3 border-t border-darkborderc">
         <div class="flex items-center justify-between gap-3">
             <div class="flex flex-col min-w-0">
-                <span class="text-sm text-textcolor {item.classes ?? ''}">{getLabel(item)}</span>
-                {#if blockHelpText}<p class="text-xs text-textcolor2 mt-0.5">{blockHelpText}</p>{/if}
+                <span class="text-sm text-maintext {item.classes ?? ''}">{getLabel(item)}</span>
+                {#if blockHelpText}<p class="text-xs text-subtext mt-0.5">{blockHelpText}</p>{/if}
             </div>
             {#if item.options?.disableable}
-                <div class="shrink-0">
-                    <ShSwitch checked={sliderEnabled} onCheckedChange={setSliderEnabled} />
+                <div class="flex shrink-0 items-center">
+                    <Switch checked={sliderEnabled} onCheckedChange={setSliderEnabled} />
                 </div>
             {/if}
         </div>
         {#if !item.options?.disableable || sliderEnabled}
-            <ShSlider
+            <Slider
                 className="mt-2"
                 min={sliderMin}
                 max={sliderMax}
@@ -150,20 +148,22 @@
         {/if}
     </div>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <SliderInput
-        className="mt-2"
-        marginBottom={true}
-        min={item.options?.min}
-        max={item.options?.max}
-        step={item.options?.step}
+    {#if !item.options?.disableable || sliderEnabled}
+    <Slider
+        className="mt-2 mb-4"
+        min={sliderMin}
+        max={sliderMax}
+        step={sliderStep}
         fixed={item.options?.fixed}
-        multiple={item.options?.multiple}
-        disableable={item.options?.disableable}
-        {customText}
-        bind:value={localValue}
+        {disabled}
+        format={rowFormat}
+        bind:value={readSliderValue, writeSliderValue}
     />
+    {:else}
+        <div class="mt-2 mb-4"><Switch checked={false} onCheckedChange={setSliderEnabled} /></div>
+    {/if}
 {/if}

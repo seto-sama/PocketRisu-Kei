@@ -113,15 +113,6 @@ export const effectCategories = {
             'v2Wait',
             'v2StopPromptSending',
             'v2Tokenize'
-        ],
-        'Deprecated': [
-            'v2If',
-            'v2ModifyLorebook',
-            'v2GetLorebook',
-            'v2GetLorebookCount',
-            'v2GetLorebookEntry',
-            'v2SetLorebookActivation',
-            'v2GetLorebookIndexViaName'
         ]
     }
 
@@ -133,14 +124,6 @@ export const triggerV2EffectFactories: Record<string, () => triggerEffectV2> = {
             value: '',
             valueType: 'value',
             indent: 0
-        }),
-    "v2If": () => ({
-            type: 'v2If',
-            indent: 0,
-            condition: '=',
-            targetType: 'value',
-            target: '',
-            source: ''
         }),
     "v2IfAdvanced": () => ({
             type: 'v2IfAdvanced',
@@ -284,47 +267,6 @@ export const triggerV2EffectFactories: Record<string, () => triggerEffectV2> = {
         }),
     "v2GetMessageCount": () => ({
             type: 'v2GetMessageCount',
-            outputVar: '',
-            indent: 0
-        }),
-    "v2ModifyLorebook": () => ({
-            type: 'v2ModifyLorebook',
-            target: '',
-            targetType: 'value',
-            value: '',
-            valueType: 'value',
-            indent: 0
-        }),
-    "v2GetLorebook": () => ({
-            type: 'v2GetLorebook',
-            target: '',
-            targetType: 'value',
-            outputVar: '',
-            indent: 0
-        }),
-    "v2GetLorebookCount": () => ({
-            type: 'v2GetLorebookCount',
-            outputVar: '',
-            indent: 0
-        }),
-    "v2GetLorebookEntry": () => ({
-            type: 'v2GetLorebookEntry',
-            index: '',
-            indexType: 'value',
-            outputVar: '',
-            indent: 0
-        }),
-    "v2SetLorebookActivation": () => ({
-            type: 'v2SetLorebookActivation',
-            index: '',
-            indexType: 'value',
-            value: true,
-            indent: 0
-        }),
-    "v2GetLorebookIndexViaName": () => ({
-            type: 'v2GetLorebookIndexViaName',
-            name: '',
-            nameType: 'value',
             outputVar: '',
             indent: 0
         }),

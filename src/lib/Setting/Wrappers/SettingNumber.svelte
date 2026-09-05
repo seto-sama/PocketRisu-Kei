@@ -1,10 +1,11 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte';
+    import NumberInput from '../../UI/components/NumberInput.svelte';
+    import Switch from '../../UI/components/Switch.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -15,48 +16,65 @@
 
     let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
     let disabled = $derived(typeof item.options?.disabled === 'function' ? item.options.disabled(ctx) : !!item.options?.disabled);
+    let numberEnabled = $derived(typeof localValue === 'number' && localValue !== -1000);
 
     // Sync: DB → local (one-way read)
     $effect(() => {
         localValue = getSettingValue(item, ctx);
     });
 
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: number | undefined) {
+        const nextValue = val === undefined && item.options?.disableable ? -1000 : val;
+        if (nextValue === undefined) return;
+        localValue = nextValue;
         untrack(() => {
-            if (val !== getSettingValue(item, ctx)) {
-                setSettingValue(item, val, ctx);
+            if (nextValue !== getSettingValue(item, ctx)) {
+                setSettingValue(item, nextValue, ctx);
             }
         });
-    });
+        void item.options?.onCommit?.(nextValue, ctx);
+    }
+
+    function setNumberEnabled(on: boolean) {
+        const defaultValue = item.options?.defaultValue;
+        const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
+            ? defaultValue
+            : (item.options?.min ?? 0);
+        commitValue(on ? enabledValue : undefined);
+    }
 </script>
 
 {#if ctx.layout === 'row' || ctx.layout === 'block'}
     <!-- A number field needs no full-width control, so the block layout is
          identical to the row layout: label + inline help stacked on the left,
-         compact input vertically centered on the right (SettingRowLayout). -->
-    <SettingRowLayout {item}>
+         compact input vertically centered on the right (SettingItemRow). -->
+    <SettingItemRow {item}>
         {#snippet control()}
-            <div class="flex items-center gap-2">
-                <NumberInput
-                    className={item.options?.inputClassName ?? 'w-24'}
-                    size="sm"
-                    padding={true}
-                    min={item.options?.min}
-                    max={item.options?.max}
-                    placeholder={item.options?.placeholder}
-                    {disabled}
-                    bind:value={localValue}
-                    onChange={() => item.options?.onCommit?.(localValue, ctx)}
-                />
-                {#if item.options?.suffix}<span class="text-textcolor2 text-xs shrink-0">{item.options.suffix}</span>{/if}
-            </div>
+            {#if !item.options?.disableable || numberEnabled}
+                <div class="flex items-center gap-2">
+                    <NumberInput
+                        className={item.options?.inputClassName ?? 'w-24'}
+                        size="sm"
+                        padding={true}
+                        min={item.options?.min}
+                        max={item.options?.max}
+                        allowEmpty={item.options?.disableable}
+                        placeholder={item.options?.placeholder}
+                        {disabled}
+                        bind:value={localValue}
+                        commitMode={item.options?.commitMode ?? 'blur'}
+                        debounceMs={item.options?.debounceMs}
+                        onCommit={commitValue}
+                    />
+                    {#if item.options?.suffix}<span class="text-subtext text-xs shrink-0">{item.options.suffix}</span>{/if}
+                </div>
+            {:else}
+                <Switch checked={false} onCheckedChange={setNumberEnabled} />
+            {/if}
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
@@ -65,9 +83,12 @@
         marginBottom={true}
         min={item.options?.min}
         max={item.options?.max}
+        allowEmpty={item.options?.disableable}
         placeholder={item.options?.placeholder}
         {disabled}
         bind:value={localValue}
-        onChange={() => item.options?.onCommit?.(localValue, ctx)}
+        commitMode={item.options?.commitMode ?? 'blur'}
+        debounceMs={item.options?.debounceMs}
+        onCommit={commitValue}
     />
 {/if}

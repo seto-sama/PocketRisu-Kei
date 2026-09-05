@@ -10,6 +10,7 @@ import { languageEnglish } from 'src/lang/en';
 import { sleep } from '../util';
 import { alertNormal, alertSelect } from '../alert';
 import { downloadFile } from '../globalApi.svelte';
+import { TRANSLATOR_ENGINE_OPTIONS } from '../translator/types';
 
 export const languageSettingsItems: SettingItem[] = [
     // UI Language
@@ -115,54 +116,11 @@ export const languageSettingsItems: SettingItem[] = [
         helpKey: 'translatorType',
         condition: (ctx) => !!ctx.db.translator,
         options: {
-            selectOptions: [
-                { value: 'llm', label: 'Ax. Model' },
-                { value: 'google', label: 'Google' },
-                { value: 'bergamot', label: 'Firefox' },
-                { value: 'deepl', label: 'DeepL' },
-                { value: 'deeplX', label: 'DeepL X' },
-            ],
+            selectOptions: TRANSLATOR_ENGINE_OPTIONS.map(option => ({ ...option })),
         },
     },
 
     // Translator Specific Configurations
-    {
-        id: 'lang.deeplKey',
-        type: 'text',
-        labelKey: 'deeplKey',
-        bindPath: 'deeplOptions.key',
-        helpKey: 'deeplKey',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deepl',
-    },
-
-    {
-        id: 'lang.deeplFree',
-        type: 'check',
-        labelKey: 'deeplFreeKey',
-        bindPath: 'deeplOptions.freeApi',
-        helpKey: 'deeplFreeKey',
-        classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deepl',
-    },
-
-    {
-        id: 'lang.deeplXUrl',
-        type: 'text',
-        labelKey: 'deeplXUrl',
-        bindPath: 'deeplXOptions.url',
-        helpKey: 'deeplXUrl',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deeplX',
-    },
-
-    {
-        id: 'lang.deeplXToken',
-        type: 'text',
-        labelKey: 'deeplXToken',
-        bindPath: 'deeplXOptions.token',
-        helpKey: 'deeplXToken',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deeplX',
-    },
-
     {
         id: 'lang.llmPresets',
         type: 'custom',
@@ -204,13 +162,13 @@ export const languageSettingsItems: SettingItem[] = [
     },
 
     {
-        id: 'lang.bergamotHtml',
+        id: 'lang.autoTranslateLastOutputOnly',
         type: 'check',
-        labelKey: 'htmlTranslation',
-        bindKey: 'htmlTranslation',
-        helpKey: 'htmlTranslation',
+        labelKey: 'autoTranslateLastOutputOnly',
+        bindKey: 'autoTranslateLastOutputOnly',
+        helpKey: 'autoTranslateLastOutputOnly',
         classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'bergamot',
+        condition: (ctx) => !!ctx.db.translator && ctx.db.autoTranslate,
     },
 
     {
@@ -221,6 +179,16 @@ export const languageSettingsItems: SettingItem[] = [
         helpKey: 'autoTranslateCachedOnly',
         classes: 'mt-2',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm' && ctx.db.autoTranslate,
+    },
+
+    {
+        id: 'lang.bergamotHtml',
+        type: 'check',
+        labelKey: 'htmlTranslation',
+        bindKey: 'htmlTranslation',
+        helpKey: 'htmlTranslation',
+        classes: 'mt-2',
+        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'bergamot',
     },
 
     {
@@ -240,17 +208,10 @@ export const languageSettingsItems: SettingItem[] = [
         bindKey: 'combineTranslation',
         helpKey: 'combineTranslation',
         classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator,
-    },
-
-    {
-        id: 'lang.legacyTranslation',
-        type: 'check',
-        labelKey: 'legacyTranslation',
-        bindKey: 'legacyTranslation',
-        helpKey: 'legacyTranslation',
-        classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator,
+        condition: (ctx) => !!ctx.db.translator && (
+            ctx.db.translatorType === 'google'
+            || (ctx.db.translatorType === 'bergamot' && !ctx.db.htmlTranslation)
+        ),
     },
 
     {
@@ -274,10 +235,6 @@ const languageAndDisplayIds = new Set([
 
 const translatorConfigurationIds = new Set([
     'lang.translatorType',
-    'lang.deeplKey',
-    'lang.deeplFree',
-    'lang.deeplXUrl',
-    'lang.deeplXToken',
     'lang.llmPresets',
     'lang.googleSourceLang',
 ]);

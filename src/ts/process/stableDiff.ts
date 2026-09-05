@@ -1,22 +1,77 @@
 import { get } from "svelte/store"
 import { getDatabase, type character } from "../storage/database.svelte"
-import { alertError, notifyError } from "../alert"
-import { fetchNative, globalFetch, readImage } from "../globalApi.svelte"
+import { notifyError } from "../alert"
+import { globalFetch, readImage } from "../globalApi.svelte"
 import { CharEmotion } from "../stores.svelte"
 import { processZip } from "./processzip"
 import random from "lodash/random"
 import { getApiKey } from "../preset/apiKeyPool"
 import { setInlayMetaFields, writeInlayImage } from "./files/inlays"
+import { getCurrentImageGenerationPreset } from "../imageGeneration/presets"
+import { v4 as uuidv4 } from 'uuid'
+import { createRevenantGenerationAuth } from './revenant/transport/client'
+import { serviceComfyBridgeJob } from './revenant/workflow/comfyBridge'
+import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId'
 
 // Vite replaces this expression at build time. With the default (undefined/false),
 // the minifier removes the optional provider branches from production bundles.
 const ENABLE_EXTRA_IMAGE_PROVIDERS = import.meta.env.VITE_EXTRA_IMAGE_PROVIDERS === 'TRUE'
+const NOVELAI_MAX_SEED = 2**32 - 1
+const COMFYUI_MAX_SEED = 999_999_999
+
+interface NodeImageGenerationJob {
+    jobId: string
+    status: 'queued' | 'waiting_client' | 'generating' | 'completed' | 'failed' | 'interrupted'
+    progress?: { value: number, max: number, node?: string }
+    error?: string
+    resultBase64?: string
+    resultFormat?: string
+}
+
+async function runNodeImageGenerationJob(arg: {
+    jobId: string
+    provider: 'novelai' | 'comfyui'
+    spec: Record<string, unknown>
+}): Promise<NodeImageGenerationJob> {
+    const headers = {
+        'content-type': 'application/json',
+        'risu-auth': await createRevenantGenerationAuth(),
+    }
+    let response = await fetch('/api/image-generation/jobs?includeResult=1', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(arg),
+    })
+    let job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
+    if (!response.ok) throw new Error(job.error || `Failed to start image generation: ${response.status}`)
+    if (arg.provider === 'comfyui') void serviceComfyBridgeJob(arg.jobId, job).catch(() => {})
+    while (job.status === 'queued' || job.status === 'waiting_client' || job.status === 'generating') {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        response = await fetch(
+            `/api/image-generation/jobs/${encodeURIComponent(arg.jobId)}?includeResult=1`,
+            { headers },
+        )
+        job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
+        if (!response.ok) throw new Error(job.error || `Failed to read image generation: ${response.status}`)
+    }
+    if (job.status !== 'completed' || !job.resultBase64) {
+        throw new Error(job.error || `Image generation ended with status ${job.status}`)
+    }
+    return job
+}
+
+function createImageGenerationSeed(provider: string): number | undefined {
+    if(provider === 'novelai') return random(0, NOVELAI_MAX_SEED)
+    if(provider === 'comfyui') return random(0, COMFYUI_MAX_SEED)
+    return undefined
+}
 
 type ImageKeyProvider = 'openai' | 'novelai' | 'openai-compatible' | 'google'
 
 function getImageApiKey(provider: ImageKeyProvider, directKey = ''): string {
     const db = getDatabase()
-    return (getApiKey(db.imageApiKeyRefs?.[provider])?.key ?? directKey).trim()
+    const settings = getCurrentImageGenerationPreset(db).settings
+    return (getApiKey(settings.imageApiKeyRefs?.[provider])?.key ?? directKey).trim()
 }
 
 export async function generateAIImage(
@@ -24,9 +79,11 @@ export async function generateAIImage(
     currentChar:character,
     neg:string,
     returnSdData:string,
+    requestedSeed?: number,
 ):Promise<string|false>{
     const db = getDatabase()
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'webui'){
+    const imageSettings = getCurrentImageGenerationPreset(db).settings
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'webui'){
 
 
         const uri = new URL(db.webUiUrl)
@@ -50,7 +107,7 @@ export async function generateAIImage(
                 headers:{
                     'Content-Type': 'application/json'
                 }
-            })   
+            })
 
             if(returnSdData === 'inlay'){
                 if(da.ok){
@@ -70,7 +127,7 @@ export async function generateAIImage(
             }
             else{
                 notifyError(JSON.stringify(da.data))
-                return false   
+                return false
             }
 
             return returnSdData
@@ -78,10 +135,11 @@ export async function generateAIImage(
 
         } catch (error) {
             notifyError(error)
-            return false   
+            return false
         }
     }
-    if(db.sdProvider === 'novelai'){
+    if(imageSettings.sdProvider === 'novelai'){
+        const generationSeed = requestedSeed ?? random(0, NOVELAI_MAX_SEED)
         genPrompt = genPrompt
             .replaceAll('\\(', "♧")
             .replaceAll('\\)', "♤")
@@ -95,23 +153,23 @@ export async function generateAIImage(
         const commonReq = {
             body: {
                 "input": genPrompt,
-                "model": db.NAIImgModel,
+                "model": imageSettings.NAIImgModel,
                 "parameters": {
                     "params_version": 3,
                     "add_original_image": true,
-                    "cfg_rescale": db.NAIImgConfig.cfg_rescale,
+                    "cfg_rescale": imageSettings.NAIImgConfig.cfg_rescale,
                     "controlnet_strength": 1,
-                    "dynamic_thresholding": db.NAIImgModel.includes('nai-diffusion-3') || db.NAIImgModel.includes('nai-diffusion-furry-3') || db.NAIImgModel.includes('nai-diffusion-2') ? db.NAIImgConfig.decrisp : false,
+                    "dynamic_thresholding": imageSettings.NAIImgModel.includes('nai-diffusion-3') || imageSettings.NAIImgModel.includes('nai-diffusion-furry-3') || imageSettings.NAIImgModel.includes('nai-diffusion-2') ? imageSettings.NAIImgConfig.decrisp : false,
                     "n_samples": 1,
-                    "width": db.NAIImgConfig.width,
-                    "height": db.NAIImgConfig.height,
-                    "sampler": db.NAIImgConfig.sampler,
-                    "steps": db.NAIImgConfig.steps,
-                    "scale": db.NAIImgConfig.scale,
+                    "width": imageSettings.NAIImgConfig.width,
+                    "height": imageSettings.NAIImgConfig.height,
+                    "sampler": imageSettings.NAIImgConfig.sampler,
+                    "steps": imageSettings.NAIImgConfig.steps,
+                    "scale": imageSettings.NAIImgConfig.scale,
                     "negative_prompt": neg,
-                    "sm": db.NAIImgModel.includes('nai-diffusion-3') || db.NAIImgModel.includes('nai-diffusion-furry-3') || db.NAIImgModel.includes('nai-diffusion-2') ? db.NAIImgConfig.sm : undefined,
-                    "sm_dyn": db.NAIImgModel.includes('nai-diffusion-3') || db.NAIImgModel.includes('nai-diffusion-furry-3') ? db.NAIImgConfig.sm_dyn : undefined,
-                    "noise_schedule": db.NAIImgConfig.noise_schedule,
+                    "sm": imageSettings.NAIImgModel.includes('nai-diffusion-3') || imageSettings.NAIImgModel.includes('nai-diffusion-furry-3') || imageSettings.NAIImgModel.includes('nai-diffusion-2') ? imageSettings.NAIImgConfig.sm : undefined,
+                    "sm_dyn": imageSettings.NAIImgModel.includes('nai-diffusion-3') || imageSettings.NAIImgModel.includes('nai-diffusion-furry-3') ? imageSettings.NAIImgConfig.sm_dyn : undefined,
+                    "noise_schedule": imageSettings.NAIImgConfig.noise_schedule,
                     "normalize_reference_strength_multiple":true,
                     "ucPreset": 3,
                     "uncond_scale": 1,
@@ -121,7 +179,7 @@ export async function generateAIImage(
                     //add v4
                     "autoSmea": false,
                     "use_coords": false,
-                    "legacy_uc": db.NAIImgConfig.legacy_uc,
+                    "legacy_uc": imageSettings.NAIImgConfig.legacy_uc,
                     "v4_prompt":{
                         caption:{
                             base_caption:genPrompt,
@@ -135,17 +193,17 @@ export async function generateAIImage(
                             base_caption:neg,
                             char_captions: []
                         },
-                        legacy_uc: db.NAIImgConfig.legacy_uc,
+                        legacy_uc: imageSettings.NAIImgConfig.legacy_uc,
                     },
                     "reference_image_multiple" : [],
                     "reference_strength_multiple" : [],
                     //add reference image
-                    "image": undefined, 
+                    "image": undefined,
                     "strength": undefined,
                     "noise": undefined,
                     //add additional parameters
-                    "seed": random(0, 2**32-1),
-                    "extra_noise_seed": random(0, 2**32-1),
+                    "seed": generationSeed,
+                    "extra_noise_seed": imageSettings.NAII2I ? generationSeed : undefined,
                     "prefer_brownian": true,
                     "deliberate_euler_ancestral_bug": false,
                     "skip_cfg_above_sigma": null,
@@ -158,31 +216,31 @@ export async function generateAIImage(
                 }
             },
             headers:{
-                "Authorization": "Bearer " + getImageApiKey('novelai', db.NAIApiKey)
+                "Authorization": "Bearer " + getImageApiKey('novelai', imageSettings.NAIApiKey)
             },
             rawResponse: true
         }
 
-        // Add Variety+ option 
-        if(db.NAIImgConfig.variety_plus) {
-            if(db.NAIImgModel.includes('nai-diffusion-4-full') || db.NAIImgModel.includes('nai-diffusion-4-curated')
-            || db.NAIImgModel.includes('nai-diffusion-3') || db.NAIImgModel.includes('nai-diffusion-furry-3')) {
-                commonReq.body.parameters.skip_cfg_above_sigma = Math.sqrt(db.NAIImgConfig.width * db.NAIImgConfig.height) * 0.01889;
+        // Add Variety+ option
+        if(imageSettings.NAIImgConfig.variety_plus) {
+            if(imageSettings.NAIImgModel.includes('nai-diffusion-4-full') || imageSettings.NAIImgModel.includes('nai-diffusion-4-curated')
+            || imageSettings.NAIImgModel.includes('nai-diffusion-3') || imageSettings.NAIImgModel.includes('nai-diffusion-furry-3')) {
+                commonReq.body.parameters.skip_cfg_above_sigma = Math.sqrt(imageSettings.NAIImgConfig.width * imageSettings.NAIImgConfig.height) * 0.01889;
             }
-            if(db.NAIImgModel.includes('nai-diffusion-4-5-full') || db.NAIImgModel.includes('nai-diffusion-4-5-curated')) {
-                commonReq.body.parameters.skip_cfg_above_sigma = Math.sqrt(db.NAIImgConfig.width * db.NAIImgConfig.height) * 0.05766;
+            if(imageSettings.NAIImgModel.includes('nai-diffusion-4-5-full') || imageSettings.NAIImgModel.includes('nai-diffusion-4-5-curated')) {
+                commonReq.body.parameters.skip_cfg_above_sigma = Math.sqrt(imageSettings.NAIImgConfig.width * imageSettings.NAIImgConfig.height) * 0.05766;
             }
         }
 
         // Add vibe reference_image_multiple if exists
-        if(db.NAIImgConfig.reference_mode === 'vibe' && db.NAIImgConfig.vibe_data) {
-            const vibeData = db.NAIImgConfig.vibe_data;
+        if(imageSettings.NAIImgConfig.reference_mode === 'vibe' && imageSettings.NAIImgConfig.vibe_data) {
+            const vibeData = imageSettings.NAIImgConfig.vibe_data;
             // Determine which model to use based on vibe_model_selection or fallback to current model
-            const modelKey = db.NAIImgConfig.vibe_model_selection || 
-                            (db.NAIImgModel.includes('nai-diffusion-4-full') ? 'v4full' : 
-                             db.NAIImgModel.includes('nai-diffusion-4-curated') ? 'v4curated' : 
-                             db.NAIImgModel.includes('nai-diffusion-4-5-full') ? 'v4-5full' :
-                             db.NAIImgModel.includes('nai-diffusion-4-5-curated') ? 'v4-5curated' : null);
+            const modelKey = imageSettings.NAIImgConfig.vibe_model_selection ||
+                            (imageSettings.NAIImgModel.includes('nai-diffusion-4-full') ? 'v4full' :
+                             imageSettings.NAIImgModel.includes('nai-diffusion-4-curated') ? 'v4curated' :
+                             imageSettings.NAIImgModel.includes('nai-diffusion-4-5-full') ? 'v4-5full' :
+                             imageSettings.NAIImgModel.includes('nai-diffusion-4-5-curated') ? 'v4-5curated' : null);
 
             if(modelKey && vibeData.encodings && vibeData.encodings[modelKey]) {
                 // Initialize arrays if they don't exist
@@ -194,10 +252,10 @@ export async function generateAIImage(
                 }
 
                 // Use selected encoding or first available
-                let encodingKey = db.NAIImgConfig.vibe_model_selection ? 
-                                 Object.keys(vibeData.encodings[modelKey]).find(key => 
-                                    vibeData.encodings[modelKey][key].params.information_extracted === 
-                                    (db.NAIImgConfig.InfoExtracted || 1)) : 
+                let encodingKey = imageSettings.NAIImgConfig.vibe_model_selection ?
+                                 Object.keys(vibeData.encodings[modelKey]).find(key =>
+                                    vibeData.encodings[modelKey][key].params.information_extracted ===
+                                    (imageSettings.NAIImgConfig.InfoExtracted || 1)) :
                                  Object.keys(vibeData.encodings[modelKey])[0];
 
                 if(encodingKey) {
@@ -206,58 +264,59 @@ export async function generateAIImage(
                     commonReq.body.parameters.reference_image_multiple.push(encoding);
 
                     // Add reference_strength_multiple if it exists
-                    const strength = db.NAIImgConfig.reference_strength_multiple && 
-                                    db.NAIImgConfig.reference_strength_multiple.length > 0 ? 
-                                    db.NAIImgConfig.reference_strength_multiple[0] : 0.5;
+                    const strength = imageSettings.NAIImgConfig.reference_strength_multiple &&
+                                    imageSettings.NAIImgConfig.reference_strength_multiple.length > 0 ?
+                                    imageSettings.NAIImgConfig.reference_strength_multiple[0] : 0.5;
                     commonReq.body.parameters.reference_strength_multiple.push(strength);
                 }
             }
         }
 
-        if(db.NAIImgConfig.reference_mode === 'reference' &&
-            (db.NAIImgModel.includes('nai-diffusion-4-5-full') || db.NAIImgModel.includes('nai-diffusion-4-5-curated'))
+        if(imageSettings.NAIImgConfig.reference_mode === 'reference' &&
+            (imageSettings.NAIImgModel.includes('nai-diffusion-4-5-full') || imageSettings.NAIImgModel.includes('nai-diffusion-4-5-curated'))
         ) {
             let base64img = ''
-            if(!db.NAIImgConfig.character_image || db.NAIImgConfig.character_image === ''){
+            if(!imageSettings.NAIImgConfig.character_image || imageSettings.NAIImgConfig.character_image === ''){
                 const charimg = currentChar.image;
                 const img = await readImage(charimg)
                 if (img) {
                     base64img = Buffer.from(img).toString('base64')
                 }
-            }   
-            else{
-                base64img = db.NAIImgConfig.character_base64image;
             }
-            
+            else{
+                const img = await readImage(imageSettings.NAIImgConfig.character_image)
+                if (img) base64img = Buffer.from(img).toString('base64')
+            }
+
             try {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const imageObj = new Image();
-                
+
                 await new Promise<void>((resolve) => {
                     imageObj.onload = () => resolve();
                     imageObj.src = `data:image/png;base64,${base64img}`;
                 });
-                
+
                 canvas.width = 1472;
                 canvas.height = 1472;
-                
+
                 const scale = Math.min(1472 / imageObj.width, 1472 / imageObj.height);
                 const scaledWidth = Math.floor(imageObj.width * scale);
                 const scaledHeight = Math.floor(imageObj.height * scale);
-                
+
                 const x = (1472 - scaledWidth) / 2;
                 const y = (1472 - scaledHeight) / 2;
-                
+
                 ctx.fillStyle = 'black';
                 ctx.fillRect(0, 0, 1472, 1472);
-                
+
                 ctx.drawImage(imageObj, x, y, scaledWidth, scaledHeight);
-                
+
                 const blob = await new Promise<Blob>((resolve) => {
                     canvas.toBlob(resolve, 'image/png');
                 });
-                
+
                 if (blob) {
                     const arrayBuffer = await blob.arrayBuffer();
                     base64img = Buffer.from(arrayBuffer).toString('base64');
@@ -265,20 +324,20 @@ export async function generateAIImage(
             } catch (error) {
                 console.warn('Image resize failed, using original:', error);
             }
-            
+
             if(base64img){
-                const referenceType = ['character', 'style', 'character&style'].includes(db.NAIImgConfig.reference_type)
-                    ? db.NAIImgConfig.reference_type
+                const referenceType = ['character', 'style', 'character&style'].includes(imageSettings.NAIImgConfig.reference_type)
+                    ? imageSettings.NAIImgConfig.reference_type
                     : 'character';
-                const referenceStrength = Math.min(1, Math.max(0, db.NAIImgConfig.reference_strength ?? 1));
-                const referenceFidelity = Math.min(1, Math.max(0, db.NAIImgConfig.reference_fidelity ?? 1));
+                const referenceStrength = Math.min(1, Math.max(0, imageSettings.NAIImgConfig.reference_strength ?? 1));
+                const referenceFidelity = Math.min(1, Math.max(0, imageSettings.NAIImgConfig.reference_fidelity ?? 1));
                 commonReq.body.parameters.director_reference_descriptions = [
                     {
                         caption: {
                             base_caption: referenceType,
                             char_captions: []
                         },
-                        legacy_uc: db.NAIImgConfig.legacy_uc,
+                        legacy_uc: imageSettings.NAIImgConfig.legacy_uc,
                     }
                 ]
                 commonReq.body.parameters.director_reference_images = [base64img]
@@ -288,58 +347,56 @@ export async function generateAIImage(
             }
         }
 
-        if(db.NAII2I){
+        if(imageSettings.NAII2I){
             let base64img = ''
-            if(!db.NAIImgConfig.image || db.NAIImgConfig.image === ''){
+            if(!imageSettings.NAIImgConfig.image || imageSettings.NAIImgConfig.image === ''){
                 const charimg = currentChar.image;
 
                 const img = await readImage(charimg)
                 if (img) {
                     base64img = Buffer.from(img).toString('base64')
                 }
-            }   
-            else{
-                base64img = db.NAIImgConfig.base64image;
             }
-            
+            else{
+                const img = await readImage(imageSettings.NAIImgConfig.image)
+                if (img) base64img = Buffer.from(img).toString('base64')
+            }
+
             if(base64img) {
                 reqlist = commonReq;
                 reqlist.body.action = "img2img";
                 reqlist.body.parameters.image = base64img;
-                reqlist.body.parameters.strength = db.NAIImgConfig.strength || 0.7;
-                reqlist.body.parameters.noise = db.NAIImgConfig.noise || 0;
+                reqlist.body.parameters.strength = imageSettings.NAIImgConfig.strength || 0.7;
+                reqlist.body.parameters.noise = imageSettings.NAIImgConfig.noise || 0;
             }
-            
+
         }else{
 
             reqlist = commonReq;
             reqlist.body.action = 'generate';
-           
+
         }
         try {
-            const da = await globalFetch(db.NAIImgUrl, reqlist)   
+            const job = await runNodeImageGenerationJob({
+                jobId: `image:${uuidv4()}`,
+                provider: 'novelai',
+                spec: {
+                    apiKey: getImageApiKey('novelai', imageSettings.NAIApiKey),
+                    body: reqlist.body,
+                },
+            })
+            const result = Buffer.from(job.resultBase64!, 'base64')
 
             if(returnSdData === 'inlay'){
-                if(da.ok){
-                    const img = await processZip(da.data);
-                    return img
-                }
-                else{
-                    notifyError(Buffer.from(da.data).toString())
-                    return ''
-                }
+                return await processZip(result)
             }
 
-            else if(da.ok){
+            else {
                 let charemotions = get(CharEmotion)
-                const img = await processZip(da.data);
+                const img = await processZip(result);
                 const emos:[string, string,number][] = [[img, img, Date.now()]]
                 charemotions[currentChar.chaId] = emos
                 CharEmotion.set(charemotions)
-            }
-            else{
-                notifyError(Buffer.from(da.data).toString())
-                return false   
             }
 
             return returnSdData
@@ -347,10 +404,10 @@ export async function generateAIImage(
 
         } catch (error) {
             notifyError(error)
-            return false   
+            return false
         }
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'dalle'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'dalle'){
         const da = await globalFetch("https://api.openai.com/v1/images/generations", {
             body: {
                 "prompt": genPrompt,
@@ -387,11 +444,11 @@ export async function generateAIImage(
         }
         else{
             notifyError(Buffer.from(da.data).toString())
-            return false   
+            return false
         }
         return returnSdData
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'stability'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'stability'){
         const formData = new FormData()
         const model = db.stabilityModel
         formData.append('prompt', genPrompt)
@@ -443,143 +500,20 @@ export async function generateAIImage(
 
     }
 
-    if(db.sdProvider === 'comfy' || db.sdProvider === 'comfyui'){
-        const legacy = db.sdProvider === 'comfy' // Legacy Comfy mode
-        const {workflow, posNodeID, posInputName, negNodeID, negInputName} = db.comfyConfig
-        const baseUrl = new URL(db.comfyUiUrl)
-
-        const createUrl = (pathname: string, params: Record<string, string> = {}) => {
-            const url = db.comfyUiUrl.endsWith('/api') ? new URL(`${db.comfyUiUrl}${pathname}`) : new URL(pathname, baseUrl)
-            url.search = new URLSearchParams(params).toString()
-            return url.toString()
-        }
-
-        const fetchWrapper = async (url: string, options = {}) => {
-            const response = await globalFetch(url, options)
-            if (!response.ok) {
-                throw new Error(JSON.stringify(response.data))
-            }
-            return response.data
-        }
-
+    if(imageSettings.sdProvider === 'comfyui'){
         try {
-            const prompt = JSON.parse(workflow)
-            if(legacy){
-                prompt[posNodeID].inputs[posInputName] = genPrompt
-                prompt[negNodeID].inputs[negInputName] = neg
-            }
-            else{
-                //search all nodes for the prompt and negative prompt
-                const keys = Object.keys(prompt)
-                for(let i = 0; i < keys.length; i++){
-                    const node = prompt[keys[i]]
-                    const inputKeys = Object.keys(node.inputs)
-                    for(let j = 0; j < inputKeys.length; j++){
-                        let input = node.inputs[inputKeys[j]]
-                        if(typeof input === 'string'){
-                            input = input.replaceAll('{{risu_prompt}}', genPrompt) 
-                            input = input.replaceAll('{{risu_neg}}', neg)
-                        }
-
-                        if(inputKeys[j] === 'seed' && typeof input === 'number'){
-                            input = Math.floor(Math.random() * 1000000000)
-                        }
-
-                        node.inputs[inputKeys[j]] = input
-                    }
-                }
-            }
-
-            const { prompt_id: id } = await fetchWrapper(createUrl('/prompt'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: { 'prompt': prompt }
+            const job = await runNodeImageGenerationJob({
+                jobId: `image:${uuidv4()}`,
+                provider: 'comfyui',
+                spec: {
+                    prompt: genPrompt,
+                    negativePrompt: neg,
+                    seed: requestedSeed ?? random(0, COMFYUI_MAX_SEED),
+                    bridgeId: getComfyBridgeId(),
+                    timeoutSeconds: imageSettings.comfyConfig.timeout,
+                },
             })
-            let item
-
-            const startTime = Date.now()
-            const timeout = db.comfyConfig.timeout * 1000
-            while (!(item = (await (await fetchNative(createUrl('/history'), {
-                headers: { 'Content-Type': 'application/json' },
-                method: 'GET'
-            })).json())[id])) {
-                if (Date.now() - startTime >= timeout) {
-                    alertError("Error: Image generation took longer than expected.");
-                    return false
-                }
-                await new Promise(r => setTimeout(r, 1000))
-            } // Check history until the generation is complete.
-
-            const historyStatus = item?.status
-            const historyMessages = Array.isArray(historyStatus?.messages) ? historyStatus.messages : []
-            const failureEntry = [...historyMessages].reverse().find((entry: unknown) => {
-                if (!Array.isArray(entry)) return false
-                return entry[0] === 'execution_error' || entry[0] === 'execution_interrupted'
-            })
-            const statusText = typeof historyStatus?.status_str === 'string'
-                ? historyStatus.status_str
-                : 'unknown'
-            const failed = statusText === 'error'
-                || statusText === 'failed'
-                || failureEntry !== undefined
-
-            if (failed) {
-                const failureType = Array.isArray(failureEntry) && typeof failureEntry[0] === 'string'
-                    ? failureEntry[0]
-                    : 'execution_error'
-                const failureData = Array.isArray(failureEntry) && failureEntry[1] && typeof failureEntry[1] === 'object'
-                    ? failureEntry[1] as Record<string, unknown>
-                    : {}
-                const failedNode = failureData.node_id ?? failureData.node ?? 'unknown'
-                const exceptionType = typeof failureData.exception_type === 'string'
-                    ? failureData.exception_type
-                    : ''
-                const exceptionMessage = failureData.exception_message
-                    ?? failureData.error
-                    ?? failureData.message
-                    ?? failureType
-                const errorMessage = [exceptionType, String(exceptionMessage)]
-                    .filter((value, index, values) => value && values.indexOf(value) === index)
-                    .join(': ')
-
-                notifyError('ComfyUI 작업 실패', {
-                    source: 'comfyui',
-                    description: [
-                        `prompt_id=${id}`,
-                        `status=${statusText}`,
-                        `failed_node=${String(failedNode)}`,
-                        `error_message=${errorMessage}`
-                    ].join('\n')
-                })
-                return false
-            }
-
-            const genImgInfo = Object.values(item.outputs ?? {})
-                .flatMap((output: any) => Array.isArray(output?.images) ? output.images : [])
-                .find((image: any) => image && typeof image.filename === 'string')
-
-            if (!genImgInfo) {
-                notifyError('ComfyUI 이미지 출력 없음', {
-                    source: 'comfyui',
-                    description: [
-                        `prompt_id=${id}`,
-                        `status=${statusText}`,
-                        'failed_node=unknown',
-                        'error_message=Completed without a usable image output'
-                    ].join('\n')
-                })
-                return false
-            }
-
-            const imgResponse = await fetchNative(createUrl('/view', {
-                filename: genImgInfo.filename,
-                subfolder: genImgInfo.subfolder,
-                type: genImgInfo.type
-            }), {
-                headers: { 'Content-Type': 'application/json' }, 
-                method: 'GET'
-            })
-            const img64 = Buffer.from(await imgResponse.arrayBuffer()).toString('base64')
+            const img64 = job.resultBase64!
 
             if(returnSdData === 'inlay'){
                 return `data:image/png;base64,${img64}`
@@ -598,7 +532,7 @@ export async function generateAIImage(
             return false
         }
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'fal'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'fal'){
         const model = db.falModel
         const token = db.falToken
 
@@ -658,7 +592,7 @@ export async function generateAIImage(
             CharEmotion.set(charemotions)
         }
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'Imagen') {
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'Imagen') {
         const model = db.ImagenModel
         const size = db.ImagenImageSize
         const aspect = db.ImagenAspectRatio
@@ -703,11 +637,11 @@ export async function generateAIImage(
             notifyError(JSON.stringify(res.data))
             return false
         }
-        
+
         const mimeType = res.data?.predictions?.[0]?.mimeType || 'image/png'
         return `data:${mimeType};base64,${img64}`
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'openai-compat'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'openai-compat'){
         const config = db.openaiCompatImage
         if(!config.url){
             notifyError("OpenAI Compatible API URL is not set")
@@ -766,7 +700,7 @@ export async function generateAIImage(
         }
         return returnSdData
     }
-    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'wavespeed'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && imageSettings.sdProvider === 'wavespeed'){
         const config = db.wavespeedImage
         if (!config.key) {
             notifyError('Please enter wavespeed API key')
@@ -936,8 +870,11 @@ export async function generateAIImageInlay(
     currentChar: character,
     negativePrompt = '',
     target?: { characterId: string, chatId: string },
+    requestedSeed?: number,
 ): Promise<string | false> {
-    const generated = await generateAIImage(prompt, currentChar, negativePrompt, 'inlay')
+    const provider = getCurrentImageGenerationPreset(getDatabase()).settings.sdProvider
+    const seed = requestedSeed ?? createImageGenerationSeed(provider)
+    const generated = await generateAIImage(prompt, currentChar, negativePrompt, 'inlay', seed)
     if(!generated) return false
 
     const image = new Image()
@@ -952,7 +889,7 @@ export async function generateAIImageInlay(
     await setInlayMetaFields(inlayId, {
         charId: targetCharacterId,
         chatId: targetChatId,
-        imageGeneration: { prompt, negativePrompt },
+        imageGeneration: { prompt, negativePrompt, seed },
     })
     return `{{inlayed::${inlayId}}}`
 }

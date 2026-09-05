@@ -10,7 +10,15 @@ if (!fs.existsSync(saveDir)) {
     fs.mkdirSync(saveDir, { recursive: true });
 }
 const dbPath = path.join(saveDir, 'risuai.db');
+// Keep SQLite spill files on persistent storage. Container /tmp is commonly a
+// tmpfs and Termux may not provide it, either of which makes a large VACUUM
+// unsafe before the connection is even opened.
+if (!process.env.SQLITE_TMPDIR) {
+    process.env.SQLITE_TMPDIR = saveDir;
+}
 const db = new Database(dbPath);
+
+const VACUUM_DISK_SPACE_MULTIPLIER = 2.2;
 
 // WAL mode: better concurrent read performance, single-writer
 db.pragma('journal_mode = WAL');
@@ -133,6 +141,13 @@ function kvSet(key, value) {
     }
 }
 
+// Explicit large-value path for compatibility projections such as rotated
+// snapshots. The live application database no longer uses this opaque store,
+// but export artifacts can still exceed SQLite's single-value comfort zone.
+function kvSetChunked(key, value) {
+    chunkStore.putValue(key, value);
+}
+
 function kvDel(key) {
     // Route through the chunk store so a chunked key (the DB blob or a chunked
     // snapshot, e.g. a rotated dbbackup-*) also drops its manifest — otherwise
@@ -149,12 +164,6 @@ function kvSize(key) {
 function kvGetUpdatedAt(key) {
     const row = stmtKvUpdatedAt.get(key);
     return row ? row.updated_at : null;
-}
-
-function kvCopyValue(srcKey, dstKey) {
-    // Chunked src copies only its manifest (chunks stay shared); raw src copies
-    // the value. Used for snapshots — keeps them near-free and byte-identical.
-    chunkStore.snapshotValue(srcKey, dstKey);
 }
 
 function kvDelPrefix(prefix) {
@@ -200,6 +209,21 @@ function checkpointWal(mode = 'TRUNCATE') {
     return db.pragma(`wal_checkpoint(${mode})`);
 }
 
+function estimateVacuumRequiredBytes(databaseBytes) {
+    return Math.ceil(Math.max(0, databaseBytes) * VACUUM_DISK_SPACE_MULTIPLIER);
+}
+
+function vacuumDatabase() {
+    const previousTempStore = db.pragma('temp_store', { simple: true });
+    db.pragma('temp_store = FILE');
+    try {
+        db.exec('VACUUM');
+    } finally {
+        // Preserve the connection policy instead of assuming MEMORY forever.
+        db.pragma(`temp_store = ${previousTempStore}`);
+    }
+}
+
 // Reclaim chunks no longer referenced by any manifest (live blob + snapshots).
 // Returns the number deleted. Caller should run it serialized with saves (e.g.
 // inside the storage queue) and before VACUUM so freed pages get compacted.
@@ -213,6 +237,10 @@ function reclaimableChunkBytes() {
     return chunkStore.reclaimableBytes();
 }
 
+function chunkStorageStats() {
+    return chunkStore.stats();
+}
+
 // Whether the live DB blob is actually stored chunked right now (marker-backed),
 // not merely that a manifest row exists.
 function isDbBlobChunked() {
@@ -222,8 +250,16 @@ function isDbBlobChunked() {
 // Marginal disk cost of a snapshot key vs the live DB blob (chunks it uniquely
 // keeps alive). Use this to size snapshots for the disk limit — kvSize/LENGTH
 // would report a chunked snapshot's shared logical size and over-trim.
-function snapshotFootprint(key) {
-    return chunkStore.snapshotCost(key, DB_BLOB_KEY);
+function snapshotFootprint(key, baseKey = null) {
+    return chunkStore.snapshotCost(key, baseKey);
+}
+
+// Aggregate physical value bytes retained by a snapshot collection. Unlike
+// summing snapshotFootprint(key), this charges a chunk shared by two or more
+// snapshots only once while still charging each snapshot's own kv marker/raw
+// row. This is the appropriate quota measure for a complete snapshot set.
+function snapshotSetFootprint(keys) {
+    return chunkStore.keySetPhysicalCost(keys);
 }
 
 function clearEntities() {
@@ -238,11 +274,15 @@ function clearEntities() {
 module.exports = {
     db,
     // KV
-    kvGet, kvSet, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
+    kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt,
     clearEntities,
     checkpointWal,
+    estimateVacuumRequiredBytes,
+    vacuumDatabase,
     gcChunks,
     reclaimableChunkBytes,
+    chunkStorageStats,
     isDbBlobChunked,
     snapshotFootprint,
+    snapshotSetFootprint,
 };

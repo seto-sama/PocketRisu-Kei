@@ -1,15 +1,13 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
-    import { Collapsible, Tooltip } from 'bits-ui'
+    import { Collapsible } from 'bits-ui'
     import {
         CopyIcon,
         Trash2Icon,
         ChevronDownIcon,
-        MonitorIcon,
-        SmartphoneIcon,
         ScrollTextIcon,
     } from '@lucide/svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
@@ -23,7 +21,7 @@
         type FetchLog,
         type FetchLogSummary,
     } from 'src/ts/globalApi.svelte'
-    import { language } from 'src/lang'
+    import { language, getCurrentLocale } from 'src/lang'
     import { formatResponseBody } from 'src/ts/requestLogFormat'
     import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
@@ -52,6 +50,8 @@
             log.platform,
             log.chatId,
             log.responseType,
+            log.provider,
+            log.model,
             log.date,
         ].join(' ').toLowerCase().includes(needle))
     })
@@ -68,12 +68,22 @@
         return formatAbsolute(log.timestamp)
     }
 
-    function requestDeviceLabel(log: { platform?: string; clientId?: string }): string {
-        return `${log.platform ?? 'Desktop'}${log.clientId ? ` #${log.clientId}` : ''}`
+    function number(value?: number): string {
+        return value === undefined ? '—' : value.toLocaleString(getCurrentLocale())
     }
 
-    function requestDeviceKind(log: { platform?: string }): 'mobile' | 'desktop' {
-        return (log.platform ?? '').toLowerCase().includes('mobile') ? 'mobile' : 'desktop'
+    function requestModel(log: FetchLogSummary): string {
+        return log.model ?? log.provider ?? language.usageUnknownModel
+    }
+
+    function formatDuration(durationMs?: number | null): string {
+        if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) return '—'
+        if (durationMs < 1_000) return `${durationMs} ms`
+        if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(2)} s`
+        if (durationMs < 60_000) return `${(durationMs / 1_000).toFixed(1)} s`
+        const minutes = Math.floor(durationMs / 60_000)
+        const seconds = Math.floor(durationMs % 60_000 / 1_000)
+        return `${minutes}m ${seconds}s`
     }
 
     async function loadServerRequestLogs() {
@@ -218,14 +228,14 @@
 </script>
 
 <div class="flex flex-col gap-3 mb-4">
-    <p class="text-textcolor2 text-sm m-0">{language.requestLogsDesc}</p>
+    <p class="text-subtext text-sm m-0">{language.requestLogsDesc}</p>
     <SettingLayout variant="search">
-        <ShInput bind:value={requestSearch} placeholder={language.requestLogsSearchPlaceholder} />
+        <Input bind:value={requestSearch} placeholder={language.requestLogsSearchPlaceholder} />
         {#snippet control()}
-        <ShButton variant="destructive" size="default" onclick={handleClearRequestLogs}>
+        <Button variant="destructive" size="default" onclick={handleClearRequestLogs}>
             <Trash2Icon />
             <span class="hidden sm:inline">{language.systemLogsClearAll}</span>
-        </ShButton>
+        </Button>
         {/snippet}
     </SettingLayout>
 </div>
@@ -235,82 +245,85 @@
 
 {#if displayedRequestLogs.length === 0}
     <div class="flex flex-col items-center justify-center text-center py-16 border border-darkborderc rounded-md bg-darkbg/30">
-        <ScrollTextIcon size={48} class="text-textcolor2 mb-3 opacity-50" />
-        <div class="text-textcolor font-medium mb-1">{language.noRequestLogs}</div>
-        <div class="text-textcolor2 text-sm">{language.requestLogsEmptyDesc}</div>
+        <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
+        <div class="text-maintext font-medium mb-1">{language.noRequestLogs}</div>
+        <div class="text-subtext text-sm">{language.requestLogsEmptyDesc}</div>
     </div>
 {:else}
-    <Tooltip.Provider delayDuration={300}>
-        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
+    <SettingLayout variant="list">
             {#each displayedRequestLogs as log (log.id)}
                 <Collapsible.Root
                     open={requestExpanded[log.id] === true}
                     onOpenChange={(v) => handleRequestLogOpen(log.id, v)}
                 >
                     <Collapsible.Trigger class="w-full text-left group">
-                        <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
-                        <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono shrink-0 {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
-                            {log.status ?? (log.success ? 'OK' : 'ERR')}
-                        </span>
-                        <Tooltip.Root>
-                            <Tooltip.Trigger>
-                                {#snippet child({ props })}
-                                    <span {...props} class="text-textcolor2 text-xs shrink-0 tabular-nums cursor-help">
+                        <SettingLayout variant="item" className="risu-interactive-surface group-focus-visible:bg-selected/30">
+                        <div class="grid w-full min-w-0 grid-cols-[2.75rem_5rem_minmax(0,1fr)_1rem] items-center gap-2 sm:grid-cols-[2.75rem_5rem_minmax(0,1fr)_4rem_7rem_1rem]">
+                            <span class="inline-flex justify-self-start items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-danger/20 text-danger border-danger/40'}">
+                                {log.status ?? (log.success ? 'OK' : 'ERR')}
+                            </span>
+                            <Tooltip className="max-w-none max-h-none overflow-visible break-normal px-2 py-1 leading-normal">
+                                {#snippet trigger(props)}
+                                    <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-subtext tabular-nums cursor-help">
                                         {log.date}
                                     </span>
                                 {/snippet}
-                            </Tooltip.Trigger>
-                            <Tooltip.Content
-                                class="bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg z-50"
-                                sideOffset={4}
-                            >
                                 {formatRequestLogTime(log)}
-                            </Tooltip.Content>
-                        </Tooltip.Root>
-                        <span class="flex-1 min-w-0 truncate text-sm text-textcolor font-mono">{log.url}</span>
-                        <ShBadge variant="default" className="shrink-0">
-                            {#if requestDeviceKind(log) === 'mobile'}<SmartphoneIcon size={12} />
-                            {:else}<MonitorIcon size={12} />{/if}
-                            <span class="hidden md:inline text-[10px]">{requestDeviceLabel(log)}</span>
-                        </ShBadge>
-                        <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                            </Tooltip>
+                            <span class="flex min-w-0 items-center gap-2">
+                                <span class="min-w-0 truncate text-sm text-maintext font-medium">{requestModel(log)}</span>
+                                {#if log.model && log.provider}
+                                    <span class="shrink-0 hidden sm:inline text-xs text-subtext">{log.provider}</span>
+                                {/if}
+                            </span>
+                            <span class="hidden whitespace-nowrap text-right text-xs text-subtext tabular-nums sm:block">
+                                {formatDuration(log.responseDurationMs)}
+                            </span>
+                            <span
+                                class="hidden grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-subtext tabular-nums sm:grid"
+                                aria-label={`${language.usageInputTokens} ${number(log.promptTokens)}, ${language.usageOutputTokens} ${number(log.completionTokens)}`}
+                            >
+                                <span>{number(log.promptTokens)}</span>
+                                <span>{number(log.completionTokens)}</span>
+                            </span>
+                            <ChevronDownIcon size={16} class="justify-self-end text-subtext transition-transform group-data-[state=open]:rotate-180" />
+                        </div>
                         </SettingLayout>
                     </Collapsible.Trigger>
 
                     <Collapsible.Content class="bg-darkbg/60">
                         {@const detail = requestLogDetails[log.id]}
                         {#if requestDetailLoading[log.id]}
-                            <div class="p-4 text-sm text-textcolor2">{language.systemLogsLoading}</div>
+                            <div class="p-4 text-sm text-subtext">{language.systemLogsLoading}</div>
                         {:else if requestDetailErrors[log.id]}
-                            <div class="p-4 text-sm text-draculared">
+                            <div class="p-4 text-sm text-danger">
                                 {language.systemLogsFailedLoad}: {requestDetailErrors[log.id]}
                             </div>
                         {:else if detail}
-                        <div class="p-3 text-xs text-textcolor2 space-y-4">
+                        <div class="p-3 text-xs text-subtext space-y-4">
                             <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
-                                <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
+                                <Button variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
                                     <CopyIcon />
                                     <span>{language.systemLogsCopyEntry}</span>
-                                </ShButton>
-                                <ShButton variant="destructive" size="sm" onclick={() => deleteRequestLog(log)}>
+                                </Button>
+                                <Button variant="destructive" size="sm" onclick={() => deleteRequestLog(log)}>
                                     <Trash2Icon />
                                     <span>{language.systemLogsDeleteEntry}</span>
-                                </ShButton>
+                                </Button>
                             </div>
                         </div>
                         {/if}
                     </Collapsible.Content>
                 </Collapsible.Root>
             {/each}
-        </SettingLayout>
-    </Tooltip.Provider>
+    </SettingLayout>
 {/if}
 
 {#if requestLogsHasMore}
     <div class="flex justify-center mt-3">
-        <ShButton variant="outline" size="default" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
+        <Button variant="outline" size="sm" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
             {requestLogsLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
-        </ShButton>
+        </Button>
     </div>
 {/if}

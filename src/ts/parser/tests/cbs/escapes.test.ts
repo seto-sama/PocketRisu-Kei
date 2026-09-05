@@ -10,7 +10,7 @@ vi.mock(
   import('../../../storage/database.svelte'),
   () =>
     ({
-      appVer: '1234.5.67',
+      pocketKeiVer: '1234.5.67',
       getCurrentCharacter: () => ({}),
       getDatabase: () => ({}),
     }) as typeof import('../../../storage/database.svelte'),
@@ -85,10 +85,6 @@ test('decbo, decbc', () => {
 })
 
 test(';', () => {
-  expect(parse('{{;}}')).toBe(';')
-})
-
-test(':', () => {
   expect(parse('{{;}}')).toBe(';')
 })
 

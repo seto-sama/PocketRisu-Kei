@@ -4,7 +4,7 @@
 </script>
 
 <h2
-    class="relative mb-0 mt-6 text-4xl font-black text-textcolor"
+    class="relative mb-0 mt-6 text-4xl font-black text-maintext"
     aria-label={PRODUCT_NAME}
 >
     <span class="inline-flex items-center whitespace-nowrap">

@@ -1,8 +1,6 @@
-export type LuaCoreMessage = {
-    role?: string
-    data?: string
-    time?: number
-}
+import type { Message } from '../storage/database.svelte'
+
+export type LuaCoreMessage = Partial<Message>
 
 export type LuaCoreChat = {
     message: LuaCoreMessage[]
@@ -187,7 +185,9 @@ export function registerLuaCoreApis(
         if (!adapter.canMutate(String(accessKey))) return
         const parsed = JSON.parse(String(value))
         if (!Array.isArray(parsed)) return
-        adapter.getChat().message = parsed.map(message => ({
+        const previousMessages = adapter.getChat().message
+        adapter.getChat().message = parsed.map((message, index) => ({
+            ...previousMessages[index],
             role: normalizeRole(message?.role),
             data: String(message?.data ?? ''),
             time: message?.time,

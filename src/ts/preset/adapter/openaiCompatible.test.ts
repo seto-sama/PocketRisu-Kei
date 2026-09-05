@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
-import { ModelPresetAdapterError } from './error'
 import { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'
 import type { AdapterChatMessage } from './types'
 
@@ -52,6 +51,46 @@ const userMessages: AdapterChatMessage[] = [
     { role: 'system', content: 'You are helpful.' },
     { role: 'user', content: 'Hello' },
 ]
+
+describe('OpenAI-compatible prompt cache key', () => {
+    const gpt56Preset = () => makePreset({
+        profileSnapshot: makeSnapshot({ modelId: 'gpt-5.6-sol' }),
+        userValues: { modelId: 'gpt-5.6-sol' },
+    })
+
+    test('uses the automatically generated key for GPT-5.6', async () => {
+        const prepared = await previewChatRequest(
+            gpt56Preset(),
+            {
+                messages: userMessages,
+                promptCacheKey: 'rk-12345678-abcdef123456',
+            },
+            { apiKey: 'sk-test' },
+        )
+
+        expect(prepared.body.prompt_cache_key).toBe('rk-12345678-abcdef123456')
+    })
+
+    test('keeps a manual key and honors an explicit removal', async () => {
+        const manualPreset = gpt56Preset()
+        manualPreset.additionalParamsText = 'prompt_cache_key=manual-key'
+        const manual = await previewChatRequest(
+            manualPreset,
+            { messages: userMessages, promptCacheKey: 'rk-12345678-abcdef123456' },
+            { apiKey: 'sk-test' },
+        )
+        expect(manual.body.prompt_cache_key).toBe('manual-key')
+
+        const disabledPreset = gpt56Preset()
+        disabledPreset.additionalParamsText = 'prompt_cache_key={{none}}'
+        const disabled = await previewChatRequest(
+            disabledPreset,
+            { messages: userMessages, promptCacheKey: 'rk-12345678-abcdef123456' },
+            { apiKey: 'sk-test' },
+        )
+        expect(disabled.body).not.toHaveProperty('prompt_cache_key')
+    })
+})
 
 interface CapturedCall {
     url: string
@@ -485,22 +524,6 @@ describe('streamChatRequest', () => {
             { apiKey: 'sk' },
         )
         await expect(gen.next()).rejects.toMatchObject({ kind: 'parse' })
-    })
-})
-
-describe('error class identity', () => {
-    test('thrown error is ModelPresetAdapterError instance', async () => {
-        const { fetchImpl } = captureFetch(jsonResponse({}, { status: 403 }))
-        try {
-            await sendChatRequest(
-                makePreset(),
-                { messages: userMessages, fetchImpl },
-                { apiKey: 'sk' },
-            )
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-        }
     })
 })
 

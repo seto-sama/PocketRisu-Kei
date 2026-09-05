@@ -5,19 +5,30 @@ const require = createRequire(import.meta.url)
 const {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS,
     findReusableActiveMainJob,
+    getUnregisteredWorkflowRetryAfterMs,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs') as {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS: number
     findReusableActiveMainJob: (
         jobs: Array<Record<string, unknown>>,
         request: Record<string, unknown>,
     ) => Record<string, unknown> | undefined
+    getUnregisteredWorkflowRetryAfterMs: (
+        workflow: { createdAt: number },
+        jobs: Array<Record<string, unknown>>,
+        now?: number,
+    ) => number | undefined
     hasRegisteredMainJob: (jobs: Array<Record<string, unknown>>) => boolean
     isUnregisteredWorkflowExpired: (
         workflow: { createdAt: number },
         jobs: Array<Record<string, unknown>>,
         now?: number,
+    ) => boolean
+    shouldSupersedeFailedActiveWorkflow: (
+        workflow: { steps: Array<Record<string, unknown>> },
+        jobs: Array<Record<string, unknown>>,
     ) => boolean
 }
 
@@ -68,5 +79,32 @@ describe('generation route main-job race recovery', () => {
             registered,
             createdAt + UNREGISTERED_WORKFLOW_TIMEOUT_MS,
         )).toBe(false)
+        expect(getUnregisteredWorkflowRetryAfterMs(
+            { createdAt },
+            [],
+            createdAt + 12_250,
+        )).toBe(17_750)
+        expect(getUnregisteredWorkflowRetryAfterMs(
+            { createdAt },
+            registered,
+            createdAt + 12_250,
+        )).toBeUndefined()
+    })
+
+    it('supersedes only failed workflows with no live main request', () => {
+        const failed = {
+            steps: [{ key: 'message.materialize', status: 'failed' }],
+        }
+        expect(shouldSupersedeFailedActiveWorkflow(failed, [
+            { jobType: 'model', status: 'generated' },
+        ])).toBe(true)
+        expect(shouldSupersedeFailedActiveWorkflow(failed, [
+            { jobType: 'model', status: 'generating' },
+        ])).toBe(false)
+        expect(shouldSupersedeFailedActiveWorkflow({
+            steps: [{ key: 'message.materialize', status: 'pending' }],
+        }, [
+            { jobType: 'model', status: 'generated' },
+        ])).toBe(false)
     })
 })

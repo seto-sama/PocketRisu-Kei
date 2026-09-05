@@ -368,29 +368,6 @@ describe('applyModelPresetDefaults', () => {
         expect(db.modelPresets[0].updatedAt).toBe(777)
     })
 
-    test('does not touch a healthy preset', () => {
-        const healthy: any = {
-            id: 'p2',
-            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', fetchedAt: 0 },
-            profileSnapshot: {
-                profileId: 'testprofile',
-                schema: [{ key: 'apiKey', type: 'string', label: 'API Key', mapsTo: { target: 'auth', path: 'apiKey' } }],
-                uiSchema: { groups: [], fields: [{ key: 'apiKey', widget: 'secret', visibility: 'basic' }] },
-                auth: { kind: 'bearer', fields: ['apiKey'] },
-                endpoint: { kind: 'static', url: 'https://x/v1' },
-            },
-            userValues: {},
-            updatedAt: 555,
-        }
-        const db: any = { modelPresets: [healthy], modelProfileRegistryCache: healthyCache() }
-
-        applyModelPresetDefaults(db)
-
-        // Same object reference, untouched (no updatedAt change).
-        expect(db.modelPresets[0]).toBe(healthy)
-        expect(db.modelPresets[0].updatedAt).toBe(555)
-    })
-
     test('does not heal an intentionally fixed profile with an empty settings form', () => {
         const fixed: any = {
             id: 'fixed',

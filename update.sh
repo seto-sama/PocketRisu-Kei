@@ -93,8 +93,10 @@ info "Updating files..."
 # Remove old app files but keep save/ and backups/
 find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 ! -name 'save' ! -name 'backups' ! -name '.installed-version' -exec rm -rf {} +
 
-# Move new files in
-mv "$EXTRACTED_DIR"/* "$EXTRACTED_DIR"/.[!.]* "$SCRIPT_DIR/" 2>/dev/null || true
+# Move all files, including dotfiles, and stop if replacement fails.
+shopt -s dotglob nullglob
+mv "$EXTRACTED_DIR"/* "$SCRIPT_DIR/"
+shopt -u dotglob nullglob
 
 # Restore save/
 if [ -d "$TMP_DIR/_save_backup" ]; then

@@ -1,12 +1,13 @@
 import type { Database } from 'src/ts/storage/database.svelte'
 
+export type TemplateWarning =
+    | { kind: 'missing' | 'multiple'; item: 'main' | 'globalNote' | 'description' | 'lorebook' }
+    | { kind: 'missingChatEnd' }
+    | { kind: 'unconnectedChatRanges'; ranges: number[] }
+
 export function templateCheck(db:Database){
 
     const temp = db.promptTemplate
-    if(!temp){
-        return []
-    }
-
     let mainPrompts = 0
     let notePrompts = 0
     let endRanges:number[] = []
@@ -46,34 +47,34 @@ export function templateCheck(db:Database){
         }
     }
 
-    let warnings:string[] = []
+    let warnings:TemplateWarning[] = []
 
     let unresolvedRanges = startRanges.filter(x => !endRanges.includes(x)).concat(endRanges.filter(x => !startRanges.includes(x)))
 
     if(mainPrompts === 0){
-        warnings.push('No main prompt entry found')
+        warnings.push({ kind: 'missing', item: 'main' })
     }
     if(mainPrompts > 1){
-        warnings.push('Multiple main prompt entries found, this can result in unexpected behavior')
+        warnings.push({ kind: 'multiple', item: 'main' })
     }
     if(notePrompts === 0){
-        warnings.push('No global notes entry found')
+        warnings.push({ kind: 'missing', item: 'globalNote' })
     }
     if(notePrompts > 1){
-        warnings.push('Multiple global notes entries found, this can result in unexpected behavior')
+        warnings.push({ kind: 'multiple', item: 'globalNote' })
     }
     if(!hasDescription){
-        warnings.push('No description entry found')
+        warnings.push({ kind: 'missing', item: 'description' })
     }
     if(!hasLorebook){
-        warnings.push('No lorebook entry found')
+        warnings.push({ kind: 'missing', item: 'lorebook' })
     }
     if(!reachEnd){
-        warnings.push('No chat entry found with range end set to "Until chat end"')
+        warnings.push({ kind: 'missingChatEnd' })
     }
 
     if(unresolvedRanges.length > 0){
-        warnings.push(`Chat are not connected: [${unresolvedRanges.join(', ')}]`)
+        warnings.push({ kind: 'unconnectedChatRanges', ranges: unresolvedRanges })
     }
 
     return warnings

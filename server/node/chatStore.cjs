@@ -104,9 +104,13 @@ function mergeChatStubWithFullChat(stub, fullChat) {
         name: stub.name,
     };
     if ('_stub' in merged) delete merged._stub;
-    if ('lastDate' in stub) merged.lastDate = stub.lastDate;
-    if ('folderId' in stub) merged.folderId = stub.folderId;
-    if ('modules' in stub) merged.modules = stub.modules;
+    // Stub metadata is authoritative, including key absence. Keeping an old
+    // value from the independently stored body when the stub omits a field
+    // resurrects metadata that another client explicitly removed.
+    for (const field of ['lastDate', 'folderId', 'modules']) {
+        if (field in stub) merged[field] = stub[field];
+        else delete merged[field];
+    }
     return merged;
 }
 
@@ -195,24 +199,51 @@ function createCanonicalChatService(options) {
         chatId,
         candidate,
         expectedEtag,
+        acceptMatchingCurrent = false,
         persist,
         reason,
         originClientId,
         finalize,
     }) {
         const previous = getChat(characterId, chatId);
+        const previousEtag = computeChatEtag(previous);
+        // Prompt construction can outlive the browser's debounced autosave.
+        // If that autosave already committed this exact generation input, the
+        // captured ETag is stale but the intended compare-and-swap has already
+        // happened. Rebase only an identical payload; genuinely different
+        // canonical content must still conflict.
+        const commitEtag = acceptMatchingCurrent
+            && computeChatEtag(candidate) === previousEtag
+            ? previousEtag
+            : expectedEtag;
         const result = commitChatContent(
             characterId,
             chatId,
             candidate,
-            expectedEtag,
+            commitEtag,
             { requireExpected: true },
         );
         if (!result.success) {
             throw conflict('Chat content changed on another client', previous);
         }
+        let durableResult = result;
         try {
-            await persist(result.chat);
+            const persisted = await persist(result.chat);
+            // The durable relational store may reconcile independently-owned
+            // list metadata (name/folder/modules) against the submitted body.
+            // Adopt that exact canonical value and ETag before responding or
+            // broadcasting so memory, SQL, and all connected clients agree.
+            if (persisted?.chat) {
+                const durableChat = structuredClone(persisted.chat);
+                durableResult = {
+                    ...result,
+                    ...persisted,
+                    success: true,
+                    chat: durableChat,
+                    etag: persisted.etag ?? computeChatEtag(durableChat),
+                };
+                replaceChat(characterId, chatId, durableChat);
+            }
         } catch (error) {
             replaceChat(characterId, chatId, previous);
             throw error;
@@ -220,27 +251,30 @@ function createCanonicalChatService(options) {
         // Finalization lives in a separate durable store (the generation
         // journal). Once the canonical chat is persisted, never roll it back
         // merely because bookkeeping that can be retried failed afterward.
-        await finalize?.(result);
+        await finalize?.(durableResult);
         publishChatCommitted({
             characterId,
             chatId,
-            etag: result.etag,
+            etag: durableResult.etag,
             reason,
         }, originClientId);
-        return result;
+        return durableResult;
     }
 
     async function commitGenerationInput({ characterId, chatId, chat, expectedEtag }) {
         return queueStorageOperation(async () => {
-            await ensureChatStore();
+            await ensureChatStore(characterId, chatId);
             return commitCandidate({
                 characterId,
                 chatId,
                 candidate: chat,
                 expectedEtag,
+                acceptMatchingCurrent: true,
                 reason: 'generation-input',
-                persist: () => persistNow({
+                persist: chat => persistNow({
                     characterId,
+                    chatId,
+                    chat,
                     generationInput: true,
                 }),
             });
@@ -259,7 +293,7 @@ function createCanonicalChatService(options) {
             if (isAlreadyCommitted?.()) {
                 return { success: true, alreadyCommitted: true };
             }
-            await ensureChatStore();
+            await ensureChatStore(job.characterId, job.roomId);
             const currentChat = getChat(job.characterId, job.roomId);
             if (!currentChat || !Array.isArray(currentChat.message)) {
                 throw new CanonicalChatCommitError(404, 'Target chat not found');
@@ -280,6 +314,9 @@ function createCanonicalChatService(options) {
                 throw new CanonicalChatCommitError(
                     409,
                     error instanceof Error ? error.message : String(error),
+                    error instanceof ChatResultMergeConflict
+                        ? { conflicts: error.paths }
+                        : undefined,
                 );
             }
             return commitCandidate({
@@ -288,8 +325,10 @@ function createCanonicalChatService(options) {
                 candidate,
                 expectedEtag: computeChatEtag(currentChat),
                 reason: 'generation-result',
-                persist: () => persistNow({
+                persist: committedChat => persistNow({
                     characterId: job.characterId,
+                    chatId: job.roomId,
+                    chat: committedChat,
                     mutationPatch,
                 }),
                 finalize,
@@ -305,7 +344,7 @@ function createCanonicalChatService(options) {
         originClientId,
     }) {
         return queueStorageOperation(async () => {
-            await ensureChatStore();
+            await ensureChatStore(characterId, chatId);
             const activeWorkflow = getActiveGenerationWorkflow(characterId, chatId, true);
             const latestWorkflow = activeWorkflow
                 ?? getLatestGenerationWorkflow(characterId, chatId, true);
@@ -362,16 +401,54 @@ function createCanonicalChatService(options) {
                 chatId,
                 candidate,
                 expectedEtag: candidateEtag,
+                // A lost HTTP response may cause the browser to retry the
+                // exact body with its previous ETag. Treat an already-current
+                // payload as an idempotent success; different content still
+                // conflicts at the same CAS boundary.
+                acceptMatchingCurrent: true,
                 reason: 'user-edit',
                 originClientId,
-                persist: async () => schedulePersist(),
+                persist: committedChat => schedulePersist({
+                    characterId,
+                    chatId,
+                    chat: committedChat,
+                }),
+            });
+        });
+    }
+
+    async function commitServerMutation({
+        characterId,
+        chatId,
+        mutate,
+        reason = 'server-mutation',
+    }) {
+        return queueStorageOperation(async () => {
+            await ensureChatStore(characterId, chatId);
+            const currentChat = getChat(characterId, chatId);
+            if (!currentChat || !Array.isArray(currentChat.message)) {
+                throw new CanonicalChatCommitError(404, 'Target chat not found');
+            }
+            const candidate = structuredClone(currentChat);
+            const mutated = await mutate(candidate);
+            return commitCandidate({
+                characterId,
+                chatId,
+                candidate: mutated || candidate,
+                expectedEtag: computeChatEtag(currentChat),
+                reason,
+                persist: committedChat => persistNow({
+                    characterId,
+                    chatId,
+                    chat: committedChat,
+                }),
             });
         });
     }
 
     async function publishCurrent(characterId, chatId, reason = 'canonical-handoff') {
         return queueStorageOperation(async () => {
-            await ensureChatStore();
+            await ensureChatStore(characterId, chatId);
             const chat = getChat(characterId, chatId);
             if (!chat) return false;
             publishChatCommitted({
@@ -387,6 +464,7 @@ function createCanonicalChatService(options) {
     return {
         commitGenerationInput,
         commitGenerationResult,
+        commitServerMutation,
         commitUserEdit,
         publishCurrent,
     };

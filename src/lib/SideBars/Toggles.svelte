@@ -9,15 +9,15 @@
     import { alertConfirm, alertTogglePresets, notifySuccess } from "src/ts/alert";
     import { tooltip } from "src/ts/gui/tooltip";
     import { PinIcon, SaveIcon, FolderHeartIcon } from "@lucide/svelte";
-    import ShAccordion from '../UI/GUI/ShAccordion.svelte'
-    import ShButton from "../UI/GUI/ShButton.svelte";
-    import ShSettings, { type ShSettingsSpacing } from "../UI/GUI/ShSettings.svelte";
-    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
+    import Accordion from '../UI/components/Accordion.svelte'
+    import Button from "../UI/components/Button.svelte";
+    import SettingsList, { type SettingsListSpacing } from "../UI/components/SettingsList.svelte";
+    import Switch from "../UI/components/Switch.svelte";
     import Help from "../Others/Help.svelte";
-    import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import OptionInput from "../UI/GUI/OptionInput.svelte";
-    import TextAreaInput from '../UI/GUI/TextAreaInput.svelte'
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import Select from "../UI/components/Select.svelte";
+    import SelectOption from "../UI/components/SelectOption.svelte";
+    import Textarea from '../UI/components/Textarea.svelte'
+    import Input from "../UI/components/Input.svelte";
 
     interface Props {
         chara?: character
@@ -91,11 +91,7 @@
         })
 
     let hasJailbreakPrompt = $derived.by(() => {
-        const template = DBState.db.promptTemplate
-        if (!template) {
-            return (DBState.db.jailbreak ?? '').trim().length > 0
-        }
-        return templateUsesJailbreakToggle(template)
+        return templateUsesJailbreakToggle(DBState.db.promptTemplate)
     })
 
     function isToggleDirty(key: string): boolean {
@@ -110,10 +106,13 @@
         return norm(current) !== norm(savedVal)
     }
 
-    function toggleRowClass(key: string): string {
+    const toggleRowClass = 'rounded-md gap-0 px-0'
+    const dirtyToggleControlClass = '!border-danger/40 !bg-danger/20 hover:!bg-danger/30 [&_[data-icon-button]]:!text-danger [&_svg]:!text-danger'
+
+    function toggleControlClass(key: string, baseClass = ''): string {
         return isToggleDirty(key)
-            ? 'rounded-md bg-red-900 bg-opacity-15 gap-0 px-0'
-            : 'rounded-md gap-0 px-0'
+            ? `${baseClass} ${dirtyToggleControlClass}`
+            : baseClass
     }
 
 
@@ -150,43 +149,43 @@
 
 </script>
 
-{#snippet toggles(items: sidebarToggle[], reverse: boolean = false, spacing: ShSettingsSpacing = 'divided')}
+{#snippet toggles(items: sidebarToggle[], reverse: boolean = false, spacing: SettingsListSpacing = 'spaced')}
     {#each items as toggle, index}
         {#if toggle.type === 'group' && toggle.children.length > 0}
             <div class={spacing === 'divided' ? 'w-full mt-2' : 'w-full'}>
-                <ShAccordion name={toggle.value} variant="card">
-                    <ShSettings {spacing}>
+                <Accordion name={toggle.value} variant="card">
+                    <SettingsList {spacing}>
                         {@render toggles((toggle as sidebarToggleGroup).children, reverse, spacing)}
-                    </ShSettings>
-                </ShAccordion>
+                    </SettingsList>
+                </Accordion>
             </div>
         {:else if toggle.type === 'select'}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <SettingsList variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <SelectInput className="flex-1 min-w-0" bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]}>
+                <Select className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]}>
                     {#each toggle.options as option, i}
-                        <OptionInput value={i.toString()}>{option}</OptionInput>
+                        <SelectOption value={i.toString()}>{option}</SelectOption>
                     {/each}
-                </SelectInput>
-            </ShSettings>
+                </Select>
+            </SettingsList>
         {:else if toggle.type === 'text'}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <SettingsList variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <TextInput className="flex-1 min-w-0" bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
-            </ShSettings>
+                <Input className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
+            </SettingsList>
         {:else if toggle.type === 'textarea'}
-            <ShSettings variant="row" align="start" className={toggleRowClass(toggle.key)}>
+            <SettingsList variant="row" align="start" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word mt-1.5 pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <TextAreaInput className="flex-1 min-w-0" height='20' bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
-            </ShSettings>
+                <Textarea className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} height='20' bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
+            </SettingsList>
         {:else if toggle.type === 'caption'}
-            <div class="w-full mt-1 pl-1 text-xs text-textcolor2">
+            <div class="w-full mt-1 pl-1 text-xs text-subtext">
                 {toggle.value}
             </div>
         {:else if toggle.type === 'divider'}
@@ -200,33 +199,33 @@
                 </div>
             {/if}
         {:else}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <SettingsList variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <ShSwitch
-                    className="shrink-0"
+                <Switch
+                    className={toggleControlClass(toggle.key, 'shrink-0')}
                     checked={DBState.db.globalChatVariables[`toggle_${toggle.key}`] === '1'}
                     onCheckedChange={(checked) => {
                         DBState.db.globalChatVariables[`toggle_${toggle.key}`] = checked ? '1' : '0'
                     }}
                 />
-            </ShSettings>
+            </SettingsList>
         {/if}
     {/each}
 {/snippet}
 
 {#if !DBState.db.disableToggleBinding}
-<div class="text-[11px] text-textcolor2 mt-4 px-1">{language.toggleBindingLabel}</div>
+<div class="text-[11px] text-subtext mt-4 px-1">{language.toggleBindingLabel}</div>
 <div class="flex gap-1 mt-1 items-stretch">
     {#if isPinned}
         <span use:tooltip={language.togglePinRemove}>
-            <ShButton variant="primary" size="icon" onclick={pinToChat}>
+            <Button variant="primary" size="icon" onclick={pinToChat}>
                 <PinIcon />
-            </ShButton>
+            </Button>
         </span>
         <span class="flex-1 min-w-0 flex" use:tooltip={language.togglePinUpdate}>
-            <ShButton
+            <Button
                 variant={isDirty ? 'destructive' : 'default'}
                 disabled={!isDirty}
                 className="w-full"
@@ -234,41 +233,41 @@
             >
                 <SaveIcon class="shrink-0" />
                 <span class="truncate">{isDirty ? dirtyCount : language.togglePinUpdateLabel}</span>
-            </ShButton>
+            </Button>
         </span>
     {:else}
         <span class="flex-1 min-w-0 flex" use:tooltip={language.togglePinToChat}>
-            <ShButton className="w-full" onclick={pinToChat}>
+            <Button className="w-full" onclick={pinToChat}>
                 <PinIcon class="shrink-0" />
                 <span class="truncate">{language.togglePinLabel}</span>
-            </ShButton>
+            </Button>
         </span>
     {/if}
     <span use:tooltip={language.togglePresetList}>
-        <ShButton size="icon" onclick={openPresetList}>
+        <Button size="icon" onclick={openPresetList}>
             <FolderHeartIcon />
-        </ShButton>
+        </Button>
     </span>
 </div>
 {/if}
 
 {#if !noContainer && groupedToggles.length > 4}
     <div class="h-48 border-darkborderc p-2 border rounded-sm flex flex-col items-start mt-2 overflow-y-auto">
-        <ShSettings spacing="divided">
+        <SettingsList spacing="spaced">
             {#if hasJailbreakPrompt}
-            <ShSettings variant="row" className="gap-0 px-0">
+            <SettingsList variant="row" className="gap-0 px-0">
                 <span class="min-w-0 wrap-break-word pl-1 pr-2">{language.jailbreakToggle}</span>
-                <ShSwitch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
-            </ShSettings>
+                <Switch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
+            </SettingsList>
             {/if}
-            {@render toggles(groupedToggles, true, 'divided')}
+            {@render toggles(groupedToggles, true, 'spaced')}
             {#if chara && DBState.db.hypaV3}
-            <ShSettings variant="row" className="gap-0 px-0">
+            <SettingsList variant="row" className="gap-0 px-0">
                 <span class="flex items-center gap-1 pl-1 pr-2">
                     <span>{language.ToggleHypaMemory}</span>
                     <Help key="toggleHypaMemory" />
                 </span>
-                <ShSwitch
+                <Switch
                     checked={DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]?.supaMemory ?? chara?.supaMemory ?? false}
                     onCheckedChange={() => {
                         const char = DBState.db.characters[$selectedCharID]
@@ -277,29 +276,29 @@
                         chat.supaMemory = !(chat.supaMemory ?? char.supaMemory ?? false)
                     }}
                 />
-            </ShSettings>
+            </SettingsList>
             {/if}
-        </ShSettings>
+        </SettingsList>
     </div>
 {:else}
-    <ShSettings
-        spacing={noContainer ? 'spaced' : 'divided'}
+    <SettingsList
+        spacing="spaced"
         className={noContainer ? 'mt-2' : ''}
     >
         {#if hasJailbreakPrompt}
-        <ShSettings variant="row" className="gap-0 px-0">
+        <SettingsList variant="row" className="gap-0 px-0">
             <span class="min-w-0 wrap-break-word pl-1 pr-2">{language.jailbreakToggle}</span>
-            <ShSwitch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
-        </ShSettings>
+            <Switch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
+        </SettingsList>
         {/if}
-        {@render toggles(groupedToggles, false, noContainer ? 'spaced' : 'divided')}
+        {@render toggles(groupedToggles, false, 'spaced')}
         {#if DBState.db.hypaV3}
-        <ShSettings variant="row" className="gap-0 px-0">
+        <SettingsList variant="row" className="gap-0 px-0">
             <span class="flex items-center gap-1 pl-1 pr-2">
                 <span>{language.ToggleHypaMemory}</span>
                 <Help key="toggleHypaMemory" />
             </span>
-            <ShSwitch
+            <Switch
                 checked={DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]?.supaMemory ?? chara?.supaMemory ?? false}
                 onCheckedChange={() => {
                     const char = DBState.db.characters[$selectedCharID]
@@ -308,7 +307,7 @@
                     chat.supaMemory = !(chat.supaMemory ?? char.supaMemory ?? false)
                 }}
             />
-        </ShSettings>
+        </SettingsList>
         {/if}
-    </ShSettings>
+    </SettingsList>
 {/if}

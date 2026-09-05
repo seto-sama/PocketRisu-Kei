@@ -6,22 +6,24 @@
         importColorScheme,
         updateColorScheme,
     } from 'src/ts/gui/colorscheme';
-    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import ColorInput from '../../../UI/components/ColorInput.svelte';
+    import Switch from '../../../UI/components/Switch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
     import { language } from 'src/lang';
-    import { DownloadIcon, HardDriveUploadIcon } from '@lucide/svelte';
+    import { DownloadIcon, UploadIcon } from '@lucide/svelte';
 
     const colors = [
-        ['bgcolor', 'Background'],
+        ['lightbg', 'Light Background'],
         ['darkbg', 'Dark Background'],
-        ['borderc', 'UI Color 1 (Focus / Strong Border)'],
-        ['selected', 'UI Color 2 (Selected / Hover)'],
-        ['darkBorderc', 'UI Color 3 (Dark Border)'],
-        ['darkbutton', 'UI Color 4 (Button)'],
-        ['textcolor', 'UI Text Color 1'],
-        ['textcolor2', 'UI Text Color 2'],
-        ['draculared', 'Color 1 (Danger / Error)'],
+        ['maintext', 'Main Text Color'],
+        ['subtext', 'Sub Text Color'],
+        ['lightborderc', 'UI Color 1 (Light Border)'],
+        ['darkborderc', 'UI Color 2 (Dark Border)'],
+        ['selected', 'UI Color 3 (Selected / Hover)'],
+        ['button', 'UI Color 4 (Button)'],
+        ['white', 'UI Color 5 (White)'],
+        ['black', 'UI Color 6 (Black)'],
+        ['danger', 'Color 1 (Danger / Error)'],
         ['highlight', 'Color 2 (Highlight / Attention)'],
         ['warning', 'Color 3 (Warning)'],
         ['success', 'Color 4 (Success)'],
@@ -34,7 +36,7 @@
 {#if DBState.db.colorSchemeName === 'custom'}
     <SettingLayout variant="row" title="Dark Mode">
         {#snippet control()}
-            <ShSwitch
+            <Switch
                 checked={DBState.db.colorScheme.type === 'dark'}
                 onCheckedChange={(checked) => changeColorSchemeType(checked ? 'dark' : 'light')}
             />
@@ -56,7 +58,7 @@
         title={language.colorScheme}
         description={language.help.colorSchemeTransferDesc}
         actions={[
-            { label: language.import, onclick: importColorScheme, icon: HardDriveUploadIcon },
+            { label: language.import, onclick: importColorScheme, icon: UploadIcon },
             { label: language.export, onclick: exportColorScheme, icon: DownloadIcon },
         ]}
     />

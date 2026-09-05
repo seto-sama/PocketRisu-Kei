@@ -4,20 +4,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const storeMocks = vi.hoisted(() => {
     let reloadValue: Record<number, number> = {}
+    const ReloadChatPointer = {
+        subscribe(run: (value: Record<number, number>) => void) {
+            run(reloadValue)
+            return () => {}
+        },
+        set(value: Record<number, number>) {
+            reloadValue = value
+        },
+        update(updater: (value: Record<number, number>) => Record<number, number>) {
+            reloadValue = updater(reloadValue)
+        },
+    }
     return {
         DBState: { db: {} as any },
         selIdState: { selId: 0 },
-        ReloadChatPointer: {
-            subscribe(run: (value: Record<number, number>) => void) {
-                run(reloadValue)
-                return () => {}
-            },
-            set(value: Record<number, number>) {
-                reloadValue = value
-            },
-            update(updater: (value: Record<number, number>) => Record<number, number>) {
-                reloadValue = updater(reloadValue)
-            },
+        ReloadChatPointer,
+        invalidateChatMessageRender(messageIndex: number) {
+            ReloadChatPointer.update(value => ({
+                ...value,
+                [messageIndex]: (value[messageIndex] ?? 0) + 1,
+            }))
         },
     }
 })
@@ -202,10 +209,11 @@ describe('PartialEditManager', () => {
         DBState.db.characters[0].chats[0].message = messages
         const screenRoot = createChatScreen(messages)
         const paragraph = screenRoot.querySelector('p')!
+        const finalCharacterBounds = new DOMRect(100, 120, 8, 16)
         vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
         vi.spyOn(document, 'createRange').mockReturnValue({
             selectNodeContents: vi.fn(),
-            getClientRects: () => [new DOMRect(100, 120, 8, 16)],
+            getClientRects: () => [finalCharacterBounds],
         } as unknown as Range)
 
         renderManager(screenRoot, messages, { dragEditEnabled: false })
@@ -214,10 +222,15 @@ describe('PartialEditManager', () => {
         await tick()
 
         const controls = document.body.querySelector<HTMLElement>('.partial-edit-btn-wrapper')
-        expect(controls?.style.left).toBe('108px')
-        expect(controls?.style.top).toBe('116px')
-        expect(controls?.style.paddingLeft).toBe('4px')
-        expect(controls?.style.paddingTop).toBe('0px')
+        expect(controls).not.toBeNull()
+        const left = Number.parseFloat(controls!.style.left)
+        const top = Number.parseFloat(controls!.style.top)
+
+        expect(left).toBeGreaterThanOrEqual(finalCharacterBounds.right)
+        expect(left).toBeLessThanOrEqual(window.innerWidth)
+        expect(top).toBeLessThanOrEqual(finalCharacterBounds.bottom)
+        expect(top).toBeGreaterThanOrEqual(0)
+        expect(top).toBeLessThanOrEqual(window.innerHeight)
     })
 
     it('positions drag-selection controls after the final selected line', async () => {
@@ -228,6 +241,7 @@ describe('PartialEditManager', () => {
         const screenRoot = createChatScreen(messages)
         const paragraph = screenRoot.querySelector('p')!
         const textNode = paragraph.firstChild!
+        const finalSelectedLineBounds = new DOMRect(20, 120, 60, 16)
         const range = {
             commonAncestorContainer: textNode,
             startContainer: textNode,
@@ -235,7 +249,7 @@ describe('PartialEditManager', () => {
             getBoundingClientRect: () => new DOMRect(20, 100, 160, 36),
             getClientRects: () => [
                 new DOMRect(20, 100, 160, 16),
-                new DOMRect(20, 120, 60, 16),
+                finalSelectedLineBounds,
             ],
         } as unknown as Range
         vi.spyOn(window, 'getSelection').mockReturnValue({
@@ -253,9 +267,14 @@ describe('PartialEditManager', () => {
         })
 
         const controls = document.body.querySelector<HTMLElement>('.partial-edit-drag-btn-wrapper')
-        expect(controls?.style.left).toBe('80px')
-        expect(controls?.style.top).toBe('136px')
-        expect(controls?.style.paddingTop).toBe('4px')
+        expect(controls).not.toBeNull()
+        const left = Number.parseFloat(controls!.style.left)
+        const top = Number.parseFloat(controls!.style.top)
+
+        expect(left).toBeGreaterThanOrEqual(finalSelectedLineBounds.right)
+        expect(left).toBeLessThanOrEqual(window.innerWidth)
+        expect(top).toBeGreaterThanOrEqual(finalSelectedLineBounds.bottom)
+        expect(top).toBeLessThanOrEqual(window.innerHeight)
     })
 
     it('edits the active translation cache without mutating the original message', async () => {

@@ -1,44 +1,61 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingPage from "../../../UI/components/SettingPage.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { BotIcon, SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
+    import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../../UI/components/Input.svelte";
     import { onDestroy } from "svelte";
-    import { importMCPModule } from "src/ts/process/mcp/mcp";
+    import { builtInMCPIds, importMCPModule, type BuiltInMCPId } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { getCharImage } from "src/ts/characters";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
+    import SortableList from "../../../UI/components/SortableList.svelte";
     import ModelPresetList from "src/lib/UI/ModelPresetList.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
+    import Dialog from "../../../UI/components/Dialog.svelte";
+    import Select from "../../../UI/components/Select.svelte";
+    import SelectOption from "../../../UI/components/SelectOption.svelte";
+    import ModuleChatMenu from "src/lib/Setting/Pages/Module/ModuleChatMenu.svelte";
+    import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { isEventFromInteractiveChild } from "src/lib/utils";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
         id: v4(),
     })
     let mode = $state(0)
-    let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
     let modelBindingMode = $state(false)
+    let moduleFolderManagementOpen = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
     let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
     let personaSearch = $state('')
     let visiblePersonaIndexes = $state<number[]>([])
     let emptyPersonaMessage = $state('')
-    const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    let mcpImportOpen = $state(false)
+    let mcpImportSource = $state<string>(builtInMCPIds[0])
+    let customMCPAddress = $state('')
+    let mcpImporting = $state(false)
+    const personaTags = $derived(DBState.db.personaTags ?? [])
+    const selectedMCPAddress = $derived(
+        mcpImportSource === 'custom' ? customMCPAddress.trim() : mcpImportSource
+    )
+    const selectedMCPAlreadyImported = $derived(
+        !!selectedMCPAddress && DBState.db.modules.some(rmodule => rmodule.mcp?.url === selectedMCPAddress)
+    )
     DBState.db.moduleModelBindings ??= {}
     let {
         embedded = false,
@@ -54,6 +71,16 @@
             if(search === '') return true
             return rmodule.name.toLowerCase().includes(search.toLowerCase())
         })
+    }
+
+    function toggleGlobalModule(event: MouseEvent, moduleId: string) {
+        event.stopPropagation()
+        const enabledModules = DBState.db.enabledModules ?? []
+        DBState.db.enabledModules = enabledModules.includes(moduleId)
+            ? enabledModules.filter((id) => id !== moduleId)
+            : [...enabledModules, moduleId]
+        refreshModules()
+        void requestImmediateSave()
     }
 
     const visibleModules = $derived(filteredModules(DBState.db.modules, moduleSearch))
@@ -86,7 +113,7 @@
         if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
         if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
-        return "text-textcolor2 risu-interactive-accent cursor-pointer"
+        return "text-subtext risu-interactive-accent cursor-pointer"
     }
 
     function setModuleModelBinding(moduleId: string, presetId: string) {
@@ -179,6 +206,110 @@
         )
     }
 
+    function startCreateModule() {
+        tempModule = {
+            name: '',
+            description: '',
+            id: v4(),
+        }
+        moduleFolderManagementOpen = false
+        mode = 1
+    }
+
+    function duplicateModule(index: number) {
+        const source = DBState.db.modules[index]
+        if (!source || source.mcp) return
+        const duplicate = safeStructuredClone(source)
+        duplicate.id = v4()
+        duplicate.name = `${source.name} ${language.copy}`
+        DBState.db.modules.splice(index + 1, 0, duplicate)
+        DBState.db.modules = [...DBState.db.modules]
+        void requestImmediateSave()
+        notifySuccess(language.moduleDuplicated)
+    }
+
+    async function downloadModule(index: number) {
+        const rmodule = DBState.db.modules[index]
+        if (!rmodule || rmodule.mcp) return
+        const selection = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
+        if (selection === 0) await exportModule(rmodule)
+        else if (selection === 1) await exportModuleLegacy(rmodule)
+    }
+
+    async function deleteModule(index: number) {
+        const rmodule = DBState.db.modules[index]
+        if (!rmodule || !await alertConfirm(`${language.removeConfirm}${rmodule.name}`)) return
+
+        DBState.db.enabledModules = DBState.db.enabledModules.filter((id) => id !== rmodule.id)
+
+        const personaMap = { ...(DBState.db.personaEnabledModules ?? {}) }
+        for (const personaId of Object.keys(personaMap)) {
+            personaMap[personaId] = personaMap[personaId].filter((id) => id !== rmodule.id)
+            if (personaMap[personaId].length === 0) delete personaMap[personaId]
+        }
+        DBState.db.personaEnabledModules = personaMap
+
+        const modelBindings = { ...(DBState.db.moduleModelBindings ?? {}) }
+        delete modelBindings[rmodule.id]
+        DBState.db.moduleModelBindings = modelBindings
+
+        for (const character of DBState.db.characters) {
+            if (character.modules?.includes(rmodule.id)) {
+                character.modules = character.modules.filter((id) => id !== rmodule.id)
+            }
+            for (const chat of character.chats) {
+                if (chat.modules?.includes(rmodule.id)) {
+                    chat.modules = chat.modules.filter((id) => id !== rmodule.id)
+                }
+            }
+        }
+
+        DBState.db.modules = DBState.db.modules.filter((_, moduleIndex) => moduleIndex !== index)
+        void requestImmediateSave()
+        notifySuccess(language.moduleDeleted)
+    }
+
+    function editModule(rmodule: RisuModule) {
+        if (rmodule.mcp) return
+        tempModule = rmodule
+        mode = 2
+    }
+
+    function finishEditingModule() {
+        refreshModules()
+        void requestImmediateSave()
+        mode = 0
+    }
+
+    function builtInMCPLabel(id:BuiltInMCPId):string {
+        switch(id){
+            case 'internal:aiaccess': return language.mcpImport.builtIn.aiAccess
+            case 'internal:risuai': return language.mcpImport.builtIn.risuAccess
+            case 'internal:fs': return language.mcpImport.builtIn.fileSystem
+            case 'internal:googlesearch': return language.mcpImport.builtIn.googleSearch
+            case 'internal:dice': return language.mcpImport.builtIn.dice
+            case 'internal:graphmem': return language.mcpImport.builtIn.graphMemory
+        }
+    }
+
+    function openMCPImportDialog() {
+        mcpImportSource = builtInMCPIds[0]
+        customMCPAddress = ''
+        mcpImportOpen = true
+    }
+
+    async function submitMCPImport() {
+        if (!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting) return
+        mcpImporting = true
+        try {
+            if (await importMCPModule(selectedMCPAddress)) {
+                mcpImportOpen = false
+            }
+        } finally {
+            mcpImporting = false
+        }
+    }
+
     onDestroy(() => {
         refreshModules()
     })
@@ -187,83 +318,85 @@
     <SettingPage title={embedded ? undefined : view === 'mcp' ? 'MCP' : language.modules}>
 
     <SettingLayout variant="search" className="mt-4">
-        <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
+        <Input className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
         {#snippet control()}
         <IconButtonGroup size="lg">
         {#if view === 'modules'}
-            <IconButton onclick={async () => {
-                tempModule = {
-                    name: '',
-                    description: '',
-                    id: v4(),
-                }
-                mode = 1
-            }}>
+            <IconButton onclick={startCreateModule} title={language.createModule} aria-label={language.createModule}>
                 <PlusIcon />
             </IconButton>
             <IconButton
-                className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
+                title={language.importModule}
+                aria-label={language.importModule}
+                onclick={() => { void importModule() }}
+            >
+                <UploadIcon />
+            </IconButton>
+            <IconButton
+                className={modelBindingMode ? 'text-primary' : 'text-subtext'}
                 title={language.moduleModelBindingEnable}
+                aria-label={language.moduleModelBindingEnable}
                 onclick={() => {
                     modelBindingMode = !modelBindingMode
                 }}
             >
                 <BotIcon />
             </IconButton>
-            <IconButton onclick={async () => {
-                importModule()
-            }}>
-                <HardDriveUpload  />
+            <IconButton
+                title={language.moduleTagManagement}
+                aria-label={language.moduleTagManagement}
+                onclick={() => (moduleFolderManagementOpen = true)}
+            >
+                <TagsIcon />
             </IconButton>
         {:else}
-            <IconButton onclick={async () => {
-                await importMCPModule()
-            }}>
-                <Waypoints />
+            <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
+                <WaypointsIcon />
             </IconButton>
         {/if}
         </IconButtonGroup>
         {/snippet}
     </SettingLayout>
 
-    <ShSortableList
+    <SortableList
         className="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
         onReorder={reorderModules}
     >
         {#if managedModuleCount === 0}
-            <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
+            <div class="text-subtext text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
         {:else}
             {#if visibleModules.length === 0}
-                <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+                <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
             {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class="mt-2 flex flex-wrap items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
-                    onclick={() => {
-                        if (rmodule.mcp) return
-                        tempModule = rmodule
-                        editModuleIndex = index
-                        mode = 2
+                    onclick={() => editModule(rmodule)}
+                    onkeydown={(event) => {
+                        if (isEventFromInteractiveChild(event)) return
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        editModule(rmodule)
                     }}
                 >
-                    <div class="flex flex-col min-w-0 grow basis-full sm:basis-0">
-                        <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                    <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
+                        <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
-                                <Waypoints size={16} class="shrink-0 text-textcolor2" />
+                                <WaypointsIcon size={16} class="shrink-0 text-subtext" />
                             {/if}
                             <span class="truncate">{rmodule.name}</span>
                         </span>
-                        <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
+                        <span class="text-xs text-subtext truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
                     <div
                         role="toolbar"
                         tabindex="-1"
                         aria-label={rmodule.name}
-                        class="no-sort shrink-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-2 flex flex-wrap items-center justify-end gap-2"
+                        class={`no-sort shrink-0 ${modelBindingMode ? 'w-full sm:w-auto mt-2 sm:mt-0' : 'ml-2'} flex flex-wrap items-center justify-end gap-2`}
                         onclick={(e) => e.stopPropagation()}
                     >
                         {#if modelBindingMode && !rmodule.mcp}
@@ -280,68 +413,21 @@
                                 className={globalButtonClass(rmodule)}
                                 title={language.enableGlobal}
                                 oncontextmenu={(e) => openPersonaModuleModal(rmodule, e)}
-                                onclick={async (e) => {
-                                e.stopPropagation()
-                                if(DBState.db.enabledModules.includes(rmodule.id)){
-                                    DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                }
-                                else{
-                                    DBState.db.enabledModules.push(rmodule.id)
-                                }
-                                DBState.db.enabledModules = DBState.db.enabledModules
-                            }}
+                                onclick={(event) => toggleGlobalModule(event, rmodule.id)}
                             >
-                                <Globe />
+                                <GlobeIcon />
                             </IconButton>
                             {#if !rmodule.mcp}
-                                <IconButton title={language.download} onclick={async (e) => {
+                                <IconButton title={language.download} onclick={(e) => {
                                     e.stopPropagation()
-                                    const sel = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
-                                    if(sel === 0){
-                                        exportModule(rmodule)
-                                    }
-                                    else if(sel === 1){
-                                        exportModuleLegacy(rmodule)
-                                    }
+                                    void downloadModule(index)
                                 }}>
-                                    <Share2Icon />
-                                </IconButton>
-                                <IconButton title={language.edit} onclick={async (e) => {
-                                    e.stopPropagation()
-                                    tempModule = rmodule
-                                    editModuleIndex = index
-                                    mode = 2
-                                }}>
-                                    <SquarePen />
-                                </IconButton>
-                            {:else}
-                                <IconButton disabled>
-                                    <Share2Icon />
-                                </IconButton>
-                                <IconButton disabled>
-                                    <SquarePen />
+                                    <DownloadIcon />
                                 </IconButton>
                             {/if}
-                            <IconButton tone="destructive" title={language.remove} onclick={async (e) => {
+                            <IconButton tone="destructive" title={language.remove} onclick={(e) => {
                                 e.stopPropagation()
-                                const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
-                                if(d){
-                                    if(DBState.db.enabledModules.includes(rmodule.id)){
-                                        DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                        DBState.db.enabledModules = DBState.db.enabledModules
-                                    }
-                                    const map = {...(DBState.db.personaEnabledModules ?? {})}
-                                    for (const personaId of Object.keys(map)) {
-                                        map[personaId] = map[personaId].filter((id) => id !== rmodule.id)
-                                        if (map[personaId].length === 0) {
-                                            delete map[personaId]
-                                        }
-                                    }
-                                    DBState.db.personaEnabledModules = map
-                                    DBState.db.modules.splice(index, 1)
-                                    DBState.db.modules = DBState.db.modules
-                                    notifySuccess(language.moduleDeleted)
-                                }
+                                void deleteModule(index)
                             }}>
                                 <TrashIcon />
                             </IconButton>
@@ -351,18 +437,18 @@
                 </div>
             {/each}
         {/if}
-    </ShSortableList>
+    </SortableList>
 
     {#if personaModuleTarget}
         <PresetPickerLayout
-            title="페르소나 연동 설정"
-            titleHelp="체크된 페르소나가 사용 중인 채팅에서만 해당 모듈이 활성화됩니다."
-            folders={personaFolders}
-            itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+            title={language.personaModuleBinding}
+            titleHelpKey="personaModuleBinding"
+            folders={personaTags}
+            itemFolderIds={DBState.db.personas.map(persona => persona.tagIds)}
+            organizationKind="tag"
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
-            readOnly
             itemDragDataKey="personaModuleIndex"
             bind:selectedFolder={personaFolder}
             bind:searchQuery={personaSearch}
@@ -371,19 +457,19 @@
             close={closePersonaModuleModal}
             onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
-                DBState.db.personaFolders = next
+                DBState.db.personaTags = next
                 void requestImmediateSave()
             }}
-            onAssignItem={(index, folderId) => {
+            onAssignItem={(index, tagId) => {
                 const persona = DBState.db.personas[index]
                 if (!persona) return
-                persona.folderId = folderId
+                persona.tagIds = togglePresetTag(persona.tagIds, tagId)
                 DBState.db.personas = [...DBState.db.personas]
                 void requestImmediateSave()
             }}
-            onDeleteFolder={(folderId) => {
+            onDeleteFolder={(tagId) => {
                 DBState.db.personas = DBState.db.personas.map(persona =>
-                    persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+                    ({ ...persona, tagIds: removePresetTag(persona.tagIds, tagId) })
                 )
                 void requestImmediateSave()
             }}
@@ -391,18 +477,20 @@
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
-                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
                     {#if persona.icon}
                         {#await getCharImage(persona.icon, 'css') then imageStyle}
                             <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                         {/await}
+                    {:else}
+                        <AvatarFallback className="h-full w-full" iconSize={16} />
                     {/if}
                 </div>
                 <div class="min-w-0 grow truncate">
                     <span>{persona.name}</span>
-                    {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+                    {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
                 </div>
-                <ShSwitch
+                <Switch
                     checked={!!persona.id && personaModuleSelection.includes(persona.id)}
                     className="mr-1"
                 />
@@ -410,31 +498,100 @@
         </PresetPickerLayout>
     {/if}
 
+    {#if moduleFolderManagementOpen}
+        <ModuleChatMenu
+            folderManagement
+            close={() => (moduleFolderManagementOpen = false)}
+            onCreateModule={startCreateModule}
+            onImportModule={importModule}
+            onDuplicateModule={duplicateModule}
+            onExportModule={downloadModule}
+            onDeleteModule={deleteModule}
+        />
+    {/if}
+
     </SettingPage>
 {:else if mode === 1}
     <SettingPage title={language.createModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
-    <ShButton className="mt-6" onclick={() => {
+    <Button className="mt-6" onclick={() => {
         DBState.db.modules.push(tempModule)
         notifySuccess(language.moduleCreated)
         mode = 0
-    }}>{language.createModule}</ShButton>
+    }}>{language.createModule}</Button>
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
+    {#snippet control()}
+        <IconButtonGroup size="xl">
+            {#if tempModule.name !== ''}
+                <IconButton
+                    className="text-subtext"
+                    title={language.convertToCharacter}
+                    aria-label={language.convertToCharacter}
+                    onclick={async () => {
+                        if (!await alertConfirm(language.convertModuleToCharacterConfirm.replace('{}', tempModule.name))) return
+                        const char = convertModuleToCharacter(tempModule)
+                        DBState.db.characters.push(char)
+                        checkCharOrder()
+                        void requestImmediateSave()
+                        notifySuccess(language.successfullyConverted)
+                    }}
+                >
+                    <UserRoundIcon />
+                </IconButton>
+            {/if}
+            <IconButton
+                className="text-subtext"
+                title={language.backToList}
+                aria-label={language.backToList}
+                onclick={finishEditingModule}
+            >
+                <Undo2Icon />
+            </IconButton>
+        </IconButtonGroup>
+    {/snippet}
     <ModuleMenu bind:currentModule={tempModule}/>
-    {#if tempModule.name !== ''}
-        <ShButton className="mt-6" onclick={() => {
-            DBState.db.modules[editModuleIndex] = tempModule
-            notifySuccess(language.moduleUpdated)
-            mode = 0
-        }}>{language.editModule}</ShButton>
-        <ShButton className="mt-2" onclick={() => {
-            const char = convertModuleToCharacter(tempModule)
-            DBState.db.characters.push(char)
-            checkCharOrder()
-            notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</ShButton>
-    {/if}
     </SettingPage>
 {/if}
+
+<Dialog bind:open={mcpImportOpen} size="default" closeOnEscape={!mcpImporting} closeOnOutsideClick={!mcpImporting} closable={!mcpImporting}>
+    {#snippet title()}{language.mcpImport.title}{/snippet}
+    {#snippet description()}{language.mcpImport.description}{/snippet}
+
+    <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+            <span class="text-sm text-subtext">{language.mcpImport.source}</span>
+            <Select bind:value={mcpImportSource}>
+                {#each builtInMCPIds as id}
+                    <SelectOption value={id}>{builtInMCPLabel(id)} ({id})</SelectOption>
+                {/each}
+                <SelectOption value="custom">{language.mcpImport.customSource}</SelectOption>
+            </Select>
+        </div>
+
+        {#if mcpImportSource === 'custom'}
+            <label class="flex flex-col gap-1.5">
+                <span class="text-sm text-subtext">{language.mcpImport.address}</span>
+                <Input
+                    bind:value={customMCPAddress}
+                    placeholder={language.mcpImport.addressPlaceholder}
+                    fullwidth
+                />
+            </label>
+        {/if}
+
+        {#if selectedMCPAlreadyImported}
+            <p class="text-sm text-warning">{language.mcpImport.alreadyImported}</p>
+        {/if}
+    </div>
+
+    {#snippet footer()}
+        <Button variant="outline" onclick={() => (mcpImportOpen = false)} disabled={mcpImporting}>
+            {language.cancel}
+        </Button>
+        <Button onclick={submitMCPImport} disabled={!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting}>
+            {language.import}
+        </Button>
+    {/snippet}
+</Dialog>

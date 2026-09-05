@@ -37,12 +37,14 @@ export interface RevenantChatTranslationRecovery {
             data: string
             translated: boolean
             streaming: boolean
+            autoTranslationSuppressed?: boolean
+            lastOutputAutoTranslationEligible?: boolean
             parseMarkdown: ParseMessageMarkdown
         },
     ) => Promise<boolean>
     waitForResult: (
         snapshot: RevenantChatTranslationRecoverySnapshot,
-    ) => Promise<void>
+    ) => Promise<boolean>
     acknowledgeResolved: (
         snapshot: RevenantChatTranslationRecoverySnapshot,
     ) => Promise<void>
@@ -122,24 +124,38 @@ export function createRevenantChatTranslationRecovery(options: {
             data: string
             translated: boolean
             streaming: boolean
+            autoTranslationSuppressed?: boolean
+            lastOutputAutoTranslationEligible?: boolean
             parseMarkdown: ParseMessageMarkdown
         },
     ): Promise<boolean> {
         if (renderOptions.streaming) return false
         if (!renderOptions.data.trim()) return false
-        if (snapshot.pending || renderOptions.translated) return true
+        if (renderOptions.translated) return true
+        if (renderOptions.autoTranslationSuppressed) return false
         if (!DBState.db.autoTranslate) return false
-        if (
-            !DBState.db.autoTranslateCachedOnly
-            || DBState.db.translatorType !== 'llm'
-        ) return true
+
+        const lastOutputOnly = DBState.db.autoTranslateLastOutputOnly === true
+        const cachedOnly = DBState.db.autoTranslateCachedOnly === true
+            && DBState.db.translatorType === 'llm'
+        const lastOutputEligible = lastOutputOnly
+            && renderOptions.lastOutputAutoTranslationEligible === true
+
+        // With both filters enabled, either one is sufficient. A recoverable
+        // translation is already cache-backed, so it satisfies cached-only.
+        if (snapshot.pending) {
+            return !lastOutputOnly && !cachedOnly
+                || lastOutputEligible
+                || cachedOnly
+        }
+        if (!lastOutputOnly && !cachedOnly) return true
+        if (lastOutputEligible) return true
+        if (!cachedOnly) return false
 
         const translationCacheKey = snapshot.cacheKey
             ?? (DBState.db.translateBeforeHTMLFormatting
                 ? renderOptions.data
-                : !DBState.db.legacyTranslation
-                    ? await renderOptions.parseMarkdown(renderOptions.data, 'pretranslate')
-                    : await renderOptions.parseMarkdown(renderOptions.data, 'notrim'))
+                : await renderOptions.parseMarkdown(renderOptions.data, 'pretranslate'))
         snapshot.cacheKey = translationCacheKey
         const cached = await options.translationCache.get(translationCacheKey) !== null
         return cached
@@ -147,13 +163,14 @@ export function createRevenantChatTranslationRecovery(options: {
 
     async function waitForResult(
         snapshot: RevenantChatTranslationRecoverySnapshot,
-    ): Promise<void> {
-        if (!snapshot.pending || !snapshot.cacheKey || !snapshot.scope) return
+    ): Promise<boolean> {
+        if (!snapshot.pending || !snapshot.cacheKey || !snapshot.scope) return true
         await recoverRevenantTranslationJobs(options.translationCache, {
             force: true,
             scope: snapshot.scope,
             cacheKey: snapshot.cacheKey,
         })
+        return await options.translationCache.get(snapshot.cacheKey) !== null
     }
 
     async function acknowledgeResolved(

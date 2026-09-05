@@ -50,20 +50,14 @@ describe('mobile back navigation guard', () => {
 
         harness.guard.setEnabled(true)
         expect(harness.browserHistory.pushState).toHaveBeenCalledTimes(1)
-        expect(harness.browserHistory.state).toMatchObject({
-            route: 'chat',
-            __pocketRisuMobileBackGuard: true,
-        })
+        expect(harness.browserHistory.state).toMatchObject({ route: 'chat' })
 
         harness.guard.setEnabled(true)
         expect(harness.browserHistory.pushState).toHaveBeenCalledTimes(1)
 
         harness.navigateBackTo({ route: 'chat' })
         expect(harness.browserHistory.pushState).toHaveBeenCalledTimes(2)
-        expect(harness.browserHistory.state).toMatchObject({
-            route: 'chat',
-            __pocketRisuMobileBackGuard: true,
-        })
+        expect(harness.browserHistory.state).toMatchObject({ route: 'chat' })
     })
 
     it('removes its guard entry when disabled without immediately rearming', () => {

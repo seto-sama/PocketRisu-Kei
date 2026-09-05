@@ -1,85 +1,125 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import { DBState } from "src/ts/stores.svelte";
+    import { DBState, HotkeySubmenuIndex } from "src/ts/stores.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import SettingRenderer from "../SettingRenderer.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
+    import Button from "../../UI/components/Button.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import { hotkeyChatScreenItems } from "src/ts/setting/hotkeySettingsData";
+    import { hotkeyActionGroups, isSupportedHotkey, type Hotkey } from "src/ts/defaulthotkeys";
+
+    function orderedHotkeys(actions: readonly string[]) {
+        return actions.flatMap((action) => {
+            const hotkey = DBState.db.hotkeys.find((item) => item.action === action);
+            return hotkey && isSupportedHotkey(hotkey) ? [hotkey] : [];
+        });
+    }
+
+    let toolbarHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.toolbar));
+    let menuHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.menu));
+    let featureHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.features));
+    let sidebarHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.sidebar));
+    let chatInputHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.chatInput));
 
     function formatHotkeyKey(key: string) {
         return key === ' ' ? 'SPACE' : (key?.toLocaleUpperCase() ?? '');
     }
 </script>
 
-<SettingLayout
-    variant="row"
-    title={language.enableHotkeys}
-    description={language.enableHotkeysDesc}
-    className="!border-t-0"
->
-    {#snippet control()}
-        <ShSwitch bind:checked={DBState.db.enableHotkeys} />
-    {/snippet}
-</SettingLayout>
-
-{#if DBState.db.enableHotkeys}
-    <SettingLayout
-        variant="row"
-        title={language.enableScrollToActiveChar}
-        description={language.help.enableScrollToActiveChar}
-    >
-        {#snippet control()}
-            <ShSwitch bind:checked={DBState.db.enableScrollToActiveChar} />
-        {/snippet}
-    </SettingLayout>
-
-    <SettingLayout variant="section" title={language.hotkeyList}>
-        {#each DBState.db.hotkeys as hotkey, index (hotkey.action)}
-            <SettingLayout
-                variant="row"
-                title={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
-                className={index === 0 ? '!border-t-0' : ''}
-            >
+{#snippet hotkeyRows(hotkeys: Hotkey[], firstBorderless: boolean)}
+    {#each hotkeys as hotkey, index (hotkey.action)}
+        <SettingLayout
+            variant="row"
+            title={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
+            className={index === 0 && firstBorderless ? '!border-t-0' : ''}
+        >
                 {#snippet control()}
-                    <div class="flex items-center gap-2">
-                        <ShButton
-                            variant={hotkey.ctrl ? 'default' : 'outline'}
-                            size="sm"
-                            aria-pressed={hotkey.ctrl ?? false}
-                            onclick={() => hotkey.ctrl = !hotkey.ctrl}
-                        >
-                            Ctrl
-                        </ShButton>
-                        <ShButton
-                            variant={hotkey.shift ? 'default' : 'outline'}
-                            size="sm"
-                            aria-pressed={hotkey.shift ?? false}
-                            onclick={() => hotkey.shift = !hotkey.shift}
-                        >
-                            Shift
-                        </ShButton>
-                        <ShButton
-                            variant={hotkey.alt ? 'default' : 'outline'}
-                            size="sm"
-                            aria-pressed={hotkey.alt ?? false}
-                            onclick={() => hotkey.alt = !hotkey.alt}
-                        >
-                            Alt
-                        </ShButton>
-                        <ShInput
-                            value={formatHotkeyKey(hotkey.key)}
-                            readonly
-                            aria-label={`${language.hotkeyDesc[hotkey.action] ?? hotkey.action} ${language.hotkey}`}
-                            className="h-8 min-h-8 w-24 text-center text-sm"
-                            onkeydown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                hotkey.key = event.key;
-                            }}
-                        />
-                    </div>
+                    {#if hotkey.disabled}
+                        <div class="flex h-8 items-center">
+                            <Switch
+                                checked={false}
+                                ariaLabel={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
+                                onCheckedChange={(checked) => hotkey.disabled = !checked}
+                            />
+                        </div>
+                    {:else}
+                        <div class="flex items-center gap-2">
+                            <Button
+                                variant={hotkey.ctrl ? 'default' : 'outline'}
+                                size="sm"
+                                aria-pressed={hotkey.ctrl ?? false}
+                                onclick={() => hotkey.ctrl = !hotkey.ctrl}
+                            >
+                                Ctrl
+                            </Button>
+                            <Button
+                                variant={hotkey.shift ? 'default' : 'outline'}
+                                size="sm"
+                                aria-pressed={hotkey.shift ?? false}
+                                onclick={() => hotkey.shift = !hotkey.shift}
+                            >
+                                Shift
+                            </Button>
+                            <Button
+                                variant={hotkey.alt ? 'default' : 'outline'}
+                                size="sm"
+                                aria-pressed={hotkey.alt ?? false}
+                                onclick={() => hotkey.alt = !hotkey.alt}
+                            >
+                                Alt
+                            </Button>
+                            <Input
+                                value={formatHotkeyKey(hotkey.key)}
+                                readonly
+                                aria-label={`${language.hotkeyDesc[hotkey.action] ?? hotkey.action} ${language.hotkey}`}
+                                className="h-8 min-h-8 w-24 text-center text-sm"
+                                onkeydown={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    if (event.key === 'Backspace') {
+                                        hotkey.disabled = true;
+                                        return;
+                                    }
+                                    hotkey.key = event.key;
+                                    hotkey.disabled = false;
+                                }}
+                            />
+                        </div>
+                    {/if}
                 {/snippet}
-            </SettingLayout>
-        {/each}
-    </SettingLayout>
-{/if}
+        </SettingLayout>
+    {/each}
+{/snippet}
+
+<SettingPage title={language.hotkey}>
+    <SettingTabs
+        tabs={[
+            { label: language.sectionChatView, value: 0 },
+            { label: language.others, value: 1 },
+        ]}
+        bind:selected={$HotkeySubmenuIndex}
+    />
+
+    {#if $HotkeySubmenuIndex === 0}
+        <SettingLayout variant="section" title={language.hotkeyChatInput} first>
+            <SettingRenderer items={hotkeyChatScreenItems} layout="row" />
+            {@render hotkeyRows(chatInputHotkeys, false)}
+        </SettingLayout>
+        <SettingLayout variant="section" title={language.hotkeyToolbar}>
+            {@render hotkeyRows(toolbarHotkeys, true)}
+        </SettingLayout>
+        <SettingLayout variant="section" title={language.accTabSidebar}>
+            {@render hotkeyRows(sidebarHotkeys, true)}
+        </SettingLayout>
+    {:else}
+        <SettingLayout variant="section" title={language.menu} first>
+            {@render hotkeyRows(menuHotkeys, true)}
+        </SettingLayout>
+        <SettingLayout variant="section" title={language.hotkeyFeatures}>
+            {@render hotkeyRows(featureHotkeys, true)}
+        </SettingLayout>
+    {/if}
+</SettingPage>

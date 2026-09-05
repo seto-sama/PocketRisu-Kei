@@ -1,15 +1,14 @@
 <script lang="ts">
-    import { HardDriveUploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
-    import IconButton from "./GUI/IconButton.svelte";
-    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import { UploadIcon, PlusIcon } from "@lucide/svelte";
+    import IconButton from "./components/IconButton.svelte";
+    import IconButtonGroup from "./components/IconButtonGroup.svelte";
 
     interface Props {
         onCreate?: () => void;
         onImport?: () => void;
-        onRename?: () => void;
     }
 
-    let { onCreate, onImport, onRename }: Props = $props();
+    let { onCreate, onImport }: Props = $props();
 </script>
 
 <IconButtonGroup className="pt-2 mt-2 border-t border-darkborderc">
@@ -20,12 +19,7 @@
     {/if}
     {#if onImport}
         <IconButton onclick={onImport}>
-            <HardDriveUploadIcon />
-        </IconButton>
-    {/if}
-    {#if onRename}
-        <IconButton onclick={onRename}>
-            <PencilIcon />
+            <UploadIcon />
         </IconButton>
     {/if}
 </IconButtonGroup>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { hypaV3ProgressStore } from "src/ts/stores.svelte";
-  import Portal from "../UI/GUI/Portal.svelte";
+  import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
 
   let isExpanded = $state(false);
 
@@ -9,17 +9,17 @@
   };
 </script>
 
-<Portal>
+<OverlayPortal>
 {#if isExpanded}
   <div
-    class="absolute w-full h-full z-40 flex justify-center items-center pointer-events-none"
+    class="risu-layer-overlay fixed inset-0 flex h-dvh justify-center items-center pointer-events-none"
   >
     <button
       class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl max-h-full overflow-y-auto transition-opacity duration-300 pointer-events-auto"
       type="button"
       onclick={toggleExpand}
     >
-      <span class="mb-6 text-left text-textcolor2 text-sm"
+      <span class="mb-6 text-left text-subtext text-sm"
         >{$hypaV3ProgressStore.msg || ""}</span
       >
       <div
@@ -29,14 +29,14 @@
           class="h-full bg-linear-to-r risu-saving-gradient saving-animation transition-[width]"
         ></div>
       </div>
-      <span class="w-full mt-6 text-center text-textcolor2 text-sm"
+      <span class="w-full mt-6 text-center text-subtext text-sm"
         >{$hypaV3ProgressStore.subMsg || ""}</span
       >
     </button>
   </div>
 {:else}
   <button
-    class="fixed top-4 right-4 z-40 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
+    class="risu-layer-overlay fixed top-4 right-4 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
     type="button"
     style="opacity: 0.8;"
     onclick={toggleExpand}
@@ -45,14 +45,14 @@
   >
     <div class="w-8 h-8 relative">
       <div
-        class="absolute inset-0 border-t-2 border-draculared rounded-full animate-spin"
+        class="absolute inset-0 border-t-2 border-danger rounded-full animate-spin"
       ></div>
       <div
-        class="absolute inset-1 flex items-center justify-center text-xs text-textcolor"
+        class="absolute inset-1 flex items-center justify-center text-xs text-maintext"
       >
         {$hypaV3ProgressStore.miniMsg || ""}
       </div>
     </div>
   </button>
 {/if}
-</Portal>
+</OverlayPortal>

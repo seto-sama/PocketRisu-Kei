@@ -13,7 +13,7 @@
     let {search}: Props = $props();
 
     function sortChar(char: (character)[]) {
-        return char.map((c, i) => ({
+        return char.flatMap((c, i) => c.trashTime ? [] : [{
                 name: c.name || "Unnamed",
                 image: c.image,
                 chats: c.chats.length,
@@ -21,7 +21,7 @@
                 type: c.type,
                 interaction: c.lastInteraction || 0,
                 agoText: makeAgoText(c.lastInteraction || 0),
-            })).sort((a, b) => {
+            }]).sort((a, b) => {
             if (a.interaction === b.interaction) {
                 return a.name.localeCompare(b.name);
             }
@@ -38,7 +38,7 @@
                 <BarIcon additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
                 <div class="flex flex-1 w-full flex-col justify-start items-start text-start">
                     <span>{char.name}</span>
-                    <div class="text-sm text-textcolor2 flex items-center w-full flex-wrap">
+                    <div class="text-sm text-subtext flex items-center w-full flex-wrap">
                         <span class="mr-1">{char.chats}</span>
                         <MessageSquareIcon size={12} />
                         <span class="mr-1 ml-1">|</span>

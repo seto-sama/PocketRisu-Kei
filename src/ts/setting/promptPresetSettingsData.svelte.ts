@@ -45,7 +45,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         labelKey: 'temperature',
         helpKey: 'tempature',
         bindKey: 'temperature',
-        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true, defaultValue: 100 },
         keywords: ['temperature', 'creativity', 'randomness'],
     },
     {
@@ -54,7 +54,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         fallbackLabel: 'Top K',
         helpKey: 'topK',
         bindKey: 'top_k',
-        options: { min: 0, max: 100, step: 1, disableable: true },
+        options: { min: 0, max: 100, step: 1, disableable: true, defaultValue: 0 },
         keywords: ['top', 'k', 'sampling'],
     },
     {
@@ -63,7 +63,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         fallbackLabel: 'Top P',
         helpKey: 'topP',
         bindKey: 'top_p',
-        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true, defaultValue: 1 },
         keywords: ['top', 'p', 'nucleus', 'sampling'],
     },
     {
@@ -72,7 +72,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         fallbackLabel: 'Min P',
         helpKey: 'minP',
         bindKey: 'min_p',
-        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true, defaultValue: 0 },
         keywords: ['min', 'p', 'sampling'],
     },
     {
@@ -81,7 +81,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         fallbackLabel: 'Top A',
         helpKey: 'topA',
         bindKey: 'top_a',
-        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 1, step: 0.01, fixed: 2, disableable: true, defaultValue: 0 },
         keywords: ['top', 'a', 'sampling'],
     },
     {
@@ -90,7 +90,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         fallbackLabel: 'Repetition penalty',
         helpKey: 'repetitionPenalty',
         bindKey: 'repetition_penalty',
-        options: { min: 0, max: 2, step: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 2, step: 0.01, fixed: 2, disableable: true, defaultValue: 1 },
         keywords: ['repetition', 'penalty'],
     },
     {
@@ -99,7 +99,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         labelKey: 'frequencyPenalty',
         helpKey: 'frequencyPenalty',
         bindKey: 'frequencyPenalty',
-        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true, defaultValue: 70 },
         keywords: ['frequency', 'penalty', 'repetition'],
     },
     {
@@ -108,7 +108,7 @@ export const promptPresetParameterItems: SettingItem[] = [
         labelKey: 'presensePenalty',
         helpKey: 'presensePenalty',
         bindKey: 'PresensePenalty',
-        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true },
+        options: { min: 0, max: 200, multiple: 0.01, fixed: 2, disableable: true, defaultValue: 70 },
         keywords: ['presence', 'penalty'],
     },
 ];

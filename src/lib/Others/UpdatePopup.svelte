@@ -3,9 +3,9 @@
     import { openURL } from "src/ts/globalApi.svelte";
     import { SaveServerBackup } from "src/ts/drive/backuplocal";
     import { language } from "src/lang";
-    import { ArrowUpCircle, AlertTriangle, Download, Loader, CheckCircle, XCircle, SaveIcon } from "@lucide/svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import { ArrowUpCircleIcon, AlertTriangleIcon, DownloadIcon, LoaderIcon, CheckCircleIcon, XCircleIcon, SaveIcon } from "@lucide/svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Button from "../UI/components/Button.svelte";
 
     const info: UpdateInfo | null = $derived($updatePopupStore);
     const progress: SelfUpdateProgress | null = $derived($selfUpdateProgressStore);
@@ -35,7 +35,7 @@
         }
     }
 
-    /** ShDialog.onOpenChange close path — routes through handleDone when an
+    /** Dialog.onOpenChange close path — routes through handleDone when an
      *  update has finished (so reload fires) and through dismiss otherwise. */
     function handleClose() {
         if (isUpdating) handleDone()
@@ -44,20 +44,19 @@
 </script>
 
 <!--
-    tier="base" so any alertError / alertConfirm fired during the update
-    surfaces above this popup. closeOnOutsideClick stays false because
+    Nested alerts are placed above this popup by the shared overlay stack.
+    closeOnOutsideClick stays false because
     showUpdatePopupOnce() persists the dismiss before render — accidental
     backdrop clicks would silently drop the version forever. ESC stays
     blocked per branch convention.
 -->
 {#if info}
-    <ShDialog
+    <Dialog
         open={true}
         onOpenChange={(v) => { if (!v) handleClose() }}
         closable={canClose}
         closeOnEscape={false}
         closeOnOutsideClick={false}
-        tier="base"
         size="sm"
         footer={canClose ? footerActions : undefined}
     >
@@ -65,25 +64,25 @@
             <span class="inline-flex items-center gap-2.5">
                 {#if isUpdating}
                     {#if progress?.step === 'error'}
-                        <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                            <XCircle size={20} class="text-draculared" />
+                        <span class="p-2 rounded-full bg-danger/20" aria-hidden="true">
+                            <XCircleIcon size={20} class="text-danger" />
                         </span>
                     {:else if progress?.step === 'done'}
                         <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
-                            <CheckCircle size={20} class="text-success" />
+                            <CheckCircleIcon size={20} class="text-success" />
                         </span>
                     {:else}
-                        <span class="p-2 rounded-full bg-borderc/20" aria-hidden="true">
-                            <Loader size={20} class="text-borderc animate-spin" />
+                        <span class="p-2 rounded-full bg-primary/20" aria-hidden="true">
+                            <LoaderIcon size={20} class="text-primary animate-spin" />
                         </span>
                     {/if}
                 {:else if info.severity === 'optional'}
                     <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
-                        <ArrowUpCircle size={20} class="text-success" />
+                        <ArrowUpCircleIcon size={20} class="text-success" />
                     </span>
                 {:else}
-                    <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                        <AlertTriangle size={20} class="text-draculared" />
+                    <span class="p-2 rounded-full bg-danger/20" aria-hidden="true">
+                        <AlertTriangleIcon size={20} class="text-danger" />
                     </span>
                 {/if}
                 <span>
@@ -99,71 +98,71 @@
         {/snippet}
 
         {#if isUpdating}
-            <p class="text-sm text-textcolor2 leading-relaxed">{progress?.message}</p>
+            <p class="text-sm text-subtext leading-relaxed">{progress?.message}</p>
             {#if progress?.step === 'done'}
-                <p class="mt-2 text-sm text-textcolor2">{language.selfUpdateReloadHint}</p>
+                <p class="mt-2 text-sm text-subtext">{language.selfUpdateReloadHint}</p>
             {/if}
             {#if progress?.step === 'downloading' && progress.progress != null}
                 <div class="mt-3 w-full bg-selected rounded-full h-2 overflow-hidden">
-                    <div class="h-full bg-borderc rounded-full transition-all duration-300"
+                    <div class="h-full bg-lightborderc rounded-full transition-all duration-300"
                         style="width: {progress.progress}%"></div>
                 </div>
-                <p class="mt-1 text-xs text-textcolor2 text-right">{progress.progress}%</p>
+                <p class="mt-1 text-xs text-subtext text-right">{progress.progress}%</p>
             {/if}
         {:else}
-            <p class="text-sm text-textcolor2 leading-relaxed">
+            <p class="text-sm text-subtext leading-relaxed">
                 {@html language.updatePopupDesc
                     .replace('{{latest}}', info.latestVersion)
                     .replace('{{current}}', info.currentVersion)}
             </p>
 
             {#if info.releaseName}
-                <p class="mt-2 text-sm text-textcolor">{info.releaseName}</p>
+                <p class="mt-2 text-sm text-maintext">{info.releaseName}</p>
             {/if}
 
             {#if info.popupMessage}
-                <div class="mt-3 text-sm text-textcolor2 leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
+                <div class="mt-3 text-sm text-subtext leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
                     {info.popupMessage}
                 </div>
             {/if}
         {/if}
-    </ShDialog>
+    </Dialog>
 {/if}
 
 {#snippet footerActions()}
     {#if isUpdating}
         {#if progress?.step === 'done'}
-            <ShButton variant="success" onclick={handleDone}>
+            <Button variant="success" onclick={handleDone}>
                 {language.selfUpdateReload}
-            </ShButton>
+            </Button>
         {:else if progress?.step === 'error'}
-            <ShButton variant="outline" onclick={handleDone}>
+            <Button variant="outline" onclick={handleDone}>
                 {language.close}
-            </ShButton>
+            </Button>
         {/if}
     {:else if info}
-        <ShButton variant="outline" onclick={dismissUpdatePopup}>
+        <Button variant="outline" onclick={dismissUpdatePopup}>
             {language.updatePopupLater}
-        </ShButton>
-        <ShButton variant="outline" onclick={() => SaveServerBackup()}>
+        </Button>
+        <Button variant="outline" onclick={() => SaveServerBackup()}>
             <SaveIcon />
             {language.updatePopupBackup}
-        </ShButton>
+        </Button>
         {#if info.canSelfUpdate}
-            <ShButton
+            <Button
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={handleSelfUpdate}
             >
-                <Download size={12} />
+                <DownloadIcon size={12} />
                 {language.selfUpdateNow}
-            </ShButton>
+            </Button>
         {:else}
-            <ShButton
+            <Button
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={() => { openURL(info.releaseUrl); dismissUpdatePopup(); }}
             >
                 {language.updatePopupViewRelease}
-            </ShButton>
+            </Button>
         {/if}
     {/if}
 {/snippet}

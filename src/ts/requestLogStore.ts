@@ -11,6 +11,11 @@ export interface FetchLogSummary {
     status?: number
     clientId?: string
     platform?: string
+    provider?: string
+    model?: string
+    responseDurationMs?: number | null
+    promptTokens?: number
+    completionTokens?: number
 }
 
 export interface FetchLog extends FetchLogSummary {

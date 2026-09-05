@@ -1,10 +1,12 @@
 <script lang="ts">
     import type { Component, Snippet } from 'svelte';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte';
+    import Button from '../../UI/components/Button.svelte';
+    import Badge from '../../UI/components/Badge.svelte';
     import { Collapsible } from 'bits-ui';
     import { ChevronDownIcon, FilterIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
+    import SettingRow from './SettingRow.svelte';
+    import { isEventFromInteractiveChild } from 'src/lib/utils';
 
     let {
         variant,
@@ -15,7 +17,7 @@
         framed = false,
         embedded = false,
         interactive = false,
-        scrollable = false,
+        inlineRenameRow = false,
         shownCount = 0,
         totalCount = 0,
         loading = false,
@@ -46,7 +48,7 @@
         framed?: boolean;
         embedded?: boolean;
         interactive?: boolean;
-        scrollable?: boolean;
+        inlineRenameRow?: boolean;
         shownCount?: number;
         totalCount?: number;
         loading?: boolean;
@@ -77,6 +79,16 @@
         control?: Snippet;
         children?: Snippet;
     } = $props();
+
+    function handleInteractiveClick(event: MouseEvent) {
+        if (isEventFromInteractiveChild(event)) return;
+        onclick?.(event);
+    }
+
+    function handleInteractiveKeydown(event: KeyboardEvent) {
+        if (isEventFromInteractiveChild(event)) return;
+        onkeydown?.(event);
+    }
 </script>
 
 {#if variant === 'panel'}
@@ -87,16 +99,20 @@
     {#if interactive}
         <div
             class="flex w-full items-center gap-3 px-3 py-2 cursor-pointer risu-interactive-surface {className}"
+            data-inline-rename-row={inlineRenameRow ? '' : undefined}
             role="button"
             tabindex="0"
-            {onclick}
-            {onkeydown}
+            onclick={handleInteractiveClick}
+            onkeydown={handleInteractiveKeydown}
         >
             {@render children?.()}
             {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
         </div>
     {:else}
-        <div class="flex w-full items-center gap-3 px-3 py-2 {className}">
+        <div
+            class="flex w-full items-center gap-3 px-3 py-2 {className}"
+            data-inline-rename-row={inlineRenameRow ? '' : undefined}
+        >
             {@render children?.()}
             {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
         </div>
@@ -107,16 +123,15 @@
         class:border={!embedded}
         class:border-darkborderc={!embedded}
         class:rounded-md={!embedded}
-        class:overflow-y-auto={scrollable}
     >
         {@render children?.()}
     </div>
 {:else if variant === 'status'}
-    <div class="text-textcolor2 text-xs flex items-center gap-2 {framed ? 'px-3 py-2 border-b border-darkborderc/50 bg-darkbg/30' : 'mb-2'} {className}">
+    <div class="text-subtext text-xs flex items-center gap-2 {framed ? 'px-3 py-2 border-b border-darkborderc/50 bg-darkbg/30' : 'mb-2'} {className}">
         {#if loading}
             <span>{loadingLabel ?? language.systemLogsLoading}</span>
         {:else if error}
-            <span class="text-draculared">{error}</span>
+            <span class="text-danger">{error}</span>
         {:else}
             <span>{language.systemLogsFiltered(shownCount, totalCount)}</span>
         {/if}
@@ -124,16 +139,16 @@
 {:else if variant === 'filter'}
     <Collapsible.Root bind:open>
         <div class="flex items-center justify-between gap-2">
-            <Collapsible.Trigger class="group flex items-center gap-1 text-textcolor2 risu-interactive-foreground text-sm transition-colors">
+            <Collapsible.Trigger class="group flex items-center gap-1 text-subtext risu-interactive-foreground text-sm transition-colors">
                 <FilterIcon size={12} />
                 <span>{title}</span>
-                {#if activeCount > 0}<ShBadge variant="secondary" className="ml-1">{activeCount}</ShBadge>{/if}
+                {#if activeCount > 0}<Badge variant="secondary" className="ml-1">{activeCount}</Badge>{/if}
                 <ChevronDownIcon size={16} class="transition-transform group-data-[state=closed]:-rotate-90" />
             </Collapsible.Trigger>
             {#if (activeCount > 0 && clearLabel && onClear) || control}
                 <div class="flex items-center gap-2 shrink-0">
                     {#if activeCount > 0 && clearLabel && onClear}
-                        <button class="text-textcolor2 risu-interactive-foreground text-xs cursor-pointer" onclick={onClear}>{clearLabel}</button>
+                        <button class="text-subtext risu-interactive-foreground text-xs cursor-pointer" onclick={onClear}>{clearLabel}</button>
                     {/if}
                     {#if control}{@render control()}{/if}
                 </div>
@@ -149,11 +164,11 @@
         {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
     </div>
 {:else if variant === 'action'}
-    <div class="flex items-center justify-between gap-3 p-3 border border-darkborderc/50 rounded-md bg-bgcolor/50 {className}">
+    <div class="flex items-center justify-between gap-3 p-3 border border-darkborderc/50 rounded-md bg-lightbg/50 {className}">
         <div class="flex flex-col min-w-0 flex-1">
-            <span class="text-textcolor text-sm font-medium">{title}</span>
+            <span class="text-maintext text-sm font-medium">{title}</span>
             {#if description}
-                <span class="text-textcolor2 text-xs leading-relaxed mt-0.5">{description}</span>
+                <span class="text-subtext text-xs leading-relaxed mt-0.5">{description}</span>
             {/if}
         </div>
         <div class="shrink-0">
@@ -162,23 +177,23 @@
             {:else if actions.length > 0}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     {#each actions as action}
-                        <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
                             {#if action.icon}
                                 {@const ActionIcon = action.icon}
                                 <ActionIcon />
                             {/if}
                             {action.label}
-                        </ShButton>
+                        </Button>
                     {/each}
                 </div>
             {:else if actionLabel && onAction}
-                <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
                     {#if actionIcon}
                         {@const ActionIcon = actionIcon}
                         <ActionIcon />
                     {/if}
                     {actionLabel}
-                </ShButton>
+                </Button>
             {/if}
         </div>
     </div>
@@ -188,41 +203,33 @@
         {@render children?.()}
     </section>
 {:else}
-    <div class="py-3 border-t border-darkborderc {className}" class:flex={!stacked} class:items-center={!stacked} class:justify-between={!stacked} class:gap-3={!stacked}>
-        <div class="flex flex-col min-w-0">
-            <span class="text-sm text-textcolor">{title}</span>
-            {#if description}
-                <p class="text-xs text-textcolor2 mt-0.5">{description}</p>
+    <SettingRow {title} {description} {stacked} {className}>
+        {#snippet control()}
+            {#if stacked}
+                {@render children?.()}
+            {:else if control}
+                {@render control()}
+            {:else if actions.length > 0}
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                    {#each actions as action}
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                            {#if action.icon}
+                                {@const ActionIcon = action.icon}
+                                <ActionIcon />
+                            {/if}
+                            {action.label}
+                        </Button>
+                    {/each}
+                </div>
+            {:else if actionLabel && onAction}
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                    {#if actionIcon}
+                        {@const ActionIcon = actionIcon}
+                        <ActionIcon />
+                    {/if}
+                    {actionLabel}
+                </Button>
             {/if}
-        </div>
-        {#if stacked}
-            <div class="mt-2">{@render children?.()}</div>
-        {:else}
-            <div class="shrink-0">
-                {#if control}
-                    {@render control()}
-                {:else if actions.length > 0}
-                    <div class="flex items-center gap-2 flex-wrap justify-end">
-                        {#each actions as action}
-                            <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
-                                {#if action.icon}
-                                    {@const ActionIcon = action.icon}
-                                    <ActionIcon />
-                                {/if}
-                                {action.label}
-                            </ShButton>
-                        {/each}
-                    </div>
-                {:else if actionLabel && onAction}
-                    <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
-                        {#if actionIcon}
-                            {@const ActionIcon = actionIcon}
-                            <ActionIcon />
-                        {/if}
-                        {actionLabel}
-                    </ShButton>
-                {/if}
-            </div>
-        {/if}
-    </div>
+        {/snippet}
+    </SettingRow>
 {/if}

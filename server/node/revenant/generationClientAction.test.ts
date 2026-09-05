@@ -25,6 +25,10 @@ describe('generation workflow client actions', () => {
             const busy = db.claimGenerationWorkflowClientAction(
                 'workflow-1', 'trigger.output', 'trigger.0.provider', 'other-client', 60000,
             );
+            const takeover = db.claimGenerationWorkflowClientAction(
+                'workflow-1', 'trigger.output', 'trigger.0.provider', 'other-client', 60000,
+                () => false,
+            );
             db.createGenerationJob({
                 jobId: 'child-job-1', chatId: 'aux-1', jobType: 'otherAx',
                 characterId: 'character-1', roomId: 'room-1', workflowId: 'workflow-1',
@@ -32,17 +36,17 @@ describe('generation workflow client actions', () => {
             });
             db.finishGenerationJob('child-job-1', 'generated', 'provider_complete');
             const stale = db.resolveGenerationWorkflowClientAction(
-                'workflow-1', 'trigger.output', 'trigger.0.provider', 'other-client', { result: 'wrong' },
+                'workflow-1', 'trigger.output', 'trigger.0.provider', 'new-client', { result: 'wrong' },
             );
             const resolved = db.resolveGenerationWorkflowClientAction(
-                'workflow-1', 'trigger.output', 'trigger.0.provider', 'new-client', { result: 'ok' },
+                'workflow-1', 'trigger.output', 'trigger.0.provider', 'other-client', { result: 'ok' },
             );
             const duplicate = db.resolveGenerationWorkflowClientAction(
-                'workflow-1', 'trigger.output', 'trigger.0.provider', 'new-client', { result: 'ignored' },
+                'workflow-1', 'trigger.output', 'trigger.0.provider', 'other-client', { result: 'ignored' },
             );
             const consumed = db.consumeGenerationWorkflowClientActionJobs('workflow-1', 'trigger.0.provider');
             process.stdout.write(JSON.stringify({
-                first, busy, stale, resolved, duplicate, consumed,
+                first, busy, takeover, stale, resolved, duplicate, consumed,
                 workflow: db.getGenerationWorkflow('workflow-1'),
                 child: db.getGenerationJob('child-job-1', false),
             }));
@@ -55,6 +59,7 @@ describe('generation workflow client actions', () => {
             const result = JSON.parse(output)
             expect(result.first).toMatchObject({ busy: false, claim: { clientId: 'new-client' } })
             expect(result.busy).toMatchObject({ busy: true, claim: { clientId: 'new-client' } })
+            expect(result.takeover).toMatchObject({ busy: false, claim: { clientId: 'other-client' } })
             expect(result.stale).toMatchObject({ staleClaim: true })
             expect(result.resolved).toEqual({ alreadyResolved: false })
             expect(result.duplicate).toEqual({ alreadyResolved: true })

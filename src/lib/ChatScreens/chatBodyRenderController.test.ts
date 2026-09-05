@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
     db: {
         translatorType: 'llm',
-        legacyTranslation: true,
         translateBeforeHTMLFormatting: false,
     },
     getLLMCache: vi.fn(async () => null),
@@ -22,10 +21,6 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
     postTranslationParse: (value: string) => value,
 }))
-vi.mock('../../ts/util', () => ({
-    sleep: async () => {},
-}))
-
 import { createChatBodyRenderController, hasSharedTranslationTask } from './chatBodyRenderController.svelte'
 
 function createDeferredTranslation() {
@@ -73,7 +68,6 @@ function renderTranslation(
 describe('chat body translation task lifetime', () => {
     beforeEach(() => {
         mocks.db.translatorType = 'llm'
-        mocks.db.legacyTranslation = true
         mocks.db.translateBeforeHTMLFormatting = false
         mocks.getLLMCache.mockResolvedValue(null)
         mocks.translateHTML.mockReset()

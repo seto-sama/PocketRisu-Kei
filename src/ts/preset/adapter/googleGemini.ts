@@ -5,6 +5,7 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
 } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
@@ -519,7 +520,9 @@ async function deriveHttpError(response: Response): Promise<ModelPresetAdapterEr
         // ignore body read failures
     }
     const message = extractErrorMessage(bodyText) ?? `HTTP ${response.status}`
-    return normalizeHttpStatus(response.status, message)
+    return normalizeHttpStatus(response.status, message, {
+        retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+    })
         ?? new ModelPresetAdapterError('unknown', message, { status: response.status })
 }
 

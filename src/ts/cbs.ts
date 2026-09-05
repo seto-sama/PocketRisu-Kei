@@ -50,7 +50,7 @@ export const defaultCBSRegisterArg: CBSRegisterArg = {
     callInternalFunction: (args: string[]) => {return ''},
     isNodeServer: false,
     isMobile: false,
-    appVer: '0.0.0',
+    pocketKeiVer: '0.0.0',
 };
 
 export type matcherArg = {
@@ -68,6 +68,10 @@ export type matcherArg = {
     text?: string,
     recursiveCount?: number
     lowLevelAccess?: boolean
+    variableOverrides?: {
+        chat?: Record<string, string>
+        global?: Record<string, string>
+    }
     cbsConditions: CbsConditions
     triggerId?: string
     getNested?: () => string[]
@@ -91,6 +95,7 @@ export type CBSDefinition = {
         replacement?: string
     }
     internalOnly?: boolean
+    preview?: 'expression'|'chatVariable'|'globalVariable'|'condition'
 }
 
 export type CBSRegisterArg = {
@@ -118,12 +123,12 @@ export type CBSRegisterArg = {
     callInternalFunction: (args: string[]) => string,
     isNodeServer: boolean,
     isMobile: boolean,
-    appVer: string,
+    pocketKeiVer: string,
 }
 
 export function registerCBS(arg:CBSRegisterArg) {
     const { 
-        registerFunction, 
+        registerFunction: registerFunctionCallback,
         getDatabase, 
         getUserName, 
         getTriggerId,
@@ -146,9 +151,21 @@ export function registerCBS(arg:CBSRegisterArg) {
         getGenerationModelMetadata,
         isNodeServer,
         isMobile, 
-        appVer, 
+        pocketKeiVer,
         callInternalFunction
     } = arg;
+
+    const registeredNames = new Map<string, string>()
+    const registerFunction:CBSRegisterArg['registerFunction'] = definition => {
+        for(const name of [definition.name, ...definition.alias]){
+            const owner = registeredNames.get(name)
+            if(owner){
+                throw new Error(`Duplicate CBS name or alias: ${name} (${owner}, ${definition.name})`)
+            }
+            registeredNames.set(name, definition.name)
+        }
+        return registerFunctionCallback(definition)
+    }
 
     // Basic character/user variables
     registerFunction({
@@ -174,6 +191,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return currentChar.nickname || currentChar.name
         },
         alias: ['bot'],
+        preview: 'expression',
         description: 'Returns the name or nickname of the current character/bot. In consistent character mode, returns "botname". For group chats, returns the group name.\n\nUsage:: {{char}}',
     });
 
@@ -186,6 +204,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return getUserName()
         },
         alias: [],
+        preview: 'expression',
         description: 'Returns the current user\'s name as set in user settings. In consistent character mode, returns "username".\n\nUsage:: {{user}}',
     });
 
@@ -214,7 +233,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             return chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
         },
-        alias: ['previouscharchat', 'lastcharmessage'],
+        alias: ['lastcharmessage'],
         description: 'Returns the last message sent by the character in the current chat. Searches backwards from the current message position to find the most recent character message. If no character messages exist, returns the first message or selected alternate greeting.\n\nUsage:: {{previouscharchat}}',
     });
     
@@ -237,7 +256,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             return ''
         },
-        alias: ['previoususerchat', 'lastusermessage'],
+        alias: ['lastusermessage'],
         description: 'Returns the last message sent by the user in the current chat. Searches backwards from the current message position to find the most recent user message. Only works when chatID is available (not -1). Returns empty string if no user messages found.\n\nUsage:: {{previoususerchat}}',
     });
 
@@ -381,7 +400,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             const db = getDatabase()
             return risuChatParser(db.globalNote, matcherArg)
         },
-        alias: ['globalnote', 'systemnote', 'ujb'],
+        alias: ['systemnote', 'ujb'],
         description: 'Returns the global note (also called system note) that is appended to prompts. The text is processed through the chat parser for variable substitution.\n\nUsage:: {{globalnote}}',
     });
 
@@ -395,11 +414,9 @@ export function registerCBS(arg:CBSRegisterArg) {
                 return risuChatParser(chat.note, matcherArg)
             }
             const template = db.promptTemplate
-            if(template){
-                for(const v of template){
-                    if(v.type === 'authornote' && v.defaultText){
-                        return risuChatParser(v.defaultText, matcherArg)
-                    }
+            for(const v of template){
+                if(v.type === 'authornote' && v.defaultText){
+                    return risuChatParser(v.defaultText, matcherArg)
                 }
             }
             return ''
@@ -507,16 +524,6 @@ export function registerCBS(arg:CBSRegisterArg) {
         },
         alias: [],
         description: 'Returns the current unix timestamp in seconds as a string. Useful for time-based calculations and logging.\n\nUsage:: {{unixtime}}',
-    });
-
-    registerFunction({
-        name: 'time',
-        callback: (str, matcherArg, args, vars) => {
-            const now = new Date()
-            return `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`
-        },
-        alias: [],
-        description: 'Returns the current local time in HH:MM:SS format. Updates in real-time when the function is called.\n\nUsage:: {{time}}',
     });
 
     registerFunction({
@@ -689,7 +696,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             return '0'
         },
-        alias: ['isfirstmsg', 'isfirstmessage'],
+        alias: ['isfirstmessage'],
         description: 'Returns "1" if the current context is the first message/greeting, "0" otherwise. Checks the firstmsg condition flag.\n\nUsage:: {{isfirstmsg}}',
     });
 
@@ -786,9 +793,10 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'getvar',
         callback: (str, matcherArg, args, vars) => {
-            return getChatVar(args[0])
+            return matcherArg.variableOverrides?.chat?.[args[0]] ?? getChatVar(args[0])
         },
         alias: [],
+        preview: 'chatVariable',
         description: 'Gets the value of a persistent chat variable by name. Chat variables are saved with the chat and persist between sessions. Returns empty string if variable doesn\'t exist.\n\nUsage:: {{getvar::variableName}}',
     });
 
@@ -855,9 +863,10 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'getglobalvar',
         callback: (str, matcherArg, args, vars) => {
-            return getGlobalChatVar(args[0])
+            return matcherArg.variableOverrides?.global?.[args[0]] ?? getGlobalChatVar(args[0])
         },
         alias: [],
+        preview: 'globalVariable',
         description: 'Gets the value of a global chat variable by name. Global variables are shared across all chats and characters. Returns empty string if variable doesn\'t exist.\n\nUsage:: {{getglobalvar::variableName}}',
     });
 
@@ -1062,7 +1071,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         callback: (str, matcherArg, args, vars) => {
             return parseArray(args[0]).length.toString()
         },
-        alias: ['arraylength'],
+        alias: [],
         description: 'Returns the number of elements in a JSON array as a string. Parses the array and counts elements.\n\nUsage:: {{arraylength::["a","b","c"]}} → 3',
     });
 
@@ -1176,7 +1185,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             const element = parseArray(args[0]).at(Number(args[1])) ?? 'null'
             return typeof element === 'object' ? JSON.stringify(element) : String(element)
         },
-        alias: ['arrayelement'],
+        alias: [],
         description: 'Retrieves the element at the specified index from a JSON array. Uses 0-based indexing. Returns "null" if index is out of bounds.\n\nUsage:: {{arrayelement::["a","b","c"]::1}} → b',
     });
 
@@ -1186,7 +1195,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             const element = parseDict(args[0])[args[1]] ?? 'null'
             return typeof element === 'object' ? JSON.stringify(element) : String(element)
         },
-        alias: ['dictelement', 'objectelement'],
+        alias: ['objectelement'],
         description: 'Retrieves the value associated with a key from a JSON object/dictionary. Returns "null" if key doesn\'t exist.\n\nUsage:: {{dictelement::{"name":"John"}::name}} → John',
     });
 
@@ -1235,7 +1244,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             arr.shift()
             return makeArray(arr)
         },
-        alias: ['arrayshift'],
+        alias: [],
         description: 'Removes and discards the first element from a JSON array. Returns the modified array without the first element.\n\nUsage:: {{arrayshift::["a","b","c"]}} → ["b","c"]',
     });
 
@@ -1246,7 +1255,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             arr.pop()
             return makeArray(arr)
         },
-        alias: ['arraypop'],
+        alias: [],
         description: 'Removes and discards the last element from a JSON array. Returns the modified array without the last element.\n\nUsage:: {{arraypop::["a","b","c"]}} → ["a","b"]',
     });
 
@@ -1257,7 +1266,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             arr.push(args[1])
             return makeArray(arr)
         },
-        alias: ['arraypush'],
+        alias: [],
         description: 'Adds a new element to the end of a JSON array. Returns the modified array with the new element appended.\n\nUsage:: {{arraypush::["a","b"]::c}} → ["a","b","c"]',
     });
 
@@ -1268,7 +1277,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             arr.splice(Number(args[1]), Number(args[2]), args[3])
             return makeArray(arr)
         },
-        alias: ['arraysplice'],
+        alias: [],
         description: 'Modifies an array by removing elements and optionally inserting new ones at a specific index. Parameters: array, startIndex, deleteCount, newElement.\n\nUsage:: {{arraysplice::["a","b","c"]::1::1::x}} → ["a","x","c"]',
     });
 
@@ -1282,7 +1291,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             return makeArray(arr)
         },
-        alias: ['arrayassert'],
+        alias: [],
         description: 'Sets an array element at the specified index only if the index is currently out of bounds (extends array). Fills gaps with undefined.\n\nUsage:: {{arrayassert::["a"]::5::b}} → array with element "b" at index 5',
     });
 
@@ -1291,7 +1300,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         callback: (str, matcherArg, args, vars) => {
             return makeArray(args)
         },
-        alias: ['array', 'a', 'makearray'],
+        alias: ['array', 'a'],
         description: 'Creates a JSON array from the provided arguments. Each argument becomes an array element. Variable number of arguments supported.\n\nUsage:: {{makearray::a::b::c}} → ["a","b","c"]',
     });
 
@@ -1311,7 +1320,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             return JSON.stringify(out)
         },
-        alias: ['dict', 'd', 'makedict', 'makeobject', 'object', 'o'],
+        alias: ['dict', 'd', 'makeobject', 'object', 'o'],
         description: 'Creates a JSON object from key=value pair arguments. Each argument should be in "key=value" format. Invalid pairs are ignored.\n\nUsage:: {{makedict::name=John::age=25}} → {"name":"John","age":"25"}',
     });
 
@@ -1595,7 +1604,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return dateTimeFormat(args[0], t)
         },
         alias: [],
-        description: 'Formats date/time using custom format string. No arguments returns h:m:s. First argument is format string, optional second argument is unix timestamp.\n\nUsage:: {{date::YYYY-MM-DD}} or {{date::HH:mm:ss::1640995200000}}',
+        description: 'Formats date/time using custom format string. No arguments returns h:m:s. First argument is format string, optional second argument is unix timestamp.\n\nUsage:: {{time}} or {{time::HH:mm:ss::1640995200000}}',
     });
 
     registerFunction({
@@ -1754,7 +1763,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         callback: (str, matcherArg, args, vars) => {
             return Number(args[0]).toFixed(Number(args[1]))
         },
-        alias: ['fixnum', 'fixnumber'],
+        alias: ['fixnumber'],
         description: 'Rounds a number to the specified number of decimal places. Uses toFixed() method for consistent formatting.\n\nUsage:: {{fixnum::3.14159::2}} → 3.14',
     });
 
@@ -1869,12 +1878,12 @@ export function registerCBS(arg:CBSRegisterArg) {
                     return isNodeServer ? '1' : '0'
                 }
                 case 'version':{
-                    return appVer
+                    return pocketKeiVer
                 }
                 case 'majorversion':
                 case 'majorver':
                 case 'major':{
-                    return appVer.split('.')[0]
+                    return pocketKeiVer.split('.')[0]
                 }
                 case 'language':
                 case 'locale':
@@ -2341,7 +2350,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'inlay',
         callback: 'doc_only',
         alias: [],
-        description: 'Displays unstyled inlay asset A, which doesn\'t inserts at model request.\n\nUsage:: {{inlay::inlayName}}',
+        description: 'Legacy alias of inlayed. Displays a styled inlay asset without inserting it into the model request.\n\nUsage:: {{inlay::inlayName}}',
     });
 
     registerFunction({
@@ -2391,6 +2400,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         name:'#when',
         callback: 'doc_only',
         alias: [],
+        preview: 'condition',
         description: `Conditional statement for CBS. 1 and "true" are truty, and otherwise false.
 
 It can add operators to condition:

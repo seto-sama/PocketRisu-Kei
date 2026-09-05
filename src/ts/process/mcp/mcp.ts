@@ -2,7 +2,7 @@ import { getDatabase } from "src/ts/storage/database.svelte";
 import { MCPClient, type JsonRPC, type MCPTool, type RPCToolCallContent } from "./mcplib";
 import { DBState } from "src/ts/stores.svelte";
 import { getModuleMcps } from "../modules";
-import { alertInput, notifySuccess, notifyError } from "src/ts/alert";
+import { notifySuccess, notifyError } from "src/ts/alert";
 import { v4 } from "uuid";
 import type { MCPClientLike } from "./internalmcp";
 import { sleep } from "src/ts/util";
@@ -14,6 +14,17 @@ export type MCPToolWithURL = MCPTool & {
 };
 
 export const MCPs:Record<string,MCPClient|MCPClientLike> = {};
+
+export const builtInMCPIds = [
+    'internal:aiaccess',
+    'internal:risuai',
+    'internal:fs',
+    'internal:googlesearch',
+    'internal:dice',
+    'internal:graphmem',
+] as const;
+
+export type BuiltInMCPId = typeof builtInMCPIds[number];
 
 export async function initializeMCPs(additionalMCPs?:string[]) {
     const db = getDatabase()
@@ -184,20 +195,8 @@ export async function callTool(methodName:string, args:any) {
     return await callMCPTool(methodName, args);
 }
 
-export async function importMCPModule(){
-    const x = await alertInput('Please enter the URL of the MCP module to import:', [
-        ['internal:aiaccess', 'LLM Call Client (internal:aiaccess)'],
-        ['internal:risuai', 'Risu Access Client (internal:risuai)'],
-        ['internal:fs', 'File System Client (internal:fs)'],
-        ['internal:googlesearch', 'Google Search Client (internal:googlesearch)'],
-        ['internal:dice', 'Dice Tool Client (internal:dice)'],
-        ['internal:graphmem', 'Graph Memory Client (internal:graphmem)'],
-        ['https://mcp.paypal.com/sse', 'PayPal MCP (https://mcp.paypal.com/sse)'],
-        ['https://mcp.linear.app/sse', 'Linear MCP (https://mcp.linear.app/sse)'],
-        ['https://rag-mcp-2.whatsmcp.workers.dev/sse', 'OneContext MCP (https://rag-mcp-2.whatsmcp.workers.dev/sse)'],
-        ['https://browser.mcp.cloudflare.com/sse', 'Cloudflare Browser MCP (https://browser.mcp.cloudflare.com/sse)'],
-        ['https://mcp.deepwiki.com/mcp', 'DeepWiki MCP (https://mcp.deepwiki.com/mcp)'],
-    ])
+export async function importMCPModule(source:string):Promise<boolean>{
+    const x = source.trim()
 
     if(
         !x.startsWith('http://localhost') &&
@@ -208,17 +207,23 @@ export async function importMCPModule(){
         !x.startsWith('plugin:')
     ){
         notifyError('Invalid URL');
-        return;
+        return false;
     }
+
+    const db = getDatabase();
+    if(db.modules.some(module => module.mcp?.url === x)){
+        notifyError('MCP module is already imported');
+        return false;
+    }
+
     try {
         const metas = (await getMCPMeta([x]))
         console.log(metas)
         const meta = metas[x];
         if(!meta) {
             notifyError('MCP module not found or invalid URL');
-            return;
+            return false;
         }
-        const db = getDatabase();
         db.modules.push({
             name: meta.serverInfo.name,
             description: "MCP from " + x,
@@ -238,9 +243,11 @@ export async function importMCPModule(){
             }]
         })
         notifySuccess(`MCP module imported successfully!\nName: ${meta.serverInfo.name}`);
+        return true;
 
     } catch (error) {
         notifyError(error)
+        return false;
     }
 }
 

@@ -18,6 +18,7 @@ const {
     stmtSetProjectionError,
     stmtUpdateMetadata,
     stmtListRecoverable,
+    stmtGetEarlierRecoverableWorkflowJob,
     stmtListRecoverableAuxiliary,
     stmtListNeedingProjection,
     stmtListQueuedDispatches,
@@ -68,6 +69,7 @@ const {
     stmtClaimWorkflowExecution,
     stmtFinishWorkflowExecution,
     stmtListWorkflowJobs,
+    stmtAcknowledgeTerminalRoomJobs,
     stmtDeleteCompletedWorkflowExecutions,
 } = createGenerationStatements(db);
 
@@ -186,6 +188,7 @@ function claimGenerationWorkflowClientAction(
     actionId,
     clientId,
     leaseMs = CLIENT_ACTION_LEASE_MS,
+    isClientConnected,
 ) {
     return db.transaction(() => {
         const workflow = stmtGetWorkflow.get(workflowId);
@@ -195,10 +198,19 @@ function claimGenerationWorkflowClientAction(
         if (metadata.action?.actionId !== actionId) return null;
         const now = Date.now();
         const current = metadata.clientClaim;
+        // The lease protects a genuinely connected page from parallel side
+        // effects. A page-scoped client id disappears on refresh, though, so a
+        // disconnected owner must not keep the claim until the lease timeout.
+        // Callers without connection state retain the conservative lease-only
+        // behavior used by offline repository consumers and tests.
+        const currentOwnerConnected = typeof isClientConnected === 'function'
+            ? isClientConnected(String(current?.clientId || ''))
+            : true;
         if (
             current?.clientId
             && current.clientId !== clientId
             && Number(current.expiresAt) > now
+            && currentOwnerConnected
         ) {
             return { busy: true, action: metadata.action, claim: current };
         }
@@ -479,6 +491,19 @@ function listGenerationWorkflowJobs(workflowId) {
     return stmtListWorkflowJobs.all(workflowId).map(row => rowToJob(row, false));
 }
 
+/** A new user generation supersedes partial output from older terminal work. */
+function acknowledgeTerminalGenerationJobsForRoom(characterId, roomId) {
+    const now = Date.now();
+    return stmtAcknowledgeTerminalRoomJobs.run(
+        now,
+        now,
+        characterId,
+        roomId,
+        characterId,
+        roomId,
+    ).changes;
+}
+
 function ensureGenerationStepExecution(input, status) {
     if (!input.workflowId) return undefined;
     const existing = stmtGetStepExecution.get(input.stepExecutionId);
@@ -757,7 +782,6 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
         status === 'generated' ? 'output_ready' : 'failed',
     );
     if (job?.job_type === 'model' && job.workflow_id && status !== 'generated') {
-        const terminalStatus = status === 'cancelled' ? 'cancelled' : 'failed';
         updateGenerationWorkflowStep(job.workflow_id, 'model.main', {
             status: 'failed',
             metadata: {
@@ -765,7 +789,14 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
                 error: String(error || finishReason || `Model generation ended as ${status}`),
             },
         });
-        cancelGenerationWorkflow(job.workflow_id, terminalStatus);
+        // A provider job is one round within the logical model step. The
+        // client may retry a pre-response failure by attaching another job to
+        // the same step execution, so only an explicit cancellation is
+        // terminal here. Exhausted retries and partial-stream failures are
+        // finalized by the client workflow boundary.
+        if (status === 'cancelled') {
+            cancelGenerationWorkflow(job.workflow_id, 'cancelled');
+        }
     }
     return true;
 }
@@ -805,6 +836,13 @@ function updateGenerationJobMetadata(jobId, generationInfo, promptInfo) {
 function listRecoverableGenerationJobs(limit = 50) {
     const normalized = Math.max(1, Math.min(200, Number(limit) || 50));
     return stmtListRecoverable.all(normalized).map(row => rowToJob(row, false));
+}
+
+function getEarlierRecoverableGenerationWorkflowJob(characterId, roomId, createdAt) {
+    return rowToJob(
+        stmtGetEarlierRecoverableWorkflowJob.get(characterId, roomId, createdAt),
+        false,
+    );
 }
 
 function listRecoverableAuxiliaryJobs(limit = 200) {
@@ -900,6 +938,7 @@ module.exports = {
     claimGenerationWorkflowExecution,
     finishGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
+    acknowledgeTerminalGenerationJobsForRoom,
     createGenerationJob,
     getGenerationJob,
     setGenerationJobGenerating,
@@ -914,6 +953,7 @@ module.exports = {
     updateGenerationJobMetadata,
     finishGenerationJob,
     listRecoverableGenerationJobs,
+    getEarlierRecoverableGenerationWorkflowJob,
     listRecoverableAuxiliaryJobs,
     listGenerationJobsNeedingProjection,
     markGenerationMaterialized,

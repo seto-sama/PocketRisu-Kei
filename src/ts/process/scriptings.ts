@@ -73,17 +73,9 @@ interface BasicScriptingEngineState {
     moduleId?: string,
 }
 
-interface LuaScriptingEngineState extends BasicScriptingEngineState {
+interface ScriptingEngineState extends BasicScriptingEngineState {
     engine?: LuaEngine;
-    type: 'lua';
 }
-
-interface PythonScriptingEngineState extends BasicScriptingEngineState {
-    pyodide?: PyodideContext
-    type: 'py';
-}
-
-type ScriptingEngineState = LuaScriptingEngineState | PythonScriptingEngineState;
 
 let ScriptingEngines = new Map<string, ScriptingEngineState>()
 let luaFactoryPromise: Promise<void> | null = null;
@@ -117,11 +109,9 @@ export async function runScripted(code:string, arg:{
     lowLevelAccess?: boolean,
     meta?: object,
     mode?: string,
-    type?: 'lua'|'py'
     moduleId?: string
     revenantReplayJobIds?: string[]
 }){
-    const type: 'lua'|'py' = arg.type ?? 'lua'
     const char = arg.char ?? getCurrentCharacter()
     const data = arg.data ?? ''
     const setVar = arg.setVar ?? setChatVar
@@ -134,8 +124,7 @@ export async function runScripted(code:string, arg:{
     let lowLevelAccess = arg.lowLevelAccess ?? false
     let revenantLuaExecution: RevenantLuaExecutionContext | undefined
     if (
-        type === 'lua'
-        && char.type === 'character'
+        char.type === 'character'
         && char.chaId
         && chat?.id
         && lowLevelAccess
@@ -160,10 +149,8 @@ export async function runScripted(code:string, arg:{
         }
     }
 
-    if(type === 'lua'){
-        await ensureLuaFactory()
-    }
-    let ScriptingEngineState = await getOrCreateEngineState(mode, type);
+    await ensureLuaFactory()
+    let ScriptingEngineState = await getOrCreateEngineState(mode);
     
     return await ScriptingEngineState.mutex.runExclusive(async () => {
         ScriptingEngineState.moduleId = arg.moduleId
@@ -196,23 +183,13 @@ export async function runScripted(code:string, arg:{
         if (code !== ScriptingEngineState.code) {
             let declareAPI:(name: string, func:Function) => void
 
-            if(ScriptingEngineState.type === 'lua'){
-                console.log('Creating new Lua engine for mode:', mode)
-                ScriptingEngineState.engine?.global.close()
-                ScriptingEngineState.code = code
-                ScriptingEngineState.engine = await luaFactory.createEngine({injectObjects: true})
-                const luaEngine = ScriptingEngineState.engine
-                declareAPI = (name:string, func:Function) => {
-                    luaEngine.global.set(name, func)
-                }
-            }
-            if(ScriptingEngineState.type === 'py'){
-                console.log('Creating new Pyodide context for mode:', mode)
-                ScriptingEngineState.pyodide?.close()
-                ScriptingEngineState.pyodide = new PyodideContext()
-                declareAPI = (name:string, func:Function) => {
-                    ScriptingEngineState.pyodide?.declareAPI(name, func as any)
-                }
+            console.log('Creating new Lua engine for mode:', mode)
+            ScriptingEngineState.engine?.global.close()
+            ScriptingEngineState.code = code
+            ScriptingEngineState.engine = await luaFactory.createEngine({injectObjects: true})
+            const luaEngine = ScriptingEngineState.engine
+            declareAPI = (name:string, func:Function) => {
+                luaEngine.global.set(name, func)
             }
             registerLuaCoreApis(
                 declareAPI as (name: string, handler: (...args: any[]) => unknown) => void,
@@ -743,12 +720,7 @@ export async function runScripted(code:string, arg:{
             ) => await runLuaLlm('otherAx', promptStr, useMultimodal, optionsStr))
 
             console.log('Running Lua code:', code)
-            if(ScriptingEngineState.type === 'lua'){
-                await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
-            }
-            if(ScriptingEngineState.type === 'py'){
-                await ScriptingEngineState.pyodide?.init(code)
-            }
+            await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
             ScriptingEngineState.code = code
         }
         let accessKey = v4()
@@ -763,50 +735,16 @@ export async function runScripted(code:string, arg:{
         }
         let res:any
         let scriptCompleted = false
-        if(ScriptingEngineState.type === 'lua'){
-            const luaEngine = ScriptingEngineState.engine
-            try {
-                const invoked = await invokeLuaMode(luaEngine.global, mode, accessKey, data, meta)
-                res = invoked.result
-                if(res === false){
-                    stopSending = true
-                }
-                scriptCompleted = true
-            } catch (error) {
-                console.error(error)
+        const luaEngine = ScriptingEngineState.engine
+        try {
+            const invoked = await invokeLuaMode(luaEngine.global, mode, accessKey, data, meta)
+            res = invoked.result
+            if(res === false){
+                stopSending = true
             }
-        }
-        if(ScriptingEngineState.type === 'py'){
-            switch(mode){
-                case 'input':{
-                    res = await ScriptingEngineState.pyodide?.python(`onInput('${accessKey}')`)
-                    break
-                }
-                case 'output':{
-                    res = await ScriptingEngineState.pyodide?.python(`onOutput('${accessKey}')`)
-                    break
-                }
-                case 'start':{
-                    res = await ScriptingEngineState.pyodide?.python(`onStart('${accessKey}')`)
-                    break
-                }
-                case 'onButtonClick':{
-                    res = await ScriptingEngineState.pyodide?.python(`onButtonClick('${accessKey}', '${data as string}')`)
-                    break
-                }
-                case 'editRequest':
-                case 'editDisplay':
-                case 'editInput':
-                case 'editOutput':{
-                    res = await ScriptingEngineState.pyodide?.python(`callListenMain('${mode}', '${accessKey}', '${JSON.stringify(data)}', '${JSON.stringify(meta)}')`)
-                    res = JSON.parse(res)
-                    break
-                }
-                default:{
-                    res = await ScriptingEngineState.pyodide?.python(`${mode}('${accessKey}')`)
-                    break
-                }
-            }
+            scriptCompleted = true
+        } catch (error) {
+            console.error(error)
         }
         ScriptingSafeIds.delete(accessKey)
         ScriptingLowLevelIds.delete(accessKey)
@@ -949,8 +887,7 @@ async function ensureLuaFactory() {
 }
 
 async function getOrCreateEngineState(
-    mode: string, 
-    type: 'lua'|'py'
+    mode: string,
 ): Promise<ScriptingEngineState> {
     let engineState = ScriptingEngines.get(mode);
     if (engineState) {
@@ -965,7 +902,6 @@ async function getOrCreateEngineState(
     const creationPromise = (() => {
         const engineState: ScriptingEngineState = {
             mutex: new Mutex(),
-            type: type,
         };
         ScriptingEngines.set(mode, engineState);
 
@@ -1068,94 +1004,4 @@ export async function runLuaButtonTrigger(char:character|simpleCharacterArgument
         throw(error)
     }
     return runResult   
-}
-
-class PyodideContext{
-    worker: Worker;
-    apis: Record<string, (...args:any[]) => any> = {};
-    inited: boolean = false;
-    constructor(){
-        this.worker = new Worker(new URL('./pyworker.ts', import.meta.url), {
-            type: 'module'
-        })
-        this.worker.onmessage = (event:MessageEvent) => {
-            if(event.data.type === 'call'){
-                const { function: func, args, callId } = event.data;
-                if(this.apis[func]){
-                    this.apis[func](...args).then((result) => {
-                        this.worker.postMessage({
-                            type: 'functionResult',
-                            callId: callId,
-                            result: result
-                        });
-                    }).catch((error) => {
-                        this.worker.postMessage({
-                            type: 'error',
-                            error: error.message,
-                            id: callId
-                        });
-                    });
-                } else {
-                    this.worker.postMessage({
-                        type: 'error',
-                        error: `Function ${func} not found`,
-                        id: callId
-                    });
-                }
-            }
-        }
-    }
-    declareAPI(name:string, func:(...args:any[]) => any){
-        this.apis[name] = func;
-    }
-    async init(code:string){
-        if(this.inited){
-            return;
-        }
-        const id = crypto.randomUUID();
-        return new Promise<void>((resolve, reject) => {
-            this.worker.onmessage = (event:MessageEvent) => {
-                if(event.data.id !== id){
-                    return
-                }
-
-                if(event.data.type === 'init'){
-                    this.inited = true;
-                    resolve();
-                } else if(event.data.type === 'error'){
-                    reject(new Error(event.data.error));
-                }
-            };
-            this.worker.postMessage({
-                type: 'init',
-                code: code,
-                id: id,
-                moduleFunctions: Object.keys(this.apis)
-            });
-        });
-    }
-    async python(call:string){
-        const id = crypto.randomUUID();
-        return new Promise<any>((resolve, reject) => {
-            this.worker.onmessage = (event:MessageEvent) => {
-                if(event.data.id !== id){
-                    return
-                }
-
-                if(event.data.type === 'python'){
-                    resolve(event.data.call);
-                } else if(event.data.type === 'error'){
-                    reject(new Error(event.data.error));
-                }
-            };
-            this.worker.postMessage({
-                type: 'python',
-                call: call,
-                id: id
-            });
-        });
-    }
-    close(){
-        this.worker.terminate();
-    }
 }

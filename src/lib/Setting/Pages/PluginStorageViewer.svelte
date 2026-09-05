@@ -9,10 +9,10 @@
     // Origin plugin is best-effort: new V3 writes are tagged into a sidecar
     // meta store (pluginStorageMeta), but legacy/V2 keys have no record and show
     // as unknown. Edit/delete are allowed directly, guarded by confirm.
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import Select from '../../UI/components/Select.svelte'
+    import SelectOption from '../../UI/components/SelectOption.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import {
         RefreshCwIcon,
@@ -50,8 +50,8 @@
     const safeLocal = new SafeLocalStorage()
     const idb = new SafeLocalPluginStorage()
 
-    let backendIndex = $state(0)
-    const backend = $derived(BACKENDS[backendIndex].id)
+    let backend = $state<BackendId>('save')
+    const backendInfo = $derived(BACKENDS.find(item => item.id === backend) ?? BACKENDS[0])
     let entries = $state<Entry[]>([])
     let loading = $state(false)
     let loadError = $state<string | null>(null)
@@ -240,13 +240,14 @@
             title: entry.key,
             formatJson: true,
             mode: 'plain',
+            commitMode: 'submit',
             metadata: [
                 { label: language.pluginStorageMetaType, value: entry.type },
                 { label: language.pluginStorageMetaSize, value: formatSize(entry.size) },
                 { label: language.pluginStorageMetaChars, value: entry.str.length.toLocaleString() },
                 { label: language.pluginStorageOwner, value: entry.owner ?? language.pluginStorageOwnerUnknown },
             ],
-            onSave: (editText) => saveEdit(entry, editText),
+            onCommit: (editText) => saveEdit(entry, editText),
         })
     }
 
@@ -301,7 +302,7 @@
         if (targets.length === 0) return
 
         const isAll = targets.length === entries.length
-        const backendLabel = BACKENDS[backendIndex].label()
+        const backendLabel = backendInfo.label()
         const msg = isAll
             ? language.pluginStorageBulkDeleteAllConfirm(backendLabel, targets.length)
             : language.pluginStorageBulkDeleteConfirm(backendLabel, targets.length)
@@ -329,44 +330,44 @@
     }
 
     // Load on mount and whenever the backend tab changes; reset search per tab.
-    let loadedIndex = -1
+    let loadedBackend: BackendId | null = null
     $effect(() => {
-        const idx = backendIndex
-        if (idx === loadedIndex) return
-        loadedIndex = idx
+        const currentBackend = backend
+        if (currentBackend === loadedBackend) return
+        loadedBackend = currentBackend
         searchQuery = ''
         ownerFilter = ''
         load()
     })
 </script>
 
-<p class="text-textcolor2 text-sm mb-4">{language.pluginStorageDesc}</p>
+<p class="text-subtext text-sm mb-4">{language.pluginStorageDesc}</p>
 
 <div class="flex flex-col gap-3 mb-4">
     <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
         <div class="flex flex-nowrap items-start gap-2 overflow-x-auto pb-1">
-            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+            <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageLocation}</span>
-                <ShSelect value={backendIndex} size="sm" onchange={(e) => backendIndex = Number(e.currentTarget.value)}>
-                    {#each BACKENDS as b, i (b.id)}<OptionInput value={i}>{b.label()}</OptionInput>{/each}
-                </ShSelect>
-                <span class="leading-relaxed opacity-70">{BACKENDS[backendIndex].desc()}</span>
+                <Select bind:value={backend} size="sm">
+                    {#each BACKENDS as item (item.id)}<SelectOption value={item.id}>{item.label()}</SelectOption>{/each}
+                </Select>
+                <span class="leading-relaxed opacity-70">{backendInfo.desc()}</span>
             </div>
-            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+            <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageOwner}</span>
-                <ShSelect bind:value={ownerFilter} size="sm">
-                    <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
-                    {#each ownerOptions as p (p)}<OptionInput value={p}>{p}</OptionInput>{/each}
-                    {#if hasUnknown}<OptionInput value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</OptionInput>{/if}
-                </ShSelect>
+                <Select bind:value={ownerFilter} size="sm">
+                    <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                    {#each ownerOptions as p (p)}<SelectOption value={p}>{p}</SelectOption>{/each}
+                    {#if hasUnknown}<SelectOption value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</SelectOption>{/if}
+                </Select>
             </div>
         </div>
     </SettingLayout>
 
     <SettingLayout variant="search">
-        <ShInput bind:value={searchQuery} placeholder={language.pluginStorageSearch} />
+        <Input bind:value={searchQuery} placeholder={language.pluginStorageSearch} />
         {#snippet control()}
-        <ShButton
+        <Button
             variant="destructive"
             size="default"
             onclick={removeFiltered}
@@ -376,7 +377,7 @@
             {isFiltered
                 ? language.pluginStorageBulkDeleteShown
                 : language.pluginStorageBulkDeleteAll}
-        </ShButton>
+        </Button>
         {/snippet}
     </SettingLayout>
 </div>
@@ -384,9 +385,9 @@
 <SettingLayout variant="status" shownCount={displayed.length} totalCount={filtered.length} />
 
 <!-- List -->
-<SettingLayout variant="list" scrollable className="max-h-[75vh]">
+<SettingLayout variant="list">
     {#if loading}
-        <div class="flex flex-col items-center gap-3 text-textcolor2 text-sm py-12">
+        <div class="flex flex-col items-center gap-3 text-subtext text-sm py-12">
             <RefreshCwIcon size={20} class="animate-spin" />
             <span class="tabular-nums">{loadTotal > 0 ? `${loadProgress} / ${loadTotal}` : language.systemLogsLoading}</span>
             {#if loadTotal > 0}
@@ -396,12 +397,12 @@
             {/if}
         </div>
     {:else if loadError}
-        <div class="text-textcolor2 text-sm text-center py-12">
+        <div class="text-subtext text-sm text-center py-12">
             {language.pluginStorageLoadError}<br />
             <span class="text-xs opacity-60">{loadError}</span>
         </div>
     {:else if displayed.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-12">{language.pluginStorageEmpty}</div>
+        <div class="text-subtext text-sm text-center py-12">{language.pluginStorageEmpty}</div>
     {:else}
         {#each displayed as entry (entry.key)}
             <SettingLayout variant="item" interactive
@@ -409,8 +410,8 @@
                 onkeydown={(e) => { if (e.key === 'Enter') openEditor(entry) }}
             >
                 <div class="flex flex-1 min-w-0 flex-col gap-1">
-                    <span class="font-mono text-sm text-textcolor truncate" title={entry.key}>{entry.key}</span>
-                    <div class="flex items-center gap-2 min-w-0 text-xs text-textcolor2">
+                    <span class="font-mono text-sm text-maintext truncate" title={entry.key}>{entry.key}</span>
+                    <div class="flex items-center gap-2 min-w-0 text-xs text-subtext">
                         <span class="truncate">{entry.owner ?? language.pluginStorageOwnerUnknown}</span>
                         <span aria-hidden="true">·</span>
                         <span class="uppercase tracking-wide shrink-0">{entry.type}</span>
@@ -419,7 +420,7 @@
                     </div>
                 </div>
                 {#snippet control()}<button
-                    class="shrink-0 p-1 text-textcolor2 risu-interactive-danger transition-colors cursor-pointer"
+                    class="shrink-0 p-1 text-subtext risu-interactive-danger transition-colors cursor-pointer"
                     aria-label={language.remove}
                     onclick={(e) => { e.stopPropagation(); removeEntry(entry) }}
                 >

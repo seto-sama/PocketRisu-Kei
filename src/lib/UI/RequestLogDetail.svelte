@@ -28,21 +28,21 @@
 
 </script>
 
-<div class="flex flex-col gap-4 text-xs text-textcolor2 {className}">
+<div class="flex flex-col gap-4 text-xs text-subtext {className}">
     <section>
-        <h3 class="mb-2 mt-0 text-sm font-semibold text-textcolor">{language.requestDiagnostics.url}</h3>
-        <div class="break-all rounded-md border border-darkborderc/60 bg-bgcolor/50 p-2 font-mono text-textcolor">{log.url}</div>
+        <h3 class="mb-2 mt-0 text-sm font-semibold text-maintext">{language.requestDiagnostics.url}</h3>
+        <div class="break-all rounded-md border border-darkborderc/60 bg-lightbg/50 p-2 font-mono text-maintext">{log.url}</div>
     </section>
 
     <section>
-        <h3 class="mb-2 mt-0 text-sm font-semibold text-textcolor">{language.requestDiagnostics.requestHeader}</h3>
+        <h3 class="mb-2 mt-0 text-sm font-semibold text-maintext">{language.requestDiagnostics.requestHeader}</h3>
         {#if headers.length === 0}
             <pre class="request-log-block">{log.header}</pre>
         {:else}
-            <dl class="m-0 flex flex-col gap-1 rounded-md border border-darkborderc/60 bg-bgcolor/50 p-2 font-mono text-textcolor">
+            <dl class="m-0 flex flex-col gap-1 rounded-md border border-darkborderc/60 bg-lightbg/50 p-2 font-mono text-maintext">
                 {#each headers as [key, value]}
                     <div class="grid grid-cols-[minmax(7rem,auto)_1fr] gap-2">
-                        <dt class="break-all text-textcolor2/70">{key}</dt>
+                        <dt class="break-all text-subtext/70">{key}</dt>
                         <dd class="m-0 break-all">{value}</dd>
                     </div>
                 {/each}
@@ -51,20 +51,20 @@
     </section>
 
     <section>
-        <h3 class="mb-2 mt-0 text-sm font-semibold text-textcolor">{language.requestDiagnostics.requestBody}</h3>
+        <h3 class="mb-2 mt-0 text-sm font-semibold text-maintext">{language.requestDiagnostics.requestBody}</h3>
         <pre class="request-log-block">{requestBody}</pre>
     </section>
 
     <section>
-        <h3 class="mb-2 mt-0 text-sm font-semibold text-textcolor">{language.requestDiagnostics.responseBody}</h3>
+        <h3 class="mb-2 mt-0 text-sm font-semibold text-maintext">{language.requestDiagnostics.responseBody}</h3>
         {#if responseDetails}
             <div class="flex flex-col gap-2">
                 {#each responseDetails.groups as group (group.event)}
-                    <details class="rounded-md border border-darkborderc/60 bg-bgcolor/50 text-textcolor">
+                    <details class="rounded-md border border-darkborderc/60 bg-lightbg/50 text-maintext">
                         <summary class="cursor-pointer select-none p-2 font-mono">{group.summary}</summary>
                         <pre class="request-log-block rounded-none border-x-0 border-b-0">{group.readable}</pre>
                         <details class="border-t border-darkborderc/60">
-                            <summary class="cursor-pointer select-none p-2 font-mono text-textcolor2">{language.requestDiagnostics.raw}</summary>
+                            <summary class="cursor-pointer select-none p-2 font-mono text-subtext">{language.requestDiagnostics.raw}</summary>
                             <pre class="request-log-block rounded-none border-x-0 border-b-0">{group.raw}</pre>
                         </details>
                     </details>
@@ -72,7 +72,7 @@
             </div>
             {#if responseDetails.remainder}
                 <pre class="request-log-block mt-2">{responseDetails.remainder}</pre>
-                <details class="mt-2 rounded-md border border-darkborderc/60 bg-bgcolor/50 text-textcolor2">
+                <details class="mt-2 rounded-md border border-darkborderc/60 bg-lightbg/50 text-subtext">
                     <summary class="cursor-pointer select-none p-2 font-mono">{language.requestDiagnostics.rawRemaining}</summary>
                     <pre class="request-log-block rounded-none border-x-0 border-b-0">{responseDetails.rawRemainder}</pre>
                 </details>
@@ -92,9 +92,9 @@
         overflow-wrap: anywhere;
         border: 1px solid color-mix(in srgb, var(--risu-theme-darkborderc) 60%, transparent);
         border-radius: 0.375rem;
-        background: color-mix(in srgb, var(--risu-theme-bgcolor) 50%, transparent);
+        background: color-mix(in srgb, var(--risu-theme-lightbg) 50%, transparent);
         padding: 0.5rem;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 </style>

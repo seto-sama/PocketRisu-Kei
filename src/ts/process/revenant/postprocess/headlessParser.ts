@@ -1,3 +1,4 @@
+import { pocketKeiVer } from '../../../version'
 import { registerCBS, type RegisterCallback } from '../../../cbs'
 import type { Chat, character } from '../../../storage/database.svelte'
 import type { RevenantPostprocessRecipe } from '../types'
@@ -426,7 +427,7 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
         callInternalFunction: () => '',
         isNodeServer: true,
         isMobile: false,
-        appVer: 'revenant-server',
+        pocketKeiVer,
     })
     return state
 }

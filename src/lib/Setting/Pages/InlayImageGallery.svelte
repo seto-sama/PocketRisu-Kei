@@ -1,19 +1,20 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { AudioLines, Copy, Download, Trash2, Video } from '@lucide/svelte'
-  import OptionInput from "../../UI/GUI/OptionInput.svelte";
-  import CheckInput from '../../UI/GUI/CheckInput.svelte'
-  import ShButton from '../../UI/GUI/ShButton.svelte'
-  import ShSelect from '../../UI/GUI/ShSelect.svelte'
+  import { AudioLinesIcon, CopyIcon, DownloadIcon, LoaderCircleIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
+  import SelectOption from "../../UI/components/SelectOption.svelte";
+  import Checkbox from '../../UI/components/Checkbox.svelte'
+  import Button from '../../UI/components/Button.svelte'
+  import Select from '../../UI/components/Select.svelte'
 
   import { language } from 'src/lang'
   import { InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
-  import { alertConfirm, notifySuccess, notifyError } from 'src/ts/alert'
-  import { downloadFile } from 'src/ts/globalApi.svelte'
+  import { alertConfirm } from 'src/ts/alert'
   import {
     getCharacterChatIndex,
-    getInlayAssetBlob,
+    getInlayAssetUrl,
+    getInlayThumbnailUrl,
+    getInlayVideoThumbnailUrl,
     listInlayExplorerItems,
     removeInlayAsset,
     removeInlayAssets,
@@ -22,14 +23,18 @@
     type InlayExplorerItem,
     type InlayScanResult,
   } from 'src/ts/process/files/inlays'
-  import SettingPage from '../../UI/GUI/SettingPage.svelte'
+  import SettingPage from '../../UI/components/SettingPage.svelte'
   import SettingLayout from '../Wrappers/SettingLayout.svelte'
-  import SettingTabs from '../../UI/GUI/SettingTabs.svelte'
+  import SettingTabs from '../../UI/components/SettingTabs.svelte'
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
-  import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
-  import IconButton from '../../UI/GUI/IconButton.svelte'
+  import FullscreenImageViewer from '../../UI/components/FullscreenImageViewer.svelte'
+  import IconButton from '../../UI/components/IconButton.svelte'
+  import AssetViewerActions from '../../UI/components/AssetViewerActions.svelte'
+  import InlayViewerMetadata from '../../UI/components/InlayViewerMetadata.svelte'
   import { createIncrementalList } from '../../UI/incrementalList.svelte'
+  import { copyInlayReference, downloadInlayAsset } from '../../UI/inlayViewerActions'
+  import { isEventFromInteractiveChild } from 'src/lib/utils'
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -58,6 +63,7 @@
   let viewerUrl = $state('')
   let viewerLoading = $state(false)
   let viewerError = $state('')
+  let deletingAsset = false
   const incrementalList = createIncrementalList({
     pageSize: 40,
     rootMargin: '200px 0px',
@@ -128,7 +134,7 @@
   function getCharacterName(item: InlayExplorerItem | null): string | null {
     const charId = item?.meta?.charId
     if (!charId) return null
-    return characterMap.get(charId)?.name ?? charId
+    return characterMap.get(charId)?.name ?? null
   }
 
   function getChatName(item: InlayExplorerItem | null): string | null {
@@ -137,13 +143,13 @@
     if (!chatId) return null
     if (charId) {
       const chat = characterMap.get(charId)?.chats.find((entry) => entry.id === chatId)
-      return chat?.name ?? chatId
+      return chat?.name ?? null
     }
     for (const char of characterIndex) {
       const chat = char.chats.find((entry) => entry.id === chatId)
       if (chat) return chat.name
     }
-    return chatId
+    return null
   }
 
   function isOrphanCharacter(item: InlayExplorerItem): boolean {
@@ -165,55 +171,14 @@
 
   function getStatusLabel(item: InlayExplorerItem | null): string | null {
     if (!item) return null
-    if (!item.hasMeta) return language.playground.inlayFilterMetaMissing
-    if (isOrphanCharacter(item)) return language.playground.inlayFilterOrphanCharacter
-    if (isOrphanChat(item)) return language.playground.inlayFilterOrphanChat
+    if (!item.hasMeta) return language.inlayGallery.inlayFilterMetaMissing
+    if (isOrphanCharacter(item)) return language.inlayGallery.inlayFilterOrphanCharacter
+    if (isOrphanChat(item)) return language.inlayGallery.inlayFilterOrphanChat
     return null
-  }
-
-  function formatTimestamp(value?: number): string | null {
-    if (!value || value <= 0) return null
-    return new Date(value).toLocaleString()
-  }
-
-  function sanitizeFileName(name: string): string {
-    const trimmed = name.trim()
-    const fallback = trimmed.length > 0 ? trimmed : 'inlay-asset.bin'
-    return fallback.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
-  }
-
-  function buildInlayReference(id: string): string {
-    return `{{inlayed::${id}}}`
-  }
-
-  async function copyInlayReference(id: string) {
-    try {
-      await navigator.clipboard.writeText(buildInlayReference(id))
-      notifySuccess(language.copied)
-    } catch (error) {
-      notifyError(`${error}`)
-    }
-  }
-
-  function withExtension(name: string, ext: string): string {
-    const safeExt = (ext ?? '').trim() || 'bin'
-    const lowerName = name.toLowerCase()
-    if (lowerName.endsWith(`.${safeExt.toLowerCase()}`)) return name
-    const lastDot = name.lastIndexOf('.')
-    const base = lastDot > 0 ? name.slice(0, lastDot) : name
-    return `${base}.${safeExt}`
   }
 
   function revokeViewerUrl() {
     viewerUrl = ''
-  }
-
-  function getAssetUrl(id: string): string {
-    return `/api/asset/${Buffer.from('inlay/' + id, 'utf-8').toString('hex')}`
-  }
-
-  function getVideoThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from('inlay_video_thumb/' + id, 'utf-8').toString('hex')}`
   }
 
   function loadViewerAsset(id: string) {
@@ -221,7 +186,7 @@
     viewerLoading = false
     viewerError = ''
     // Use direct /api/asset/ URL — browser handles caching via HTTP headers
-    viewerUrl = getAssetUrl(id)
+    viewerUrl = getInlayAssetUrl(id)
   }
 
   function openViewer(id: string) {
@@ -231,11 +196,12 @@
   }
 
   function handleCardClick(event: MouseEvent, id: string) {
-    if (event.target instanceof Element && event.target.closest('label')) return
+    if (isEventFromInteractiveChild(event)) return
     openViewer(id)
   }
 
   function handleCardKeydown(event: KeyboardEvent, id: string) {
+    if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     openViewer(id)
@@ -256,21 +222,6 @@
     openViewer(nextItem.id)
   }
 
-  async function downloadCurrent(item: InlayExplorerItem) {
-    try {
-      const asset = await getInlayAssetBlob(item.id)
-      if (!asset) {
-        notifyError('Failed to load image for download.')
-        return
-      }
-      const buffer = new Uint8Array(await asset.data.arrayBuffer())
-      await downloadFile(sanitizeFileName(withExtension(asset.name, asset.ext)), buffer)
-      notifySuccess(language.successExport)
-    } catch (error) {
-      notifyError(`${error}`)
-    }
-  }
-
   const toggleSelect = (id: string) => {
     if (selection.has(id)) selection.delete(id)
     else selection.add(id)
@@ -280,23 +231,29 @@
   const deselectAll = () => selection.clear()
 
   const deleteAsset = async (id: string, name: string) => {
-    if (!(await alertConfirm(language.playground.inlayDeleteConfirm.replace('{name}', name)))) return
-    const currentIndex = sortedItems.findIndex((item) => item.id === id)
-    const neighborId = currentIndex >= 0
-      ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
-      : undefined
-    await removeInlayAsset(id)
-    selection.delete(id)
-    allItems = allItems.filter((item) => item.id !== id)
-    if (viewerId === id) {
-      if (neighborId) openViewer(neighborId)
-      else closeViewer()
+    if (deletingAsset) return
+    deletingAsset = true
+    try {
+      if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', name)))) return
+      const currentIndex = sortedItems.findIndex((item) => item.id === id)
+      const neighborId = currentIndex >= 0
+        ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
+        : undefined
+      await removeInlayAsset(id)
+      selection.delete(id)
+      allItems = allItems.filter((item) => item.id !== id)
+      if (viewerId === id) {
+        if (neighborId) openViewer(neighborId)
+        else closeViewer()
+      }
+    } finally {
+      deletingAsset = false
     }
   }
 
   const deleteSelected = async () => {
     if (selection.size === 0) return
-    if (!(await alertConfirm(language.playground.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) return
+    if (!(await alertConfirm(language.inlayGallery.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) return
     const ids = allItems.filter((item) => selection.has(item.id)).map((item) => item.id)
     await removeInlayAssets(ids)
     allItems = allItems.filter((item) => !selection.has(item.id))
@@ -354,10 +311,10 @@
 
 <div class="min-h-0 flex flex-col {$InlayGallerySubmenuIndex !== 2 ? 'h-full overflow-hidden' : ''}">
   <div class="shrink-0">
-    <SettingPage title={language.playground.inlayImageGallery}>
+    <SettingPage title={language.inlayGallery.inlayImageGallery}>
       <SettingTabs tabs={[
-        { label: language.playground.inlayImageList, value: 0 },
-        { label: language.playground.inlayMediaList, value: 1 },
+        { label: language.inlayGallery.inlayImageList, value: 0 },
+        { label: language.inlayGallery.inlayMediaList, value: 1 },
         { label: language.settings, value: 2 },
       ]} bind:selected={$InlayGallerySubmenuIndex} />
     </SettingPage>
@@ -366,19 +323,19 @@
   {#if $InlayGallerySubmenuIndex === 2}
     <SettingRenderer items={inlayImageSettingsItems} layout="row" />
   {:else}
-    <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
+    <header class="shrink-0 flex flex-col gap-3 bg-lightbg pb-4">
       <div class="flex flex-wrap gap-3 items-center">
-        <span class="text-textcolor2 text-sm">
-          {language.playground.inlayTotalAssets.replace('{count}', filteredItems.length.toString())}
+        <span class="text-subtext text-sm">
+          {language.inlayGallery.inlayTotalAssets.replace('{count}', filteredItems.length.toString())}
         </span>
         <div class="flex gap-2 ml-auto">
           {#if hasSelection}
-            <ShButton onclick={deleteSelected} variant="destructive" size="sm">{language.playground.inlayDeleteSelected}</ShButton>
-            <ShButton onclick={deselectAll} variant="outline" size="sm">
-              {language.playground.inlayDeselectAll} ({selection.size})
-            </ShButton>
+            <Button onclick={deleteSelected} variant="destructive" size="sm">{language.inlayGallery.inlayDeleteSelected}</Button>
+            <Button onclick={deselectAll} variant="outline" size="sm">
+              {language.inlayGallery.inlayDeselectAll} ({selection.size})
+            </Button>
           {:else if filteredItems.length > 0}
-            <ShButton onclick={selectAll} variant="outline" size="sm">{language.playground.inlaySelectAll}</ShButton>
+            <Button onclick={selectAll} variant="outline" size="sm">{language.inlayGallery.inlaySelectAll}</Button>
           {/if}
         </div>
       </div>
@@ -386,42 +343,42 @@
       {#if tabItems.length > 0}
         <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
-                <span>{language.playground.inlaySort}</span>
-                <ShSelect bind:value={sortKey} size="sm">
-                  <OptionInput value="updated-desc">{language.playground.inlaySortUpdatedDesc}</OptionInput>
-                  <OptionInput value="updated-asc">{language.playground.inlaySortUpdatedAsc}</OptionInput>
-                  <OptionInput value="created-desc">{language.playground.inlaySortCreatedDesc}</OptionInput>
-                  <OptionInput value="created-asc">{language.playground.inlaySortCreatedAsc}</OptionInput>
-                </ShSelect>
+              <div class="flex flex-col gap-1 text-xs text-subtext">
+                <span>{language.inlayGallery.inlaySort}</span>
+                <Select bind:value={sortKey} size="sm">
+                  <SelectOption value="updated-desc">{language.inlayGallery.inlaySortUpdatedDesc}</SelectOption>
+                  <SelectOption value="updated-asc">{language.inlayGallery.inlaySortUpdatedAsc}</SelectOption>
+                  <SelectOption value="created-desc">{language.inlayGallery.inlaySortCreatedDesc}</SelectOption>
+                  <SelectOption value="created-asc">{language.inlayGallery.inlaySortCreatedAsc}</SelectOption>
+                </Select>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.character}</span>
-                <ShSelect bind:value={characterFilter} size="sm">
-                  <OptionInput value="">{language.none}</OptionInput>
+                <Select bind:value={characterFilter} size="sm">
+                  <SelectOption value="">{language.none}</SelectOption>
                   {#each characterIndex as char (char.chaId)}
-                    <OptionInput value={char.chaId}>{char.name}</OptionInput>
+                    <SelectOption value={char.chaId}>{char.name}</SelectOption>
                   {/each}
-                </ShSelect>
+                </Select>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.Chat}</span>
-                <ShSelect bind:value={chatFilter} size="sm">
-                  <OptionInput value="">{language.none}</OptionInput>
+                <Select bind:value={chatFilter} size="sm">
+                  <SelectOption value="">{language.none}</SelectOption>
                   {#each availableChats as chat (chat.id)}
-                    <OptionInput value={chat.id}>{chat.name}</OptionInput>
+                    <SelectOption value={chat.id}>{chat.name}</SelectOption>
                   {/each}
-                </ShSelect>
+                </Select>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
-                <span>{language.playground.inlayFilter}</span>
-                <ShSelect bind:value={specialFilter} size="sm">
-                  <OptionInput value="all">{language.playground.inlayFilterAll}</OptionInput>
-                  <OptionInput value="meta-missing">{language.playground.inlayFilterMetaMissing}</OptionInput>
-                  <OptionInput value="orphan-character">{language.playground.inlayFilterOrphanCharacter}</OptionInput>
-                  <OptionInput value="orphan-chat">{language.playground.inlayFilterOrphanChat}</OptionInput>
-                  <OptionInput value="orphan-message">{language.playground.inlayFilterOrphanMessage}</OptionInput>
-                </ShSelect>
+              <div class="flex flex-col gap-1 text-xs text-subtext">
+                <span>{language.inlayGallery.inlayFilter}</span>
+                <Select bind:value={specialFilter} size="sm">
+                  <SelectOption value="all">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                  <SelectOption value="meta-missing">{language.inlayGallery.inlayFilterMetaMissing}</SelectOption>
+                  <SelectOption value="orphan-character">{language.inlayGallery.inlayFilterOrphanCharacter}</SelectOption>
+                  <SelectOption value="orphan-chat">{language.inlayGallery.inlayFilterOrphanChat}</SelectOption>
+                  <SelectOption value="orphan-message">{language.inlayGallery.inlayFilterOrphanMessage}</SelectOption>
+                </Select>
               </div>
             </div>
         </SettingLayout>
@@ -431,24 +388,26 @@
     <div bind:this={galleryScrollContainer} class="flex-1 min-h-0 overflow-y-auto pr-1 pb-4">
       {#if loading}
         <div class="min-h-full flex flex-col items-center justify-center gap-4">
-          <div class="w-12 h-12 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
-          <p class="text-textcolor2 text-sm">{language.playground.inlayLoadingMore}</p>
+          <LoaderCircleIcon class="size-12 animate-spin text-primary" />
+          <p class="text-subtext text-sm">{language.inlayGallery.inlayLoadingMore}</p>
         </div>
       {:else if filteredItems.length === 0}
-        <div class="min-h-full flex flex-col items-center justify-center text-center text-textcolor2">
-          <p class="text-lg">{language.playground.inlayEmpty}</p>
+        <div class="min-h-full flex flex-col items-center justify-center text-center text-subtext">
+          <p class="text-lg">{language.inlayGallery.inlayEmpty}</p>
           <p class="text-sm mt-2">
             {$InlayGallerySubmenuIndex === 0
-              ? language.playground.inlayImageGalleryEmptyDesc
-              : language.playground.inlayMediaGalleryEmptyDesc}
+              ? language.inlayGallery.inlayImageGalleryEmptyDesc
+              : language.inlayGallery.inlayMediaGalleryEmptyDesc}
           </p>
         </div>
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {#each displayedItems as item (item.id)}
+            {@const statusLabel = getStatusLabel(item)}
+            {@const characterName = getCharacterName(item)}
             <div
               class="relative group aspect-[2/3] rounded-lg overflow-hidden bg-darkbg border cursor-pointer select-none transition-colors
-                {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc risu-interactive-border/70'}"
+                {selection.has(item.id) ? 'border-lightborderc' : 'border-darkborderc hover:border-lightborderc/70'}"
               role="button"
               tabindex="0"
               onclick={(event) => handleCardClick(event, item.id)}
@@ -458,61 +417,53 @@
                 <img
                   alt={item.name}
                   class="w-full h-full object-cover"
-                  src={`/api/asset/${Buffer.from('inlay_thumb/' + item.id, 'utf-8').toString('hex')}`}
+                  src={getInlayThumbnailUrl(item.id)}
                   loading="lazy"
                   draggable={false}
                 />
               {:else if item.type === 'video'}
                 {#if failedVideoThumbnails.has(item.id)}
-                  <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
-                    <Video size={36} />
-                    <span class="text-[10px]">{language.playground.inlayVideoAsset}</span>
+                  <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-subtext/60">
+                    <VideoIcon size={36} />
+                    <span class="text-[10px]">{language.inlayGallery.inlayVideoAsset}</span>
                   </div>
                 {:else}
                   <img
                     alt={item.name}
                     class="w-full h-full object-cover bg-darkbg"
-                    src={getVideoThumbnailUrl(item.id)}
+                    src={getInlayVideoThumbnailUrl(item.id)}
                     loading="lazy"
                     draggable={false}
                     onerror={() => failedVideoThumbnails.add(item.id)}
                   />
                 {/if}
               {:else}
-                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
-                  <AudioLines size={36} />
-                  <span class="text-[10px]">{language.playground.inlayAudioAsset}</span>
+                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-subtext/60">
+                  <AudioLinesIcon size={36} />
+                  <span class="text-[10px]">{language.inlayGallery.inlayAudioAsset}</span>
                 </div>
               {/if}
 
-              {#if !selection.has(item.id)}
-                <span
-                  class="pointer-events-none absolute top-1.5 left-1.5 z-10 size-5 rounded bg-darkbg/50
-                    opacity-0 mix-blend-multiply transition-opacity group-hover:opacity-100"
-                  aria-hidden="true"
-                ></span>
-              {/if}
-
               <div
-                class="absolute top-1.5 left-1.5 z-10 transition-opacity
+                class="absolute top-1.5 left-1.5 z-10 size-5 transition-opacity
                   {selection.has(item.id) ? '' : 'opacity-0 group-hover:opacity-100'}"
-                title={selection.has(item.id) ? language.playground.inlayDeselectAll : language.playground.inlaySelectAll}
+                title={selection.has(item.id) ? language.inlayGallery.inlayDeselectAll : language.inlayGallery.inlaySelectAll}
               >
-                <CheckInput
+                <Checkbox
                   card
-                  cardUncheckedFill={false}
                   check={selection.has(item.id)}
                   hiddenName
                   margin={false}
+                  className="size-5"
                   name={item.name}
                   onChange={() => toggleSelect(item.id)}
                 />
               </div>
 
-              {#if getStatusLabel(item)}
+              {#if statusLabel}
                 <div
                   class="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-warning text-darkbg flex items-center justify-center"
-                  title={getStatusLabel(item) ?? ''}
+                  title={statusLabel}
                 >
                   <span class="text-[9px] font-bold leading-none">!</span>
                 </div>
@@ -520,35 +471,35 @@
 
               <div
                 class="absolute inset-x-0 bottom-0 pt-8 pb-2 px-2
-                  bg-gradient-to-t from-black from-[-25%] to-transparent
+                  bg-gradient-to-t from-themeblack from-[-25%] to-transparent
                   opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
               >
-                <p class="text-white text-xs font-medium truncate leading-tight">{item.name}</p>
-                {#if getCharacterName(item)}
-                  <p class="text-white/60 text-[10px] truncate leading-tight">{getCharacterName(item)}</p>
+                <p class="text-themewhite text-xs font-medium truncate leading-tight">{item.name}</p>
+                {#if characterName}
+                  <p class="text-themewhite/50 text-[10px] truncate leading-tight">{characterName}</p>
                 {/if}
                 <div class="flex justify-between items-end mt-1.5">
                   <button
-                    class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
+                    class="w-6 h-6 rounded bg-selected/70 hover:bg-lightborderc flex items-center justify-center text-maintext transition-colors"
                     onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
                     title={language.copy}
                   >
-                    <Copy size={11} />
+                    <CopyIcon size={11} />
                   </button>
                   <div class="flex gap-1.5 justify-end">
                     <button
-                      class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
-                      onclick={(e) => { e.stopPropagation(); downloadCurrent(item) }}
+                      class="w-6 h-6 rounded bg-selected/70 hover:bg-lightborderc flex items-center justify-center text-maintext transition-colors"
+                      onclick={(e) => { e.stopPropagation(); downloadInlayAsset(item.id) }}
                       title={language.download}
                     >
-                      <Download size={12} />
+                      <DownloadIcon size={12} />
                     </button>
                     <button
-                      class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
+                      class="w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite transition-colors"
                       onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
-                      title={language.playground.inlayDelete}
+                      title={language.inlayGallery.inlayDelete}
                     >
-                      <Trash2 size={12} />
+                      <Trash2Icon size={12} />
                     </button>
                   </div>
                 </div>
@@ -559,7 +510,7 @@
 
         {#if hasMore}
           <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
-            <div class="w-7 h-7 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
+            <LoaderCircleIcon class="size-7 animate-spin text-primary" />
           </div>
         {/if}
       {/if}
@@ -578,14 +529,20 @@
   total={sortedItems.length}
   loading={viewerLoading}
   error={viewerError}
-  loadingLabel={language.playground.inlayLoadingOriginal}
+  loadingLabel={language.inlayGallery.inlayLoadingOriginal}
   {canGoPrev}
   {canGoNext}
-  metadataLabel={language.playground.inlayInfo}
+  metadataLabel={language.inlayGallery.inlayInfo}
   closeLabel={language.goback}
   onClose={closeViewer}
   onPrev={() => goToNeighbor(-1)}
   onNext={() => goToNeighbor(1)}
+  onDelete={() => {
+    if (currentViewerItem) return deleteAsset(currentViewerItem.id, currentViewerItem.name)
+  }}
+  onDownload={() => {
+    if (currentViewerItem) return downloadInlayAsset(currentViewerItem.id)
+  }}
 >
   {#snippet viewerContent()}
     {#if currentViewerItem?.type === 'video'}
@@ -595,11 +552,10 @@
         controls
         playsinline
         class="max-w-full max-h-full rounded shadow-2xl"
-        style="max-height: calc(100vh - 112px);"
       ></video>
     {:else if currentViewerItem?.type === 'audio'}
       <div class="flex w-full max-w-xl flex-col items-center gap-6 rounded-lg border border-darkborderc bg-darkbg p-8">
-        <AudioLines size={64} class="text-textcolor2" />
+        <AudioLinesIcon size={64} class="text-subtext" />
         <audio src={viewerUrl} controls class="w-full"></audio>
       </div>
     {:else}
@@ -607,78 +563,29 @@
         src={viewerUrl}
         alt={currentViewerItem?.name ?? viewerId}
         class="max-w-full max-h-full object-contain rounded shadow-2xl"
-        style="max-height: calc(100vh - 112px);"
       />
     {/if}
   {/snippet}
 
   {#snippet actions()}
     {#if currentViewerItem}
-      <IconButton onclick={() => copyInlayReference(currentViewerItem.id)} title={language.copy} aria-label={language.copy} className="text-textcolor">
-        <Copy />
-      </IconButton>
-      <IconButton onclick={() => downloadCurrent(currentViewerItem)} title={language.download} aria-label={language.download} className="text-textcolor">
-        <Download />
-      </IconButton>
-      <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.playground.inlayDelete} aria-label={language.playground.inlayDelete} className="text-textcolor">
-        <Trash2 />
-      </IconButton>
+      <AssetViewerActions
+        onCopy={() => copyInlayReference(currentViewerItem.id)}
+        onDownload={() => downloadInlayAsset(currentViewerItem.id)}
+        onDelete={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)}
+      />
     {/if}
   {/snippet}
 
   {#snippet metadataOverlay()}
     {#if currentViewerItem}
-      <div class="space-y-2 text-xs">
-        {#if !currentViewerItem.hasMeta}
-          <span class="risu-status-warning inline-flex rounded px-1.5 py-0.5 text-[9px] font-medium">
-            {language.playground.inlayFilterMetaMissing}
-          </span>
-        {/if}
-        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
-          {#if getCharacterName(currentViewerItem)}
-            <dt class="text-textcolor2">{language.character}</dt>
-            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
-              <span class="truncate">{getCharacterName(currentViewerItem)}</span>
-              {#if isOrphanCharacter(currentViewerItem)}
-                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.playground.inlayFilterOrphanCharacter}
-                </span>
-              {/if}
-            </dd>
-          {/if}
-          {#if getChatName(currentViewerItem)}
-            <dt class="text-textcolor2">{language.Chat}</dt>
-            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
-              <span class="truncate">{getChatName(currentViewerItem)}</span>
-              {#if isOrphanChat(currentViewerItem)}
-                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.playground.inlayFilterOrphanChat}
-                </span>
-              {/if}
-            </dd>
-          {/if}
-          {#if formatTimestamp(currentViewerItem.meta?.createdAt)}
-            <dt class="text-textcolor2">{language.requestDiagnostics.createdAt}</dt>
-            <dd class="text-textcolor">{formatTimestamp(currentViewerItem.meta?.createdAt)}</dd>
-          {/if}
-          <dt class="text-textcolor2">{language.extensionInfo}</dt>
-          <dd class="text-textcolor">
-            {currentViewerItem.ext?.toUpperCase() ?? ''}{#if currentViewerItem.ext && currentViewerItem.width && currentViewerItem.height}{', '}{/if}{#if currentViewerItem.width && currentViewerItem.height}{currentViewerItem.width} × {currentViewerItem.height}px{/if}
-          </dd>
-        </dl>
-        {#if currentViewerItem.meta?.imageGeneration?.prompt}
-          <div class="space-y-0.5 border-t border-darkborderc pt-2">
-            <p class="text-textcolor2">{language.positivePrompt}</p>
-            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.prompt}</p>
-          </div>
-        {/if}
-        {#if currentViewerItem.meta?.imageGeneration?.negativePrompt}
-          <div class="space-y-0.5 border-t border-darkborderc pt-2">
-            <p class="text-textcolor2">{language.negativePrompt}</p>
-            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.negativePrompt}</p>
-          </div>
-        {/if}
-      </div>
+      <InlayViewerMetadata
+        item={currentViewerItem}
+        characterName={getCharacterName(currentViewerItem)}
+        chatName={getChatName(currentViewerItem)}
+        characterStatus={isOrphanCharacter(currentViewerItem) ? language.inlayGallery.inlayFilterOrphanCharacter : null}
+        chatStatus={isOrphanChat(currentViewerItem) ? language.inlayGallery.inlayFilterOrphanChat : null}
+      />
     {/if}
   {/snippet}
 </FullscreenImageViewer>

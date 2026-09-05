@@ -1,8 +1,15 @@
 <script lang="ts">
+    import { onDestroy } from "svelte"
     import { XIcon } from "@lucide/svelte"
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
     import type { PromptItem, PromptItemPlain, PromptItemChatML, PromptItemTyped, PromptItemAuthorNote, PromptItemChat } from "src/ts/process/prompt.ts";
-    import Portal from "../UI/GUI/Portal.svelte";
+    import Checkbox from "../UI/components/Checkbox.svelte";
+    import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
+    import Slider from "../UI/components/Slider.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Badge from "../UI/components/Badge.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import { language } from "src/lang";
 
     interface Props {
         firstPresetId: number;
@@ -69,9 +76,7 @@
     type CardDiffResult = { parts: CardBodyDiff[]; counts: DiffCounts; cardCounts: DiffCounts }
     
     type DiffPart =
-        | { k: SimpleDiff; src: 'flattext'; v: string }
         | { k: SimpleDiff; src: 'linebyline'; line: PromptLine }
-        | { k: 'modify'; src: 'flattext'; left: string; right: string; tokens: WordToken[] }
         | { k: 'modify'; src: 'linebyline'; left: PromptLine; right: PromptLine; tokens: WordToken[] }
 
     type DiffResult = { parts: DiffPart[]; counts: DiffCounts }
@@ -140,10 +145,10 @@
 // UI state
 // -----------------------------------------------------------------------------
     const DEFAULT_PROMPT_DIFF_PREFS: PromptDiffPrefs = {
-        diffStyle: 'intraline',
+        diffStyle: 'line',
         formatStyle: 'raw',
         viewStyle: 'unified',
-        isGrouped: false,
+        isGrouped: true,
         showOnlyChanges: false,
         contextRadius: 3,
     }
@@ -154,12 +159,10 @@
     let diffStyle = $state<DiffStyle>(prefs?.diffStyle ?? DEFAULT_PROMPT_DIFF_PREFS.diffStyle)
     let formatStyle = $state<FormatStyle>(prefs?.formatStyle ?? DEFAULT_PROMPT_DIFF_PREFS.formatStyle)
     let viewStyle = $state<ViewStyle>(prefs?.viewStyle ?? DEFAULT_PROMPT_DIFF_PREFS.viewStyle)
-    let isFlatText = $state(false) // legacy: not persisted on purpose
     let isGrouped = $state(prefs?.isGrouped ?? DEFAULT_PROMPT_DIFF_PREFS.isGrouped)
     let showOnlyChanges = $state(prefs?.showOnlyChanges ?? DEFAULT_PROMPT_DIFF_PREFS.showOnlyChanges)
     let contextRadius = $state(prefs?.contextRadius ?? DEFAULT_PROMPT_DIFF_PREFS.contextRadius)
 
-    let diffResult = $state<DiffResult | null>(null)
     let cardDiffResult = $state<CardDiffResult | null>(null)
     let expandedRanges = $state<ExpandedRange[]>([])
 
@@ -182,6 +185,14 @@
         onClose()
     }
 
+    function formatPromptDiffText(template: string, values: Record<string, string | number>) {
+        let result = template
+        for (const [key, value] of Object.entries(values)) {
+            result = result.replaceAll(`{${key}}`, String(value))
+        }
+        return result
+    }
+
 
 // Derived values
 // -----------------------------------------------------------------------------
@@ -200,12 +211,6 @@
         }
     })
 
-    const currentFlatResult = $derived.by<DiffResult | null>(() => {
-        if (!isFlatText && formatStyle === 'raw') return cardlineFlatResult
-        if (isFlatText) return diffResult
-        return null
-    })
-
     const visibleCardParts = $derived.by<CardBodyDiff[]>(() => {
         if (!cardDiffResult) return []
         if (!showOnlyChanges) return cardDiffResult.parts
@@ -218,20 +223,20 @@
 
 // UI option lists
 // -----------------------------------------------------------------------------
-     const diffOptions = [
-        { value: 'line', label: 'Line' },
-        { value: 'intraline', label: 'Intraline' },
-    ] as const
+    const diffOptions = [
+        { value: 'line', label: language.promptDiff.line },
+        { value: 'intraline', label: language.promptDiff.character },
+    ]
 
     const formatOptions = [
-        { value: 'raw', label: 'Raw' },
-        { value: 'card', label: 'Card' },
-    ] as const
+        { value: 'raw', label: language.promptDiff.fullPrompt },
+        { value: 'card', label: language.promptDiff.byBlock },
+    ]
 
     const viewOptions = [
-        { value: 'unified', label: 'Unified' },
-        { value: 'split', label: 'Split' },
-    ] as const
+        { value: 'unified', label: language.promptDiff.defaultView },
+        { value: 'split', label: language.promptDiff.splitView },
+    ]
 
 // Inputs
 // -----------------------------------------------------------------------------
@@ -249,7 +254,6 @@
     $effect(() => {
         if (!firstCards || !secondCards) return
         diffStyle
-        isFlatText
         expandedRanges = []
         void recomputeDiff(firstCards, secondCards)
     })
@@ -262,25 +266,22 @@
  
 // Style helpers (classnames)
 // -----------------------------------------------------------------------------
-    const pillBase = 'px-2 py-1 text-xs cursor-pointer select-none'
-    const pillActive = 'text-textcolor bg-primary'
-    const pillInactive = 'text-textcolor2 bg-transparent'
     const diffLineBase = 'whitespace-pre-wrap'
     const diffLineCommon = 'border-l-4 rounded-sm pl-2'
 
-    const diffSameClass = 'text-textcolor'
+    const diffSameClass = 'text-maintext'
     const diffAddClass = `${diffLineCommon} bg-success/10 border-success text-success`
-    const diffRemoveClass = `${diffLineCommon} bg-draculared/10 border-draculared text-draculared`
+    const diffRemoveClass = `${diffLineCommon} bg-danger/10 border-danger text-danger`
 
     const tokenAddClass = 'text-success bg-success/15 rounded-sm px-0.5'
-    const tokenRemoveClass = 'text-draculared bg-draculared/15 rounded-sm px-0.5'
-    const tokenSameClass = 'text-textcolor'
+    const tokenRemoveClass = 'text-danger bg-danger/15 rounded-sm px-0.5'
+    const tokenSameClass = 'text-maintext'
 
-    const lineRemoveClass = 'pl-2 border-l-4 border-draculared bg-draculared/10 text-draculared rounded-sm'
+    const lineRemoveClass = 'pl-2 border-l-4 border-danger bg-danger/10 text-danger rounded-sm'
     const lineAddClass    = 'pl-2 border-l-4 border-success bg-success/10 text-success rounded-sm'
     const lineModifyClass = 'pl-2 border-l-4 border-accent bg-accent/10 rounded-sm'
 
-    const nameHeaderTagClass = 'shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-darkborderc text-textcolor2 bg-darkbg'
+    const nameHeaderTagClass = 'ml-2 shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-darkborderc text-subtext bg-darkbg'
 
     const splitEmptyLineClass = `${diffLineBase} ${diffLineCommon} ` +
         'diff-empty-pattern border-darkborderc/50 text-transparent select-none'
@@ -293,8 +294,8 @@
 
     const tokenPackLineRemove: TokenClassPack = {
       add: '',
-      remove: 'bg-draculared/20 rounded-sm px-0.5',
-      same: 'text-draculared',
+      remove: 'bg-danger/20 rounded-sm px-0.5',
+      same: 'text-danger',
     }
 
     const tokenPackIntraline: TokenClassPack = {
@@ -310,7 +311,7 @@
     }
 
     function lineTextOf(part: NonModifyPart) {
-        return part.src === 'flattext' ? part.v : part.line.text
+        return part.line.text
     }
 
     function isLineby(part: DiffPart): part is Extract<DiffPart, { src: 'linebyline' }> {
@@ -327,7 +328,7 @@
 
     function tagText(part: ModifyPart): string | null {
         if ((part.src === 'linebyline') && (part.right.lineRole === 'name' || part.right.lineRole === 'header')) {
-            return part.right.lineRole === 'name' ? 'NAME' : 'TYPE'
+            return part.right.lineRole === 'name' ? language.promptDiff.name : language.promptDiff.type
         }
         return null
     }
@@ -357,7 +358,7 @@
             item.type === 'chat'
         
         const db = getDatabase()
-        const formated = safeStructuredClone(db.botPresets[id].promptTemplate)
+        const formated = db.botPresets[id].promptTemplate
         const cards: PromptCard[] = []
 
         for(let i=0;i<formated.length;i++){
@@ -367,7 +368,7 @@
                 case isPromptItemPlain(item):{
                     cards.push({
                         kind: 'plain',
-                        name: item.name ?? `${item.type.toUpperCase()} Prompt`,
+                        name: item.name ?? formatPromptDiffText(language.promptDiff.unnamedPrompt, { type: item.type.toUpperCase() }),
                         role: item.role ?? 'unknown',
                         header: `${item.type}; ${item.type2}`,
                         body: item.text ? item.text : null,
@@ -445,42 +446,25 @@
         return out
     }
 
-    function renderRaw(cards: PromptCard[]): string {
-        const lines: string[] = []
-        for (const card of cards) {
-            lines.push(`# ${card.name}`)
-            lines.push(`## ${card.header}\n`)
-            if (card.body) lines.push(...card.body.split('\n'))
-            lines.push('')
-        }
-        while (lines.length && lines[lines.length - 1] === '') lines.pop()
-        return lines.join('\n') + '\n'
-    }
-
 // Diff core
 // -----------------------------------------------------------------------------
     let diffRunId = 0
+
+    onDestroy(() => {
+        diffRunId++
+    })
 
     async function recomputeDiff(firstCards: PromptCard[], secondCards: PromptCard[]) {
         if (!firstCards || !secondCards) return
         const runId = ++diffRunId
 
-        if (isFlatText) {
-            const r = await computeDiffFlat(renderRaw(firstCards), renderRaw(secondCards), diffStyle)
-            if (runId !== diffRunId) return
-            diffResult = r
-            cardDiffResult = null
-            return
-        }
-
         const cr = await computeCardViewDiff(firstCards, secondCards, diffStyle)
         if (runId !== diffRunId) return
         cardDiffResult = cr
-        diffResult = null
     }
 
     async function computeCardViewDiff(prompt1: PromptCard[], prompt2: PromptCard[], style: DiffStyle): Promise<CardDiffResult> {
-        const summary = await computeDiffCardLine(prompt1, prompt2, style)
+        const summary = await computeDiffCardLine(prompt1, prompt2)
         const out: CardBodyDiff[] = []
 
         let modifiedCount = 0
@@ -549,7 +533,7 @@
         }
     }
 
-    async function computeDiffCardLine(prompt1: PromptCard[], prompt2: PromptCard[], style: DiffStyle): Promise<CardDiffSummary> {
+    async function computeDiffCardLine(prompt1: PromptCard[], prompt2: PromptCard[]): Promise<CardDiffSummary> {
         const diff = await loadDiffModule()
         const arrayDiffs = diff.diffArrays(prompt1, prompt2, {
             comparator: (x, y) => x.body === y.body && x.header === y.header && x.kind === y.kind && x.name === y.name
@@ -645,7 +629,9 @@
                         const left = leftLines[j]
                         const right = rightLines[j]
                         
-                        const tokens = await diffIntralineTokens(left.text, right.text)
+                        const tokens = style === 'intraline'
+                            ? await diffIntralineTokens(left.text, right.text)
+                            : lineReplacementTokens(left.text, right.text)
                         parts.push({ k: 'modify', src: 'linebyline', left, right, tokens })
 
                         if (style === 'intraline') {
@@ -677,7 +663,9 @@
                             const right = pair.rightIndex != null ? rightLines[pair.rightIndex] : null
 
                             if (left && right) {
-                                const tokens = await diffIntralineTokens(left.text, right.text)
+                                const tokens = style === 'intraline'
+                                    ? await diffIntralineTokens(left.text, right.text)
+                                    : lineReplacementTokens(left.text, right.text)
                                 parts.push({ k: 'modify', src: 'linebyline', left, right, tokens })
 
                                 if (style === 'intraline') {
@@ -727,53 +715,6 @@
 
     }
 
-    async function computeDiffFlat(prompt1: string, prompt2: string, style: DiffStyle): Promise<DiffResult> {
-        const diff = await loadDiffModule()
-        const lineDiffs = diff.diffLines(prompt1, prompt2)
-
-        const parts: DiffPart[] = []
-        let modifiedCount = 0, addedCount = 0, removedCount = 0
-
-        for (let i = 0; i < lineDiffs.length; i++) {
-            const linePart = lineDiffs[i]
-
-            if (linePart.removed) {
-                const nextPart = lineDiffs[i + 1]
-                
-                if (nextPart?.added) {
-                    if (style === 'intraline') {
-                        const tokens = await diffIntralineTokens(linePart.value, nextPart.value)
-                        parts.push({ k: 'modify', src: 'flattext', left: linePart.value, right: nextPart.value, tokens })
-                        modifiedCount++
-                        i++
-                        continue
-                    }
-                    const tokens = await diffIntralineTokens(linePart.value, nextPart.value)
-                    parts.push({ k: 'modify', src: 'flattext', left: linePart.value, right: nextPart.value, tokens })
-
-                    removedCount++
-                    addedCount++
-                    i++
-                    continue
-                }
-
-                parts.push({ k: 'remove', src: 'flattext', v: linePart.value })
-                removedCount++
-                continue
-            }
-
-            if (linePart.added) {
-                parts.push({ k: 'add', src: 'flattext', v: linePart.value })
-                addedCount++
-                continue
-            }
-
-            parts.push({ k: 'same', src: 'flattext', v: linePart.value })
-        }
-
-        return { parts, counts: { modifiedCount, addedCount, removedCount }}
-    }
-
     async function diffIntralineTokens(string1: string, string2: string): Promise<WordToken[]> {
         const diff = await loadDiffModule()
         const charDiffs = diff.diffWordsWithSpace(string1, string2)
@@ -783,6 +724,13 @@
             if (charPart.removed) return { t: 'remove', v: charPart.value }
             return { t: 'same', v: charPart.value }
         })
+    }
+
+    function lineReplacementTokens(left: string, right: string): WordToken[] {
+        return [
+            { t: 'remove', v: left },
+            { t: 'add', v: right },
+        ]
     }
 
 
@@ -917,8 +865,9 @@
         const m = right.length
         const size = (n + 1) * (m + 1)
 
-        const scores = new Float32Array(size)
         const dirs = new Uint8Array(size)
+        let previousScores = new Float32Array(m + 1)
+        let currentScores = new Float32Array(m + 1)
 
         const idx = (i: number, j: number) => i * (m + 1) + j
 
@@ -926,6 +875,7 @@
         const diagSlope = n > 0 ? m / n : 0
 
         for (let i = 1; i <= n; i++) {
+            currentScores.fill(0)
             let jStart = 1
             let jEnd = m
             if (useBand) {
@@ -935,15 +885,11 @@
             }
 
             for (let j = jStart; j <= jEnd; j++) {
-                const upIdx = idx(i - 1, j)
-                const leftIdx = idx(i, j - 1)
-                const diagIdx = idx(i - 1, j - 1)
-
-                let best = scores[upIdx]
+                let best = previousScores[j]
                 let from = DIR_UP
 
-                if (scores[leftIdx] > best) {
-                    best = scores[leftIdx]
+                if (currentScores[j - 1] > best) {
+                    best = currentScores[j - 1]
                     from = DIR_LEFT
                 }
 
@@ -952,7 +898,7 @@
 
                 const sim = lineSimilarity(aLine, bLine, threshold)
                 if (sim >= threshold) {
-                    const cand = scores[diagIdx] + sim
+                    const cand = previousScores[j - 1] + sim
                     if (cand > best) {
                         best = cand
                         from = DIR_DIAG
@@ -960,9 +906,13 @@
                 }
 
                 const curIdx = idx(i, j)
-                scores[curIdx] = best
+                currentScores[j] = best
                 dirs[curIdx] = from
             }
+
+            const completedScores = previousScores
+            previousScores = currentScores
+            currentScores = completedScores
         }
 
         // backtrack
@@ -1225,85 +1175,8 @@
 
 </script>
 
-{#snippet pillRadioGroup(label: string, name: string, options: readonly { value: string; label: string }[], value: string, setValue: (v: string) => void, disabled = false)}
-  <div class="flex items-center gap-2">
-    <span class="text-xs text-textcolor2">{label}</span>
-    <div class="flex rounded-md border border-darkborderc overflow-hidden">
-      {#each options as opt (opt.value)}
-        <label
-          class={`${pillBase} ${value === opt.value ? pillActive : pillInactive} ${
-                  disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
-          }`}
-        >
-          <input
-            class="hidden"
-            type="radio"
-            {name}
-            value={opt.value}
-            {disabled}
-            checked={value === opt.value}
-            onchange={() => {
-                if (disabled) return
-                setValue(opt.value)}
-            }
-          />
-          {opt.label}
-        </label>
-      {/each}
-    </div>
-  </div>
-{/snippet}
-
-{#snippet checkboxToggle(label: string, checked: boolean, setChecked: (v: boolean) => void, disabled = false, dimWhenDisabled = false)}
-  <div class="flex items-center gap-2">
-    <label
-      class={`flex items-center gap-1 text-xs cursor-pointer select-none ${
-        disabled && dimWhenDisabled ? 'text-textcolor2/50' : 'text-textcolor2'
-      }`}
-    >
-      <input
-        type="checkbox"
-        class="accent-primary"
-        {disabled}
-        checked={checked}
-        onchange={(e) => setChecked((e.currentTarget as HTMLInputElement).checked)}
-      />
-      {label}
-    </label>
-  </div>
-{/snippet}
-
-{#snippet rangeControl(label: string, value: number, setValue: (v: number) => void, min = 0, max = 5, disabled = false)}
-  <div class="flex items-center gap-2">
-    <span class={`text-xs ${disabled ? 'text-textcolor2/50' : 'text-textcolor2'}`}>
-      {label}
-    </span>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step="1"
-      value={value}
-      class="w-24 accent-primary disabled:opacity-40"
-      {disabled}
-      oninput={(e) => {
-        if (disabled) return
-        const target = e.currentTarget as HTMLInputElement
-        setValue(parseInt(target.value, 10))
-      }}
-    />
-    <span
-      class={`text-[11px] w-4 text-right ${
-        disabled ? 'text-textcolor2/40' : 'text-textcolor2/80'
-      }`}
-    >
-      {value}
-    </span>
-  </div>
-{/snippet}
-
 {#snippet renderCounts(counts: DiffCounts)}
-  <div class="flex flex-wrap gap-3 text-xs text-textcolor2 mb-3">
+  <div class="flex flex-wrap gap-3 text-xs text-subtext mb-3">
     <span class="inline-flex items-center gap-2">
       <span class="inline-block w-1 h-4 rounded-sm bg-accent"></span>
       {counts.modifiedCount}
@@ -1313,7 +1186,7 @@
       {counts.addedCount}
     </span>
     <span class="inline-flex items-center gap-2">
-      <span class="inline-block w-1 h-4 rounded-sm bg-draculared"></span>
+      <span class="inline-block w-1 h-4 rounded-sm bg-danger"></span>
       {counts.removedCount}
     </span>
   </div>
@@ -1330,7 +1203,7 @@
     {:else}
       {lineTextOf(part)}{#if isLineby(part) && (part.line.lineRole === 'name' || part.line.lineRole === 'header')}
         <span class={nameHeaderTagClass}>
-          {part.line.lineRole === 'name' ? 'NAME' : 'TYPE'}
+          {part.line.lineRole === 'name' ? language.promptDiff.name : language.promptDiff.type}
         </span>
       {/if}
     {/if}
@@ -1363,7 +1236,7 @@
       class:mb-5={isLineby(part) && part.right.lineRole === 'header'}
     >
       {#if part.src === 'linebyline' && part.right.text === ''}
-        <span class="text-textcolor2/60 italic">[empty line]</span>
+        <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
       {:else}
         {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}{#if tag}<span class={nameHeaderTagClass}>{tag}</span>{/if}
       {/if}
@@ -1396,7 +1269,7 @@
     <div class={`whitespace-pre-wrap ${lineAddClass}`}>
     {#each parts as part, i (i)}
       {#if part.src === 'linebyline' && part.right.text === ''}
-        <span class="text-textcolor2/60 italic">[empty line]</span>
+        <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
       {:else}
         {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}{#if tagText(part)}<span class={nameHeaderTagClass}>{tagText(part)}</span>{/if}
       {/if}
@@ -1409,24 +1282,25 @@
   {/if}
 {/snippet}
 
-{#snippet renderCardMeta(part: DiffPart, type: string, side: Side | null)}
-  <div class="flex flex-col gap-1">
-    <span class="text-[10px] uppercase tracking-wide text-textcolor2">{type}</span>
+{#snippet renderCardMeta(part: DiffPart | null | undefined, type: string, side: Side | null)}
+  <div class="flex min-w-0 items-start gap-2">
+    <span class="text-[10px] uppercase tracking-wide text-subtext">{type}</span>
 
+    <div class="min-w-0">
     {#if part && part.src === 'linebyline'}
       {#if part.k === 'modify'}
         {#if diffStyle === 'line'}
           <!-- line diff -->
           {#if side === null}
             <!-- unified -->
-            <div class="whitespace-pre-wrap text-draculared">
+            <div class="whitespace-pre-wrap text-danger">
               {@render renderTokens(part.tokens, 'add', tokenPackLineRemove)}
             </div>
             <div class="whitespace-pre-wrap text-success">
               {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}
             </div>
           {:else} <!-- split -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-danger' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1444,7 +1318,7 @@
             </div>
           {:else}
             <!-- split intraline: -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-danger' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1459,47 +1333,48 @@
         <div
           class={`whitespace-pre-wrap ${
             part.k === 'same'
-              ? 'text-textcolor'
+              ? 'text-maintext'
               : part.k === 'add'
               ? 'text-success'
-              : 'text-draculared'
+              : 'text-danger'
           }`}
         >
           {part.line.text}
         </div>
       {/if}
     {:else}
-      <div class="text-xs text-textcolor2 italic">No {type}</div>
+      <div class="text-xs text-subtext italic">{formatPromptDiffText(language.promptDiff.missingField, { field: type })}</div>
     {/if}
+    </div>
   </div>
 {/snippet}
 
 {#snippet renderDivider(d: Extract<DiffSegment, { kind: 'divider' }>, scope: string)}
-  <div class="my-3 flex items-center gap-3 text-xs text-textcolor2/70">
+  <div class="my-3 flex items-center gap-3 text-xs text-subtext/70">
     <div class="h-px flex-1 bg-darkborderc/50"></div>
     <button
       type="button"
       class={`px-2 py-0.5 rounded-sm border border-darkborderc bg-darkbg shadow-md
-        ${d.omitted > 0 ? 'risu-interactive-border risu-interactive-foreground hover:shadow-lg cursor-pointer' : 'text-textcolor2/50 cursor-default'}`}
+        ${d.omitted > 0 ? 'risu-interactive-border risu-interactive-foreground hover:shadow-lg cursor-pointer' : 'text-subtext/50 cursor-default'}`}
       disabled={d.omitted === 0}
       onclick={() => expandRange(scope, d.from, d.to)}
-      title={d.omitted > 0 ? 'Click to expand hidden lines' : ''}
+      title={d.omitted > 0 ? language.promptDiff.expandHiddenLines : ''}
     >
       {#if d.pos === 'start'}
         {#if d.omitted > 0}
-          … {d.omitted} lines above not shown (click to expand) …
+          {formatPromptDiffText(language.promptDiff.linesAboveHidden, { count: d.omitted })}
         {:else}
-          BOF
+          {language.promptDiff.startOfPrompt}
         {/if}
 
       {:else if d.pos === 'between'}
-        … {d.omitted} lines skipped (click to expand) …
+        {formatPromptDiffText(language.promptDiff.linesSkipped, { count: d.omitted })}
 
       {:else} <!-- end -->
         {#if d.omitted > 0}
-          … {d.omitted} lines below not shown (click to expand) …
+          {formatPromptDiffText(language.promptDiff.linesBelowHidden, { count: d.omitted })}
         {:else}
-          EOF
+          {language.promptDiff.endOfPrompt}
         {/if}
       {/if}
     </button>
@@ -1538,7 +1413,7 @@
         class:mb-5={role === 'header'}
       >
         {#if isLineby(part) && sideText === ''}
-          <span class="text-textcolor2/60 italic">[empty line]</span>
+          <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
         {:else}
           {@render renderTokens(part.tokens, isLeft ? 'add' : 'remove', diffStyle === 'line' ? (isLeft ? tokenPackLineRemove : tokenPackLineAdd) : tokenPackIntraline)}
         {/if}
@@ -1556,81 +1431,100 @@
   {@const cardChangeCount = (c.modifiedCount ?? 0) + (c.addedCount ?? 0) + (c.removedCount ?? 0)}
 
   {@const statusLabel =
-    cardPart.k === 'modify' ? 'Modified'
-    : cardPart.k === 'add'  ? 'Added'
-    : cardPart.k === 'remove' ? 'Removed'
-    : 'Unchanged'}
-
-  {@const statusClass =
-    cardPart.k === 'modify' ? 'risu-status-info'
-    : cardPart.k === 'add'  ? 'risu-status-success'
-    : cardPart.k === 'remove' ? 'risu-status-danger'
-    : 'bg-selected/30 text-textcolor2 border-darkborderc'}
+    cardPart.k === 'modify' ? language.promptDiff.modified
+    : cardPart.k === 'add'  ? language.promptDiff.added
+    : cardPart.k === 'remove' ? language.promptDiff.removed
+    : language.promptDiff.unchanged}
 
   <div class="flex flex-col items-end gap-1 shrink-0">
-    <span class={`text-[11px] px-2 py-0.5 rounded-full border ${statusClass}`}>
+    <Badge
+      variant={cardPart.k === 'modify' ? 'info' : cardPart.k === 'add' ? 'success' : cardPart.k === 'remove' ? 'destructive' : 'secondary'}
+      size="sm"
+    >
       {statusLabel}
-    </span>
-    <span class="text-[11px] text-textcolor2">
-      {cardChangeCount} change{cardChangeCount === 1 ? '' : 's'}
-    </span>
-    <span class="text-[11px] text-textcolor2">
-      ~{c.modifiedCount ?? 0} / +{c.addedCount ?? 0} / -{c.removedCount ?? 0}
-    </span>
+    </Badge>
+    <div class="flex items-center gap-3 text-[11px] text-subtext">
+      <span>{formatPromptDiffText(language.promptDiff.changeCount, { count: cardChangeCount })}</span>
+      <span class="tabular-nums">~{c.modifiedCount ?? 0} / +{c.addedCount ?? 0} / -{c.removedCount ?? 0}</span>
+    </div>
   </div>
 {/snippet}
 
 
-<Portal>
-<div class="risu-modal-backdrop z-50 flex justify-center items-center p-4">
-  <div class="bg-darkbg rounded-md w-full max-w-4xl max-h-full overflow-hidden flex flex-col">
+<Dialog
+  open={true}
+  size="xl"
+  closable={false}
+  closeOnEscape={false}
+  closeOnOutsideClick={false}
+  contentClass="gap-0 p-0"
+  bodyClass="min-h-0 flex flex-col"
+  ariaLabel={language.promptDiff.title}
+>
     
-    <div class="flex items-center justify-between px-4 py-3 border-b border-darkborderc">
-      <div class="flex items-center gap-4 flex-wrap">
-        {@render pillRadioGroup('Diff', 'diffStyle', diffOptions, diffStyle, (v) => (diffStyle = v as DiffStyle))}
-        {@render pillRadioGroup('Format', 'formatStyle', formatOptions, formatStyle, (v) => (formatStyle = v as FormatStyle), isFlatText)}
-        {@render pillRadioGroup('View', 'viewStyle', viewOptions, viewStyle, (v) => (viewStyle = v as ViewStyle), isFlatText)}        
-        {@render checkboxToggle('Legacy', isFlatText, (v) => (isFlatText = v))}
-        {@render checkboxToggle( 'Grouped', isGrouped, (v) => (isGrouped = v), isFlatText || diffStyle !== 'line' || viewStyle === 'split', true)}
-        {@render checkboxToggle('Only changes', showOnlyChanges, (v) => (showOnlyChanges = v), isFlatText, true)}
-        {#if !isFlatText && showOnlyChanges}
-          {@render rangeControl('Context', contextRadius, (v) => (contextRadius = v), 0, 5)}
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-darkborderc">
+      <div class="flex min-w-0 flex-1 flex-nowrap items-center gap-4 overflow-x-auto">
+        <div class="flex shrink-0 items-center gap-2">
+          <span class="text-xs text-subtext">{language.promptDiff.viewMode}</span>
+          <div class="flex items-center gap-1">
+            <ChoiceGroup variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
+            <ChoiceGroup variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
+            <ChoiceGroup variant="pill" name="viewStyle" bind:value={viewStyle} options={viewOptions} />
+          </div>
+        </div>
+        <Checkbox
+          bind:check={isGrouped}
+          disabled={diffStyle !== 'line' || viewStyle === 'split'}
+          margin={false}
+          grayText
+          className="shrink-0 whitespace-nowrap text-xs"
+          name={language.promptDiff.groupChanges}
+        />
+        <Checkbox
+          bind:check={showOnlyChanges}
+          margin={false}
+          grayText
+          className="shrink-0 whitespace-nowrap text-xs"
+          name={language.promptDiff.onlyChanges}
+        />
+        {#if showOnlyChanges}
+          <div class="flex shrink-0 items-center gap-2">
+            <span class="text-xs text-subtext">{language.promptDiff.context}</span>
+            <Slider
+              className="w-28"
+              min={0}
+              max={5}
+              step={1}
+              bind:value={contextRadius}
+              format={(value) => String(value)}
+              inputWidth="w-4"
+            />
+          </div>
         {/if}
       </div>
 
-      <button class="text-textcolor2 risu-interactive-accent" onclick={(e) => {handleClose()}}>
+      <IconButton
+        onclick={handleClose}
+        title={language.close}
+        aria-label={language.close}
+      >
         <XIcon size={20}/>
-      </button>
+      </IconButton>
     </div>
 
-    <div class="p-4 overflow-y-auto">
+    <div class="min-h-0 overflow-y-auto p-4">
       <!-- card view -->
-      {#if !isFlatText && formatStyle === 'card'}
+      {#if formatStyle === 'card'}
         {#if cardDiffResult}
-          {@const cardChangedTotal = cardDiffResult.cardCounts.modifiedCount + cardDiffResult.cardCounts.addedCount + cardDiffResult.cardCounts.removedCount}
-
-          <div class="flex items-center justify-between mb-3 text-xs text-textcolor2">
-            {@render renderCounts(cardDiffResult.counts)}
-            <div class="text-xs text-textcolor2 flex items-center gap-2 flex-wrap">
-              <span class="text-textcolor2">Cards changed:</span>
-              <span class="text-textcolor">{cardChangedTotal}</span>
-              <span class="text-textcolor2/60">/</span>
-              <span class="text-textcolor2">compared {cardDiffResult.parts.length}</span>
-              <span class="text-textcolor2/60">·</span>
-              <span class="text-textcolor2">total {firstCards.length} → {secondCards.length}</span>
-              <span class="text-textcolor2/60">·</span>
-              <span class="inline-flex items-center gap-1 text-accent">
-                ~{cardDiffResult.cardCounts.modifiedCount}
-              </span>
-              <span class="text-textcolor2/60">/</span>
-              <span class="inline-flex items-center gap-1 text-success">
-                +{cardDiffResult.cardCounts.addedCount}
-              </span>
-              <span class="text-textcolor2/60">/</span>
-              <span class="inline-flex items-center gap-1 text-draculared">
-                -{cardDiffResult.cardCounts.removedCount}
-              </span>
-            </div>
+          <div class="mb-3 flex items-center gap-2 text-xs text-subtext">
+            <span>{language.promptDiff.changedBlocks}:</span>
+            <span class="tabular-nums">
+              <span class="text-accent">~{cardDiffResult.cardCounts.modifiedCount}</span>
+              <span aria-hidden="true"> / </span>
+              <span class="text-success">+{cardDiffResult.cardCounts.addedCount}</span>
+              <span aria-hidden="true"> / </span>
+              <span class="text-danger">-{cardDiffResult.cardCounts.removedCount}</span>
+            </span>
           </div>
 
           <div class="grid gap-3">
@@ -1641,12 +1535,12 @@
               {@const headerPart = lines[1]}
               {@const bodyParts = lines.slice(2)}
 
-              <div class="prompt-diff-hover bg-bgcolor border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
+              <div class="prompt-diff-hover bg-lightbg border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
                 <!-- name / header / card diff -->
                 <div class="flex items-start justify-between gap-2">
-                  <div class="flex flex-col gap-2 min-w-0">
-                    {@render renderCardMeta(namePart, 'name', null)}
-                    {@render renderCardMeta(headerPart, 'type', null)}
+                  <div class="flex min-w-0 flex-col gap-2">
+                    {@render renderCardMeta(namePart, language.promptDiff.name, null)}
+                    {@render renderCardMeta(headerPart, language.promptDiff.type, null)}
                   </div>
 
                   <!-- card diff -->
@@ -1656,7 +1550,7 @@
                 <!-- body -->
                 <div class="mt-2 border-t border-darkborderc pt-2 font-mono text-sm leading-5">
                   {#if bodyParts.length === 0}
-                    <div class="text-textcolor2 italic">No body content</div>
+                    <div class="text-subtext italic">{language.promptDiff.noBodyContent}</div>
                   {:else}
                     {@const segments = buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope: `card-${idx}`, expandedRanges })}
                     {#each segments as seg, sIdx (sIdx)}
@@ -1702,8 +1596,8 @@
 
                 <div class="relative">
                   <div class="absolute inset-0 grid grid-cols-2 gap-x-3 pointer-events-none">
-                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
-                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
+                    <div class="bg-lightbg border border-darkborderc rounded-xl"></div>
+                    <div class="bg-lightbg border border-darkborderc rounded-xl"></div>
                   </div>
 
                   <div class="relative z-10 grid grid-cols-2 gap-x-3 p-px">
@@ -1711,15 +1605,15 @@
                     <div class="p-3">
                       {#if leftExists && namePart && headerPart}
                         <div class="flex items-start justify-between gap-2">
-                          <div class="flex flex-col gap-2 min-w-0">
-                            {@render renderCardMeta(namePart, 'name', 'left')}
-                            {@render renderCardMeta(headerPart, 'type', 'left')}
+                          <div class="flex min-w-0 flex-col gap-2">
+                            {@render renderCardMeta(namePart, language.promptDiff.name, 'left')}
+                            {@render renderCardMeta(headerPart, language.promptDiff.type, 'left')}
                           </div>
                           {@render renderCardStatus(cardPart)}
                         </div>
                       {:else}
                         <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
-                          <span class="text-textcolor2/60 italic text-xs select-none">-</span>
+                          <span class="text-subtext/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
                     </div>
@@ -1728,15 +1622,15 @@
                     <div class="p-3">
                       {#if rightExists && namePart && headerPart}
                         <div class="flex items-start justify-between gap-2">
-                          <div class="flex flex-col gap-2 min-w-0">
-                            {@render renderCardMeta(namePart, 'name', 'right')}
-                            {@render renderCardMeta(headerPart, 'type', 'right')}
+                          <div class="flex min-w-0 flex-col gap-2">
+                            {@render renderCardMeta(namePart, language.promptDiff.name, 'right')}
+                            {@render renderCardMeta(headerPart, language.promptDiff.type, 'right')}
                           </div>
                           {@render renderCardStatus(cardPart)}
                         </div>
                       {:else}
                         <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
-                          <span class="text-textcolor2/60 italic text-xs select-none">-</span>
+                          <span class="text-subtext/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
                     </div>
@@ -1752,10 +1646,10 @@
                         </div>
                       {:else}
                         <div class="contents group">
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                           {@render renderSplitCell(leftExists ? r.left : { kind: 'empty', role: r.left.role }, rIdx)}
                         </div>
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                           {@render renderSplitCell(rightExists ? r.right : { kind: 'empty', role: r.right.role }, rIdx)}
                         </div>
                         </div>
@@ -1767,21 +1661,21 @@
             {/each}
           </div>
         {:else}
-          <div class="text-textcolor2 text-sm">No diff computed yet.</div>
+          <div class="text-subtext text-sm">{language.promptDiff.calculating}</div>
         {/if}
       {:else}<!-- raw view -->
-        {#if currentFlatResult}
-          {@const segments = buildSegments(currentFlatResult.parts, { showOnlyChanges, contextRadius, scope: 'raw', expandedRanges })}
-          {@render renderCounts(currentFlatResult.counts)}
+        {#if cardlineFlatResult}
+          {@const segments = buildSegments(cardlineFlatResult.parts, { showOnlyChanges, contextRadius, scope: 'raw', expandedRanges })}
+          {@render renderCounts(cardlineFlatResult.counts)}
 
           {#if showOnlyChanges && segments.length === 0}
             <div class="flex items-center justify-center py-10">
-              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-bgcolor text-textcolor2">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-lightbg text-subtext">
                 <span class="inline-block w-2 h-2 rounded-full bg-success/70"></span>
-                <span class="text-sm">No changes</span>
+                <span class="text-sm">{language.promptDiff.noChanges}</span>
               </div>
             </div>
-          {:else if viewStyle === 'unified' || isFlatText}
+          {:else if viewStyle === 'unified'}
           <div class="font-mono text-sm leading-5">
             {#each segments as seg, sIdx (sIdx)}
               {#if seg.kind === 'divider'}
@@ -1811,7 +1705,7 @@
           </div>
           {:else} <!-- split view -->
             {@const rows = toSplitRows(segments, 'raw')}
-            <div class="rounded-xl border border-darkborderc bg-bgcolor overflow-hidden">
+            <div class="rounded-xl border border-darkborderc bg-lightbg overflow-hidden">
               <div class="grid grid-cols-[1fr_auto_1fr] gap-0 font-mono text-sm leading-5">
                 {#each rows as r, idx (r.key)}
                   {#if r.kind === 'divider'}
@@ -1820,11 +1714,11 @@
                     </div>
                   {:else}
                     <div class="contents group">
-                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                       {@render renderSplitCell(r.left, idx)}
                     </div>
                     <div class="w-px bg-darkborderc/50"></div>
-                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                       {@render renderSplitCell(r.right, idx)}
                     </div>
                     </div>
@@ -1834,14 +1728,12 @@
             </div>
           {/if}
         {:else}
-          <div class="text-textcolor2 text-sm">No diff computed yet.</div>
+          <div class="text-subtext text-sm">{language.promptDiff.calculating}</div>
         {/if}
       {/if}
     </div>
 
-  </div>
-</div>
-</Portal>
+</Dialog>
 
 <style>
   :global(.diff-empty-pattern) {

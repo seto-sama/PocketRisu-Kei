@@ -8,10 +8,10 @@
         listFilterableProviderGroups,
         resolveProviderFilterHiddenIds,
     } from "src/ts/preset/registry";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Dialog from "../../../UI/components/Dialog.svelte";
+    import Input from "../../../UI/components/Input.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
 
     let open = $state(false);
@@ -82,8 +82,8 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.modelProviderFilter}</span>
-        <p class="text-xs text-textcolor2 mt-0.5">
+        <span class="text-sm text-maintext">{language.modelProviderFilter}</span>
+        <p class="text-xs text-subtext mt-0.5">
             {#if providers.length > 0}
                 {language.modelProviderFilterSummary(visibleProviderCount, providers.length)}
             {:else}
@@ -91,57 +91,57 @@
             {/if}
         </p>
     </div>
-    <ShButton variant="outline" size="sm" onclick={openDialog} className="shrink-0">
+    <Button variant="outline" size="sm" onclick={openDialog} className="shrink-0">
         <ListFilterIcon />
         <span class="ml-1">{language.modelProviderFilterConfigure}</span>
-    </ShButton>
+    </Button>
 </div>
 
-<ShDialog bind:open size="lg" closeOnEscape={true}>
+<Dialog bind:open size="lg" closeOnEscape={true}>
     {#snippet title()}{language.modelProviderFilterDialogTitle}{/snippet}
     {#snippet description()}{language.modelProviderFilterDialogDescription}{/snippet}
 
     {#if providers.length === 0}
-        <p class="text-sm text-textcolor2 py-6 text-center">{language.modelProviderFilterEmpty}</p>
+        <p class="text-sm text-subtext py-6 text-center">{language.modelProviderFilterEmpty}</p>
     {:else}
         <div class="flex flex-col gap-3">
             <div class="flex items-center gap-2">
                 <div class="relative flex-1 min-w-0">
                     <SearchIcon
                         size={16}
-                        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-textcolor2 pointer-events-none"
+                        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtext pointer-events-none"
                     />
-                    <ShInput
+                    <Input
                         bind:value={query}
                         placeholder={language.modelProviderFilterSearch}
                         aria-label={language.modelProviderFilterSearch}
                         className="pl-8"
                     />
                 </div>
-                <ShButton variant="outline" onclick={() => setAllProvidersVisible(true)}>
+                <Button variant="outline" onclick={() => setAllProvidersVisible(true)}>
                     {language.modelProviderFilterShowAll}
-                </ShButton>
-                <ShButton variant="outline" onclick={() => setAllProvidersVisible(false)}>
+                </Button>
+                <Button variant="outline" onclick={() => setAllProvidersVisible(false)}>
                     {language.modelProviderFilterHideAll}
-                </ShButton>
+                </Button>
             </div>
 
-            <SettingLayout variant="list" scrollable className="max-h-[55vh]">
+            <SettingLayout variant="list">
                 {#if filteredProviders.length === 0}
-                    <p class="text-sm text-textcolor2 py-6 text-center">
+                    <p class="text-sm text-subtext py-6 text-center">
                         {language.modelProviderFilterNoMatch}
                     </p>
                 {:else}
                     {#each filteredProviders as provider (provider.id)}
                         <SettingLayout variant="item" className="py-2.5">
                             <div class="flex flex-1 flex-col min-w-0">
-                                <span class="text-sm text-textcolor truncate">{provider.label}</span>
-                                <span class="text-xs text-textcolor2 truncate">
+                                <span class="text-sm text-maintext truncate">{provider.label}</span>
+                                <span class="text-xs text-subtext truncate">
                                     {provider.id} · {language.modelProviderFilterProfileCount(provider.profileCount)}
                                 </span>
                             </div>
                             {#snippet control()}
-                                <ShSwitch
+                                <Switch
                                     checked={!draftHiddenProviderSet.has(provider.id)}
                                     ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
                                     onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
@@ -155,8 +155,8 @@
     {/if}
 
     {#snippet footer()}
-        <ShButton variant="primary" size="sm" onclick={saveDialog}>
+        <Button variant="primary" size="sm" onclick={saveDialog}>
             {language.modelProviderFilterSave}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

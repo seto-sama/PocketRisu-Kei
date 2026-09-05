@@ -1,20 +1,23 @@
 <script lang="ts">
-    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpen, PlusIcon } from "@lucide/svelte";
+    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
     import { alertConfirm, alertMd } from "../../../ts/alert";
-    import ShSwitch from "../../UI/GUI/ShSwitch.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
     import Help from "../../Others/Help.svelte";
-    import TextInput from "../../UI/GUI/TextInput.svelte";
-    import NumberInput from "../../UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
-    import ShDisclosureList from "../../UI/GUI/ShDisclosureList.svelte";
-    import IconButton from "../../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../../UI/GUI/IconButtonGroup.svelte";
-    import TokenCount from "../../UI/GUI/TokenCount.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import TokenCount from "../../UI/components/TokenCount.svelte";
+    import InlineRenameAction from "../../UI/components/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../../UI/components/InlineEditableNameController.svelte";
 
     interface Props {
         value: loreBook;
@@ -29,7 +32,6 @@
         isLastInContainer?: boolean;
         moduleMode?: boolean;
         openedRefs?: Set<loreBook>;
-        listEditMode?: boolean;
     }
 
     let {
@@ -45,8 +47,8 @@
         isLastInContainer = false,
         moduleMode = false,
         openedRefs = $bindable(new Set<loreBook>()),
-        listEditMode = $bindable(false),
     }: Props = $props();
+    const renameController = new InlineEditableNameController();
     
     let open = $derived(isOpen)
     const itemIconSize = 18
@@ -97,10 +99,6 @@
     }
 
     function toggleOpen(){
-        if(listEditMode && value.mode !== 'child'){
-            return
-        }
-
         if(value.mode === 'child'){
             void alertMd(language.childLoreDesc)
             return
@@ -146,7 +144,7 @@
     }
 
 </script>
-<ShDisclosureList
+<DisclosureList
     variant="item"
     open={open}
     disclosure={value.mode !== 'child'}
@@ -161,6 +159,7 @@
             ? value.comment || 'Unnamed Folder'
             : value.comment || value.key || 'Unnamed Lore'}
     data-risu-idx={idx} data-risu-idgroup={idgroup}
+    inlineRenameRow
 >
     {#snippet header()}
         {#if value.mode === 'child'}
@@ -169,30 +168,44 @@
         {:else}
             {#if value.mode === 'folder'}
                 {#if open}
-                    <FolderOpen size={itemIconSize} class="mr-2 shrink-0" />
+                    <FolderOpenIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {:else}
                     <FolderIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {/if}
             {/if}
-            {#if listEditMode}
-                <div class="min-w-0 grow">
-                    <TextInput
-                        bind:value={value.comment}
-                        className="h-6 min-w-0 px-2"
-                        padding={false}
-                        fullwidth
-                        onkeydown={(event) => event.stopPropagation()}
-                    />
-                </div>
-            {:else if value.mode === 'folder'}
-                <span>{value.comment.length === 0 ? "Unnamed Folder" : value.comment}</span>
-            {:else}
-                <span>{value.comment.length === 0 ? value.key.length === 0 ? "Unnamed Lore" : value.key : value.comment}</span>
-            {/if}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={value.comment}
+                label={value.mode === 'folder'
+                    ? value.comment || 'Unnamed Folder'
+                    : value.comment || value.key || 'Unnamed Lore'}
+                onActivate={toggleOpen}
+            />
         {/if}
     {/snippet}
     {#snippet actions()}
         <IconButtonGroup size="default" className="ml-3 shrink-0">
+            <InlineRenameAction controller={renameController} />
+            {#if value.mode === 'folder'}
+                <IconButton
+                    aria-label={language.add}
+                    onclick={() => {
+                        externalLoreBooks.push({
+                            key: '',
+                            comment: '',
+                            content: '',
+                            mode: 'normal',
+                            insertorder: 100,
+                            alwaysActive: true,
+                            secondkey: '',
+                            selective: false,
+                            folder: value.key,
+                        })
+                    }}
+                >
+                    <PlusIcon />
+                </IconButton>
+            {/if}
             {#if value.mode !== 'child'}
                 <IconButton
                     active={value.alwaysActive || value.selective}
@@ -249,25 +262,7 @@
 
     {#if value.mode === 'folder'}
         <div class="border-0 outline-hidden w-full flex flex-col">
-            <LoreBookList externalLoreBooks={externalLoreBooks} showFolder={value.key} {moduleMode} bind:openedRefs bind:listEditMode />
-            
-            <div class="mt-2 flex">
-                <IconButton size="default" onclick={() => {
-                    externalLoreBooks.push({
-                        key: '',
-                        comment: '',
-                        content: '',
-                        mode: 'normal',
-                        insertorder: 100,
-                        alwaysActive: true,
-                        secondkey: '',
-                        selective: false,
-                        folder: value.key,
-                    })
-                }}>
-                    <PlusIcon />
-                </IconButton>
-            </div>
+            <LoreBookList externalLoreBooks={externalLoreBooks} showFolder={value.key} {moduleMode} bind:openedRefs />
         </div>
     {:else}
         <div class="border-0 outline-hidden w-full flex flex-col">
@@ -276,19 +271,19 @@
                     <span>{language.name}<Help key="loreName"/></span>
                     <Help key="loreActivationMode" name={language.activationKeys}/>
                 </div>
-                <div data-disclosure-control><TextInput bind:value={value.comment}/></div>
+                <div data-disclosure-control><Input bind:value={value.comment}/></div>
             </div>
 
             {#if !value.alwaysActive}
                 <div data-disclosure-field>
                     <div data-disclosure-label>{language.activationKeys}<Help key="loreActivationKey"/></div>
-                    <div data-disclosure-control><TextInput bind:value={value.key}/></div>
+                    <div data-disclosure-control><Input bind:value={value.key}/></div>
                 </div>
 
                 {#if value.selective}
                     <div data-disclosure-field>
                         <div data-disclosure-label>{language.SecondaryKeys}<Help key="loreSelective"/></div>
-                        <div data-disclosure-control><TextInput bind:value={value.secondkey}/></div>
+                        <div data-disclosure-control><Input bind:value={value.secondkey}/></div>
                     </div>
                 {/if}
             {/if}
@@ -300,7 +295,7 @@
 
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.prompt}</div>
-                <div data-disclosure-control><TextAreaInput highlight autocomplete="off" bind:value={value.content} /></div>
+                <div data-disclosure-control><Textarea autocomplete="off" bind:value={value.content} popupTitle={value.comment || language.prompt} /></div>
             </div>
             <TokenCount value={value.content} className="mb-2" />
 
@@ -322,21 +317,21 @@
 
             {#if !value.alwaysActive && getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
                 <div data-disclosure-row>
-                    <span class="text-sm text-textcolor">{language.alwaysActiveInChat}</span>
-                    <ShSwitch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
+                    <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
+                    <Switch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
                 </div>
             {/if}
             {#if !value.alwaysActive}
                 <div data-disclosure-row>
-                    <span class="flex items-center text-sm text-textcolor">
+                    <span class="flex items-center text-sm text-maintext">
                         {language.useRegexLorebook}
                         <Help key="useRegexLorebook"/>
                     </span>
-                    <ShSwitch checked={value.useRegex} onCheckedChange={(checked) => {
+                    <Switch checked={value.useRegex} onCheckedChange={(checked) => {
                         value.useRegex = checked
                     }} />
                 </div>
             {/if}
         </div>
     {/if}
-</ShDisclosureList>
+</DisclosureList>

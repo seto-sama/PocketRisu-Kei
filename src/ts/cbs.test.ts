@@ -1,13 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { defaultCBSRegisterArg, getCBSCompletionEntries, getCBSCompletionNames, registerCBS, type RegisterCallback } from './cbs'
+import { defaultCBSRegisterArg, getCBSCompletionNames, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
+    it('keeps built-in primary names unique', () => {
+        const names:string[] = []
+        registerCBS({
+            ...defaultCBSRegisterArg,
+            registerFunction: definition => { names.push(definition.name) },
+        })
+
+        expect(new Set(names).size).toBe(names.length)
+    })
+
+    it('keeps exact callable names and aliases unique', () => {
+        const owners = new Map<string, string>()
+        const duplicates:string[] = []
+
+        for(const definition of getCBSDefinitions()){
+            for(const name of [definition.name, ...definition.alias]){
+                const owner = owners.get(name)
+                if(owner) duplicates.push(`${name}: ${owner}, ${definition.name}`)
+                else owners.set(name, definition.name)
+            }
+        }
+
+        expect(duplicates).toEqual([])
+    })
+
     it('exposes current block syntax to editor tooling', () => {
         expect(getCBSCompletionNames()).toEqual(expect.arrayContaining(['#when', '/when']))
-        expect(getCBSCompletionEntries()).toEqual(expect.arrayContaining([
-            expect.objectContaining({ name: '#when', detail: 'block' }),
-            expect.objectContaining({ name: '/when', detail: 'closes #when' }),
-        ]))
     })
 
     it('uses the effective generation model label for modelname', () => {

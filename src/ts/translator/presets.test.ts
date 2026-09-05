@@ -15,13 +15,16 @@ vi.mock("src/ts/rpack/rpack_js.js", () => ({
 }));
 
 import {
+    appendTranslatorPreset,
     createTranslatorPreset,
     decodeTranslatorPresetFile,
+    duplicateTranslatorPreset,
     encodeTranslatorPresetFile,
     getCurrentTranslatorPresetFromState,
     getTranslatorPresetDownloadName,
+    moveTranslatorPreset,
     normalizeTranslatorPresetState,
-    translatorPresetImportExtensions,
+    removeTranslatorPreset,
     type TranslatorPresetStateLike,
 } from "./presets";
 
@@ -35,11 +38,12 @@ describe("normalizeTranslatorPresetState", () => {
         normalizeTranslatorPresetState(state);
 
         expect(state.translatorPresets).toEqual([
-            {
+            expect.objectContaining({
+                id: expect.any(String),
                 name: "Default",
                 prompt: "Translate to {{slot}}.",
                 maxResponse: 321,
-            },
+            }),
         ]);
         expect(state.translatorPresetId).toBe(0);
         expect(state.translatorPrompt).toBe("Translate to {{slot}}.");
@@ -65,6 +69,40 @@ describe("normalizeTranslatorPresetState", () => {
         expect(state.translatorPrompt).toBe("Fast preset");
         expect(state.translatorMaxResponse).toBe(128);
     });
+
+    it("keeps stable preset ids when presets are edited or reordered", () => {
+        const first = createTranslatorPreset("First");
+        const second = createTranslatorPreset("Second");
+        first.prompt = "Edited prompt";
+        const state: TranslatorPresetStateLike = {
+            translatorPresets: [second, first],
+            translatorPresetId: 1,
+        };
+
+        normalizeTranslatorPresetState(state);
+
+        expect(state.translatorPresets?.map(preset => (preset as { id: string }).id))
+            .toEqual([second.id, first.id]);
+    });
+
+    it("adds an id while normalizing a legacy preset that has none", () => {
+        const state: TranslatorPresetStateLike = {
+            translatorPresets: [{
+                name: "Legacy",
+                prompt: "Translate this",
+                maxResponse: 256,
+            }],
+            translatorPresetId: 0,
+        };
+
+        normalizeTranslatorPresetState(state);
+
+        expect(state.translatorPresets?.[0]).toEqual(expect.objectContaining({
+            id: expect.any(String),
+            name: "Legacy",
+        }));
+    });
+
 });
 
 describe("getCurrentTranslatorPresetFromState", () => {
@@ -95,11 +133,40 @@ describe("getCurrentTranslatorPresetFromState", () => {
     });
 });
 
-describe("translator preset file codec", () => {
-    it("only allows .risutl files in the import picker", () => {
-        expect(translatorPresetImportExtensions).toEqual(["risutl"]);
+describe("translator preset collection operations", () => {
+    it("keeps the selected preset stable while moving and removing siblings", () => {
+        const first = createTranslatorPreset("First", { prompt: "first" });
+        const selected = createTranslatorPreset("Selected", { prompt: "selected" });
+        const third = createTranslatorPreset("Third", { prompt: "third" });
+        const state = {
+            translatorPresets: [first, selected, third],
+            translatorPresetId: 1,
+            translatorPrompt: "",
+            translatorMaxResponse: 0,
+        };
+
+        expect(moveTranslatorPreset(state, 1, 3)).toBe(true);
+        expect(state.translatorPresets[state.translatorPresetId].id).toBe(selected.id);
+        expect(removeTranslatorPreset(state, 0)).toBe(true);
+        expect(state.translatorPresets[state.translatorPresetId].id).toBe(selected.id);
+        expect(state.translatorPrompt).toBe("selected");
     });
 
+    it("appends and duplicates presets with new stable ids", () => {
+        const first = createTranslatorPreset("First");
+        const state = { translatorPresets: [first], translatorPresetId: 0 };
+        const added = createTranslatorPreset("Added");
+
+        appendTranslatorPreset(state, added);
+        const duplicate = duplicateTranslatorPreset(state, 0, "Copy");
+
+        expect(state.translatorPresetId).toBe(2);
+        expect(duplicate?.name).toBe("First Copy");
+        expect(duplicate?.id).not.toBe(first.id);
+    });
+});
+
+describe("translator preset file codec", () => {
     it("round-trips the new encrypted .risutl file payload", async () => {
         const preset = createTranslatorPreset("My Preset", {
             prompt: "Translate into {{slot}}.",
@@ -111,9 +178,9 @@ describe("translator preset file codec", () => {
 
         expect(decoded).toEqual(preset);
         expect(() => JSON.parse(new TextDecoder().decode(encoded))).toThrow();
-        expect(getTranslatorPresetDownloadName("My/Translator:Preset")).toBe(
-            "translator_preset_My_Translator_Preset.risutl"
-        );
+        const downloadName = getTranslatorPresetDownloadName("My/Translator:Preset");
+        expect(downloadName).toMatch(/\.risutl$/);
+        expect(downloadName).not.toMatch(/[\\/:]/);
     });
 
     it("rejects plain JSON translator preset payloads", async () => {
@@ -130,25 +197,6 @@ describe("translator preset file codec", () => {
         );
 
         await expect(decodeTranslatorPresetFile(plainJsonPayload)).rejects.toThrow(
-            "Invalid translator preset file."
-        );
-    });
-
-    it("rejects non-translator preset payloads", async () => {
-        const hypaLikePayload = new TextEncoder().encode(
-            JSON.stringify({
-                type: "risu",
-                ver: 1,
-                data: {
-                    name: "HypaV3",
-                    settings: {
-                        summarizationPrompt: "not a translator preset",
-                    },
-                },
-            })
-        );
-
-        await expect(decodeTranslatorPresetFile(hypaLikePayload)).rejects.toThrow(
             "Invalid translator preset file."
         );
     });

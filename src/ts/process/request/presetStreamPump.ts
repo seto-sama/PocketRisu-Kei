@@ -104,6 +104,69 @@ export interface PumpPresetStreamOptions {
     onFinish?: (outcome: 'done' | 'failed', lastUsage?: AdapterChatStreamDelta['usage']) => void
 }
 
+export interface RetryingSnapshotStreamOptions<T> {
+    createAttempt: () => ReadableStream<T>
+    /** Identifies the first chunk that contains provider response content. */
+    startsResponse?: (chunk: T) => boolean
+    /** Return the delay before the next attempt, or null to surface the error. */
+    retryDelayMs: (error: unknown) => number | null
+    onRetry?: (error: unknown) => void
+    onFinalError?: (error: unknown) => void
+}
+
+/**
+ * Relays full-snapshot streams and retries only before response content starts.
+ * Once a meaningful response chunk has reached the consumer, a later failure
+ * is surfaced as-is so a partially generated answer is never replayed.
+ */
+export function createRetryingSnapshotStream<T>(
+    options: RetryingSnapshotStreamOptions<T>,
+): ReadableStream<T> {
+    let cancelled = false
+    let responseStarted = false
+    let activeReader: ReadableStreamDefaultReader<T> | undefined
+
+    return new ReadableStream<T>({
+        async start(controller) {
+            while (!cancelled) {
+                try {
+                    activeReader = options.createAttempt().getReader()
+                    while (!cancelled) {
+                        const next = await activeReader.read()
+                        if (next.done) {
+                            controller.close()
+                            return
+                        }
+                        if (options.startsResponse?.(next.value) ?? true) {
+                            responseStarted = true
+                        }
+                        controller.enqueue(next.value)
+                    }
+                } catch (error) {
+                    if (cancelled) return
+                    const delayMs = responseStarted ? null : options.retryDelayMs(error)
+                    if (delayMs === null) {
+                        options.onFinalError?.(error)
+                        controller.error(error)
+                        return
+                    }
+                    options.onRetry?.(error)
+                    if (delayMs > 0) {
+                        await new Promise(resolve => setTimeout(resolve, delayMs))
+                    }
+                } finally {
+                    activeReader?.releaseLock()
+                    activeReader = undefined
+                }
+            }
+        },
+        cancel(reason) {
+            cancelled = true
+            return activeReader?.cancel(reason)
+        },
+    })
+}
+
 // Drains an adapter stream into a chunk controller, accumulating text/reasoning
 // and emitting throttled, backpressure-aware, trailing-flushed snapshots.
 export async function pumpPresetStream(

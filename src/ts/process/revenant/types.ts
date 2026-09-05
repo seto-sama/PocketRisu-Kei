@@ -175,6 +175,7 @@ export interface RevenantPostprocessMutationPatch {
 export interface RevenantChatWorkflowContext {
     schemaVersion: 1
     kind: 'chat-generation'
+    comfyBridgeId?: string
     inputCommit: RevenantWorkflowInputCommit
     resume: {
         schemaVersion: 1
@@ -186,7 +187,26 @@ export interface RevenantChatWorkflowContext {
     postprocess: RevenantPostprocessRecipe
 }
 
-export type RevenantWorkflowContext = RevenantChatWorkflowContext
+export interface RevenantImageWorkflowContext {
+    schemaVersion: 1
+    kind: 'image-generation'
+    comfyBridgeId: string
+    operationId: string
+    messageId: string
+    target: {
+        characterId: string
+        roomId: string
+    }
+    prompt: string
+    negativePrompt: string
+    seed?: number
+    label: string
+    projection?: 'append' | 'reroll'
+}
+
+export type RevenantWorkflowContext =
+    | RevenantChatWorkflowContext
+    | RevenantImageWorkflowContext
 
 export interface RevenantWorkflowExecution<TResult = unknown> {
     workflowId: string
@@ -236,8 +256,10 @@ export interface RevenantWorkflowExecutionRef {
 }
 
 /** Browser-only observation hooks; never serialized as provider job state. */
+export type RevenantJobCreatedHandler = (jobId: string, createdAt: number) => void
+
 export interface RevenantGenerationLifecycle {
-    onJobCreated?: (jobId: string) => void
+    onJobCreated?: RevenantJobCreatedHandler
     onJobRegistrationUnavailable?: (error?: unknown) => void
     onProviderStarted?: (startedAt: number) => void
     /** Terminal provider-job state reported by the durable server journal. */

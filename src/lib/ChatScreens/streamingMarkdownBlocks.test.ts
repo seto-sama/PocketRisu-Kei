@@ -24,6 +24,38 @@ describe('stable streaming Markdown blocks', () => {
         })
     })
 
+    it('freezes complete HTML and CBS asset blocks', () => {
+        const style = '<style>\n.asset { display: block; }\n</style>\n'
+        const asset = '{{#when::1::is::1}}\n<div class="asset"><div><img src="a.png"></div></div>\n{{/when}}\n'
+
+        expect(splitStableMarkdownBlocks(`${style}${asset}Tail`)).toEqual({
+            stableBlocks: [style, asset],
+            tail: 'Tail',
+        })
+    })
+
+    it('does not render an incomplete structured tail', async () => {
+        const parse = vi.fn(async (source: string) => `<parsed>${source}</parsed>`)
+        const renderer = new StreamingMarkdownBlockRenderer()
+
+        const incomplete = await renderer.render(
+            '<div class="asset"><img src="a.png">',
+            'message',
+            parse,
+        )
+        expect(incomplete.tail.html).toBe('')
+        expect(parse).not.toHaveBeenCalled()
+
+        const complete = await renderer.render(
+            '<div class="asset"><img src="a.png"></div>\nTail',
+            'message',
+            parse,
+        )
+        expect(complete.stableBlocks).toHaveLength(1)
+        expect(complete.stableBlocks[0].source).toBe('<div class="asset"><img src="a.png"></div>\n')
+        expect(parse).toHaveBeenCalledWith('<div class="asset"><img src="a.png"></div>\n')
+    })
+
     it('parses stable blocks once and only reparses the changing tail', async () => {
         const parse = vi.fn(async (source: string) => `<p>${source.trim()}</p>`)
         const renderer = new StreamingMarkdownBlockRenderer()

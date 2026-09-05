@@ -13,14 +13,12 @@
 export const helpEn = {
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
         "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
+        "translationDialogClearAfterConfirm": "Clears the translation input after the translated content has been appended to the message input.",
+        "translationDialog": "Translates the entered text. After translation, select Confirm to append the result to the chat input.",
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
-        mainprompt: "The main prompt option sets the default model behavior.",
-        jailbreak: "The jailbreak prompt option activates when jailbreak toggle is on in character.",
-        globalNote: "A note that strongly affects model behavior, also known as UJB. Works in all characters.",
-        formatOrder: "formating order of prompt. lower blocks does more effect to the model.",
         forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
             "lower values make character follow prompts closely, but it will more likely to response like a machine.\nHigher values will result in creative behavior, but the character's response can break down more easily.",
@@ -74,7 +72,7 @@ export const helpEn = {
             "\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```" +
             "\n\n```<START>``` Marks the beginning of a new conversation.",
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
-        systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
+        systemPrompt: "This prompt is no longer used and is not included in requests.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -100,12 +98,15 @@ export const helpEn = {
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
         showUnrecommended: "If enabled, it will show unrecommended, deprecated settings. it is NOT RECOMMENDED to use these settings.",
-        allowV2Plugin: "Warning: This enables deprecated V2.0 plugin execution. V2.0 plugins bypass the V2.1 safety check and may be unsafe. Leave this disabled unless you explicitly trust the plugin and cannot migrate it to V3 yet.",
+        allowV2Plugin: "Warning: This allows deprecated V2.0 and V2.1 plugins to be installed and run. These plugins may be unsafe. When disabled, installed V2 plugins are switched off and cannot be enabled. Enable only for plugins you explicitly trust and cannot migrate to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
-        inlayImageLossless: "If enabled, inlay images will be saved as lossless PNG instead of compressed WebP. This preserves original quality but uses significantly more storage.",
-        inlayImagePriority: "If enabled, inlays render as images first for faster loading. Video/audio inlays auto-switch after image load fails. Disable if you use many video/audio inlays.",
-        inlayCompressAllDesc: "Compresses all inlay images.",
+        inlayImageCompression: "When enabled, new inlay images are compressed using the settings below. When disabled, they are saved as lossless PNG at their original size.",
+        inlayImageSize: "1K, 2K, and 4K limit images to approximately 1, 4, and 16 megapixels. Only larger images are resized with their aspect ratio preserved.",
+        inlayImageFormat: "Save inlay images as WebP or lossless PNG.",
+        inlayImageLossy: "Use lossy WebP compression. Disable this to save lossless WebP.",
+        inlayImageQuality: "Quality for lossy WebP. Higher values produce larger files.",
+        inlayCompressAllDesc: "Re-saves every inlay image using the current compression settings.",
         showModelInSidebar: "Show the current AI model name in the sidebar for quick reference.",
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
@@ -116,8 +117,9 @@ export const helpEn = {
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
-            "This option is used to set the number of responses to generate on support models. other then first response will be act as cached reroll. this can reduce the cost of the model, but it can also increase the cost if you use it without reroll.",
-        requestretrys: "This option is used to set the number of request retrys when request fails.",
+            "Total number of main response generations. After the first response, the normal reroll action runs automatically and sequentially. Automatic rerolls stop when a generation calls a tool, and TTS is not played for automatic rerolls. Higher values increase requests and cost.",
+        requestretrys: "Sets how many times a failed request is retried. Overload retries automatically wait about 1 second for attempts 1-3, 5 seconds for attempts 4-5, and 10 seconds thereafter, with a small random delay. A server-provided Retry-After value takes priority.",
+        outputRepetitionDetection: "Automatically cancels the request when the same output is repeated at least the specified number of times.",
         chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
         chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
         emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
@@ -145,8 +147,6 @@ export const helpEn = {
             "If enabled, it will enable access to features that requires high computing powers and executing AI model via triggers in the character. do not enable this unless you really need these features.",
         triggerLLMPrompt:
             "A prompt that would be sent to the model. you can use multi turns and roles by using `@@role user`, `@@role system`, `@@role assistant`. for example, \n```\n@@role system\nrespond as hello\n@@role assistant\nhello\n@@role user\nhi\n```",
-        legacyTranslation:
-            "If enabled, it will use the old translation method, which preprocess markdown and quotes before translations instead of postprocessing after translations.",
         luaHelp:
             "You can use Lua scripts as a trigger script. you can define onInput, onOutput, onStart functions. onInput is called when user sends a message, onOutput is called when character sends a message, onStart is called when the chat starts. for more information, see the documentation.",
         claudeCachingExperimental:
@@ -161,10 +161,13 @@ export const helpEn = {
             "Namespace is a unique identifier for the module. it is used to prevent conflicts between modules, and for interaction of presets, other modules and etc. if you are not sure what to put, leave it blank.",
         moduleIntergration:
             "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
+        personaModuleBinding:
+            "Only personas selected here will have this module enabled in chats where they are active.",
+        chatModulesInfo:
+            "You can enable or disable modules for this chat. You can also enable them for this character by right-clicking or long-pressing the enable button.",
         customCSS: "Custom CSS for styling.",
         globalCustomCSS: "Global custom CSS that remains active when switching themes.",
         betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",
-        enableScrollToActiveChar: "If enabled, pressing the hotkey or holding Ctrl while dragging a character will scroll to the currently active character. Folders will be opened automatically if closed.",
         unrecommended: "This is a unrecommended setting. it is not recommended to use this setting.",
         jsonSchema:
             "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In PocketRisu Kei, you can use subset of TypeScript interface instead of JSON Schema. PocketRisu Kei will convert it in runtime." +
@@ -196,6 +199,7 @@ export const helpEn = {
         translateBeforeHTMLFormatting:
             "If enabled, it will translate the text before Regex scripts and HTML formatting. this could make the token lesser but could break the formatting.",
         autoTranslateCachedOnly: "If enabled with Auto Translation option on, it will automatically translate only the messages that the user has translated previously.",
+        autoTranslateLastOutputOnly: "When Auto Translation is enabled, automatically translates only the last assistant message when its dominant Unicode script differs from the UI language.",
         comfyWorkflow:
             "Put the API workflow of comfy UI. you can get your API workflow in comfy UI by pressing the 'Workflow > Export (API)' button. you must also put {{risu_prompt}} in you workflow text. the {{risu_prompt}} will be replaced with the prompt provided by the Risu.",
         automaticCachePoint: "When no cache point is explicitly configured, automatically adds cache points to up to the 3 most recent user messages.",
@@ -218,6 +222,7 @@ export const helpEn = {
         openRouterProviderIgnore:
             "Ignore the providers in this list, if all the provider is ingored, the request will failed. See detail on https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         hideAllImagesDesc: "Hides bot icons, bot image assets, and RisuRealm cover images.",
+        preloadChatImagesDesc: "Preloads nearby inlays and other chat images to prevent layout shifts while scrolling. Disable it to rely on browser lazy loading.",
         hideMessagePageCountDesc: "Hides the page counter (e.g. 1/3) for regenerated messages and first message greetings. Navigation arrows and the regenerate button remain visible.",
         embedding:
             "Embedding model is used for similarity search across multiple features:\n\n" +
@@ -303,7 +308,7 @@ export const helpEn = {
         localActivationInGlobalLorebook:
             "Show an \"Always active in this chat\" option on character lorebook entries. Enabled entries stay active in the current chat regardless of keyword matches.",
         requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
-        inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
+        stickyChatToolbar: "Keep the toolbar and request information visible while scrolling through the chat.",
         bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
         autoScrollToNewMessage: "Automatically scroll to a newly arrived message.",
@@ -327,12 +332,9 @@ export const helpEn = {
             "Disable extension filtering in file pickers and allow every file type. Useful for importing character cards saved with unusual or incorrect extensions.",
         enableDevTools:
             "Show developer tools for debugging chat and UI behavior. Most users can leave this off.",
-        promptTextInfoInsideChat:
-            "When prompt info inside chat is enabled, also store and display the actual prompt text sent to the model. This can make chats heavier, so use it mainly for debugging.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
-        antiServerOverload:
-            "Automatically increase retry intervals when an API server responds as overloaded (for example 429 or 503). Helps reduce pressure on unstable providers.",
+        pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",
         claude1HourCaching:
             "Use Claude's 1-hour prompt cache TTL instead of the default 5-minute cache. This can save more cost for repeated contexts, but 1-hour cache pricing differs.",
         claudeBatching:
@@ -343,14 +345,10 @@ export const helpEn = {
             "Enable bookmarks on chat messages and collect them in the menu. Useful for finding important messages in long chats.",
         simplifiedToolUse:
             "Show tool-call results in a simplified chat-friendly format. Use this when raw tool output is too long or noisy.",
-        exportCurrentSettings:
-            "Exports the complete current settings as a JSON file for bug reports.",
         unrecommendedNewGoogleTrans:
             "Use the new experimental Google Translate path. It may be faster than the old path, but can break in some cases.",
         lightningRealmImport:
             "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
-        unrecommendedTriggerV1:
-            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2/V3 for new work. Keep this only for legacy V1 compatibility.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
@@ -377,14 +375,14 @@ export const helpEn = {
         showFolderNameInIcon:
             "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
         showRequestStatus:
-            "Show a floating toast during model-preset requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
-        customBackground: "A custom chat background used by the Waifulike, Mobile Chat, and CardBoard themes.",
+            "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
+        customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
         roundIcons:
-            "Display character and persona icons as circles instead of squares.",
+            "Display character and persona icons as circles. When disabled, regular images use rounded squares and portrait images use tall rounded rectangles.",
         textScreenColor:
-            "Set the message text-area background color used by the Waifulike, Mobile Chat, and CardBoard themes.",
+            "Set the message text-area background color used by the Waifulike and Mobile Chat themes.",
         textBorder:
             "Draw the text outline behind the glyph fill so it stays outside the letters and remains readable over background images.",
         showSavingIcon:
@@ -417,22 +415,12 @@ export const helpEn = {
             "Use an always-visible sidebar menu instead of the classic hamburger menu. Useful on wider screens for faster navigation.",
         notification:
             "Enable browser notifications for new messages. Your browser may ask for permission the first time; if permission is denied, the option is turned back off.",
-        unrecommendedChatSticker:
-            "Enable the old chat-sticker feature. This is no longer recommended and may be removed in a future version.",
         UiLanguage:
             "Risu UI display language. Close the settings once after changing it so the new language fully applies.\n\n- **[Translate in your own language]** downloads the current language JSON so you can translate it and send it to the developer for inclusion.",
         translatorLanguage:
             "Language to translate character responses into. This is the output language, not your source language. Choose `Disabled` to turn translation off.",
         translatorType:
-            "Translation engine to use.\n\n- **Google**: free, fast, acceptable quality for supported languages\n- **DeepL**: natural output, requires free or paid key\n- **Ax. Model**: LLM translation through the auxiliary model, most natural but slower and costs tokens\n- **DeepL X**: self-hosted DeepL-compatible proxy\n- **Firefox**: browser built-in Bergamot translation, downloads local models",
-        deeplKey:
-            "DeepL API auth key from https://www.deepl.com/account. Free keys require the DeepL Free toggle below because they use a different endpoint.",
-        deeplFreeKey:
-            "Use a DeepL Free key. Free keys are routed to the `*-free.com.deepl.com` endpoint. Turn this off for Pro keys.",
-        deeplXUrl:
-            "URL of your self-hosted DeepL X / DeepL-compatible translation server, such as `https://my-server.com/translate`.",
-        deeplXToken:
-            "Auth token for your DeepL X server. Leave blank if the server does not require authentication.",
+            "Translation engine to use.\n\n- **Google**: free, fast, acceptable quality for supported languages\n- **Ax. Model**: LLM translation through the auxiliary model, most natural but slower and costs tokens\n- **Firefox**: browser built-in Bergamot translation, downloads local models",
         sourceLanguage:
             "Choose whether Google Translate should auto-detect the source language or assume a fixed source language. Auto is usually best, but fixing it can help short messages that get misdetected.",
         htmlTranslation:
@@ -486,9 +474,7 @@ export const helpEn = {
         proxyRequestModel:
             "Model name to send to the proxy. Some OpenAI-compatible proxies use their own naming conventions, so paste the exact model id the proxy expects (e.g. `gpt-4o`, `claude-3-5-sonnet-20241022`).",
         proxyFormat:
-            "Request body format for the reverse proxy.\n\n- **OpenAI Compatible**: most common, OpenAI Chat Completions shape\n- **OpenAI Response API**: the new Response API (only on supporting models)\n- **Anthropic**: Claude API shape\n- **Mistral**: Mistral's own format\n- **Google Cloud**: Vertex / Gemini\n- **Cohere**: Cohere's own format\n\nPick whichever the proxy accepts. If unsure, start with OpenAI Compatible.",
-        cohereKey:
-            "Cohere API key (https://dashboard.cohere.com/api-keys). Required when using Cohere's own models such as `command-r`.",
+            "Request body format for the reverse proxy.\n\n- **OpenAI Compatible**: most common, OpenAI Chat Completions shape\n- **OpenAI Response API**: the new Response API (only on supporting models)\n- **Anthropic**: Claude API shape\n- **Mistral**: Mistral's own format\n- **Google Cloud**: Vertex / Gemini\n\nPick whichever the proxy accepts. If unsure, start with OpenAI Compatible.",
         ollamaURL:
             "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu's local-network mode for stable access to private LAN LLMs.",
         ollamaModel:
@@ -538,6 +524,7 @@ export const helpEn = {
         modelPresetToolUseHelp: "Let this preset call your configured tools (MCP). Off by default. Tool runs are sent without streaming.",
         modelPresetCustomProfileHelp: "Advanced profile for configuring an endpoint, request format, authentication, generation parameters, body/header values, and compatibility flags directly.",
         modelPresetRequestFormatHelp: "Select the request/response protocol implemented by the endpoint. Compatible servers such as Mistral, Ollama, and vLLM usually use OpenAI Chat Completions.",
+        modelPresetServiceTierHelp: "Select the response speed pricing tier. Flex is cheaper but slower, while Priority is faster but more expensive. Vertex AI supports this setting only in the global location.",
         modelPresetEndpointUrlHelp: "Enter the complete request URL, including the final API path.",
         modelPresetRequestModelIdHelp: "The actual model identifier used in the request body or Gemini URL.",
         modelPresetPromptCacheModeHelp: "GPT-5.6 and later only. Implicit uses an automatic breakpoint; explicit uses only prompt cache cards and explicit breakpoints.",
@@ -588,6 +575,10 @@ export const helpEn = {
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:
             "Seed for deterministic output. Same input + same seed ≈ same response. Use it to remove variance when comparing prompts. Only honored on OpenAI / reverse-proxy / OpenRouter models.",
+        imageGenerationSeed:
+            "When left blank, a random value is sent.",
+        imageGenerationPresetQuickEdit:
+            "Right-click the generation settings or style preset field to edit the selected preset directly.",
         thinkingType:
             "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
         thinkingTokens:
@@ -606,8 +597,6 @@ export const helpEn = {
             "For OpenAI o-series reasoning models. Controls how much effort goes into reasoning.\n\n- **-1**: model default\n- **0–2**: low / medium / high (deeper reasoning is slower and more expensive)",
         verbosity:
             "Response-length control on some OpenAI models. `0` is concise, `2` is long-form. Only meaningful on models that support it.",
-        usePromptTemplate:
-            "Use a custom prompt template (Settings → Prompt Template) instead of the four prompt fields above (main / jailbreak / note / order). Templates allow more sophisticated prompt composition but have a steeper learning curve.",
         customFlags:
             "Force capability flags on the current model. For example, even if the model doesn't natively report image input support, turning on `hasImageInput` makes the system assume it does. Useful for compatibility shims and workarounds — set the wrong flag and requests will break.",
         enableCustomFlags:
@@ -620,8 +609,6 @@ export const helpEn = {
             "Regex scripts that apply only to this bot configuration, in addition to global regex scripts. See the global regex script help for syntax details.",
         botIcon:
             "Default icon for this bot configuration. Independent of the character card's icon — used as the assistant message icon.",
-        botPromptTemplate:
-            "Pick a prompt template. Templates allow more elaborate prompt construction than the main / jailbreak / note fields. Only active when \"Use Prompt Template\" is enabled.",
         personaName:
             "Name of the current persona. This fills the `{{user}}` variable in chats and is the name the character uses to address you.",
         personaNote:
@@ -630,16 +617,14 @@ export const helpEn = {
             "Persona information. Embedded into the system prompt sent to the model so it recognizes who the user is. Example: \"<user> is a 20 year old woman who normally speaks calmly.\"",
         personaLargePortrait:
             "Themes such as Waifulike will display a large portrait instead of the persona icon. Use when you want to show a full-body illustration of the persona.",
+        personaExport:
+            "Export the current persona as a PNG file.",
+        personaDelete:
+            "Delete the current persona. Unlike characters, personas are deleted immediately without being moved to the trash.",
         openRouterFallback:
             "When the selected model is temporarily unavailable, OpenRouter automatically routes the request to a compatible fallback model. Improves reliability. Turn off to surface the original error instead.",
         openRouterMiddleOut:
             "OpenRouter's context compression feature. For requests that exceed the model's max context, middle messages are auto-summarized. Some models do not support this.",
-        useInstructPrompt:
-            "Send the request to OpenRouter using the instruct format instead of Chat Completions. Turn on when you want to call a base / instruct model raw.",
-        chatFormating:
-            "Chat template for instruct models. The template must match the format the model was trained on, otherwise responses break.\n\n- **ChatML**: OpenAI / Qwen family (`<|im_start|>` tokens)\n- **Llama2 / Llama3**: Meta Llama family\n- **Gemma / Mistral / Vicuna / Alpaca / GPT2**: each model's official format\n- **Custom (Jinja)**: write your own Jinja template\n\nIf responses look broken with a proxy or local model, switch to the format the model was actually trained on.",
-        jinjaTemplate:
-            "Jinja template source. The safest approach is to copy the model card's `chat_template` verbatim. Use `{{ messages }}`, `{{ bos_token }}` etc. to tokenize the message array. (Only shown when `Custom (Jinja)` is selected.)",
         customStopWords:
             "Use stop strings. The model's response is cut as soon as one of these strings appears. Useful for blocking patterns where the character impersonates the next speaker (e.g. `{{user}}: ...`).",
 
@@ -705,10 +690,10 @@ export const helpEn = {
         webuiUpscaler:
             "Upscaler name (e.g. `Latent`, `R-ESRGAN 4x+`, `4x-UltraSharp`). Use a name available in your WebUI's settings.",
 
-        naiImgUrl:
-            "NovelAI image generation endpoint. Rarely needs to be changed from the default — leave blank to use it.",
         naiModel:
             "NovelAI image model to use. Newer models look better and cost slightly more (Anlas drawn from your subscription plan).",
+        naiResolution:
+            "Use a preset NAI-optimized resolution or enter a custom image resolution. Values larger than Normal incur an Anlas cost.",
         naiWidth:
             "Image width. NAI recommends predefined resolutions like 832×1216.",
         naiHeight:
@@ -765,7 +750,7 @@ export const helpEn = {
             "Style preset for the SD Core model (Photographic / Anime / 3D Model etc). Ignored on other models.",
 
         comfyUrl:
-            "URL of your local ComfyUI server (e.g. `http://localhost:8188`).",
+            "URL of the local ComfyUI server accessed by this browser (e.g. `http://localhost:8188`). During generation, the browser uses this URL and its local workflow to contact ComfyUI while Node coordinates only job state and the result, so no external firewall port is required.",
         comfyTimeout:
             "Maximum seconds to wait for a ComfyUI response. Use a longer value for complex workflows. (1–120)",
 

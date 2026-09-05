@@ -6,6 +6,8 @@ import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
+import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
+import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
 
 function updateSize(){
     SizeStore.set({
@@ -28,6 +30,7 @@ export const sideBarStore = writable(window.innerWidth > 1024)
 export const leftBarCollapsed = writable(false)
 export const selectedCharID = writable(-1)
 export const chatDeselected = writable(false)
+export const sidebarDevTool = writable(false)
 // Session-only DevTool state. Keeping this outside the component preserves the
 // autopilot draft while its sidebar tab is unmounted and mounted again.
 export const devToolAutopilotStore = writable<string[]>([])
@@ -40,7 +43,7 @@ export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
 export const presetSelectCallback = writable<((index: number) => void) | null>(null)
 export const openModelPresetList = writable(false)
-export const modelPresetSelectCallback = writable<((id: string) => void) | null>(null)
+export const requestPreviewOpen = writable(false)
 export const openModelProfileBrowser = writable(false)
 // When set to a preset id, the profile browser replaces that preset's profile
 // (migrating matching userValues) instead of creating a new preset. null = create.
@@ -78,6 +81,7 @@ export const AdminStatsSubmenuIndex = writable(0)
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
+export const HotkeySubmenuIndex = writable(0)
 // Shared tab state lets settings search deep-link into pages that previously
 // kept their selected tab as component-local state.
 export const DisplaySubmenuIndex = writable(0)
@@ -92,9 +96,44 @@ export const ReloadGUIPointer = writable(0)
 // invalidate every room's parsed-message cache like a real GUI/script edit.
 export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
-export const ScrollToMessageStore = $state({ value: -1, exact: false })
+export function invalidateChatMessageRender(messageIndex: number) {
+    ReloadChatPointer.update(pointers => ({
+        ...pointers,
+        [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
+    }))
+}
+export const ScrollToMessageStore = $state({
+    value: -1,
+    exact: false,
+    targetCharacterId: '',
+    targetChatId: '',
+    targetMessageId: '',
+})
+
+export function requestMessageScroll(request: {
+    index: number
+    exact?: boolean
+    characterId?: string
+    chatId?: string
+    messageId?: string
+}) {
+    // Write the numeric trigger last so reactive consumers always observe a
+    // complete target identity when the request becomes active.
+    ScrollToMessageStore.exact = request.exact ?? false
+    ScrollToMessageStore.targetCharacterId = request.characterId ?? ''
+    ScrollToMessageStore.targetChatId = request.chatId ?? ''
+    ScrollToMessageStore.targetMessageId = request.messageId ?? ''
+    ScrollToMessageStore.value = request.index
+}
+
+export function clearMessageScrollRequest() {
+    ScrollToMessageStore.value = -1
+    ScrollToMessageStore.exact = false
+    ScrollToMessageStore.targetCharacterId = ''
+    ScrollToMessageStore.targetChatId = ''
+    ScrollToMessageStore.targetMessageId = ''
+}
 export const OpenRealmStore = writable(false)
-export const PlaygroundStore = writable(0)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')
 export const SafeModeStore = writable(false)
@@ -120,15 +159,14 @@ export const selIdState = $state({
 
 
 CustomCSSStore.subscribe((css) => {
-    console.log(css)
     const q = document.querySelector('#customcss')
     if(q){
-        q.innerHTML = css
+        q.textContent = css
     }
     else{
         const s = document.createElement('style')
         s.id = 'customcss'
-        s.innerHTML = css
+        s.textContent = css
         document.body.appendChild(s)
     }
 })
@@ -183,10 +221,10 @@ export const pluginAlertModalStore = $state({
     errors: [] as PluginSafetyErrors[]
 })
 
-export const disableHighlight = writable(true)
-
 export type MenuDef = {
     name: string,
+    pluginName?: string,
+    sidebarKey?: string,
     icon: string,
     iconType:'html'|'img'|'none',
     callback: any,
@@ -216,6 +254,11 @@ export const popupStore = $state({
     openId: 0,
 })
 
+export function closePopup() {
+    popupStore.children = null
+    popupStore.openId = 0
+}
+
 export interface PopupEditorMetadata {
     label: string
     value: string
@@ -227,7 +270,14 @@ export interface PopupEditorOptions {
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
     mode?: 'plain' | 'cbs'
-    onSave: (value: string) => boolean | Promise<boolean>
+    commitMode?: PopupEditorCommitMode
+    debounceMs?: number
+    hideCancel?: boolean
+    submitKind?: 'save' | 'send'
+    /** Writes through the same domain commit path used by the source field. */
+    onCommit: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
+    /** Optional action after the latest value has committed (for example, send). */
+    onSubmit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
 }
 
 export const popUpEditorStore = $state({
@@ -238,7 +288,12 @@ export const popUpEditorStore = $state({
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
     mode: 'cbs' as 'plain' | 'cbs',
-    onSave: null as null | ((value: string) => boolean | Promise<boolean>)
+    commitMode: 'submit' as PopupEditorCommitMode,
+    debounceMs: INPUT_COMMIT_DEBOUNCE_MS,
+    hideCancel: false,
+    submitKind: 'save' as 'save' | 'send',
+    onCommit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>),
+    onSubmit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>)
 })
 
 export function showPopupEditor(options: PopupEditorOptions) {
@@ -248,12 +303,14 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
     popUpEditorStore.mode = options.mode ?? 'cbs'
-    popUpEditorStore.onSave = options.onSave
+    popUpEditorStore.commitMode = options.commitMode ?? 'submit'
+    popUpEditorStore.debounceMs = options.debounceMs ?? INPUT_COMMIT_DEBOUNCE_MS
+    popUpEditorStore.hideCancel = options.hideCancel ?? false
+    popUpEditorStore.submitKind = options.submitKind ?? 'save'
+    popUpEditorStore.onCommit = options.onCommit
+    popUpEditorStore.onSubmit = options.onSubmit ?? null
     popUpEditorStore.open = true
 }
-
-//Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
-export const hotReloading = $state<string[]>([])
 
 const resetChatRenderState = () => {
     ReloadChatPointer.set({})

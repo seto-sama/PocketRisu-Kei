@@ -1,4 +1,5 @@
 import { forageStorage } from "./autoStorage"
+import { createDebouncedDraftWriter } from "./draftPersistence"
 
 // Per-chat composer drafts. The unsent text in the message input is stored
 // outside the chat content so that unmounting the chat view (e.g. opening
@@ -55,8 +56,9 @@ const maybeSaved = new Set<string>()
 // operations on the same key keep their submission order. Errors are swallowed:
 // a failed draft write must never disrupt chatting.
 let writeChain: Promise<void> = Promise.resolve()
-function enqueue(op: () => Promise<void>): void {
+function enqueue(op: () => Promise<void>): Promise<void> {
     writeChain = writeChain.then(() => op().catch(() => {}))
+    return writeChain
 }
 
 async function persistSave(key: string, draft: ChatDraft): Promise<void> {
@@ -78,14 +80,15 @@ async function persistRemove(key: string): Promise<void> {
     maybeSaved.delete(key)
 }
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-
-function cancelPending() {
-    if (saveTimer) {
-        clearTimeout(saveTimer)
-        saveTimer = null
-    }
+interface PendingChatDraft {
+    key: string
+    draft: ChatDraft
 }
+
+const draftWriter = createDebouncedDraftWriter<PendingChatDraft>(
+    ({ key, draft }) => enqueue(() => persistSave(key, draft)),
+    DEBOUNCE_MS,
+)
 
 /** Load a chat's draft, or null if none. No round trip when the index says none. */
 export async function loadChatDraft(chaId: string, chatId: string): Promise<ChatDraft | null> {
@@ -109,26 +112,20 @@ export async function loadChatDraft(chaId: string, chatId: string): Promise<Chat
 /** Debounced save while the user is typing. */
 export function scheduleSaveChatDraft(chaId: string, chatId: string, draft: ChatDraft): void {
     if (!chaId || !chatId) return
-    const key = chatDraftKey(chaId, chatId)
-    cancelPending()
-    saveTimer = setTimeout(() => {
-        saveTimer = null
-        enqueue(() => persistSave(key, draft))
-    }, DEBOUNCE_MS)
+    draftWriter.schedule({ key: chatDraftKey(chaId, chatId), draft })
 }
 
 /** Immediate save (blur / chat switch / unmount / page hide). Cancels any pending debounce. */
-export function flushChatDraft(chaId: string, chatId: string, draft: ChatDraft): void {
-    if (!chaId || !chatId) return
-    cancelPending()
-    enqueue(() => persistSave(chatDraftKey(chaId, chatId), draft))
+export function flushChatDraft(chaId: string, chatId: string, draft: ChatDraft): Promise<void> {
+    if (!chaId || !chatId) return Promise.resolve()
+    return draftWriter.flush({ key: chatDraftKey(chaId, chatId), draft })
 }
 
 /** Drop a chat's draft after its message is sent. The chat lives on, so the key stays writable. */
-export function removeChatDraft(chaId: string, chatId: string): void {
-    if (!chaId || !chatId) return
-    cancelPending()
-    enqueue(() => persistRemove(chatDraftKey(chaId, chatId)))
+export function removeChatDraft(chaId: string, chatId: string): Promise<void> {
+    if (!chaId || !chatId) return Promise.resolve()
+    draftWriter.cancel()
+    return enqueue(() => persistRemove(chatDraftKey(chaId, chatId)))
 }
 
 /**

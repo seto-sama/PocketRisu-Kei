@@ -4,7 +4,7 @@
  * Data-driven definition for DisplaySettings page.
  */
 
-import type { SettingItem } from './types';
+import type { SettingContext, SettingItem } from './types';
 import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
@@ -28,7 +28,6 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
                 { value: 'standardRisu', label: 'Standard Risu' },
                 { value: 'waifu', label: 'Waifulike' },
                 { value: 'mobilechat', label: 'Mobile Chat' },
-                { value: 'cardboard', label: 'CardBoard' },
                 { value: 'customHTML', label: 'Custom HTML' },
             ],
         },
@@ -317,7 +316,10 @@ export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
 ];
 
+const showChatImageSettings = (ctx: SettingContext) => !ctx.db.hideAllImages;
+
 export const displayOtherChatItems: SettingItem[] = [
+    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     {
         id: 'display.textBorder',
@@ -333,6 +335,8 @@ export const displayOtherChatItems: SettingItem[] = [
         keywords: ['text', 'outline', 'shadow', 'color'],
     },
     { id: 'display.hideAllImages', type: 'check', labelKey: 'hideAllImages', helpKey: 'hideAllImagesDesc', bindKey: 'hideAllImages', keywords: ['images', 'hide'] },
+    { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', condition: showChatImageSettings, keywords: ['additional', 'assets', 'preview'] },
+    { id: 'display.preloadChatImages', type: 'check', labelKey: 'preloadChatImages', helpKey: 'preloadChatImagesDesc', bindKey: 'preloadChatImages', condition: showChatImageSettings, keywords: ['images', 'preload', 'assets', 'inlays'] },
     {
         id: 'display.assetMaxDifference',
         type: 'slider',
@@ -342,12 +346,11 @@ export const displayOtherChatItems: SettingItem[] = [
         setValue: (db, value: number) => {
             db.assetMaxDifference = value === -1000 ? 0 : Math.min(Math.max(value, 1), 8);
         },
-        options: { min: 1, max: 8, step: 1, disableable: true },
+        options: { min: 1, max: 8, step: 1, disableable: true, defaultValue: 4 },
+        condition: showChatImageSettings,
         keywords: ['asset', 'difference', 'dynamic', 'matching'],
     },
-    { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', keywords: ['dynamic', 'assets', 'matching'] },
-    { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', keywords: ['additional', 'assets', 'preview'] },
-    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
+    { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', condition: showChatImageSettings, keywords: ['dynamic', 'assets', 'matching'] },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
@@ -424,15 +427,6 @@ export const displayOtherAdvancedItems: SettingItem[] = [
     },
     { id: 'display.menuSideBar', type: 'check', labelKey: 'menuSideBar', helpKey: 'menuSideBar', bindKey: 'menuSideBar', keywords: ['menu', 'sidebar'] },
     { id: 'display.betaMobileGUI', type: 'check', labelKey: 'betaMobileGUI', helpKey: 'betaMobileGUI', bindKey: 'betaMobileGUI', keywords: ['beta', 'mobile', 'gui'] },
-    {
-        id: 'display.useChatSticker',
-        type: 'check',
-        labelKey: 'useChatSticker',
-        helpKey: 'unrecommendedChatSticker',
-        helpUnrecommended: true,
-        bindKey: 'useChatSticker',
-        keywords: ['chat', 'sticker'],
-    },
 ];
 
 export const displaySettingsItems: SettingItem[] = [

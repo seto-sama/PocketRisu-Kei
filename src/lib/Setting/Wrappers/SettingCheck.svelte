@@ -1,11 +1,9 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { UNINITIALIZED, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import Check from 'src/lib/UI/GUI/CheckInput.svelte';
-    import Help from 'src/lib/Others/Help.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import Switch from '../../UI/components/Switch.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -34,17 +32,8 @@
     });
 </script>
 
-{#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
-        {#snippet control()}
-            <ShSwitch checked={!!localValue} {disabled} onCheckedChange={(v) => (localValue = v)} />
-        {/snippet}
-    </SettingRowLayout>
-{:else}
-    <div class="flex items-center {item.classes ?? 'mt-2'}" data-setting-id={item.id}>
-        <Check bind:check={localValue} name={getLabel(item)} >
-            {#if item.showExperimental}<Help key="experimental"/>{/if}
-            {#if item.helpKey}<Help key={item.helpKey as any} unrecommended={item.helpUnrecommended ?? false}/>{/if}
-        </Check>
-    </div>
-{/if}
+<SettingItemRow {item}>
+    {#snippet control()}
+        <Switch checked={!!localValue} {disabled} onCheckedChange={(v) => (localValue = v)} />
+    {/snippet}
+</SettingItemRow>

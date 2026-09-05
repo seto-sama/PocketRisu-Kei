@@ -1,9 +1,8 @@
-import fc from 'fast-check'
 import type { RisuModule } from 'src/ts/process/modules'
 import type { customscript, loreBook } from 'src/ts/storage/database.svelte'
 import { DBState } from 'src/ts/stores.svelte'
 import { beforeEach, expect, test, vi } from 'vitest'
-import type { RPCToolCallTextContent } from '../../mcplib'
+import type { RPCToolCallContent, RPCToolCallTextContent } from '../../mcplib'
 import { ModuleHandler } from '../modules'
 
 //#region module mocks
@@ -72,6 +71,14 @@ const makeToolResponse = (text: unknown): RPCToolCallTextContent[] => [
   },
 ]
 
+const parseToolResponse = (response: RPCToolCallContent[]) => {
+  expect(response).toHaveLength(1)
+  const content = response[0]
+  expect(content.type).toBe('text')
+  if (content.type !== 'text') throw new Error(`Expected text tool response, received ${content.type}`)
+  return JSON.parse(content.text)
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
 })
@@ -85,9 +92,15 @@ test('lists installed modules with pagination', async () => {
   DBState.db.modules = modules
   DBState.db.enabledModules = [modules[0].id, modules[2].id]
 
-  expect(await instance.handle('risu-list-modules', { count: 3 })).toMatchSnapshot()
-  expect(await instance.handle('risu-list-modules', { count: 3, offset: 3 })).toMatchSnapshot()
-  expect(await instance.handle('risu-list-modules', { count: 3, offset: 10 })).toMatchSnapshot()
+  const summaries = modules.map((module) => ({
+    id: module.id,
+    name: module.name,
+    description: module.description,
+    enabled: DBState.db.enabledModules.includes(module.id),
+  }))
+  expect(parseToolResponse(await instance.handle('risu-list-modules', { count: 3 }))).toEqual(summaries.slice(0, 3))
+  expect(parseToolResponse(await instance.handle('risu-list-modules', { count: 3, offset: 3 }))).toEqual(summaries.slice(3, 6))
+  expect(parseToolResponse(await instance.handle('risu-list-modules', { count: 3, offset: 10 }))).toEqual([])
 
   DBState.db.modules = []
   DBState.db.enabledModules = []
@@ -95,7 +108,7 @@ test('lists installed modules with pagination', async () => {
   expect(await instance.handle('risu-list-modules', {})).toEqual(makeToolResponse([]))
 })
 
-test('retrieves bgEmbedding, toggles, description, id, enabled, low level access, name fields of a module', async () => {
+test('retrieves the documented module information fields', async () => {
   const instance = new ModuleHandler()
 
   const modules = Array(10)
@@ -104,37 +117,16 @@ test('retrieves bgEmbedding, toggles, description, id, enabled, low level access
   DBState.db.modules = modules
   DBState.db.enabledModules = [modules[0].id, modules[2].id, modules[4].id]
 
-  await fc.assert(
-    fc.asyncProperty(
-      fc.subarray([
-        'backgroundEmbedding',
-        'customModuleToggle',
-        'description',
-        'enabled',
-        'id',
-        'lowLevelAccess',
-        'name',
-      ]),
-      fc.integer({ max: 9, min: 0 }),
-      async (fieldsArg, targetIndex) => {
-        const target = DBState.db.modules[targetIndex]
-        const fields = fieldsArg.length > 0 ? fieldsArg : ['name', 'description', 'id', 'enabled']
-
-        const expected = Object.fromEntries(
-          fields.map((field) => {
-            if (field === 'enabled') {
-              return ['enabled', DBState.db.enabledModules.includes(target.id)]
-            }
-            return [field, target[field]]
-          })
-        )
-
-        expect(await instance.handle('risu-get-module-info', { fields, id: target.id })).toEqual(
-          makeToolResponse(expected)
-        )
-      }
-    )
-  )
+  const target = modules[4]
+  const fields = [
+    'backgroundEmbedding', 'customModuleToggle', 'description', 'enabled',
+    'id', 'lowLevelAccess', 'name',
+  ] as const
+  const expected = Object.fromEntries(fields.map((field) => [
+    field,
+    field === 'enabled' ? DBState.db.enabledModules.includes(target.id) : target[field],
+  ]))
+  expect(parseToolResponse(await instance.handle('risu-get-module-info', { fields, id: target.id }))).toEqual(expected)
 })
 
 test('lists lorebooks of a module with pagination', async () => {
@@ -148,9 +140,14 @@ test('lists lorebooks of a module with pagination', async () => {
   }
   DBState.db.modules = [module]
 
-  expect(await instance.handle('risu-list-module-lorebooks', { count: 3, id: 'A' })).toMatchSnapshot()
-  expect(await instance.handle('risu-list-module-lorebooks', { count: 3, offset: 3, id: 'A' })).toMatchSnapshot()
-  expect(await instance.handle('risu-list-module-lorebooks', { count: 3, offset: 10, id: 'A' })).toMatchSnapshot()
+  const summaries = module.lorebook.map((lorebook) => ({
+    alwaysActive: lorebook.alwaysActive,
+    keys: lorebook.key,
+    name: lorebook.comment,
+  }))
+  expect(parseToolResponse(await instance.handle('risu-list-module-lorebooks', { count: 3, id: 'A' }))).toEqual(summaries.slice(0, 3))
+  expect(parseToolResponse(await instance.handle('risu-list-module-lorebooks', { count: 3, offset: 3, id: 'A' }))).toEqual(summaries.slice(3, 6))
+  expect(parseToolResponse(await instance.handle('risu-list-module-lorebooks', { count: 3, offset: 10, id: 'A' }))).toEqual([])
 
   module.lorebook = []
 
@@ -168,7 +165,15 @@ test('retrieves fields of a lorebook', async () => {
   }
   DBState.db.modules = [module]
 
-  expect(await instance.handle('risu-get-module-lorebook', { id: 'A', names: ['0', '2', '99'] })).toMatchSnapshot()
+  expect(parseToolResponse(await instance.handle(
+    'risu-get-module-lorebook',
+    { id: 'A', names: ['0', '2', '99'] },
+  ))).toEqual([module.lorebook[0], module.lorebook[2]].map((lorebook) => ({
+    alwaysActive: lorebook.alwaysActive,
+    content: lorebook.content,
+    keys: lorebook.key,
+    name: lorebook.comment,
+  })))
 })
 
 test('lists all regex scripts of a module', async () => {
@@ -182,7 +187,7 @@ test('lists all regex scripts of a module', async () => {
   }
   DBState.db.modules = [module]
 
-  expect(await instance.handle('risu-get-module-regex-scripts', { id: 'A' })).toMatchSnapshot()
+  expect(parseToolResponse(await instance.handle('risu-get-module-regex-scripts', { id: 'A' }))).toEqual(module.regex)
 
   module.regex = []
 

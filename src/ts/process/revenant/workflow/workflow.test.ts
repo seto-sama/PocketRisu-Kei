@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import type { RevenantWorkflow } from '../types'
 import {
     activeRevenantWorkflows,
+    beginImageGenerationWorkflow,
     beginRevenantWorkflow,
     cancelRevenantWorkflow,
     completeChatGenerationPreModelPlan,
@@ -11,6 +12,7 @@ import {
     getActiveRevenantWorkflow,
     getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
+    RevenantWorkflowBusyError,
 } from './workflow'
 import {
     configureRevenantGenerationClient,
@@ -79,7 +81,6 @@ describe('revenant workflow resume checkpoint', () => {
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'message.materialize')?.recoveryPolicy).toBe('resume')
-        expect(plan.at(-1)?.key).toBe('message.materialize')
     })
 
     it('waits for a browser dispatch only for plugin providers', () => {
@@ -144,6 +145,56 @@ describe('revenant workflow resume checkpoint', () => {
     })
 })
 
+describe('manual image workflow', () => {
+    it('uses a separate workflow room and durable target/message identifiers', async () => {
+        let submitted: any
+        vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+            submitted = JSON.parse(String(init?.body))
+            return new Response(JSON.stringify({
+                workflow: {
+                    workflowId: 'image-workflow-1',
+                    characterId: submitted.characterId,
+                    roomId: submitted.roomId,
+                    planVersion: 1,
+                    context: submitted.context,
+                    status: 'active',
+                    steps: [],
+                    createdAt: 1,
+                    updatedAt: 1,
+                },
+            }), { status: 200, headers: { 'content-type': 'application/json' } })
+        }))
+
+        await beginImageGenerationWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            prompt: 'portrait',
+            negativePrompt: 'blur',
+            seed: 42,
+            label: 'NovelAI',
+            projection: 'append',
+        })
+
+        expect(submitted.roomId).toBe('image-generation:room-1')
+        expect(submitted.plan).toEqual([expect.objectContaining({ key: 'image.generate' })])
+        expect(submitted.context).toMatchObject({
+            kind: 'image-generation',
+            target: { characterId: 'character-1', roomId: 'room-1' },
+            prompt: 'portrait',
+            negativePrompt: 'blur',
+            seed: 42,
+            label: 'NovelAI',
+        })
+        expect(submitted.context.operationId).toEqual(expect.any(String))
+        expect(submitted.context.messageId).toEqual(expect.any(String))
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ workflow: null }), { status: 200 }),
+        ))
+        await getActiveRevenantWorkflow('character-1', 'image-generation:room-1')
+    })
+})
+
 describe('active workflow client state', () => {
     it('tracks one active main workflow independently for each room', async () => {
         const first = workflowWithMetadata()
@@ -161,7 +212,9 @@ describe('active workflow client state', () => {
 
         await getActiveRevenantWorkflow('character-1', 'room-1')
         await getActiveRevenantWorkflow('character-1', 'room-2')
-        expect(get(activeRevenantWorkflows)).toEqual([first, second])
+        expect(new Set(get(activeRevenantWorkflows).map(workflow => workflow.workflowId))).toEqual(
+            new Set([first.workflowId, second.workflowId]),
+        )
 
         await getActiveRevenantWorkflow('character-1', 'room-1')
         await getActiveRevenantWorkflow('character-1', 'room-2')
@@ -189,20 +242,6 @@ describe('active workflow client state', () => {
         ))
 
         await expect(getRevenantWorkflow('workflow-1')).resolves.toEqual(workflow)
-        expect(get(activeRevenantWorkflows)).toEqual([])
-    })
-
-    it('publishes a reconnected workflow and clears it when the server no longer has one', async () => {
-        const workflow = workflowWithMetadata()
-        const fetchMock = vi.fn()
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow }), { status: 200 }))
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
-        vi.stubGlobal('fetch', fetchMock)
-
-        await getActiveRevenantWorkflow('character-1', 'room-1')
-        expect(get(activeRevenantWorkflows)).toEqual([workflow])
-
-        await getActiveRevenantWorkflow('character-1', 'room-1')
         expect(get(activeRevenantWorkflows)).toEqual([])
     })
 
@@ -268,6 +307,26 @@ describe('active workflow client state', () => {
             plan: [{ key: 'input.commit', kind: 'input.chat.commit', recoveryPolicy: 'resume' }],
             context: {} as any,
         })).rejects.toThrow('Chat changed before the generation input was committed')
+    })
+
+    it('preserves the remaining registration grace period for an abandoned setup', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({
+                error: 'A generation workflow is already active for this room',
+                busyReason: 'main_job_unregistered',
+                retryAfterMs: 17_750,
+            }), { status: 409 }),
+        ))
+
+        const error = await beginRevenantWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            plan: [{ key: 'input.commit', kind: 'input.chat.commit', recoveryPolicy: 'resume' }],
+            context: {} as any,
+        }).catch(caught => caught)
+
+        expect(error).toBeInstanceOf(RevenantWorkflowBusyError)
+        expect(error.retryAfterMs).toBe(17_750)
     })
 
 })

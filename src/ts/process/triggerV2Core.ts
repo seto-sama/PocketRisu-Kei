@@ -182,9 +182,8 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
             case 'v2DeclareLocalVar':
                 adapter.declareLocal(adapter.render(effect.var), read(effect), indent)
                 break
-            case 'v2If':
             case 'v2IfAdvanced': {
-                const source = effect.type === 'v2If' || effect.sourceType === 'var'
+                const source = effect.sourceType === 'var'
                     ? adapter.getVar(adapter.render(effect.source))
                     : adapter.render(effect.source)
                 const target = read(effect, 'target', 'targetType')
@@ -592,7 +591,6 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 adapter.character.replaceGlobalNote = read(effect)
                 markCharacter('replaceGlobalNote', adapter.character.replaceGlobalNote)
                 break
-            case 'v2GetLorebookCount':
             case 'v2GetLorebookCountNew':
                 if (!adapter.character) return { handled: false, nextIndex: index, visit }
                 setOutput(effect, adapter.character.globalLore?.length ?? 0)
@@ -603,29 +601,6 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                     lore?.content ?? lore?.[1] ?? ''
                 ))))
                 break
-            case 'v2GetLorebook': {
-                if (!adapter.character) return { handled: false, nextIndex: index, visit }
-                const name = read(effect, 'target', 'targetType')
-                const lore = (adapter.character.globalLore || []).find(item => (
-                    (item?.comment ?? item?.[0]) === name
-                ))
-                setOutput(effect, lore?.content ?? lore?.[1] ?? 'null')
-                break
-            }
-            case 'v2ModifyLorebook': {
-                if (!adapter.character) return { handled: false, nextIndex: index, visit }
-                const name = read(effect, 'target', 'targetType')
-                const lore = (adapter.character.globalLore || []).find(item => (
-                    (item?.comment ?? item?.[0]) === name
-                ))
-                if (lore) {
-                    if (Array.isArray(lore)) lore[1] = read(effect)
-                    else lore.content = read(effect)
-                    markCharacter('globalLore', adapter.character.globalLore)
-                }
-                break
-            }
-            case 'v2GetLorebookEntry':
             case 'v2GetLorebookByIndex': {
                 if (!adapter.character) return { handled: false, nextIndex: index, visit }
                 const parsedIndex = Number(read(effect, 'index', 'indexType'))
@@ -634,12 +609,6 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 setOutput(effect, lore?.content ?? lore?.[1] ?? 'null')
                 break
             }
-            case 'v2GetLorebookIndexViaName':
-                if (!adapter.character) return { handled: false, nextIndex: index, visit }
-                setOutput(effect, (adapter.character.globalLore || []).findIndex(item => (
-                    (item?.comment ?? item?.[0]) === read(effect, 'name', 'nameType')
-                )))
-                break
             case 'v2GetLorebookByName': {
                 if (!adapter.character) return { handled: false, nextIndex: index, visit }
                 const regex = new RegExp(read(effect, 'name', 'nameType'), 'i')
@@ -688,7 +657,6 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 }
                 break
             }
-            case 'v2SetLorebookActivation':
             case 'v2SetLorebookAlwaysActive': {
                 if (!adapter.character) return { handled: false, nextIndex: index, visit }
                 const loreIndex = Number(read(effect, 'index', 'indexType'))

@@ -6,19 +6,20 @@ import { notifyError } from "../alert";
 import { isLite } from "../lite";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
 import { normalizeTextTheme } from "./textTheme";
-import { localFontFamilies } from "virtual:pocketrisu-local-font-families";
-import { resolveLocalFontSelection } from "./fontSelection";
+import { applyFontPreference } from "./fontPreference";
 
 export interface ColorScheme{
-    bgcolor: string;
+    lightbg: string;
     darkbg: string;
-    borderc: string;
+    lightborderc: string;
     selected: string;
-    darkBorderc: string;
-    darkbutton: string;
-    textcolor: string;
-    textcolor2: string;
-    draculared: string;
+    darkborderc: string;
+    button: string;
+    maintext: string;
+    subtext: string;
+    white?: string;
+    black?: string;
+    danger: string;
     highlight?: string;
     warning?: string;
     success?: string;
@@ -28,17 +29,38 @@ export interface ColorScheme{
     type:'light'|'dark';
 }
 
+export interface LegacyColorSchemeAliases {
+    /** @deprecated Use `lightbg`. */
+    bgcolor: string;
+    /** @deprecated Use `lightborderc`. */
+    borderc: string;
+    /** @deprecated Use `darkborderc`. */
+    darkBorderc: string;
+    /** @deprecated Use `button`. */
+    darkbutton: string;
+    /** @deprecated Use `maintext`. */
+    textcolor: string;
+    /** @deprecated Use `subtext`. */
+    textcolor2: string;
+    /** @deprecated Use `danger`. */
+    draculared: string;
+}
+
+export type LegacyColorScheme = Omit<ColorScheme, 'lightbg' | 'lightborderc' | 'darkborderc' | 'button' | 'maintext' | 'subtext' | 'danger'> & LegacyColorSchemeAliases
+
 
 export const defaultColorScheme: ColorScheme = {
-    bgcolor: "#282a36",
+    lightbg: "#282a36",
     darkbg: "#21222c",
-    borderc: "#6272a4",
+    lightborderc: "#6272a4",
     selected: "#44475a",
-    darkBorderc: "#4b5563",
-    darkbutton: "#374151",
-    textcolor: "#f8f8f2",
-    textcolor2: "#64748b",
-    draculared: "#ff5555",
+    darkborderc: "#4b5563",
+    button: "#374151",
+    maintext: "#f8f8f2",
+    subtext: "#64748b",
+    white: "#ffffff",
+    black: "#000000",
+    danger: "#ff5555",
     highlight: "#f59e0b",
     warning: "#ffca1e",
     success: "#4ade80",
@@ -48,86 +70,153 @@ export const defaultColorScheme: ColorScheme = {
     type:'dark'
 }
 
+/** Converts persisted/imported legacy schemes to the canonical token names. */
+export function normalizeColorScheme(input: unknown): ColorScheme | null {
+    if(input == null || typeof input !== 'object'){
+        return null
+    }
+
+    const source = input as Record<string, unknown>
+    const read = (key: string, legacyKey?: string) => {
+        const value = source[key] ?? (legacyKey == null ? undefined : source[legacyKey])
+        return typeof value === 'string' ? value : undefined
+    }
+
+    const lightbg = read('lightbg', 'bgcolor')
+    const darkbg = read('darkbg')
+    const lightborderc = read('lightborderc', 'borderc')
+    const selected = read('selected')
+    const darkborderc = read('darkborderc', 'darkBorderc')
+    const button = read('button', 'darkbutton')
+    const maintext = read('maintext', 'textcolor')
+    const subtext = read('subtext', 'textcolor2')
+    const danger = read('danger', 'draculared')
+    const type = source.type
+
+    if(
+        lightbg == null || darkbg == null || lightborderc == null || selected == null ||
+        darkborderc == null || button == null || maintext == null || subtext == null ||
+        danger == null || (type !== 'light' && type !== 'dark')
+    ){
+        return null
+    }
+
+    return {
+        lightbg,
+        darkbg,
+        lightborderc,
+        selected,
+        darkborderc,
+        button,
+        maintext,
+        subtext,
+        danger,
+        white: read('white') ?? defaultColorScheme.white,
+        black: read('black') ?? defaultColorScheme.black,
+        highlight: read('highlight') ?? defaultColorScheme.highlight,
+        warning: read('warning') ?? defaultColorScheme.warning,
+        success: read('success') ?? defaultColorScheme.success,
+        primary: read('primary') ?? defaultColorScheme.primary,
+        accent: read('accent') ?? defaultColorScheme.accent,
+        scoped: read('scoped') ?? defaultColorScheme.scoped,
+        type,
+    }
+}
+
+/** Adds read-compatible aliases at external API boundaries without polluting internal state. */
+export function withLegacyColorSchemeAliases(colorScheme: ColorScheme): ColorScheme & LegacyColorSchemeAliases {
+    return {
+        ...colorScheme,
+        bgcolor: colorScheme.lightbg,
+        borderc: colorScheme.lightborderc,
+        darkBorderc: colorScheme.darkborderc,
+        darkbutton: colorScheme.button,
+        textcolor: colorScheme.maintext,
+        textcolor2: colorScheme.subtext,
+        draculared: colorScheme.danger,
+    }
+}
+
 // Built-in palette pack (Catppuccin / Gruvbox). Spread into colorShemes after
 // the kept classics so they sit in the upper half of the scheme dropdown. Keys
 // follow the existing kebab-case convention; display names live in
 // colorSchemeLabels.
 const newColorSchemes = {
     "catppuccin-mocha": {
-        bgcolor: "#1e1e2e",
+        lightbg: "#1e1e2e",
         darkbg: "#181825",
-        borderc: "#b4befe",
+        lightborderc: "#b4befe",
         selected: "#6c7086",
-        darkBorderc: "#9399b2",
-        darkbutton: "#45475a",
-        textcolor: "#cdd6f4",
-        textcolor2: "#a6adc8",
-        draculared: "#f38ba8",
+        darkborderc: "#9399b2",
+        button: "#45475a",
+        maintext: "#cdd6f4",
+        subtext: "#a6adc8",
+        danger: "#f38ba8",
         primary: "#cba6f7",
         type:'dark'
     },
     "catppuccin-macchiato": {
-        bgcolor: "#24273a",
+        lightbg: "#24273a",
         darkbg: "#1e2030",
-        borderc: "#b7bdf8",
+        lightborderc: "#b7bdf8",
         selected: "#6e738d",
-        darkBorderc: "#8087a2",
-        darkbutton: "#181926",
-        textcolor: "#cad3f5",
-        textcolor2: "#a5adcb",
-        draculared: "#ee99a0",
+        darkborderc: "#8087a2",
+        button: "#181926",
+        maintext: "#cad3f5",
+        subtext: "#a5adcb",
+        danger: "#ee99a0",
         primary: "#f5bde6",
         type:'dark'
     },
     "catppuccin-frappe": {
-        bgcolor: "#303446",
+        lightbg: "#303446",
         darkbg: "#292c3c",
-        borderc: "#8caaee",
+        lightborderc: "#8caaee",
         selected: "#737994",
-        darkBorderc: "#949cbb",
-        darkbutton: "#303446",
-        textcolor: "#c6d0f5",
-        textcolor2: "#a5adce",
-        draculared: "#e78284",
+        darkborderc: "#949cbb",
+        button: "#303446",
+        maintext: "#c6d0f5",
+        subtext: "#a5adce",
+        danger: "#e78284",
         primary: "#85c1dc",
         type:'dark'
     },
     "catppuccin-latte": {
-        bgcolor: "#ccd0da",
+        lightbg: "#ccd0da",
         darkbg: "#bcc0cc",
-        borderc: "#7287fd",
+        lightborderc: "#7287fd",
         selected: "#eff1f5",
-        darkBorderc: "#e6e9ef",
-        darkbutton: "#dce0e8",
-        textcolor: "#4c4f69",
-        textcolor2: "#5c5f77",
-        draculared: "#d20f39",
+        darkborderc: "#e6e9ef",
+        button: "#dce0e8",
+        maintext: "#4c4f69",
+        subtext: "#5c5f77",
+        danger: "#d20f39",
         primary: "#df8e1d",
         type:'light'
     },
     "gruvbox-dark": {
-        bgcolor: "#282828",
+        lightbg: "#282828",
         darkbg: "#1d2021",
-        borderc: "#3c3836",
+        lightborderc: "#3c3836",
         selected: "#504945",
-        darkBorderc: "#665c64",
-        darkbutton: "#7c6f64",
-        textcolor: "#ebdbb2",
-        textcolor2: "#fbf1c7",
-        draculared: "#fabd2f",
+        darkborderc: "#665c64",
+        button: "#7c6f64",
+        maintext: "#ebdbb2",
+        subtext: "#fbf1c7",
+        danger: "#fabd2f",
         primary: "#fe8019",
         type:'dark'
     },
     "gruvbox-light": {
-        bgcolor: "#fbf1c7",
+        lightbg: "#fbf1c7",
         darkbg: "#f2e5bc",
-        borderc: "#ebdbb2",
+        lightborderc: "#ebdbb2",
         selected: "#d5c4a1",
-        darkBorderc: "#bdae93",
-        darkbutton: "#a89984",
-        textcolor: "#3c3836",
-        textcolor2: "#282828",
-        draculared: "#d65d0e",
+        darkborderc: "#bdae93",
+        button: "#a89984",
+        maintext: "#3c3836",
+        subtext: "#282828",
+        danger: "#d65d0e",
         primary: "#fe8019",
         type:'light'
     },
@@ -136,120 +225,120 @@ const newColorSchemes = {
 const colorShemes = {
     "default": defaultColorScheme,
     "dark": {
-        bgcolor: "#1a1a1a",
+        lightbg: "#1a1a1a",
         darkbg: "#141414",
-        borderc: "#525252",
+        lightborderc: "#525252",
         selected: "#3d3d3d",
-        darkBorderc: "#404040",
-        darkbutton: "#2e2e2e",
-        textcolor: "#f5f5f5",
-        textcolor2: "#a3a3a3",
-        draculared: "#ff5555",
+        darkborderc: "#404040",
+        button: "#2e2e2e",
+        maintext: "#f5f5f5",
+        subtext: "#a3a3a3",
+        danger: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     },
     "light": {
-        bgcolor: "#ffffff",
+        lightbg: "#ffffff",
         darkbg: "#f0f0f0",
-        borderc: "#0f172a",
+        lightborderc: "#0f172a",
         selected: "#e0e0e0",
-        darkBorderc: "#d1d5db",
-        darkbutton: "#e5e7eb",
-        textcolor: "#0f172a",
-        textcolor2: "#64748b",
-        draculared: "#ff5555",
+        darkborderc: "#d1d5db",
+        button: "#e5e7eb",
+        maintext: "#0f172a",
+        subtext: "#64748b",
+        danger: "#ff5555",
         primary: "#2563eb",
         type:'light'
     },
     "realblack": {
-        bgcolor: "#000000",
+        lightbg: "#000000",
         darkbg: "#000000",
-        borderc: "#6272a4",
+        lightborderc: "#6272a4",
         selected: "#44475a",
-        darkBorderc: "#4b5563",
-        darkbutton: "#374151",
-        textcolor: "#f8f8f2",
-        textcolor2: "#64748b",
-        draculared: "#ff5555",
+        darkborderc: "#4b5563",
+        button: "#374151",
+        maintext: "#f8f8f2",
+        subtext: "#64748b",
+        danger: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     },
     "monokai-light": {
-        bgcolor: "#f8f8f2",
+        lightbg: "#f8f8f2",
         darkbg: "#e8e8e3",
-        borderc: "#75715e",
+        lightborderc: "#75715e",
         selected: "#d8d8d0",
-        darkBorderc: "#c0c0b8",
-        darkbutton: "#d0d0c8",
-        textcolor: "#272822",
-        textcolor2: "#75715e",
-        draculared: "#f92672",
+        darkborderc: "#c0c0b8",
+        button: "#d0d0c8",
+        maintext: "#272822",
+        subtext: "#75715e",
+        danger: "#f92672",
         primary: "#f92672",
         type:'light'
     },
     "monokai-black": {
-        bgcolor: "#272822",
+        lightbg: "#272822",
         darkbg: "#1e1f1a",
-        borderc: "#75715e",
+        lightborderc: "#75715e",
         selected: "#3e3d32",
-        darkBorderc: "#3e3d32",
-        darkbutton: "#3e3d32",
-        textcolor: "#f8f8f2",
-        textcolor2: "#a6a68a",
-        draculared: "#f92672",
+        darkborderc: "#3e3d32",
+        button: "#3e3d32",
+        maintext: "#f8f8f2",
+        subtext: "#a6a68a",
+        danger: "#f92672",
         primary: "#f92672",
         type:'dark'
     },
     ...newColorSchemes,
     "cherry": {
-        bgcolor: "#450a0a",
+        lightbg: "#450a0a",
         darkbg: "#7f1d1d",
-        borderc: "#ea580c",
+        lightborderc: "#ea580c",
         selected: "#d97706",
-        darkBorderc: "#92400e",
-        darkbutton: "#b45309",
-        textcolor: "#f8f8f2",
-        textcolor2: "#fca5a5",
-        draculared: "#ff5555",
+        darkborderc: "#92400e",
+        button: "#b45309",
+        maintext: "#f8f8f2",
+        subtext: "#fca5a5",
+        danger: "#ff5555",
         primary: "#fb923c",
         type:'dark'
     },
     "galaxy": {
-        bgcolor: "#0f172a",
+        lightbg: "#0f172a",
         darkbg: "#1f2a48",
-        borderc: "#8be9fd",
+        lightborderc: "#8be9fd",
         selected: "#457b9d",
-        darkBorderc: "#457b9d",
-        darkbutton: "#1f2a48",
-        textcolor: "#f8f8f2",
-        textcolor2: "#8be9fd",
-        draculared: "#ff5555",
+        darkborderc: "#457b9d",
+        button: "#1f2a48",
+        maintext: "#f8f8f2",
+        subtext: "#8be9fd",
+        danger: "#ff5555",
         primary: "#a78bfa",
         type:'dark'
     },
     "nature": {
-        bgcolor: "#1b4332",
+        lightbg: "#1b4332",
         darkbg: "#2d6a4f",
-        borderc: "#a8dadc",
+        lightborderc: "#a8dadc",
         selected: "#4d908e",
-        darkBorderc: "#457b9d",
-        darkbutton: "#2d6a4f",
-        textcolor: "#f8f8f2",
-        textcolor2: "#4d908e",
-        draculared: "#ff5555",
+        darkborderc: "#457b9d",
+        button: "#2d6a4f",
+        maintext: "#f8f8f2",
+        subtext: "#4d908e",
+        danger: "#ff5555",
         primary: "#52b788",
         type:'dark'
     },
     "lite": {
-        bgcolor: "#1f2937",
+        lightbg: "#1f2937",
         darkbg: "#1C2533",
-        borderc: "#475569",
+        lightborderc: "#475569",
         selected: "#475569",
-        darkBorderc: "#030712",
-        darkbutton: "#374151",
-        textcolor: "#f8f8f2",
-        textcolor2: "#64748b",
-        draculared: "#ff5555",
+        darkborderc: "#030712",
+        button: "#374151",
+        maintext: "#f8f8f2",
+        subtext: "#64748b",
+        danger: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     }
@@ -257,6 +346,17 @@ const colorShemes = {
 } as const
 
 export const ColorSchemeTypeStore = writable('dark' as 'dark'|'light')
+
+const EARLY_COLOR_SCHEME_CACHE_KEY = 'risu-early-color-scheme'
+
+function cacheColorSchemeForNextLoad(colorScheme: ColorScheme) {
+    try {
+        localStorage.setItem(EARLY_COLOR_SCHEME_CACHE_KEY, JSON.stringify(colorScheme))
+    } catch (_) {
+        // The theme still works when storage is unavailable; only the early-load
+        // palette restoration in index.html is skipped.
+    }
+}
 
 export const colorSchemeList = Object.keys(colorShemes) as (keyof typeof colorShemes)[]
 
@@ -309,6 +409,7 @@ export function updateColorScheme(){
 
         if(colorScheme == null){
             colorScheme = safeStructuredClone(defaultColorScheme)
+            db.colorScheme = colorScheme
         }
 
         if(get(isLite)){
@@ -321,23 +422,28 @@ export function updateColorScheme(){
         colorScheme.primary ??= defaultColorScheme.primary
         colorScheme.accent ??= defaultColorScheme.accent
         colorScheme.scoped ??= defaultColorScheme.scoped
+        colorScheme.white ??= defaultColorScheme.white
+        colorScheme.black ??= defaultColorScheme.black
 
         //set css variables
-        document.documentElement.style.setProperty("--risu-theme-bgcolor", colorScheme.bgcolor);
+        document.documentElement.style.setProperty("--risu-theme-lightbg", colorScheme.lightbg);
         document.documentElement.style.setProperty("--risu-theme-darkbg", colorScheme.darkbg);
-        document.documentElement.style.setProperty("--risu-theme-borderc", colorScheme.borderc);
+        document.documentElement.style.setProperty("--risu-theme-lightborderc", colorScheme.lightborderc);
         document.documentElement.style.setProperty("--risu-theme-selected", colorScheme.selected);
-        document.documentElement.style.setProperty("--risu-theme-darkborderc", colorScheme.darkBorderc);
-        document.documentElement.style.setProperty("--risu-theme-darkbutton", colorScheme.darkbutton);
-        document.documentElement.style.setProperty("--risu-theme-textcolor", colorScheme.textcolor);
-        document.documentElement.style.setProperty("--risu-theme-textcolor2", colorScheme.textcolor2);
-        document.documentElement.style.setProperty("--risu-theme-draculared", colorScheme.draculared);
+        document.documentElement.style.setProperty("--risu-theme-darkborderc", colorScheme.darkborderc);
+        document.documentElement.style.setProperty("--risu-theme-button", colorScheme.button);
+        document.documentElement.style.setProperty("--risu-theme-maintext", colorScheme.maintext);
+        document.documentElement.style.setProperty("--risu-theme-subtext", colorScheme.subtext);
+        document.documentElement.style.setProperty("--risu-theme-white", colorScheme.white);
+        document.documentElement.style.setProperty("--risu-theme-black", colorScheme.black);
+        document.documentElement.style.setProperty("--risu-theme-danger", colorScheme.danger);
         document.documentElement.style.setProperty("--risu-theme-highlight", colorScheme.highlight);
         document.documentElement.style.setProperty("--risu-theme-warning", colorScheme.warning);
         document.documentElement.style.setProperty("--risu-theme-success", colorScheme.success);
         document.documentElement.style.setProperty("--risu-theme-primary", colorScheme.primary);
         document.documentElement.style.setProperty("--risu-theme-accent", colorScheme.accent);
         document.documentElement.style.setProperty("--risu-theme-scoped", colorScheme.scoped);
+        cacheColorSchemeForNextLoad(colorScheme)
         ColorSchemeTypeStore.set(colorScheme.type)
     } catch (error) {}
 }
@@ -363,28 +469,11 @@ export async function importColorScheme(){
         return
     }
     const string = BufferToText(uarray.data)
-    let colorScheme: ColorScheme
     try{
-        colorScheme = JSON.parse(string)
-        if(
-            typeof colorScheme.bgcolor !== 'string' ||
-            typeof colorScheme.darkbg !== 'string' ||
-            typeof colorScheme.borderc !== 'string' ||
-            typeof colorScheme.selected !== 'string' ||
-            typeof colorScheme.draculared !== 'string' ||
-            typeof colorScheme.textcolor !== 'string' ||
-            typeof colorScheme.textcolor2 !== 'string' ||
-            typeof colorScheme.darkBorderc !== 'string' ||
-            typeof colorScheme.darkbutton !== 'string' ||
-            typeof colorScheme.type !== 'string'
-        ){
+        const colorScheme = normalizeColorScheme(JSON.parse(string))
+        if(colorScheme == null){
             notifyError('Invalid color scheme')
             return
-        }
-        // `primary` is optional in old export files (pre-primary-token migration).
-        // Backfill from the default so a re-export round-trips with the field set.
-        if(typeof colorScheme.primary !== 'string'){
-            colorScheme.primary = defaultColorScheme.primary
         }
         changeColorScheme('custom')
         let db = getDatabase()
@@ -455,28 +544,7 @@ export function updateTextThemeAndCSS(){
         }
     }
 
-    switch(db.font){
-        case "default":{
-            root.style.setProperty('--risu-font-family', 'Arial, sans-serif');
-            root.style.removeProperty('font-weight')
-            break
-        }
-        case "timesnewroman":{
-            root.style.setProperty('--risu-font-family', 'Times New Roman, serif');
-            root.style.removeProperty('font-weight')
-            break
-        }
-        case "custom":{
-            const selection = resolveLocalFontSelection(db.customFont, localFontFamilies)
-            root.style.setProperty('--risu-font-family', selection.family);
-            if (selection.weight === null) {
-                root.style.removeProperty('font-weight')
-            } else {
-                root.style.setProperty('font-weight', String(selection.weight))
-            }
-            break
-        }
-    }
+    applyFontPreference(db.font, db.customFont)
 
     if(!get(SafeModeStore)){
         CustomCSSStore.set([db.customCSS, db.globalCustomCSS].filter(Boolean).join('\n'))

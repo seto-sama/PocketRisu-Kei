@@ -10,7 +10,7 @@ vi.mock(
   import('../../../storage/database.svelte'),
   () =>
     ({
-      appVer: '1234.5.67',
+      pocketKeiVer: '1234.5.67',
       getCurrentCharacter: () => ({}),
       getDatabase: () => ({}),
     } as typeof import('../../../storage/database.svelte'))
@@ -93,9 +93,9 @@ test('replace', () => {
   expect(quickParse('replace', 'Hello World', 'o', '0')).toBe('Hell0 W0rld')
 
   fc.assert(
-    fc.property(validCBSArgPropLong, validCBSArgPropLong, (a, b) => {
-      const randIndex = Math.floor(Math.random() * a.length)
-      expect(quickParse('replace', a, a[randIndex], b)).toBe(a.replaceAll(a[randIndex], b))
+    fc.property(validCBSArgPropLong, validCBSArgPropLong, fc.nat(), (a, b, indexSeed) => {
+      const index = indexSeed % a.length
+      expect(quickParse('replace', a, a[index], b)).toBe(a.replaceAll(a[index], b))
     }),
   )
 })
@@ -164,9 +164,9 @@ test('reverse', () => {
 
 test('unicodeencode', () => {
   fc.assert(
-    fc.property(validCBSArgProp, (a) => {
-      const randIndex = Math.floor(Math.random() * a.length)
-      expect(quickParse('unicodeencode', a, randIndex)).toBe(String(a.charCodeAt(randIndex)))
+    fc.property(validCBSArgProp.filter((a) => a.length > 0), fc.nat(), (a, indexSeed) => {
+      const index = indexSeed % a.length
+      expect(quickParse('unicodeencode', a, index)).toBe(String(a.charCodeAt(index)))
     }),
   )
 })

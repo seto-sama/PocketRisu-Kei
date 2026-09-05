@@ -2,7 +2,7 @@
     import {
         ActivityIcon,
         BookIcon,
-        Braces,
+        BracesIcon,
         Share2Icon,
         SmileIcon,
         UserIcon,
@@ -12,8 +12,8 @@
     import { language } from "src/lang";
     import { CharConfigSubMenu, selectedCharID } from "src/ts/stores.svelte";
     import { DBState } from "src/ts/stores.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
 
     interface Props {
         devTool: boolean;
@@ -30,7 +30,7 @@
     }
 </script>
 
-<IconButtonGroup size="xl" className="relative bottom-2 h-8 min-h-8 w-full items-start">
+<IconButtonGroup size="xl" className="relative bottom-2 mb-2 h-8 min-h-8 w-full items-start">
     {#if canEdit}
         <div class="flex h-8 items-start">
             <IconButton active={$CharConfigSubMenu === 0 && !devTool} onclick={() => selectSubMenu(0)}><UserIcon /></IconButton>
@@ -40,7 +40,7 @@
                 {#if DBState.db.ttsEnabled}
                     <IconButton active={$CharConfigSubMenu === 5 && !devTool} onclick={() => selectSubMenu(5)}><Volume2Icon /></IconButton>
                 {/if}
-                <IconButton active={$CharConfigSubMenu === 4 && !devTool} onclick={() => selectSubMenu(4)}><Braces /></IconButton>
+                <IconButton active={$CharConfigSubMenu === 4 && !devTool} onclick={() => selectSubMenu(4)}><BracesIcon /></IconButton>
             {/if}
             <IconButton active={$CharConfigSubMenu === 2 && !devTool} onclick={() => selectSubMenu(2)}><ActivityIcon /></IconButton>
             {#if character?.type === "character"}

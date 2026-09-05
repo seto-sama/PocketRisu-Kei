@@ -1,6 +1,12 @@
 
 import type { SettingItem } from './types';
+import { DEFAULT_PLUGIN_STORAGE_WARNING_MB, getPluginStorageWarningMB, setPluginStorageWarningMB } from '../plugins/pluginMemorySafety';
 import { loadPlugins } from '../plugins/plugins.svelte';
+import { GENERATION_COUNT_MAX, GENERATION_COUNT_MIN } from '../process/automaticReroll';
+import {
+    OUTPUT_REPETITION_MAX,
+    OUTPUT_REPETITION_MIN,
+} from '../process/request/repetitionDetector';
 export const advancedSettingsItems: SettingItem[] = [
     { type: 'header', id: 'adv.warn', labelKey: 'advancedSettingsWarn', options: { level: 'warning' } },
 
@@ -30,12 +36,22 @@ export const advancedSettingsItems: SettingItem[] = [
     },
     // Request Settings
     {
+        id: 'adv.genTime', type: 'number', labelKey: 'genTimes', bindKey: 'genTime',
+        helpKey: 'genTimes', options: { min: GENERATION_COUNT_MIN, max: GENERATION_COUNT_MAX }
+    },
+    {
         id: 'adv.retries', type: 'number', labelKey: 'requestretrys', bindKey: 'requestRetrys',
         helpKey: 'requestretrys', options: { min: 0, max: 20 }
     },
     {
-        id: 'adv.genTime', type: 'number', labelKey: 'genTimes', bindKey: 'genTime',
-        helpKey: 'genTimes', options: { min: 0, max: 4096 }
+        id: 'adv.outputRepetition', type: 'number', labelKey: 'outputRepetitionDetection',
+        bindKey: 'outputRepetitionLimit', helpKey: 'outputRepetitionDetection',
+        options: {
+            min: OUTPUT_REPETITION_MIN,
+            max: OUTPUT_REPETITION_MAX,
+            disableable: true,
+            defaultValue: 8,
+        }
     },
     // Request Location (Non-Node/Tauri)
     {
@@ -62,6 +78,13 @@ export const advancedSettingsItems: SettingItem[] = [
     },
     // Experimental Section
     {
+        id: 'adv.pluginStorageWarning', type: 'number', labelKey: 'pluginMemoryWarningTitle',
+        helpKey: 'pluginStorageWarningThreshold',
+        getValue: () => getPluginStorageWarningMB(),
+        setValue: (_db, value) => setPluginStorageWarningMB(value),
+        options: { min: 0, suffix: 'MB', disableable: true, defaultValue: DEFAULT_PLUGIN_STORAGE_WARNING_MB },
+    },
+    {
         id: 'adv.exp.cachePoint', type: 'check', labelKey: 'automaticCachePoint', bindKey: 'automaticCachePoint',
         helpKey: 'automaticCachePoint', showExperimental: true
     },
@@ -74,16 +97,11 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.promptInfo', type: 'check', labelKey: 'promptInfoInsideChat', bindKey: 'promptInfoInsideChat',
         helpKey: 'promptInfoInsideChatDesc'
     },
-    {
-        id: 'adv.promptTextInfo', type: 'check', labelKey: 'promptTextInfoInsideChat', bindKey: 'promptTextInfoInsideChat',
-        condition: (ctx) => ctx.db.promptInfoInsideChat, helpKey: 'promptTextInfoInsideChat'
-    },
     { id: 'adv.allowExt', type: 'check', labelKey: 'allowAllExtentionFiles', bindKey: 'allowAllExtentionFiles', helpKey: 'allowAllExtentionFiles' },
     // Remote saving removed — incompatible with NodeOnly server
 
     // Dynamic Assets & Others
     { id: 'adv.cssErr', type: 'check', labelKey: 'returnCSSError', bindKey: 'returnCSSError', helpKey: 'returnCSSError' },
-    { id: 'adv.antiOverload', type: 'check', labelKey: 'antiServerOverload', bindKey: 'antiServerOverloads', helpKey: 'antiServerOverload' },
     { id: 'adv.toolUsage', type: 'check', labelKey: 'rememberToolUsage', bindKey: 'rememberToolUsage', helpKey: 'rememberToolUsage' },
     { id: 'adv.simpleTool', type: 'check', labelKey: 'simplifiedToolUse', bindKey: 'simplifiedToolUse', helpKey: 'simplifiedToolUse' },
 
@@ -99,13 +117,6 @@ export const advancedSettingsItems: SettingItem[] = [
         condition: (ctx) => ctx.db.dynamicAssets, helpKey: 'dynamicAssetsEditDisplay'
     },
 
-    // Unrecommended Extra
-    {
-        id: 'adv.depTrig', type: 'check', labelKey: 'showDeprecatedTriggerV1', bindKey: 'showDeprecatedTriggerV1',
-        helpKey: 'unrecommendedTriggerV1', helpUnrecommended: true
-    },
-
     // Custom Components
     { type: 'custom', id: 'adv.banChar', componentId: 'BanCharacterSetSettings' },
-    { type: 'custom', id: 'adv.export', componentId: 'SettingsExportButtons' },
 ];

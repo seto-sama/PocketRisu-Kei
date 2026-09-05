@@ -185,9 +185,9 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
                     signal: requestSignal,
                     requestTimeoutMs: arg.requestTimeoutMs,
                     generationRequest: revenantRequest,
-                    onJobCreated: jobId => {
+                    onJobCreated: (jobId, createdAt) => {
                         revenantJobId = jobId
-                        revenantRequest.lifecycle?.onJobCreated?.(jobId)
+                        revenantRequest.lifecycle?.onJobCreated?.(jobId, createdAt)
                         if (!revenantRequest.job.dispatchPolicy && !revenantRequest.workflow?.dependency) {
                             recordProviderRequest(Date.now())
                         }

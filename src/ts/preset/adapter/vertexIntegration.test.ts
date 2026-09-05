@@ -95,12 +95,6 @@ describe('Vertex Gemini models.dev recipe integration', () => {
         expect(calls[0].serviceAccount.clientEmail).toBe('svc@demo.iam.gserviceaccount.com')
     })
 
-    test('uses the models.dev model id as the native wire default', () => {
-        const preset = vertexPreset({})
-        expect(resolveWireModelId(preset, { vendorName: 'Google Gemini' }))
-            .toBe('gemini-2.5-pro')
-    })
-
     test('keeps an automatic models.dev profile pinned to its snapshot model', () => {
         const preset = vertexPreset({
             location: 'us-central1',

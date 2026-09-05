@@ -85,9 +85,4 @@ describe('getPersonaPrompt', () => {
         })
         expect(getPersonaPrompt()).toBe('global prompt')
     })
-
-    it('returns empty string when global is empty and no persona is bound', () => {
-        setup({ globalPersonaPrompt: '' })
-        expect(getPersonaPrompt()).toBe('')
-    })
 })

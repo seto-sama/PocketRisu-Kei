@@ -88,6 +88,21 @@ describe('generation message ownership', () => {
             roomIsResponding: false,
         })).toBe(true)
     })
+
+    it('ignores a stale recovery flag on non-target messages during active streaming', () => {
+        expect(isGenerationOwnedMessage({
+            message: { role: 'char', data: 'older', isRecovering: true } as any,
+            messageIndex: 0,
+            generationTargetIndex: 2,
+            roomIsResponding: true,
+        })).toBe(false)
+        expect(isGenerationOwnedMessage({
+            message: { role: 'char', data: 'streaming' } as any,
+            messageIndex: 2,
+            generationTargetIndex: 2,
+            roomIsResponding: true,
+        })).toBe(true)
+    })
 })
 
 describe('chat reroll preparation', () => {

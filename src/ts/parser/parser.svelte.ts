@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
-import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
+import { pocketKeiVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
 import { CurrentTriggerIdStore, DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
 import { isNodeServer } from "src/ts/platform"
@@ -12,7 +12,8 @@ import { selectedCharID } from '../stores.svelte';
 import { calcString } from '../process/infunctions';
 import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
 
-import { getInlayInfosBatch } from '../process/files/inlays';
+import { getInlayAssetUrl, getInlayInfosBatch, type InlayAsset } from '../process/files/inlays';
+import { INLAY_VIEWER_ID_ATTRIBUTE, inlayTokenRegex } from '../util/inlayTokens';
 import { getModuleAssets, getModuleLorebooks, getModules } from '../process/modules';
 import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.min.css'
@@ -21,6 +22,11 @@ import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import cssSelectorParser from 'postcss-selector-parser'
+import {
+    CHAT_SCROLL_ROOT_SELECTOR,
+    CHAT_VIEWPORT_MARGIN_MULTIPLIER,
+    observeWithinChatViewport,
+} from '../chatViewportObserver'
 
 const markdownItOptions = {
     html: true,
@@ -151,6 +157,7 @@ export function risuEscape(text:string){
 }
 
 const quoteBlockEndingRegex = /[\p{P}\p{S}]$/u
+const quoteBracketEndingRegex = /[\p{Ps}\p{Pe}]$/u
 const quoteClosingCharsRegex = /[\uE9b1\uE9b3"'’”」』»》]+$/u
 const blockquoteBreakPlaceholder = '\uE9B4'
 const cornerBracketStyles = [
@@ -166,7 +173,7 @@ function shouldRenderAsBlockquote(content:string){
         .trim()
         .replace(quoteClosingCharsRegex, '')
         .trim()
-    return quoteBlockEndingRegex.test(trimmed)
+    return quoteBlockEndingRegex.test(trimmed) && !quoteBracketEndingRegex.test(trimmed)
 }
 
 function renderMarkedText(open:string, content:string, close:string, mark:string){
@@ -434,10 +441,6 @@ async function renderHighlightableMarkdown(data:string) {
                     }
                     break
                 }
-                case 'risuerror':{
-                    lang = 'error'
-                    break
-                }
                 default:{
                     lang = 'none'
                 }
@@ -447,9 +450,6 @@ async function renderHighlightableMarkdown(data:string) {
             }
             if(lang === 'none'){
                 rendered = rendered.replace(placeholder, `<pre><code>${md.utils.escapeHtml(code)}</code></pre>`)
-            }
-            else if(lang === 'error'){
-                rendered = rendered.replace(placeholder, `<div class="risu-error"><h1>${language.error}</h1>${md.utils.escapeHtml(code)}</div>`)
             }
             else{
                 const highlighted = hljs.highlight(code, {
@@ -509,8 +509,9 @@ type AssetPaths = {[key:string]:{
 
 let assetsCache: AssetPaths | null = null
 let emoAssetsCache: AssetPaths | null = null
+let assetsCacheCharacterId = ''
 
-export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][]) {
+export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][], characterId = '') {
     const assetPaths: AssetPaths = {}
     const charEmoPaths: AssetPaths = {}
 
@@ -520,6 +521,7 @@ export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], 
 
     assetsCache = assetPaths
     emoAssetsCache = charEmoPaths
+    assetsCacheCharacterId = characterId
 }
 
 $effect.root(() => {
@@ -535,7 +537,7 @@ $effect.root(() => {
         const emoAssets = char.emotionImages ?? []
         const moduleAssets = getModuleAssets()
 
-        resetAssetsCache(charAssets, emoAssets, moduleAssets)
+        resetAssetsCache(charAssets, emoAssets, moduleAssets, char.chaId)
     })
 })
 
@@ -545,8 +547,8 @@ const videoExtensions = ['mp4', 'webm', 'avi', 'm4p', 'm4v']
 async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|character, mode:'normal'|'back', arg:{ch:number}){
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
-    if (char.type === 'character' && (!assetsCache || !emoAssetsCache)) {
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages, getModuleAssets())
+    if (!assetsCache || !emoAssetsCache || assetsCacheCharacterId !== char.chaId) {
+        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
     }
 
     const assetPaths = assetsCache ?? {}
@@ -732,12 +734,237 @@ function trimmer(str:string){
     return str.trim().replace(/[_ -.]/g, '')
 }
 
-const blobUrlCache = new Map<string, { url: string; type: string }>()
-const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
+type CachedInlayAsset = {
+    url: string
+    type: InlayAsset['type']
+    dimensions?: { width: number; height: number }
+}
 
-/** Build a direct-serve URL for a KV key via /api/asset/ */
-function assetUrl(kvKey: string): string {
-    return `/api/asset/${Buffer.from(kvKey, 'utf-8').toString('hex')}`
+const blobUrlCache = new Map<string, CachedInlayAsset>()
+type CachedImagePreload = {
+    promise: Promise<void>
+    settled: boolean
+}
+type RetainedImagePreload = {
+    image: HTMLImageElement
+    promise: Promise<void>
+    cancelLoad: () => void
+}
+type QueuedImageDecode = {
+    image: HTMLImageElement
+    resolve: () => void
+    reject: () => void
+}
+const imagePreloadCache = new Map<string, CachedImagePreload>()
+const retainedImagePreloads = new Map<string, RetainedImagePreload>()
+const priorityImageDecodeQueue: QueuedImageDecode[] = []
+const imageDecodeQueue: QueuedImageDecode[] = []
+let imageDecodeRunning = false
+const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
+const INLAY_ID_ATTRIBUTE = 'data-inlay-id'
+const CHAT_IMAGE_PRELOAD_TIMEOUT_MS = 10_000
+const IMAGE_PRELOAD_CACHE_MAX = 512
+const IMAGE_DECODE_QUEUE_MAX = 10
+const RETAINED_IMAGE_MAX = 10
+
+export function isChatImagePreloadingEnabled(): boolean {
+    return DBState.db.preloadChatImages !== false && !DBState.db.hideAllImages
+}
+
+function trimImagePreloadCache() {
+    if (imagePreloadCache.size <= IMAGE_PRELOAD_CACHE_MAX) return
+    for (const [url, entry] of imagePreloadCache) {
+        if (!entry.settled) continue
+        imagePreloadCache.delete(url)
+        if (imagePreloadCache.size <= IMAGE_PRELOAD_CACHE_MAX) break
+    }
+}
+
+async function drainImageDecodeQueue() {
+    if (imageDecodeRunning) return
+    imageDecodeRunning = true
+    let task: QueuedImageDecode | undefined
+    while ((task = priorityImageDecodeQueue.shift() ?? imageDecodeQueue.shift())) {
+        try {
+            const image = task.image
+            await new Promise<void>((resolve, reject) => {
+                const timeout = setTimeout(reject, CHAT_IMAGE_PRELOAD_TIMEOUT_MS)
+                image.decode().then(() => {
+                    clearTimeout(timeout)
+                    resolve()
+                }, () => {
+                    clearTimeout(timeout)
+                    reject()
+                })
+            })
+            task.resolve()
+        }
+        catch {
+            task.reject()
+        }
+    }
+    imageDecodeRunning = false
+}
+
+function queueImageDecode(image: HTMLImageElement, priority: boolean): Promise<void> | null {
+    if (typeof image.decode !== 'function') return null
+    if (priorityImageDecodeQueue.length + imageDecodeQueue.length >= IMAGE_DECODE_QUEUE_MAX) {
+        if (!priority) return null
+        const displaced = imageDecodeQueue.pop()
+        if (!displaced) return null
+        displaced.reject()
+    }
+    const promise = new Promise<void>((resolve, reject) => {
+        const task = { image, resolve, reject: () => reject() }
+        if (priority) priorityImageDecodeQueue.push(task)
+        else imageDecodeQueue.push(task)
+    })
+    void drainImageDecodeQueue()
+    return promise
+}
+
+function cancelQueuedImageDecode(image: HTMLImageElement) {
+    for (const queue of [priorityImageDecodeQueue, imageDecodeQueue]) {
+        for (let index = queue.length - 1; index >= 0; index--) {
+            if (queue[index].image !== image) continue
+            queue.splice(index, 1)[0].reject()
+        }
+    }
+}
+
+function loadImageElement(
+    image: HTMLImageElement,
+    url: string,
+    prioritizeDecode = false,
+    setCancel?: (cancel: () => void) => void,
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        let settled = false
+        const finish = () => {
+            if (settled) return
+            settled = true
+            clearTimeout(timeout)
+            image.onload = null
+            image.onerror = null
+            resolve()
+        }
+        const timeout = setTimeout(finish, CHAT_IMAGE_PRELOAD_TIMEOUT_MS)
+        setCancel?.(finish)
+        image.onload = finish
+        image.onerror = finish
+        image.src = url
+        const decode = queueImageDecode(image, prioritizeDecode)
+        if (decode) void decode.then(finish, () => {})
+    })
+}
+
+function preloadImageUrl(url: string): Promise<void> {
+    const normalizedUrl = url.trim()
+    if (!normalizedUrl) return Promise.resolve()
+
+    const cached = imagePreloadCache.get(normalizedUrl)
+    if (cached) {
+        imagePreloadCache.delete(normalizedUrl)
+        imagePreloadCache.set(normalizedUrl, cached)
+        return cached.promise
+    }
+
+    const promise = loadImageElement(new Image(), normalizedUrl)
+    const entry: CachedImagePreload = { promise, settled: false }
+    imagePreloadCache.set(normalizedUrl, entry)
+    void entry.promise.then(() => {
+        entry.settled = true
+        trimImagePreloadCache()
+    })
+    trimImagePreloadCache()
+    return entry.promise
+}
+
+function disposeRetainedImage(url: string, entry: RetainedImagePreload) {
+    if (retainedImagePreloads.get(url) !== entry) return
+    retainedImagePreloads.delete(url)
+    entry.cancelLoad()
+    cancelQueuedImageDecode(entry.image)
+    entry.image.removeAttribute('src')
+}
+
+function trimRetainedImagePreloads() {
+    while (retainedImagePreloads.size > RETAINED_IMAGE_MAX) {
+        const oldest = retainedImagePreloads.entries().next().value as
+            | [string, RetainedImagePreload]
+            | undefined
+        if (!oldest) return
+        disposeRetainedImage(oldest[0], oldest[1])
+    }
+}
+
+function clearRetainedImagePreloads() {
+    for (const [url, entry] of retainedImagePreloads) disposeRetainedImage(url, entry)
+}
+
+function retainImageUrl(url: string): Promise<void> {
+    const normalizedUrl = url.trim()
+    if (!normalizedUrl) return Promise.resolve()
+
+    let entry = retainedImagePreloads.get(normalizedUrl)
+    if (!entry) {
+        const image = new Image()
+        let cancelLoad = () => {}
+        entry = {
+            image,
+            promise: loadImageElement(
+                image,
+                normalizedUrl,
+                true,
+                cancel => cancelLoad = cancel,
+            ),
+            cancelLoad: () => cancelLoad(),
+        }
+        retainedImagePreloads.set(normalizedUrl, entry)
+    } else {
+        retainedImagePreloads.delete(normalizedUrl)
+        retainedImagePreloads.set(normalizedUrl, entry)
+    }
+
+    trimRetainedImagePreloads()
+    return entry.promise
+}
+
+function getCssImageUrls(value: string): string[] {
+    const urls: string[] = []
+    for (const match of value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/g)) {
+        if (match[2]) urls.push(match[2])
+    }
+    return urls
+}
+
+function getRenderedImageUrls(html: string): string[] {
+    if (typeof document === 'undefined') return []
+    const template = document.createElement('template')
+    template.innerHTML = html
+    const urls = new Set<string>()
+
+    for (const image of template.content.querySelectorAll<HTMLImageElement>('img[src]')) {
+        const url = image.getAttribute('src')
+        if (url) urls.add(url)
+    }
+    for (const video of template.content.querySelectorAll<HTMLVideoElement>('video[poster]')) {
+        const url = video.getAttribute('poster')
+        if (url) urls.add(url)
+    }
+    for (const element of template.content.querySelectorAll<HTMLElement>('[style]')) {
+        for (const url of getCssImageUrls(element.style.backgroundImage)) urls.add(url)
+    }
+    return [...urls]
+}
+
+/** Preload image URLs already resolved by the chat Markdown and asset parser. */
+export function preloadRenderedChatImages(html: string): Promise<void> {
+    if (!isChatImagePreloadingEnabled()) {
+        clearRetainedImagePreloads()
+        return Promise.resolve()
+    }
+    return Promise.all(getRenderedImageUrls(html).map(retainImageUrl)).then(() => {})
 }
 
 function createMissingInlayPlaceholder(id: string): HTMLDivElement {
@@ -747,7 +974,7 @@ function createMissingInlayPlaceholder(id: string): HTMLDivElement {
 
     const title = document.createElement('div')
     title.className = 'x-risu-risu-inlay-missing-title'
-    title.textContent = language.playground.inlayMissing
+    title.textContent = language.inlayGallery.inlayMissing
 
     const subtitle = document.createElement('div')
     subtitle.className = 'x-risu-risu-inlay-missing-subtitle'
@@ -759,18 +986,18 @@ function createMissingInlayPlaceholder(id: string): HTMLDivElement {
 }
 
 export function parseInlayAssets(data:string){
-    const inlayMatch = data.match(/{{(inlay|inlayed|inlayeddata)::(.+?)}}/g)
+    const inlayMatch = data.match(inlayTokenRegex)
     if(inlayMatch){
         for(const inlay of inlayMatch){
-            const inlayType = inlay.startsWith('{{inlayed') ? 'inlayed' : 'inlay'
             const id = inlay.substring(inlay.indexOf('::') + 2, inlay.length - 2)
-            let prefix = inlayType !== 'inlay' ? `<div class="risu-inlay-image">` : ''
-            let postfix = inlayType !== 'inlay' ? `</div>\n\n` : ''
+            const escapedId = md.utils.escapeHtml(id)
+            const prefix = `<div class="risu-inlay-image" ${INLAY_VIEWER_ID_ATTRIBUTE}="${escapedId}">`
+            const postfix = `</div>\n\n`
 
             let cached = blobUrlCache.get(id)
             if(!cached){
                 // Keep a minimal box for IntersectionObserver without flashing a loading surface.
-                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder" style="width: 100%; min-height: 1px;"></div>${postfix}`
+                const placeholder = `${prefix}<div ${INLAY_ID_ATTRIBUTE}="${escapedId}" class="risu-inlay-placeholder"></div>${postfix}`
                 data = data.replace(inlay, placeholder)
                 continue
             }
@@ -783,7 +1010,9 @@ export function parseInlayAssets(data:string){
                         data = data.replace(inlay, '')
                         break
                     }
-                    data = data.replace(inlay, `${prefix}<img src="${url}"/>${postfix}`)
+                    const dimensions = cached.dimensions
+                    const sizeAttributes = dimensions ? ` width="${dimensions.width}" height="${dimensions.height}"` : ''
+                    data = data.replace(inlay, `${prefix}<img src="${url}"${sizeAttributes} role="button" tabindex="0"/>${postfix}`)
                     break
                 case 'video':
                     data = data.replace(inlay, `${prefix}<video controls><source src="${url}" type="video/mp4"></video>${postfix}`)
@@ -802,13 +1031,59 @@ const resolveQueue: { el: HTMLElement, id: string }[] = []
 let isResolvingPlaceholders = false
 
 function fillInlayPlaceholder(el: HTMLElement, id: string, content?: Node): boolean {
-    if(el.getAttribute('data-inlay-id') !== id) return false
-    el.removeAttribute('data-inlay-id')
-    el.removeAttribute('data-inlay-type')
+    if(el.getAttribute(INLAY_ID_ATTRIBUTE) !== id) return false
+    el.removeAttribute(INLAY_ID_ATTRIBUTE)
     el.classList.remove('risu-inlay-placeholder', 'x-risu-risu-inlay-placeholder')
-    el.style.removeProperty('min-height')
     el.replaceChildren(...(content ? [content] : []))
     return true
+}
+
+async function replaceFailedInlayImage(img: HTMLImageElement, id: string, url: string) {
+    if (!img.parentNode) return
+    try {
+        const head = await fetch(url, { method: 'HEAD' })
+        const contentType = head.headers.get('content-type') || ''
+        if (contentType.startsWith('video/')) {
+            blobUrlCache.set(id, { url, type: 'video' })
+            const video = document.createElement('video')
+            video.controls = true
+            const source = document.createElement('source')
+            source.src = url
+            source.type = contentType
+            video.appendChild(source)
+            img.replaceWith(video)
+            return
+        }
+        if (contentType.startsWith('audio/')) {
+            blobUrlCache.set(id, { url, type: 'audio' })
+            const audio = document.createElement('audio')
+            audio.controls = true
+            const source = document.createElement('source')
+            source.src = url
+            source.type = contentType
+            audio.appendChild(source)
+            img.replaceWith(audio)
+            return
+        }
+    }
+    catch {}
+    img.replaceWith(createMissingInlayPlaceholder(id))
+}
+
+function observeInlayImageFailure(
+    img: HTMLImageElement,
+    id: string,
+    url: string,
+): () => void {
+    let handled = false
+    const handleError = () => {
+        if (handled) return
+        handled = true
+        void replaceFailedInlayImage(img, id, url)
+    }
+    img.addEventListener('error', handleError, { once: true })
+    if (img.complete && img.naturalWidth === 0) queueMicrotask(handleError)
+    return () => img.removeEventListener('error', handleError)
 }
 
 async function processInlayQueue() {
@@ -818,38 +1093,14 @@ async function processInlayQueue() {
     while (resolveQueue.length > 0) {
         const batch = resolveQueue.splice(0, 20)
 
-        const unknownIds = batch
-            .filter(({ id }) => !blobUrlCache.has(id))
-            .map(({ id }) => id)
-
-        if (unknownIds.length > 0) {
-            if (DBState.db.inlayImagePriority) {
-                // Fast path: assume image, let img.onerror handle video/audio
-                for (const id of unknownIds) {
-                    blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type: 'image' })
-                }
-            } else {
-                // Accurate path: fetch type info first
-                try {
-                    const infos = await getInlayInfosBatch(unknownIds)
-                    for (const id of unknownIds) {
-                        const type = infos[id]?.type ?? 'image'
-                        blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type })
-                    }
-                } catch {
-                    for (const id of unknownIds) {
-                        blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type: 'image' })
-                    }
-                }
-            }
-        }
+        await ensureInlayAssetsCached(batch.map(({ id }) => id))
 
         for (const { el, id } of batch) {
             try {
-                if (!el.parentNode || el.getAttribute('data-inlay-id') !== id) continue
+                if (!el.parentNode || el.getAttribute(INLAY_ID_ATTRIBUTE) !== id) continue
 
                 const cached = blobUrlCache.get(id)
-                const url = cached?.url ?? assetUrl(`inlay/${id}`)
+                const url = cached?.url ?? getInlayAssetUrl(id)
                 const type = cached?.type ?? 'image'
                 if (!cached) blobUrlCache.set(id, { url, type })
 
@@ -857,37 +1108,19 @@ async function processInlayQueue() {
                     case 'image':
                         if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id); break }
                         const img = document.createElement('img')
+                        if (cached?.dimensions) {
+                            img.width = cached.dimensions.width
+                            img.height = cached.dimensions.height
+                        }
                         img.src = url
+                        img.loading = 'lazy'
+                        img.decoding = 'async'
+                        img.role = 'button'
+                        img.tabIndex = 0
                         img.style.animation = 'risu-fade-in 0.3s ease-out'
                         // Fallback for legacy inlays without inlay_info:
                         // if <img> fails, probe Content-Type and swap to video/audio
-                        img.onerror = async () => {
-                            try {
-                                const head = await fetch(url, { method: 'HEAD' })
-                                const ct = head.headers.get('content-type') || ''
-                                if (ct.startsWith('video/')) {
-                                    blobUrlCache.set(id, { url, type: 'video' })
-                                    const video = document.createElement('video')
-                                    video.controls = true
-                                    const src = document.createElement('source')
-                                    src.src = url; src.type = ct
-                                    video.appendChild(src)
-                                    img.replaceWith(video)
-                                } else if (ct.startsWith('audio/')) {
-                                    blobUrlCache.set(id, { url, type: 'audio' })
-                                    const audio = document.createElement('audio')
-                                    audio.controls = true
-                                    const src = document.createElement('source')
-                                    src.src = url; src.type = ct
-                                    audio.appendChild(src)
-                                    img.replaceWith(audio)
-                                } else {
-                                    img.replaceWith(createMissingInlayPlaceholder(id))
-                                }
-                            } catch {
-                                img.replaceWith(createMissingInlayPlaceholder(id))
-                            }
-                        }
+                        observeInlayImageFailure(img, id, url)
                         fillInlayPlaceholder(el, id, img)
                         break
                     case 'video': {
@@ -923,27 +1156,142 @@ async function processInlayQueue() {
     isResolvingPlaceholders = false
 }
 
+function getInlayIds(data: string | readonly string[]): string[] {
+    const sources = typeof data === 'string' ? [data] : data
+    const ids = new Set<string>()
+    for (const source of sources) {
+        for (const match of source.matchAll(inlayTokenRegex)) {
+            if (match[2]) ids.add(match[2])
+        }
+    }
+    return [...ids]
+}
+
+async function ensureInlayAssetsCached(ids: readonly string[]): Promise<void> {
+    const unknownIds = [...new Set(ids)].filter(id => !blobUrlCache.has(id))
+    if (unknownIds.length > 0) {
+        try {
+            const infos = await getInlayInfosBatch(unknownIds)
+            for (const id of unknownIds) {
+                const info = infos[id]
+                const width = info?.width ?? 0
+                const height = info?.height ?? 0
+                // Validate once at the cache boundary. These intrinsic dimensions
+                // reserve the image ratio; CSS still owns its displayed size.
+                const dimensions = info?.type === 'image'
+                    && Number.isSafeInteger(width) && width > 0
+                    && Number.isSafeInteger(height) && height > 0
+                    ? { width, height }
+                    : undefined
+                blobUrlCache.set(id, {
+                    url: getInlayAssetUrl(id),
+                    type: info?.type ?? 'image',
+                    dimensions,
+                })
+            }
+        } catch {
+            for (const id of unknownIds) {
+                blobUrlCache.set(id, { url: getInlayAssetUrl(id), type: 'image' })
+            }
+        }
+    }
+}
+
+/** Warm image bytes and decode data without mounting another DOM copy. */
+async function preloadInlayAssetIds(ids: readonly string[]): Promise<void> {
+    if (!isChatImagePreloadingEnabled()) return
+    await ensureInlayAssetsCached(ids)
+    if (!isChatImagePreloadingEnabled()) return
+
+    await Promise.all(ids.map(id => {
+        const cached = blobUrlCache.get(id)
+        if (!cached || cached.type !== 'image') return Promise.resolve()
+        return preloadImageUrl(cached.url)
+    }))
+}
+
+/** Keep recently useful inlay decodes in the bounded image LRU. */
+async function retainInlayAssetIds(ids: readonly string[]): Promise<void> {
+    if (!isChatImagePreloadingEnabled()) return
+    await ensureInlayAssetsCached(ids)
+    if (!isChatImagePreloadingEnabled()) return
+
+    await Promise.all(ids.map(id => {
+        const cached = blobUrlCache.get(id)
+        return cached?.type === 'image' ? retainImageUrl(cached.url) : Promise.resolve()
+    }))
+}
+
+export function preloadInlayAssets(
+    data: string | readonly string[],
+    maxAssets = Number.POSITIVE_INFINITY,
+): Promise<void> {
+    const limit = Number.isFinite(maxAssets)
+        ? Math.max(0, Math.floor(maxAssets))
+        : Number.POSITIVE_INFINITY
+    return preloadInlayAssetIds(getInlayIds(data).slice(0, limit))
+}
+
+function isWithinInlayPreloadRange(root: HTMLElement): boolean {
+    const chatRoot = root.closest(CHAT_SCROLL_ROOT_SELECTOR) as HTMLElement | null
+    const targetRect = root.getBoundingClientRect()
+    const viewportRect = chatRoot?.getBoundingClientRect()
+    const viewportHeight = Math.max(1, chatRoot?.clientHeight ?? globalThis.innerHeight ?? 1)
+    const viewportTop = viewportRect?.top ?? 0
+    const viewportBottom = viewportRect?.bottom ?? (globalThis.innerHeight ?? viewportHeight)
+    const margin = viewportHeight * CHAT_VIEWPORT_MARGIN_MULTIPLIER
+    return targetRect.bottom >= viewportTop - margin
+        && targetRect.top <= viewportBottom + margin
+}
+
+export function preloadInlayAssetsWhenNear(
+    root: HTMLElement,
+    data: readonly string[],
+): () => void {
+    if (!isChatImagePreloadingEnabled()) {
+        clearRetainedImagePreloads()
+        return () => {}
+    }
+    const ids = getInlayIds(data)
+    if (ids.length === 0) return () => {}
+
+    const retainImages = () => {
+        void retainInlayAssetIds(ids)
+    }
+    const stopObserving = isWithinInlayPreloadRange(root)
+        ? (retainImages(), () => {})
+        : observeWithinChatViewport([root], retainImages, { once: true })
+
+    return () => {
+        stopObserving()
+    }
+}
+
 export function resolveInlayPlaceholders(root: HTMLElement): () => void {
     if (!root) return () => {}
-    const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]')) as HTMLElement[]
-    if (placeholders.length === 0) return () => {}
-
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const el = entry.target as HTMLElement
-                const id = el.getAttribute('data-inlay-id')
-                if (id) {
-                    resolveQueue.push({ el, id })
-                    observer.unobserve(el)
-                    processInlayQueue()
-                }
-            }
+    const directImageCleanups = Array.from(
+        root.querySelectorAll<HTMLImageElement>(`[${INLAY_VIEWER_ID_ATTRIBUTE}] > img`),
+    ).flatMap(img => {
+        const container = img.closest<HTMLElement>(`[${INLAY_VIEWER_ID_ATTRIBUTE}]`)
+        const id = container?.getAttribute(INLAY_VIEWER_ID_ATTRIBUTE)
+        const url = img.getAttribute('src')
+        return id && url ? [observeInlayImageFailure(img, id, url)] : []
+    })
+    const placeholders = Array.from(root.querySelectorAll(`[${INLAY_ID_ATTRIBUTE}]`)) as HTMLElement[]
+    const stopObserving = placeholders.length > 0
+        ? observeWithinChatViewport(placeholders, target => {
+            const el = target as HTMLElement
+            const id = el.getAttribute(INLAY_ID_ATTRIBUTE)
+            if (!id) return
+            resolveQueue.push({ el, id })
+            void processInlayQueue()
         })
-    }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view
+        : () => {}
 
-    placeholders.forEach(el => observer.observe(el))
-    return () => observer.disconnect()
+    return () => {
+        stopObserving()
+        for (const cleanup of directImageCleanups) cleanup()
+    }
 }
 
 export interface simpleCharacterArgument{
@@ -973,7 +1321,7 @@ function parseThoughtsAndTools(data:string, inlineThoughts = false){
                 const thoughts = data.substring(i + 10, j - 1)
                 result += inlineThoughts
                     ? renderInlineThoughts(thoughts)
-                    : `<details><summary>${language.cot}</summary>${thoughts}</details>`
+                    : `<details class="x-risu-thoughts"><summary>${language.cot}</summary>${thoughts}</details>`
                 i = j + 10
                 continue
             }
@@ -1051,22 +1399,25 @@ export async function ParseMarkdown(
     )
 }
 
-// LRU cache for DOMPurify + decodeStyle results.
-// Chat re-renders hit the same message text repeatedly; this avoids redundant DOM parsing.
+const trimPurifyConfig = {
+    ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
+    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
+}
+
+// LRU cache for sanitized HTML and decoded styles. Chat re-renders hit the
+// same message text repeatedly, so the DOM path below normally runs once.
 const trimCache = new Map<string, string>()
 const TRIM_CACHE_MAX = 200
 
 export function trimMarkdown(data:string){
-    // Include hideAllImages in cache key — DOMPurify hook rewrites <img> based on this flag
-    const cacheKey = (DBState.db?.hideAllImages ? '1|' : '0|') + data
+    // Both settings affect sanitizer/decoder output and therefore belong in
+    // the cache key. This keeps CSS parse-error reporting on the same path.
+    const cacheKey = `${DBState.db?.hideAllImages ? '1' : '0'}|${DBState.db?.returnCSSError ? '1' : '0'}|${data}`
     let cached = trimCache.get(cacheKey)
     if (cached !== undefined) {
         return cached
     }
-    cached = decodeStyle(DOMPurify.sanitize(data, {
-        ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
-    }))
+    cached = trimMarkdownUncached(data)
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
         const firstKey = trimCache.keys().next().value
@@ -1074,6 +1425,49 @@ export function trimMarkdown(data:string){
     }
     trimCache.set(cacheKey, cached)
     return cached
+}
+
+function trimMarkdownUncached(data:string){
+    // Most messages contain no custom styles. Keep that hot path to one
+    // string-returning sanitize call and avoid constructing a DOM.
+    if(!data.includes('<risu-style')){
+        return DOMPurify.sanitize(data, trimPurifyConfig)
+    }
+
+    // Parse first so only real elements become placeholders; markup-looking
+    // text inside attributes remains inert. The placeholders go through the
+    // single sanitizer pass, while decoded CSS never re-enters an HTML parser.
+    const sourceRoot = new DOMParser().parseFromString(data, 'text/html').body
+    const styleElements = Array.from(sourceRoot.querySelectorAll('risu-style'))
+    const indexWidth = Math.max(1, `${styleElements.length - 1}`.length)
+    // DOMPurify 3.4 drops generic XML-like text markers under SAFE_FOR_XML.
+    // Use a numeric nonce absent from the source and a distinct numeric tail.
+    let markerPrefix = '9'.repeat(32)
+    while(data.includes(markerPrefix)) markerPrefix += '9'
+    const markerSuffix = '8'.repeat(markerPrefix.length)
+    const markerRegex = new RegExp(`(?:<span>)?${markerPrefix}(\\d{${indexWidth}})${markerSuffix}(?:</span>)?`, 'g')
+
+    const replacements:ReturnType<typeof decodeStyleContent>[] = []
+    for(const element of styleElements){
+        replacements.push(decodeStyleContent(element.textContent ?? ''))
+        // A temporary inline element keeps a leading marker from being
+        // discarded by DOMPurify without changing the surrounding flow.
+        const placeholder = sourceRoot.ownerDocument.createElement('span')
+        placeholder.textContent = `${markerPrefix}${(replacements.length - 1).toString().padStart(indexWidth, '0')}${markerSuffix}`
+        element.replaceWith(placeholder)
+    }
+
+    const sanitized = DOMPurify.sanitize(sourceRoot.innerHTML, trimPurifyConfig)
+    return sanitized
+        .replace(markerRegex, (_marker, index:string) => {
+            const decoded = replacements[Number(index)]
+            if(decoded?.css === undefined){
+                return md.utils.escapeHtml(decoded?.fallback ?? '')
+            }
+            // A literal closing style tag is the only raw-text sequence that
+            // can escape the element when this HTML is mounted again.
+            return `<style>${decoded.css.replaceAll(/<\/(?=style)/gi, '<\\/')}</style>`
+        })
 }
 
 const metaCodes = [
@@ -1185,8 +1579,6 @@ function encodeStyle(txt:string){
         return "<risu-style>" + Buffer.from(c1).toString('hex') + "</risu-style>"
     })
 }
-const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
-
 function decodeStyleRule<T extends CssAtRuleAST | CssDeclarationAST>(rule:T): T {
     if(rule.type === 'rule'){
         if(rule.selectors){
@@ -1222,31 +1614,29 @@ function decodeStyleRule<T extends CssAtRuleAST | CssDeclarationAST>(rule:T): T 
     return rule
 }
 
-function decodeStyle(text:string){
-    return text.replaceAll(styleDecodeRegex, (full, txt:string) => {
-        try {
-            let text = Buffer.from(txt, 'hex').toString('utf-8')
-            text = risuChatParser(text)
-            const ast = css.parse(text)
-            const rules = ast?.stylesheet?.rules
-            if(rules){
-                for(let i=0;i<rules.length;i++){
-                    rules[i] = decodeStyleRule(rules[i])
-                }
-                ast.stylesheet.rules = rules
+function decodeStyleContent(hexText:string):{css?:string, fallback?:string}{
+    try {
+        let text = Buffer.from(hexText, 'hex').toString('utf-8')
+        text = risuChatParser(text)
+        const ast = css.parse(text)
+        const rules = ast?.stylesheet?.rules
+        if(rules){
+            for(let i=0;i<rules.length;i++){
+                rules[i] = decodeStyleRule(rules[i])
             }
-            return `<style>${css.stringify(ast, {
+            ast.stylesheet.rules = rules
+        }
+        return {
+            css: css.stringify(ast, {
                 indent: '',
                 compress: true,
-            })}</style>`
-
-        } catch (error) {
-            if(DBState.db.returnCSSError){
-                return `CSS ERROR: ${error}`
-            }
-            return ""
+            }),
         }
-    })
+    } catch (error) {
+        return {
+            fallback: DBState.db.returnCSSError ? `CSS ERROR: ${error}` : '',
+        }
+    }
 }
 
 export async function hasher(data:Uint8Array){
@@ -1310,7 +1700,7 @@ function initMatcher(){
         },
         isNodeServer: isNodeServer,
         isMobile: false,
-        appVer: appVer,
+        pocketKeiVer: pocketKeiVer,
     })
     matcherInitialized = true
 }
@@ -1433,6 +1823,11 @@ function makeArray(p1: unknown[]): string{
 }
 
 function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,type2?:string,funcArg?:string[],mode?:string}{
+    const getPreviewChatVar = (key:string) =>
+        matcherArg.variableOverrides?.chat?.[key] ?? getChatVar(key)
+    const getPreviewGlobalVar = (key:string) =>
+        matcherArg.variableOverrides?.global?.[key] ?? getGlobalChatVar(key)
+
     if(p1.startsWith('#if') || p1.startsWith('#if_pure ')){
         const statement = p1.split(' ', 2)
         const state = statement[1]
@@ -1526,7 +1921,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'var':{
-                        const variable = getChatVar(condition)
+                        const variable = getPreviewChatVar(condition)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1536,7 +1931,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'toggle':{
-                        const variable = getGlobalChatVar('toggle_' + condition)
+                        const variable = getPreviewGlobalVar('toggle_' + condition)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1546,7 +1941,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'vis':{ //vis = variable is
-                        const variable = getChatVar(statement.pop())
+                        const variable = getPreviewChatVar(statement.pop())
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1556,7 +1951,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'visnot':{ //visnot = variable is not
-                        const variable = getChatVar(statement.pop())
+                        const variable = getPreviewChatVar(statement.pop())
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1566,7 +1961,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tis':{ //tis = toggle is
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getPreviewGlobalVar('toggle_' + statement.pop())
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1576,7 +1971,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tisnot':{ //tisnot = toggle is not
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getPreviewGlobalVar('toggle_' + statement.pop())
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1831,6 +2226,7 @@ export function risuChatParser(da:string, arg:{
     runVar?:boolean
     functions?:Map<string,{data:string,arg:string[]}>
     callStack?:number
+    variableOverrides?: matcherArg['variableOverrides']
     cbsConditions?:CbsConditions
 } = {}):string{
     if (da == null) return ''
@@ -1889,6 +2285,7 @@ export function risuChatParser(da:string, arg:{
         runVar: arg.runVar ?? false,
         consistantChar: arg.consistantChar ?? false,
         cbsConditions: arg.cbsConditions ?? {},
+        variableOverrides: arg.variableOverrides,
         callStack: arg.callStack,
         getNested: () => {
             return nested

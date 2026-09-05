@@ -268,6 +268,20 @@ type ScriptMode = 'display' | 'output' | 'input' | 'process';
  */
 type ReplacerType = 'beforeRequest' | 'afterRequest';
 
+/** Argument passed to chat lifecycle listeners. */
+type ChatOutputListenerArg = {
+    /** Current character snapshot. */
+    char: any;
+    /** Current chat snapshot. */
+    chat: any;
+    /** Index of the character in the database. Use with `setCharacterToIndex`. */
+    characterIndex: number;
+    /** Index of the chat within the character. Use with `setChatToIndex`. */
+    chatIndex: number;
+    /** Index of the generated message, or -1 if post-processing removed it. */
+    messageIndex: number;
+};
+
 /**
  * Risuai Plugin definition
  */
@@ -305,7 +319,9 @@ interface RisuModule {
     name: string;
     /** Module description */
     description: string;
-    /** Optional user-defined folder used by module pickers */
+    /** User-defined tags used by module pickers */
+    tagIds?: string[];
+    /** @deprecated Legacy import field; use tagIds */
     folderId?: string;
     /** Lorebook entries */
     lorebook?: any[];
@@ -413,17 +429,43 @@ interface DatabaseSubset {
  * Color scheme definition for UI theming.
  */
 interface ColorScheme {
+    lightbg: string;
+    darkbg: string;
+    lightborderc: string;
+    selected: string;
+    danger: string;
+    maintext: string;
+    subtext: string;
+    white?: string;
+    black?: string;
+    darkborderc: string;
+    button: string;
+    type: 'light' | 'dark';
+}
+
+interface LegacyColorScheme {
+    /** @deprecated Use `lightbg`. */
     bgcolor: string;
     darkbg: string;
+    /** @deprecated Use `lightborderc`. */
     borderc: string;
     selected: string;
+    /** @deprecated Use `danger`. */
     draculared: string;
+    /** @deprecated Use `maintext`. */
     textcolor: string;
+    /** @deprecated Use `subtext`. */
     textcolor2: string;
+    white?: string;
+    black?: string;
+    /** @deprecated Use `darkborderc`. */
     darkBorderc: string;
+    /** @deprecated Use `button`. */
     darkbutton: string;
     type: 'light' | 'dark';
 }
+
+type ColorSchemeWithLegacyAliases = ColorScheme & LegacyColorScheme;
 
 /**
  * Custom text theme definition for chat text colors.
@@ -1517,13 +1559,13 @@ interface RisuaiPluginAPI {
      * Apply a custom color scheme. Automatically sets colorSchemeName to 'custom'.
      * @param scheme - ColorScheme object with all color values
      */
-    setColorScheme(scheme: ColorScheme): Promise<void>;
+    setColorScheme(scheme: ColorScheme | LegacyColorScheme): Promise<void>;
 
     /**
      * Get the current color scheme name and values.
      * @returns Object with name and scheme
      */
-    getColorScheme(): Promise<{ name: string; scheme: ColorScheme }>;
+    getColorScheme(): Promise<{ name: string; scheme: ColorSchemeWithLegacyAliases }>;
 
     // ========== Text Theme APIs ==========
 
@@ -1765,7 +1807,7 @@ interface RisuaiPluginAPI {
      * ```typescript
      * await risuai.addTTSPreprocessor(async (ctx) => {
      *   if (ctx.ttsMode !== 'openai') return;
-     *   return { text: ctx.text.replace(/\*(.*?)\*/g, '') };
+     *   return { text: ctx.text.replace(/[*](.*?)[*]/g, '') };
      * });
      * ```
      */
@@ -1878,6 +1920,24 @@ interface RisuaiPluginAPI {
     removeRisuReplacer(
         type: ReplacerType,
         func: Function
+    ): Promise<void>;
+
+    /**
+     * Adds a listener that runs after the canonical model output is committed,
+     * including output triggers and inlay transformations.
+     * Listeners are awaited in registration order and receive snapshots; mutate
+     * persisted data through the indexed character/chat APIs instead of modifying
+     * these snapshots.
+     */
+    addRisuChatListener(
+        mode: 'output',
+        func: (arg: ChatOutputListenerArg) => void | Promise<void>
+    ): Promise<void>;
+
+    /** Removes a previously registered chat listener. */
+    removeRisuChatListener(
+        mode: 'output',
+        func: (arg: ChatOutputListenerArg) => void | Promise<void>
     ): Promise<void>;
 
     // ========== Body Interceptors ==========

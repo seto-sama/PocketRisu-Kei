@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import { PlusIcon, PencilIcon, TrashIcon } from "@lucide/svelte";
+    import { PlusIcon, SquarePenIcon, TrashIcon } from "@lucide/svelte";
     import { DBState } from "src/ts/stores.svelte";
     import {
         addApiKey,
@@ -18,12 +18,12 @@
         resolveProviderFilterHiddenIds,
     } from "src/ts/preset/registry";
     import { alertConfirm } from "src/ts/alert";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import SecretInput from "src/lib/UI/GUI/SecretInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Input from "../../../UI/components/Input.svelte";
+    import SecretInput from "../../../UI/components/SecretInput.svelte";
+    import Select from "../../../UI/components/Select.svelte";
+    import SelectOption from "../../../UI/components/SelectOption.svelte";
+    import SortableList from "../../../UI/components/SortableList.svelte";
 
     // Read straight off the reactive pool so the list reflects add/edit/delete.
     const entries = $derived(
@@ -107,33 +107,33 @@
 </script>
 
 <div class="flex flex-col gap-3">
-    <p class="text-xs text-textcolor2">{language.help.apiKeyManagerDesc}</p>
+    <p class="text-xs text-subtext">{language.help.apiKeyManagerDesc}</p>
 
     {#snippet apiKeyForm()}
         <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyName}</span>
-                <TextInput bind:value={fName} placeholder={language.apiKeyName} fullwidth />
+                <span class="text-sm text-maintext">{language.apiKeyName}</span>
+                <Input bind:value={fName} placeholder={language.apiKeyName} fullwidth />
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyProvider}</span>
-                <SelectInput bind:value={fProvider}>
-                    <OptionInput value="">{language.apiKeyProviderUnset}</OptionInput>
+                <span class="text-sm text-maintext">{language.apiKeyProvider}</span>
+                <Select bind:value={fProvider}>
+                    <SelectOption value="">{language.apiKeyProviderUnset}</SelectOption>
                     {#if fProvider && !providerOptions.some(o => o.id === fProvider)}
-                        <OptionInput value={fProvider}>{providerLabel(fProvider)}</OptionInput>
+                        <SelectOption value={fProvider}>{providerLabel(fProvider)}</SelectOption>
                     {/if}
                     {#each providerOptions as opt (opt.id)}
-                        <OptionInput value={opt.id}>{opt.name}</OptionInput>
+                        <SelectOption value={opt.id}>{opt.name}</SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyValue}</span>
+                <span class="text-sm text-maintext">{language.apiKeyValue}</span>
                 <SecretInput bind:value={fKey} fullwidth />
             </div>
             <div class="flex justify-end gap-2">
-                <ShButton variant="outline" size="sm" onclick={closeForm}>{language.cancel}</ShButton>
-                <ShButton variant="primary" size="sm" onclick={save}>{language.apiKeyFormSave}</ShButton>
+                <Button variant="outline" size="sm" onclick={closeForm}>{language.cancel}</Button>
+                <Button variant="primary" size="sm" onclick={save}>{language.apiKeyFormSave}</Button>
             </div>
         </div>
     {/snippet}
@@ -141,16 +141,16 @@
     {#if formOpen && editId === null}
         {@render apiKeyForm()}
     {:else}
-        <ShButton variant="outline" size="default" className="w-full" onclick={openAdd}>
+        <Button variant="outline" size="default" className="w-full" onclick={openAdd}>
             <PlusIcon />
             <span class="ml-1">{language.apiKeyAdd}</span>
-        </ShButton>
+        </Button>
     {/if}
 
     {#if entries.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
+        <div class="text-subtext text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
     {:else}
-        <ShSortableList
+        <SortableList
             className="flex flex-col gap-3"
             disabled={formOpen}
             onReorder={(orderedIds) => reorderApiKeys(orderedIds)}
@@ -163,16 +163,16 @@
                     role="listitem"
                 >
                     <div class="flex flex-col min-w-0 grow">
-                        <span class="text-sm text-textcolor truncate">{entry.name}</span>
-                        <span class="text-xs text-textcolor2 truncate">
+                        <span class="text-sm text-maintext truncate">{entry.name}</span>
+                        <span class="text-xs text-subtext truncate">
                             {#if entry.provider}{providerLabel(entry.provider)} · {/if}••••{entry.key.slice(-4)}
                         </span>
                     </div>
                     <div class="no-sort flex gap-2 shrink-0">
-                        <button class="text-textcolor2 risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
-                            <PencilIcon size={18} />
+                        <button class="text-subtext risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
+                            <SquarePenIcon size={18} />
                         </button>
-                        <button class="text-textcolor2 risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
+                        <button class="text-subtext risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
                             <TrashIcon size={18} />
                         </button>
                     </div>
@@ -181,6 +181,6 @@
                     {@render apiKeyForm()}
                 {/if}
             {/each}
-        </ShSortableList>
+        </SortableList>
     {/if}
 </div>

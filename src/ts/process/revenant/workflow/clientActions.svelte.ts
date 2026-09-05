@@ -5,14 +5,13 @@ import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
 import type { ModelPreset } from '../../../preset/types'
 import { getDatabase, type Chat, type character } from '../../../storage/database.svelte'
-import { CharEmotion, ReloadChatPointer, ReloadGUIPointer } from '../../../stores.svelte'
+import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
 import { getInlayAsset, writeInlayImage } from '../../files/inlays'
 import { requestModelPresetData } from '../../request/request'
 import { collectStreamingText } from '../../request/shared'
 import { extractLuaLlmInlays, normalizeLuaLlmPrompt } from '../../luaLlmCore'
-import { generateAIImageInlay } from '../../stableDiff'
 import { sayTTS } from '../../tts'
 import { runInlayScreen } from '../../inlayScreen'
 import { loadLoreBookV3Prompt } from '../../lorebook.svelte'
@@ -234,13 +233,9 @@ async function executeClientAction(
                     ReloadGUIPointer.update(value => value + 1)
                 }
                 else if (effect.kind === 'reload.chat') {
-                    ReloadChatPointer.update(value => {
-                        const index = Number.isInteger(effect.index)
-                            ? Number(effect.index)
-                            : character.chatPage
-                        value[index] = (value[index] ?? 0) + 1
-                        return value
-                    })
+                    invalidateChatMessageRender(Number.isInteger(effect.index)
+                        ? Number(effect.index)
+                        : character.chatPage)
                 }
                 else if (effect.kind === 'log') console.log(effect.value)
                 else if (effect.kind === 'tts') {
@@ -319,14 +314,6 @@ async function executeClientAction(
             const response = await fetchNative(url, { method: 'GET' })
             return JSON.stringify({ status: response.status, data: await response.text() })
         }
-        case 'image.generate': {
-            const inlay = await generateAIImageInlay(
-                String(payload.prompt ?? ''),
-                character,
-                String(payload.negativePrompt ?? ''),
-            )
-            return inlay || 'Error: Image generation failed'
-        }
         case 'asset.character-image': return assetToInlay(character.image)
         case 'asset.persona-image': return assetToInlay(getUserIcon())
         case 'utility.tokenize': return await tokenize(String(payload.text ?? ''))
@@ -392,7 +379,6 @@ function canExecuteClientAction(action: RevenantClientAction): boolean {
     if (action.kind.startsWith('provider.')) return true
     return action.kind.startsWith('ui.')
         || action.kind === 'network.request'
-        || action.kind === 'image.generate'
         || action.kind.startsWith('utility.')
         || action.kind.startsWith('asset.')
 }

@@ -2,24 +2,26 @@
     import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon, TrashIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertInput, alertNormal, notifyInfo } from "src/ts/alert";
-    import { hubURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
+    import { hubURL, realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
     
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
-    import MultiLangDisplay from "../GUI/MultiLangDisplay.svelte";
+    import MultiLangDisplay from "../components/MultiLangDisplay.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
-    import ShDialog from "../GUI/ShDialog.svelte";
-    import ShButton from "../GUI/ShButton.svelte";
-    import IconButton from "../GUI/IconButton.svelte";
-    import IconButtonGroup from "../GUI/IconButtonGroup.svelte";
+    import Dialog from "../components/Dialog.svelte";
+    import Button from "../components/Button.svelte";
+    import IconButton from "../components/IconButton.svelte";
+    import IconButtonGroup from "../components/IconButtonGroup.svelte";
     import RealmTagList from "./RealmTagList.svelte";
 
     interface Props {
         openedData: hubType;
+        onDownloaded?: () => void;
     }
 
-    let { openedData = $bindable() }: Props = $props();
+    let { openedData = $bindable(), onDownloaded = () => {} }: Props = $props();
     let open = $state(true)
+    let downloading = $state(false)
 
     function close() {
         open = false
@@ -27,34 +29,33 @@
     }
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="lg"
     closeOnEscape
     onRequestClose={close}
-    contentClass="overflow-hidden"
-    bodyClass="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+    bodyClass="flex min-h-0 flex-1 flex-col gap-4"
 >
     {#snippet title()}
         <span class="flex min-w-0 flex-col gap-0.5">
             <span class="block truncate text-2xl">{openedData.name}</span>
             {#if openedData.authorname}
-                <span class="truncate text-sm font-normal text-textcolor2">Made by {openedData.authorname}</span>
+                <span class="truncate text-sm font-normal text-subtext">Made by {openedData.authorname}</span>
             {/if}
         </span>
     {/snippet}
 
     <div class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         {#if openedData.original}
-            <ShButton variant="link" size="sm" className="w-fit px-0" onclick={() => {
+            <Button variant="link" size="sm" className="w-fit px-0" onclick={() => {
                 const original = openedData.original
                 close()
                 getRealmInfo(original)
-            }}>Forked</ShButton>
+            }}>Forked</Button>
         {/if}
         <div class="mt-4 flex min-h-36 flex-1 items-start justify-start gap-4 overflow-hidden max-sm:flex-col">
             {#if DBState.db.hideAllImages}
-                <div class="flex h-36 w-36 shrink-0 items-center justify-center rounded-md bg-darkbutton text-textcolor2">
+                <div class="flex h-36 w-36 shrink-0 items-center justify-center rounded-md bg-button text-subtext">
                     <span class="text-4xl">?</span>
                 </div>
             {:else}
@@ -63,7 +64,7 @@
             <MultiLangDisplay
                 value={openedData.desc}
                 markdown={true}
-                className="min-h-36 max-h-[50vh] min-w-0 flex-1 self-stretch overflow-hidden"
+                className="min-h-36 min-w-0 flex-1 self-stretch overflow-hidden"
                 contentClass="min-h-0 flex-1 overflow-y-auto pr-2"
             />
         </div>
@@ -88,7 +89,7 @@
                         }} aria-label="Lorebook"><BookIcon /></IconButton>
                     {/if}
                 </IconButtonGroup>
-                <span class="whitespace-nowrap text-textcolor2" use:tooltip={language.popularityLevelDesc}>
+                <span class="whitespace-nowrap text-subtext" use:tooltip={language.popularityLevelDesc}>
                     {language.popularityLevel.replace('{}', openedData.download.toString())}
                 </span>
             </div>
@@ -96,15 +97,23 @@
     </div>
 
     <div class="flex shrink-0 gap-2">
-        <ShButton variant="primary" className="grow" onclick={() => {
-            downloadRisuHub(openedData.id)
-            close()
+        <Button disabled={downloading} variant="primary" className="grow" onclick={async () => {
+            if (downloading) return
+            downloading = true
+            try {
+                if (await downloadRisuHub(openedData.id)) {
+                    close()
+                    onDownloaded()
+                }
+            } finally {
+                downloading = false
+            }
         }}>
-            Download
-        </ShButton>
+            {downloading ? language.loading : language.download}
+        </Button>
         <IconButtonGroup size="xl">
             <IconButton aria-label="Copy Realm link" onclick={(async () => {
-                    await navigator.clipboard.writeText(`https://realm.risuai.net/character/${openedData.id}`)
+                    await navigator.clipboard.writeText(`${realmURL}/character/${openedData.id}`)
                     notifyInfo(language.clipboardSuccess)
             })}>
                 <PaperclipIcon />
@@ -144,4 +153,4 @@
             </IconButton>
         </IconButtonGroup>
     </div>
-</ShDialog>
+</Dialog>

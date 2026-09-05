@@ -1,23 +1,41 @@
 <script lang="ts">
-    import { Waypoints } from "@lucide/svelte";
+    import { WaypointsIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
+    import InlineEditableName from "../../../UI/components/InlineEditableName.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
     import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     interface Props {
         close?: (id: string) => void;
         alertMode?: boolean;
+        folderManagement?: boolean;
+        onCreateModule?: () => void;
+        onImportModule?: () => void;
+        onDuplicateModule?: (index: number) => void;
+        onExportModule?: (index: number) => void;
+        onDeleteModule?: (index: number) => void;
     }
 
-    let { close = () => {}, alertMode = false }: Props = $props();
+    let {
+        close = () => {},
+        alertMode = false,
+        folderManagement = false,
+        onCreateModule,
+        onImportModule,
+        onDuplicateModule,
+        onExportModule,
+        onDeleteModule,
+    }: Props = $props();
     let moduleSearch = $state('');
     let selectedFolder = $state('all');
     let visibleModuleIndexes = $state<number[]>([]);
     let emptyModuleMessage = $state('');
-    const moduleFolders = $derived(DBState.db.moduleFolders ?? []);
+    const moduleTags = $derived(DBState.db.moduleTags ?? []);
 
     function currentCharacter() {
         return DBState.db.characters[$selectedCharID];
@@ -90,10 +108,10 @@
         void requestImmediateSave();
     }
 
-    function assignModuleToFolder(index: number, folderId: string | undefined) {
+    function assignModuleToTag(index: number, tagId: string | undefined) {
         const rmodule = DBState.db.modules[index];
         if (!rmodule) return;
-        rmodule.folderId = folderId;
+        rmodule.tagIds = togglePresetTag(rmodule.tagIds, tagId);
         DBState.db.modules = [...DBState.db.modules];
         void requestImmediateSave();
     }
@@ -101,6 +119,7 @@
     function selectModule(index: number) {
         const rmodule = DBState.db.modules[index];
         if (!rmodule) return;
+        if (folderManagement) return;
         if (alertMode) close(rmodule.id);
     }
 
@@ -116,59 +135,76 @@
 
 <PresetPickerLayout
     title={language.modules}
-    titleHelp={language.chatModulesInfo}
-    folders={moduleFolders}
-    itemFolderIds={DBState.db.modules.map((rmodule) => rmodule.folderId)}
+    titleHelpKey={folderManagement ? undefined : 'chatModulesInfo'}
+    folders={moduleTags}
+    itemFolderIds={DBState.db.modules.map((rmodule) => rmodule.tagIds)}
+    organizationKind="tag"
     itemNames={DBState.db.modules.map((rmodule) => rmodule.name)}
     itemSearchTexts={DBState.db.modules.map((rmodule) => `${rmodule.name}\n${rmodule.description ?? ''}`)}
     searchPlaceholder={language.search}
     itemDragDataKey="moduleIndex"
-    readOnly
     bind:selectedFolder
     bind:searchQuery={moduleSearch}
     bind:visibleItemIndexes={visibleModuleIndexes}
     bind:emptyMessage={emptyModuleMessage}
     onMoveItem={moveModule}
     onSelectItem={selectModule}
+    onDuplicateItem={folderManagement ? onDuplicateModule : undefined}
+    onExportItem={folderManagement ? onExportModule : undefined}
+    onDeleteItem={folderManagement ? onDeleteModule : undefined}
+    itemDeleteLabel={language.moduleDeleteAction}
+    showDuplicateItem={(index) => !DBState.db.modules[index]?.mcp}
+    showExportItem={(index) => !DBState.db.modules[index]?.mcp}
     close={closePicker}
     onFoldersChange={(next) => {
-        DBState.db.moduleFolders = next;
+        DBState.db.moduleTags = next;
         void requestImmediateSave();
     }}
-    onAssignItem={assignModuleToFolder}
-    onDeleteFolder={(folderId) => {
+    onAssignItem={assignModuleToTag}
+    onDeleteFolder={(tagId) => {
         DBState.db.modules = DBState.db.modules.map((rmodule) =>
-            rmodule.folderId === folderId ? { ...rmodule, folderId: undefined } : rmodule
+            ({ ...rmodule, tagIds: removePresetTag(rmodule.tagIds, tagId) })
         );
         void requestImmediateSave();
     }}
-    configure={openModuleSettings}
+    configure={folderManagement ? undefined : openModuleSettings}
+    itemRenameable={folderManagement}
 >
-    {#snippet itemContent(index)}
+    {#snippet itemContent(index, renameController)}
         {@const rmodule = DBState.db.modules[index]}
-        <div class="min-w-0 grow flex items-center gap-2">
-            {#if rmodule.mcp}
-                <Waypoints size={18} class="shrink-0 text-textcolor2" />
-            {/if}
-            <div class="min-w-0 grow truncate">
-                <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
-                {#if rmodule.description}
-                    <span class="text-textcolor2"> / {rmodule.description}</span>
-                {/if}
-            </div>
-        </div>
+        {#if rmodule.mcp}
+            <WaypointsIcon size={18} class="mr-2 shrink-0 text-subtext" />
+        {/if}
+        <InlineEditableName
+            controller={renameController}
+            bind:value={DBState.db.modules[index].name}
+            size="default"
+            editorLeadingInset={rmodule.mcp ? 'border' : 'row'}
+            placeholder="string"
+            disabled={!folderManagement}
+            onActivate={() => selectModule(index)}
+        >
+            {#snippet display()}
+                <span class="min-w-0 truncate">
+                    <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
+                    {#if rmodule.description}
+                        <span class="text-subtext"> / {rmodule.description}</span>
+                    {/if}
+                </span>
+            {/snippet}
+        </InlineEditableName>
 
-        {#if !alertMode}
+        {#if !alertMode && !folderManagement}
             <!-- The switch is chat-scoped on left click and character-scoped on right click/long press. -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
-                class="mr-1 shrink-0"
+                class="mr-1 flex shrink-0 items-center"
                 role="presentation"
                 onclick={(event) => event.stopPropagation()}
                 oncontextmenu={(event) => toggleScoped(rmodule.id, event)}
                 title={language.chatModulesInfo}
             >
-                <ShSwitch
+                <Switch
                     checked={isPrimary(rmodule.id) || isScoped(rmodule.id)}
                     disabled={isGlobal(rmodule.id)}
                     className={isScoped(rmodule.id) && !isPrimary(rmodule.id) ? 'data-[state=checked]:bg-scoped' : ''}
@@ -178,10 +214,17 @@
         {/if}
     {/snippet}
 
+    {#if folderManagement}
+        <PresetPickerActions
+            onCreate={onCreateModule}
+            onImport={onImportModule}
+        />
+    {/if}
+
 </PresetPickerLayout>
 
 <style>
     .isModuleGlobal {
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
     }
 </style>

@@ -1,11 +1,11 @@
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
-import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, appVer, newChatModelDefaults } from "./storage/database.svelte"
+import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { characterFormatUpdate } from "./characters"
-import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, saveAsset, VirtualWriter } from "./globalApi.svelte"
+import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
 import { selectedCharID } from "./stores.svelte"
 import { AddonSettingsTab, openAddonSettings, openSettings, SettingsRoute } from "./routing"
@@ -16,11 +16,13 @@ import { PngChunk } from "./pngChunk"
 import type { OnnxModelFiles } from "./process/transformers"
 import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
 import { exportModuleLegacy, readModule, type RisuModule } from "./process/modules"
+import { readDefaultAvatarImage } from "./avatarImage"
 
 
 const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
 const NIGHTLY_HUB_URL = 'https://nightly.sv.risuai.xyz'
 export const hubURL = '/hub-proxy';
+export const realmURL = 'https://realm.risuai.net';
 
 export async function importCharacter() {
     try {
@@ -576,6 +578,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
             note: '',
             name: 'Chat 1',
             localLore: [],
+            id: uuidv4(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -616,9 +619,7 @@ export async function exportChar(charaID:number):Promise<string> {
     let char = safeStructuredClone(db.characters[charaID])
 
     if(!char.image){
-        const res = await fetch('/none.webp')
-        const data = new Uint8Array(await res.arrayBuffer())
-        char.image = await saveAsset(data)
+        char.image = await saveAsset(await readDefaultAvatarImage())
     }
 
     const option = await alertCardExport()
@@ -873,6 +874,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             note: '',
             name: 'Chat 1',
             localLore: [],
+            id: uuidv4(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -918,7 +920,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
         newGenData: data?.extensions?.risuai?.newGenData ?? undefined,
         vits: vits,
-        ttsMode: vits ? 'vits' : 'normal',
+        ttsMode: vits ? 'vits' : '',
         imported: true,
         source: card?.data?.extensions?.risuai?.source ?? [],
         ccAssets: ccAssets,
@@ -1602,14 +1604,16 @@ export async function getRisuHub(arg:{
     page:number,
     nsfw:boolean
     sort:string
+    signal?: AbortSignal
 }):Promise<hubType[]> {
     try {
-        arg.search += ' __shared'
-        const stringArg = `search==${arg.search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==other`
+        const search = `${arg.search} __shared`
+        const stringArg = `search==${search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==other`
 
         const da = await fetch(hubURL + '/realm/' + encodeURIComponent(stringArg), {
+            signal: arg.signal,
             headers: {
-                "x-risuai-info": appVer + ';node'
+                "x-risuai-info": pocketKeiVer + ';node'
             }
         })
         if(da.status !== 200){
@@ -1628,75 +1632,93 @@ export async function getRisuHub(arg:{
 
 export async function downloadRisuHub(id:string, arg:{
     forceRedirect?: boolean
-} = {}) {
+} = {}): Promise<boolean> {
+    const persistImportedCharacter = async (importedIndex: number | null) => {
+        const beforeFormat = getDatabase()
+        const importedCharacter = importedIndex == null
+            ? undefined
+            : beforeFormat.characters[importedIndex]
+        if (!importedCharacter) return null
+
+        // Normalize before the structural projection PATCH as a final guard:
+        // every imported chat must have one browser-owned stable id before the
+        // relational store sees it.
+        characterFormatUpdate(importedIndex)
+        checkCharOrder()
+        const db = getDatabase()
+        const normalizedCharacter = db.characters[importedIndex]
+        if (!normalizedCharacter?.chaId) return null
+        await requestImmediateSave({ characterIds: [normalizedCharacter.chaId] })
+        return { db, importedIndex }
+    }
+
+    const finishImport = async (importedIndex: number | null) => {
+        const persisted = await persistImportedCharacter(importedIndex)
+        if (!persisted) return false
+        if (persisted.db.goCharacterOnImport || arg.forceRedirect) {
+            selectedCharID.set(persisted.importedIndex)
+        }
+        alertStore.set({ type: 'none', msg: '' })
+        return true
+    }
+
     try {
         if(!arg.forceRedirect){
             if(!(await alertTOS())){
-                return
+                return false
             }
             alertStore.set({
                 type: "wait",
                 msg: "Downloading..."
             })
         }
-        const res = await fetch("https://realm.risuai.net/api/v1/download/dynamic/" + id + '?cors=true', {
+        const res = await fetch(`${realmURL}/api/v1/download/dynamic/${encodeURIComponent(id)}?cors=true`, {
             headers: {
                 "x-risu-api-version": "4"
             }
         })
         if(res.status !== 200){
+            alertStore.set({ type: 'none', msg: '' })
             notifyError(await res.text())
-            return
+            return false
         }
 
-        if(res.headers.get('content-type') === 'image/png' || res.headers.get('content-type') === 'application/zip' || res.headers.get('content-type') === 'application/charx'){
-            let db = getDatabase()
-            if(res.headers.get('content-type') === 'application/zip' || res.headers.get('content-type') === 'application/charx'){
-                await importCharacterProcess({
+        const contentType = res.headers.get('content-type')?.split(';', 1)[0]
+        if(contentType === 'image/png' || contentType === 'application/zip' || contentType === 'application/charx'){
+            const db = getDatabase()
+            let importedIndex: number | null
+            if(contentType === 'application/zip' || contentType === 'application/charx'){
+                importedIndex = await importCharacterProcess({
                     name: 'realm.charx',
                     data: new Uint8Array(await res.arrayBuffer()),
                     lightningRealmImport: db.lightningRealmImport,
                 })
             }
             else{
-                await importCharacterProcess({
+                importedIndex = await importCharacterProcess({
                     name: 'realm.png',
                     data: res.body,
                     lightningRealmImport: db.lightningRealmImport,
                 })
             }
-            checkCharOrder()
-            db = getDatabase()
-            if(db.characters[db.characters.length-1] && (db.goCharacterOnImport || arg.forceRedirect)){
-                const index = db.characters.length-1
-                characterFormatUpdate(index);
-                selectedCharID.set(index);
-            }   
-            return
+            return await finishImport(importedIndex)
         }
     
         const result = await res.json()
         const data:CharacterCardV3 = result.card
         const img:string = result.img
 
+        data.data.extensions ??= {}
         data.data.extensions.risuRealmImportId = id
     
-        await importCharacterCardSpec(data, await getHubResources(img), 'hub')
-        checkCharOrder()
-        let db = getDatabase()
-        if(db.characters[db.characters.length-1] && (db.goCharacterOnImport || arg.forceRedirect)){
-            const index = db.characters.length-1
-            characterFormatUpdate(index);
-            selectedCharID.set(index);
-            alertStore.set({
-                type: 'none',
-                msg: ''
-            })
+        if (!(await importCharacterCardSpec(data, await getHubResources(img), 'hub'))) {
+            return false
         }
+        return await finishImport(getDatabase().characters.length - 1)
     } catch (error) {
         console.error(error)
-        console.log(error.stack)
         alertError("Error while importing")
+        return false
     }
 }
 

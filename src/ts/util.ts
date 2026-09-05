@@ -34,13 +34,34 @@ export function sleep(ms: number) {
     return new Promise( resolve => setTimeout(resolve, ms) );
 }
 
+export function createFrameScheduler(callback: () => void) {
+    let frame: number | null = null
+    return {
+        schedule() {
+            if (frame !== null) return
+            frame = requestAnimationFrame(() => {
+                frame = null
+                callback()
+            })
+        },
+        cancel() {
+            if (frame === null) return
+            cancelAnimationFrame(frame)
+            frame = null
+        },
+    }
+}
+
 export function checkNullish(data:any){
     return data === undefined || data === null
 }
 
-export async function selectSingleFile(ext:string[]){
+export async function selectSingleFile(ext:string[]): Promise<{name:string, data:Uint8Array} | null>{
     const v = await selectFileByDom(ext, 'single')
     const file = v[0]
+    if(!file){
+        return null
+    }
     return {name: file.name,data:await readFileAsUint8Array(file)}
 }
 
@@ -119,7 +140,7 @@ export function getUserIconProtrait(){
 }
 
 export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|'single' = 'single') {
-    return new Promise<null|File[]>((resolve) => {
+    return new Promise<File[]>((resolve) => {
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
         fileInput.multiple = multiple === 'multiple';
@@ -140,10 +161,19 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
                 return;
             }
     
-            const files = acceptAll ? Array.from(fileInput.files) :(Array.from(fileInput.files).filter(file => {
+            const selectedFiles = Array.from(fileInput.files)
+            const files = acceptAll ? selectedFiles : selectedFiles.filter(file => {
                 const fileExtension = file.name.split('.').pop().toLowerCase();
                 return !allowedExtensions || allowedExtensions.includes(fileExtension);
-            })) 
+            })
+
+            if(files.length < selectedFiles.length){
+                // alert.ts imports utilities from this module, so defer both UI
+                // imports until a browser actually rejects a selected file.
+                void Promise.all([import('./alert'), import('../lang')]).then(([{ notifyError }, { language }]) => {
+                    notifyError(`${language.unsupportedFileType} (.${allowedExtensions.join(', .')})`)
+                })
+            }
     
             fileInput.remove()
             resolve(files);
@@ -267,10 +297,6 @@ export async function getEmotion(db:Database,chaEmotion:{[key:string]: [string, 
 export function getAuthorNoteDefaultText(){
     const db = getDatabase()
     const template = db.promptTemplate
-    if(!template){
-        return ''
-    }
-
     for(const v of template){
         if(v.type === 'authornote'){
             return v.defaultText ?? ''

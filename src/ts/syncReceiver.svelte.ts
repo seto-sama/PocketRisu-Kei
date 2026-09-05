@@ -11,6 +11,7 @@ import {
     syncChatKey,
     type SyncChatTarget,
 } from './sync/databaseSync'
+import { refreshBookmarkCatalog } from './bookmarks/bookmarkService'
 
 type SyncMessage = {
     type: string
@@ -141,6 +142,12 @@ function handleSyncMessage(message: SyncMessage) {
     }
     if (message.type === 'generation-workflow-updated') {
         handleWorkflowUpdate(message)
+        return
+    }
+    if (message.type === 'bookmarks-invalidated') {
+        void refreshBookmarkCatalog({ queueIfBusy: true }).catch(error => {
+            console.error('[Sync] Failed to refresh bookmarks:', error)
+        })
         return
     }
     if (message.type !== 'database-invalidated') return

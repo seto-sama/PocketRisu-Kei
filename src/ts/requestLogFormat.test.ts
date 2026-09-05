@@ -54,20 +54,24 @@ describe('getResponseBodyDetails', () => {
             body: '{}',
         })
 
-        expect(details?.groups.map(group => group.summary)).toEqual([
-            'response.created × 1',
-            'response.in_progress × 1',
-            'response.output_item.added × 1',
-            'response.content_part.added × 1',
-            'response.output_text.delta × 2',
-            'response.output_text.done × 1',
-            'response.content_part.done × 1',
-            'response.output_item.done × 1',
-        ])
-        expect(details?.groups[2]?.readable).toContain('"id": "item-1"')
-        expect(details?.groups[4]?.readable).toBe('A\nB')
-        expect(details?.groups[4]?.raw).toContain('"delta":"A\\n"')
-        expect(details?.groups[4]?.raw).toContain('"delta":"B"')
+        expect(details).not.toBeNull()
+        expect(new Set(details!.groups.map(group => group.event))).toEqual(new Set([
+            'response.created',
+            'response.in_progress',
+            'response.output_item.added',
+            'response.content_part.added',
+            'response.output_text.delta',
+            'response.output_text.done',
+            'response.content_part.done',
+            'response.output_item.done',
+        ]))
+
+        const outputItemGroup = details!.groups.find(group => group.event === 'response.output_item.added')
+        const deltaGroup = details!.groups.find(group => group.event === 'response.output_text.delta')
+        expect(outputItemGroup?.readable).toContain('"id": "item-1"')
+        expect(deltaGroup?.readable).toBe('A\nB')
+        expect(deltaGroup?.raw).toContain('"delta":"A\\n"')
+        expect(deltaGroup?.raw).toContain('"delta":"B"')
         expect(details?.remainder).toContain('response.completed')
         expect(details?.remainder).toContain('"text": |')
         expect(details?.remainder).toContain('First line\n')

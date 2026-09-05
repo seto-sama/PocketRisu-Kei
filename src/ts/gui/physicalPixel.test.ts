@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { getPhysicalPixelQuantum, snapCssLengthToPhysicalPixel } from './physicalPixel'
+import {
+    getPhysicalPixelQuantum,
+    snapCssLengthToPhysicalPixel,
+} from './physicalPixel'
 
 describe('physical pixel helpers', () => {
     it('uses one physical pixel as the CSS length quantum', () => {

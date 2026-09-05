@@ -14,4 +14,5 @@ describe('Trigger V2 effect registry', () => {
     test('returns null for unknown effect types', () => {
         expect(createTriggerV2Effect('v2Unknown')).toBeNull();
     });
+
 });

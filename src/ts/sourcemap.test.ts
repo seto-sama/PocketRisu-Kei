@@ -1,29 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { originalPositionFor, destroy, MockSourceMapConsumer } = vi.hoisted(() => {
+const { originalPositionFor, MockTraceMap } = vi.hoisted(() => {
     const originalPositionFor = vi.fn()
-    const destroy = vi.fn()
-    const MockSourceMapConsumer = Object.assign(
-        vi.fn(function MockSourceMapConsumer() {
-            return {
-                originalPositionFor,
-                destroy
-            }
-        }),
-        {
-            initialize: vi.fn()
-        }
-    )
+    const MockTraceMap = vi.fn(function MockTraceMap() {})
 
     return {
         originalPositionFor,
-        destroy,
-        MockSourceMapConsumer
+        MockTraceMap
     }
 })
 
-vi.mock('source-map', () => ({
-    SourceMapConsumer: MockSourceMapConsumer
+vi.mock('@jridgewell/trace-mapping', () => ({
+    originalPositionFor,
+    TraceMap: MockTraceMap
 }))
 
 import { translateStackTrace } from './sourcemap'
@@ -33,9 +22,7 @@ describe('translateStackTrace', () => {
 
     beforeEach(() => {
         originalPositionFor.mockReset()
-        destroy.mockReset()
-        MockSourceMapConsumer.mockClear()
-        MockSourceMapConsumer.initialize.mockClear()
+        MockTraceMap.mockClear()
         fetchMock.mockReset()
         vi.stubGlobal('fetch', fetchMock)
     })
@@ -65,7 +52,8 @@ describe('translateStackTrace', () => {
             didTranslate: true
         })
         expect(fetchMock).toHaveBeenCalledWith('http://localhost:4173/assets/index-abc123.js.map', expect.any(Object))
-        expect(destroy).toHaveBeenCalledTimes(1)
+        expect(MockTraceMap).toHaveBeenCalledTimes(1)
+        expect(originalPositionFor).toHaveBeenCalledTimes(1)
     })
 
     it('falls back to the original stack trace when sourcemap fetch fails', async () => {

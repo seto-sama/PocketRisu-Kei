@@ -2,12 +2,14 @@ import { decode as decodeMsgpack, encode as encodeMsgpack } from "msgpackr/index
 import * as fflate from "fflate";
 import { decryptBuffer, encryptBuffer } from "src/ts/util";
 import { decodeRPack, encodeRPack } from "src/ts/rpack/rpack_js.js";
+import { v4 as uuidv4 } from "uuid";
+import { normalizePresetTagFields, type PresetTagFields } from "src/ts/preset/tags";
 
-export interface TranslatorPreset {
+export interface TranslatorPreset extends PresetTagFields {
+    id: string;
     name: string;
     prompt: string;
     maxResponse: number;
-    folderId?: string;
 }
 
 export interface TranslatorPresetStateLike {
@@ -15,7 +17,7 @@ export interface TranslatorPresetStateLike {
     translatorMaxResponse?: number;
     translatorPresets?: unknown[];
     translatorPresetId?: number;
-    translatorPresetFolders?: { id: string; name: string }[];
+    translatorPresetTags?: { id: string; name: string }[];
 }
 
 interface EncryptedTranslatorPresetFile {
@@ -34,14 +36,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-function isTranslatorPresetValue(value: unknown): value is TranslatorPreset {
+type TranslatorPresetInput = Omit<TranslatorPreset, "id"> & {
+    id?: string;
+    folderId?: string | string[];
+};
+
+function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput {
     return (
         isRecord(value) &&
+        (value.id === undefined || typeof value.id === "string") &&
         typeof value.name === "string" &&
         typeof value.prompt === "string" &&
         typeof value.maxResponse === "number" &&
         Number.isFinite(value.maxResponse) &&
-        (value.folderId === undefined || typeof value.folderId === "string")
+        (value.tagIds === undefined || (
+            Array.isArray(value.tagIds) && value.tagIds.every(id => typeof id === "string")
+        )) &&
+        (value.folderId === undefined || typeof value.folderId === "string" || (
+            Array.isArray(value.folderId) && value.folderId.every(id => typeof id === "string")
+        ))
     );
 }
 
@@ -92,17 +105,85 @@ function sanitizeFileNamePart(value: string): string {
 
 export function createTranslatorPreset(
     name = "New Preset",
-    existing: Partial<TranslatorPreset> = {}
+    existing: Partial<TranslatorPreset> & { folderId?: unknown } = {}
 ): TranslatorPreset {
-    return {
+    return normalizePresetTagFields({
+        id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : uuidv4(),
         name,
         prompt: typeof existing.prompt === "string" ? existing.prompt : "",
         maxResponse:
             typeof existing.maxResponse === "number" && Number.isFinite(existing.maxResponse)
                 ? existing.maxResponse
                 : 1000,
-        folderId: typeof existing.folderId === "string" ? existing.folderId : undefined,
-    };
+        tagIds: existing.tagIds,
+        folderId: existing.folderId,
+    });
+}
+
+type TranslatorPresetCollection = {
+    translatorPresets: TranslatorPreset[];
+    translatorPresetId: number;
+    translatorPrompt?: string;
+    translatorMaxResponse?: number;
+};
+
+export function appendTranslatorPreset(
+    state: TranslatorPresetCollection,
+    preset: TranslatorPreset,
+): number {
+    state.translatorPresets = [...state.translatorPresets, preset];
+    state.translatorPresetId = state.translatorPresets.length - 1;
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return state.translatorPresetId;
+}
+
+export function duplicateTranslatorPreset(
+    state: TranslatorPresetCollection,
+    index: number,
+    copyLabel: string,
+): TranslatorPreset | undefined {
+    const source = state.translatorPresets[index];
+    if (!source) return undefined;
+    const preset = createTranslatorPreset(`${source.name} ${copyLabel}`, {
+        ...source,
+        id: undefined,
+    });
+    appendTranslatorPreset(state, preset);
+    return preset;
+}
+
+export function moveTranslatorPreset(
+    state: TranslatorPresetCollection,
+    fromIndex: number,
+    toIndex: number,
+): boolean {
+    const presets = state.translatorPresets;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return false;
+    const selectedId = presets[state.translatorPresetId]?.id;
+    const next = [...presets];
+    const [moved] = next.splice(fromIndex, 1);
+    if (!moved) return false;
+    next.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, moved);
+    state.translatorPresets = next;
+    state.translatorPresetId = Math.max(0, next.findIndex(preset => preset.id === selectedId));
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return true;
+}
+
+export function removeTranslatorPreset(
+    state: TranslatorPresetCollection,
+    index: number,
+): boolean {
+    const presets = state.translatorPresets;
+    if (presets.length <= 1 || !presets[index]) return false;
+    const selectedId = presets[state.translatorPresetId]?.id;
+    state.translatorPresets = presets.filter((_, presetIndex) => presetIndex !== index);
+    const selectedIndex = state.translatorPresets.findIndex(preset => preset.id === selectedId);
+    state.translatorPresetId = selectedIndex >= 0
+        ? selectedIndex
+        : Math.min(index, state.translatorPresets.length - 1);
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return true;
 }
 
 export function normalizeTranslatorPresetState<T extends TranslatorPresetStateLike>(state: T): T {
@@ -136,11 +217,7 @@ export function normalizeTranslatorPresetState<T extends TranslatorPresetStateLi
 export function syncCurrentTranslatorPresetToLegacyFields<T extends TranslatorPresetStateLike>(
     state: T
 ): T {
-    const preset = state.translatorPresets?.[state.translatorPresetId ?? 0];
-
-    if (!isTranslatorPresetValue(preset)) {
-        return normalizeTranslatorPresetState(state);
-    }
+    const preset = state.translatorPresets?.[state.translatorPresetId ?? 0] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
     state.translatorMaxResponse = preset.maxResponse;
@@ -151,20 +228,7 @@ export function syncCurrentTranslatorPresetToLegacyFields<T extends TranslatorPr
 export function getCurrentTranslatorPresetFromState<T extends TranslatorPresetStateLike>(
     state: T
 ): TranslatorPreset {
-    const presetId =
-        typeof state.translatorPresetId === "number" && Number.isInteger(state.translatorPresetId)
-            ? state.translatorPresetId
-            : -1;
-    const preset = Array.isArray(state.translatorPresets) ? state.translatorPresets[presetId] : undefined;
-
-    if (!isTranslatorPresetValue(preset)) {
-        const normalizedState = normalizeTranslatorPresetState(state);
-        const normalizedPreset =
-            normalizedState.translatorPresets?.[normalizedState.translatorPresetId ?? 0];
-        return isTranslatorPresetValue(normalizedPreset)
-            ? normalizedPreset
-            : getDefaultTranslatorPreset(normalizedState);
-    }
+    const preset = state.translatorPresets![state.translatorPresetId!] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
     state.translatorMaxResponse = preset.maxResponse;
@@ -208,7 +272,7 @@ async function decodeEncryptedTranslatorPresetFile(data: Uint8Array): Promise<Tr
 
     const parsedPreset: unknown = decodeMsgpack(new Uint8Array(decryptedPreset));
 
-    if (!isTranslatorPresetValue(parsedPreset)) {
+    if (!isTranslatorPresetInput(parsedPreset)) {
         throw new Error("Invalid translator preset file.");
     }
 

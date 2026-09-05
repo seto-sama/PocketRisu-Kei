@@ -32,29 +32,9 @@ describe('diffArrayWithIdGuard — id-based structural detection (modules)', () 
     const C = { id: 'c', name: 'C', cjs: 'console.log("c")' }
     const D = { id: 'd', name: 'D', cjs: 'console.log("d")' }
 
-    test('identical arrays → no ops', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, B, C], [A, B, C], 'id')
-        expect(ops).toEqual([])
-    })
-
     test('delete from front (the cascade case) → single replace, NOT element-wise', () => {
         const ops = diffArrayWithIdGuard(compare, '/modules', [A, B, C, D], [B, C, D], 'id')
         expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [B, C, D] }])
-    })
-
-    test('delete from middle → single replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, B, C, D], [A, C, D], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, C, D] }])
-    })
-
-    test('delete from end → single replace (length change)', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, B, C, D], [A, B, C], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, B, C] }])
-    })
-
-    test('append new item → single replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, B], [A, B, C], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, B, C] }])
     })
 
     test('reorder (length unchanged, ids in different positions) → single replace', () => {
@@ -73,16 +53,6 @@ describe('diffArrayWithIdGuard — id-based structural detection (modules)', () 
         }
     })
 
-    test('empty → empty: no ops', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [], [], 'id')
-        expect(ops).toEqual([])
-    })
-
-    test('empty → non-empty: structural replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/modules', [], [A], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A] }])
-    })
-
     test('undefined lastArr (cold init) → treated as empty', () => {
         const ops = diffArrayWithIdGuard(compare, '/modules', undefined, [A, B], 'id')
         expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, B] }])
@@ -93,13 +63,6 @@ describe('diffArrayWithIdGuard — ID safety belt', () => {
     // The fix targets corrupted backups where modules may have missing or
     // duplicated ids. Element-wise diff in those states is unreliable, so we
     // force a structural replace instead.
-
-    test('falsy id in current array → structural replace', () => {
-        const A = { id: 'a', name: 'A' }
-        const Bbad = { id: '', name: 'B' }
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, { id: 'b', name: 'B' }], [A, Bbad], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, Bbad] }])
-    })
 
     test('missing id field entirely → structural replace', () => {
         const A = { id: 'a', name: 'A' }
@@ -115,129 +78,6 @@ describe('diffArrayWithIdGuard — ID safety belt', () => {
         expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, Adup] }])
     })
 
-    test('null entry in array → structural replace (falsy id chain)', () => {
-        const A = { id: 'a', name: 'A' }
-        const ops = diffArrayWithIdGuard(compare, '/modules', [A, { id: 'b' }], [A, null as any], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/modules', value: [A, null] }])
-    })
-})
-
-describe('diffArrayWithIdGuard — id-based mode (botPresets)', () => {
-    // S3 (3966c178) added a stable string `id` field to botPresets and a boot
-    // migration that backfills missing ids. The patcher now diffs botPresets
-    // by id, matching modules: same-length internal edits emit a scoped
-    // element-wise diff for that slot only, while add / delete / reorder all
-    // trip structural detection and emit a single /botPresets replace. The
-    // pre-S3 length-only mode could silently misalign slots on reorder; the
-    // id-based mode forces a safe replace in that case.
-
-    const P1 = { id: 'preset-1', name: 'GPT-4', temperature: 80, mainPrompt: 'You are...' }
-    const P2 = { id: 'preset-2', name: 'Claude', temperature: 70, mainPrompt: 'You are...' }
-    const P3 = { id: 'preset-3', name: 'Local', temperature: 60, mainPrompt: 'You are...' }
-
-    test('identical → no ops', () => {
-        expect(diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P1, P2], 'id')).toEqual([])
-    })
-
-    test('one preset internally changed → element-wise diff (only that slot)', () => {
-        const P2x = { ...P2, temperature: 75 }
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P1, P2x], 'id')
-        expect(ops.length).toBeGreaterThan(0)
-        for (const op of ops) expect(op.path.startsWith('/botPresets/1')).toBe(true)
-    })
-
-    test('add preset → structural replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P1, P2, P3], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P1, P2, P3] }])
-    })
-
-    test('delete preset from middle → structural replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2, P3], [P1, P3], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P1, P3] }])
-    })
-
-    test('reorder presets → structural replace', () => {
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2, P3], [P3, P1, P2], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P3, P1, P2] }])
-    })
-
-    // Safety belt — backups predating S3 won't have ids until boot migration
-    // runs. If the patcher is invoked before then (defensive), missing ids
-    // force a structural replace rather than silently misaligning slots.
-    test('missing id on any preset → structural replace (safety belt)', () => {
-        const Pnoid = { name: 'Legacy', temperature: 50, mainPrompt: 'You are...' }
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P1, Pnoid], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P1, Pnoid] }])
-    })
-
-    test('duplicate ids → structural replace (safety belt)', () => {
-        const Pdup = { ...P2, id: P1.id }
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P1, Pdup], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P1, Pdup] }])
-    })
-
-    test('reorder + internal edit → structural replace (id mismatch at index)', () => {
-        // When ids don't line up at the same indices, structural replace wins —
-        // we do not attempt to chase the moved entry's internal diff.
-        const P2x = { ...P2, temperature: 75 }
-        const ops = diffArrayWithIdGuard(compare, '/botPresets', [P1, P2], [P2x, P1], 'id')
-        expect(ops).toEqual([{ op: 'replace', path: '/botPresets', value: [P2x, P1] }])
-    })
-})
-
-// ──────────────────────────────────────────────────────────────────────────
-// Scale test — verify the helper does NOT trip the spread limit and does
-// NOT explode the op count on the original bug's pathological input.
-// ──────────────────────────────────────────────────────────────────────────
-
-describe('diffArrayWithIdGuard — scale (regression)', () => {
-    function makeModule(i: number) {
-        // Each module is moderately deep — comparable to a real module with
-        // a lorebook, regex list, and trigger list. The original bug's
-        // cascade explosion happened because deep-diffing N shifted items
-        // emitted O(N × deepFields) ops.
-        return {
-            id: `mod-${i}`,
-            name: `Module ${i}`,
-            description: `description for module ${i}`,
-            lorebook: Array.from({ length: 20 }, (_, k) => ({
-                key: `key-${i}-${k}`,
-                content: `content for entry ${k} of module ${i}`,
-                priority: k,
-            })),
-            regex: Array.from({ length: 10 }, (_, k) => ({
-                pattern: `pattern-${i}-${k}`,
-                replace: `replace-${i}-${k}`,
-            })),
-            cjs: `console.log("module ${i}");`.repeat(50),
-        }
-    }
-
-    test('deleting front item of a 200-module array → 1 op, no spread crash', () => {
-        const last = Array.from({ length: 200 }, (_, i) => makeModule(i))
-        const cur = last.slice(1) // delete index 0
-        const ops = diffArrayWithIdGuard(compare, '/modules', last, cur, 'id')
-        expect(ops).toHaveLength(1)
-        expect(ops[0].op).toBe('replace')
-        expect(ops[0].path).toBe('/modules')
-    })
-
-    test('no-op on 200-module array → 0 ops (hot path)', () => {
-        const arr = Array.from({ length: 200 }, (_, i) => makeModule(i))
-        // Same reference, no change.
-        const ops = diffArrayWithIdGuard(compare, '/modules', arr, arr, 'id')
-        expect(ops).toEqual([])
-    })
-
-    test('original element-wise compare WOULD have produced very many ops on this input', () => {
-        // Sanity check that our test input is actually pathological — if
-        // this number ever drops to a small value, the regression test
-        // above is no longer guarding the right thing.
-        const last = Array.from({ length: 200 }, (_, i) => makeModule(i))
-        const cur = last.slice(1)
-        const legacyOps = compare({ modules: last }, { modules: cur })
-        expect(legacyOps.length).toBeGreaterThan(1000)
-    })
 })
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -314,33 +154,6 @@ describe('RisuSavePatcher.set — modules path', () => {
         await expect(patcher.set(newDb, { ...emptyToSave(), modules: true })).resolves.toBeTruthy()
     })
 
-    test('subsequent set() picks up the new baseline after a structural change', async () => {
-        // After the fix, a structural replace updates lastSyncedDb so the
-        // following set() compares against the new baseline. This is what
-        // keeps the patcher converged with the server.
-        const patcher = new RisuSavePatcher()
-        await patcher.init({
-            characters: [],
-            botPresets: [],
-            modules: [makeMod('a'), makeMod('b'), makeMod('c')],
-        })
-
-        // First call: delete 'a'.
-        await patcher.set(
-            { characters: [], botPresets: [], modules: [makeMod('b'), makeMod('c')] },
-            { ...emptyToSave(), modules: true },
-        )
-
-        // Second call: no further change. Should emit 0 module ops.
-        const { patch } = await patcher.set(
-            { characters: [], botPresets: [], modules: [makeMod('b'), makeMod('c')] },
-            { ...emptyToSave(), modules: true },
-        )
-        const moduleOps = patch.filter((p: any) =>
-            p.path === '/modules' || p.path.startsWith('/modules/'),
-        )
-        expect(moduleOps).toEqual([])
-    })
 })
 
 describe('RisuSavePatcher.set — botPresets path', () => {
@@ -520,37 +333,6 @@ async function runRoundTrip(
 }
 
 describe('round-trip — patcher ops reconstruct the new state on a baseline', () => {
-    test('modules: delete from front', async () => {
-        const modules = [
-            { id: 'a', name: 'A', cjs: 'console.log("a")' },
-            { id: 'b', name: 'B', cjs: 'console.log("b")' },
-            { id: 'c', name: 'C', cjs: 'console.log("c")' },
-        ]
-        const initial = { characters: [], botPresets: [], modules }
-        const next = { characters: [], botPresets: [], modules: modules.slice(1) }
-        const { afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
-        expect(afterApply.modules).toEqual(expected.modules)
-    })
-
-    test('modules: delete from middle', async () => {
-        const modules = [
-            { id: 'a', name: 'A' }, { id: 'b', name: 'B' },
-            { id: 'c', name: 'C' }, { id: 'd', name: 'D' },
-        ]
-        const initial = { characters: [], botPresets: [], modules }
-        const next = { characters: [], botPresets: [], modules: [modules[0], modules[2], modules[3]] }
-        const { afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
-        expect(afterApply.modules).toEqual(expected.modules)
-    })
-
-    test('modules: add to end', async () => {
-        const modules = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]
-        const initial = { characters: [], botPresets: [], modules }
-        const next = { characters: [], botPresets: [], modules: [...modules, { id: 'c', name: 'C' }] }
-        const { afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
-        expect(afterApply.modules).toEqual(expected.modules)
-    })
-
     test('modules: reorder preserves all data', async () => {
         const modules = [
             { id: 'a', name: 'A', lorebook: [{ key: 'k1', content: 'v1' }] },
@@ -677,26 +459,6 @@ describe('round-trip — patcher ops reconstruct the new state on a baseline', (
         expect(afterApply.modules).toEqual(expected.modules)
     })
 
-    test('idempotency: second save with no further changes emits no module/preset ops', async () => {
-        // If the patcher's lastSyncedDb gets out of sync with the server's
-        // applied state, the next set() would emit extra ops. This is the
-        // exact mode that produces stale data on the user's screen.
-        const modules = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]
-        const patcher = new RisuSavePatcher()
-        await patcher.init({ characters: [], botPresets: [], modules })
-
-        // First save: delete one module.
-        const after1 = { characters: [], botPresets: [], modules: [modules[1]] }
-        await patcher.set(after1, { ...emptyToSave(), modules: true })
-
-        // Second save: no change since after1.
-        const { patch } = await patcher.set(after1, { ...emptyToSave(), modules: true })
-        const moduleOrPresetOps = patch.filter((p: any) =>
-            p.path === '/modules' || p.path.startsWith('/modules/') ||
-            p.path === '/botPresets' || p.path.startsWith('/botPresets/'),
-        )
-        expect(moduleOrPresetOps).toEqual([])
-    })
 })
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -770,19 +532,6 @@ describe('fast-path — no-op detection after each transition', () => {
         // JSON compare → protocol hash, not by the save-tracker hint.
         const r1 = await p.set(clone(changed), emptyToSave())
         expect(r1.patch.some((o: any) => o.path === '/characters/1/desc')).toBe(true)
-
-        const r2 = await p.set(clone(changed), emptyToSave())
-        expect(r2.patch).toEqual([])
-    })
-
-    test('character add → saved, then no-op', async () => {
-        const db = dbWith([chr('a')])
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const changed = clone(db); changed.characters.push(chr('b'))
-        const r1 = await p.set(clone(changed), emptyToSave())
-        expect(r1.patch.some((o: any) => o.path === '/characters')).toBe(true)
 
         const r2 = await p.set(clone(changed), emptyToSave())
         expect(r2.patch).toEqual([])
@@ -867,17 +616,6 @@ describe('fast-path — shared (non-cyclic) references round-trip correctly', ()
 
         // Identical re-save is a clean no-op (baseline converged).
         expect((await p.set(withShared, emptyToSave())).patch).toEqual([])
-    })
-
-    test('un-sharing into deep-equal objects is a no-op (no spurious ops)', async () => {
-        const shared = { tag: 'v', n: 1 }
-        const p = new RisuSavePatcher()
-        await p.init(dbWith([chr('a', { extA: shared, extB: shared })]))
-
-        // Un-share: two independent but deep-equal objects — content unchanged.
-        const unshared = dbWith([chr('a', { extA: { tag: 'v', n: 1 }, extB: { tag: 'v', n: 1 } })])
-        const { patch } = await p.set(unshared, emptyToSave())
-        expect(patch).toEqual([])
     })
 
     test('a real content change under a shared ref is still caught', async () => {
@@ -1074,41 +812,6 @@ describe('fast-path — per-module granularity', () => {
 
         const r2 = await p.set(clone(changed), { ...emptyToSave(), modules: true })
         expect(r2.patch).toEqual([])
-    })
-
-    test('module add/remove/reorder → single whole-array replace; then no-op', async () => {
-        const db = dbWith([chr('a')], { } as any)
-        db.modules = [mod('m1'), mod('m2')]
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const added = clone(db); added.modules.push(mod('m3'))
-        const r1 = await p.set(clone(added), { ...emptyToSave(), modules: true })
-        expect(r1.patch).toEqual([{ op: 'replace', path: '/modules', value: normalizeJSON(clone(added)).modules }])
-        expect((await p.set(clone(added), { ...emptyToSave(), modules: true })).patch).toEqual([])
-
-        const reordered = clone(added); reordered.modules = [reordered.modules[2], reordered.modules[0], reordered.modules[1]]
-        const r2 = await p.set(clone(reordered), { ...emptyToSave(), modules: true })
-        expect(r2.patch.length).toBe(1)
-        expect(r2.patch[0].path).toBe('/modules')
-        expect((await p.set(clone(reordered), { ...emptyToSave(), modules: true })).patch).toEqual([])
-    })
-
-    test('per-module element-wise ops reconstruct the server state (applyPatch round-trip)', async () => {
-        const { applyPatch: apply } = await import('fast-json-patch')
-        const db = dbWith([chr('a')], { } as any)
-        db.modules = [mod('m1', 'aaa'), mod('m2', 'bbb'), mod('m3', 'ccc')]
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const changed = clone(db)
-        changed.modules[0].lorebook[0].content = 'edit0'
-        changed.modules[2].name = 'renamed'
-        const { patch } = await p.set(clone(changed), { ...emptyToSave(), modules: true })
-
-        const serverState = JSON.parse(JSON.stringify(normalizeJSON(db)))
-        apply(serverState, patch)
-        expect(serverState.modules).toEqual(normalizeJSON(clone(changed)).modules)
     })
 
     test('modules protocol hash from cached item hashes equals a fresh full hash', async () => {

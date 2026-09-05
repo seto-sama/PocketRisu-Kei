@@ -1,13 +1,13 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { getSyncClientId } from "src/ts/storage/nodeStorage";
     import { alertConfirm } from "src/ts/alert";
     import { isSecureContext } from "src/ts/secureContext";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import Button from "../../UI/components/Button.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Alert from "../../UI/components/Alert.svelte";
     import { LoaderCircleIcon, CopyIcon, CheckIcon, DownloadIcon, TriangleAlertIcon, InfoIcon, MonitorIcon, SmartphoneIcon } from "@lucide/svelte";
     import QRCode from "qrcode";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -146,22 +146,18 @@
 
 <SettingPage title={language.connectionManagement}>
 <SettingLayout variant="panel">
-    <div class="flex items-center gap-2 text-textcolor mb-3">
+    <div class="flex items-center gap-2 text-maintext mb-3">
         <MonitorIcon size={16} />
         <span class="font-medium">{language.deviceList}</span>
     </div>
 
-    {#if devicesLoading}
-        <div class="flex items-center justify-center py-6 text-textcolor2">
-            <LoaderCircleIcon class="animate-spin" size={20} />
-        </div>
-    {:else if activeDevices.length === 0}
-        <p class="text-textcolor2 text-sm py-2">{language.deviceListEmpty}</p>
-    {:else}
+    {#if !devicesLoading && activeDevices.length === 0}
+        <p class="text-subtext text-sm py-2">{language.deviceListEmpty}</p>
+    {:else if !devicesLoading}
         <div class="flex flex-col divide-y divide-darkborderc/60 border border-darkborderc rounded-md overflow-hidden">
             {#each activeDevices as session (session.id)}
-                <div class="flex items-center gap-3 px-4 py-3 bg-bgcolor/30">
-                    <div class="text-textcolor shrink-0">
+                <div class="flex items-center gap-3 px-4 py-3 bg-lightbg/30">
+                    <div class="text-maintext shrink-0">
                         {#if session.device.type === 'mobile'}
                             <SmartphoneIcon size={20} />
                         {:else}
@@ -169,16 +165,16 @@
                         {/if}
                     </div>
                     <div class="flex flex-1 items-center gap-2 min-w-0">
-                        <span class="text-textcolor truncate">
+                        <span class="text-maintext truncate">
                             {session.device.name === 'Unknown device' ? language.sessionUnknownDevice : session.device.name}
                         </span>
                         {#if session.current}
-                            <span class="text-xs text-textcolor2 bg-darkbg border border-darkborderc rounded px-1.5 py-0.5 shrink-0">
+                            <span class="text-xs text-subtext bg-darkbg border border-darkborderc rounded px-1.5 py-0.5 shrink-0">
                                 {language.sessionCurrentDevice}
                             </span>
                         {/if}
                     </div>
-                    <span class="text-textcolor2 text-sm text-center shrink-0 w-20 sm:w-28">
+                    <span class="text-subtext text-sm text-center shrink-0 w-20 sm:w-28">
                         {lastSeenText(session.connectedAt)}
                     </span>
                 </div>
@@ -188,42 +184,37 @@
 </SettingLayout>
 
 <SettingLayout variant="panel">
-    <div class="flex items-center gap-2 text-textcolor mb-3">
+    <div class="flex items-center gap-2 text-maintext mb-3">
         <SmartphoneIcon size={16} />
         <span class="font-medium">{language.remoteAccess}</span>
     </div>
-    <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.remoteAccessDesc}</p>
+    <p class="text-subtext text-sm leading-relaxed mb-3">{language.remoteAccessDesc}</p>
 
     {#if platform === 'android'}
-        <ShAlert variant="destructive">
+        <Alert variant="destructive">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {language.remoteAccessTermuxWarning}
-        </ShAlert>
-
-    {:else if status === 'loading'}
-        <div class="flex items-center justify-center py-8 text-textcolor2">
-            <LoaderCircleIcon class="animate-spin" size={28} />
-        </div>
+        </Alert>
 
     {:else if status === 'disabled'}
-        <div class="text-sm text-yellow-400">{language.remoteAccessDisabled}</div>
+        <div class="text-sm text-warning">{language.remoteAccessDisabled}</div>
 
     {:else if status === 'off'}
         <div class="flex justify-end">
-            <ShButton variant="outline" onclick={startTunnel}>
+            <Button variant="outline" onclick={startTunnel}>
                 <SmartphoneIcon />
                 {language.remoteAccessOpen}
-            </ShButton>
+            </Button>
         </div>
 
     {:else if status === 'downloading'}
-        <div class="flex items-center gap-3 py-2 text-textcolor2">
+        <div class="flex items-center gap-3 py-2 text-subtext">
             <DownloadIcon class="animate-pulse" size={20} />
             <span>{language.remoteAccessDownloading}</span>
         </div>
 
     {:else if status === 'starting'}
-        <div class="flex items-center gap-3 py-2 text-textcolor2">
+        <div class="flex items-center gap-3 py-2 text-subtext">
             <LoaderCircleIcon class="animate-spin" size={20} />
             <span>{language.remoteAccessStarting}</span>
         </div>
@@ -232,46 +223,46 @@
         <div class="flex flex-col items-center gap-4 rounded-md p-4 border border-darkborderc/60">
             {#if qrDataUrl}
                 <img src={qrDataUrl} alt="QR Code" class="rounded-lg" width="200" height="200" />
-                <p class="text-sm text-textcolor2">{language.remoteAccessQrHint}</p>
+                <p class="text-sm text-subtext">{language.remoteAccessQrHint}</p>
             {/if}
 
             <div class="flex items-center gap-2 w-full max-w-md">
-                <ShInput
+                <Input
                     type="text"
                     readonly
                     value={tunnelUrl ?? ''}
                     className="flex-1 select-all"
                 />
                 {#if isSecureContext}
-                <ShButton variant="outline" size="icon" onclick={copyUrl} aria-label={language.remoteAccessCopyUrl}>
+                <Button variant="outline" size="icon" onclick={copyUrl} aria-label={language.remoteAccessCopyUrl}>
                     {#if copied}
                         <CheckIcon />
                     {:else}
                         <CopyIcon />
                     {/if}
-                </ShButton>
+                </Button>
                 {/if}
             </div>
 
-            <ShAlert variant="destructive" className="w-full max-w-md">
+            <Alert variant="destructive" className="w-full max-w-md">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.remoteAccessWarning}
-            </ShAlert>
+            </Alert>
 
-            <ShAlert variant="info" className="w-full max-w-md">
+            <Alert variant="info" className="w-full max-w-md">
                 {#snippet icon()}<InfoIcon />{/snippet}
                 {language.remoteAccessInfo}
-            </ShAlert>
+            </Alert>
 
-            <ShButton variant="destructive" onclick={stopTunnel} className="mt-2">{language.remoteAccessClose}</ShButton>
+            <Button variant="destructive" onclick={stopTunnel} className="mt-2">{language.remoteAccessClose}</Button>
         </div>
 
     {:else if status === 'error'}
         <div class="flex flex-col gap-2">
-            <div class="text-sm text-draculared">
+            <div class="text-sm text-danger">
                 {language.remoteAccessError}{tunnelError ? `: ${tunnelError}` : ''}
             </div>
-            <ShButton variant="outline" size="sm" onclick={startTunnel} className="mt-1 self-start">{language.remoteAccessRetry}</ShButton>
+            <Button variant="outline" size="sm" onclick={startTunnel} className="mt-1 self-start">{language.remoteAccessRetry}</Button>
         </div>
     {/if}
 </SettingLayout>

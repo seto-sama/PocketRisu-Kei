@@ -1,4 +1,5 @@
 import { writable, get } from "svelte/store"
+import { clearRequestStatusAction, setRequestStatusAction } from "./requestStatusActions"
 
 // Request Status Channel — a surface-agnostic store that request producers
 // publish to (phase/tokens/badges) and a renderer subscribes to. Decouples the
@@ -20,7 +21,7 @@ export type RequestPhase =
 // pipeline's ModelModeExtended: model→main, translate→translate, memory→memory,
 // emotion→emotion, submodel/otherAx→sub. The renderer maps these to localized
 // chip labels (메인 / 번역 / 메모리 / 감정 / 보조).
-export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub'
+export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub' | 'image'
 
 // A phase is terminal when the request has finished one way or another; the
 // renderer uses this to decide dismissal/retention.
@@ -50,6 +51,7 @@ export interface RequestStatusEntry {
     retryAttempt?: number
     badges: StatusBadge[]
     error?: string
+    progress?: { value: number, max: number, node?: string }
     // Accumulated raw text per kind. The render tick tokenizes these with the
     // injected tokenizer (native, language-accurate) — NOT a char/N estimate —
     // once per tick instead of per chunk, so cost stays O(text) per tick rather
@@ -84,6 +86,18 @@ export function requestStatusIdForJob(job: { jobId: string, chatId?: string }): 
 // char/4 estimate — accurate for English, but poor for CJK, which is exactly
 // why the native counter is preferred at runtime.
 let tokenCounter: ((text: string) => Promise<number>) | null = null
+const pendingTokenWork = new Set<Promise<void>>()
+
+function trackTokenWork(work: Promise<void>): void {
+    pendingTokenWork.add(work)
+    void work.finally(() => pendingTokenWork.delete(work))
+}
+
+export async function settleRequestStatusTokenization(): Promise<void> {
+    while (pendingTokenWork.size > 0) {
+        await Promise.all([...pendingTokenWork])
+    }
+}
 export function setStatusTokenCounter(fn: ((text: string) => Promise<number>) | null): void {
     tokenCounter = fn
 }
@@ -186,6 +200,7 @@ export interface StartStatusInit {
     phase?: RequestPhase
     now: number
     abortSignal?: AbortSignal
+    onActivate?: () => void
 }
 
 const abortBindings = new Map<string, () => void>()
@@ -197,6 +212,7 @@ function clearAbortBinding(id: string): void {
 
 export function startStatus(id: string, init: StartStatusInit): void {
     clearAbortBinding(id)
+    setRequestStatusAction(id, init.onActivate)
     requestStatuses.update((m) => {
         const next = new Map(m)
         next.set(id, {
@@ -315,6 +331,23 @@ export function addBadge(id: string, badge: StatusBadge): void {
     })
 }
 
+export function setStatusProgress(
+    id: string,
+    progress: { value: number, max: number, node?: string },
+    now = Date.now(),
+): void {
+    if (!Number.isFinite(progress.value) || !Number.isFinite(progress.max) || progress.max <= 0) return
+    update(id, (entry) => isTerminalPhase(entry.phase) ? entry : {
+        ...entry,
+        progress: {
+            value: Math.max(0, Math.min(progress.value, progress.max)),
+            max: progress.max,
+            ...(progress.node ? { node: progress.node } : {}),
+        },
+        lastChunkAt: now,
+    })
+}
+
 export interface EndStatusUsage {
     thinkingTokens?: number
     responseTokens?: number
@@ -362,7 +395,7 @@ export function endStatus(
         }
     })
     clearAbortBinding(id)
-    if (needFinalCount) void finalRecount(id, recountBase)
+    if (needFinalCount) trackTokenWork(finalRecount(id, recountBase))
 }
 
 export function abortStatusesForChat(chatId: string, now = Date.now()): void {
@@ -420,6 +453,7 @@ async function finalRecount(id: string, recountBase?: EndStatusUsage): Promise<v
 // terminal entries; also used to clear aborted/failed immediately if desired).
 export function clearStatus(id: string): void {
     clearAbortBinding(id)
+    clearRequestStatusAction(id)
     requestStatuses.update((m) => {
         if (!m.has(id)) return m
         const next = new Map(m)
@@ -451,7 +485,7 @@ const tokenizing = new Set<string>()
 // Re-count tokens for entries whose text changed since the last pass. Async and
 // fire-and-forget: failures are swallowed (counts simply keep their last value)
 // so tokenization can never disrupt the request or the timer.
-async function tokenizeDirty(): Promise<void> {
+export async function refreshRequestStatusTokenCounts(): Promise<void> {
     const snapshot = get(requestStatuses)
     for (const [id, e] of snapshot) {
         if (!e.textDirty || tokenizing.has(id) || isTerminalPhase(e.phase)) continue
@@ -517,9 +551,12 @@ function tick(): void {
         }
         return changed ? next : m
     })
-    for (const id of abandonedIds) clearAbortBinding(id)
+    for (const id of abandonedIds) {
+        clearAbortBinding(id)
+        clearRequestStatusAction(id)
+    }
     // Authoritative token recount (async, off the sync path).
-    void tokenizeDirty()
+    trackTokenWork(refreshRequestStatusTokenCounts())
     if (!hasLiveEntries(get(requestStatuses))) {
         stopStatusTimer()
     }

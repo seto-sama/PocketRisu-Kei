@@ -3,14 +3,21 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { alertConfirm, alertNormal } from "src/ts/alert";
     import { getSyncClientId } from "src/ts/storage/nodeStorage";
+    import { DBState } from "src/ts/stores.svelte";
 
     let compressing = $state(false);
     let progress = $state('');
 
     function formatBytes(bytes: number): string {
-        if (bytes < 1024) return `${bytes} B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        const absolute = Math.abs(bytes);
+        if (absolute < 1024) return `${absolute} B`;
+        if (absolute < 1024 * 1024) return `${(absolute / 1024).toFixed(1)} KB`;
+        return `${(absolute / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function formatSizeChange(savedBytes: number): string {
+        if (savedBytes === 0) return '0 B';
+        return `${savedBytes > 0 ? '-' : '+'}${formatBytes(savedBytes)}`;
     }
 
     async function compressAll() {
@@ -27,7 +34,12 @@
                     'Content-Type': 'application/json',
                     'x-sync-client-id': getSyncClientId(),
                 },
-                body: JSON.stringify({ quality: 85 }),
+                body: JSON.stringify({
+                    size: DBState.db.inlayImageSize,
+                    format: DBState.db.inlayImageFormat,
+                    lossy: DBState.db.inlayImageLossy,
+                    quality: DBState.db.inlayImageQuality,
+                }),
             });
 
             const reader = res.body?.getReader();
@@ -49,10 +61,10 @@
                     const data = JSON.parse(line.slice(6));
 
                     if (data.type === 'progress') {
-                        progress = `${data.current} / ${data.total} (${formatBytes(data.totalSaved)} ${language.saved})`;
+                        progress = `${data.current} / ${data.total} (${language.inlaySizeChange} ${formatSizeChange(data.totalSaved)})`;
                     } else if (data.type === 'done') {
                         await alertNormal(
-                            `${language.inlayCompressDone}: ${data.compressed}${language.inlayCompressCount}, ${formatBytes(data.totalSaved)} ${language.saved}`
+                            `${language.inlayCompressDone}: ${data.compressed}${language.inlayCompressCount}, ${language.inlaySizeChange} ${formatSizeChange(data.totalSaved)}`
                         );
                     } else if (data.type === 'error') {
                         await alertNormal(`Error: ${data.message}`);

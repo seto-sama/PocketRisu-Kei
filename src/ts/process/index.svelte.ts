@@ -7,8 +7,10 @@ import { language } from "../../lang";
 import { alertError } from "../alert";
 import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
+import { renderLorebookContent } from "./lorebookPrompt";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
+import { shouldSuppressGenerationErrorModal } from './generationErrorPresentation';
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
@@ -24,6 +26,7 @@ import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
 import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
+import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
@@ -48,6 +51,7 @@ import {
     type RevenantWorkflowResumeContext,
     waitForRevenantHypaExecution,
 } from "./revenant/workflow";
+import { observeRevenantServerImageActions } from './revenant/workflow/imageWorkflow';
 import {
     createChatGenerationSession,
     type ChatGenerationSession,
@@ -76,12 +80,14 @@ import {
     type ChatCommitSnapshot,
 } from '../storage/chatWorkingCopy';
 import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
+import { createOpenAiPromptCacheKey } from '../preset/cache/openaiPromptCacheKey';
 import {
     applyCancelledGenerationProjection,
     ensureGenerationMessageTarget,
     setGenerationMessageContent,
     setGenerationMessageInfo,
 } from './revenant/recovery';
+import { pluginV2 } from '../plugins/plugins.svelte';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
@@ -95,6 +101,34 @@ export interface OpenAIChat{
     multimodals?: MultiModal[]
     thoughts?: string[]
     cachePoint?: boolean
+}
+
+async function runChatOutputListeners(characterId: string, roomId: string, messageId: string){
+    if(pluginV2.chatOutput.size === 0) return
+
+    const characterIndex = DBState.db.characters.findIndex(character => character?.chaId === characterId)
+    const character = DBState.db.characters[characterIndex]
+    const chatIndex = character?.chats.findIndex(chat => chat?.id === roomId) ?? -1
+    const chat = character?.chats[chatIndex]
+    if(!character || !chat) return
+
+    const messageIndex = chat.message.findIndex(message => message?.chatId === messageId)
+    const charSnapshot = $state.snapshot(character)
+    const chatSnapshot = $state.snapshot(chat)
+    for(const listener of pluginV2.chatOutput){
+        try {
+            await listener({
+                char: charSnapshot,
+                chat: chatSnapshot,
+                characterIndex,
+                chatIndex,
+                messageIndex,
+            })
+        }
+        catch(error){
+            console.error('[Plugin] Chat output listener failed:', error)
+        }
+    }
 }
 
 export interface MultiModal{
@@ -174,6 +208,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     detachSignal?: AbortSignal
     onDetached?: () => void
     onWorkflowStarted?: (workflowId: string) => void
+    onMainRequestResult?: (result: { toolExecuted: boolean }) => void
+    suppressTts?: boolean
     generationTarget?: {
         characterId: string
         roomId: string
@@ -187,8 +223,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     chatProcessStage.set(0)
     const abortSignal = arg.signal ?? (new AbortController()).signal
     
-    // NOTE: `throwError()` can be called before these are populated (e.g. HypaV3 early validation errors).
-    // Keep them declared up-front to avoid TDZ ReferenceErrors in production builds.
     let selectedChar = -1
     let selectedChat = -1
     let currentChar:character
@@ -267,56 +301,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     function throwError(error:string){
-        if(!DBState?.db?.inlayErrorResponse){
-            alertError(error)
-            return
-        }
-
-        try{
-            const db = DBState.db
-
-            // Prefer already-resolved selection, but fall back to current store/db pointers.
-            const sc = selectedChar >= 0 ? selectedChar : get(selectedCharID)
-            const charRoom = db.characters?.[sc]
-            if(!charRoom){
-                alertError(error)
-                return
-            }
-            const st = selectedChat >= 0 ? selectedChat : charRoom.chatPage
-            const chatRoom = charRoom.chats?.[st]
-            if(!chatRoom || !Array.isArray(chatRoom.message)){
-                alertError(error)
-                return
-            }
-
-            const messages = chatRoom.message
-            const last = messages[messages.length - 1]
-            const suffix = `\n\`\`\`risuerror\n${error}\n\`\`\``
-
-            if(last?.role === 'char'){
-                last.data += suffix
-                return
-            }
-
-            const m:Message = {
-                role: 'char',
-                data: `\`\`\`risuerror\n${error}\n\`\`\``,
-                time: Date.now(),
-            }
-            if(currentChar?.chaId){
-                m.saying = currentChar.chaId
-            }
-            if(generationInfo){
-                m.generationInfo = generationInfo
-            }
-            messages.push(m)
-            return
-        }
-        catch(e){
-            console.error(e)
-            alertError(error)
-            return
-        }
+        alertError(error)
     }
 
     async function setWorkflowStep(
@@ -356,6 +341,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             try{
                 const workflow = await getRevenantWorkflow(workflowId)
+                observeRevenantServerImageActions(workflow)
                 if(workflow.status === 'completed'){
                     updateWaiter.cancel()
                     // Workflow step metadata is a pre-merge projection. Install
@@ -386,6 +372,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     } else {
                         endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
                     }
+                    await runChatOutputListeners(
+                        nowChatroom.chaId,
+                        outgoingChat.id,
+                        messageChatId,
+                    )
                     const resend = workflow.steps
                         .find(step => step.key === 'postprocess')
                         ?.metadata?.foregroundEffects
@@ -401,6 +392,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             detachSignal: arg.detachSignal,
                             onDetached: arg.onDetached,
                             onWorkflowStarted: arg.onWorkflowStarted,
+                            onMainRequestResult: arg.onMainRequestResult,
+                            suppressTts: arg.suppressTts,
                             generationTarget: arg.generationTarget,
                         })
                     }
@@ -410,7 +403,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     updateWaiter.cancel()
                     const failedStep = workflow.steps.find(step => step.status === 'failed')
                     const error = failedStep?.metadata?.error
-                    if(workflow.status === 'failed' && typeof error === 'string') throwError(error)
+                    if(
+                        workflow.status === 'failed'
+                        && typeof error === 'string'
+                        && !shouldSuppressGenerationErrorModal(error)
+                    ) throwError(error)
                     // A server-side postprocess/materialization failure can
                     // arrive after the provider stream already updated the
                     // placeholder. Commit that visible projection (or restore
@@ -735,23 +732,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     let promptTemplate = safeStructuredClone(DBState.db.promptTemplate)
-    const usingPromptTemplate = !!promptTemplate
-    if(promptTemplate){
-        let hasPostEverything = false
-        for(const card of promptTemplate){
-            if(card.type === 'postEverything'){
-                hasPostEverything = true
-                break
-            }
-        }
+    const promptCacheKey = await createOpenAiPromptCacheKey(outgoingChat.id, promptTemplate)
+    const hasPostEverything = promptTemplate.some(card => card.type === 'postEverything')
 
-        if(!hasPostEverything){
-            promptTemplate.push({
-                type: 'postEverything'
-            })
-        }
+    if(!hasPostEverything){
+        promptTemplate.push({
+            type: 'postEverything'
+        })
     }
-    if(currentChar.utilityBot && (!(usingPromptTemplate && DBState.db.promptSettings.utilOverride))){
+    if(currentChar.utilityBot && !DBState.db.promptSettings.utilOverride){
         promptTemplate = [
             {
               "type": "plain",
@@ -782,38 +771,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         ]
     }
 
-    if((!currentChar.utilityBot) && (!promptTemplate)){
-        const mainp = currentChar.systemPrompt?.replaceAll('{{original}}', DBState.db.mainPrompt) || DBState.db.mainPrompt
-
-
-        function formatPrompt(data:string){
-            if(!data.startsWith('@@')){
-                data = "@@system\n" + data
-            }
-            const parts = data.split(/@@@?(user|assistant|system)\n/);
-  
-            // Initialize empty array for the chat objects
-            const chatObjects: OpenAIChat[] = [];
-            
-            // Loop through the parts array two elements at a time
-            for (let i = 1; i < parts.length; i += 2) {
-              const role = parts[i] as 'user' | 'assistant' | 'system';
-              const content = parts[i + 1]?.trim() || '';
-              chatObjects.push({ role, content });
-            }
-
-            return chatObjects;
-        }
-
-        unformated.main.push(...formatPrompt(risuChatParser(mainp, {chara: currentChar})))
-    
-        if(DBState.db.jailbreakToggle){
-            unformated.jailbreak.push(...formatPrompt(risuChatParser(DBState.db.jailbreak, {chara: currentChar})))
-        }
-    
-        unformated.globalNote.push(...formatPrompt(risuChatParser(currentChar.replaceGlobalNote?.replaceAll('{{original}}', DBState.db.globalNote) || DBState.db.globalNote, {chara:currentChar})))
-    }
-
     if(currentChat.note){
         unformated.authorNote.push({
             role: 'system',
@@ -831,7 +788,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let beforeDescriptionPrompts:OpenAIChat[] = []
     let afterDescriptionPrompts:OpenAIChat[] = []
 
-    if(DBState.db.chainOfThought && (!(usingPromptTemplate && DBState.db.promptSettings.customChainOfThought))){
+    if(DBState.db.chainOfThought && !DBState.db.promptSettings.customChainOfThought){
         unformated.postEverything.push({
             role: 'system',
             content: `<instruction> - before respond everything, Think step by step as a ai assistant how would you respond inside <Thoughts> xml tag. this must be less than 5 paragraphs.</instruction>`
@@ -902,7 +859,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of normalActives){
         unformated.lorebook.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -913,7 +870,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of descActives){
         const c = {
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         }
         if(lorebook.pos === 'before_desc'){
             beforeDescriptionPrompts.unshift(c)
@@ -948,7 +905,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -969,7 +926,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingAssistantLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -1061,15 +1018,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return pmt
     }
 
-    if(promptTemplate){
-        const template = promptTemplate
+    const template = promptTemplate
 
-        async function tokenizeChatArray(chats:OpenAIChat[]){
-            for(const chat of chats){
-                const tokens = await tokenizer.tokenizeChat(chat)
-                currentTokens += tokens
-            }
+    async function tokenizeChatArray(chats:OpenAIChat[]){
+        for(const chat of chats){
+            const tokens = await tokenizer.tokenizeChat(chat)
+            currentTokens += tokens
         }
+    }
 
         for(const card of template){
             switch(card.type){
@@ -1120,7 +1076,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 }
                 case 'postEverything':{
                     await tokenizeChatArray(unformated.postEverything)
-                    if(usingPromptTemplate && DBState.db.promptSettings.postEndInnerFormat){
+                    if(DBState.db.promptSettings.postEndInnerFormat){
                         await tokenizeChatArray([{
                             role: 'system',
                             content: DBState.db.promptSettings.postEndInnerFormat
@@ -1196,7 +1152,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
                     let chats = unformated.chats.slice(start, end)
 
-                    if(usingPromptTemplate && DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
+                    if(DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
                         chats = systemizeChat(chats)
                     }
                     await tokenizeChatArray(chats)
@@ -1211,15 +1167,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
             }
-        }
-    }
-    else{
-        for(const key in unformated){
-            const chats = unformated[key] as OpenAIChat[]
-            for(const chat of chats){
-                currentTokens += await tokenizer.tokenizeChat(chat)
-            }
-        }
     }
     
     const examples = exampleMessage(currentChar, getUserName())
@@ -1275,7 +1222,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             'editprocess'))
         }
 
-        if(usingPromptTemplate && DBState.db.promptSettings.sendName){
+        if(DBState.db.promptSettings.sendName){
             chat.content = `${currentChar.name}: ${chat.content}`
             chat.attr = ['nameAdded']
         }
@@ -1414,7 +1361,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         let attr:string[] = []
         let role:'user'|'assistant'|'system' = msg.role === 'user' ? 'user' : 'assistant'
 
-        if(usingPromptTemplate && DBState.db.promptSettings.sendName){
+        if(DBState.db.promptSettings.sendName){
             const form = DBState.db.groupTemplate || `<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`
             formatedChat = risuChatParser(form, {chara: currentChar.name}).replace('{{slot}}', formatedChat)
         }
@@ -1480,7 +1427,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
@@ -1609,11 +1556,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
 
 
-    if(!promptTemplate){
-        unformated.lastChat.push(chats[chats.length - 1])
-        chats.splice(chats.length - 1, 1)
-    }
-
     unformated.chats = chats.map((v) => {
         if(v.memo !== 'supaMemory' && v.memo !== 'hypaMemory'){
             v.removable = true
@@ -1634,7 +1576,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         const depth = depthPrompt.pos === 'depth' ? (depthPrompt.depth) : (unformated.chats.length - depthPrompt.depth)
         unformated.chats.splice(depth,0,chat)
@@ -1665,10 +1607,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     //make into one
 
     let formated:OpenAIChat[] = []
-    const formatOrder = safeStructuredClone(DBState.db.formatingOrder)
-    if(formatOrder){
-        formatOrder.push('postEverything')
-    }
 
     //continue chat model
     if(isContinuation && mergesAdjacentSystemPrompts){
@@ -1706,21 +1644,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    let promptBodyformatedForChatStore: OpenAIChat[] = []
-    function pushPromptInfoBody(role: "function" | "system" | "user" | "assistant", fmt: string, promptBody: OpenAIChat[]) {
-        if(!fmt.trim()){
-            return
-        }
-        promptBody.push({
-            role: role,
-            content: risuChatParser(fmt),
-        })
-    }
-
-    if(promptTemplate){
-        const template = promptTemplate
-
-        for(const card of template){
+    for(const card of template){
             switch(card.type){
                 case 'persona':{
                     let pmt = safeStructuredClone(unformated.personaPrompt)
@@ -1731,10 +1655,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
                             pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
-
-                            if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-                                pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
-                            }
                         }
                     }
 
@@ -1749,10 +1669,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
                             pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
-                            
-                            if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-                                pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
-                            }
                         }
                     }
 
@@ -1765,10 +1681,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
                             pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content || card.defaultText || '')
-                            
-                            if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-                                pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
-                            }
                         }
                     }
 
@@ -1781,7 +1693,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 }
                 case 'postEverything':{
                     pushPrompts(unformated.postEverything)
-                    if(usingPromptTemplate && DBState.db.promptSettings.postEndInnerFormat){
+                    if(DBState.db.promptSettings.postEndInnerFormat){
                         pushPrompts([{
                             role: 'system',
                             content: DBState.db.promptSettings.postEndInnerFormat
@@ -1822,11 +1734,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         role: convertPromptRole[card.role],
                         content: content
                     }
-
-                    if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat && card.type2 !== 'globalNote'){
-                        pushPromptInfoBody(prompt.role, prompt.content, promptBodyformatedForChatStore)
-                    }
-
                     pushPrompts([prompt])
                     break
                 }
@@ -1860,7 +1767,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
 
                     let chats = unformated.chats.slice(start, end)
-                    if(usingPromptTemplate && DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
+                    if(DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
                         chats = systemizeChat(chats)
                     }
                     pushPrompts(chats)
@@ -1887,10 +1794,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
                             pmt[i].content = risuChatParser(card.innerFormat, {chara: currentChar}).replace('{{slot}}', pmt[i].content)
-
-                            if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-                                pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
-                            }
                         }
                     }
 
@@ -1913,13 +1816,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
             }
-        }
-    }
-    else{
-        for(let i=0;i<formatOrder.length;i++){
-            const cha = unformated[formatOrder[i]]
-            pushPrompts(cha)
-        }
     }
 
 
@@ -1927,14 +1823,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         v.content = v.content.trim()
         return v
     })
-
-    if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-        promptBodyformatedForChatStore = promptBodyformatedForChatStore.map((v) => {
-            v.content = v.content.trim()
-            return v
-        })
-    }
-
 
     if(currentChar.depth_prompt && currentChar.depth_prompt.prompt && currentChar.depth_prompt.prompt.length > 0){
         //depth_prompt
@@ -1946,11 +1834,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     formated = await runLuaEditTrigger(currentChar, 'editRequest', formated)
-
-    if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-        promptBodyformatedForChatStore = await runLuaEditTrigger(currentChar, 'editRequest', promptBodyformatedForChatStore)
-        promptInfo.promptText = promptBodyformatedForChatStore
-    }
 
     //token rechecking
     let inputTokens = 0
@@ -2045,6 +1928,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
                 kind: 'chat-generation',
+                comfyBridgeId: getComfyBridgeId(),
                 inputCommit: {
                     schemaVersion: 1,
                     chat: safeStructuredClone(durableInputChat),
@@ -2085,7 +1969,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         igpPrompt: DBState.db.igpPrompt ?? '',
                         notification: DBState.db.notification ?? false,
                         ttsEnabled: DBState.db.ttsEnabled ?? false,
-                        ttsAutoSpeech: DBState.db.ttsAutoSpeech ?? false,
+                        ttsAutoSpeech: !arg.suppressTts && (DBState.db.ttsAutoSpeech ?? false),
                         emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
                         emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                     },
@@ -2126,8 +2010,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
         catch(error){
             endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
-            const message = error instanceof RevenantWorkflowBusyError
-                ? 'This room already has a generation waiting to finish or recover.'
+            const message = error instanceof RevenantWorkflowBusyError && error.retryAfterMs !== undefined
+                ? language.errors.generationSetupInterrupted.replace(
+                    '{{seconds}}',
+                    String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
+                )
+                : error instanceof RevenantWorkflowBusyError
+                ? language.errors.generationWorkflowBusy
                 : error instanceof Error ? error.message : String(error)
             alertError(message)
             doingChat.set(false)
@@ -2159,6 +2048,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
         requestChatData({
             formated: formated,
+            promptCacheKey,
             biasString: biases,
             currentChar: currentChar,
             useStreaming: true,
@@ -2170,10 +2060,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             previewBody: arg.previewPrompt,
             escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
             rememberToolUsage: DBState.db.rememberToolUsage,
+            revenantWorkflowId: workflowSession.workflowId,
             revenantWorkflowDependency: revenantMainDependency,
             revenantRoomId: outgoingChat.id,
             revenantContinuationPrefix: continuationFallback,
-            onRevenantJobCreated: jobId => {
+            onRevenantJobCreated: (jobId, createdAt) => {
                 revenantMainJobCreated = true
                 revenantMainJobId = jobId
                 registerRevenantRequestStatus({
@@ -2183,15 +2074,20 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     roomId: outgoingChat.id,
                     kind: 'main',
                     label: generationInfo?.model,
-                    startedAt: Date.now(),
+                    startedAt: createdAt,
                 })
-                lifecycle.onJobCreated?.(jobId)
+                lifecycle.onJobCreated?.(jobId, createdAt)
             },
             onRevenantJobRegistrationUnavailable: error => {
                 revenantMainRegistrationError = error
                 lifecycle.onJobRegistrationUnavailable?.(error)
             },
             onRevenantProviderStarted: lifecycle.onProviderStarted,
+            onOutputRepetitionDetected: () => {
+                void cancelRevenantGeneration(messageChatId).catch(error => {
+                    console.error('[RepetitionDetection] Failed to cancel server generation:', error)
+                })
+            },
             onRevenantTerminal: terminal => {
                 if (revenantMainJobId) {
                     finishRevenantJobRequestStatus(
@@ -2230,7 +2126,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     catch(error) {
         const message = error instanceof Error ? error.message : String(error)
-        throwError(message)
+        if(!shouldSuppressGenerationErrorModal(error)) throwError(message)
         preserveFailedGenerationMessage('')
         finishStreamingDisplay()
         await setWorkflowStep('model.main', 'failed')
@@ -2250,7 +2146,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     if(req.type === 'fail'){
         finishStreamingDisplay()
-        throwError(req.result)
+        if(!shouldSuppressGenerationErrorModal(req)) throwError(req.result)
         preserveFailedGenerationMessage('')
         await setWorkflowStep('model.main', 'failed')
         await finishWorkflow('failed')
@@ -2284,6 +2180,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     console.log(req)
+    arg.onMainRequestResult?.({
+        toolExecuted: req.type === 'success' && req.toolExecuted === true,
+    })
     if(req.model){
         generationInfo.model = getGenerationModelString(req.model)
         console.log(generationInfo.model, req.model)
@@ -2449,7 +2348,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const message = streamFailure instanceof Error
                 ? streamFailure.message
                 : String(streamFailure)
-            throwError(message)
+            if(!shouldSuppressGenerationErrorModal(streamFailure)) throwError(message)
             preserveFailedGenerationMessage(rawResult || '')
             await setWorkflowStep('model.main', 'failed')
             await finishWorkflow('failed')
@@ -2497,7 +2396,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             refreshedInlayTarget.message.data = t
         }
-        if(DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
+        if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
             await sayTTS(currentChar, result)
         }
     }
@@ -2578,7 +2477,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 mrerolls.push(result)
             }
             DBState.db.characters[selectedChar].reloadKeys += 1
-            if(DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
+            if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
                 await sayTTS(currentChar, result)
             }
         }
@@ -2643,7 +2542,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         
         const completedTarget = ensureLiveGenerationTarget()
         if(completedTarget?.message.generationInfo) {
-            setGenerationMessageInfo(completedTarget.message, generationInfo)
+            setGenerationMessageInfo(completedTarget.message, generationInfo, promptInfo)
         }
         
         doingChat.set(false)
@@ -2653,6 +2552,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             detachSignal: arg.detachSignal,
             onDetached: arg.onDetached,
             onWorkflowStarted: arg.onWorkflowStarted,
+            onMainRequestResult: arg.onMainRequestResult,
+            suppressTts: arg.suppressTts,
             generationTarget: arg.generationTarget,
         })
     }
@@ -2892,7 +2793,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     
     const completedTarget = ensureLiveGenerationTarget()
     if(completedTarget?.message.generationInfo) {
-        setGenerationMessageInfo(completedTarget.message, generationInfo)
+        setGenerationMessageInfo(completedTarget.message, generationInfo, promptInfo)
     }
 
     return await finishSuccessfulWorkflow()

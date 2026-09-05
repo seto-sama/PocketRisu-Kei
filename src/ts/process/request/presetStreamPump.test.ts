@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from 'vitest'
-import { StreamFlushThrottle, pumpPresetStream, type StreamChunkController } from './presetStreamPump'
+import {
+    createRetryingSnapshotStream,
+    StreamFlushThrottle,
+    pumpPresetStream,
+    type StreamChunkController,
+} from './presetStreamPump'
 import type { AdapterChatStreamDelta } from 'src/ts/preset/adapter'
 
 // --- StreamFlushThrottle (pure, injected clock) -----------------------------
@@ -53,15 +58,6 @@ describe('StreamFlushThrottle', () => {
         expect(h.enqueued).toEqual(['a', 'ab'])
     })
 
-    test('onEnd forces the final flush even under backpressure', () => {
-        const h = makeThrottle()
-        h.append('a'); h.throttle.onDelta(0)             // flush 'a'
-        h.append('b'); h.throttle.onDelta(10)            // pending 'ab'
-        h.setDesiredSize(0)                              // consumer full
-        h.throttle.onEnd(20)
-        expect(h.enqueued).toEqual(['a', 'ab'])
-    })
-
     test('skips flushes under backpressure and emits only the latest on recovery (P2)', () => {
         const h = makeThrottle()
         h.append('a'); h.throttle.onDelta(0)             // flush 'a' (desiredSize 1)
@@ -92,13 +88,6 @@ describe('StreamFlushThrottle', () => {
         expect(h.enqueued).toEqual(['a'])
     })
 
-    test('does not flush or duplicate when nothing is pending', () => {
-        const h = makeThrottle()
-        h.append('a'); h.throttle.onDelta(0)             // flush 'a', nothing pending
-        expect(h.throttle.onTrailing(100)).toBe(false)
-        h.throttle.onEnd(200)
-        expect(h.enqueued).toEqual(['a'])
-    })
 })
 
 // --- pumpPresetStream (integration with timers) -----------------------------
@@ -300,5 +289,73 @@ describe('pumpPresetStream', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+})
+
+describe('createRetryingSnapshotStream', () => {
+    function attempt(values: string[], error?: Error): ReadableStream<string> {
+        return new ReadableStream({
+            async start(controller) {
+                for (const value of values) {
+                    controller.enqueue(value)
+                    await Promise.resolve()
+                }
+                if (error) controller.error(error)
+                else controller.close()
+            },
+        })
+    }
+
+    test('starts a fresh stream when a retryable error occurs before response content', async () => {
+        const overload = new Error('overloaded')
+        const attempts = [attempt([''], overload), attempt(['fresh', 'complete'])]
+        const onRetry = vi.fn()
+        const stream = createRetryingSnapshotStream({
+            createAttempt: () => attempts.shift()!,
+            startsResponse: value => value.length > 0,
+            retryDelayMs: () => 0,
+            onRetry,
+        })
+
+        const received: string[] = []
+        for await (const value of stream) received.push(value)
+
+        expect(received).toEqual(['', 'fresh', 'complete'])
+        expect(onRetry).toHaveBeenCalledOnce()
+    })
+
+    test('does not retry after response content has started', async () => {
+        const disconnected = new Error('disconnected')
+        const createAttempt = vi.fn(() => attempt(['partial'], disconnected))
+        const onRetry = vi.fn()
+        const onFinalError = vi.fn()
+        const stream = createRetryingSnapshotStream({
+            createAttempt,
+            startsResponse: value => value.length > 0,
+            retryDelayMs: () => 0,
+            onRetry,
+            onFinalError,
+        })
+
+        const reader = stream.getReader()
+        expect(await reader.read()).toEqual({ value: 'partial', done: false })
+        await expect(reader.read()).rejects.toBe(disconnected)
+        expect(createAttempt).toHaveBeenCalledOnce()
+        expect(onRetry).not.toHaveBeenCalled()
+        expect(onFinalError).toHaveBeenCalledWith(disconnected)
+    })
+
+    test('surfaces the final error when the retry budget is exhausted', async () => {
+        const overload = new Error('overloaded')
+        const onFinalError = vi.fn()
+        const stream = createRetryingSnapshotStream({
+            createAttempt: () => attempt([], overload),
+            retryDelayMs: () => null,
+            onFinalError,
+        })
+
+        const reader = stream.getReader()
+        await expect(reader.read()).rejects.toBe(overload)
+        expect(onFinalError).toHaveBeenCalledWith(overload)
     })
 })

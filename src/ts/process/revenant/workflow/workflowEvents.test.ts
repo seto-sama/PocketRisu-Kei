@@ -3,7 +3,6 @@ import {
     createRevenantWorkflowUpdateWaiter,
     emitRevenantWorkflowSyncReady,
     emitRevenantWorkflowUpdate,
-    subscribeRevenantWorkflowUpdates,
 } from './workflowEvents'
 
 afterEach(() => {
@@ -11,24 +10,6 @@ afterEach(() => {
 })
 
 describe('revenant workflow update events', () => {
-    it('notifies current subscribers and stops after unsubscribe', () => {
-        const listener = vi.fn()
-        const unsubscribe = subscribeRevenantWorkflowUpdates(listener)
-        const event = {
-            workflowId: 'workflow-1',
-            characterId: 'character-1',
-            roomId: 'room-1',
-            status: 'active' as const,
-        }
-
-        emitRevenantWorkflowUpdate(event)
-        unsubscribe()
-        emitRevenantWorkflowUpdate({ ...event, status: 'completed' })
-
-        expect(listener).toHaveBeenCalledOnce()
-        expect(listener).toHaveBeenCalledWith(event)
-    })
-
     it('wakes a workflow waiter from a matching push event or socket reconnect', async () => {
         vi.useFakeTimers()
         const matching = createRevenantWorkflowUpdateWaiter('workflow-match')

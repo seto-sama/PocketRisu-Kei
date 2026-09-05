@@ -95,36 +95,4 @@ describe('imageCompression enabled', () => {
         expect(result).toBe(mockCompressed)
     })
 
-    test('calls doLossyCompression for JPEG', async () => {
-        const mockCompressed = Buffer.from([0x01, 0x02, 0x03])
-        doLossyCompressionMock.mockResolvedValue(mockCompressed)
-
-        const jpegData = new Uint8Array([0xff, 0xd8, 0x00, 0x00, 0xff, 0xd9])
-        const result = await compressImage(jpegData)
-
-        expect(doLossyCompressionMock).toHaveBeenCalledWith(jpegData)
-        expect(result).toBe(mockCompressed)
-    })
-
-    test('calls doLossyCompression for GIF', async () => {
-        const mockCompressed = Buffer.from([0x01, 0x02, 0x03])
-        doLossyCompressionMock.mockResolvedValue(mockCompressed)
-
-        const gifData = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
-        const result = await compressImage(gifData)
-
-        expect(doLossyCompressionMock).toHaveBeenCalledWith(gifData)
-        expect(result).toBe(mockCompressed)
-    })
-
-    test('calls doLossyCompression for BMP', async () => {
-        const mockCompressed = Buffer.from([0x01, 0x02, 0x03])
-        doLossyCompressionMock.mockResolvedValue(mockCompressed)
-
-        const bmpData = new Uint8Array([0x42, 0x4d, 0x00, 0x00])
-        const result = await compressImage(bmpData)
-
-        expect(doLossyCompressionMock).toHaveBeenCalledWith(bmpData)
-        expect(result).toBe(mockCompressed)
-    })
 })

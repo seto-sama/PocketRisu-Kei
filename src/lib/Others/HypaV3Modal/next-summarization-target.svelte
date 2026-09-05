@@ -2,7 +2,7 @@
   import type { SerializableHypaV3Data } from "src/ts/process/memory/hypav3";
   import { language } from "src/lang";
   import { getFirstMessage, getNextSummarizationTarget } from "./utils";
-  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+  import Textarea from "../../UI/components/Textarea.svelte";
 
   interface Props {
     hypaV3Data: SerializableHypaV3Data;
@@ -22,11 +22,11 @@
           : nextMessage.chatId == null
             ? language.hypaV3Modal.nextSummarizationNoMessageIdLabel
             : nextMessage.chatId}
-      <div class="mb-2 text-sm text-textcolor2 sm:mb-4">
+      <div class="mb-2 text-sm text-subtext sm:mb-4">
         {language.hypaV3Modal.nextSummarizationLabel.replace("{0}", chatId)}
       </div>
 
-      <TextAreaInput
+      <Textarea
         fullwidth
         actionBar
         className="bg-darkbg"
@@ -34,12 +34,12 @@
         value={nextMessage.data}
       />
     {:else}
-      <span class="text-sm text-draculared"
+      <span class="text-sm text-danger"
         >{language.hypaV3Modal.nextSummarizationNoMessagesFoundLabel}</span
       >
     {/if}
   {:catch error}
-    <span class="text-sm text-draculared"
+    <span class="text-sm text-danger"
       >{language.hypaV3Modal.nextSummarizationLoadingError.replace(
         "{0}",
         error.message
@@ -51,7 +51,7 @@
 <div class="mt-2 sm:mt-4">
   <!-- No First Message -->
   {#if !getFirstMessage()}
-    <span class="text-sm text-draculared"
+    <span class="text-sm text-danger"
       >{language.hypaV3Modal.emptySelectedFirstMessageLabel}</span
     >
   {/if}

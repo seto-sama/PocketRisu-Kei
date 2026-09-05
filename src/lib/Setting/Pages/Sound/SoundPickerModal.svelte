@@ -1,7 +1,7 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
+    import Dialog from '../../../UI/components/Dialog.svelte';
+    import Button from '../../../UI/components/Button.svelte';
     import { bundledSoundIds, playSoundPreview } from 'src/ts/notificationSound';
     import { saveAsset } from 'src/ts/globalApi.svelte';
     import { selectSingleFile } from 'src/ts/util';
@@ -49,12 +49,12 @@
     }
 </script>
 
-<ShDialog bind:open size="default" tier="alert">
+<Dialog bind:open size="default">
     {#snippet title()}
         {language.selectNotificationSound}
     {/snippet}
 
-    <div class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto pr-1">
+    <div class="flex flex-col gap-1 pr-1">
         {#each bundledSoundIds as id}
             {@const selected = value === id || (!value && id === 'default')}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
@@ -86,7 +86,7 @@
                 <button class="shrink-0 risu-interactive-accent" onclick={() => playSoundPreview(s.path, volume)} aria-label={language.preview}>
                     <PlayIcon size={18} />
                 </button>
-                <button class="shrink-0 text-textcolor2 risu-interactive-danger" onclick={() => removeCustom(s)} aria-label={language.remove}>
+                <button class="shrink-0 text-subtext risu-interactive-danger" onclick={() => removeCustom(s)} aria-label={language.remove}>
                     <Trash2Icon size={18} />
                 </button>
             </div>
@@ -94,9 +94,9 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" size="sm" onclick={uploadSound}>
+        <Button variant="outline" size="sm" onclick={uploadSound}>
             <UploadIcon />
             {language.uploadSound}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

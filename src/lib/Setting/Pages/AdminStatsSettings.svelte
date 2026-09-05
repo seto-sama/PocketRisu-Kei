@@ -1,18 +1,19 @@
 <script lang="ts">
-    import SettingPage from 'src/lib/UI/GUI/SettingPage.svelte'
-    import SettingTabs from 'src/lib/UI/GUI/SettingTabs.svelte'
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
-    import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
+    import SettingPage from '../../UI/components/SettingPage.svelte'
+    import SettingTabs from '../../UI/components/SettingTabs.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import Badge from '../../UI/components/Badge.svelte'
+    import Switch from '../../UI/components/Switch.svelte'
+    import Select from '../../UI/components/Select.svelte'
+    import SelectOption from '../../UI/components/SelectOption.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import { getSyncClientId } from 'src/ts/storage/nodeStorage'
     import RequestLogsPanel from './RequestLogsPanel.svelte'
     import UsagePanel from './UsagePanel.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import { AdminStatsSubmenuIndex } from 'src/ts/stores.svelte'
-    import { Collapsible, Tooltip } from 'bits-ui'
+    import { Collapsible } from 'bits-ui'
     import {
         CopyIcon,
         Trash2Icon,
@@ -380,62 +381,62 @@
     ]} bind:selected={$AdminStatsSubmenuIndex} />
 
     {#if $AdminStatsSubmenuIndex === 0}
-    <p class="text-textcolor2 text-sm mb-4">{language.systemLogsDesc}</p>
+    <p class="text-subtext text-sm mb-4">{language.systemLogsDesc}</p>
 
     <!-- Toolbar -->
     <div class="flex flex-col gap-3 mb-4">
         <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen}
             activeCount={activeFilterCount} clearLabel={language.systemLogsFilterClear} onClear={clearAllFilters}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="flex flex-col gap-1 text-xs text-textcolor2">
+                <div class="flex flex-col gap-1 text-xs text-subtext">
                     <span>{language.systemLogsFilterLevel}</span>
-                    <ShSelect bind:value={levelFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
-                        <OptionInput value="error">{language.systemLogsLevelError}</OptionInput>
-                        <OptionInput value="warning">{language.systemLogsLevelWarning}</OptionInput>
-                        <OptionInput value="info">{language.systemLogsLevelInfo}</OptionInput>
-                    </ShSelect>
+                    <Select bind:value={levelFilter} size="sm">
+                        <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                        <SelectOption value="error">{language.systemLogsLevelError}</SelectOption>
+                        <SelectOption value="warning">{language.systemLogsLevelWarning}</SelectOption>
+                        <SelectOption value="info">{language.systemLogsLevelInfo}</SelectOption>
+                    </Select>
                 </div>
-                <div class="flex flex-col gap-1 text-xs text-textcolor2">
+                <div class="flex flex-col gap-1 text-xs text-subtext">
                     <span>{language.systemLogsFilterOrigin}</span>
-                    <ShSelect bind:value={originFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
-                        <OptionInput value="client">{language.systemLogsOriginClient}</OptionInput>
-                        <OptionInput value="server">{language.systemLogsOriginServer}</OptionInput>
-                    </ShSelect>
+                    <Select bind:value={originFilter} size="sm">
+                        <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                        <SelectOption value="client">{language.systemLogsOriginClient}</SelectOption>
+                        <SelectOption value="server">{language.systemLogsOriginServer}</SelectOption>
+                    </Select>
                 </div>
-                <div class="flex flex-col gap-1 text-xs text-textcolor2">
+                <div class="flex flex-col gap-1 text-xs text-subtext">
                     <span>{language.systemLogsFilterSource}</span>
-                    <ShSelect bind:value={sourceFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
-                        {#each availableSources as src (src)}<OptionInput value={src}>{src}</OptionInput>{/each}
-                    </ShSelect>
+                    <Select bind:value={sourceFilter} size="sm">
+                        <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                        {#each availableSources as src (src)}<SelectOption value={src}>{src}</SelectOption>{/each}
+                    </Select>
                 </div>
-                <div class="flex flex-col gap-1 text-xs text-textcolor2">
+                <div class="flex flex-col gap-1 text-xs text-subtext">
                     <span>{language.systemLogsFilterDevice}</span>
-                    <ShSelect bind:value={deviceFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
-                        {#each availableDevices as dev (dev.key)}<OptionInput value={dev.key}>{deviceLabel(dev.entry)}</OptionInput>{/each}
-                    </ShSelect>
+                    <Select bind:value={deviceFilter} size="sm">
+                        <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                        {#each availableDevices as dev (dev.key)}<SelectOption value={dev.key}>{deviceLabel(dev.entry)}</SelectOption>{/each}
+                    </Select>
                 </div>
             </div>
             <SettingLayout variant="row" title={language.systemLogsExplicitOnly} description={language.help.systemLogsExplicitOnlyHint} className="!border-t-0">
-                {#snippet control()}<ShSwitch bind:checked={explicitOnly} />{/snippet}
+                {#snippet control()}<Switch bind:checked={explicitOnly} />{/snippet}
             </SettingLayout>
         </SettingLayout>
 
         <!-- Search + actions -->
         <SettingLayout variant="search">
-            <ShInput bind:value={search} placeholder={language.systemLogsSearchPlaceholder} />
+            <Input bind:value={search} placeholder={language.systemLogsSearchPlaceholder} />
             {#snippet control()}
-            <ShButton variant="outline" size="default" onclick={copyAllFiltered}>
+            <Button variant="outline" size="default" onclick={copyAllFiltered}>
                 <CopyIcon />
                 <span class="hidden sm:inline">{language.systemLogsCopyAll}</span>
-            </ShButton>
-            <ShButton variant="destructive" size="default" onclick={handleClearAll}>
+            </Button>
+            <Button variant="destructive" size="default" onclick={handleClearAll}>
                 <Trash2Icon />
                 <span class="hidden sm:inline">{language.systemLogsClearAll}</span>
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
     </div>
@@ -447,15 +448,14 @@
     <!-- List -->
     {#if !loading && displayed.length === 0}
         <div class="flex flex-col items-center justify-center text-center py-16 border border-darkborderc rounded-md bg-darkbg/30">
-            <ScrollTextIcon size={48} class="text-textcolor2 mb-3 opacity-50" />
-            <div class="text-textcolor font-medium mb-1">{language.systemLogsEmpty}</div>
-            <div class="text-textcolor2 text-sm">
+            <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
+            <div class="text-maintext font-medium mb-1">{language.systemLogsEmpty}</div>
+            <div class="text-subtext text-sm">
                 {hasMore ? language.systemLogsEmptyButMore : language.systemLogsEmptyDesc}
             </div>
         </div>
     {:else}
-        <Tooltip.Provider delayDuration={300}>
-            <SettingLayout variant="list" scrollable className="max-h-[75vh]">
+        <SettingLayout variant="list">
                 {#each displayed as entry (entry.id)}
                     <Collapsible.Root
                         open={expanded[entry.id] === true}
@@ -464,7 +464,7 @@
                         <Collapsible.Trigger class="w-full text-left group">
                             <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                             <!-- Level icon + badge -->
-                            <ShBadge variant={levelVariant(entry.level)} className="shrink-0">
+                            <Badge variant={levelVariant(entry.level)} className="shrink-0">
                                 {#if entry.level === 'error'}
                                     <CircleXIcon size={12} />
                                 {:else if entry.level === 'warning'}
@@ -473,32 +473,25 @@
                                     <InfoIcon size={12} />
                                 {/if}
                                 <span class="hidden sm:inline">{entry.level}</span>
-                            </ShBadge>
+                            </Badge>
 
                             <!-- Time (relative + absolute tooltip) — render Trigger as <span>
                                  via child snippet to avoid a <button> inside Collapsible.Trigger. -->
-                            <Tooltip.Root>
-                                <Tooltip.Trigger>
-                                    {#snippet child({ props })}
-                                        <span {...props} class="text-textcolor2 text-xs shrink-0 tabular-nums cursor-help">
-                                            {formatRelative(entry.timestamp)}
-                                        </span>
-                                    {/snippet}
-                                </Tooltip.Trigger>
-                                <Tooltip.Content
-                                    class="bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg z-50"
-                                    sideOffset={4}
-                                >
-                                    {formatAbsolute(entry.timestamp)}
-                                </Tooltip.Content>
-                            </Tooltip.Root>
+                            <Tooltip className="max-w-none max-h-none overflow-visible break-normal px-2 py-1 leading-normal">
+                                {#snippet trigger(props)}
+                                    <span {...props} class="text-subtext text-xs shrink-0 tabular-nums cursor-help">
+                                        {formatRelative(entry.timestamp)}
+                                    </span>
+                                {/snippet}
+                                {formatAbsolute(entry.timestamp)}
+                            </Tooltip>
 
                             <!-- Message -->
-                            <span class="flex-1 min-w-0 truncate text-sm text-textcolor">{entry.message}</span>
+                            <span class="flex-1 min-w-0 truncate text-sm text-maintext">{entry.message}</span>
 
                             <!-- Count -->
                             {#if entry.count > 1}
-                                <ShBadge variant="outline" className="shrink-0 tabular-nums">×{entry.count}</ShBadge>
+                                <Badge variant="outline" className="shrink-0 tabular-nums">×{entry.count}</Badge>
                             {/if}
 
                             <!-- Device badge (click to filter to this device) -->
@@ -508,7 +501,7 @@
                                 class="shrink-0 cursor-pointer"
                                 onclick={(e) => { e.stopPropagation(); deviceFilter = deviceFilter === deviceKey(entry) ? '' : deviceKey(entry) }}
                             >
-                                <ShBadge variant={deviceFilter === deviceKey(entry) ? 'secondary' : 'default'}>
+                                <Badge variant={deviceFilter === deviceKey(entry) ? 'secondary' : 'default'}>
                                     {#if deviceKind(entry) === 'server'}
                                         <ServerIcon size={12} />
                                     {:else if deviceKind(entry) === 'mobile'}
@@ -517,44 +510,43 @@
                                         <MonitorIcon size={12} />
                                     {/if}
                                     <span class="hidden md:inline text-[10px]">{deviceLabel(entry)}</span>
-                                </ShBadge>
+                                </Badge>
                             </span>
 
-                            <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                            <ChevronDownIcon size={16} class="shrink-0 text-subtext transition-transform group-data-[state=open]:rotate-180" />
                             </SettingLayout>
                         </Collapsible.Trigger>
 
                         <Collapsible.Content class="bg-darkbg/60">
-                            <div class="p-3 text-xs text-textcolor2 space-y-2">
+                            <div class="p-3 text-xs text-subtext space-y-2">
                                 {#if entry.description}
-                                    <pre class="whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{entry.description}</pre>
+                                    <pre class="whitespace-pre-wrap break-all bg-lightbg/50 border border-darkborderc/50 rounded p-2 text-maintext font-mono">{entry.description}</pre>
                                 {/if}
                                 <div class="flex flex-wrap gap-x-4 gap-y-1">
-                                    <span><span class="text-textcolor2/70">timestamp:</span> {formatAbsolute(entry.timestamp)}</span>
-                                    <span><span class="text-textcolor2/70">origin:</span> {entry.origin}</span>
-                                    {#if entry.source}<span><span class="text-textcolor2/70">source:</span> {entry.source}</span>{/if}
-                                    {#if entry.platform}<span><span class="text-textcolor2/70">platform:</span> {entry.platform}</span>{/if}
-                                    {#if entry.clientId}<span><span class="text-textcolor2/70">client:</span> #{entry.clientId}</span>{/if}
+                                    <span><span class="text-subtext/70">timestamp:</span> {formatAbsolute(entry.timestamp)}</span>
+                                    <span><span class="text-subtext/70">origin:</span> {entry.origin}</span>
+                                    {#if entry.source}<span><span class="text-subtext/70">source:</span> {entry.source}</span>{/if}
+                                    {#if entry.platform}<span><span class="text-subtext/70">platform:</span> {entry.platform}</span>{/if}
+                                    {#if entry.clientId}<span><span class="text-subtext/70">client:</span> #{entry.clientId}</span>{/if}
                                 </div>
                                 {#if entry.userAgent}
-                                    <div class="break-all"><span class="text-textcolor2/70">user-agent:</span> {entry.userAgent}</div>
+                                    <div class="break-all"><span class="text-subtext/70">user-agent:</span> {entry.userAgent}</div>
                                 {/if}
                                 <div class="pt-1 flex gap-2">
-                                    <ShButton variant="outline" size="sm" onclick={() => copyEntry(entry)}>
+                                    <Button variant="outline" size="sm" onclick={() => copyEntry(entry)}>
                                         <CopyIcon />
                                         <span>{language.systemLogsCopyEntry}</span>
-                                    </ShButton>
-                                    <ShButton variant="destructive" size="sm" onclick={() => deleteEntry(entry)}>
+                                    </Button>
+                                    <Button variant="destructive" size="sm" onclick={() => deleteEntry(entry)}>
                                         <Trash2Icon />
                                         <span>{language.systemLogsDeleteEntry}</span>
-                                    </ShButton>
+                                    </Button>
                                 </div>
                             </div>
                         </Collapsible.Content>
                     </Collapsible.Root>
                 {/each}
-            </SettingLayout>
-        </Tooltip.Provider>
+        </SettingLayout>
     {/if}
 
     <!-- Load More — shown whenever the server reports more matching rows,
@@ -562,9 +554,9 @@
          search filters may still collapse a page even after server filter). -->
     {#if hasMore}
         <div class="flex justify-center mt-3">
-            <ShButton variant="outline" size="default" disabled={loadingMore} onclick={loadMore}>
+            <Button variant="outline" size="sm" disabled={loadingMore} onclick={loadMore}>
                 {loadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
-            </ShButton>
+            </Button>
         </div>
     {/if}
     {:else if $AdminStatsSubmenuIndex === 1}

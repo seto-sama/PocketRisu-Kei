@@ -17,11 +17,21 @@ import type {
     RecoverableGenerationJob,
     RevenantGenerationRequest,
     RevenantGenerationTerminal,
+    RevenantJobCreatedHandler,
 } from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
 const defaultGenerationHeartbeatSec = 15
+
+interface RecoveryProjectionSnapshot {
+    content: string
+    progress?: {
+        thinking: string
+        response: string
+        usage?: AdapterUsage
+    }
+}
 
 export class GenerationJobRegistrationError extends Error {
     constructor(
@@ -45,23 +55,52 @@ export function subscribeRecoverableGeneration(
     const controller = new AbortController()
     let terminal: RevenantGenerationTerminal | undefined
     let usage: AdapterUsage | undefined
+    let latestContent = ''
+    let latestProgress: RecoveryProjectionSnapshot['progress']
+    let catchingUp = true
+    const publishSnapshot = (snapshot: RecoveryProjectionSnapshot) => {
+        if (snapshot.progress) handlers.onProgress?.(snapshot.progress)
+        if (snapshot.content) handlers.onContent(snapshot.content)
+    }
+    const queueContent = (content: string) => {
+        latestContent = content
+        if (catchingUp) return
+        handlers.onContent(content)
+    }
+    const finishCatchUp = () => {
+        if (!catchingUp || controller.signal.aborted) return
+        catchingUp = false
+        publishSnapshot({ content: latestContent, progress: latestProgress })
+    }
+    const flushLatest = () => {
+        if (catchingUp) finishCatchUp()
+    }
     void openRecoverableJournalStream(job, controller.signal, value => {
         terminal = value
-    })
+    }, () => finishCatchUp())
         .then(stream => decodeRevenantGenerationJournal(
             job,
             stream,
-            handlers.onContent,
+            queueContent,
             progress => {
                 if (progress.usage) usage = progress.usage
-                handlers.onProgress?.(progress)
+                latestProgress = progress
+                if (!catchingUp) handlers.onProgress?.(progress)
             },
         ))
         .then(() => {
-            if (!controller.signal.aborted) handlers.onDone(terminal, usage)
+            if (!controller.signal.aborted) {
+                flushLatest()
+                handlers.onDone(terminal, usage)
+            }
         })
         .catch(error => {
-            if (!controller.signal.aborted) handlers.onError?.(error)
+            if (!controller.signal.aborted) {
+                // Preserve the newest complete projection decoded before a
+                // truncated/interrupted journal tail failed.
+                flushLatest()
+                handlers.onError?.(error)
+            }
         })
 
     return () => {
@@ -89,19 +128,62 @@ async function openRecoverableJournalStream(
     job: RecoverableJournalJob,
     signal?: AbortSignal,
     onTerminal?: (terminal: RevenantGenerationTerminal) => void,
+    onSnapshotConsumed?: () => void,
 ): Promise<ReadableStream<Uint8Array>> {
     const auth = await createRevenantGenerationAuth()
-    return openRevenantJournalSocket({
+    const snapshotResponse = await fetch(
+        `/api/generation/jobs/${encodeURIComponent(job.jobId)}/journal/snapshot`,
+        { headers: { 'risu-auth': auth }, signal },
+    )
+    if (!snapshotResponse.ok) {
+        throw new Error(`Failed to read generation journal snapshot: ${snapshotResponse.status}`)
+    }
+    const snapshot = new Uint8Array(await snapshotResponse.arrayBuffer())
+    const snapshotOffset = Number(snapshotResponse.headers.get('x-risu-journal-offset'))
+    if (!Number.isSafeInteger(snapshotOffset) || snapshotOffset < 0
+        || snapshotOffset !== snapshot.length) {
+        throw new Error('Invalid generation journal snapshot offset')
+    }
+    const liveStream = openRevenantJournalSocket({
         jobId: job.jobId,
         auth,
         signal,
         recovery: true,
+        initialOffset: snapshotOffset,
         onDone: onTerminal,
         onHeaders(status, headers) {
             job.responseStatus = status
             job.responseHeaders = headers
         },
     })
+    const liveReader = liveStream.getReader()
+    let snapshotDelivered = false
+    let snapshotConsumed = false
+    // With no prefetch, the second pull cannot run until the decoder has fully
+    // processed the snapshot chunk (including every SSE/AWS event it contains).
+    // That gives us an exact one-render snapshot boundary while the same
+    // decoder retains any incomplete trailing frame for the live bytes.
+    return new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            if (!snapshotDelivered) {
+                snapshotDelivered = true
+                if (snapshot.length > 0) {
+                    controller.enqueue(snapshot)
+                    return
+                }
+            }
+            if (!snapshotConsumed) {
+                snapshotConsumed = true
+                onSnapshotConsumed?.()
+            }
+            const next = await liveReader.read()
+            if (next.done) controller.close()
+            else controller.enqueue(next.value)
+        },
+        cancel(reason) {
+            return liveReader.cancel(reason)
+        },
+    }, { highWaterMark: 0 })
 }
 
 export async function fetchViaGenerationJob(url: string, arg: {
@@ -110,7 +192,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     body?: Uint8Array
     signal?: AbortSignal
     requestTimeoutMs?: number
-    onJobCreated?: (jobId: string) => void
+    onJobCreated?: RevenantJobCreatedHandler
     onProviderStarted?: (startedAt: number) => void
     onTerminal?: (terminal: RevenantGenerationTerminal) => void
     generationRequest: RevenantGenerationRequest
@@ -149,8 +231,18 @@ export async function fetchViaGenerationJob(url: string, arg: {
         throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
-    const { jobId } = await jobRes.json() as { jobId: string }
-    arg.onJobCreated?.(jobId)
+    const { jobId, createdAt } = await jobRes.json() as {
+        jobId?: unknown
+        createdAt?: unknown
+    }
+    if (
+        typeof jobId !== 'string'
+        || typeof createdAt !== 'number'
+        || !Number.isFinite(createdAt)
+    ) {
+        throw new Error('Invalid generation job registration response')
+    }
+    arg.onJobCreated?.(jobId, createdAt)
     setRevenantGenerationLocallyObserved(jobId, true)
     trackRevenantGenerationWorkflow(jobId, arg.generationRequest.workflow?.workflowId)
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {

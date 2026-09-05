@@ -2,10 +2,10 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import SelectInput from 'src/lib/UI/GUI/SelectInput.svelte';
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte';
+    import Select from '../../UI/components/Select.svelte';
+    import SelectOption from '../../UI/components/SelectOption.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
     import { language } from 'src/lang';
 
     interface Props {
@@ -47,27 +47,27 @@
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
-            <SelectInput className="w-48" size="sm" bind:value={localValue}>
+            <Select className="w-48" size="sm" bind:value={localValue}>
                 {#each processedOptions as opt}
-                    <OptionInput value={opt.value}>
+                    <SelectOption value={opt.value}>
                         {opt.labelKey ? (language as any)[opt.labelKey] : opt.label}
-                    </OptionInput>
+                    </SelectOption>
                 {/each}
-            </SelectInput>
+            </Select>
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
-    <span class="text-textcolor {item.classes ?? 'mt-4'}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? 'mt-4'}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <SelectInput className="mt-2 mb-4" bind:value={localValue}>
+    <Select className="mt-2 mb-4" bind:value={localValue}>
         {#each processedOptions as opt}
-            <OptionInput value={opt.value}>
+            <SelectOption value={opt.value}>
                 {opt.labelKey ? (language as any)[opt.labelKey] : opt.label}
-            </OptionInput>
+            </SelectOption>
         {/each}
-    </SelectInput>
+    </Select>
 {/if}

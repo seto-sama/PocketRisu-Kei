@@ -7,6 +7,7 @@ ENV PATH="$PNPM_HOME:$PATH"
 # Copy dependency-related file
 COPY package.json .
 COPY pnpm-lock.yaml .
+COPY pnpm-workspace.yaml .
 
 RUN corepack enable
 RUN corepack install --global pnpm@11.3.0

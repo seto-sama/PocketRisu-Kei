@@ -104,8 +104,8 @@ function installLayoutObservers() {
     })
 
     return {
-        notifyResize() {
-            resizeCallback?.([], {} as ResizeObserver)
+        notifyResize(entries: ResizeObserverEntry[] = []) {
+            resizeCallback?.(entries, {} as ResizeObserver)
         },
         notifyMutation() {
             mutationCallback?.([], {} as MutationObserver)
@@ -219,6 +219,28 @@ describe('forward chat scroll metrics', () => {
 })
 
 describe('forward chat scroll controller', () => {
+    it('defers bottom alignment when an observed width changes', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        setScrollMetrics(container, { scrollHeight: 1000, clientHeight: 200 })
+        const controller = createController(container)
+        observers.flushFrames()
+
+        observers.notifyResize([{
+            target: container,
+            borderBoxSize: [],
+            contentBoxSize: [],
+            devicePixelContentBoxSize: [],
+            contentRect: new DOMRectReadOnly(0, 0, 120, 200),
+        }])
+
+        expect(observers.pendingFrameCount).toBe(1)
+        controller.destroy()
+    })
+
     it('leaves streamed bottom layout to the native scroll anchor', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -461,6 +483,41 @@ describe('forward chat scroll controller', () => {
         controller.destroy()
     })
 
+    it('keeps the bottom anchor released when mobile scroll arrives after touchend', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        const controller = createController(container)
+        observers.flushFrames()
+
+        const touchStart = new Event('touchstart')
+        Object.defineProperty(touchStart, 'touches', {
+            value: [{ clientY: 100 }],
+        })
+        container.dispatchEvent(touchStart)
+        const touchMove = new Event('touchmove')
+        Object.defineProperty(touchMove, 'touches', {
+            value: [{ clientY: 140 }],
+        })
+        container.dispatchEvent(touchMove)
+        window.dispatchEvent(new Event('touchend'))
+
+        expect(container.hasAttribute('data-chat-history-read')).toBe(true)
+        container.scrollTop = 700
+        container.dispatchEvent(new Event('scroll'))
+        metrics.scrollHeight = 1100
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(700)
+        expect(container.hasAttribute('data-chat-history-read')).toBe(true)
+        controller.destroy()
+    })
+
     it('suspends native bottom correction throughout direct touch manipulation', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -581,6 +638,83 @@ describe('forward chat scroll controller', () => {
         controller.destroy()
     })
 
+    it('anchors the message bottom when an edit changes its height', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 1200, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let messageHeight = 100
+        const messageLayoutTop = 120
+        message.getBoundingClientRect = () => new DOMRect(
+            0,
+            messageLayoutTop - container.scrollTop,
+            300,
+            messageHeight,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+        container.scrollTop = 100
+        container.dispatchEvent(new Event('scroll'))
+        const originalBottom = message.getBoundingClientRect().bottom
+
+        const release = controller.preserveElementPosition(message)
+        messageHeight = 300
+        metrics.scrollHeight += 200
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(message.getBoundingClientRect().bottom).toBe(originalBottom)
+        expect(container.scrollTop).toBe(300)
+        release()
+        controller.destroy()
+    })
+
+    it('continues anchoring late swipe layout until the reader scrolls', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 1200, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let messageHeight = 100
+        const messageLayoutTop = 120
+        message.getBoundingClientRect = () => new DOMRect(
+            0,
+            messageLayoutTop - container.scrollTop,
+            300,
+            messageHeight,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+        container.scrollTop = 100
+        container.dispatchEvent(new Event('scroll'))
+        const originalBottom = message.getBoundingClientRect().bottom
+
+        const release = controller.preserveElementPosition(message, {
+            edge: 'bottom',
+            followLayout: true,
+        })
+        release()
+        messageHeight = 300
+        metrics.scrollHeight += 200
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(message.getBoundingClientRect().bottom).toBe(originalBottom)
+
+        container.dispatchEvent(new Event('pointerdown'))
+        window.dispatchEvent(new Event('pointerup'))
+        messageHeight = 400
+        metrics.scrollHeight += 100
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(message.getBoundingClientRect().bottom).toBe(originalBottom + 100)
+        controller.destroy()
+    })
+
     it('preserves the first visible message while older history is prepended', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -602,7 +736,7 @@ describe('forward chat scroll controller', () => {
         container.scrollTop = 100
         container.dispatchEvent(new Event('scroll'))
 
-        const release = controller.preserveViewportPosition()
+        const release = controller.preserveViewportPosition({ followLayout: true })
         messageLayoutTop += 300
         metrics.scrollHeight += 300
         observers.notifyResize()
@@ -611,6 +745,21 @@ describe('forward chat scroll controller', () => {
         expect(container.scrollTop).toBe(400)
         expect(visibleMessage.getBoundingClientRect().top).toBe(20)
         release()
+
+        messageLayoutTop += 200
+        metrics.scrollHeight += 200
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(600)
+        expect(visibleMessage.getBoundingClientRect().top).toBe(20)
+
+        container.dispatchEvent(new Event('pointerdown'))
+        window.dispatchEvent(new Event('pointerup'))
+        messageLayoutTop += 100
+        metrics.scrollHeight += 100
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(600)
         controller.destroy()
     })
 

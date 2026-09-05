@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { revenantTranslationTargetsMatch } from '../auxiliary'
-import { prepareRevenantTranslationRequest } from './translationRecovery'
+import {
+    completeRevenantTranslation,
+    prepareRevenantTranslationRequest,
+} from './translationRecovery'
 import type { RevenantChatMessageTranslationTarget } from '../types'
 
 const target: RevenantChatMessageTranslationTarget = {
@@ -16,6 +19,14 @@ describe('revenant translation targets', () => {
 
         expect(request.operationContext.target).toEqual(target)
         expect(prepareRevenantTranslationRequest('other', false).operationContext.target).toBeNull()
+    })
+
+    it('keeps an isolated cache key without changing the text sent for translation', () => {
+        const request = prepareRevenantTranslationRequest('hello', false, null, 'dialog-cache-key')
+
+        expect(request.cacheKey).toBe('dialog-cache-key')
+        expect(request.requestText).toBe('hello')
+        expect(request.operationContext.cacheKey).toBe('dialog-cache-key')
     })
 
     it('follows a message id when its index moves', () => {
@@ -39,5 +50,19 @@ describe('revenant translation targets', () => {
             ...target,
             swipeId: 3,
         })).toBe(false)
+    })
+})
+
+describe('revenant translation completion', () => {
+    it('does not persist an empty successful provider result', async () => {
+        const stored: Array<[string, string]> = []
+        const request = prepareRevenantTranslationRequest('source', true)
+
+        await expect(completeRevenantTranslation({
+            get: async () => null,
+            store: async (key, value) => { stored.push([key, value]) },
+        }, request, '   ')).resolves.toBe('   ')
+
+        expect(stored).toEqual([])
     })
 })

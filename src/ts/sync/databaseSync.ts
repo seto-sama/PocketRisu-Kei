@@ -17,7 +17,6 @@ import {
     isChatWorkingCopyDirty,
 } from '../storage/chatWorkingCopy'
 import { forageStorage } from '../storage/autoStorage'
-import { decodeRisuSave } from '../storage/risuSave'
 
 export type SyncChatTarget = {
     characterId: string
@@ -62,10 +61,10 @@ export async function reconcileServerDatabase(
     refreshAllChats: boolean,
     terminalCanonicalChats: ReadonlySet<string> = new Set(),
 ) {
-    const raw = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
-    if (!raw?.length) return
+    const projection = await forageStorage.getDatabaseProjection<Database>()
+    if (!projection.database) return
 
-    const remote = await decodeRisuSave(raw) as Database
+    const remote = projection.database
     const local = safeStructuredClone(getDatabase()) as Database
     const localCharacters = new Map<string, Character>(
         (local.characters ?? []).map(character => [character.chaId, character] as const),
@@ -160,7 +159,7 @@ export async function reconcileServerDatabase(
         }
     }
 
-    await applySyncedDatabase(remote, forageStorage.getDbEtag(), {
+    await applySyncedDatabase(remote, projection.etag, {
         authoritativeChatReset: refreshAllChats,
         serverAppliedChats,
     })

@@ -158,7 +158,7 @@ path,Returns a string which is a path to the file named first argument,path/raw,
 image,Returns a image named first argument,"image","name","[[image::image.png]]"
 img,Returns a image named first argument but without styling,"img","name","[[img::image.png]]"
 bgm,Returns a audio which is hidden named first argument,"bgm","name","[[bgm::sound.mp3]]"
-inlay,Returns a image from inlay data named first argument,"inlay","name","[[inlay::image.png]]"
+inlay,Legacy alias of inlayed. Returns a styled image from inlay data named by the first argument,"inlay","name","[[inlay::image.png]]"
 inlayed,Returns a image from inlay data named first argument but with styling,"inlayed","name","[[inlayed::image.png]]"
 inlayeddata,Returns a image from inlay data named first argument but with styling and data. unlike inlayed it is also sent to the AI when character sent with this function,"inlayeddata","name","[[inlayeddata::image.png]]"
 ?,Do math operations doesn't follow the usual syntax of arguments supports + - * / ^ % < > <= >= || && == != !,"?",, [[? 1 + 2 * 6]]

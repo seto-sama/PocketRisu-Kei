@@ -14,10 +14,29 @@ export default defineConfig({
     conditions: ['browser'],
   },
   test: {
-    environment: 'happy-dom',
+    pool: 'threads',
     setupFiles: ['vitest.setup.ts'],
-    // compat suite has its own node-environment config (vitest.config.compat.ts);
-    // exclude here so `pnpm test` doesn't pick them up under the wrong environment.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'client',
+          environment: 'happy-dom',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'server',
+          environment: 'node',
+          include: ['server/node/**/*.test.ts', 'test/*.test.ts'],
+          setupFiles: [],
+          testTimeout: 30_000,
+        },
+      },
+    ],
+    // The compat suite remains separate because it has longer hook timeouts.
     exclude: ['node_modules/**', 'test/compat/**'],
   },
 })

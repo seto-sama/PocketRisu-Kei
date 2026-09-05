@@ -16,6 +16,17 @@ import { importCharacterProcess } from "./characterCards";
 import { importCharacterPackage } from "./characterPackage";
 import { PngChunk } from "./pngChunk";
 import { PRODUCT_NAME } from "./branding";
+import {
+    remapBookmarkTags,
+} from './bookmarks/bookmarkData'
+import {
+    finalizeImportedBookmarks,
+    mergeBookmarkTagsForImport,
+    prepareBookmarkCompatibleChats,
+} from './bookmarks/bookmarkService'
+import { archiveCurrentCharacterIcon } from './characterAssets'
+
+const BOOKMARK_TAG_DATA_CLASS = 'bookmark-tag-data'
 
 export function createNewCharacter() {
     let db = getDatabase()
@@ -62,11 +73,12 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
     if(type === 'plain'){
         return filesrc
     }
-    else if(type ==='css'){
-        return `background: url("${filesrc}");background-size: cover;`
+    const coverBackground = `background: url("${filesrc}");background-size: cover;background-repeat: no-repeat;`
+    if(type ==='css'){
+        return coverBackground
     }
     else if(type === 'lgcss'){
-        return `background: url("${filesrc}");background-size: cover;height: 10.66rem;`
+        return `${coverBackground}height: 10.66rem;`
 
     }
 
@@ -124,17 +136,7 @@ export async function selectCharImg(charIndex:number) {
 export function dumpCharImage(charIndex:number) {
     let db = getDatabase()
     const char = db.characters[charIndex] as character
-    if(!char.image || char.image === ''){
-        return
-    }
-    char.ccAssets ??= []
-    char.ccAssets.push({
-        type: 'icon',
-        name: 'iconx',
-        uri: char.image,
-        ext: 'png'
-    })
-    char.image = ''
+    archiveCurrentCharacterIcon(char)
     db.characters[charIndex] = char
 }
 
@@ -154,12 +156,12 @@ function getCurrentExportTheme() {
     const read = (token:string) => styles.getPropertyValue(token).trim()
 
     return {
-        background: read('--risu-theme-bgcolor'),
+        background: read('--risu-theme-lightbg'),
         surface: read('--risu-theme-darkbg'),
-        text: read('--risu-theme-textcolor'),
-        mutedText: read('--risu-theme-textcolor2'),
+        text: read('--risu-theme-maintext'),
+        mutedText: read('--risu-theme-subtext'),
         border: read('--risu-theme-darkborderc'),
-        accentBorder: read('--risu-theme-borderc'),
+        accentBorder: read('--risu-theme-lightborderc'),
         primary: read('--risu-theme-primary'),
     }
 }
@@ -195,6 +197,10 @@ export async function exportChat(page:number){
         }
         const chat = char.chats[page]
         const date = new Date().toJSON();
+        const bookmarkExport = mode === '0' || mode === '2'
+            ? await prepareBookmarkCompatibleChats(char.chaId, [chat])
+            : { chats: [chat], tags: [] }
+        const compatibleChat = bookmarkExport.chats[0]
         const htmlChatParse = async (v:string) => {
             v = parseMarkdownSafe(v)
 
@@ -220,8 +226,9 @@ export async function exportChat(page:number){
             const stringl = Buffer.from(JSON.stringify({
                 type: 'risuChat',
                 ver: 2,
-                data: chat,
-                folders: folders
+                data: compatibleChat,
+                folders: folders,
+                bookmarkTags: bookmarkExport.tags,
             }), 'utf-8')
     
             await downloadFile(`${char.name}_${date}_chat`.replace(/[<>:"/\\|?*\.\,]/g, "") + '.json', stringl)
@@ -253,6 +260,7 @@ export async function exportChat(page:number){
                                 display: flex;
                                 justify-content: center;
                                 min-height: 100vh;
+                                min-height: 100dvh;
                                 margin: 0;
                                 background: ${theme.background};
                                 color: ${theme.text};
@@ -327,7 +335,11 @@ export async function exportChat(page:number){
                             ${chatContentHTML}
                         </div>
                         <div class="idat">${
-                            JSON.stringify(chat).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                            JSON.stringify(compatibleChat).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        }</div>
+                        <div class="idat ${BOOKMARK_TAG_DATA_CLASS}">${
+                            JSON.stringify(bookmarkExport.tags)
+                                .replace(/</g, '&lt;').replace(/>/g, '&gt;')
                         }</div>
                     </body>
                 </html>
@@ -475,13 +487,24 @@ export async function importChat(){
                     db.characters[selectedID].chatFolders = []
                 }
                 db.characters[selectedID].chatFolders.push(...folders)
+                const bookmarkTagIdMap = await mergeBookmarkTagsForImport(json.bookmarkTags)
                 chats.forEach(chat => {
                     if(chat.folderId && folderIdMap[chat.folderId]){
                         chat.folderId = folderIdMap[chat.folderId]
                     }
+                    remapBookmarkTags(chat, bookmarkTagIdMap)
                     chat.id = v4()
                 })
-                db.characters[selectedID].chats.unshift(...chats.map(c => normalizeChat(c)))
+                const importedChats = chats.map(c => normalizeChat(c))
+                db.characters[selectedID].chats.unshift(...importedChats)
+                await requestImmediateSave({
+                    characterIds: [db.characters[selectedID].chaId],
+                    chatTargets: importedChats.map(chat => ({
+                        characterId: db.characters[selectedID].chaId,
+                        chatId: chat.id,
+                    })),
+                })
+                await finalizeImportedBookmarks(importedChats)
                 notifySuccess(language.successImport)
                 return
             }
@@ -528,8 +551,23 @@ export async function importChat(){
             const doc = new DOMParser().parseFromString(Buffer.from(dat.data).toString('utf-8'), 'text/html')
             const chat = doc.querySelector('.idat').textContent
             const json = JSON.parse(chat)
-            if(json.message && json.note && json.name && json.localLore){
-                db.characters[selectedID].chats.unshift(normalizeChat(json))
+            const bookmarkTagData = doc.querySelector(`.${BOOKMARK_TAG_DATA_CLASS}`)?.textContent
+            const bookmarkTagIdMap = await mergeBookmarkTagsForImport(
+                bookmarkTagData ? JSON.parse(bookmarkTagData) : undefined,
+            )
+            if(!(checkNullish(json.message) || checkNullish(json.note) || checkNullish(json.name) || checkNullish(json.localLore))){
+                remapBookmarkTags(json, bookmarkTagIdMap)
+                json.id = v4()
+                const importedChat = normalizeChat(json)
+                db.characters[selectedID].chats.unshift(importedChat)
+                await requestImmediateSave({
+                    characterIds: [db.characters[selectedID].chaId],
+                    chatTargets: [{
+                        characterId: db.characters[selectedID].chaId,
+                        chatId: importedChat.id,
+                    }],
+                })
+                await finalizeImportedBookmarks([importedChat])
                 notifySuccess(language.successImport)
             }
             else{
@@ -559,13 +597,14 @@ export async function exportAllChats() {
             }
         }
 
-        const allChats = char.chats
+        const bookmarkExport = await prepareBookmarkCompatibleChats(char.chaId, char.chats)
         const allFolders = char.chatFolders
         const stringl = Buffer.from(JSON.stringify({
             type: 'risuAllChats',
             ver: 2,
-            data: allChats,
-            folders: allFolders
+            data: bookmarkExport.chats,
+            folders: allFolders,
+            bookmarkTags: bookmarkExport.tags,
         }), 'utf-8')
         await downloadFile(`${char.name}_all_chats_${date}`.replace(/[<>:"/\\|?*.,]/g, "") + '.json', stringl)
         notifySuccess(language.successExport)
@@ -647,9 +686,11 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     cha.globalLore = updateLorebooks(cha.globalLore)
     if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
     cha = updateInlayScreen(cha)
-    // Migrate legacy 'none' value to '' for UI dropdown compatibility
+    // Migrate legacy disabled values to '' for UI dropdown compatibility.
+    // `normal` was written by old character-card imports but is not a TTS
+    // provider and therefore had no matching dropdown option.
     // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
-    if (cha.ttsMode === 'none') {
+    if (cha.ttsMode === 'none' || cha.ttsMode === 'normal') {
         cha.ttsMode = ''
     }
     cha.ttsMode ??= ''

@@ -15,8 +15,8 @@
 
 <div class="flex items-center justify-between gap-3 py-2 transition-opacity" class:opacity-40={dimmed}>
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor truncate">{label}</span>
-        {#if description}<p class="text-xs text-textcolor2 mt-0.5">{description}</p>{/if}
+        <span class="text-sm text-maintext truncate">{label}</span>
+        {#if description}<p class="text-xs text-subtext mt-0.5">{description}</p>{/if}
     </div>
     <div class="shrink-0">{@render children?.()}</div>
 </div>

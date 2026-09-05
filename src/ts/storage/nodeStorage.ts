@@ -9,6 +9,22 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
+import { storageRequestError, StorageRequestError } from './storageRequest'
+import type {
+    BookmarkCatalog,
+    BookmarkCompatibilityResult,
+    BookmarkTarget,
+} from '../bookmarks/bookmarkTypes'
+
+const BOOKMARKS_API_PATH = '/api/bookmarks'
+const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
+
+function serverErrorMessage(body: any, fallback: string): string {
+    if (body?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+        return language.unsupportedRemoteSave
+    }
+    return typeof body?.error === 'string' ? body.error : fallback
+}
 
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
@@ -32,10 +48,45 @@ export interface PersistWarning {
 export interface PatchItemResult {
     success: boolean
     etag?: string
+    revision?: number
     conflict?: boolean
     persistWarning?: PersistWarning
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
+}
+
+export interface DatabaseProjection<T = unknown> {
+    database: T | null
+    etag: string
+    revision: number
+}
+
+export interface PluginStorageStartupStats {
+    totalBytes: number
+    unclassifiedBytes: number
+    plugins: Array<{
+        name: string
+        displayName: string
+        bytes: number
+    }>
+}
+
+export interface PluginStorageExclusion {
+    all?: boolean
+    pluginNames?: string[]
+    unclassified?: boolean
+}
+
+export interface ExportBackupOptions {
+    target?: 'upstream'
+    mode?: 'settings'
+    moduleAssets?: boolean
+}
+
+export interface SettingsBackupEstimate {
+    dbBytes: number
+    baseAssets: { count: number, bytes: number }
+    moduleAssets: { count: number, bytes: number, moduleCount: number }
 }
 
 /** Page-scoped id used for sync self-echo suppression and request tracing. */
@@ -51,6 +102,7 @@ export class NodeStorage{
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
 
     _lastDbEtag: string | null = null
+    _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
     authChecked = false
     private cachedJwt: { token: string; expiresAt: number } | null = null
@@ -58,6 +110,7 @@ export class NodeStorage{
     private static sessionPending: Promise<void> | null = null
     private refreshPending: Promise<string> | null = null
     private authPending: Promise<void> | null = null
+    private pluginStorageExclusionHeader = ''
 
     static getSessionId() {
         return NodeStorage.sessionId
@@ -231,17 +284,34 @@ export class NodeStorage{
             throw new ConflictError(data.error, data.currentEtag)
         }
         if(da.status < 200 || da.status >= 300){
-            throw "setItem Error"
+            throw await storageRequestError('setItem', da)
         }
         const data = await da.json()
         if(data.error){
-            throw data.error
+            throw new StorageRequestError('setItem', da.status, String(data.error))
         }
         const nextEtag = data.etag as string | undefined
         if (key === 'database/database.bin' && nextEtag) {
             this._lastDbEtag = nextEtag
         }
     }
+
+    async encodeInlayWebp(value: Uint8Array, options: { lossy: boolean; quality: number }): Promise<Blob> {
+        const response = await this.authFetch('/api/inlays/encode-webp', {
+            method: 'POST',
+            body: value as any,
+            headers: {
+                'content-type': 'application/octet-stream',
+                'x-inlay-lossy': options.lossy ? '1' : '0',
+                'x-inlay-quality': String(options.quality),
+            },
+        })
+        if (!response.ok) {
+            throw await storageRequestError('encodeInlayWebp', response)
+        }
+        return new Blob([await response.arrayBuffer()], { type: 'image/webp' })
+    }
+
     async getItem(key:string):Promise<Buffer> {
         const headers: Record<string, string> = {
             'file-path': Buffer.from(key, 'utf-8').toString('hex')
@@ -249,7 +319,7 @@ export class NodeStorage{
 
         const da = await this.authFetch('/api/read', { method: "GET", headers })
         if(da.status < 200 || da.status >= 300){
-            throw "getItem Error"
+            throw await storageRequestError('getItem', da)
         }
 
         // Capture ETag for database.bin
@@ -285,7 +355,7 @@ export class NodeStorage{
             headers
         })
         if(da.status < 200 || da.status >= 300){
-            throw "listItem Error"
+            throw await storageRequestError('listItem', da)
         }
         const data = await da.json()
         if(data.error){
@@ -307,7 +377,7 @@ export class NodeStorage{
             }
         })
         if(da.status < 200 || da.status >= 300){
-            throw "removeItem Error"
+            throw await storageRequestError('removeItem', da)
         }
         const data = await da.json()
         if(data.error){
@@ -384,26 +454,147 @@ export class NodeStorage{
         this._lastDbEtag = etag
     }
 
+    /** Set the revision associated with the cached database projection. */
+    setDbRevision(revision: number | null) {
+        this._lastDbRevision = revision
+    }
+
+    setPluginStorageExclusion(exclusion: PluginStorageExclusion | null) {
+        if (!exclusion) {
+            this.pluginStorageExclusionHeader = ''
+            return
+        }
+        if (exclusion.all) {
+            this.pluginStorageExclusionHeader = 'all'
+            return
+        }
+        const pluginNames = [...new Set(exclusion.pluginNames ?? [])]
+        if (pluginNames.length === 0 && !exclusion.unclassified) {
+            this.pluginStorageExclusionHeader = ''
+            return
+        }
+        this.pluginStorageExclusionHeader = Buffer.from(JSON.stringify({
+            plugins: pluginNames,
+            unclassified: exclusion.unclassified === true,
+        }), 'utf8').toString('base64')
+    }
+
+    async getPluginStorageStartupStats(): Promise<PluginStorageStartupStats> {
+        const response = await this.authFetch('/api/plugin-storage/startup-stats', {
+            method: 'GET',
+            headers: { accept: 'application/json' },
+        })
+        if (!response.ok) {
+            throw new Error(`Plugin storage startup stats failed (${response.status})`)
+        }
+        return await response.json() as PluginStorageStartupStats
+    }
+
+    /** Load the relational database's client projection as JSON. */
+    async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
+        const headers:Record<string, string> = { accept: 'application/json' }
+        if (this.pluginStorageExclusionHeader) {
+            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
+        }
+        const response = await this.authFetch('/api/database', {
+            method: 'GET',
+            headers,
+        })
+        if (!response.ok) {
+            throw await storageRequestError('getDatabaseProjection', response)
+        }
+
+        const data = await response.json() as DatabaseProjection<T>
+        this._lastDbEtag = data.etag ?? null
+        this._lastDbRevision = Number.isSafeInteger(data.revision) ? data.revision : null
+        return data
+    }
+
+    /**
+     * Initialize a brand-new relational database. The server only accepts this
+     * while revision 0 is still current, so two first-run clients cannot replace
+     * one another's initialized state.
+     */
+    async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
+        const response = await this.authFetch('/api/database', {
+            method: 'PUT',
+            body: JSON.stringify({ database, expectedRevision }),
+            headers: { 'content-type': 'application/json' },
+        })
+        if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
+        const data = await response.json().catch(() => ({})) as {
+            error?: string
+            etag?: string
+            currentEtag?: string
+            revision?: number
+            currentRevision?: number
+            persistWarning?: PersistWarning
+        }
+        const etag = data.etag ?? data.currentEtag
+        const revision = data.revision ?? data.currentRevision
+        if (etag) this._lastDbEtag = etag
+        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+
+        if (response.status === 409) {
+            return { success: false, conflict: true, etag, revision }
+        }
+        if (data.error) {
+            throw new StorageRequestError('initializeDatabase', response.status, data.error)
+        }
+        return {
+            success: true,
+            etag,
+            revision,
+            persistWarning: data.persistWarning,
+        }
+    }
+
+    /** Apply metadata changes to the relational database projection. */
+    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
+    }
+
     async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        return this.sendPatch('/api/patch', patchData, key === 'database/database.bin', key)
+    }
+
+    private async sendPatch(
+        endpoint: string,
+        patchData: { patch: any[], expectedHash: string },
+        tracksDatabase: boolean,
+        key?: string,
+        method: 'POST' | 'PATCH' = 'POST',
+    ): Promise<PatchItemResult> {
         // An empty JSON Patch is the identity operation. It has no write intent,
         // so it must not enter the network/CAS lane with a potentially stale
         // hash while a server-owned generation commit is advancing the DB.
         if (patchData.patch.length === 0) return { success: true }
+        const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
 
-        const da = await this.authFetch('/api/patch', {
-            method: "POST",
+        const headers: Record<string, string> = {
+            'content-type': 'application/json',
+        }
+        if (tracksDatabase && this.pluginStorageExclusionHeader) {
+            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
+        }
+        if (key) {
+            headers['file-path'] = Buffer.from(key, 'utf-8').toString('hex')
+        }
+        const da = await this.authFetch(endpoint, {
+            method,
             body: JSON.stringify(patchData),
-            headers: {
-                'content-type': 'application/json',
-                'file-path': Buffer.from(key, 'utf-8').toString('hex')
-            }
+            headers,
         })
 
         if (da.status === 409) {
             const data = await da.json()
             const currentEtag = data.currentEtag as string | undefined
-            if (key === 'database/database.bin' && currentEtag) {
+            const currentRevision = data.currentRevision as number | undefined
+            if (tracksDatabase && currentEtag) {
                 this._lastDbEtag = currentEtag
+            }
+            if (tracksDatabase && Number.isSafeInteger(currentRevision)) {
+                this._lastDbRevision = currentRevision as number
             }
             // Server signals chat-guard rejection via explicit fields. The
             // error string fallback is kept for forward-compat with deployed
@@ -414,23 +605,28 @@ export class NodeStorage{
             return {
                 success: false,
                 etag: currentEtag,
+                revision: currentRevision,
                 conflict: !rejectedByChatGuard,
                 chatGuardRejected: rejectedByChatGuard,
             }
         }
         if (da.status < 200 || da.status >= 300) {
-            return { success: false }
+            throw await storageRequestError(operation, da)
         }
         const data = await da.json()
         if (data.error) {
-            return { success: false }
+            throw new StorageRequestError(operation, da.status, String(data.error))
         }
         const nextEtag = data.etag as string | undefined
-        if (key === 'database/database.bin' && nextEtag) {
+        const nextRevision = data.revision as number | undefined
+        if (tracksDatabase && nextEtag) {
             this._lastDbEtag = nextEtag
         }
+        if (tracksDatabase && Number.isSafeInteger(nextRevision)) {
+            this._lastDbRevision = nextRevision as number
+        }
         const persistWarning = data.persistWarning as PersistWarning | undefined
-        return { success: true, etag: nextEtag, persistWarning }
+        return { success: true, etag: nextEtag, revision: nextRevision, persistWarning }
     }
 
     // ── Bulk asset operations (3-2-B) ──────────────────────────────────────────
@@ -443,7 +639,7 @@ export class NodeStorage{
                 'accept': 'application/octet-stream'
             }
         })
-        if (da.status < 200 || da.status >= 300) throw 'getItems Error'
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('getItems', da)
 
         const ct = da.headers.get('content-type') || ''
         if (ct.includes('application/octet-stream')) {
@@ -481,17 +677,26 @@ export class NodeStorage{
                     'content-type': 'application/json'
                 }
             })
-            if (da.status < 200 || da.status >= 300) throw 'setItems Error'
+            if (da.status < 200 || da.status >= 300) throw await storageRequestError('setItems', da)
         }
     }
 
-    async exportBackup(opts?: { target?: 'upstream' }): Promise<Response> {
-        const url = opts?.target === 'upstream'
-            ? '/api/backup/export?target=upstream'
-            : '/api/backup/export'
+    async exportBackup(opts?: ExportBackupOptions): Promise<Response> {
+        const params = new URLSearchParams()
+        if(opts?.target === 'upstream') params.set('target', 'upstream')
+        if(opts?.mode === 'settings') params.set('mode', 'settings')
+        if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
+        const query = params.toString()
+        const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
         const da = await this.authFetch(url)
         if (da.status < 200 || da.status >= 300) throw `backup export error: ${da.status}`
         return da
+    }
+
+    async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
+        const response = await this.authFetch('/api/backup/export/settings-estimate')
+        if(!response.ok) throw new Error(`settings estimate error: ${response.status}`)
+        return await response.json()
     }
 
     async prepareImport(size: number): Promise<void> {
@@ -558,7 +763,9 @@ export class NodeStorage{
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
-                        serverErrorMsg = typeof msg.message === 'string' ? msg.message : 'backup import failed'
+                        serverErrorMsg = msg.code === 'UNSUPPORTED_REMOTE_SAVE'
+                            ? language.unsupportedRemoteSave
+                            : typeof msg.message === 'string' ? msg.message : 'backup import failed'
                     }
                     // Ignore 'heartbeat' and unknown event types.
                 }
@@ -571,7 +778,7 @@ export class NodeStorage{
                     let msg = `backup import error: ${xhr.status}`
                     try {
                         const body = JSON.parse(xhr.responseText)
-                        if (body?.error) msg = String(body.error)
+                        msg = serverErrorMessage(body, msg)
                     } catch {}
                     reject(new Error(msg))
                     return
@@ -589,6 +796,7 @@ export class NodeStorage{
     // ── Server-side backup ─────────────────────────────────────────────────────
 
     async saveServerBackup(
+        note = '',
         onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void
     ): Promise<{ok: boolean, filename: string, size: number}> {
         const da = await this.authFetch('/api/backup/server/save', {
@@ -597,7 +805,7 @@ export class NodeStorage{
                 'content-type': 'application/json',
                 'x-sync-client-id': NodeStorage.sessionId,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ note }),
         })
         if (da.status < 200 || da.status >= 300) {
             const body = await da.json().catch(() => ({}))
@@ -631,7 +839,7 @@ export class NodeStorage{
         return result
     }
 
-    async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number}>}> {
+    async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number, note?: string}>}> {
         const da = await this.authFetch('/api/backup/server/list')
         if (da.status < 200 || da.status >= 300) throw new Error(`server backup list error: ${da.status}`)
         return da.json()
@@ -653,7 +861,7 @@ export class NodeStorage{
         if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
             const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup restore error: ${da.status}`)
+            throw new Error(serverErrorMessage(body, `server backup restore error: ${da.status}`))
         }
 
         const reader = da.body!.getReader()
@@ -675,7 +883,9 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(msg.code === 'UNSUPPORTED_REMOTE_SAVE'
+                        ? language.unsupportedRemoteSave
+                        : msg.message)
                 }
             }
         }
@@ -764,12 +974,87 @@ export class NodeStorage{
 
     // ── Chat content (runtime lazy load) ────────────────────────────────────
 
+    async fetchBookmarkCatalog(): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH)
+        if (da.status < 200 || da.status >= 300) {
+            throw new Error(`fetchBookmarks error: ${da.status}`)
+        }
+        return await da.json() as BookmarkCatalog
+    }
+
+    async putBookmark(entry: BookmarkTarget & { name: string, tagIds?: string[] }): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(entry),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`putBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async patchBookmark(
+        target: BookmarkTarget,
+        patch: { name?: string, tagIds?: string[] },
+    ): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...target, ...patch }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`patchBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async deleteBookmark(target: BookmarkTarget): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(target),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`deleteBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async replaceBookmarkTags(tags: { id: string, name: string }[]): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARK_TAGS_API_PATH, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ tags }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`bookmarkTags error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async mergeBookmarkTags(tags: unknown): Promise<{ idMap: Record<string, string>, catalog: BookmarkCatalog }> {
+        const da = await this.authFetch(`${BOOKMARK_TAGS_API_PATH}/merge`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ tags }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`mergeBookmarkTags error: ${da.status}`)
+        return await da.json()
+    }
+
+    async fetchBookmarkCompatibility(
+        targets: Array<{ characterId: string, chatId: string }>,
+    ): Promise<BookmarkCompatibilityResult> {
+        const da = await this.authFetch(`${BOOKMARKS_API_PATH}/compatibility`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ targets }),
+        })
+        if (da.status < 200 || da.status >= 300) {
+            throw new Error(`bookmarkCompatibility error: ${da.status}`)
+        }
+        return await da.json() as BookmarkCompatibilityResult
+    }
+
     async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             headers: { 'x-chat-id': chatId },
         })
         if (da.status === 404) return null
-        if (da.status < 200 || da.status >= 300) throw new Error(`fetchChatContent error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
         const etag = da.headers.get('x-chat-etag')
         if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
         const buffer = new Uint8Array(await da.arrayBuffer())
@@ -802,8 +1087,9 @@ export class NodeStorage{
             const data = await da.json().catch(() => ({}))
             throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '')
         }
-        if (da.status < 200 || da.status >= 300) throw new Error(`saveChatContent error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('saveChatContent', da)
         const data = await da.json()
+        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error))
         if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
     }
 
@@ -867,7 +1153,7 @@ export class NodeStorage{
             xhr.onload = () => {
                 if (xhr.status < 200 || xhr.status >= 300) {
                     let msg = `zip import error: ${xhr.status}`
-                    try { msg = JSON.parse(xhr.responseText).error || msg } catch {}
+                    try { msg = serverErrorMessage(JSON.parse(xhr.responseText), msg) } catch {}
                     reject(new Error(msg))
                     return
                 }

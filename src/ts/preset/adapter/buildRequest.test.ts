@@ -240,6 +240,33 @@ describe('buildPreparedRequest', () => {
         })
     })
 
+    test('applies generated body defaults before user-owned body overrides', () => {
+        const automatic = buildPreparedRequest({
+            preset: makePreset(),
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(automatic.body.prompt_cache_key).toBe('automatic-key')
+
+        const customPreset = makePreset({
+            customBody: { prompt_cache_key: 'custom-key' },
+        })
+        const custom = buildPreparedRequest({
+            preset: customPreset,
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(custom.body.prompt_cache_key).toBe('custom-key')
+
+        customPreset.additionalParamsText = 'prompt_cache_key={{none}}'
+        const disabled = buildPreparedRequest({
+            preset: customPreset,
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(disabled.body).not.toHaveProperty('prompt_cache_key')
+    })
+
     test('builds the Vertex OpenAI endpoint URL from custom-mapped project + location', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({
@@ -310,6 +337,47 @@ describe('buildPreparedRequest', () => {
         expect(result.url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global/endpoints/openapi/chat/completions',
         )
+    })
+
+    test('sends both Vertex routing headers for a selected Flex tier', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                auth: { kind: 'none', fields: [] },
+                endpoint: { kind: 'vertex-gemini' },
+                schema: [
+                    {
+                        key: 'project',
+                        type: 'string',
+                        label: 'Project',
+                        mapsTo: { target: 'custom', path: 'project' },
+                    },
+                    {
+                        key: 'location',
+                        type: 'string',
+                        label: 'Location',
+                        default: 'global',
+                        mapsTo: { target: 'custom', path: 'location' },
+                    },
+                    {
+                        key: 'service_tier',
+                        type: 'string',
+                        label: 'Service Tier',
+                        mapsTo: {
+                            target: 'header',
+                            path: 'X-Vertex-AI-LLM-Shared-Request-Type',
+                        },
+                    },
+                ],
+            }),
+            userValues: { project: 'my-proj', service_tier: 'flex' },
+        })
+
+        const result = buildPreparedRequest({ preset })
+
+        expect(result.headers).toMatchObject({
+            'X-Vertex-AI-LLM-Request-Type': 'shared',
+            'X-Vertex-AI-LLM-Shared-Request-Type': 'flex',
+        })
     })
 
     test('throws invalid-request when Vertex project is missing', () => {

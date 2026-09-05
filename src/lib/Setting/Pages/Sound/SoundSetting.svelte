@@ -2,7 +2,7 @@
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
     import { playSoundPreview } from 'src/ts/notificationSound';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
+    import Button from '../../../UI/components/Button.svelte';
     import { PlayIcon, Music2Icon } from '@lucide/svelte';
     import SoundRow from './SoundRow.svelte';
     import SoundPickerModal from './SoundPickerModal.svelte';
@@ -54,7 +54,7 @@
 
     <SoundRow label={language.soundEffect} dimmed={!enabled}>
         <div class="flex items-center gap-1 min-w-0">
-            <ShButton
+            <Button
                 variant="outline"
                 size="sm"
                 disabled={!enabled}
@@ -63,8 +63,8 @@
             >
                 <Music2Icon class="shrink-0" />
                 <span class="truncate">{soundName}</span>
-            </ShButton>
-            <ShButton
+            </Button>
+            <Button
                 variant="outline"
                 size="icon-sm"
                 disabled={!enabled}
@@ -72,7 +72,7 @@
                 aria-label={language.preview}
             >
                 <PlayIcon />
-            </ShButton>
+            </Button>
         </div>
     </SoundRow>
 

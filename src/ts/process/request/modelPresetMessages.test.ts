@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { expandAdapterMessages, toAdapterMessage, toolResponseText, type DecodeToolCall } from './modelPresetMessages'
 import type { OpenAIChat } from '../index.svelte'
 
@@ -71,13 +71,16 @@ describe('expandAdapterMessages', () => {
         expect(out[4]).toMatchObject({ role: 'assistant', content: 'done' })
     })
 
-    test('decode is only invoked for assistant turns containing a marker', async () => {
-        const decode = vi.fn(makeDecoder({}))
-        await expandAdapterMessages([
+    test('keeps marker-like text in non-assistant turns literal', async () => {
+        const out = await expandAdapterMessages([
             { role: 'user', content: 'has <tool_call>x</tool_call> but is user' },
             { role: 'assistant', content: 'no marker here' },
-        ], decode)
-        expect(decode).not.toHaveBeenCalled()
+        ], makeDecoder({ x: { name: 'ignored', arg: {}, text: 'ignored' } }))
+
+        expect(out).toEqual([
+            { role: 'user', content: 'has <tool_call>x</tool_call> but is user' },
+            { role: 'assistant', content: 'no marker here' },
+        ])
     })
 })
 

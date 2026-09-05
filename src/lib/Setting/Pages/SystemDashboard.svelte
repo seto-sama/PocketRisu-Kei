@@ -1,11 +1,11 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
-    import ShAccordion from 'src/lib/UI/GUI/ShAccordion.svelte'
-    import ShLoadingDialog from 'src/lib/UI/GUI/ShLoadingDialog.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
-    import ShTooltip from 'src/lib/UI/GUI/ShTooltip.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Badge from '../../UI/components/Badge.svelte'
+    import Alert from '../../UI/components/Alert.svelte'
+    import Accordion from '../../UI/components/Accordion.svelte'
+    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import Switch from '../../UI/components/Switch.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import {
         HardDriveIcon,
         UsersIcon,
@@ -29,6 +29,8 @@
     import { changeChar } from 'src/ts/characters'
     import { language } from 'src/lang'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
+    import OrphanAssetCleanupCard from './OrphanAssetCleanupCard.svelte'
+    import type { OrphanAssetStats } from 'src/ts/storage/orphanAssets'
 
     // ── Types ────────────────────────────────────────────────────────────────
     interface PrefixInfo { totalSize: number; count: number }
@@ -50,7 +52,7 @@
             file: { count: number; totalSize: number; oldest: number | null; newest: number | null }
         }
         trashed: { count: number; expiredCount: number; available: boolean }
-        orphan: { count: number; totalSize: number; available: boolean }
+        orphan: OrphanAssetStats
         etag: string | null
     }
     interface CharBreakdown {
@@ -286,10 +288,13 @@
         }
     }
 
+    async function refreshAfterOrphanCleanup() {
+        characters = null
+        await loadStats()
+    }
+
     // ── Disk usage rows ──────────────────────────────────────────────────────
-    // 10 distinct hues spanning the wheel — visually separable even at narrow
-    // bar widths, and intuitive grouping (red/orange = data, green/teal = media,
-    // blue/violet = backups, gray = overhead).
+    // Theme-derived categorical colors shared with the rest of the UI.
     interface DiskRow {
         id: string
         label: string
@@ -331,8 +336,8 @@
         // else lives in kv (test keys, migration leftovers), it shows up
         // under "uncategorized" so the bar always sums correctly.
         const knownKv =
-            get('assets/') + inlayKvTotal + get('remotes/') + get('coldstorage/')
-            + get('cache/hypa-vector/') + get('cache/llm-translate/') + rawDbBlob
+            get('assets/') + inlayKvTotal + get('cache/hypa-vector/')
+            + get('cache/llm-translate/') + rawDbBlob
         const uncategorizedKv = Math.max(0, stats.kvTotalBytes - knownKv)
         const otherData = uncategorizedKv + stats.files.wal + stats.files.shm
         // SQLite overhead splits into "structural" (always present — indexes,
@@ -343,22 +348,20 @@
         const totalReclaimable = reclaimable + orphanChunkBytes
         const structuralOverhead = Math.max(0, stats.files.db - stats.kvTotalBytes - chunkedDbBytes - reclaimable)
         const rows: DiskRow[] = [
-            { id: 'kv-database',     label: language.storageRowKvDatabase,     desc: language.storageRowKvDatabaseDesc,     size: dbRowSize,                     color: 'bg-rose-500' },
-            { id: 'kv-assets',       label: language.storageRowKvAssets,       desc: language.storageRowKvAssetsDesc,       size: get('assets/'),                color: 'bg-amber-500' },
-            { id: 'kv-inlay',        label: language.storageRowKvInlay,        desc: language.storageRowKvInlayDesc,        size: inlayTotal,                    color: 'bg-emerald-500' },
-            { id: 'hypa-vector',      label: language.storageRowHypaVectorCache, desc: language.storageRowHypaVectorCacheDesc, size: get('cache/hypa-vector/'), color: 'bg-violet-500' },
-            { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-indigo-500' },
-            { id: 'kv-remotes',      label: language.storageRowKvRemotes,      desc: language.storageRowKvRemotesDesc,      size: get('remotes/'),               color: 'bg-cyan-500' },
-            { id: 'kv-cold',         label: language.storageRowKvColdStorage,  desc: language.storageRowKvColdStorageDesc,  size: get('coldstorage/'),           color: 'bg-stone-500' },
-            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-stone-600' },
-            { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-zinc-500' },
-            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-warning' },
+            { id: 'kv-database',     label: language.storageRowKvDatabase,     desc: language.storageRowKvDatabaseDesc,     size: dbRowSize,                     color: 'bg-palette-5' },
+            { id: 'kv-assets',       label: language.storageRowKvAssets,       desc: language.storageRowKvAssetsDesc,       size: get('assets/'),                color: 'bg-palette-2' },
+            { id: 'kv-inlay',        label: language.storageRowKvInlay,        desc: language.storageRowKvInlayDesc,        size: inlayTotal,                    color: 'bg-palette-1' },
+            { id: 'hypa-vector',      label: language.storageRowHypaVectorCache, desc: language.storageRowHypaVectorCacheDesc, size: get('cache/hypa-vector/'), color: 'bg-palette-7' },
+            { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-palette-6' },
+            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-palette-8' },
+            { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-palette-9' },
+            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-palette-3' },
             // File backups are only on the same disk as save/ when sameAsSaveDir
             // is true. If user pointed backupsDir at a different mount, those
             // bytes don't belong in this chart's geometry — they're shown in
             // the dedicated Backups card instead.
             ...(stats.backupDisk?.sameAsSaveDir !== false
-                ? [{ id: 'file-backup', label: language.storageRowFileBackups, desc: language.storageRowFileBackupsDesc, size: stats.backups.file.totalSize, color: 'bg-fuchsia-500' }]
+                ? [{ id: 'file-backup', label: language.storageRowFileBackups, desc: language.storageRowFileBackupsDesc, size: stats.backups.file.totalSize, color: 'bg-palette-4' }]
                 : []),
         ]
         return rows.filter(r => r.size > 0)
@@ -438,24 +441,24 @@
     $effect(() => { loadStats() })
 </script>
 
-<p class="text-textcolor2 text-sm mb-4">{language.storageDashboardDesc}</p>
+<p class="text-subtext text-sm mb-4">{language.storageDashboardDesc}</p>
 
 {#if loadError}
-    <ShAlert variant="destructive" className="mb-4">
+    <Alert variant="destructive" className="mb-4">
         {#snippet icon()}<TriangleAlertIcon />{/snippet}
         {language.storageFailedLoad}: {loadError}
-    </ShAlert>
+    </Alert>
 {/if}
 
 {#if stats}
     <!-- ① Storage (macOS-style) ──────────────────────────────────────────── -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <HardDriveIcon size={16} />
                 <span class="font-medium">{language.storageDiskUsage}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {#if !showFullDisk}
                     {language.storageDiskRisuTotal(risuFootprint)}
                 {:else if diskTotal != null && diskUsed != null}
@@ -467,36 +470,36 @@
         </div>
 
         {#if diskUsageLevel === 'crit' && diskUsedPct != null}
-            <ShAlert variant="destructive" className="mb-3">
+            <Alert variant="destructive" className="mb-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-            <ShAlert variant="warning" className="mb-3">
+            <Alert variant="warning" className="mb-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {/if}
 
         <!-- Stacked bar — each slice is a Tooltip trigger so hover shows label + size. -->
-        <div class="flex h-7 bg-bgcolor border border-darkborderc rounded-md overflow-hidden mb-3">
+        <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
             {#each diskRows as row (row.id)}
-                <ShTooltip>
+                <Tooltip>
                     {#snippet trigger(props)}
                         <div {...props} class={row.color + ' cursor-help'} style:width={slicePct(row.size).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{row.label}</div>
-                    <div class="text-textcolor2 tabular-nums">{fmtBytes(row.size)}</div>
-                </ShTooltip>
+                    <div class="text-subtext tabular-nums">{fmtBytes(row.size)}</div>
+                </Tooltip>
             {/each}
             {#if showFullDisk && otherUsed != null && otherUsed > 0}
-                <ShTooltip>
+                <Tooltip>
                     {#snippet trigger(props)}
-                        <div {...props} class="bg-textcolor2/40 cursor-help" style:width={slicePct(otherUsed).toFixed(3) + '%'}></div>
+                        <div {...props} class="bg-subtext/40 cursor-help" style:width={slicePct(otherUsed).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{language.storageDiskOther}</div>
-                    <div class="text-textcolor2 tabular-nums">{fmtBytes(otherUsed)}</div>
-                </ShTooltip>
+                    <div class="text-subtext tabular-nums">{fmtBytes(otherUsed)}</div>
+                </Tooltip>
             {/if}
         </div>
 
@@ -505,13 +508,13 @@
             {#each diskRows as row (row.id)}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
                     <span class={'inline-block size-3 rounded-sm shrink-0 ' + row.color}></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{row.label}</span>
-                    <ShTooltip className="max-w-70">
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{row.label}</span>
+                    <Tooltip className="max-w-70">
                         {#snippet trigger(props)}
                             <button
                                 {...props}
                                 type="button"
-                                class="text-textcolor2 risu-interactive-accent cursor-pointer shrink-0 leading-none"
+                                class="text-subtext risu-interactive-accent cursor-pointer shrink-0 leading-none"
                                 aria-label={row.label}
                                 onclick={() => openRowDetails(row.label, row.desc, row.size)}
                             >
@@ -519,24 +522,24 @@
                             </button>
                         {/snippet}
                         {row.desc}
-                    </ShTooltip>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(row.size)}</span>
+                    </Tooltip>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(row.size)}</span>
                 </div>
             {/each}
             {#if showFullDisk && otherUsed != null && otherUsed > 0}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
-                    <span class="inline-block size-3 rounded-sm shrink-0 bg-textcolor2/40"></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{language.storageDiskOther}</span>
+                    <span class="inline-block size-3 rounded-sm shrink-0 bg-subtext/40"></span>
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{language.storageDiskOther}</span>
                     <span class="size-3.5 shrink-0"></span>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(otherUsed)}</span>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(otherUsed)}</span>
                 </div>
             {/if}
             {#if showFullDisk && diskFree != null}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
-                    <span class="inline-block size-3 rounded-sm shrink-0 border border-darkborderc bg-bgcolor"></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{language.storageDiskFree}</span>
+                    <span class="inline-block size-3 rounded-sm shrink-0 border border-darkborderc bg-lightbg"></span>
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{language.storageDiskFree}</span>
                     <span class="size-3.5 shrink-0"></span>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(diskFree)}</span>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(diskFree)}</span>
                 </div>
             {/if}
         </div>
@@ -544,117 +547,120 @@
         <!-- Footer: internal-only switch -->
         <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-darkborderc/50">
             <label class="flex items-center gap-2 cursor-pointer select-none">
-                <ShSwitch bind:checked={showFullDisk} />
-                <span class="text-textcolor text-sm">{language.storageInternalOnly}</span>
+                <Switch bind:checked={showFullDisk} />
+                <span class="text-maintext text-sm">{language.storageInternalOnly}</span>
             </label>
-            <span class="text-textcolor2 text-xs hidden sm:inline">{language.storageInternalOnlyHint}</span>
+            <span class="text-subtext text-xs hidden sm:inline">{language.storageInternalOnlyHint}</span>
         </div>
     </SettingLayout>
 
     <!-- ② Database cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <SparklesIcon size={16} />
                 <span class="font-medium">{language.storageCleanup}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {language.storageOptimizeHeader(stats.files.db, totalReclaimable)}
             </span>
         </div>
 
         <!-- Used vs reclaimable inside risuai.db -->
-        <div class="flex h-7 bg-bgcolor border border-darkborderc rounded-md overflow-hidden mb-3">
-            <ShTooltip>
+        <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
+            <Tooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-primary cursor-help" style:width={pctOf(overheadUsed, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarUsed}</div>
-                <div class="text-textcolor2 tabular-nums">{fmtBytes(overheadUsed)}</div>
-            </ShTooltip>
-            <ShTooltip>
+                <div class="text-subtext tabular-nums">{fmtBytes(overheadUsed)}</div>
+            </Tooltip>
+            <Tooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-warning cursor-help" style:width={pctOf(totalReclaimable, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarReclaimable}</div>
-                <div class="text-textcolor2 tabular-nums">{fmtBytes(totalReclaimable)}</div>
-            </ShTooltip>
+                <div class="text-subtext tabular-nums">{fmtBytes(totalReclaimable)}</div>
+            </Tooltip>
         </div>
-        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mb-3 tabular-nums">
+        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mb-3 tabular-nums">
             <span><span class="inline-block size-2 bg-primary rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarUsed} {fmtBytes(overheadUsed)}</span>
             <span><span class="inline-block size-2 bg-warning rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarReclaimable} {fmtBytes(totalReclaimable)}</span>
         </div>
 
-        <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
         <div class="flex justify-end gap-2">
-            <ShButton variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
+            <Button variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
                 <HardDriveIcon />
                 {language.storageWalCleanup_btn}
-            </ShButton>
-            <ShButton variant="primary" onclick={runOptimize} disabled={totalReclaimable < 50 * 1024 * 1024}>
+            </Button>
+            <Button variant="primary" onclick={runOptimize} disabled={totalReclaimable < 50 * 1024 * 1024}>
                 <SparklesIcon />
                 {language.storageOptimize}
-            </ShButton>
+            </Button>
         </div>
     </SettingLayout>
 
-    <!-- ③ HypaMemory vector cache cleanup -->
+    <!-- ③ Orphan assets -->
+    <OrphanAssetCleanupCard orphan={stats.orphan} onPurged={refreshAfterOrphanCleanup} />
+
+    <!-- ④ HypaMemory vector cache cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <SparklesIcon size={16} />
                 <span class="font-medium">{language.storageHypaCleanup}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {language.storageHypaCleanupHeader(
                     stats.prefixes['cache/hypa-vector/']?.totalSize ?? 0,
                     stats.prefixes['cache/hypa-vector/']?.count ?? 0,
                 )}
             </span>
         </div>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
         <div class="flex justify-end">
-            <ShButton
+            <Button
                 variant="outline"
                 onclick={runHypaCleanup}
                 disabled={hypaCleanupOpen || (stats.prefixes['cache/hypa-vector/']?.count ?? 0) === 0}
             >
                 <SparklesIcon />
                 {language.storageHypaCleanup_btn}
-            </ShButton>
+            </Button>
         </div>
     </SettingLayout>
 
-    <!-- ④ Per-character -->
+    <!-- ⑤ Per-character -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <UsersIcon size={16} />
                 <span class="font-medium">{language.storageCharacters}</span>
             </div>
-            <ShButton variant="outline" size="sm" onclick={loadCharacters} disabled={charLoading}>
+            <Button variant="outline" size="sm" onclick={loadCharacters} disabled={charLoading}>
                 {charLoading ? language.storageCharactersMeasuring : language.storageCharactersMeasure}
-            </ShButton>
+            </Button>
         </div>
         {#if !characters && !charError && !charLoading}
-            <div class="text-textcolor2 text-sm">{language.storageCharactersDesc}</div>
+            <div class="text-subtext text-sm">{language.storageCharactersDesc}</div>
         {/if}
         {#if charError}
-            <ShAlert variant="destructive">
+            <Alert variant="destructive">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {charError}
-            </ShAlert>
+            </Alert>
         {/if}
         {#if characters}
-            <div class="text-textcolor2 text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
+            <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
                 <span>{language.storageCharactersDone(charElapsed ?? 0, characters.characters.length)}</span>
                 {#if characters.characters.length > 0}
                     <span class="tabular-nums">{language.storageShowingOf(Math.min(charShown, characters.characters.length), characters.characters.length)}</span>
                 {/if}
             </div>
             {#if characters.characters.length === 0}
-                <div class="text-textcolor2 text-sm">{language.storageCharactersEmpty}</div>
+                <div class="text-subtext text-sm">{language.storageCharactersEmpty}</div>
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each charSlice as c (c.chaId || c.name)}
@@ -663,23 +669,23 @@
                             disabled={c.trashed}
                             onclick={() => jumpToCharacter(c)}
                             aria-label={c.trashed ? undefined : language.storageCharactersGoTo}
-                            class="block w-full text-left border border-darkborderc/50 rounded-md p-2 transition-colors enabled:cursor-pointer enabled:hover:border-borderc enabled:hover:bg-selected/10 disabled:cursor-default"
+                            class="block w-full text-left border border-darkborderc/50 rounded-md p-2 transition-colors enabled:cursor-pointer enabled:hover:border-lightborderc enabled:hover:bg-selected/10 disabled:cursor-default"
                         >
                             <div class="flex items-baseline justify-between gap-2 mb-1">
                                 <div class="flex items-center gap-2 min-w-0">
                                     {#if c.trashed}
-                                        <ShBadge variant="secondary">{language.storageCharactersTrashed}</ShBadge>
+                                        <Badge variant="secondary">{language.storageCharactersTrashed}</Badge>
                                     {/if}
-                                    <span class="text-textcolor text-sm truncate">{c.name || '(unnamed)'}</span>
+                                    <span class="text-maintext text-sm truncate">{c.name || '(unnamed)'}</span>
                                 </div>
-                                <span class="text-textcolor text-sm tabular-nums shrink-0">{fmtBytes(c.totalBytes)}</span>
+                                <span class="text-maintext text-sm tabular-nums shrink-0">{fmtBytes(c.totalBytes)}</span>
                             </div>
-                            <div class="flex h-1.5 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
+                            <div class="flex h-1.5 bg-lightbg border border-darkborderc rounded-md overflow-hidden">
                                 <div class="bg-rose-500" style:width={pctOf(c.cardBytes, c.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-amber-500" style:width={pctOf(c.imgBytes, c.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-cyan-500" style:width={pctOf(c.chatBytes, c.totalBytes).toFixed(2) + '%'}></div>
                             </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mt-1 tabular-nums">
+                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mt-1 tabular-nums">
                                 <span><span class="inline-block size-2 bg-rose-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersCard} {fmtBytes(c.cardBytes)}</span>
                                 <span><span class="inline-block size-2 bg-amber-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersImage} {fmtBytes(c.imgBytes)}</span>
                                 <span><span class="inline-block size-2 bg-cyan-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersChat} {fmtBytes(c.chatBytes)}</span>
@@ -689,63 +695,63 @@
                 </div>
                 {#if charRemaining > 0}
                     <div class="flex justify-center mb-3">
-                        <ShButton variant="outline" size="sm" onclick={() => charShown += PAGE_SIZE}>
+                        <Button variant="outline" size="sm" onclick={() => charShown += PAGE_SIZE}>
                             {language.storageLoadMore(charRemaining)}
-                        </ShButton>
+                        </Button>
                     </div>
                 {/if}
             {/if}
             {#if characters.orphan.count > 0}
-                <ShAlert variant="warning">
+                <Alert variant="warning">
                     {#snippet icon()}<TriangleAlertIcon />{/snippet}
                     {language.storageCharactersOrphan(characters.orphan.count, characters.orphan.totalSize)}
-                </ShAlert>
+                </Alert>
             {/if}
         {/if}
     </SettingLayout>
 
-    <!-- ⑤ Per-module -->
+    <!-- ⑥ Per-module -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <BlocksIcon size={16} />
                 <span class="font-medium">{language.storageModules}</span>
             </div>
-            <ShButton variant="outline" size="sm" onclick={loadModules} disabled={modLoading}>
+            <Button variant="outline" size="sm" onclick={loadModules} disabled={modLoading}>
                 {modLoading ? language.storageModulesMeasuring : language.storageModulesMeasure}
-            </ShButton>
+            </Button>
         </div>
         {#if !modules && !modError && !modLoading}
-            <div class="text-textcolor2 text-sm">{language.storageModulesDesc}</div>
+            <div class="text-subtext text-sm">{language.storageModulesDesc}</div>
         {/if}
         {#if modError}
-            <ShAlert variant="destructive">
+            <Alert variant="destructive">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {modError}
-            </ShAlert>
+            </Alert>
         {/if}
         {#if modules}
-            <div class="text-textcolor2 text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
+            <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
                 <span>{language.storageModulesDone(modElapsed ?? 0, modules.modules.length)}</span>
                 {#if modules.modules.length > 0}
                     <span class="tabular-nums">{language.storageShowingOf(Math.min(modShown, modules.modules.length), modules.modules.length)}</span>
                 {/if}
             </div>
             {#if modules.modules.length === 0}
-                <div class="text-textcolor2 text-sm">{language.storageModulesEmpty}</div>
+                <div class="text-subtext text-sm">{language.storageModulesEmpty}</div>
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each modSlice as m (m.id || m.name)}
                         <div class="border border-darkborderc/50 rounded-md p-2">
                             <div class="flex items-baseline justify-between gap-2 mb-1">
-                                <span class="text-textcolor text-sm truncate min-w-0">{m.name || '(unnamed)'}</span>
-                                <span class="text-textcolor text-sm tabular-nums shrink-0">{fmtBytes(m.totalBytes)}</span>
+                                <span class="text-maintext text-sm truncate min-w-0">{m.name || '(unnamed)'}</span>
+                                <span class="text-maintext text-sm tabular-nums shrink-0">{fmtBytes(m.totalBytes)}</span>
                             </div>
-                            <div class="flex h-1.5 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
+                            <div class="flex h-1.5 bg-lightbg border border-darkborderc rounded-md overflow-hidden">
                                 <div class="bg-violet-500" style:width={pctOf(m.bodyBytes, m.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-amber-500" style:width={pctOf(m.assetBytes, m.totalBytes).toFixed(2) + '%'}></div>
                             </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mt-1 tabular-nums">
+                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mt-1 tabular-nums">
                                 <span><span class="inline-block size-2 bg-violet-500 rounded-sm align-middle mr-1"></span>{language.storageModulesBody} {fmtBytes(m.bodyBytes)}</span>
                                 <span><span class="inline-block size-2 bg-amber-500 rounded-sm align-middle mr-1"></span>{language.storageModulesAssets} {fmtBytes(m.assetBytes)}</span>
                             </div>
@@ -754,31 +760,31 @@
                 </div>
                 {#if modRemaining > 0}
                     <div class="flex justify-center">
-                        <ShButton variant="outline" size="sm" onclick={() => modShown += PAGE_SIZE}>
+                        <Button variant="outline" size="sm" onclick={() => modShown += PAGE_SIZE}>
                             {language.storageLoadMore(modRemaining)}
-                        </ShButton>
+                        </Button>
                     </div>
                 {/if}
             {/if}
         {/if}
     </SettingLayout>
 
-    <!-- ⑥ Debug -->
-    <ShAccordion name={language.storageDebug} variant="card">
-        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-textcolor2 text-sm font-mono">
-            <div>journal_mode</div><div class="text-textcolor">{stats.sqlite.journalMode}</div>
-            <div>page_size</div><div class="text-textcolor tabular-nums">{stats.sqlite.pageSize}</div>
-            <div>page_count</div><div class="text-textcolor tabular-nums">{stats.sqlite.pageCount.toLocaleString()}</div>
-            <div>freelist_count</div><div class="text-textcolor tabular-nums">{stats.sqlite.freelistCount.toLocaleString()}</div>
-            <div>auto_vacuum</div><div class="text-textcolor">{stats.sqlite.autoVacuum}</div>
-            <div>kv rows</div><div class="text-textcolor tabular-nums">{stats.kvRows.toLocaleString()}</div>
-            <div>kv total bytes</div><div class="text-textcolor tabular-nums">{fmtBytes(stats.kvTotalBytes)}</div>
-            <div>etag</div><div class="text-textcolor truncate">{stats.etag ?? '—'}</div>
+    <!-- ⑦ Debug -->
+    <Accordion name={language.storageDebug} variant="card">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-subtext text-sm font-mono">
+            <div>journal_mode</div><div class="text-maintext">{stats.sqlite.journalMode}</div>
+            <div>page_size</div><div class="text-maintext tabular-nums">{stats.sqlite.pageSize}</div>
+            <div>page_count</div><div class="text-maintext tabular-nums">{stats.sqlite.pageCount.toLocaleString()}</div>
+            <div>freelist_count</div><div class="text-maintext tabular-nums">{stats.sqlite.freelistCount.toLocaleString()}</div>
+            <div>auto_vacuum</div><div class="text-maintext">{stats.sqlite.autoVacuum}</div>
+            <div>kv rows</div><div class="text-maintext tabular-nums">{stats.kvRows.toLocaleString()}</div>
+            <div>kv total bytes</div><div class="text-maintext tabular-nums">{fmtBytes(stats.kvTotalBytes)}</div>
+            <div>etag</div><div class="text-maintext truncate">{stats.etag ?? '—'}</div>
         </div>
-    </ShAccordion>
+    </Accordion>
 
 {/if}
 
-<ShLoadingDialog open={optimizeOpen} message={optimizeMessage} tier="top" />
-<ShLoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} tier="top" />
-<ShLoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} tier="top" />
+<LoadingDialog open={optimizeOpen} message={optimizeMessage} />
+<LoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
+<LoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />

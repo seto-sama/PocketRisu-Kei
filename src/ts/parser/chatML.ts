@@ -39,10 +39,7 @@ export function parseChatML(data: string): OpenAIChat[] | null {
       }
 
       v = v.trim()
-
-      if (v.endsWith(ender)) {
-        v = v.substring(0, v.length - ender.length)
-      }
+      v = v.replaceAll(ender, '')
 
       let thoughts: string[] = []
       v = v.replace(/<Thoughts>(.+)<\/Thoughts>/gms, (_, p1) => {

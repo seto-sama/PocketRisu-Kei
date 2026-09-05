@@ -7,16 +7,17 @@ import {
 } from './registry'
 
 describe('model preset adapter registry', () => {
-    it('contains every concrete HTTP adapter with dispatch and support metadata', () => {
-        expect(Object.keys(MODEL_PRESET_ADAPTER_REGISTRY)).toEqual([
+    it('registers the supported concrete HTTP adapters with dispatch metadata', () => {
+        const supportedKinds = [
             'openai-compatible',
             'openai-responses',
             'anthropic-messages',
             'google-gemini',
             'amazon-bedrock',
-        ])
+        ] as const
 
-        for (const [kind, definition] of Object.entries(MODEL_PRESET_ADAPTER_REGISTRY)) {
+        for (const kind of supportedKinds) {
+            const definition = MODEL_PRESET_ADAPTER_REGISTRY[kind]
             expect(definition.kind).toBe(kind)
             expect(definition.support).toMatchObject({
                 streaming: true,

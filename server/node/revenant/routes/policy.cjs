@@ -11,6 +11,11 @@ function isUnregisteredWorkflowExpired(workflow, jobs, now = Date.now()) {
         && now - workflow.createdAt >= UNREGISTERED_WORKFLOW_TIMEOUT_MS;
 }
 
+function getUnregisteredWorkflowRetryAfterMs(workflow, jobs, now = Date.now()) {
+    if (hasRegisteredMainJob(jobs)) return undefined;
+    return Math.max(0, UNREGISTERED_WORKFLOW_TIMEOUT_MS - (now - workflow.createdAt));
+}
+
 function findReusableActiveMainJob(jobs, request) {
     if (
         request.jobType !== 'model'
@@ -26,9 +31,21 @@ function findReusableActiveMainJob(jobs, request) {
         && ['queued', 'generating'].includes(job.status));
 }
 
+function shouldSupersedeFailedActiveWorkflow(workflow, jobs) {
+    const mainJobs = jobs.filter(job => job?.jobType === 'model');
+    if (mainJobs.length === 0) return false;
+    if (mainJobs.some(job => ['queued', 'generating'].includes(job.status))) return false;
+    const failedStep = workflow?.steps?.some(step =>
+        (step.key === 'model.main' || step.key === 'message.materialize')
+        && step.status === 'failed');
+    return failedStep === true;
+}
+
 module.exports = {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS,
     findReusableActiveMainJob,
+    getUnregisteredWorkflowRetryAfterMs,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 };

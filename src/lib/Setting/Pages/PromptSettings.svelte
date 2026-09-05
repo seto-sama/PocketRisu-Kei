@@ -1,18 +1,19 @@
 <script lang="ts">
-    import { PlusIcon } from "@lucide/svelte";
+    import { PlusIcon, TriangleAlertIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import PromptDataItem from "src/lib/UI/PromptDataItem.svelte";
     import { tokenizePreset, type PromptItem } from "src/ts/process/prompt";
-    import { templateCheck } from "src/ts/process/templates/templateCheck";
+    import { templateCheck, type TemplateWarning } from "src/ts/process/templates/templateCheck";
     
     import { DBState } from 'src/ts/stores.svelte';
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import { onDestroy, onMount } from "svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+    import SortableList from "../../UI/components/SortableList.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import Alert from "../../UI/components/Alert.svelte";
 
-    let warns: string[] = $state([])
+    let warns: TemplateWarning[] = $state([])
     let tokens = $state(0)
     let extokens = $state(0)
     let openedItems = $state(new Set<PromptItem>())
@@ -58,6 +59,20 @@
         extokens = await tokenizePreset(prest, false)
     }
 
+    function warningText(warning: TemplateWarning): string {
+        if (warning.kind === 'missingChatEnd') {
+            return language.promptTemplateWarnings.missingChatEnd
+        }
+        if (warning.kind === 'unconnectedChatRanges') {
+            return language.promptTemplateWarnings.unconnectedChatRanges(warning.ranges.join(', '))
+        }
+
+        const item = language.formating[warning.item]
+        return warning.kind === 'missing'
+            ? language.promptTemplateWarnings.missing(item)
+            : language.promptTemplateWarnings.multiple(item)
+    }
+
     $effect.pre(() => {
     warns = templateCheck(DBState.db)
   });
@@ -98,17 +113,19 @@
     </div>
 {/if}
 {#if warns.length > 0 && subMenu === 0}
-    <div class="text-draculared flex flex-col items-start p-2 rounded-md border-red-500 border mt-4">
-        <h2 class="text-xl font-bold">Warning</h2>
-        <div class="border-b border-b-red-500 mt-1 mb-2 w-full"></div>
-        {#each warns as warn}
-            <span class="ml-4">{warn}</span>
-        {/each}
-    </div>
+    <Alert variant="destructive" className="mt-4">
+        {#snippet icon()}<TriangleAlertIcon />{/snippet}
+        {#snippet title()}{language.promptTemplateWarnings.title}{/snippet}
+        <ul class="m-0 list-disc space-y-1 pl-4">
+            {#each warns as warn}
+                <li>{warningText(warn)}</li>
+            {/each}
+        </ul>
+    </Alert>
 {/if}
 
 {#if subMenu === 0}
-    <ShSortableList
+    <SortableList
         className="contain w-full max-w-full mt-4 flex flex-col"
         draggable="[data-risu-idx]"
         dataAttribute="data-risu-idx"
@@ -121,7 +138,7 @@
         }}
     >
         {#if DBState.db.promptTemplate.length === 0}
-                <div class="text-textcolor2">No Format</div>
+                <div class="text-subtext">No Format</div>
         {/if}
         {#each DBState.db.promptTemplate as prompt, originalIndex}
                 <PromptDataItem
@@ -146,11 +163,11 @@
                     }}
                 />
         {/each}
-    </ShSortableList>
+    </SortableList>
 
     <div class="flex items-center mb-6">
         <IconButton size="lg" onclick={() => {
-            let value = DBState.db.promptTemplate ?? []
+            let value = DBState.db.promptTemplate
             value.push({
                 type: "plain",
                 text: "",
@@ -160,7 +177,7 @@
             DBState.db.promptTemplate = value
         }}><PlusIcon /></IconButton>
 
-        <div class="ml-auto flex items-center gap-2 text-textcolor2 text-sm">
+        <div class="ml-auto flex items-center gap-2 text-subtext text-sm">
             <span>{tokens} {language.fixedTokens}</span>
             <span aria-hidden="true">|</span>
             <span>{extokens} {language.exactTokens}</span>

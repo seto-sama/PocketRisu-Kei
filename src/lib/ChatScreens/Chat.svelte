@@ -1,37 +1,96 @@
+<script lang="ts" module>
+    type StickyAnchorCallback = (stuck: boolean) => void
+
+    interface StickyAnchorObserverRecord {
+        observer: IntersectionObserver
+        callbacks: Map<Element, StickyAnchorCallback>
+    }
+
+    const stickyAnchorObservers = new WeakMap<HTMLElement, StickyAnchorObserverRecord>()
+
+    function observeStickyAnchor(
+        root: HTMLElement,
+        anchor: HTMLElement,
+        callback: StickyAnchorCallback,
+    ) {
+        let record = stickyAnchorObservers.get(root)
+        if (!record) {
+            const callbacks = new Map<Element, StickyAnchorCallback>()
+            const observer = new IntersectionObserver((entries) => {
+                let fallbackRootTop: number | undefined
+                for (const entry of entries) {
+                    const rootTop = entry.rootBounds?.top
+                        ?? (fallbackRootTop ??= root.getBoundingClientRect().top)
+                    callbacks.get(entry.target)?.(!entry.isIntersecting && entry.boundingClientRect.top <= rootTop)
+                }
+            }, { root, threshold: 0 })
+            record = { observer, callbacks }
+            stickyAnchorObservers.set(root, record)
+        }
+
+        record.callbacks.set(anchor, callback)
+        record.observer.observe(anchor)
+
+        return () => {
+            record?.observer.unobserve(anchor)
+            record?.callbacks.delete(anchor)
+            if (record?.callbacks.size === 0) {
+                record.observer.disconnect()
+                stickyAnchorObservers.delete(root)
+            }
+        }
+    }
+</script>
+
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
-    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createChatCopyName } from "src/ts/globalApi.svelte"
-    import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
+    import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
+    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
-    import { alertClear, alertConfirm, alertConfirmMulti, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
+    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
-    import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
+    import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
+    import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
-    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
+    import Textarea from "../UI/components/Textarea.svelte"
     import ChatBody from './ChatBody.svelte'
+    import { getParsedGuiHtml } from './guiHtmlRenderCache'
+    import { observeWithinChatViewport } from 'src/ts/chatViewportObserver'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
     import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
-    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
+    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
+    import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
+    import { Item as DropdownMenuItem } from "../UI/components/dropdown-menu";
+    import Tooltip from "../UI/components/Tooltip.svelte";
+    import AvatarFallback from "../UI/AvatarFallback.svelte";
+    import {
+        bookmarkKey,
+        bookmarkKeys,
+        createBookmark,
+        deleteBookmark,
+        ensureBookmarkCatalog,
+    } from "src/ts/bookmarks/bookmarkService";
+    import { canonicalizeInlayTokens } from "src/ts/util/inlayTokens";
+    import { addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -46,9 +105,18 @@
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
     let partialEditRoot: HTMLDivElement | null = $state(null)
+    let floatingToolbarStuck = $state(false)
+    const chatToolbarRowHeight = `${iconButtonSizeValues.lg.cell}px`
+    const stickyChatToolbarVariant = $derived(getStickyChatToolbarVariant(DBState.db.theme))
     const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
+    const floatingToolbarBackground = $derived(
+        DBState.db.theme === 'waifu'
+            ? `${DBState.db.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR}80`
+            : 'color-mix(in srgb, var(--risu-theme-lightbg) 72%, transparent)'
+    )
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
+    let autoTranslationSuppressed = $state(false)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
@@ -81,6 +149,9 @@
         translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
         translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
         getScrollController?: () => ChatScrollController | null;
+        adjacentSwipeMessages?: readonly string[];
+        isImageGeneration?: boolean;
+        isLastMessage?: boolean;
     }
 
     let {
@@ -113,6 +184,9 @@
         translationRecoveryScope,
         translationRecoveryTarget,
         getScrollController = () => null,
+        adjacentSwipeMessages = [],
+        isImageGeneration = false,
+        isLastMessage = false,
     }: Props = $props();
 
     function toggleMessageRole() {
@@ -120,14 +194,56 @@
         const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
         if (!currentMessage) return
         currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
-        ReloadChatPointer.update((value) => {
-            value[idx] = (value[idx] ?? 0) + 1
-            return value
-        })
+        invalidateChatMessageRender(idx)
+    }
+
+    let addingImageGenerationAsset = $state(false)
+
+    async function addImageGenerationAsset() {
+        if (addingImageGenerationAsset) return
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        if (currentCharacter?.type !== 'character') return
+        const currentMessage = currentCharacter.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage || currentMessage.kind !== 'imageGeneration') return
+
+        addingImageGenerationAsset = true
+        try {
+            const actions: { id: GeneratedImageAssetTarget, label: string }[] = [
+                { id: 'icon', label: language.charIcon },
+                { id: 'emotion', label: language.emotionImage },
+                { id: 'additional', label: language.additionalAssets },
+            ]
+            const selected = await alertConfirmMulti(language.addInlayImagePrompt, actions)
+            if (selected < 0 || !actions[selected]) return
+
+            await addGeneratedInlayToCharacter(currentMessage.data, currentCharacter, actions[selected].id)
+            currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
+            await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
+            notifySuccess(language.inlayImageAddedToAssets)
+        }
+        catch (error) {
+            alertError(error instanceof GeneratedInlayAssetError
+                ? language.inlayGallery.inlayMissing
+                : error)
+        }
+        finally {
+            addingImageGenerationAsset = false
+        }
     }
 
     let msgDisplay = $state('')
     let translated = $state(false)
+    const lastOutputAutoTranslationCandidate = $derived(
+        DBState.db.autoTranslate === true
+        && DBState.db.autoTranslateLastOutputOnly === true
+        && !isStreamingDisplay
+        && role === 'char'
+        && isLastMessage
+    )
+    const showFloatingToolbarDetails = $derived(Boolean(
+        messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
+        || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
+    ))
     const translationTaskKey = $derived(renderCacheKey
         ? JSON.stringify([
             renderCacheKey,
@@ -144,6 +260,7 @@
         message: string
         streaming: boolean
     } | null = null
+    let preservedTranslationMessage: string | null = null
     const trackSharedTranslationTasks = createSubscriber((update) =>
         subscribeSharedTranslationTaskChanges(update)
     )
@@ -206,22 +323,25 @@
 
     async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        msg.data = nextMessage
+        const canonicalMessage = canonicalizeInlayTokens(nextMessage)
+        msg.data = canonicalMessage
         if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = nextMessage
+            msg.swipes[msg.swipeId] = canonicalMessage
         }
     }
 
-    async function preservePositionWhileEditing(update: () => void | Promise<void>) {
+    async function preserveMessagePosition(update: () => void | Promise<void>) {
         const release = partialEditRoot
-            ? getScrollController()?.preserveElementPosition(partialEditRoot)
+            ? getScrollController()?.preserveElementPosition(partialEditRoot, {
+                edge: 'bottom',
+                followLayout: true,
+            })
             : undefined
         try {
-            await update()
-            // The editor first mounts and then measures its scrollHeight on a
-            // following Svelte tick. Keep the old message anchor through both
-            // layouts so the intermediate 44px textarea cannot move the view.
-            await tick()
+            const updateResult = update()
+            await updateResult
+            // Commit the initial control DOM before handing later size changes
+            // to the scroll controller's persistent follow-layout anchor.
             await tick()
         }
         finally {
@@ -233,13 +353,15 @@
         // Keep the editor independent from streaming/recovery prop updates.
         // Otherwise a parent refresh can replace every keystroke with the
         // latest server-owned display value.
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editDraft = message
+            editTranslationKeyMode = false
             editMode = true
         })
-        if (translated && DBState.db.translatorType === 'llm') {
-            editTranslationKeyMode = true
-            originalEditTranslationKey = await getTranslationCacheKey()
+        if (DBState.db.translatorType === 'llm') {
+            const key = await getTranslationCacheKey()
+            originalEditTranslationKey = await getLLMCache(key) === null ? null : key
+            editTranslationKeyMode = originalEditTranslationKey !== null
         }
         else {
             editTranslationKeyMode = false
@@ -251,22 +373,21 @@
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
         const nextMessage = editDraft
-        await preservePositionWhileEditing(async () => {
+        if (shouldMigrateTranslationKey && oldKey) {
+            const nextDisplay = getDisplayMessage(nextMessage)
+            const newKey = await getTranslationCacheKey(nextDisplay)
+            // Populate the new key before publishing the edited source so the
+            // reactive render never observes a transient cache miss.
+            if (await copyLLMCache(oldKey, newKey)) {
+                preservedTranslationMessage = nextMessage
+            }
+        }
+        await preserveMessagePosition(async () => {
             editMode = false
             editTranslationKeyMode = false
             await edit(nextMessage)
             displaya(nextMessage)
         })
-
-        if (shouldMigrateTranslationKey && oldKey) {
-            const newKey = await getTranslationCacheKey()
-            if (oldKey !== newKey) {
-                const cached = await getLLMCache(oldKey)
-                if (cached !== null) {
-                    await setLLMCache(newKey, cached)
-                }
-            }
-        }
 
         originalEditTranslationKey = null
     }
@@ -295,7 +416,7 @@
     async function handlePartialEditTranslationSave(event: Event) {
         const { key, data } = (event as CustomEvent<{ key: string; data: string }>).detail
         await setLLMCache(key, data)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             if (editTranslationMode) editTranslationText = data
             if (translated) translationRevision += 1
         })
@@ -321,10 +442,7 @@
         if(DBState.db.translateBeforeHTMLFormatting){
             return source
         }
-        if(!DBState.db.legacyTranslation){
-            return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
-        }
-        return await ParseMarkdown(source, character, 'notrim', idx, getCbsCondition())
+        return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
     }
 
     function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
@@ -356,8 +474,10 @@
         revenantTranslationRecovery.capture()
     )
     const translationPending = $derived(
-        (DBState.db.translatorType === 'llm' ? sharedTranslationPending : translating)
-        || revenantTranslationRecoverySnapshot.pending
+        (DBState.db.translatorType === 'llm'
+            ? sharedTranslationPending && !autoTranslationSuppressed
+            : translating)
+        || (revenantTranslationRecoverySnapshot.pending && !autoTranslationSuppressed)
     )
     const revenantTranslationInspectionReady = $derived(
         revenantTranslationRecovery.inspectionReady
@@ -366,7 +486,7 @@
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editTranslationCacheKey = key
             editTranslationText = cached ?? ''
             editTranslationMode = true
@@ -377,14 +497,14 @@
         const key = editTranslationCacheKey
         if (key === null) return
         await setLLMCache(key, editTranslationText)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editTranslationMode = false
             editTranslationCacheKey = null
         })
     }
 
     async function cancelOriginalEdit() {
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editMode = false
             editTranslationKeyMode = false
             originalEditTranslationKey = null
@@ -417,6 +537,37 @@
         translating = activeTranslationTasks > 0
     }
 
+    async function reconcileCompletedTranslation(taskKeys: ReadonlySet<string>) {
+        if (
+            document.visibilityState === 'hidden'
+            || DBState.db.translatorType !== 'llm'
+            || !translated
+            || !taskKeys.has(translationTaskKey)
+        ) return
+
+        const sourceIdentity = translationSourceIdentity
+        const cacheKey = await getTranslationCacheKey()
+        const cached = await getLLMCache(cacheKey)
+        if (
+            sourceIdentity !== translationSourceIdentity
+            || hasSharedTranslationTask(translationTaskKey)
+        ) return
+
+        if (cached === null && revenantTranslationRecoverySnapshot.pending) return
+
+        // Mobile browsers can suspend Svelte's DOM flush after the request has
+        // durably populated the cache. Reconcile from that durable boundary on
+        // resume. A missing result is also terminal once no local/shared or
+        // recoverable task owns it; return to the original instead of leaving
+        // loading markup stranded forever.
+        activeTranslationTasks = 0
+        translating = false
+        cancelTranslationRequest = null
+        retranslate = false
+        if (cached === null) translated = false
+        translationRevision += 1
+    }
+
     function toggleTranslation() {
         if (!isTranslationControlBusy()) translated = !translated
     }
@@ -446,28 +597,47 @@
             && !nextSource.streaming
             && previousSource.message !== nextSource.message
         if (!identityChanged && !settledMessageChanged) return
+        const preserveTranslation = !identityChanged
+            && settledMessageChanged
+            && preservedTranslationMessage === nextSource.message
+        preservedTranslationMessage = null
+        if (preserveTranslation) {
+            retranslate = false
+            translationRevision += 1
+            return
+        }
+        autoTranslationSuppressed = false
         cancelTranslationRequest?.()
         resetTranslationState()
         translationRevision += 1
     })
 
-    function handleTranslationButton() {
+    async function handleTranslationButton() {
         if (currentTextEditActive) return
-        if (isTranslationBusy()) {
-            cancelTranslationRequest?.()
-            resetTranslationState()
-            return
-        }
-        toggleTranslation()
+        await preserveMessagePosition(() => {
+            if (isTranslationBusy()) {
+                autoTranslationSuppressed = true
+                cancelTranslationRequest?.()
+                resetTranslationState()
+                return
+            }
+            // Turning a completed translation off is also an explicit request
+            // to keep showing the original. Turning it on clears that intent.
+            autoTranslationSuppressed = translated
+            toggleTranslation()
+        })
     }
 
-    function requestRetranslation() {
-        if (!controlDisabled.translationAction) retranslate = true
+    async function requestRetranslation() {
+        if (controlDisabled.translationAction) return
+        await preserveMessagePosition(() => {
+            retranslate = true
+        })
     }
 
-    function changeSwipe(change: () => void) {
+    async function changeSwipe(change: () => void) {
         if (controlDisabled.swipe) return
-        change()
+        await preserveMessagePosition(change)
     }
 
     async function toggleCurrentTextEdit() {
@@ -488,8 +658,30 @@
         await enterEditMode()
     }
 
+    async function editOppositeText(event: MouseEvent) {
+        // Only LLM translations have an editable translation cache. Preserve
+        // the browser context menu for translators whose output cannot be
+        // edited independently from the source message.
+        if (DBState.db.translatorType !== 'llm') return
+        event.preventDefault()
+        if (isTranslationBusy()) return
+        if (currentTextEditActive) {
+            await toggleCurrentTextEdit()
+            return
+        }
+        if (translated) {
+            await enterEditMode()
+            return
+        }
+        await loadTranslationForEdit()
+    }
+
+    function getDisplayMessage(message: string) {
+        return risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+    }
+
     function displaya(message:string){
-        msgDisplay = risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+        msgDisplay = getDisplayMessage(message)
     }
 
     const setStatusMessage = (message:string, timeout:number = 0)=>{
@@ -502,6 +694,32 @@
 
 
     let blankMessage = $derived((message === '{{none}}' || message === '{{blank}}' || message === '') && idx === -1 && !altGreeting || isComment)
+    const isBranchedFromComment = $derived(Boolean(isComment && message?.startsWith('{{specialcomment::branchedfrom::')))
+    let nodeOnlyWidthClass = $derived(
+        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
+        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
+        'max-w-3xl'
+    )
+
+    function trackFloatingToolbar(node: HTMLElement) {
+        const anchor = node.previousElementSibling as HTMLElement | null
+        const scrollRoot = node.closest('.default-chat-screen') as HTMLElement | null
+        if (!anchor || !scrollRoot || typeof IntersectionObserver === 'undefined') {
+            floatingToolbarStuck = false
+            return
+        }
+
+        const stopObserving = observeStickyAnchor(scrollRoot, anchor, (stuck) => {
+            floatingToolbarStuck = stuck
+        })
+
+        return {
+            destroy() {
+                stopObserving()
+                floatingToolbarStuck = false
+            }
+        }
+    }
 
     $effect.pre(() => {
         displaya(message)
@@ -512,6 +730,11 @@
     onMount(()=>{
         unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
             displaya(message)
+        }))
+        unsubscribers.push(subscribeTranslationResume((taskKeys) => {
+            void reconcileCompletedTranslation(taskKeys).catch(error => {
+                console.error('[Translation] Failed to reconcile resumed message:', error)
+            })
         }))
     })
 
@@ -533,11 +756,26 @@
         }
     })
 
+    $effect(() => {
+        const element = partialEditRoot
+        if (!element || DBState.db.theme !== 'customHTML') return
+        if (typeof IntersectionObserver === 'undefined') return
+
+        // Keep content ready until the observer supplies its first result.
+        element.dataset.risuCustomHtmlVisible = 'true'
+        const stopObserving = observeWithinChatViewport([element], (_target, visible) => {
+            element.dataset.risuCustomHtmlVisible = visible ? 'true' : 'false'
+        }, { once: false })
+        return () => {
+            stopObserving()
+            delete element.dataset.risuCustomHtmlVisible
+        }
+    })
+
     function RenderGUIHtml(html:string){
         try {
-            const parser = new DOMParser()
-            const doc = parser.parseFromString(risuChatParser(html ?? '', {cbsConditions: getCbsCondition()}), 'text/html')
-            return doc.body   
+            const expandedHtml = risuChatParser(html ?? '', {cbsConditions: getCbsCondition()})
+            return getParsedGuiHtml(expandedHtml)
         } catch (error) {
             const placeholder = document.createElement('div')
             return placeholder
@@ -596,10 +834,7 @@
             if (targetCharacter && targetChatIndex >= 0) {
                 targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
             }
-            ReloadChatPointer.update((v) => {
-                v[idx] = (v[idx] ?? 0) + 1
-                return v
-            })
+            invalidateChatMessageRender(idx)
         }
         
         if(triggerName && triggerId) {
@@ -609,13 +844,18 @@
         }
     }
 
-    let isBookmarked = $derived(
-        DBState.db.characters[selIdState.selId]
-            ?.chats[DBState.db.characters[selIdState.selId].chatPage]
-            ?.bookmarks?.includes(DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]?.chatId) ?? false
-    );
+    let bookmarkTarget = $derived.by(() => {
+        const character = DBState.db.characters[selIdState.selId]
+        const chat = character?.chats[character.chatPage]
+        const messageId = chat?.message[idx]?.chatId
+        return character?.chaId && chat?.id && messageId
+            ? { characterId: character.chaId, chatId: chat.id, messageId }
+            : null
+    })
+    let isBookmarked = $derived(bookmarkTarget ? $bookmarkKeys.has(bookmarkKey(bookmarkTarget)) : false)
 
     async function toggleBookmark() {
+        await ensureBookmarkCatalog()
         const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage];
         
         if(!chat.message[idx]) return;
@@ -623,27 +863,29 @@
         let messageId = chat.message[idx]?.chatId;
         const messageContent = chat.message[idx]?.data;
 
-        if (!messageId) {
+        const assignedMessageId = !messageId;
+        if (assignedMessageId) {
             messageId = uuidv4();
             chat.message[idx].chatId = messageId;
         }
 
-        chat.bookmarks ??= [];
-        chat.bookmarkNames ??= {};
-
-        const bookmarkIndex = chat.bookmarks.indexOf(messageId);
-
-        if (bookmarkIndex > -1) {
-            chat.bookmarks.splice(bookmarkIndex, 1);
-            delete chat.bookmarkNames[messageId];
+        const characterId = DBState.db.characters[selIdState.selId].chaId;
+        const target = { characterId, chatId: chat.id, messageId };
+        if (assignedMessageId) {
+            await requestImmediateSave({
+                characterIds: [characterId],
+                chatTargets: [{ characterId, chatId: chat.id }],
+            })
+        }
+        if (isBookmarked) {
+            await deleteBookmark(target);
         } else {
-            chat.bookmarks.push(messageId);
-
             const msgSender = chat.message[idx]?.role === 'user' ? getUserName() : name;
-            const newName= await alertInput(language.bookmarkAskNameOrDefault, [], chat.bookmarkNames[messageId] || '');
+            const newName= await alertInput(language.bookmarkAskNameOrDefault, [], '');
+            let bookmarkName: string;
 
             if (newName && newName.trim() !== '') {
-                chat.bookmarkNames[messageId] = newName;
+                bookmarkName = newName.trim();
             } else {
                 let defaultName;
 
@@ -659,11 +901,10 @@
                 if (!defaultName) {
                     defaultName = messageContent.slice(0, 50) + '...';
                 }
-                chat.bookmarkNames[messageId] = msgSender + '| ' + defaultName;
+                bookmarkName = msgSender + '| ' + defaultName;
             }
+            await createBookmark(target, bookmarkName);
         }
-
-        chat.bookmarks = [...chat.bookmarks];
     }
 </script>
 
@@ -702,47 +943,103 @@
                 </span>
             </IconButton>
         {/if}
-        {#if DBState.db.translatorType === 'llm' && translated}
-            <IconButton
-                expanded
-                className="text-sm"
-                disabled={controlDisabled.translationAction}
-                aria-label={language.retranslate}
-                title={language.retranslate}
-                onclick={requestRetranslation}
-            >
-                <RefreshCcwIcon />
-                <span>{language.retranslate}</span>
-            </IconButton>
+        {#if DBState.db.translatorType === 'llm'}
+            {#if editMode && originalEditTranslationKey !== null}
+                <IconButton
+                    expanded
+                    className="button-icon-keep-translation text-sm"
+                    active={editTranslationKeyMode}
+                    activeColor="primary"
+                    disabled={generationOwned || isTranslationBusy()}
+                    aria-label={language.keepTranslation}
+                    title={language.keepTranslation}
+                    onclick={() => { editTranslationKeyMode = !editTranslationKeyMode }}
+                >
+                    <LinkIcon />
+                    <span>{language.keepTranslation}</span>
+                </IconButton>
+            {:else if translated}
+                <IconButton
+                    expanded
+                    className="text-sm"
+                    disabled={controlDisabled.translationAction}
+                    aria-label={language.retranslate}
+                    title={language.retranslate}
+                    onclick={requestRetranslation}
+                >
+                    <RefreshCcwIcon />
+                    <span>{language.retranslate}</span>
+                </IconButton>
+            {/if}
         {/if}
     </IconButtonGroup>
 {/snippet}
 
+{#snippet floatingChatToolbar()}
+    <div
+        class="chat-toolbar-sticky-layer chat-toolbar-floating-layer"
+        class:chat-toolbar-is-stuck={floatingToolbarStuck}
+        use:trackFloatingToolbar
+    >
+        <div class="chat-toolbar-floating-card" style:--chat-toolbar-floating-bg={floatingToolbarBackground}>
+            <div class="chat-message-actions chat-toolbar-actions">
+                {@render iconButtons()}
+            </div>
+            {#if showFloatingToolbarDetails}
+                <div class="chat-toolbar-generation-info">
+                    {@render genInfo()}
+                </div>
+            {/if}
+        </div>
+    </div>
+{/snippet}
+
+{#snippet stickyChatFooter()}
+    <div
+        class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
+        class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
+    >
+        <div class="chat-toolbar-sticky-footer">
+            <div class="chat-toolbar-sticky-footer-content">
+                <div class="chat-toolbar-generation-info">
+                    {@render genInfo()}
+                </div>
+                <div class="chat-message-actions chat-toolbar-actions">
+                    {@render iconButtons()}
+                </div>
+            </div>
+        </div>
+    </div>
+{/snippet}
+
 {#snippet textBox()}
     {#if editTranslationMode}
-        <TextAreaInput bind:value={editTranslationText} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <Textarea bind:value={editTranslationText} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <Textarea bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
     {:else if isComment}
-        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+        <div class={{
+            "flex justify-center text-subtext italic": true,
+            "branched-from-comment-text": isBranchedFromComment,
+            "min-w-0 text-sm leading-5": isBranchedFromComment,
+            "w-full mb-12": !isBranchedFromComment,
+        }}>
 
             {#if msgDisplay.startsWith('{{specialcomment')}
                 {@const parts = msgDisplay.split('::')}
                 {@const type = parts[1]}
 
                 {#if type === 'branchedfrom'}
-                    <button class="text-primary hover:underline"
+                    <button class="min-w-0 text-center text-primary hover:underline"
                         onclick={() => {
-                            console.log(parts)
                             changeChatTo(parts[2] ?? '')
                             foldChatToMessage(parts[4])
                         }}
                     >
-                        <GitBranch size={20} class="inline-block mr-1" />
                         {language.branchedText.replace("{}", parts[3] ?? '')}
                     </button>
                 {/if}
@@ -751,7 +1048,7 @@
             {/if}
         </div>
     {:else if blankMessage}
-        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+        <div class="w-full flex justify-center text-subtext italic mb-12">
             {language.noMessage}
         </div>
     {:else}
@@ -763,7 +1060,6 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
-            class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={async () => {
             if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
@@ -788,6 +1084,9 @@
                 {revenantTranslationRecovery}
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
+                {autoTranslationSuppressed}
+                {lastOutputAutoTranslationCandidate}
+                {adjacentSwipeMessages}
                 modelShortName={
                     messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                 }
@@ -800,11 +1099,23 @@
     {/if}
 {/snippet}
 
-{#snippet iconButtons(options:{applyTextColors?:boolean} = {})}
-    <div class="grow flex items-center justify-end" class:text-textcolor2={options?.applyTextColors !== false}>
+{#snippet branchedFromCommentRow()}
+    <div class="branched-from-comment-row grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center py-1">
+        <span aria-hidden="true"></span>
+        <div class="min-w-0">
+            {@render textBox()}
+        </div>
+        <div class="flex justify-center">
+            {@render iconButtons({grow: false, compactComment: true})}
+        </div>
+    </div>
+{/snippet}
+
+{#snippet iconButtons(options:{applyTextColors?:boolean; grow?:boolean; compactComment?:boolean} = {})}
+    <div class="flex items-center justify-end" class:grow={options.grow !== false} class:text-subtext={options.applyTextColors !== false}>
         {#if isComment}
             <IconButton
-                size="lg"
+                size={options.compactComment ? "default" : "lg"}
                 tone="destructive"
                 className="button-icon-remove"
                 onclick={async () => {
@@ -816,26 +1127,33 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {@render translationButton()}
                 {#if window.innerWidth >= 640}
-                    {@render majorIconButtonsBody(false)}
+                    {@render ttsButton(false)}
+                    {@render translationButton()}
+                    {@render copyButton(false)}
+                    {@render deleteButton(false)}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
                         <PopupButton>
-                            {@render minorIconButtonsBody(true)}
+                            {@render minorMenuItems()}
                         </PopupButton>
                     {/if}
                 {:else}
+                    {@render translationButton()}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
                         <PopupButton>
-                            {@render majorIconButtonsBody(true)}
-                            {@render minorIconButtonsBody(true)}
+                            {@render copyButton(true)}
+                            {@render ttsButton(true)}
+                            {@render deleteButton(true)}
+                            {@render minorMenuItems()}
                         </PopupButton>
                     {:else}
-                        {@render majorIconButtonsBody(false)}
+                        {@render copyButton(false)}
+                        {@render ttsButton(false)}
+                        {@render deleteButton(false)}
                     {/if}
                 {/if}
                 {#if firstMessage}
-                    <IconButton className={disabled === true ? 'text-draculared' : ''} onclick={async () => {
+                    <IconButton className={disabled === true ? 'text-danger' : ''} onclick={async () => {
                         await sleep(1)
                         const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
                         if(chat.firstMessageDisabled){
@@ -844,7 +1162,7 @@
                             chat.firstMessageDisabled = true
                         }
                     }}>
-                        <EyeOff />
+                        <EyeOffIcon />
                     </IconButton>
                 {/if}
                 <IconButtonGroup size="lg" className={isTranslationBusy() ? 'opacity-50' : ''}>
@@ -856,9 +1174,9 @@
 {/snippet}
 
 
-{#snippet majorIconButtonsBody(showNames:boolean)}
+{#snippet copyButton(showNames:boolean)}
     {#if !blankMessage}
-    <IconButton size="lg" expanded={showNames} className="button-icon-copy" onclick={async ()=>{
+    <ChatAdaptiveAction menu={showNames} className="button-icon-copy" onclick={async ()=>{
         if(window.navigator.clipboard.write){
             try {
                 alertWait(language.loading)
@@ -1044,18 +1362,18 @@
                     }
                 }
                 
-                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; overflow: hidden;">
+                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-lightbg')}; border-radius: 12px; overflow: hidden;">
 <div style="padding: 20px;">
 <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1rem; text-align: center;">
     ${finalHasValidImage ? `<img style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; margin-bottom: 0.75rem; object-fit: cover;" src="${finalIconDataUrl}" alt="profile">` : ''}
-    <h3 style="color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; font-weight: 600; font-size: 1.5rem; margin: 0 0 0.5rem 0;">${displayName}</h3>
-    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo}</span>` : ''}
+    <h3 style="color: ${root.style.getPropertyValue('--risu-theme-maintext')}; font-weight: 600; font-size: 1.5rem; margin: 0 0 0.5rem 0;">${displayName}</h3>
+    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo}</span>` : ''}
 </div>
 <div style="border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; padding-top: 1rem;">
     ${doc.body.innerHTML}
 </div>
 <div style="text-align: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">
-    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-textcolor2')}; opacity: 0.7;">From ${PRODUCT_NAME}</span>
+    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-subtext')}; opacity: 0.7;">From ${PRODUCT_NAME}</span>
 </div>
 </div>
 </div>`
@@ -1082,29 +1400,35 @@
     }}>
         <CopyIcon />
         {#if showNames}
-            <span class="ml-1">{language.copy}</span>
+            <span>{language.copy}</span>
         {/if}
-    </IconButton>
-{/if}
-{#if idx > -1}
-    {#if DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && (DBState.db.characters[selIdState.selId].ttsMode)}
-        <IconButton size="lg" expanded={showNames} className="button-icon-tts" onclick={()=>{
+    </ChatAdaptiveAction>
+    {/if}
+{/snippet}
+
+{#snippet ttsButton(showNames:boolean)}
+    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && DBState.db.characters[selIdState.selId].ttsMode}
+        <ChatAdaptiveAction menu={showNames} className="button-icon-tts" onclick={()=>{
             return sayTTS(null, message)
         }}>
             <Volume2Icon />
             {#if showNames}
-                <span class="ml-1">TTS</span>
+                <span>TTS</span>
             {/if}
-        </IconButton>
+        </ChatAdaptiveAction>
     {/if}
-    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
+{/snippet}
+
+{#snippet deleteButton(showNames:boolean)}
+    {#if idx > -1}
+    <ChatAdaptiveAction menu={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
         <TrashIcon />
 
         {#if showNames}
-            <span class="ml-1">{language.remove}</span>
+            <span>{language.remove}</span>
         {/if}
-    </IconButton>
-{/if}
+    </ChatAdaptiveAction>
+    {/if}
 {/snippet}
 
 {#snippet translationButton(showNames = false)}
@@ -1136,8 +1460,9 @@
             disabled={controlDisabled.edit}
             aria-label={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
             title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
-            onclick={toggleCurrentTextEdit}>
-            <PencilIcon />
+            onclick={toggleCurrentTextEdit}
+            oncontextmenu={editOppositeText}>
+            <SquarePenIcon />
 
             {#if showNames}
                 <span class="ml-1">{language.edit}</span>
@@ -1152,13 +1477,13 @@
         {#if altGreeting}
             <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
-                <ArrowLeft />
+                <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
+                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
             {/if}
             <IconButton size="lg" className="button-icon-reroll" onclick={() => changeSwipe(onReroll)}>
-                <ArrowRight />
+                <ArrowRightIcon />
             </IconButton>
         {:else}
             <!-- Normal messages: ← counter → ↻ -->
@@ -1171,10 +1496,10 @@
                     changeSwipe(unReroll)
                 }
             }}>
-                <ArrowLeft />
+                <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
+                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
             {/if}
             <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
                 if (swipeNavigationOnly) {
@@ -1185,7 +1510,7 @@
                     changeSwipe(onNextSwipe)
                 }
             }}>
-                <ArrowRight />
+                <ArrowRightIcon />
             </IconButton>
             {#if !swipeNavigationOnly}
                 <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
@@ -1199,28 +1524,26 @@
     {/if}
 {/snippet}
 
-{#snippet minorIconButtonsBody(showNames:boolean)}
-    <fieldset class="contents" disabled={generationOwned}>
+{#snippet minorMenuItems()}
     {#if idx > -1}
-        <IconButton size="lg" expanded={showNames} onclick={toggleMessageRole}>
-            <ArrowLeftRightIcon />
-            {#if showNames}
-                <span class="ml-1">{language.changeMessageRole}</span>
-            {/if}
-        </IconButton>
+        {#if isImageGeneration}
+            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+                <ImagePlusIcon />
+                <span>{language.addInlayImageToAssets}</span>
+            </DropdownMenuItem>
+        {:else}
+            <DropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
+                <ArrowLeftRightIcon />
+                <span>{language.changeMessageRole}</span>
+            </DropdownMenuItem>
+        {/if}
 
-        <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
-            await sleep(1)
-            toggleBookmark()
-        }}>
+        <DropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
             <BookmarkIcon />
-            {#if showNames}
-                <span class="ml-1">{language.bookmark}</span>
-            {/if}
-        </IconButton>
+            <span>{language.bookmark}</span>
+        </DropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <DropdownMenuItem disabled={generationOwned} onSelect={async () => {
         const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
@@ -1235,63 +1558,88 @@
         }
         
         const currentMessage = currentChat.message[idx]
-        const newChat = $state.snapshot(currentChat)
-        newChat.name = createChatCopyName(newChat.name, 'Branch')
-        newChat.id = v4()
-        newChat.message = newChat.message.slice(0, idx + 1)
-        newChat.message.push({
-            role: 'char',
-            data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
-            isComment: true,
-            disabled: true,
-            chatId: v4(),
-        })
-
-        DBState.db.characters[selIdState.selId].chats.unshift(newChat)
-        changeChatTo(0)
+        try {
+            await createPersistedChatCopy(
+                DBState.db.characters[selIdState.selId],
+                currentChat,
+                'Branch',
+                newChat => {
+                    newChat.message = newChat.message.slice(0, idx + 1)
+                    newChat.message.push({
+                        role: 'char',
+                        data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
+                        isComment: true,
+                        disabled: true,
+                        chatId: v4(),
+                    })
+                },
+            )
+        } catch (error) {
+            alertError(error)
+        }
     }}>
         <SplitIcon />
-        {#if showNames}
-            <span class="ml-1">{language.branch}</span>
-        {/if}
-    </IconButton>
+        <span>{language.branch}</span>
+    </DropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <DropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = !currentMessage.disabled
     }}>
-        <PowerOff />
-        {#if showNames}
-            <span class="ml-1">{language.disableMessage}</span>
+        {#if disabled === true}
+            <MessageSquarePlusIcon />
+        {:else}
+            <MessageSquareOffIcon />
         {/if}
-    </IconButton>
+        <span>{disabled === true ? language.enableMessage : language.disableMessage}</span>
+    </DropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <DropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
     }}>
-        <Scissors />
-        {#if showNames}
-            <span class="ml-1">{language.disableAbove}</span>
-        {/if}
-    </IconButton>
+        <ScissorsIcon />
+        <span>{language.disableAbove}</span>
+        <Tooltip>
+            {#snippet trigger(props)}
+                <button
+                    {...props}
+                    type="button"
+                    class="ml-auto inline-flex items-center border-0 bg-transparent p-0 text-subtext"
+                    tabindex="-1"
+                    aria-label={language.disableAboveHelp}
+                    onpointerdown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                    onclick={(event) => event.stopPropagation()}
+                >
+                    <CircleQuestionMarkIcon />
+                </button>
+            {/snippet}
+            {language.disableAboveHelp}
+        </Tooltip>
+    </DropdownMenuItem>
     {/if}
-    </fieldset>
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
     {#if !blankMessage && !$HideIconStore && !hideSender}
         {#await img}
-            <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+            <div class="shadow-lg bg-button" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
             class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
         {:then m}
-            {#if largePortrait && (!options?.rounded)}
-                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+            {#if !m}
+                <AvatarFallback
+                    className="shadow-lg {options?.rounded ? 'rounded-full' : 'rounded-md'}"
+                    style={options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+                    iconSize={DBState.db.iconsize * 0.3}
+                />
+            {:else if largePortrait && (!options?.rounded)}
+                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
             {:else}
-                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
             {/if}
         {/await}
@@ -1451,35 +1799,53 @@
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
-    <div class="text-textcolor grow max-w-full sm:px-4 py-4">
+    <div
+        class="text-maintext grow max-w-full sm:px-4"
+        class:py-2={isBranchedFromComment}
+        class:py-4={!isBranchedFromComment}
+    >
         {#if !blankMessage}
-            {@const nodeOnlyWidthClass =
-                DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-                DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
-                'max-w-3xl'}
-            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
+            <div
+                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg"
+                class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
+            >
                 {#if !hideSender}
                     <!-- Header: icon + name -->
                     <div class="flex items-center gap-3 mb-4">
                         {@render senderIcon({rounded: DBState.db.roundIcons})}
                         {#if !$HideIconStore}
-                            <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                            <span class="text-lg sm:text-xl text-maintext">{name}</span>
                         {/if}
                     </div>
                 {/if}
                 <!-- Body: message text -->
-                <div class="mb-3 leading-relaxed">
+                <div class="chat-message-body mb-3 leading-relaxed">
                     {@render textBox()}
                 </div>
                 <!-- Footer: geninfo + buttons -->
-                <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
-                    <div class="min-w-0">
-                        {@render genInfo()}
+                {#if DBState.db.stickyChatToolbar}
+                    {@render stickyChatFooter()}
+                {:else}
+                    <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-subtext gap-2">
+                        <div class="min-w-0">
+                            {@render genInfo()}
+                        </div>
+                        <div class="chat-message-actions w-auto ml-auto">
+                            {@render iconButtons()}
+                        </div>
                     </div>
-                    <div class="chat-message-actions w-auto ml-auto">
+                {/if}
+            </div>
+        {:else if isComment}
+            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
+                {#if isBranchedFromComment}
+                    {@render branchedFromCommentRow()}
+                {:else}
+                    <div class="flexium items-center">
                         {@render iconButtons()}
                     </div>
-                </div>
+                    {@render textBox()}
+                {/if}
             </div>
         {/if}
     </div>
@@ -1493,20 +1859,24 @@
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
-    <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full" >
+    <div
+        class="text-maintext mt-1 ml-4 mr-4 mb-1 px-2 bg-transparent grow flexium items-start max-w-full"
+        class:py-1={isBranchedFromComment}
+        class:py-2={!isBranchedFromComment}
+    >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
                 {#if role !== 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
                 <div
                     class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
                     class:rounded-tl-none={role !== 'user'}
                     class:rounded-tr-none={role === 'user'}
                 >
-                    <p class="text-textcolor">{@render textBox()}</p>
+                    <p class="text-maintext">{@render textBox()}</p>
                     {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
-                        <span class="text-xs text-textcolor2 mt-1 block">
+                        <span class="text-xs text-subtext mt-1 block">
                             {new Intl.DateTimeFormat(undefined, {
                                 hour: '2-digit',
                                 minute: '2-digit',
@@ -1519,56 +1889,47 @@
                     {/if}
                 </div>
                 {#if role === 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
-            </div>
-        {:else if DBState.db.theme === 'cardboard' && !blankMessage}
-            <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
-                <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
-                    <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        {#if !hideSender}
-                            <div class="flex flex-col items-center">
-                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
-                                </div>
-                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-                            </div>
-                        {/if}
-                        {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
-                        {:else}
-                            <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
-                                {@render textBox()}
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-                <div class="absolute bottom-0 right-0 bg-darkbg p-2 rounded-md border border-darkborderc text-textcolor2">
-                    {@render iconButtons({applyTextColors: false})}
-                </div>
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage && renderedGuiHtml}
             {@render renderGuiHtmlPart(renderedGuiHtml)}
-        {:else if DBState.db.theme === 'standardRisu' && !blankMessage}
+        {:else if stickyChatToolbarVariant === 'floating' && !blankMessage}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
-                <div class="flexium items-center chat-width">
-                    {#if !blankMessage && !$HideIconStore && !hideSender}
-                        <div class="chat-width text-xl unmargin text-textcolor flex items-center">
+            <span
+                class="chat-toolbar-message flex flex-col ml-4 w-full max-w-full min-w-0"
+                style:--chat-toolbar-row-height={chatToolbarRowHeight}
+            >
+                <div class="chat-message-title flexium items-center chat-width">
+                    {#if !$HideIconStore && !hideSender}
+                        <div class="chat-width text-xl unmargin text-maintext flex items-center">
                             <span>{name}</span>
                         </div>
                     {/if}
-                    {@render iconButtons()}
+                    {#if !DBState.db.stickyChatToolbar}
+                        {@render iconButtons()}
+                    {/if}
                 </div>
-                {@render genInfo()}
+                {#if DBState.db.stickyChatToolbar}
+                    {#key DBState.db.theme}
+                        <span class="chat-toolbar-stick-anchor" aria-hidden="true"></span>
+                        {@render floatingChatToolbar()}
+                    {/key}
+                {:else}
+                    {@render genInfo()}
+                {/if}
                 {@render textBox()}
+            </span>
+        {:else if isBranchedFromComment}
+            <span class="w-full max-w-full min-w-0">
+                {@render branchedFromCommentRow()}
             </span>
         {:else}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
                     {#if !blankMessage && !$HideIconStore && !hideSender}
-                        <div class="chat-width text-xl unmargin text-textcolor flex items-center">
+                        <div class="chat-width text-xl unmargin text-maintext flex items-center">
                             <span>{name}</span>
                         </div>
                     {/if}
@@ -1589,3 +1950,154 @@
     "border-warning": disabled === 'allBefore',
 }}></div>
 {/if}
+
+<style>
+    .chat-toolbar-sticky-layer {
+        position: sticky;
+        top: var(--chat-toolbar-sticky-top);
+        z-index: var(--risu-z-sticky);
+        isolation: isolate;
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+        max-width: 100%;
+        margin-block: 0.25rem;
+        pointer-events: none;
+    }
+
+    .chat-toolbar-sticky-footer-layer {
+        top: auto;
+        bottom: 0;
+        width: calc(100% + var(--chat-shell-inline-padding) + var(--chat-shell-inline-padding));
+        max-width: none;
+        margin: 0 calc(0px - var(--chat-shell-inline-padding));
+        /* Keep the footer on one compositor surface in Firefox so its
+           one-pixel separator retains the same raster phase after scrolling. */
+        transform: translateZ(0);
+    }
+
+    .chat-toolbar-sticky-footer-layer.chat-toolbar-above-fixed-composer {
+        bottom: var(--chat-fixed-composer-height, 0px);
+    }
+
+    .chat-toolbar-message {
+        --chat-toolbar-sticky-top: max(2rem, calc(env(safe-area-inset-top) + 0.25rem));
+    }
+
+    .chat-message-title {
+        min-height: var(--chat-toolbar-row-height);
+    }
+
+    .chat-toolbar-stick-anchor {
+        align-self: flex-end;
+        width: 1px;
+        height: 1px;
+        margin-bottom: -1px;
+        transform: translateY(calc(0px - var(--chat-toolbar-row-height) - var(--chat-toolbar-sticky-top)));
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .chat-toolbar-floating-layer {
+        --chat-toolbar-sticky-top: inherit;
+        align-self: flex-end;
+        width: fit-content;
+        margin: calc(0px - var(--chat-toolbar-row-height)) 0 0.25rem;
+    }
+
+    .chat-toolbar-floating-card {
+        position: relative;
+        z-index: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.125rem;
+        width: fit-content;
+        max-width: 100%;
+        pointer-events: auto;
+    }
+
+    .chat-toolbar-is-stuck .chat-toolbar-floating-card::before {
+        content: "";
+        position: absolute;
+        inset: -0.25rem -0.375rem;
+        z-index: -1;
+        border: 1px solid color-mix(in srgb, var(--risu-theme-lightborderc) 50%, transparent);
+        border-radius: 0.5rem;
+        background: var(--chat-toolbar-floating-bg);
+        box-shadow: 0 0.375rem 1.25rem color-mix(in srgb, var(--risu-theme-darkbg) 40%, transparent);
+        -webkit-backdrop-filter: blur(12px) saturate(1.15);
+        backdrop-filter: blur(12px) saturate(1.15);
+        pointer-events: none;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-generation-info {
+        width: 100%;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-actions {
+        align-self: flex-end;
+        margin-left: 0;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-generation-info :global(.chat-generation-info) {
+        width: 100%;
+    }
+
+    .chat-toolbar-sticky-footer {
+        width: 100%;
+        max-width: 100%;
+        padding: 0 var(--chat-shell-inline-padding) var(--chat-shell-block-padding);
+        background: var(--risu-theme-lightbg);
+        color: var(--risu-theme-subtext);
+        pointer-events: auto;
+    }
+
+    .chat-toolbar-sticky-footer-content {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        width: 100%;
+        max-width: 100%;
+        padding-top: 0.5rem;
+        border-top: 1px solid color-mix(in srgb, var(--risu-theme-darkborderc) 30%, transparent);
+    }
+
+    .chat-message-shell {
+        --chat-shell-inline-padding: 1rem;
+        --chat-shell-block-padding: 1.5rem;
+        padding: var(--chat-shell-block-padding) var(--chat-shell-inline-padding);
+    }
+
+    .chat-message-shell.chat-message-shell-sticky {
+        padding-bottom: 0;
+    }
+
+    @media (min-width: 640px) {
+        .chat-message-shell {
+            --chat-shell-inline-padding: 2rem;
+        }
+
+        .chat-toolbar-sticky-footer {
+            border-radius: 0 0 0.5rem 0.5rem;
+        }
+    }
+
+    .chat-toolbar-generation-info {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .chat-toolbar-generation-info :global(.chat-generation-info) {
+        width: auto;
+        max-width: 100%;
+    }
+
+    .chat-toolbar-actions {
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+</style>

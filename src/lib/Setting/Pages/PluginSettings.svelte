@@ -1,25 +1,30 @@
 <script lang="ts">
-    import { PlusIcon, TrashIcon, LinkIcon, CodeXmlIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon } from "@lucide/svelte";
+    import { DownloadIcon, PlusIcon, TrashIcon, LinkIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon, UploadIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import { alertConfirm, alertMd, alertSelect, notifySuccess } from "src/ts/alert";
-    import { TriangleAlert } from '@lucide/svelte';
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import { alertConfirm, alertMd, notifySuccess } from "src/ts/alert";
+    import { TriangleAlertIcon } from '@lucide/svelte';
 
-    import { DBState, hotReloading, showPopupEditor } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
-    import { requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { DBState, showPopupEditor } from "src/ts/stores.svelte";
+    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, isLegacyV2Plugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
+    import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import { hotReloadPluginFiles } from "src/ts/plugins/apiV3/developMode";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Checkbox from "../../UI/components/Checkbox.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import Tooltip from "../../UI/components/Tooltip.svelte";
+    import SortableList from "../../UI/components/SortableList.svelte";
+    import { removePluginSidebarMenuItems } from "src/ts/sidebarMenuOrder";
+    import {
+        pluginDisabledForMemorySession,
+        pluginMemorySessionStore,
+    } from "src/ts/plugins/pluginMemorySafety";
 
     let showParams = $state<string[]>([])
     let pluginSearch = $state('')
@@ -75,84 +80,96 @@
         void requestImmediateSave()
     }
 
-    function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
+    function openPluginScriptEditor(plugin: RisuPlugin) {
         const originalScript = plugin.script ?? ''
         showPopupEditor({
             value: originalScript,
             title: pluginTitle(plugin),
-            onSave: (nextScript) => {
+            mode: 'plain',
+            commitMode: 'submit',
+            onCommit: async (nextScript) => {
                 if (nextScript === originalScript) return true
-
-                const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
-                const currentIndex = foundIndex >= 0 ? foundIndex : index
-                const currentPlugin = DBState.db.plugins?.[currentIndex]
-                if (!currentPlugin) return true
-
-                currentPlugin.script = nextScript
-                DBState.db.plugins[currentIndex] = currentPlugin
-                loadPlugins()
-                void requestImmediateSave()
-                notifySuccess('Plugin updated.')
-                return true
+                const updated = await importPlugin(nextScript, {
+                    isUpdate: true,
+                    originalPluginName: plugin.name,
+                })
+                if (updated) notifySuccess(language.pluginUpdated)
+                return updated
             },
         })
+    }
+
+    function openNewPluginEditor() {
+        showPopupEditor({
+            value: getBlankPluginSource(),
+            title: language.createPlugin,
+            mode: 'plain',
+            commitMode: 'submit',
+            onCommit: async (script) => {
+                const created = await createBlankPlugin(script)
+                if (created) notifySuccess(language.pluginCreated)
+                return created
+            },
+        })
+    }
+
+    function pluginFileName(plugin: RisuPlugin) {
+        const safeName = plugin.name.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim()
+        return `${safeName || 'plugin'}.js`
     }
 </script>
 
 {#snippet content()}
 <SettingLayout variant="search" className="mt-4">
-    <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
+    <Input className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
     {#snippet control()}
     <IconButtonGroup size="lg">
         <IconButton
-            onclick={() => {
-                importPlugin()
-            }}
+            title={language.createPlugin}
+            aria-label={language.createPlugin}
+            onclick={openNewPluginEditor}
         >
             <PlusIcon />
         </IconButton>
 
         <IconButton
-            onclick={async () => {
-                const v = parseInt(await alertSelect([
-                    "Import plugin with hot reload",
-                    "Download plugin template",
-                    language.cancel
-                ]))
-                switch(v){
-                    case 0:
-                        await hotReloadPluginFiles()
-                        break;
-                    case 1:{
-                        const a = document.createElement('a');
-                        a.href = '/plugin_start.7z';
-                        a.download = 'plugin_starter.7z';
-                        document.body.appendChild(a);
-                    }
-                }
-            }}
+            title={language.importPlugin}
+            aria-label={language.importPlugin}
+            onclick={() => void importPlugin()}
         >
-            <CodeXmlIcon />
+            <UploadIcon />
         </IconButton>
     </IconButtonGroup>
     {/snippet}
 </SettingLayout>
 
-<ShSortableList
+<SortableList
     className="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
     onReorder={reorderPlugins}
 >
     {#if !DBState.db.plugins || DBState.db.plugins?.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-8">{language.noPlugins}</div>
+        <div class="text-subtext text-sm text-center py-8">{language.noPlugins}</div>
     {/if}
     {#if DBState.db.plugins && DBState.db.plugins.length > 0 && visiblePlugins.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+        <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
+        {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
+        {@const memoryPowerLocked = pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore)}
+        {@const legacyPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
+        {@const pluginPowerLocked = memoryPowerLocked || legacyPowerLocked}
+        {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
+        {@const pluginPowerLabel = memoryPowerLocked
+            ? language.pluginMemoryDisabledForSession
+            : legacyPowerLocked
+                ? language.pluginV2Blocked
+                : pluginPoweredOn
+                    ? language.disablePlugin
+                    : language.enablePlugin}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
-            class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+            class="mt-2 flex items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
             role="button"
             tabindex="0"
             onclick={() => {
@@ -165,23 +182,18 @@
             }
         }}>
             <div class="flex flex-col min-w-0 grow">
-                <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                     <span class="truncate">{pluginTitle(plugin)}</span>
                 </span>
-                <span class="text-xs text-textcolor2 truncate">{pluginDescription(plugin)}</span>
-                {#if hotReloading.includes(plugin.name)}
-                    <span class="text-xs rounded bg-amber-700 mt-1 px-2 py-0.5 text-white w-fit">
-                        Hot
-                    </span>
-                {/if}
+                <span class="text-xs text-subtext truncate">{pluginDescription(plugin)}</span>
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
-            {#if plugin.version === 2 || plugin.version === "2.1"}
-                <IconButton className="text-yellow-400" onclick={(e) => {
+            {#if legacyV2Plugin}
+                <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-warning" onclick={(e) => {
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
                 }} >
-                    <TriangleAlert />
+                    <TriangleAlertIcon />
                 </IconButton>
             {/if}
 
@@ -192,8 +204,9 @@
                             href={link.link}
                             target="_blank"
                             rel="nofollow noopener noreferrer"
-                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 risu-interactive-accent"
-                            title={link.hoverText}
+                            class="inline-flex size-6 shrink-0 items-center justify-center text-subtext risu-interactive-accent"
+                            title={link.hoverText ?? link.link}
+                            aria-label={link.hoverText ?? link.link}
                             onclick={(e) => { e.stopPropagation() }}
                         >
                             <LinkIcon></LinkIcon>
@@ -206,7 +219,9 @@
                 {#await checkPluginUpdate(plugin) then updateInfo}
                     {#if updateInfo}
                         <IconButton
-                            className="text-green-400"
+                            title={language.updatePlugin}
+                            aria-label={language.updatePlugin}
+                            className="text-success"
                             onclick={async (e) => {
                                 e.stopPropagation()
                                 const v = await alertConfirm(
@@ -223,26 +238,38 @@
                 {/await}
             {/if}
 
-            <IconButton
-                active={plugin.enabled}
-                activeColor="primary"
-                onclick={async (e) => {
-                    plugin.enabled = !plugin.enabled
-                    DBState.db.plugins[index] = plugin
-                    loadPlugins()
-                    void requestImmediateSave()
-                    e.stopPropagation()
-                }}
-            >
-                {#if plugin.enabled}
-                    <PowerIcon />
-                {:else}
-                    <PowerOffIcon />
-                {/if}
-            </IconButton>
+            <Tooltip disabled={!pluginPowerLocked}>
+                {#snippet trigger(props)}
+                    <span {...props} class="inline-flex">
+                        <IconButton
+                            title={pluginPowerLabel}
+                            aria-label={pluginPowerLabel}
+                            active={pluginPoweredOn}
+                            activeColor="primary"
+                            disabled={pluginPowerLocked}
+                            onclick={(e) => {
+                                e.stopPropagation()
+                                if(pluginPowerLocked) return
+                                plugin.enabled = !plugin.enabled
+                                DBState.db.plugins[index] = plugin
+                                void loadPlugins()
+                                void requestImmediateSave()
+                            }}
+                        >
+                            {#if pluginPoweredOn}
+                                <PowerIcon />
+                            {:else}
+                                <PowerOffIcon />
+                            {/if}
+                        </IconButton>
+                    </span>
+                {/snippet}
+                {pluginPowerLabel}
+            </Tooltip>
 
             <IconButton
                 title={language.resetPluginPermission}
+                aria-label={language.resetPluginPermission}
                 onclick={async (e) => {
                     e.stopPropagation()
                     const v = await alertConfirm(
@@ -258,17 +285,31 @@
             </IconButton>
 
             <IconButton
-                title={language.edit}
+                title={language.editPlugin}
+                aria-label={language.editPlugin}
                 onclick={(e) => {
                     e.stopPropagation()
-                    openPluginScriptEditor(index, plugin)
+                    openPluginScriptEditor(plugin)
                 }}
             >
                 <SquarePenIcon />
             </IconButton>
 
+            <IconButton
+                title={language.exportPlugin}
+                aria-label={language.exportPlugin}
+                onclick={async (e) => {
+                    e.stopPropagation()
+                    await downloadFile(pluginFileName(plugin), plugin.script)
+                }}
+            >
+                <DownloadIcon />
+            </IconButton>
+
             <!--Also, remove button.-->
             <IconButton
+                title={language.removePlugin}
+                aria-label={language.removePlugin}
                 tone="destructive"
                 onclick={async (e) => {
                     e.stopPropagation()
@@ -277,6 +318,7 @@
                             (plugin.displayName ?? plugin.name),
                     );
                     if (v) {
+                        removePluginSidebarMenuItems(DBState.db, plugin.name)
                         if (DBState.db.currentPluginProvider === plugin.name) {
                             DBState.db.currentPluginProvider = "";
                         }
@@ -293,14 +335,14 @@
             </IconButtonGroup>
         </div>
         {#if plugin.version === 1}
-            <span class="text-draculared text-xs">
+            <span class="text-danger text-xs">
                 {language.pluginVersionWarn
                     .replace("{{plugin_version}}", "API V1")
                     .replace("{{required_version}}", "API V3")}
             </span>
             <!--List up args-->
         {:else if Object.keys(plugin.arguments).filter((i) => !i.startsWith("hidden_")).length > 0 && showParams.includes(pluginKey(plugin, index))}
-            <div class="flex flex-col mt-1 mb-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
+            <div class="flex flex-col mt-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
                 {#each Object.keys(plugin.arguments) as arg}
                     {#if !arg.startsWith("hidden_")}
                         {#if typeof(plugin?.argMeta?.[arg]?.divider) === 'string'}
@@ -318,24 +360,26 @@
                         {/if}
                         <span class="mb-2 mt-6">{plugin?.argMeta?.[arg]?.name || arg}</span>
                         {#if plugin?.argMeta?.[arg]?.description}
-                            <span class="mb-2 text-sm text-textcolor2">{plugin?.argMeta?.[arg]?.description}</span>
+                            <span class="mb-2 text-xs text-subtext">{plugin?.argMeta?.[arg]?.description}</span>
                         {/if}
                         {#if Array.isArray(plugin.arguments[arg])}
-                            <SelectInput
+                            <Select
                                 className="mt-2 mb-4"
                                 bind:value={
                                     DBState.db.plugins[index].realArg[arg] as string
                                 }
                             >
                                 {#each plugin.arguments[arg] as a}
-                                    <OptionInput value={a}>{a}</OptionInput>
+                                    <SelectOption value={a}>{a}</SelectOption>
                                 {/each}
-                            </SelectInput>
+                            </Select>
                         {:else if plugin.arguments[arg] === "string"}
 
                             {#if plugin?.argMeta?.[arg]?.textarea}
-                                <TextAreaInput
+                                <Textarea
+                                    commitMode="debounce"
                                     className="mt-2"
+                                    popupTitle={`${pluginTitle(plugin)} · ${plugin?.argMeta?.[arg]?.name || arg}`}
                                     bind:value={
                                         DBState.db.plugins[index].realArg[arg] as string
                                     }
@@ -343,7 +387,7 @@
                                 />
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
-                                    <CheckInput
+                                    <Checkbox
                                         check={DBState.db.plugins[index].realArg[arg] === (radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
@@ -355,7 +399,8 @@
                                     />
                                 {/each}
                             {:else}
-                                <TextInput
+                                <Input
+                                    commitMode="blur"
                                     className="mt-2"
                                     bind:value={
                                         DBState.db.plugins[index].realArg[arg] as string
@@ -365,7 +410,7 @@
                             {/if}
                         {:else if plugin.arguments[arg] === "int"}
                             {#if plugin?.argMeta?.[arg]?.checkbox}
-                                <CheckInput
+                                <Checkbox
                                     check={DBState.db.plugins[index].realArg[arg] === '1'}
                                     onChange={(e) => {
                                         DBState.db.plugins[index].realArg[arg] = e ? '1' : '0'
@@ -377,7 +422,7 @@
                                 />
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
-                                    <CheckInput
+                                    <Checkbox
                                         check={DBState.db.plugins[index].realArg[arg] === parseInt(radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
@@ -403,9 +448,9 @@
             </div>
         {/if}
     {/each}
-</ShSortableList>
+</SortableList>
 
-<span class="block text-draculared text-xs mt-4">{language.pluginWarn}</span>
+<span class="block text-danger text-xs mt-4">{language.pluginWarn}</span>
 {/snippet}
 
 {#if embedded}

@@ -1,8 +1,8 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
+    import PresetHeader from "../../UI/components/PresetHeader.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
     import { DBState, DisplaySubmenuIndex, openThemePresetList } from "src/ts/stores.svelte";

@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { getLabel } from 'src/ts/setting/utils';
-    import Accordion from 'src/lib/UI/Accordion.svelte';
+    import Accordion from '../../UI/components/Accordion.svelte';
     import SettingRenderer from '../SettingRenderer.svelte'; // Recursive import
 
     interface Props {
@@ -12,7 +12,7 @@
     let { item, ctx }: Props = $props();
 </script>
 
-<Accordion name={getLabel(item)} styled={item.options?.styled ?? false}>
+<Accordion class="mt-2" name={getLabel(item)}>
     {#if item.options?.children}
         <SettingRenderer items={item.options.children} target={ctx.target} />
     {/if}

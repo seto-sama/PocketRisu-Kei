@@ -1,9 +1,9 @@
 <script lang="ts">
   import { ChevronDownIcon, ChevronUpIcon } from "@lucide/svelte";
   import { language } from "src/lang";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import ShInput from "src/lib/UI/GUI/ShInput.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+  import Input from "../../UI/components/Input.svelte";
   import type { SearchSession } from "./types";
 
   interface Props {
@@ -32,7 +32,7 @@
           navigate();
         }}
       >
-        <ShInput
+        <Input
           className="bg-darkbg! pr-20"
           placeholder={language.hypaV3Modal.searchPlaceholder}
           bind:value={searchState.query}
@@ -42,7 +42,7 @@
       </form>
 
       {#if searchState.results.length > 0}
-        <span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-selected/60 px-2 py-1 text-xs font-medium text-textcolor">
+        <span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-selected/60 px-2 py-1 text-xs font-medium text-maintext">
           {searchState.currentResultIndex + 1}/{searchState.results.length}
         </span>
       {/if}

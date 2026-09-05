@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { describe, expect, it } from 'vitest';
-import { SettingsRoute } from '../routing';
-import { DBState, LanguageSubmenuIndex, SettingsMenuIndex, settingsOpen } from '../stores.svelte';
+import { ModelPresetTab, openSettings, SettingsRoute } from '../routing';
+import { DBState, LanguageSubmenuIndex, ModelPresetListTabIndex, SettingsMenuIndex, settingsOpen } from '../stores.svelte';
 import { navigateToSearchResult, searchSettings } from './searchIndex';
 
 describe('settings search', () => {
@@ -39,5 +39,17 @@ describe('settings search', () => {
         expect(get(settingsOpen)).toBe(true);
         expect(get(SettingsMenuIndex)).toBe(SettingsRoute.Language);
         expect(get(LanguageSubmenuIndex)).toBe(1);
+    });
+
+    it('deep-links to model preset options through the shared router', () => {
+        openSettings(
+            SettingsRoute.ModelPreset,
+            undefined,
+            undefined,
+            ModelPresetTab.Options,
+        );
+
+        expect(get(SettingsMenuIndex)).toBe(SettingsRoute.ModelPreset);
+        expect(get(ModelPresetListTabIndex)).toBe(ModelPresetTab.Options);
     });
 });

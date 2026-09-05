@@ -2,14 +2,13 @@
     import { DBState, modelProfileReplaceTarget, openModelProfileBrowser } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
-    import { PinIcon, PinOffIcon, TriangleAlert } from "@lucide/svelte";
-    import ShButton from "./GUI/ShButton.svelte";
-    import PresetHeader from "./GUI/PresetHeader.svelte";
+    import PresetBindingTrigger from "./PresetBindingTrigger.svelte";
     import PresetPickerLayout from "./PresetPickerLayout.svelte";
     import PresetPickerActions from "./PresetPickerActions.svelte";
-    import TextInput from "./GUI/TextInput.svelte";
+    import InlineEditableName from "./components/InlineEditableName.svelte";
     import { v4 as uuidv4 } from "uuid";
-    import { openSettings, SettingsRoute } from "src/ts/routing";
+    import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     interface Props {
         value?: string;
@@ -20,6 +19,9 @@
         disabled?: boolean;
         compact?: boolean;
         showConfigure?: boolean;
+        open?: boolean;
+        pickerOnly?: boolean;
+        onConfigure?: () => void;
     }
 
     let {
@@ -31,14 +33,15 @@
         disabled = false,
         compact = false,
         showConfigure = false,
+        open = $bindable(false),
+        pickerOnly = false,
+        onConfigure = () => {},
     }: Props = $props();
 
-    let openOptions = $state(false);
-    let editMode = $state(false);
     let selectedFolder = $state('all');
 
     let presets = $derived(DBState.db.modelPresets ?? []);
-    let folders = $derived(DBState.db.modelPresetFolders ?? []);
+    let tags = $derived(DBState.db.modelPresetTags ?? []);
     let visibleItemIndexes = $state<number[]>([]);
     let bound = $derived(value ? (presets.find(p => p.id === value) ?? null) : null);
     let selectedItemIndex = $derived(value ? presets.findIndex(preset => preset.id === value) : -1);
@@ -56,7 +59,7 @@
 
     function pick(id: string) {
         value = id;
-        openOptions = false;
+        open = false;
         onChange(id);
         // Toast only on binding a real preset, not on clearing to the blank
         // ("use default sub model") option.
@@ -64,8 +67,9 @@
     }
 
     function goToPresetSettings() {
-        openOptions = false;
-        openSettings(SettingsRoute.ModelPreset);
+        open = false;
+        onConfigure();
+        openSettings(SettingsRoute.ModelPreset, undefined, undefined, ModelPresetTab.Options);
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {
@@ -78,9 +82,9 @@
         DBState.db.modelPresets = next;
     }
 
-    function assignPresetToFolder(index: number, folderId: string | undefined) {
+    function assignPresetToTag(index: number, tagId: string | undefined) {
         if (!presets[index]) return;
-        presets[index].folderId = folderId;
+        presets[index].tagIds = togglePresetTag(presets[index].tagIds, tagId);
         DBState.db.modelPresets = [...presets];
     }
 
@@ -89,7 +93,7 @@
         if (!source) return;
         const copy = structuredClone($state.snapshot(source));
         copy.id = uuidv4();
-        copy.name = `${source.name} Copy`;
+        copy.name = `${source.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();
         DBState.db.modelPresets = [...presets, copy];
@@ -104,51 +108,52 @@
     }
 
     function createPreset() {
-        openOptions = false;
+        open = false;
         modelProfileReplaceTarget.set(null);
         openModelProfileBrowser.set(true);
     }
 </script>
 
-{#if openOptions}
+{#if open}
     <PresetPickerLayout
         title={language.modelPresets}
-        {folders}
-        itemFolderIds={presets.map(preset => preset.folderId)}
+        folders={tags}
+        itemFolderIds={presets.map(preset => preset.tagIds)}
+        organizationKind="tag"
         itemNames={presets.map(preset => preset.name)}
         bind:visibleItemIndexes
         bind:selectedFolder
         itemDragDataKey="presetIndex"
-        readOnly={showConfigure}
-        close={() => { openOptions = false }}
+        close={() => { open = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
-        onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
-        onAssignItem={assignPresetToFolder}
-        onDeleteFolder={(folderId) => {
+        onFoldersChange={(next) => { DBState.db.modelPresetTags = next }}
+        onAssignItem={assignPresetToTag}
+        onDeleteFolder={(tagId) => {
             DBState.db.modelPresets = presets.map(preset =>
-                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+                ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
             )
         }}
         {selectedItemIndex}
-        itemEditMode={editMode}
         onMoveItem={movePreset}
         onSelectItem={(index) => pick(presets[index].id)}
         onDuplicateItem={duplicatePreset}
         onDeleteItem={deletePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-            {#if editMode}
-                <div class="min-w-0 grow">
-                    <TextInput bind:value={DBState.db.modelPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" />
-                </div>
-            {:else}
-                <span class="truncate flex-1">{presets[index].name}</span>
-            {/if}
+        {#snippet itemContent(index, renameController)}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={DBState.db.modelPresets[index].name}
+                size="default"
+                editorLeadingInset="row"
+                placeholder="string"
+                onActivate={() => pick(presets[index].id)}
+            />
         {/snippet}
         {#snippet listFooter()}
             {#if blankable}
                 <button
-                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!value ? '' : 'risu-interactive-surface'}"
+                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {!value ? '' : 'risu-interactive-surface'}"
                     class:bg-selected={!value}
                     onclick={() => pick('')}
                 >
@@ -156,45 +161,25 @@
                 </button>
             {/if}
         {/snippet}
-        {#if !showConfigure}
-            <PresetPickerActions
-                onCreate={createPreset}
-                onRename={() => { editMode = !editMode }}
-            />
-        {/if}
+        <PresetPickerActions onCreate={createPreset} />
     </PresetPickerLayout>
 {/if}
 
-{#if compact}
-    <PresetHeader
-        compact
+{#if !pickerOnly && compact}
+    <PresetBindingTrigger
         label={language.modelPresetMenu}
         activeName={label}
-        onManage={() => { openOptions = true }}
+        onOpen={() => { open = true }}
         {disabled}
-        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'secondary'}
-        className={bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? ''
-            : 'text-textcolor2 opacity-75 risu-interactive-reveal'}
+        state={bound ? 'selected' : (dangling || (warnIfEmpty && !value)) ? 'warning' : 'empty'}
+        compact
     />
-{:else}
-    <ShButton
-        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'default'}
-        size="default"
-        className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
-            bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? ''
-            : 'text-textcolor2 opacity-75 risu-interactive-reveal'
-        }`}
-        onclick={() => { if (!disabled) { openOptions = true } }}
-    >
-        {#if bound}
-            <PinIcon class="shrink-0" />
-        {:else if dangling || (warnIfEmpty && !value)}
-            <TriangleAlert size={16} class="shrink-0" />
-        {:else}
-            <PinOffIcon class="shrink-0" />
-        {/if}
-        <span class="truncate text-sm grow text-left">{label}</span>
-    </ShButton>
+{:else if !pickerOnly}
+    <PresetBindingTrigger
+        label={language.modelPresetMenu}
+        activeName={label}
+        onOpen={() => { open = true }}
+        {disabled}
+        state={bound ? 'selected' : (dangling || (warnIfEmpty && !value)) ? 'warning' : 'empty'}
+    />
 {/if}

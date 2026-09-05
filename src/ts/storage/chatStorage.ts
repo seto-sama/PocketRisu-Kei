@@ -4,6 +4,7 @@ import { tick } from "svelte"
 import {
     acknowledgeChatCommit,
     createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
+    isChatWorkingCopyDirty,
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
@@ -107,6 +108,7 @@ export const hydrationJustApplied = new Set<string>()
 
 /** Track in-flight hydration promises to avoid duplicate fetches */
 const hydrationPromises = new Map<string, Promise<Chat | null>>()
+const chatSaveQueues = new Map<string, Promise<void>>()
 
 // ── Server fetch/save ───────────────────────────────────────────────────────
 
@@ -119,8 +121,35 @@ export async function saveChatToServer(chaId: string, chatIndex: number, chatId:
     if (chat.id !== chatId) {
         throw new Error('Chat save target does not match the payload id')
     }
-    const snapshot = createChatCommitSnapshot(chaId, chat)
-    await saveChatCommitToServer(chatIndex, snapshot)
+    const key = chatKey(chaId, chatId)
+    const previous = chatSaveQueues.get(key)
+    const queued = (previous ? previous.catch(() => {}) : Promise.resolve()).then(async () => {
+        // Snapshot only after the preceding save has acknowledged its ETag.
+        // Creating it before queue admission would carry the stale creation
+        // version into a follow-up edit and make the server reject it with 409.
+        const snapshot = createChatCommitSnapshot(chaId, chat)
+        await saveChatCommitToServer(chatIndex, snapshot)
+    })
+    chatSaveQueues.set(key, queued)
+    try {
+        await queued
+    } finally {
+        if (chatSaveQueues.get(key) === queued) chatSaveQueues.delete(key)
+    }
+}
+
+/**
+ * Settle a pending user edit before generation replaces the live chat with a
+ * temporary reroll projection. This is a no-op for an already-clean chat.
+ */
+export async function flushDirtyChatToServer(
+    chaId: string,
+    chatIndex: number,
+    chat: Chat,
+): Promise<boolean> {
+    if (!isChatWorkingCopyDirty(chaId, chat.id)) return false
+    await saveChatToServer(chaId, chatIndex, chat.id, chat)
+    return true
 }
 
 export function createChatCommitSnapshot(chaId: string, chat: Chat): ChatCommitSnapshot {

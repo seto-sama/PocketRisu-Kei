@@ -13,9 +13,9 @@
     import type { ModelPreset } from "src/ts/preset/types";
     import type { SettingItem } from "src/ts/setting/types";
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
-    import SchemaFormRenderer from "src/lib/UI/GUI/SchemaFormRenderer.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
+    import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Badge from "../../../UI/components/Badge.svelte";
     import { v4 as uuidv4 } from "uuid";
 
     interface Props {
@@ -195,7 +195,7 @@
 </script>
 
 <div>
-    <h3 class="text-base font-bold mt-4 mb-1 text-textcolor">{language.profileSection}</h3>
+    <h3 class="text-base font-bold mt-4 mb-1 text-maintext">{language.profileSection}</h3>
 
     <section>
         <SettingRenderer items={basicInfoItems} target={preset} layout="row" />
@@ -222,64 +222,64 @@
 
     <div class="flex flex-col gap-1 p-3 mt-8 rounded-md border border-darkborderc bg-darkbg/40">
         <div class="flex items-center justify-between gap-2">
-            <span class="text-sm text-textcolor truncate">{profileDisplayId}</span>
+            <span class="text-sm text-maintext truncate">{profileDisplayId}</span>
             {#if updateStatus === 'updatable'}
-                <ShButton variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</ShButton>
+                <Button variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</Button>
             {:else if updateStatus === 'missing'}
-                <ShBadge variant="warning">{language.profileSourceMissing}</ShBadge>
+                <Badge variant="warning">{language.profileSourceMissing}</Badge>
             {/if}
         </div>
         {#if description}
-            <div class="text-xs text-textcolor2">{description}</div>
+            <div class="text-xs text-subtext">{description}</div>
         {/if}
-        <div class="text-xs text-textcolor2">
+        <div class="text-xs text-subtext">
             {language.profileProviderLabel}: {preset.profileSnapshot.providerBaseId}
         </div>
         {#if showDefaultModel}
-            <div class="text-xs text-textcolor2">Default model: {preset.profileSnapshot.modelId}</div>
+            <div class="text-xs text-subtext">Default model: {preset.profileSnapshot.modelId}</div>
         {/if}
         {#if installedLabel}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileUpdatedAtLabel}: {installedLabel}{#if updateStatus === 'updatable' && latestLabel && latestLabel !== installedLabel}{' '}({language.profileLatestVersionLabel}: {latestLabel}){/if}
             </div>
         {/if}
         {#if modelReleaseDate}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileModelReleaseDateLabel}: {modelReleaseDate}
             </div>
         {/if}
         {#if dataCutoff}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileDataCutoffLabel}: {dataCutoff}
             </div>
         {/if}
         {#if preset.profileSnapshot.capabilities && preset.profileSnapshot.capabilities.length > 0}
             <div class="flex flex-wrap gap-1 mt-1">
                 {#each preset.profileSnapshot.capabilities as cap}
-                    <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-textcolor2">{cap}</span>
+                    <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-subtext">{cap}</span>
                 {/each}
             </div>
         {/if}
         <div class="flex gap-2 mt-2">
-            <ShButton size="sm" className="flex-1" onclick={replaceProfile}>
+            <Button size="sm" className="flex-1" onclick={replaceProfile}>
                 <RefreshCwIcon class="shrink-0" />
                 <span class="ml-1">{language.profileReplace}</span>
-            </ShButton>
-            <ShButton size="sm" className="flex-1" onclick={exportPreset}>
+            </Button>
+            <Button size="sm" className="flex-1" onclick={exportPreset}>
                 <DownloadIcon class="shrink-0" />
                 <span class="ml-1">{language.profileExport}</span>
-            </ShButton>
+            </Button>
         </div>
     </div>
 
     <div class="flex flex-col gap-2 mt-8">
-        <ShButton variant="default" size="default" className="w-full" onclick={duplicate}>
+        <Button variant="default" size="default" className="w-full" onclick={duplicate}>
             <CopyIcon/>
             <span class="ml-1">{language.presetDuplicate}</span>
-        </ShButton>
-        <ShButton variant="destructive" size="default" className="w-full" onclick={remove}>
+        </Button>
+        <Button variant="destructive" size="default" className="w-full" onclick={remove}>
             <Trash2Icon/>
             <span class="ml-1">{language.presetDelete}</span>
-        </ShButton>
+        </Button>
     </div>
 </div>

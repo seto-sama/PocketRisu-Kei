@@ -4,6 +4,7 @@ import {
     getRevenantGenerationSyncClientId,
 } from '../transport/client'
 import { writable } from 'svelte/store'
+import { v4 as uuidv4 } from 'uuid'
 import type {
     RevenantOperationContext,
     RevenantClientAction,
@@ -16,6 +17,7 @@ import type {
     RevenantWorkflowStatus,
     RevenantWorkflowStepStatus,
 } from '../types'
+import { getComfyBridgeId } from './comfyBridgeId'
 
 const activeWorkflows = new Map<string, RevenantWorkflow>()
 export const activeRevenantWorkflows = writable<RevenantWorkflow[]>([])
@@ -80,11 +82,13 @@ async function workflowMutationHeaders(
 
 export class RevenantWorkflowBusyError extends Error {
     readonly workflow?: RevenantWorkflow
+    readonly retryAfterMs?: number
 
-    constructor(workflow?: RevenantWorkflow) {
+    constructor(workflow?: RevenantWorkflow, retryAfterMs?: number) {
         super('A generation workflow is already active for this room')
         this.name = 'RevenantWorkflowBusyError'
         this.workflow = workflow
+        this.retryAfterMs = retryAfterMs
     }
 }
 
@@ -225,15 +229,68 @@ export async function beginRevenantWorkflow(arg: {
         headers: await revenantHeaders(true),
         body: JSON.stringify(arg),
     })
-    const body = await response.json().catch(() => ({})) as { workflow?: RevenantWorkflow, error?: string }
-    if (response.status === 409 && body.workflow) {
-        rememberWorkflow(body.workflow)
-        throw new RevenantWorkflowBusyError(body.workflow)
+    const body = await response.json().catch(() => ({})) as {
+        workflow?: RevenantWorkflow
+        error?: string
+        busyReason?: string
+        retryAfterMs?: number
+    }
+    if (
+        response.status === 409
+        && (body.workflow || body.busyReason === 'main_job_unregistered')
+    ) {
+        if (body.workflow) rememberWorkflow(body.workflow)
+        throw new RevenantWorkflowBusyError(body.workflow, body.retryAfterMs)
     }
     if (!response.ok || !body.workflow) {
         throw new Error(body.error || `Failed to create generation workflow: ${response.status}`)
     }
     return rememberWorkflow(body.workflow)
+}
+
+export async function beginImageGenerationWorkflow(arg: {
+    characterId: string
+    roomId: string
+    prompt: string
+    negativePrompt: string
+    seed?: number
+    label: string
+    projection?: 'append' | 'reroll'
+    messageId?: string
+}): Promise<RevenantWorkflow> {
+    const operationId = uuidv4()
+    return beginRevenantWorkflow({
+        characterId: arg.characterId,
+        roomId: `image-generation:${arg.roomId}`,
+        plan: [{
+            key: 'image.generate',
+            kind: 'image.generate.server',
+            recoveryPolicy: 'at_least_once',
+        }],
+        context: {
+            schemaVersion: 1,
+            kind: 'image-generation',
+            comfyBridgeId: getComfyBridgeId(),
+            operationId,
+            messageId: arg.messageId ?? uuidv4(),
+            target: {
+                characterId: arg.characterId,
+                roomId: arg.roomId,
+            },
+            prompt: arg.prompt,
+            negativePrompt: arg.negativePrompt,
+            seed: arg.seed,
+            label: arg.label,
+            projection: arg.projection ?? 'append',
+        },
+    })
+}
+
+export async function getActiveImageGenerationWorkflow(
+    characterId: string,
+    roomId: string,
+): Promise<RevenantWorkflow | undefined> {
+    return getActiveRevenantWorkflow(characterId, `image-generation:${roomId}`)
 }
 
 export function getLocalRevenantWorkflow(
@@ -332,10 +389,14 @@ export async function resolveRevenantWorkflowClientAction(
             body: JSON.stringify({ actionId, response: actionResponse }),
         },
     )
+    const body = await response.json().catch(() => ({})) as {
+        error?: string
+        workflow?: RevenantWorkflow
+    }
     if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string }
         throw new Error(body.error || `Failed to resolve workflow client action: ${response.status}`)
     }
+    if (body.workflow) rememberWorkflow(body.workflow)
 }
 
 export async function finishRevenantWorkflow(

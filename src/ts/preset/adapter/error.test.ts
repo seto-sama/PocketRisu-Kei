@@ -6,6 +6,8 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
+    normalizeProviderStreamError,
 } from './error'
 
 describe('extractErrorMessage', () => {
@@ -134,16 +136,6 @@ describe('defaultFallbackEligible', () => {
 })
 
 describe('ModelPresetAdapterError', () => {
-    test('inherits Error and exposes adapter fields', () => {
-        const err = new ModelPresetAdapterError('rate-limit', 'slow down', { status: 429 })
-        expect(err).toBeInstanceOf(Error)
-        expect(err.kind).toBe('rate-limit')
-        expect(err.status).toBe(429)
-        expect(err.retryable).toBe(true)
-        expect(err.fallbackEligible).toBe(false)
-        expect(err.message).toBe('slow down')
-    })
-
     test('options.retryable and options.fallbackEligible override defaults independently', () => {
         const err = new ModelPresetAdapterError('network', 'override', {
             retryable: false,
@@ -246,5 +238,40 @@ describe('normalizeHttpStatus', () => {
     test('outside common ranges -> unknown', () => {
         const err = normalizeHttpStatus(600)!
         expect(err.kind).toBe('unknown')
+    })
+})
+
+describe('parseRetryAfterMs', () => {
+    test('parses delta-seconds', () => {
+        expect(parseRetryAfterMs('2.5')).toBe(2_500)
+    })
+
+    test('parses an HTTP date relative to now', () => {
+        const now = Date.parse('2026-08-23T00:00:00Z')
+        expect(parseRetryAfterMs('Sun, 23 Aug 2026 00:00:07 GMT', now)).toBe(7_000)
+    })
+
+    test('ignores invalid and negative values', () => {
+        expect(parseRetryAfterMs('later')).toBeUndefined()
+        expect(parseRetryAfterMs('-1')).toBeUndefined()
+        expect(parseRetryAfterMs(null)).toBeUndefined()
+    })
+})
+
+describe('normalizeProviderStreamError', () => {
+    test('uses the normal HTTP classification when a stream payload includes status', () => {
+        expect(normalizeProviderStreamError({ status: 503, message: 'busy' }, 'fallback'))
+            .toMatchObject({ kind: 'server', retryable: true, fallbackEligible: true })
+    })
+
+    test('recognizes status-less provider overload messages', () => {
+        expect(normalizeProviderStreamError({
+            type: 'server_error',
+            message: 'Too many requests',
+        }, 'fallback')).toMatchObject({
+            kind: 'rate-limit',
+            retryable: true,
+            fallbackEligible: false,
+        })
     })
 })

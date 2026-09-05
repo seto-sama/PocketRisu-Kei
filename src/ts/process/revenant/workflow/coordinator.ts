@@ -50,9 +50,9 @@ export function coordinateRevenantGeneration<T>(
     }
 
     const result = Promise.resolve().then(() => start({
-        onJobCreated(jobId) {
+        onJobCreated(jobId, createdAt) {
             settleOnce(jobId)
-            options.onJobCreated?.(jobId)
+            options.onJobCreated?.(jobId, createdAt)
         },
         onJobRegistrationUnavailable(error) {
             settleOnce(undefined)

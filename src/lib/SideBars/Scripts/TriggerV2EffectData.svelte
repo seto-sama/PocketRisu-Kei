@@ -3,38 +3,35 @@
     import { language } from "src/lang";
     import { alertConfirm } from "src/ts/alert";
     import type { triggerEffectV2 } from "src/ts/process/triggers";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Checkbox from "../../UI/components/Checkbox.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import Input from "../../UI/components/Input.svelte";
 
     interface Props {
         value: triggerEffectV2;
         open?: boolean;
         removable?: boolean;
-        showElse?: boolean;
-        hasElse?: boolean;
+        divider?: boolean;
         titleHtml?: string;
         triggerNames?: string[];
         onToggle?: () => void;
         onRemove?: () => void;
-        onElseChange?: (checked: boolean) => void;
     }
 
     let {
         value = $bindable(),
         open = false,
         removable = true,
-        showElse = false,
-        hasElse = false,
+        divider = false,
         titleHtml = '',
         triggerNames = [],
         onToggle = () => {},
         onRemove = () => {},
-        onElseChange = () => {},
     }: Props = $props();
 
     let effect = $derived(value as any);
@@ -69,8 +66,20 @@
         ['%=', language.triggerInputLabels.operatorModulo],
     ];
 
+    function isLorebookAlwaysActiveField(field: string) {
+        return value.type === 'v2SetLorebookAlwaysActive' && field === 'value';
+    }
+
     function getLabel(field: string) {
+        if (isLorebookAlwaysActiveField(field)) {
+            return language.triggerInputLabels.alwaysActive;
+        }
         const labels = language.triggerInputLabels as Record<string, string>;
+        if (field.endsWith('Type')) {
+            const baseField = field.slice(0, -4);
+            const baseLabel = labels[baseField] ?? baseField.replace(/([a-z])([A-Z])/g, '$1 $2');
+            return `${baseLabel} ${labels.typeSuffix}`;
+        }
         return labels[field] ?? field.replace(/([a-z])([A-Z])/g, '$1 $2');
     }
 
@@ -81,7 +90,7 @@
         if (value.type === 'v2QuickSearchChat' && field === 'condition') {
             return [['loose', 'loose'], ['strict', 'strict'], ['regex', 'regex']];
         }
-        if ((value.type === 'v2If' || value.type === 'v2IfAdvanced') && field === 'target' && effect.condition === '≡') {
+        if (value.type === 'v2IfAdvanced' && field === 'target' && effect.condition === '≡') {
             return [
                 ['true', language.triggerInputLabels.boolTrue],
                 ['false', language.triggerInputLabels.boolFalse],
@@ -132,11 +141,12 @@
     }
 </script>
 
-<ShDisclosureList
+<DisclosureList
     variant="item"
     {open}
     onToggle={onToggle}
     dividerTone="muted"
+    isLast={!divider}
     data-disclosure-drag-name={language.triggerDesc[value.type] || value.type}
 >
     {#snippet header()}
@@ -156,47 +166,48 @@
     {/snippet}
 
     {#if fields.length === 0}
-        <span class="py-2 text-sm text-textcolor2">{language.noConfig}</span>
+        <span class="py-2 text-sm text-subtext">{language.noConfig}</span>
     {/if}
 
     {#each fields as field}
         {@const options = getOptions(field)}
-        <div data-disclosure-field>
-            <div data-disclosure-label>{getLabel(field)}</div>
-            <div data-disclosure-control>
-                {#if typeof effect[field] === 'boolean'}
-                    <CheckInput
-                        bind:check={effect[field]}
-                        name={getLabel(field)}
-                    />
-                {:else if options}
-                    <SelectInput bind:value={effect[field]}>
-                        {#each options as option}
-                            <OptionInput value={option[0]}>{option[1]}</OptionInput>
-                        {/each}
-                    </SelectInput>
-                {:else if multilineFields.has(field)}
-                    <TextAreaInput
-                        highlight
-                        height="20"
-                        bind:value={effect[field]}
-                    />
-                {:else}
-                    <TextInput
-                        bind:value={effect[field]}
-                    />
-                {/if}
+        {#if isLorebookAlwaysActiveField(field)}
+            <div data-disclosure-row>
+                <span>{getLabel(field)}</span>
+                <Switch
+                    bind:checked={effect[field]}
+                    ariaLabel={getLabel(field)}
+                />
             </div>
-        </div>
+        {:else}
+            <div data-disclosure-field>
+                <div data-disclosure-label>{getLabel(field)}</div>
+                <div data-disclosure-control>
+                    {#if typeof effect[field] === 'boolean'}
+                        <Checkbox
+                            card
+                            bind:check={effect[field]}
+                            name={getLabel(field)}
+                        />
+                    {:else if options}
+                        <Select bind:value={effect[field]}>
+                            {#each options as option}
+                                <SelectOption value={option[0]}>{option[1]}</SelectOption>
+                            {/each}
+                        </Select>
+                    {:else if multilineFields.has(field)}
+                        <Textarea
+                            height="20"
+                            bind:value={effect[field]}
+                        />
+                    {:else}
+                        <Input
+                            bind:value={effect[field]}
+                        />
+                    {/if}
+                </div>
+            </div>
+        {/if}
     {/each}
 
-    {#if showElse}
-        <div data-disclosure-row>
-            <CheckInput
-                check={hasElse}
-                name={language.triggerInputLabels.addElse}
-                onChange={onElseChange}
-            />
-        </div>
-    {/if}
-</ShDisclosureList>
+</DisclosureList>

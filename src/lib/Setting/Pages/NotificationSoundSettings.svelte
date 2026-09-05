@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import SettingPage from 'src/lib/UI/GUI/SettingPage.svelte';
+    import SettingPage from '../../UI/components/SettingPage.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import NotificationToggle from './Display/NotificationToggle.svelte';
     import SoundGroup from './Sound/SoundGroup.svelte';

@@ -1,6 +1,6 @@
 <script lang="ts">
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
     import { language } from "src/lang";
     import { DBState, OtherBotsSubmenuIndex, selectedCharID } from "src/ts/stores.svelte";
     import { untrack } from "svelte";
@@ -9,6 +9,8 @@
     import HypaMemorySettings from "./HypaMemorySettings.svelte";
     import TTSSettings from "./TTSSettings.svelte";
     import ImageSettings from "./ImageSettings.svelte";
+
+    let { embedded = false }: { embedded?: boolean } = $props();
 
     $effect(() => {
         const settings = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings;
@@ -51,7 +53,7 @@
     }
 </script>
 
-<SettingPage title={language.otherBots}>
+<SettingPage title={embedded ? undefined : language.otherBots}>
     <SettingTabs tabs={[
         { label: language.longTermMemory, value: 0 },
         { label: 'TTS', value: 1 },

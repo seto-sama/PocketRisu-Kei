@@ -12,6 +12,8 @@ const LAYOUT_ELEMENT_SELECTOR = '.chat-message-container, .risu-chat'
 const NATIVE_BOTTOM_ANCHOR_ATTRIBUTE = 'data-chat-scroll-anchor'
 const SCROLL_PHASE_ATTRIBUTE = 'data-chat-scroll-phase'
 const DIRECT_MANIPULATION_ATTRIBUTE = 'data-chat-direct-manipulation'
+const HISTORY_READ_ATTRIBUTE = 'data-chat-history-read'
+const TOUCH_INTENT_THRESHOLD = 4
 export const CHAT_NEAR_BOTTOM_THRESHOLD = 100
 export const CHAT_HISTORY_LOAD_THRESHOLD = 100
 
@@ -61,6 +63,11 @@ type ScrollElementOptions = {
     followLayout?: boolean
 }
 
+type PreserveElementOptions = {
+    edge?: 'top' | 'bottom'
+    followLayout?: boolean
+}
+
 type LayoutAnchor = {
     element: HTMLElement | null
     edge: 'top' | 'bottom'
@@ -71,8 +78,11 @@ export type ChatScrollController = {
     scrollToElement(element: HTMLElement, options: ScrollElementOptions): void
     scrollToEdge(edge: 'top' | 'bottom', behavior: ScrollBehavior): void
     navigateMessage(direction: 'prev' | 'next', behavior?: ScrollBehavior): void
-    preserveElementPosition(element: HTMLElement): () => void
-    preserveViewportPosition(): () => void
+    preserveElementPosition(
+        element: HTMLElement,
+        options?: PreserveElementOptions,
+    ): () => void
+    preserveViewportPosition(options?: Pick<PreserveElementOptions, 'followLayout'>): () => void
     destroy(): void
 }
 
@@ -129,12 +139,19 @@ export function createChatScrollController(
     let leavingBottom = false
     let pointerActive = false
     let touchActive = false
+    let touchStartY: number | null = null
     let directManipulationStart: number | null = null
     let navigationAnchor: LayoutAnchor | null = null
     const layoutAnchors = new Map<symbol, LayoutAnchor>()
     const observedElements = new Set<Element>()
+    const observedInlineSizes = new WeakMap<Element, number>()
 
     const maxScrollTop = () => Math.max(0, container.scrollHeight - container.clientHeight)
+    const setMode = (nextMode: ChatScrollMode) => {
+        if (mode === nextMode) return
+        mode = nextMode
+        container.toggleAttribute(HISTORY_READ_ATTRIBUTE, nextMode === 'history-read')
+    }
     const isAtBottom = () => isChatScrolledToBottom(
         container.scrollTop,
         container.scrollHeight,
@@ -203,12 +220,14 @@ export function createChatScrollController(
     }
 
     const alignLayoutAnchor = (anchor: LayoutAnchor) => {
-        if (anchor.edge === 'bottom') {
+        if (anchor.edge === 'bottom' && !anchor.element) {
             alignBottom()
             return
         }
         if (!anchor.element?.isConnected || !container.contains(anchor.element)) return
-        const delta = anchor.element.getBoundingClientRect().top - anchor.position
+        const rect = anchor.element.getBoundingClientRect()
+        const currentPosition = anchor.edge === 'bottom' ? rect.bottom : rect.top
+        const delta = currentPosition - anchor.position
         if (Math.abs(delta) > Number.EPSILON) container.scrollTop += delta
     }
 
@@ -251,10 +270,12 @@ export function createChatScrollController(
             if (nextElements.has(element)) continue
             resizeObserver.unobserve(element)
             observedElements.delete(element)
+            observedInlineSizes.delete(element)
         }
         for (const element of nextElements) {
             if (observedElements.has(element)) continue
             observedElements.add(element)
+            observedInlineSizes.set(element, element.getBoundingClientRect().width)
             resizeObserver.observe(element)
         }
     }
@@ -263,7 +284,7 @@ export function createChatScrollController(
         navigationAnchor = null
         if (event.deltaY < 0) {
             leavingBottom = true
-            mode = 'history-read'
+            setMode('history-read')
         }
         else if (event.deltaY > 0) {
             leavingBottom = false
@@ -276,11 +297,11 @@ export function createChatScrollController(
         // Firefox can deliver the wheel event before APZ publishes the first
         // changed scrollTop. Do not relatch during that gap.
         if (leavingBottom && atBottom) {
-            mode = 'history-read'
+            setMode('history-read')
             return
         }
         if (atBottom) {
-            mode = 'bottom-follow'
+            setMode('bottom-follow')
             leavingBottom = false
             return
         }
@@ -288,7 +309,7 @@ export function createChatScrollController(
             && directManipulationStart !== null
             && Math.abs(container.scrollTop - directManipulationStart) > BOTTOM_EPSILON
         if (leavingBottom || directManipulationMoved) {
-            mode = 'history-read'
+            setMode('history-read')
             leavingBottom = false
             return
         }
@@ -317,12 +338,29 @@ export function createChatScrollController(
         pointerActive = false
         finishDirectManipulation()
     }
-    const startTouch = () => {
+    const startTouch = (event: TouchEvent) => {
         startDirectManipulation()
         touchActive = true
+        touchStartY = event.touches?.[0]?.clientY ?? null
+    }
+    const moveTouch = (event: TouchEvent) => {
+        const currentY = event.touches?.[0]?.clientY
+        if (
+            !touchActive
+            || touchStartY === null
+            || currentY === undefined
+            || currentY - touchStartY <= TOUCH_INTENT_THRESHOLD
+        ) return
+
+        // Leaving the bottom means dragging the content downward. Safari can
+        // defer the corresponding scroll event until after touchend, so record
+        // the intent while the gesture still owns the viewport.
+        leavingBottom = true
+        setMode('history-read')
     }
     const endTouch = () => {
         touchActive = false
+        touchStartY = null
         finishDirectManipulation()
     }
 
@@ -334,7 +372,7 @@ export function createChatScrollController(
             ? elementRect.top - containerRect.top
             : elementRect.bottom - containerRect.bottom
         leavingBottom = false
-        mode = 'history-read'
+        setMode('history-read')
         navigationAnchor = options.followLayout
             ? {
                 element,
@@ -355,9 +393,9 @@ export function createChatScrollController(
         if (destroyed) return
         leavingBottom = false
         navigationAnchor = null
-        mode = edge === 'bottom' && behavior === 'instant'
+        setMode(edge === 'bottom' && behavior === 'instant'
             ? 'bottom-follow'
-            : 'history-read'
+            : 'history-read')
         container.scrollTo({
             top: edge === 'bottom' ? maxScrollTop() : 0,
             behavior,
@@ -403,19 +441,24 @@ export function createChatScrollController(
         if (target) scrollToElement(target.element, { block: 'start', behavior })
     }
 
-    const preserveElementPosition = (element: HTMLElement) => {
+    const preserveElementPosition = (
+        element: HTMLElement,
+        options: PreserveElementOptions = {},
+    ) => {
         if (destroyed || !container.contains(element)) return () => {}
+        const { edge = 'bottom', followLayout = false } = options
         const token = Symbol('chat-layout-anchor')
         const atBottom = isAtBottom()
+        const elementRect = element.getBoundingClientRect()
         const anchor: LayoutAnchor = atBottom
             ? { element: null, edge: 'bottom', position: 0 }
             : {
                 element,
-                edge: 'top',
-                position: element.getBoundingClientRect().top,
+                edge,
+                position: edge === 'bottom' ? elementRect.bottom : elementRect.top,
             }
         layoutAnchors.set(token, anchor)
-        mode = atBottom ? 'bottom-follow' : 'history-read'
+        setMode(atBottom ? 'bottom-follow' : 'history-read')
 
         let released = false
         return () => {
@@ -423,11 +466,16 @@ export function createChatScrollController(
             released = true
             alignLayoutAnchor(anchor)
             layoutAnchors.delete(token)
+            // Native anchoring already follows the actual bottom. Retaining a
+            // second JS anchor there would add scroll writes on every resize.
+            if (followLayout && anchor.element) navigationAnchor = anchor
             scheduleLayout()
         }
     }
 
-    const preserveViewportPosition = () => {
+    const preserveViewportPosition = (
+        options: Pick<PreserveElementOptions, 'followLayout'> = {},
+    ) => {
         const containerRect = container.getBoundingClientRect()
         const visibleElement = Array.from(
             container.querySelectorAll<HTMLElement>(LAYOUT_ELEMENT_SELECTOR),
@@ -435,14 +483,34 @@ export function createChatScrollController(
             const rect = element.getBoundingClientRect()
             return rect.bottom > containerRect.top && rect.top < containerRect.bottom
         })
-        return visibleElement ? preserveElementPosition(visibleElement) : () => {}
+        return visibleElement
+            ? preserveElementPosition(visibleElement, {
+                edge: 'top',
+                followLayout: options.followLayout,
+            })
+            : () => {}
     }
 
-    const handleObservedLayout = () => {
+    const handleObservedLayout = (entries: ResizeObserverEntry[] = []) => {
         // Mobile browser chrome can resize the visual viewport on every frame
         // of a touch gesture. Never let bottom-follow corrections compete with
         // the browser while the user is directly manipulating the scroller.
         if (destroyed || pointerActive || touchActive) return
+        let horizontalLayoutChanged = false
+        for (const entry of entries) {
+            const inlineSize = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+            const previousSize = observedInlineSizes.get(entry.target)
+            observedInlineSizes.set(entry.target, inlineSize)
+            if (previousSize !== undefined && previousSize !== inlineSize) {
+                horizontalLayoutChanged = true
+            }
+        }
+        if (horizontalLayoutChanged) {
+            // Sidebar width animation can resize every message in one delivery.
+            // Defer any phase-height/scroll writes until ResizeObserver finishes.
+            scheduleLayout()
+            return
+        }
         if (followsNativeBottomAnchor()) {
             // Native anchoring owns healthy streamed frames. JS only recovers
             // a fractional phase mismatch and otherwise performs no scroll
@@ -469,6 +537,7 @@ export function createChatScrollController(
     container.addEventListener('scroll', handleScroll, { passive: true })
     container.addEventListener('pointerdown', startPointer, { passive: true })
     container.addEventListener('touchstart', startTouch, { passive: true })
+    container.addEventListener('touchmove', moveTouch, { passive: true })
     window.addEventListener('pointerup', endPointer, { passive: true })
     window.addEventListener('pointercancel', endPointer, { passive: true })
     window.addEventListener('touchend', endTouch, { passive: true })
@@ -489,13 +558,16 @@ export function createChatScrollController(
             observedElements.clear()
             layoutAnchors.clear()
             directManipulationStart = null
+            touchStartY = null
             navigationAnchor = null
             container.removeAttribute(DIRECT_MANIPULATION_ATTRIBUTE)
+            container.removeAttribute(HISTORY_READ_ATTRIBUTE)
             cancelAnimationFrame(layoutFrame)
             container.removeEventListener('wheel', handleWheel)
             container.removeEventListener('scroll', handleScroll)
             container.removeEventListener('pointerdown', startPointer)
             container.removeEventListener('touchstart', startTouch)
+            container.removeEventListener('touchmove', moveTouch)
             window.removeEventListener('pointerup', endPointer)
             window.removeEventListener('pointercancel', endPointer)
             window.removeEventListener('touchend', endTouch)

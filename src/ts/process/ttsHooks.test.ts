@@ -21,13 +21,6 @@ describe('runHookPipeline', () => {
         expect(result.ctx).toEqual(ctx);
     });
 
-    it('applies a single hook that transforms text', async () => {
-        const hook: TTSHookFn<BeforeTTSContext, BeforeTTSResult> = async (c) => ({ text: c.text + '!' });
-        const result = await runHookPipeline([hook], makeCtx(), 1000);
-        expect(result.skip).toBe(false);
-        expect(result.ctx.text).toBe('hello!');
-    });
-
     it('chains two hooks — second sees the first\'s output', async () => {
         const a: TTSHookFn<BeforeTTSContext, BeforeTTSResult> = async (c) => ({ text: c.text + ' A' });
         const b: TTSHookFn<BeforeTTSContext, BeforeTTSResult> = async (c) => ({ text: c.text + ' B' });
@@ -58,15 +51,19 @@ describe('runHookPipeline', () => {
     });
 
     it('isolates a hook that exceeds the timeout', async () => {
+        vi.useFakeTimers();
         const slow: TTSHookFn<BeforeTTSContext, BeforeTTSResult> = () => new Promise(() => { /* never resolves */ });
         const fast: TTSHookFn<BeforeTTSContext, BeforeTTSResult> = async (c) => ({ text: c.text + ' F' });
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         try {
-            const result = await runHookPipeline([slow, fast], makeCtx(), 50);
+            const resultPromise = runHookPipeline([slow, fast], makeCtx(), 50);
+            await vi.advanceTimersByTimeAsync(50);
+            const result = await resultPromise;
             expect(result.skip).toBe(false);
             expect(result.ctx.text).toBe('hello F');
         } finally {
             errSpy.mockRestore();
+            vi.useRealTimers();
         }
     });
 

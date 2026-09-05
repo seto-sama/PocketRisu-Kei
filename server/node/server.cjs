@@ -10,6 +10,7 @@ const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
 const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
+const { Worker } = require('worker_threads')
 const Vips = require('wasm-vips')
 let _vipsPromise = null
 const getVips = () => {
@@ -21,15 +22,56 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvDel, kvList, kvCount,
-        kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
-        gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
+const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount,
+        kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, clearEntities, checkpointWal,
+        estimateVacuumRequiredBytes, vacuumDatabase, gcChunks, reclaimableChunkBytes,
+        chunkStorageStats, isDbBlobChunked, snapshotFootprint, snapshotSetFootprint,
+        db: sqliteDb } = require('./db.cjs');
+const {
+    AppDataConflictError,
+    createAppDataStore,
+} = require('./appDataStore.cjs');
+const {
+    AppDataMigrationCleanupError,
+    createAppDataMigration,
+} = require('./appDataMigration.cjs');
+const appDataStore = createAppDataStore(sqliteDb);
+const {
+    DatabaseProjectionServiceError,
+    createDatabaseProjectionService,
+} = require('./databaseProjectionService.cjs');
+const {
+    createBookmarkStore,
+    normalizePreview,
+    readChatCompatibility,
+    stripChatCompatibility,
+} = require('./bookmarkStore.cjs');
+const bookmarkStore = createBookmarkStore(sqliteDb);
+const BOOKMARKS_API_PATH = '/api/bookmarks';
+const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags';
+const {
+    STORED_ASSET_PREFIX,
+    assetBasename: statsBasename,
+    collectDatabaseAssetBasenames,
+    collectPersistentPluginAssetBasenames,
+    collectProtectedAssetBasenames,
+    findOrphanAssets,
+} = require('./assetReferences.cjs');
+const { buildSettingsBackupPlan } = require('./settingsBackup.cjs');
+const {
+    deleteBackupNote,
+    getBackupNote,
+    normalizeBackupNote,
+    readBackupNotes,
+    setBackupNote,
+} = require('./backupNotes.cjs');
+const assetReferenceStorage = { listKeys: kvList, getValue: kvGet };
 const {
     addLogBatch, queryLogs, clearLogs, deleteLog, countLogs,
     logger, installProcessHandlers, expressErrorMiddleware,
 } = require('./logs/logs.cjs');
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
-const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
+const { installUsageRoutes, recordGenerationUsage, getUsageByJobIds } = require('./logs/usageDb.cjs');
 const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
@@ -55,6 +97,7 @@ const {
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     projectGenerationJournal,
     installRevenantGenerationRoutes,
+    installImageGenerationJobRoutes,
     createGenerationWorkers,
     createRevenantMaterializer,
     createRevenantPostprocessWorker,
@@ -70,6 +113,7 @@ const {
     createFullChatStore,
     commitChatContent,
     stripChatsFromDb,
+    mergeChatStubWithFullChat,
     reassembleFullDb: reassembleFullDbFromStore,
     findStubFlagLossChats,
     CanonicalChatCommitError,
@@ -86,7 +130,7 @@ const {
     mergeRemoteFilteredDatabase,
 } = require('./remoteDatabaseFilter.cjs');
 const { applyPatch } = require('fast-json-patch');
-const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, hasRemoteBlocks } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
 const {
     createBackupRestoreService,
     createLegacyRestoreService,
@@ -119,9 +163,10 @@ let fullChatStore = null; // Map<chaId, Map<chatId, chatObject>> — lazy-initia
 // ETag for database.bin
 let dbEtag = null;
 const MISSING_DATABASE_ETAG = '__missing_database__';
-let migrateRemoteBlocksIfNeeded;
 let restoreColdStorageCharactersInDb;
 let restoreColdStorageChat;
+let appDataMigration;
+let appDataReadyPromise = null;
 
 function computeBufferEtag(buffer) {
     return nodeCrypto.createHash('md5').update(buffer).digest('hex');
@@ -211,6 +256,8 @@ const BACKUP_INTERVAL_MS = process.env.POCKETRISU_BACKUP_INTERVAL_MS
     ? Number(process.env.POCKETRISU_BACKUP_INTERVAL_MS)
     : 5 * 60 * 1000; // 5 minutes (override for tests to force snapshot creation)
 let lastBackupTime = null;
+let backupRotationScheduled = false;
+let backupWorker = null;
 
 function readSnapshotConfigInt(key, fallback, min, max) {
     try {
@@ -235,50 +282,60 @@ function getSnapshotLimits() {
     };
 }
 
+function deleteSnapshotStateRows(key) {
+    kvDel(key);
+    bookmarkStore.deleteSnapshot(key);
+}
+
+const deleteSnapshotState = sqliteDb.transaction(deleteSnapshotStateRows);
+
+const deleteSnapshotStates = sqliteDb.transaction((keys) => {
+    for (const key of keys) deleteSnapshotStateRows(key);
+});
+
 // Walk newest → oldest; keep within both limits, delete the rest. The most
 // recent snapshot is always kept (even if it alone exceeds the byte limit) so
 // we never end up with zero backups after a config change.
 function trimSnapshotsToLimits() {
     const { maxCount, maxBytes } = getSnapshotLimits();
-    // Size each snapshot by its marginal disk cost (chunks not shared with the
-    // live blob), not its logical size — chunked snapshots share chunks, so a
-    // logical measure would over-trim ones that cost almost nothing on disk.
     const entries = kvList(DB_BACKUP_PREFIX)
         .map((key) => {
             const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            return { key, size: snapshotFootprint(key), ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
+            return { key, ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
         })
         .sort((a, b) => b.ts - a.ts);
 
-    let runningBytes = 0;
+    const keptKeys = [];
     const toDelete = [];
     for (let i = 0; i < entries.length; i++) {
         const e = entries[i];
         const isFirst = i === 0;
-        const fitsByCount = i < maxCount;
-        const fitsByBytes = runningBytes + e.size <= maxBytes;
+        const fitsByCount = keptKeys.length < maxCount;
+        // Compute the physical union of all kept snapshots. Content-addressed
+        // chunks shared by two snapshots occupy disk once, not once per key.
+        const candidateBytes = snapshotSetFootprint([...keptKeys, e.key]);
+        const fitsByBytes = candidateBytes <= maxBytes;
         if (isFirst || (fitsByCount && fitsByBytes)) {
-            runningBytes += e.size;
+            keptKeys.push(e.key);
         } else {
             toDelete.push(e.key);
         }
     }
-    for (const key of toDelete) kvDel(key);
+    deleteSnapshotStates(toDelete);
     return { kept: entries.length - toDelete.length, removed: toDelete.length };
 }
 
 // Current snapshot count + two totals:
-//   bytes        — marginal disk cost (snapshotFootprint), the SAME measure the
-//                  byte limit/trim uses, so the limit gauge matches what trimming
-//                  sees. kvListWithSizes would report a chunked snapshot's marker.
+//   bytes        — physical union of all selected snapshot rows and unique
+//                  content-addressed chunks, exactly matching quota trimming.
 //   logicalBytes — sum of each snapshot's full logical size (kvSize), i.e. what
 //                  the snapshots would cost WITHOUT dedup. Drives the "saved by
 //                  deduplication" figure; never used for trimming.
 function snapshotUsage() {
     const keys = kvList(DB_BACKUP_PREFIX);
-    let bytes = 0, logicalBytes = 0;
+    const bytes = snapshotSetFootprint(keys);
+    let logicalBytes = 0;
     for (const k of keys) {
-        bytes += snapshotFootprint(k);
         logicalBytes += (kvSize(k) || 0);
     }
     return { count: keys.length, bytes, logicalBytes };
@@ -294,11 +351,22 @@ function makeSnapshotKey(now = Date.now()) {
     return key;
 }
 
-function createSnapshotNow() {
+const createSnapshotState = sqliteDb.transaction(() => {
+    if (!appDataStore.getState().initialized) {
+        throw new Error('Cannot create snapshot: relational database is missing');
+    }
     const backupKey = makeSnapshotKey();
-    kvCopyValue('database/database.bin', backupKey);
+    const projection = appDataStore.exportProjection({ includeMessages: true });
+    bookmarkStore.projectDatabaseCompatibility(projection);
+    kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(projection)));
+    if (!kvGet(backupKey)) throw new Error('Cannot create snapshot: database blob is missing');
+    bookmarkStore.saveSnapshot(backupKey);
     trimSnapshotsToLimits();
     return backupKey;
+});
+
+function createSnapshotNow() {
+    return createSnapshotState();
 }
 
 function createBackupAndRotate() {
@@ -309,6 +377,49 @@ function createBackupAndRotate() {
     lastBackupTime = now;
 
     createSnapshotNow();
+}
+
+function scheduleBackupAndRotate() {
+    const now = Date.now();
+    if (backupRotationScheduled
+        || (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS)) {
+        return;
+    }
+    backupRotationScheduled = true;
+    lastBackupTime = now;
+    setImmediate(() => {
+        const limits = getSnapshotLimits();
+        const worker = new Worker(path.join(__dirname, 'snapshotWorker.cjs'), {
+            workerData: {
+                dbPath: path.join(process.cwd(), 'save', 'risuai.db'),
+                prefix: DB_BACKUP_PREFIX,
+                maxCount: limits.maxCount,
+                maxBytes: limits.maxBytes,
+            },
+        });
+        backupWorker = worker;
+        let reported = false;
+        worker.once('message', message => {
+            reported = true;
+            if (!message?.ok) {
+                lastBackupTime = null;
+                logger.warn('[Snapshot] Worker rotation failed:', message?.error ?? 'unknown error');
+            }
+        });
+        worker.once('error', error => {
+            reported = true;
+            lastBackupTime = null;
+            logger.warn('[Snapshot] Worker failed:', error);
+        });
+        worker.once('exit', code => {
+            if (!reported && code !== 0) {
+                lastBackupTime = null;
+                logger.warn(`[Snapshot] Worker exited with code ${code}`);
+            }
+            if (backupWorker === worker) backupWorker = null;
+            backupRotationScheduled = false;
+        });
+    });
 }
 
 async function flushPendingDb() {
@@ -332,15 +443,36 @@ function invalidateDbCache() {
 
 // ─── Chat runtime lazy load helpers ─────────────────────────────────────────
 
-function assignMissingChatIds(dbObj) {
+function assignMissingPersistentIds(dbObj) {
     let changed = false;
     if (!dbObj?.characters) return changed;
+    const characterIds = new Set();
     for (const char of dbObj.characters) {
-        if (!char?.chats) continue;
-        for (const chat of char.chats) {
-            if (!chat || chat._stub || chat.id) continue;
-            chat.id = nodeCrypto.randomUUID();
+        if (!char) continue;
+        if (!char.chaId || characterIds.has(char.chaId)) {
+            char.chaId = nodeCrypto.randomUUID();
             changed = true;
+        }
+        characterIds.add(char.chaId);
+        if (!char?.chats) continue;
+        const chatIds = new Set();
+        for (const chat of char.chats) {
+            if (!chat || chat._stub) continue;
+            if (!chat.id || chatIds.has(chat.id)) {
+                chat.id = nodeCrypto.randomUUID();
+                changed = true;
+            }
+            chatIds.add(chat.id);
+            if (!Array.isArray(chat.message)) continue;
+            const messageIds = new Set();
+            for (const message of chat.message) {
+                if (!message) continue;
+                if (!message.chatId || messageIds.has(message.chatId)) {
+                    message.chatId = nodeCrypto.randomUUID();
+                    changed = true;
+                }
+                messageIds.add(message.chatId);
+            }
         }
     }
     return changed;
@@ -369,52 +501,40 @@ function normalizeOrphanFolderIds(dbObj) {
     return changed;
 }
 
-async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
-    const { createBackup = false, migrationResult = null } = options;
-    // Convert legacy REMOTE-block layouts to inline format before decoding.
-    // If migration ran it overwrote database.bin, so the caller's `raw` is
-    // stale and we re-read from KV. Idempotent on the no-op path.
-    const migration = await migrateRemoteBlocksIfNeeded();
-    if (migration.ran) {
-        const fresh = kvGet('database/database.bin');
-        if (fresh) raw = fresh;
-    }
-    const dbObj = normalizeJSON(await decodeRisuSave(raw));
-    let needsPersist = false;
+function normalizeLegacyDatabaseProjection(dbObj) {
+    const normalized = normalizeJSON(dbObj);
+    assignMissingPersistentIds(normalized);
+    normalizeOrphanFolderIds(normalized);
 
-    const hadMissingIds = assignMissingChatIds(dbObj);
-    if (hadMissingIds) needsPersist = true;
-
-    const hadOrphanFolderIds = normalizeOrphanFolderIds(dbObj);
-    if (hadOrphanFolderIds) needsPersist = true;
-
-    // One-time migration: restore upstream cold storage characters to full characters.
-    // This runs when upstream data first enters NodeOnly (backup import or save folder copy).
-    // After restore, the coldstorage field is removed and the clean DB is persisted.
-    // Failed characters are promoted to safe blank characters — their KV data is preserved for manual recovery.
-    const coldRestoreResult = restoreColdStorageCharactersInDb(dbObj);
-    if (coldRestoreResult.restored > 0 || coldRestoreResult.failed > 0) needsPersist = true;
-    if (coldRestoreResult.failed > 0) {
-        logger.error(`[ColdStorage] ${coldRestoreResult.failed} character(s) could not be restored and were converted to safe blank characters. Cold storage KV data is preserved.`);
-        for (const name of coldRestoreResult.failedNames) {
-            logger.error(`[ColdStorage]   - "${name}"`);
+    const coldRestoreResult = restoreColdStorageCharactersInDb(normalized);
+    if (Array.isArray(normalized?.characters)) {
+        for (const character of normalized.characters) {
+            for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
+                if (!restoreColdStorageChat(chat)) {
+                    throw new Error(
+                        `Cold storage chat restore failed for ${character?.chaId ?? 'unknown'}/${chat?.id ?? 'unknown'}`,
+                    );
+                }
+            }
         }
     }
+    return { database: normalized, coldRestoreResult };
+}
 
-    if (needsPersist) {
-        kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(dbObj)));
-        if (createBackup) {
-            createBackupAndRotate();
-        }
-    }
-    if (migrationResult) {
-        migrationResult.coldStorageFailed = coldRestoreResult.failed;
-    }
-    return dbObj;
+function pruneBookmarksToFullChatStore() {
+    if (!fullChatStore) return 0;
+    return bookmarkStore.pruneInvalid((entry) => fullChatStore
+        .get(entry.characterId)
+        ?.get(entry.chatId)
+        ?.message
+        ?.some(message => message?.chatId === entry.messageId));
 }
 
 function initChatStore(dbObj) {
+    const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(dbObj);
     fullChatStore = createFullChatStore(dbObj);
+    if (bookmarkMigration.migrated) pruneBookmarksToFullChatStore();
+    return bookmarkMigration;
 }
 
 function reassembleFullDb(strippedDb) {
@@ -425,31 +545,37 @@ function isCloudflareTunnelRequest(req) {
     return isCloudflareTunnelRequestForUrl(req, tunnelUrl);
 }
 
+const databaseProjectionService = createDatabaseProjectionService({
+    appDataStore,
+    readStartupProjection: () => dbCache[DB_HEX_KEY]
+        ?? appDataStore.exportProjection({ includeMessages: false }),
+    filterRemoteOnlyFolders,
+    mergeRemoteFilteredDatabase,
+    restoreGenerationOwnedMetadata,
+});
+
 // Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
 
-/**
- * Ensure fullChatStore is initialized. Loads from disk if needed.
- */
-async function ensureChatStore() {
-    if (fullChatStore) return;
-    // Run remote-block migration first so the decode below sees an inline DB.
-    // Idempotent — skipped on every subsequent call.
-    await migrateRemoteBlocksIfNeeded();
-    const raw = kvGet('database/database.bin');
-    if (!raw) {
-        fullChatStore = new Map();
-        return;
+/** Ensure the requested chat is present in the process-local hot cache. */
+async function ensureChatStore(characterId, chatId) {
+    await ensureCanonicalStorage();
+    if (!fullChatStore) fullChatStore = new Map();
+    if (!appDataStore.getState().initialized || !characterId || !chatId) return;
+    let chats = fullChatStore.get(characterId);
+    if (chats?.has(chatId)) return;
+    const chat = appDataStore.getChat(characterId, chatId);
+    if (!chat) return;
+    if (!chats) {
+        chats = new Map();
+        fullChatStore.set(characterId, chats);
     }
-    const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
-        createBackup: true,
-    });
-    initChatStore(dbObj);
+    chats.set(chatId, chat);
 }
 
 // Stub metadata fields a JSON Patch may legitimately touch on a `chats[i]`
 // entry. Anything else is a chat-internal field — those live in fullChatStore,
 // not in dbCache, and should never appear in a /api/patch payload. Keep in
-// sync with chatToStub on both server and client.
+// intentionally limited to metadata that is part of the lazy chat stub.
 const STUB_METADATA_FIELDS = new Set(['id', 'name', '_stub', 'lastDate', 'folderId', 'modules']);
 
 // Only add/replace/remove are produced by the legitimate patcher. move/copy
@@ -534,6 +660,11 @@ function findChatInternalFieldOps(patch) {
 async function persistDbCacheWithChats(filePath, decodedKey) {
     const strippedDb = dbCache[filePath];
     if (!strippedDb) return;
+    if (decodedKey !== 'database/database.bin') {
+        const data = Buffer.from(encodeRisuSaveLegacy(strippedDb));
+        kvSet(decodedKey, data);
+        return;
+    }
     await ensureChatStore();
     const fullDb = reassembleFullDb(strippedDb);
 
@@ -556,15 +687,9 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
         }
     }
 
-    const data = Buffer.from(encodeRisuSaveLegacy(fullDb));
     try {
-        kvSet(decodedKey, data);
+        appDataStore.syncStartupProjection(strippedDb);
     } catch (err) {
-        // Tag with BLOB size so the visibility layer can surface it to the user.
-        // The dominant failure mode (better-sqlite3 INT_MAX) is size-driven.
-        if (err && typeof err === 'object') {
-            try { err.attemptedSize = data.length; } catch {}
-        }
         throw err;
     }
     // Refresh fullChatStore from the persisted snapshot so subsequent
@@ -572,25 +697,28 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     // that just hit disk. Without this, PATCH-only clears of stub fields
     // leave fullChatStore holding stale fullChat objects, and hydration
     // would resurrect the cleared values until the next /api/read.
-    if (decodedKey === 'database/database.bin') {
-        initChatStore(fullDb);
-    }
+    initChatStore(appDataStore.exportProjection({ includeMessages: true }));
+    dbCache[filePath] = appDataStore.exportProjection({ includeMessages: false });
 }
 
 /** Persist the canonical full-chat store immediately, preserving pending stub edits. */
 async function persistFullChatStoreNow() {
     await ensureChatStore();
     if (dbCache[DB_HEX_KEY]) {
-        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+        const fullDb = reassembleFullDb(dbCache[DB_HEX_KEY]);
+        appDataStore.replaceFromProjection(fullDb, {
+            expectedRevision: appDataStore.getState().revision,
+        });
+        refreshCanonicalDatabaseCache();
         return;
     }
     if (!fullChatStore || fullChatStore.size === 0) return;
-    const raw = kvGet('database/database.bin');
-    if (!raw) return;
-    const dbObj = normalizeJSON(await decodeRisuSave(raw));
-    const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-    initChatStore(fullDb);
+    const stripped = appDataStore.exportProjection({ includeMessages: false });
+    const fullDb = reassembleFullDb(stripped);
+    appDataStore.replaceFromProjection(fullDb, {
+        expectedRevision: appDataStore.getState().revision,
+    });
+    refreshCanonicalDatabaseCache();
 }
 
 /**
@@ -599,17 +727,20 @@ async function persistFullChatStoreNow() {
  * mutation, so concurrent devices increment the server value instead of
  * racing client-side snapshots.
  */
-async function persistCanonicalChatState({ characterId, generationInput = false, mutationPatch }) {
-    const hadCachedDb = Object.prototype.hasOwnProperty.call(dbCache, DB_HEX_KEY);
-    const previousCachedDb = hadCachedDb ? dbCache[DB_HEX_KEY] : undefined;
-    let nextDb;
-    if (previousCachedDb) {
-        nextDb = structuredClone(previousCachedDb);
-    } else {
-        const raw = kvGet('database/database.bin');
-        if (!raw) throw new Error('Compatible database is missing');
-        nextDb = normalizeJSON(stripChatsFromDb(await decodeRisuSave(raw)));
+async function persistCanonicalChatState({
+    characterId,
+    chatId,
+    chat,
+    generationInput = false,
+    mutationPatch,
+}) {
+    await ensureCanonicalStorage();
+    if (!appDataStore.getState().initialized) {
+        throw new Error('Canonical relational database is missing');
     }
+    const previousCachedDb = dbCache[DB_HEX_KEY]
+        ?? appDataStore.exportProjection({ includeMessages: false });
+    const nextDb = structuredClone(previousCachedDb);
 
     const metadata = generationInput
         ? applyGenerationInputMetadata(nextDb, characterId)
@@ -623,43 +754,49 @@ async function persistCanonicalChatState({ characterId, generationInput = false,
         applyMutationPatch(nextDb, characterId, mutationPatch);
     }
 
-    if (saveTimers[DB_HEX_KEY]) {
-        clearTimeout(saveTimers[DB_HEX_KEY]);
-        delete saveTimers[DB_HEX_KEY];
-    }
-    dbCache[DB_HEX_KEY] = nextDb;
     try {
-        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-        dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(nextDb)));
+        let committed;
+        sqliteDb.transaction(() => {
+            committed = appDataStore.commitChat(
+                characterId,
+                chatId,
+                chat,
+                undefined,
+                { requireExpected: false },
+            );
+            appDataStore.syncStartupProjection(nextDb);
+        })();
+        dbCache[DB_HEX_KEY] = appDataStore.exportProjection({ includeMessages: false });
+        dbEtag = computeDatabaseEtagFromObject(dbCache[DB_HEX_KEY]);
         clearPersistFailure();
         try {
-            createBackupAndRotate();
+            scheduleBackupAndRotate();
         } catch (error) {
             logger.warn('[CanonicalChat] Backup rotation failed:', error);
         }
-        return metadata;
+        return { ...committed, metadata };
     } catch (error) {
-        if (hadCachedDb) dbCache[DB_HEX_KEY] = previousCachedDb;
-        else delete dbCache[DB_HEX_KEY];
+        dbCache[DB_HEX_KEY] = previousCachedDb;
         throw error;
     }
 }
 
-function scheduleCanonicalChatPersist() {
-    scheduleStorageOperation(DB_HEX_KEY, async () => {
-        try {
-            await persistFullChatStoreNow();
-            clearPersistFailure();
-            try {
-                createBackupAndRotate();
-            } catch (error) {
-                logger.warn('[CanonicalChat] Backup rotation failed:', error);
-            }
-        } catch (error) {
-            logger.error('[CanonicalChat] Error persisting chat:', error);
-            recordPersistFailure(error, 'chat-content');
-        }
-    });
+async function scheduleCanonicalChatPersist({ characterId, chatId, chat }) {
+    await ensureCanonicalStorage();
+    const committed = appDataStore.commitChat(
+        characterId,
+        chatId,
+        chat,
+        undefined,
+        { requireExpected: false },
+    );
+    clearPersistFailure();
+    try {
+        scheduleBackupAndRotate();
+    } catch (error) {
+        logger.warn('[CanonicalChat] Backup rotation failed:', error);
+    }
+    return committed;
 }
 
 function shouldCompress(req, res) {
@@ -778,6 +915,28 @@ const DEFAULT_BACKUP_SCHEDULE = Object.freeze({
 
 function getManualSnapshotsDir() {
     return path.join(backupsDir, 'snapshot');
+}
+
+function getBackupNotesDir() {
+    // File-backed backup notes travel with the configured backup directory and
+    // are never part of a database restore.
+    return backupsDir;
+}
+
+function isValidBackupNoteTarget(kind, id) {
+    if (kind === 'server') return BACKUP_FILENAME_REGEX.test(id);
+    if (kind === 'manual') return MANUAL_SNAPSHOT_FILENAME_REGEX.test(id);
+    return false;
+}
+
+async function backupNoteTargetExists(kind, id) {
+    const directory = kind === 'manual' ? getManualSnapshotsDir() : backupsDir;
+    try {
+        await fs.access(path.join(directory, id));
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function makeManualSnapshotFilename(now = Date.now()) {
@@ -1557,6 +1716,10 @@ function requireSyncClientId(req, res) {
 const syncClients = new Map();
 const syncClientDevices = new Map();
 
+function isSyncClientConnected(clientId) {
+    return Boolean(clientId && syncClients.get(clientId)?.size);
+}
+
 function broadcastSync(type, payload = {}, excludeClientId = null) {
     const message = JSON.stringify({ type, ...payload });
     for (const [clientId, clients] of syncClients) {
@@ -1571,6 +1734,14 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     broadcastSync(
         'database-invalidated',
         { ...payload, timestamp: Date.now(), etag: dbEtag ?? undefined },
+        String(getSyncClientIdFromRequest(req)),
+    );
+}
+
+function broadcastBookmarksInvalidated(req) {
+    broadcastSync(
+        'bookmarks-invalidated',
+        { timestamp: Date.now() },
         String(getSyncClientIdFromRequest(req)),
     );
 }
@@ -1884,10 +2055,17 @@ const canonicalChatService = createCanonicalChatService({
     ensureChatStore,
     getChat: (characterId, chatId) => fullChatStore.get(characterId)?.get(chatId),
     replaceChat: (characterId, chatId, chat) => {
-        const chats = fullChatStore.get(characterId);
+        let chats = fullChatStore.get(characterId);
+        if (!chats && chat) {
+            chats = new Map();
+            fullChatStore.set(characterId, chats);
+        }
         if (!chats) return;
         if (chat) chats.set(chatId, chat);
-        else chats.delete(chatId);
+        else {
+            chats.delete(chatId);
+            if (chats.size === 0) fullChatStore.delete(characterId);
+        }
     },
     commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
         commitChatContent(fullChatStore, characterId, chatId, chat, expectedEtag, options),
@@ -1898,6 +2076,238 @@ const canonicalChatService = createCanonicalChatService({
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
 });
+const imageGenerationJobService = installImageGenerationJobRoutes(app, {
+    checkProxyAuth,
+    requireSyncClientId,
+    logger,
+});
+
+function currentServerImageGenerationSettings() {
+    const database = appDataStore.exportProjection({ includeMessages: false });
+    const preset = database.imageGenerationPresets?.[database.imageGenerationPresetId]
+        ?? database.imageGenerationPresets?.[0];
+    const settings = preset?.settings;
+    if (!settings || typeof settings !== 'object') {
+        throw new Error('Image generation preset is not configured');
+    }
+    const keyRef = settings.imageApiKeyRefs?.novelai;
+    const apiKey = String(database.apiKeyPool?.[keyRef]?.key ?? settings.NAIApiKey ?? '').trim();
+    return {
+        settings: structuredClone(settings),
+        apiKey,
+        label: typeof preset.name === 'string' ? preset.name : String(settings.sdProvider || 'Image'),
+        inlaySettings: normalizeInlayImageSettings({
+            size: database.inlayImageCompression ? database.inlayImageSize : 'original',
+            format: database.inlayImageCompression ? database.inlayImageFormat : 'png',
+            lossy: database.inlayImageLossy,
+            quality: database.inlayImageQuality,
+        }),
+    };
+}
+
+function imageGenerationSeed(provider, requestedSeed) {
+    if (Number.isFinite(requestedSeed) && requestedSeed >= 0) return requestedSeed;
+    const value = nodeCrypto.randomBytes(4).readUInt32BE(0);
+    return provider === 'comfyui' ? value % 1_000_000_000 : value;
+}
+
+const IMAGE_INLAY_UUID_NAMESPACE = Buffer.from('6ba7b8119dad11d180b400c04fd430c8', 'hex');
+
+function imageInlayId(jobId) {
+    const bytes = nodeCrypto.createHash('sha1')
+        .update(IMAGE_INLAY_UUID_NAMESPACE)
+        .update(`pocketrisu:image-inlay:${jobId}`)
+        .digest()
+        .subarray(0, 16);
+    // Keep the ID deterministic for workflow recovery while matching the UUID
+    // shape used by regular inlay assets. Mark it as a name-based UUID (v5).
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = bytes.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+async function readServerImageReference(reference) {
+    if (typeof reference !== 'string' || !reference) return null;
+    if (reference.startsWith('data:')) {
+        const comma = reference.indexOf(',');
+        return comma >= 0 ? Buffer.from(reference.slice(comma + 1), 'base64') : null;
+    }
+    const inlayMatch = reference.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/);
+    if (inlayMatch) return (await readInlayFile(inlayMatch[1]))?.buffer || null;
+    const stored = kvGet(reference);
+    if (!stored) return null;
+    if (reference.startsWith('inlay/')) {
+        return resolveAssetPayload(reference, stored).binary;
+    }
+    return Buffer.from(stored);
+}
+
+async function prepareNovelAIDirectorReference(buffer) {
+    const vips = await getVips();
+    const source = vips.Image.newFromBuffer(buffer);
+    let rotated = null;
+    let resized = null;
+    let embedded = null;
+    try {
+        rotated = source.autorot();
+        const scale = Math.min(1472 / rotated.width, 1472 / rotated.height);
+        resized = scale === 1 ? rotated : rotated.resize(scale, { kernel: vips.Kernel.lanczos3 });
+        const x = Math.floor((1472 - resized.width) / 2);
+        const y = Math.floor((1472 - resized.height) / 2);
+        embedded = resized.embed(x, y, 1472, 1472, { extend: vips.Extend.black });
+        return Buffer.from(embedded.writeToBuffer('.png', { Q: 100 }));
+    } finally {
+        if (embedded) embedded.delete();
+        if (resized && resized !== rotated) resized.delete();
+        if (rotated) rotated.delete();
+        source.delete();
+    }
+}
+
+async function executeServerImageAction({ workflow, action, projection = false }) {
+    const payload = action?.payload || {};
+    const target = payload.target || (workflow.context?.kind === 'image-generation'
+        ? workflow.context.target
+        : {
+            characterId: workflow.context?.postprocess?.character?.chaId,
+            roomId: workflow.context?.postprocess?.chat?.id,
+        });
+    if (!target?.characterId || !target?.roomId) throw new Error('Image generation target is missing');
+    const config = currentServerImageGenerationSettings();
+    const provider = config.settings.sdProvider;
+    const seed = imageGenerationSeed(provider, payload.seed);
+    const jobId = `${workflow.workflowId}:${action.actionId}`;
+    let references;
+    if (provider === 'novelai') {
+        const database = appDataStore.exportProjection({ includeMessages: false });
+        const character = database.characters?.find(item => item?.chaId === target.characterId);
+        const imageConfig = config.settings.NAIImgConfig || {};
+        const fallbackImage = character?.image;
+        const initImage = config.settings.NAII2I
+            ? await readServerImageReference(imageConfig.image || fallbackImage)
+            : null;
+        const rawDirectorReference = imageConfig.reference_mode === 'reference'
+            ? await readServerImageReference(imageConfig.character_image || fallbackImage)
+            : null;
+        const directorReference = rawDirectorReference
+            ? await prepareNovelAIDirectorReference(rawDirectorReference)
+            : null;
+        references = {
+            ...(initImage ? { initImageBase64: initImage.toString('base64') } : {}),
+            ...(directorReference
+                ? { directorReferenceBase64: directorReference.toString('base64') }
+                : {}),
+        };
+    }
+    const requestPrompt = provider === 'novelai'
+        ? String(payload.prompt || '')
+            .replaceAll('\\(', '♧').replaceAll('\\)', '♤')
+            .replaceAll('(', '{').replaceAll(')', '}')
+            .replaceAll('♧', '(').replaceAll('♤', ')')
+        : String(payload.prompt || '');
+    const generated = await imageGenerationJobService.executeImageGeneration({
+        jobId,
+        settings: provider === 'comfyui' ? {
+            sdProvider: 'comfyui',
+            comfyConfig: { timeout: config.settings.comfyConfig?.timeout },
+        } : config.settings,
+        apiKey: config.apiKey,
+        prompt: requestPrompt,
+        negativePrompt: String(payload.negativePrompt || ''),
+        seed,
+        references,
+        bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,
+    });
+    let encoded;
+    try {
+        encoded = await encodeInlayImageBuffer(generated.image, config.inlaySettings);
+    } finally {
+        imageGenerationJobService.releaseResult(jobId);
+    }
+    const inlayId = imageInlayId(jobId);
+    await writeInlayFile(inlayId, encoded.ext, encoded.buffer, {
+        name: inlayId,
+        type: 'image',
+        width: encoded.width,
+        height: encoded.height,
+    });
+    const now = Date.now();
+    kvSet(`inlay_meta/${inlayId}`, Buffer.from(JSON.stringify({
+        createdAt: now,
+        updatedAt: now,
+        charId: target.characterId,
+        chatId: target.roomId,
+        imageGeneration: {
+            prompt: String(payload.prompt || ''),
+            negativePrompt: String(payload.negativePrompt || ''),
+            seed,
+        },
+    })));
+    const reference = `{{inlayed::${inlayId}}}`;
+    if (projection) {
+        await canonicalChatService.commitServerMutation({
+            characterId: target.characterId,
+            chatId: target.roomId,
+            reason: 'image-generation-result',
+            mutate: chat => {
+                const messageId = String(payload.messageId || '');
+                if (payload.projection === 'reroll') {
+                    const message = chat.message.find(item => item?.chatId === messageId);
+                    if (!message || message.kind !== 'imageGeneration') {
+                        throw new Error('Image reroll target no longer exists');
+                    }
+                    const swipes = message.swipes ?? [message.data];
+                    message.swipes = swipes.includes(reference) ? swipes : [...swipes, reference];
+                    message.swipeId = message.swipes.indexOf(reference);
+                    message.data = reference;
+                    message.time = now;
+                }
+                else if (!chat.message.some(item => item?.chatId === messageId)) {
+                    chat.message.push({
+                        role: 'char',
+                        data: reference,
+                        kind: 'imageGeneration',
+                        saying: target.characterId,
+                        chatId: messageId,
+                        time: now,
+                    });
+                }
+                return chat;
+            },
+        });
+    }
+    return { reference, jobId, seed, label: config.label };
+}
+
+function scheduleImageGenerationWorkflow(workflowId) {
+    void (async () => {
+        const workflow = getGenerationWorkflow(workflowId);
+        const step = workflow?.steps?.find(item => item.key === 'image.generate');
+        const action = step?.metadata?.action;
+        if (!workflow || !step || !action) return;
+        try {
+            const result = await executeServerImageAction({ workflow, action, projection: true });
+            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
+                status: 'completed',
+                metadata: { ...step.metadata, schemaVersion: 1, result },
+            });
+            finishGenerationWorkflow(workflowId, 'completed');
+        }
+        catch (error) {
+            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
+                status: 'failed',
+                metadata: {
+                    ...step.metadata,
+                    schemaVersion: 1,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
+            finishGenerationWorkflow(workflowId, 'failed');
+        }
+        broadcastRevenantWorkflowUpdated(getGenerationWorkflow(workflowId));
+    })();
+}
 const revenantMaterializer = createRevenantMaterializer({
     repository: generationDb,
     canonicalChatService,
@@ -1909,6 +2319,7 @@ const generationWorkflowService = createGenerationWorkflowService({
     generationRuntimeJobs,
     markGenerationJobDone,
     abortHypaWorkflowExecution,
+    abortWorkflowWork: imageGenerationJobService.abortWorkflow,
     commitWorkflowInput: commitRevenantWorkflowInput,
     updateGenerationWorkflowStep: generationDb.updateGenerationWorkflowStep,
     getGenerationWorkflow,
@@ -1928,6 +2339,7 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
     logger,
     materializeGeneration: revenantMaterializer.materialize,
     onWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+    executeImageAction: executeServerImageAction,
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
@@ -2064,6 +2476,7 @@ async function runGenerationProviderJob(job, arg) {
             }
         }
         await closeJournal();
+        const providerCompletedAt = Date.now();
         const cancelled = job.abortController.signal.aborted;
         const persisted = getGenerationJob(job.id, false);
         const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
@@ -2096,6 +2509,7 @@ async function runGenerationProviderJob(job, arg) {
             rawResponse.toString('utf-8'),
             upstreamResponse.status,
             upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+            providerCompletedAt,
         );
         recordGenerationUsage({
             jobId: job.id,
@@ -2336,9 +2750,40 @@ function encodeBackupEntry(name, data) {
 
 // Legacy storage codecs and migrations are provided by dataRestore/legacyRestore.cjs.
 
+/**
+ * Decode an external database.bin projection, then return a synchronous
+ * installer for the caller's outer SQLite transaction. Cold-storage references
+ * are resolved during install, after staged coldstorage/ rows join it.
+ */
+async function prepareImportedDatabaseProjection(raw) {
+    const decoded = await decodeRisuSave(Buffer.from(raw));
+    const prepared = normalizeJSON(decoded);
+    if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
+        throw new TypeError('Imported database projection must be an object');
+    }
+
+    return {
+        install() {
+            const { database, coldRestoreResult } =
+                normalizeLegacyDatabaseProjection(prepared);
+            bookmarkStore.replaceDatabaseCompatibility(database);
+            const installed = appDataStore.replaceFromProjection(database, {
+                expectedRevision: appDataStore.getState().revision,
+            });
+            return {
+                ...installed,
+                coldStorageFailed: coldRestoreResult.failed,
+            };
+        },
+    };
+}
+
+function createPreReplacementSnapshot() {
+    if (appDataStore.getState().initialized) createBackupAndRotate();
+}
+
 const {
     migrationMarkerPath,
-    remoteMigrationMarkerKey,
     normalizeColdStorageStorageKey,
     parseColdStorageJsonBuffer,
     encodeColdStorageCanonicalBuffer,
@@ -2346,7 +2791,6 @@ const {
     listColdStorageBackupEntries,
     restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
     restoreColdStorageChat: restoreColdChat,
-    migrateRemoteBlocksIfNeeded: migrateRemoteBlocks,
     scanHexFilesInDir,
     importHexFilesFromDir,
     importHexEntries,
@@ -2357,20 +2801,114 @@ const {
     kvSet,
     kvDel,
     kvDelPrefix,
-    kvCopyValue,
     clearEntities,
     flushPendingDb,
-    createBackupAndRotate,
+    createBackupAndRotate: createPreReplacementSnapshot,
     invalidateDbCache,
-    decodeRisuSave,
-    encodeRisuSaveLegacy,
-    hasRemoteBlocks,
+    prepareDatabaseProjection: prepareImportedDatabaseProjection,
     logger,
     setDbEtag: (value) => { dbEtag = value; },
 });
-migrateRemoteBlocksIfNeeded = migrateRemoteBlocks;
 restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
 restoreColdStorageChat = restoreColdChat;
+
+appDataMigration = createAppDataMigration({
+    db: sqliteDb,
+    appDataStore,
+    kv: {
+        get: kvGet,
+        delete: kvDel,
+    },
+    decodeLegacyBlob: async raw => {
+        const decoded = await decodeRisuSave(raw);
+        return normalizeLegacyDatabaseProjection(decoded).database;
+    },
+    normalizeProjection: normalizeJSON,
+});
+
+function reconcileCachedChats(startup) {
+    if (!fullChatStore) return;
+    const characters = new Map(
+        (startup.characters ?? []).map(character => [character?.chaId, character]),
+    );
+    for (const [characterId, chats] of fullChatStore) {
+        const character = characters.get(characterId);
+        if (!character) {
+            fullChatStore.delete(characterId);
+            continue;
+        }
+        const stubs = new Map(
+            (character.chats ?? []).map(stub => [stub?.id, stub]),
+        );
+        for (const [chatId, chat] of chats) {
+            const stub = stubs.get(chatId);
+            if (stub) chats.set(chatId, mergeChatStubWithFullChat(stub, chat));
+            else chats.delete(chatId);
+        }
+        if (chats.size === 0) fullChatStore.delete(characterId);
+    }
+}
+
+function refreshCanonicalDatabaseCache(options = {}) {
+    const state = appDataStore.getState();
+    if (!state.initialized) {
+        delete dbCache[DB_HEX_KEY];
+        fullChatStore = null;
+        dbEtag = MISSING_DATABASE_ETAG;
+        return;
+    }
+    const startup = appDataStore.exportProjection({ includeMessages: false });
+    dbCache[DB_HEX_KEY] = startup;
+    if (options.invalidateChats) fullChatStore = null;
+    else reconcileCachedChats(startup);
+    dbEtag = computeDatabaseEtagFromObject(startup);
+}
+
+async function ensureCanonicalStorage() {
+    if (appDataReadyPromise) return appDataReadyPromise;
+    appDataReadyPromise = (async () => {
+        // Preserve the exact pre-cutover bytes as a downgrade/recovery escape
+        // hatch; the live blob is deleted after relational install verifies.
+        const originalLegacyBlob = kvGet('database/database.bin');
+        if (originalLegacyBlob
+            && !appDataStore.getState().initialized
+            && !appDataMigration.getMarker()) {
+            const sourceHash = nodeCrypto.createHash('sha256')
+                .update(originalLegacyBlob)
+                .digest('hex');
+            const backupKey = `migration-backup/pre-relational-${sourceHash.slice(0, 16)}.bin`;
+            if (!kvGet(backupKey)) {
+                kvSetChunked(backupKey, Buffer.from(originalLegacyBlob));
+            }
+        }
+        try {
+            await appDataMigration.run();
+        } catch (error) {
+            if (!(error instanceof AppDataMigrationCleanupError)
+                || !appDataStore.getState().initialized) {
+                throw error;
+            }
+            logger.warn('[AppData] Canonical rows installed; legacy blob cleanup will retry:', error);
+        }
+
+        if (appDataStore.getState().initialized && bookmarkStore.needsLegacyMigration()) {
+            // Bookmarks already have a canonical relational store. Ingest the
+            // compatibility fields once, then remove them from chat payloads.
+            const fullProjection = appDataStore.exportProjection({ includeMessages: true });
+            const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(fullProjection);
+            if (bookmarkMigration.changed) {
+                appDataStore.replaceFromProjection(fullProjection, {
+                    expectedRevision: appDataStore.getState().revision,
+                });
+            }
+        }
+        refreshCanonicalDatabaseCache({ invalidateChats: true });
+    })().catch(error => {
+        appDataReadyPromise = null;
+        throw error;
+    });
+    return appDataReadyPromise;
+}
 
 const {
     importBackupFromSource,
@@ -2378,7 +2916,6 @@ const {
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    remoteMigrationMarkerKey,
     sqliteDb,
     kvGet,
     kvSet,
@@ -2387,10 +2924,9 @@ const {
     clearEntities,
     checkpointWal,
     flushPendingDb,
-    createBackupAndRotate,
+    createBackupAndRotate: createPreReplacementSnapshot,
     invalidateDbCache,
-    decodeDatabaseWithPersistentChatIds,
-    initChatStore,
+    prepareDatabaseProjection: prepareImportedDatabaseProjection,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -2779,6 +3315,7 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
 installRevenantGenerationRoutes(app, {
     checkProxyAuth,
     requireSyncClientId,
+    isSyncClientConnected,
     sanitizeGenerationTargetUrl,
     normalizeForwardHeaders,
     createGenerationRuntimeJob,
@@ -2786,6 +3323,7 @@ installRevenantGenerationRoutes(app, {
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
     scheduleRevenantPostprocess,
+    scheduleImageGenerationWorkflow,
     notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
     commitWorkflowInput: generationWorkflowService.commitInput,
@@ -2798,7 +3336,6 @@ installRevenantGenerationRoutes(app, {
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,
 });
-
 // app.get('/api/password', async(req, res)=> {
 //     if(password === ''){
 //         res.send({status: 'unset'})
@@ -3348,6 +3885,144 @@ app.post('/api/set_password', async (req, res) => {
     }
 })
 
+function sendDatabaseProjectionError(res, error) {
+    if (!(error instanceof DatabaseProjectionServiceError)) return false;
+    res.status(error.statusCode).json({
+        error: error.message,
+        code: error.code,
+        ...(error.currentEtag ? { currentEtag: error.currentEtag } : {}),
+        ...(Number.isSafeInteger(error.currentRevision)
+            ? { currentRevision: error.currentRevision }
+            : {}),
+        ...(error.currentHash ? { currentHash: error.currentHash } : {}),
+    });
+    return true;
+}
+
+const PLUGIN_STORAGE_EXCLUSION_HEADER = 'x-risu-plugin-storage-exclusion';
+
+function pluginStorageProjectionOptions(req) {
+    const raw = req.get(PLUGIN_STORAGE_EXCLUSION_HEADER);
+    if (!raw) return {};
+    if (raw === 'all') return { excludeAllPluginStorage: true };
+    try {
+        const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+        const excludedPluginNames = Array.isArray(parsed.plugins)
+            ? [...new Set(parsed.plugins.filter(name => typeof name === 'string'))]
+            : [];
+        return {
+            excludedPluginNames,
+            excludeUnclassifiedPluginStorage: parsed.unclassified === true,
+        };
+    } catch {
+        throw new DatabaseProjectionServiceError('Invalid plugin storage exclusion header', {
+            code: 'INVALID_PLUGIN_STORAGE_EXCLUSION',
+            statusCode: 400,
+        });
+    }
+}
+
+app.get('/api/plugin-storage/startup-stats', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        res.json(appDataStore.pluginStorageFootprint());
+    } catch (error) {
+        next(error);
+    }
+});
+
+// The browser-facing startup shell and metadata commit boundary. This API is
+// JSON by design: database.bin is reserved for explicit compatibility
+// import/export and never participates in ordinary autosave.
+app.get('/api/database', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        res.json(databaseProjectionService.getStartupProjection({
+            remote: isCloudflareTunnelRequest(req),
+            ...pluginStorageProjectionOptions(req),
+        }));
+    } catch (error) {
+        if (!sendDatabaseProjectionError(res, error)) next(error);
+    }
+});
+
+app.put('/api/database', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const result = await queueStorageOperation(async () => {
+            await ensureCanonicalStorage();
+            const initialized = databaseProjectionService.initializeDatabase(
+                req.body?.database,
+                {
+                    expectedRevision: req.body?.expectedRevision,
+                    remote: isCloudflareTunnelRequest(req),
+                },
+            );
+            refreshCanonicalDatabaseCache({ invalidateChats: true });
+            scheduleBackupAndRotate();
+            broadcastDatabaseInvalidated(req);
+            return initialized;
+        });
+        res.json(result);
+    } catch (error) {
+        if (!sendDatabaseProjectionError(res, error)) next(error);
+    }
+});
+
+app.patch('/api/database', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const projectionOptions = {
+            remote: isCloudflareTunnelRequest(req),
+            ...pluginStorageProjectionOptions(req),
+        };
+        const result = await queueStorageOperation(async () => {
+            await ensureCanonicalStorage();
+            const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
+            if (chatInternalOps.length > 0) {
+                const current = databaseProjectionService.getStartupProjection({
+                    ...projectionOptions,
+                });
+                const error = new DatabaseProjectionServiceError(
+                    'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
+                    { code: 'CHAT_GUARD_REJECTED', statusCode: 409 },
+                );
+                error.currentEtag = current.etag;
+                error.currentRevision = current.revision;
+                error.chatGuardRejected = true;
+                throw error;
+            }
+            const patched = databaseProjectionService.patchDatabase(req.body, {
+                ...projectionOptions,
+            });
+            refreshCanonicalDatabaseCache();
+            if (patched.changed) {
+                scheduleBackupAndRotate();
+                broadcastDatabaseInvalidated(req);
+            }
+            const persistWarning = currentPersistWarning();
+            return persistWarning ? { ...patched, persistWarning } : patched;
+        });
+        res.json(result);
+    } catch (error) {
+        if (error?.code === 'CHAT_GUARD_REJECTED') {
+            return res.status(409).json({
+                error: error.message,
+                code: error.code,
+                chatGuardRejected: true,
+                currentEtag: error.currentEtag,
+                currentRevision: error.currentRevision,
+            });
+        }
+        if (!sendDatabaseProjectionError(res, error)) next(error);
+    }
+});
+
 app.get('/api/read', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
@@ -3364,9 +4039,28 @@ app.get('/api/read', async (req, res, next) => {
     }
     try {
         const key = Buffer.from(filePath, 'hex').toString('utf-8');
-        // Flush pending patches before reading database.bin
+        // database.bin is a virtual compatibility export. No live blob exists
+        // in KV after migration, and the browser hot path uses /api/database.
         if (key === 'database/database.bin') {
-            await flushPendingDb();
+            await ensureCanonicalStorage();
+            if (!appDataStore.getState().initialized) {
+                dbEtag = MISSING_DATABASE_ETAG;
+                res.setHeader('x-db-etag', dbEtag);
+                return res.send();
+            }
+            let projection = appDataStore.exportProjection({ includeMessages: true });
+            bookmarkStore.projectDatabaseCompatibility(projection);
+            if (isCloudflareTunnelRequest(req)) {
+                projection = normalizeJSON(filterRemoteOnlyFolders(projection));
+            }
+            const value = Buffer.from(encodeRisuSaveLegacy(projection));
+            dbEtag = computeBufferEtag(value);
+            if (req.headers['if-none-match'] === dbEtag) {
+                return res.status(304).end();
+            }
+            res.setHeader('x-db-etag', dbEtag);
+            res.setHeader('Content-Type', 'application/octet-stream');
+            return res.send(value);
         }
         let value = null;
         if (key.startsWith('inlay/')) {
@@ -3377,45 +4071,9 @@ app.get('/api/read', async (req, res, next) => {
         if (value === null) {
             value = kvGet(key);
         }
-        if(value === null){
-            if (key === 'database/database.bin') {
-                dbEtag = MISSING_DATABASE_ETAG;
-                res.setHeader('x-db-etag', dbEtag);
-            }
-            res.send();
-        } else {
-            // Strip chat payloads from database.bin — client gets stubs only
-            if (key === 'database/database.bin') {
-                try {
-                    const dbObj = await decodeDatabaseWithPersistentChatIds(value, {
-                        createBackup: true,
-                    });
-                    initChatStore(dbObj);
-                    const stripped = normalizeJSON(stripChatsFromDb(dbObj));
-                    const responseDb = isCloudflareTunnelRequest(req)
-                        ? normalizeJSON(filterRemoteOnlyFolders(stripped))
-                        : stripped;
-                    // Populate dbCache with the full stripped DB. Remote clients
-                    // receive a filtered view, but hidden local-only data must
-                    // remain in the server baseline so later saves can merge it
-                    // back instead of treating it as deleted.
-                    dbCache[filePath] = stripped;
-                    value = Buffer.from(encodeRisuSaveLegacy(responseDb));
-                } catch (e) {
-                    // Log the Error itself (not just e.message) so logger.*
-                    // tags it and the Express middleware won't re-log after next().
-                    logger.error('[Read] Failed to strip chats from database.bin', e);
-                    return next(e);
-                }
-                dbEtag = computeBufferEtag(value);
-                if (req.headers['if-none-match'] === dbEtag) {
-                    return res.status(304).end();
-                }
-                res.setHeader('x-db-etag', dbEtag);
-            }
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.send(value);
-        }
+        if (value === null) return res.send();
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.send(value);
     } catch (error) {
         next(error);
     }
@@ -3436,6 +4094,12 @@ app.get('/api/remove', async (req, res, next) => {
     }
     try {
         const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        if (key === 'database/database.bin') {
+            return res.status(410).json({
+                error: 'database.bin is a virtual import/export projection and cannot be removed',
+                code: 'DATABASE_BIN_PROJECTION_ONLY',
+            });
+        }
         if (key.startsWith('inlay/')) {
             const id = key.slice('inlay/'.length)
             await deleteInlayFile(id)
@@ -3576,7 +4240,11 @@ app.delete('/api/logs/:id', async (req, res, next) => {
     }
 });
 
-installRequestLogRoutes(app, { checkAuth, requireSyncClientId });
+installRequestLogRoutes(app, {
+    checkAuth,
+    requireSyncClientId,
+    getUsageByJobIds,
+});
 installUsageRoutes(app, { checkAuth, requireSyncClientId });
 
 app.post('/api/write', async (req, res, next) => {
@@ -3602,31 +4270,23 @@ app.post('/api/write', async (req, res, next) => {
             // ETag conflict detection for database.bin
             if (key === 'database/database.bin') {
                 const ifMatch = req.headers['x-if-match'];
-                let currentEtag = dbEtag;
-                const raw = kvGet('database/database.bin');
-                if (!raw) {
-                    currentEtag = MISSING_DATABASE_ETAG;
-                } else if (
-                    ifMatch
-                    && (
-                        isCloudflareTunnelRequest(req)
-                        || !currentEtag
-                        || currentEtag === MISSING_DATABASE_ETAG
-                    )
-                ) {
-                    try {
-                        const currentDb = normalizeJSON(stripChatsFromDb(
-                            await decodeDatabaseWithPersistentChatIds(raw)
-                        ));
-                        const visibleDb = isCloudflareTunnelRequest(req)
-                            ? normalizeJSON(filterRemoteOnlyFolders(currentDb))
-                            : currentDb;
-                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                    } catch (e) {
-                        logger.error('[Write] Failed to compute current database ETag:', e);
-                        res.status(500).send({ error: 'Failed to verify current database version' });
-                        return;
+                await ensureCanonicalStorage();
+                let currentEtag = MISSING_DATABASE_ETAG;
+                if (appDataStore.getState().initialized) {
+                    let currentDb = appDataStore.exportProjection({ includeMessages: true });
+                    bookmarkStore.projectDatabaseCompatibility(currentDb);
+                    if (isCloudflareTunnelRequest(req)) {
+                        currentDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
                     }
+                    currentEtag = computeDatabaseEtagFromObject(currentDb);
+                }
+                if (appDataStore.getState().initialized && !ifMatch) {
+                    res.status(428).send({
+                        error: 'x-if-match is required for compatibility database import',
+                        code: 'DATABASE_IMPORT_PRECONDITION_REQUIRED',
+                        currentEtag,
+                    });
+                    return;
                 }
                 if (ifMatch && ifMatch !== currentEtag) {
                     res.status(409).send({
@@ -3661,60 +4321,55 @@ app.post('/api/write', async (req, res, next) => {
                 await writeInlaySidecar(id, parsed);
                 kvDel(key);
             } else if (key === 'database/database.bin') {
-                // Client sends stubs-only DB — merge full chats from server before persisting
+                // Explicit compatibility import. Ordinary browser saves use
+                // PATCH /api/database and never pass through this codec.
                 try {
-                    let incomingDb = await decodeRisuSave(fileContent);
-                    await ensureChatStore();
-                    let currentDb = dbCache[DB_HEX_KEY];
-                    if (!currentDb) {
-                        const raw = kvGet('database/database.bin');
-                        if (raw) {
-                            currentDb = normalizeJSON(stripChatsFromDb(
-                                await decodeDatabaseWithPersistentChatIds(raw)
-                            ));
-                        }
-                    }
-                    restoreGenerationOwnedMetadata(incomingDb, currentDb);
+                    let incomingDb = normalizeLegacyDatabaseProjection(
+                        await decodeRisuSave(fileContent),
+                    ).database;
+                    const currentDb = appDataStore.getState().initialized
+                        ? appDataStore.exportProjection({ includeMessages: true })
+                        : { characters: [] };
                     if (isCloudflareTunnelRequest(req)) {
-                        if (currentDb) {
-                            incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
+                        incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
+                        restoreGenerationOwnedMetadata(incomingDb, currentDb);
+                    }
+                    const stubOnly = [];
+                    for (const character of incomingDb.characters ?? []) {
+                        for (const chat of character?.chats ?? []) {
+                            if (chat?._stub === true && !Array.isArray(chat.message)) {
+                                stubOnly.push(`${character.chaId}/${chat.id}`);
+                            }
                         }
                     }
-                    const fullDb = reassembleFullDb(incomingDb);
-
-                    // Mirror the patch-persist guard (persistDbCacheWithChats):
-                    // a malformed full-write payload could carry chats with
-                    // neither `_stub` nor `message` (the v1.4.x metadata-only
-                    // pattern). reassembleFullDb passes them through unchanged
-                    // because there's no fullChat lookup to merge in, so they
-                    // would land on disk and silently strip user messages.
-                    // Normal clients are safe (RisuSaveEncoder runs chatToStub
-                    // on every chat first), but external tools / future
-                    // regressions could bypass that — keep the guard at the
-                    // disk boundary for defense in depth.
-                    const losses = findStubFlagLossChats(fullDb);
-                    if (losses.length > 0) {
-                        const sample = losses.slice(0, 3).map(l => `${l.chaId}/${l.chatId ?? l.chatIndex}`).join(', ');
-                        const err = new Error(
-                            `write aborted: ${losses.length} chat(s) lost _stub flag without upgrade — `
-                            + `would silently strip messages on disk. sample=[${sample}]`
-                        );
-                        recordPersistFailure(err, '/api/write:stub-flag-loss');
-                        logger.error(`[Write] ${err.message}`);
-                        res.status(500).json({ error: 'Write aborted: chat data integrity check failed' });
-                        return;
+                    if (stubOnly.length > 0) {
+                        return res.status(400).json({
+                            error: 'Compatibility import requires full chat content',
+                            chats: stubOnly.slice(0, 5),
+                        });
                     }
-
-                    const mergedContent = Buffer.from(encodeRisuSaveLegacy(fullDb));
-                    // Re-init chat store from merged result
-                    initChatStore(fullDb);
-                    kvSet(key, mergedContent);
-                    databaseForEtag = fullDb;
+                    sqliteDb.transaction(() => {
+                        if (!isCloudflareTunnelRequest(req)) {
+                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
+                        } else {
+                            // A remote compatibility import cannot alter the
+                            // server-owned bookmark catalog, and compatibility
+                            // fields must never leak into canonical chat bodies.
+                            bookmarkStore.stripDatabaseCompatibility(incomingDb);
+                        }
+                        appDataStore.replaceFromProjection(incomingDb, {
+                            expectedRevision: appDataStore.getState().revision,
+                        });
+                    })();
+                    databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
+                    bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
                 } catch (e) {
-                    logger.error('[Write] Failed to merge chats into database.bin:', e.message);
-                    // Do NOT write stubs-only to disk — that would permanently
-                    // destroy existing full chat data. Preserve disk as-is.
-                    res.status(500).json({ error: 'Database merge failed' });
+                    logger.error('[Write] Compatibility database import failed:', e);
+                    if (e?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+                        res.status(400).json({ error: e.message, code: e.code });
+                    } else {
+                        res.status(500).json({ error: 'Database import failed' });
+                    }
                     return;
                 }
             } else {
@@ -3723,16 +4378,11 @@ app.post('/api/write', async (req, res, next) => {
 
             // Update ETag, backup, and invalidate cache after database.bin write
             if (key === 'database/database.bin') {
-                delete dbCache[DB_HEX_KEY];
-                if (saveTimers[DB_HEX_KEY]) {
-                    clearTimeout(saveTimers[DB_HEX_KEY]);
-                    delete saveTimers[DB_HEX_KEY];
-                }
+                refreshCanonicalDatabaseCache({ invalidateChats: true });
                 // ETag based on the stripped version visible to this client.
-                const strippedForEtag = normalizeJSON(stripChatsFromDb(databaseForEtag));
                 const visibleForEtag = isCloudflareTunnelRequest(req)
-                    ? normalizeJSON(filterRemoteOnlyFolders(strippedForEtag))
-                    : strippedForEtag;
+                    ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
+                    : databaseForEtag;
                 dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
                 createBackupAndRotate();
                 broadcastDatabaseInvalidated(req);
@@ -3786,24 +4436,24 @@ app.post('/api/patch', async (req, res, next) => {
         return;
     }
 
+    let patchStage = 'load';
     try {
         await queueStorageOperation(async () => {
             const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
+            if (decodedKey === 'database/database.bin') {
+                res.status(410).json({
+                    error: 'database.bin patch sync was replaced by PATCH /api/database',
+                    code: 'DATABASE_BIN_PROJECTION_ONLY',
+                });
+                return;
+            }
 
             // Load database into memory if not already cached
             // For database.bin, cache holds the STRIPPED version (stubs only)
             if (!dbCache[filePath]) {
                 const fileContent = kvGet(decodedKey);
                 if (fileContent) {
-                    const decoded = decodedKey === 'database/database.bin'
-                        ? await decodeDatabaseWithPersistentChatIds(fileContent)
-                        : normalizeJSON(await decodeRisuSave(fileContent));
-                    if (decodedKey === 'database/database.bin') {
-                        initChatStore(decoded);
-                        dbCache[filePath] = normalizeJSON(stripChatsFromDb(decoded));
-                    } else {
-                        dbCache[filePath] = decoded;
-                    }
+                    dbCache[filePath] = normalizeJSON(await decodeRisuSave(fileContent));
                 } else {
                     dbCache[filePath] = {};
                 }
@@ -3811,7 +4461,7 @@ app.post('/api/patch', async (req, res, next) => {
 
             // Reject patch ops that touch chat-internal fields. Lazy loading
             // strips chats to stubs in dbCache; the only legitimate chat ops
-            // are stub metadata (id, name, _stub, lastDate, folderId, modules)
+            // are allowlisted stub metadata (see STUB_METADATA_FIELDS)
             // or whole-chat add/replace/remove. Field-level ops on chats —
             // particularly remove of message/hypaV3Data/scriptstate/etc —
             // strip the `_stub` flag and cause silent on-disk data loss when
@@ -3846,6 +4496,7 @@ app.post('/api/patch', async (req, res, next) => {
                 ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
                 : null;
             const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
+            patchStage = 'hash';
             const serverHash = calculateHash(patchBaseline).toString(16);
 
             // JSON Patch identity: no operation means no compare-and-swap and
@@ -3885,8 +4536,12 @@ app.post('/api/patch', async (req, res, next) => {
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
                     const visibleDb = remoteFilteredDb ?? dbCache[filePath];
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                    dbEtag = currentEtag;
+                    // Keep a hash mismatch as a recoverable 409 even if the
+                    // best-effort current ETag cannot be encoded.
+                    try {
+                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
+                        dbEtag = currentEtag;
+                    } catch {}
                 }
                 res.status(409).send({
                     error: 'Hash mismatch - data out of sync',
@@ -3895,8 +4550,13 @@ app.post('/api/patch', async (req, res, next) => {
                 return;
             }
 
-            // Apply patch to in-memory database (clone first to prevent partial mutation on failure)
-            const snapshot = JSON.parse(JSON.stringify(patchBaseline));
+            // A JSON round-trip builds one giant string and reaches V8's string
+            // size ceiling on large databases. The cached value is already a
+            // normalized plain-data graph, so structuredClone preserves the
+            // rollback boundary without that intermediate allocation.
+            patchStage = 'clone';
+            const snapshot = structuredClone(patchBaseline);
+            patchStage = 'apply';
             let result;
             try {
                 result = applyPatch(snapshot, patch, true);
@@ -3942,6 +4602,7 @@ app.post('/api/patch', async (req, res, next) => {
             });
 
             // Update ETag after successful patch (based on stripped version)
+            patchStage = 'etag';
             if (decodedKey === 'database/database.bin') {
                 const visibleDb = remoteFilteredDb
                     ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
@@ -3964,7 +4625,13 @@ app.post('/api/patch', async (req, res, next) => {
             res.send(responsePayload);
         });
     } catch (error) {
-        logger.error(`[Patch] Error applying patch to ${filePath}:`, error.name);
+        const decodedKeyForLog = isHex(filePath) ? Buffer.from(filePath, 'hex').toString('utf-8') : filePath;
+        logger.error(
+            `[Patch] Error applying patch to ${decodedKeyForLog} `
+            + `(stage=${patchStage}, ops=${Array.isArray(patch) ? patch.length : '?'}): `
+            + `${error?.name}: ${error?.message}`,
+            error?.stack
+        );
         res.status(500).send({
             error: 'Patch application failed: ' + (error && error.message ? error.message : error)
         });
@@ -4051,6 +4718,12 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
             res.status(400).send({ error: 'Body must be a JSON array of {key, value}' });
             return;
         }
+        if (entries.some(entry => entry?.key === 'database/database.bin')) {
+            return res.status(400).json({
+                error: 'database.bin cannot be written through the asset API',
+                code: 'DATABASE_BIN_PROJECTION_ONLY',
+            });
+        }
         for(let i = 0; i < entries.length; i += BULK_BATCH){
             const batch = entries.slice(i, i + BULK_BATCH);
             const writeBatch = sqliteDb.transaction(() => {
@@ -4064,6 +4737,40 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
     } catch(error){ next(error); }
 });
 
+async function createSettingsBackupPlan(includeModuleAssets = true) {
+    await ensureCanonicalStorage();
+    const databaseValue = appDataStore.getState().initialized
+        ? Buffer.from(encodeRisuSaveLegacy(
+            appDataStore.exportProjection({ includeMessages: true }),
+        ))
+        : null;
+    return buildSettingsBackupPlan({
+        databaseValue,
+        assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
+        decodeDatabase: decodeRisuSave,
+        encodeDatabase: (database) => encodeRisuSaveLegacy(database, 'compression'),
+        includeModuleAssets,
+    });
+}
+
+async function createCompatibleDatabaseValue() {
+    await ensureCanonicalStorage();
+    if (!appDataStore.getState().initialized) return null;
+    const database = appDataStore.exportProjection({ includeMessages: true });
+    bookmarkStore.projectDatabaseCompatibility(database);
+    return Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
+}
+
+app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await flushPendingDb();
+        const plan = await createSettingsBackupPlan();
+        if (!plan) return res.status(500).json({ error: 'database.bin missing' });
+        res.json(plan.breakdown);
+    } catch (error) { next(error); }
+});
+
 app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
@@ -4073,9 +4780,20 @@ app.get('/api/backup/export', async (req, res, next) => {
         // fails with ENOENT. The export becomes lossy on inlay images but
         // imports cleanly into upstream.
         const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
+        const settingsOnly = req.query.mode === 'settings';
+        const includeModuleAssets = req.query.moduleAssets !== '0';
         // Flush any pending patches to ensure export includes latest data
         await flushPendingDb();
-        const inlayFiles = target === 'upstream' ? [] : await listInlayFiles();
+
+        const settingsPlan = settingsOnly
+            ? await createSettingsBackupPlan(includeModuleAssets)
+            : null;
+        if (settingsOnly && !settingsPlan) {
+            return res.status(500).json({ error: 'database.bin missing' });
+        }
+
+        const skipInlay = settingsOnly || target === 'upstream';
+        const inlayFiles = skipInlay ? [] : await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
             return {
@@ -4101,7 +4819,7 @@ app.get('/api/backup/export', async (req, res, next) => {
                 return null;
             }
         }));
-        const inlayMetaEntries = target === 'upstream' ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
+        const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
             kind: 'kv',
             key: entry.key,
             backupName: entry.key,
@@ -4109,26 +4827,30 @@ app.get('/api/backup/export', async (req, res, next) => {
             size: entry.size,
         }));
         const namespacedEntries = [
-            ...kvListWithSizes('assets/').map((entry) => ({
-                kind: 'kv',
-                key: entry.key,
-                backupName: path.basename(entry.key),
-                sortKey: entry.key,
-                size: entry.size,
-            })),
-            ...listColdStorageBackupEntries(),
+            ...(settingsPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
+                .map((entry) => ({
+                    kind: 'kv',
+                    key: entry.key,
+                    backupName: path.basename(entry.key),
+                    sortKey: entry.key,
+                    size: entry.size,
+                })),
+            ...(settingsOnly ? [] : listColdStorageBackupEntries()),
             ...inlayMetaEntries,
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-        const dbSize = kvSize('database/database.bin');
+        const exportedDatabase = settingsPlan?.encodedDatabase
+            ?? await createCompatibleDatabaseValue();
+        const dbSize = exportedDatabase?.length ?? 0;
         const totalBytes = namespacedEntries.reduce((sum, entry) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
         }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
 
-        const filenameSuffix = target === 'upstream' ? '-upstream' : '';
+        const filenameBase = settingsOnly ? 'risu-settings' : 'risu-backup';
+        const filenameSuffix = settingsOnly ? '' : target === 'upstream' ? '-upstream' : '';
         res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="risu-backup-${Date.now()}${filenameSuffix}.bin"`);
+        res.setHeader('content-disposition', `attachment; filename="${filenameBase}-${Date.now()}${filenameSuffix}.bin"`);
         res.setHeader('content-length', totalBytes);
         res.setHeader('x-risu-backup-assets', namespacedEntries.length);
 
@@ -4166,12 +4888,9 @@ app.get('/api/backup/export', async (req, res, next) => {
         }
 
         if (!closed && dbSize) {
-            const dbValue = kvGet('database/database.bin');
-            if (dbValue) {
-                const ok = res.write(encodeBackupEntry('database.risudat', dbValue));
-                if (!ok) {
-                    await waitForDrain();
-                }
+            const ok = res.write(encodeBackupEntry('database.risudat', exportedDatabase));
+            if (!ok) {
+                await waitForDrain();
             }
         }
         if (!closed) res.end();
@@ -4265,7 +4984,7 @@ app.post('/api/backup/import', async (req, res, next) => {
 
             let lastProgressWrite = 0;
             const totalBytes = Number.isFinite(contentLength) ? contentLength : 0;
-            const result = await importBackupFromSource(req, {
+            const result = await queueStorageOperation(() => importBackupFromSource(req, {
                 maxBytes: BACKUP_IMPORT_MAX_BYTES,
                 totalBytes,
                 onProgress: (received, total) => {
@@ -4274,7 +4993,9 @@ app.post('/api/backup/import', async (req, res, next) => {
                     lastProgressWrite = now;
                     res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
                 },
-            });
+            }));
+            broadcastDatabaseInvalidated(req, { allChats: true });
+            broadcastBookmarksInvalidated(req);
             res.write(JSON.stringify({
                 type: 'done',
                 ok: true,
@@ -4283,7 +5004,11 @@ app.post('/api/backup/import', async (req, res, next) => {
             }) + '\n');
             res.end();
         } else {
-            const result = await importBackupFromSource(req, { maxBytes: BACKUP_IMPORT_MAX_BYTES });
+            const result = await queueStorageOperation(() => importBackupFromSource(req, {
+                maxBytes: BACKUP_IMPORT_MAX_BYTES,
+            }));
+            broadcastDatabaseInvalidated(req, { allChats: true });
+            broadcastBookmarksInvalidated(req);
             res.json({
                 ok: true,
                 assetsRestored: result.assetsRestored,
@@ -4293,7 +5018,11 @@ app.post('/api/backup/import', async (req, res, next) => {
     } catch (error) {
         if (wantsNdjson && res.headersSent) {
             try {
-                res.write(JSON.stringify({ type: 'error', message: error?.message || 'backup import failed' }) + '\n');
+                res.write(JSON.stringify({
+                    type: 'error',
+                    message: error?.message || 'backup import failed',
+                    ...(error?.code ? { code: error.code } : {}),
+                }) + '\n');
                 res.end();
             } catch (_) {}
         } else {
@@ -4316,7 +5045,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
     if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
-        const dbBackupValue = kvGet('database/database.bin');
+        const dbBackupValue = await createCompatibleDatabaseValue();
 
         // Pre-flight disk check — bail before streaming if the target dir
         // can't fit the backup. Avoids wasted minutes + half-written tmp files.
@@ -4417,8 +5146,10 @@ app.post('/api/backup/server/save', async (req, res, next) => {
             writeComplete = true;
 
             const stat = await fs.stat(finalPath);
+            const note = normalizeBackupNote(req.body?.note);
+            if (note) setBackupNote(getBackupNotesDir(), 'server', filename, note);
             console.log(`[Server Backup] Saved: ${filename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
-            res.write(JSON.stringify({ type: 'done', ok: true, filename, size: stat.size }) + '\n');
+            res.write(JSON.stringify({ type: 'done', ok: true, filename, size: stat.size, note }) + '\n');
             res.end();
         } catch (innerError) {
             // Clean up incomplete temp file
@@ -4431,7 +5162,11 @@ app.post('/api/backup/server/save', async (req, res, next) => {
         if (!res.headersSent) {
             next(error);
         } else {
-            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+            res.write(JSON.stringify({
+                type: 'error',
+                message: error.message,
+                ...(error?.code ? { code: error.code } : {}),
+            }) + '\n');
             res.end();
         }
     }
@@ -4441,6 +5176,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
 app.get('/api/backup/server/list', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
     try {
+        const notes = readBackupNotes(getBackupNotesDir());
         let entries;
         try {
             entries = await fs.readdir(backupsDir, { withFileTypes: true });
@@ -4457,10 +5193,30 @@ app.get('/api/backup/server/list', async (req, res, next) => {
                 filename: entry.name,
                 size: stat.size,
                 createdAt: tsMatch ? Number(tsMatch[1]) : stat.mtimeMs,
+                note: getBackupNote(notes, 'server', entry.name),
             });
         }
         backups.sort((a, b) => b.createdAt - a.createdAt);
         res.json({ backups });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.put('/api/backup/notes', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+        const id = typeof req.body?.id === 'string' ? req.body.id : '';
+        if (!isValidBackupNoteTarget(kind, id)) {
+            return res.status(400).json({ error: 'Invalid backup note target' });
+        }
+        if (!await backupNoteTargetExists(kind, id)) {
+            return res.status(404).json({ error: 'Backup not found' });
+        }
+        const note = setBackupNote(getBackupNotesDir(), kind, id, req.body?.note);
+        res.json({ ok: true, note });
     } catch (error) {
         next(error);
     }
@@ -4508,7 +5264,7 @@ app.post('/api/backup/server/restore', async (req, res, next) => {
         let lastProgressWrite = 0;
         const { createReadStream } = require('fs');
         const stream = createReadStream(filePath, { highWaterMark: 256 * 1024 });
-        const result = await importBackupFromSource(stream, {
+        const result = await queueStorageOperation(() => importBackupFromSource(stream, {
             totalBytes: fileStat.size,
             onProgress: (received, total) => {
                 const now = Date.now();
@@ -4516,7 +5272,9 @@ app.post('/api/backup/server/restore', async (req, res, next) => {
                 lastProgressWrite = now;
                 res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
             },
-        });
+        }));
+        broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.write(JSON.stringify({
             type: 'done',
             ok: true,
@@ -4566,13 +5324,12 @@ app.post('/api/backup/server/restore-assets', async (req, res, next) => {
         // Include any debounced DB changes before deciding which assets the
         // current save references. Asset restoration itself is additive.
         await flushPendingDb();
-        const raw = kvGet('database/database.bin');
-        if (!raw) {
+        if (!appDataStore.getState().initialized) {
             res.status(409).json({ error: 'Current database is missing' });
             return;
         }
-        const dbObj = await decodeRisuSave(raw);
-        const referencedBasenames = buildUncleanableSet(dbObj, true);
+        const dbObj = appDataStore.exportProjection({ includeMessages: true });
+        const referencedBasenames = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
         const currentBasenames = new Set(
             kvList('assets/').map((key) => statsBasename(key)),
         );
@@ -4646,6 +5403,7 @@ app.delete('/api/backup/server/:filename', async (req, res, next) => {
             }
             throw err;
         }
+        deleteBackupNote(getBackupNotesDir(), 'server', filename);
         res.json({ ok: true });
     } catch (error) {
         next(error);
@@ -4683,6 +5441,159 @@ app.get('/api/backup/server/download/:filename', async (req, res, next) => {
 
 // Cold-storage compatibility is provided by dataRestore/legacyRestore.cjs.
 
+// Server-owned global bookmarks. Chat JSON compatibility fields are projected
+// only by /api/bookmarks/compatibility and are not part of the canonical chat.
+async function visibleBookmarkChatKeys(req) {
+    if (!isCloudflareTunnelRequest(req)) return null;
+    await ensureCanonicalStorage();
+    if (!appDataStore.getState().initialized) return new Set();
+    const database = appDataStore.exportProjection({ includeMessages: false });
+    const visibleDatabase = filterRemoteOnlyFolders(database);
+    const visible = new Set();
+    for (const character of visibleDatabase?.characters ?? []) {
+        for (const chat of character?.chats ?? []) {
+            if (character?.chaId && chat?.id) visible.add(`${character.chaId}\u0000${chat.id}`);
+        }
+    }
+    return visible;
+}
+
+function isVisibleBookmarkTarget(visible, characterId, chatId) {
+    return !visible || visible.has(`${characterId}\u0000${chatId}`);
+}
+
+function filterBookmarkCatalogForVisibleChats(catalog, visible) {
+    if (!visible) return catalog;
+    const entries = catalog.entries.filter(entry =>
+        isVisibleBookmarkTarget(visible, entry.characterId, entry.chatId));
+    const tagIds = new Set(entries.flatMap(entry => entry.tagIds));
+    return {
+        ...catalog,
+        entries,
+        tags: catalog.tags.filter(tag => tagIds.has(tag.id)),
+    };
+}
+
+app.get(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        bookmarkStore.pruneInvalid((entry) =>
+            appDataStore.hasChat(entry.characterId, entry.chatId));
+        const visible = await visibleBookmarkChatKeys(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.put(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const { characterId, chatId, messageId } = req.body ?? {};
+        await ensureChatStore(characterId, chatId);
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark target not found' });
+        }
+        const chat = fullChatStore.get(characterId)?.get(chatId);
+        const message = chat?.message?.find(value => value?.chatId === messageId);
+        if (!chat || !message) return res.status(404).json({ error: 'Bookmark target not found' });
+        bookmarkStore.upsertBookmarkEntry({
+            characterId,
+            chatId,
+            messageId,
+            name: typeof req.body?.name === 'string' ? req.body.name.trim() : '',
+            preview: normalizePreview(message.data, messageId),
+            tagIds: Array.isArray(req.body?.tagIds) ? req.body.tagIds : [],
+        });
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.patch(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        const { characterId, chatId, messageId } = req.body ?? {};
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        const patch = {};
+        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'name')) {
+            patch.name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'tagIds')) {
+            patch.tagIds = Array.isArray(req.body.tagIds) ? req.body.tagIds : [];
+        }
+        if (!bookmarkStore.patchBookmarkEntry({ characterId, chatId, messageId }, patch)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.delete(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        const { characterId, chatId, messageId } = req.body ?? {};
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        if (!bookmarkStore.removeBookmarkEntry({ characterId, chatId, messageId })) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.put(BOOKMARK_TAGS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        if (isCloudflareTunnelRequest(req)) {
+            return res.status(403).json({ error: 'Bookmark tags are local-only' });
+        }
+        await ensureCanonicalStorage();
+        bookmarkStore.replaceTags(req.body?.tags);
+        broadcastBookmarksInvalidated(req);
+        res.json(bookmarkStore.catalog());
+    } catch (error) { next(error); }
+});
+
+app.post(`${BOOKMARK_TAGS_API_PATH}/merge`, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        if (isCloudflareTunnelRequest(req)) {
+            return res.status(403).json({ error: 'Bookmark tags are local-only' });
+        }
+        await ensureCanonicalStorage();
+        const idMap = bookmarkStore.mergeTags(req.body?.tags);
+        broadcastBookmarksInvalidated(req);
+        res.json({ idMap, catalog: bookmarkStore.catalog() });
+    } catch (error) { next(error); }
+});
+
+app.post(`${BOOKMARKS_API_PATH}/compatibility`, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        const targets = Array.isArray(req.body?.targets) ? req.body.targets : null;
+        if (!targets) return res.status(400).json({ error: 'Invalid bookmark targets' });
+        const visible = await visibleBookmarkChatKeys(req);
+        res.json(bookmarkStore.compatibilityForTargets(targets.filter(target =>
+            isVisibleBookmarkTarget(visible, target?.characterId, target?.chatId))));
+    } catch (error) { next(error); }
+});
+
 // GET /api/chat-content/:chaId/:chatIndex — retrieve full chat from server
 app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
@@ -4691,46 +5602,25 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         const chatIndex = parseInt(req.params.chatIndex, 10);
         const expectedChatId = req.headers['x-chat-id'];
 
-        await ensureChatStore();
+        await ensureCanonicalStorage();
         if (isCloudflareTunnelRequest(req)) {
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
-                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                    return res.status(404).json({ error: 'Chat not found' });
-                }
+            const dbObj = appDataStore.exportProjection({ includeMessages: false });
+            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                return res.status(404).json({ error: 'Chat not found' });
             }
         }
-        // First try fullChatStore (fast path)
-        const charChats = fullChatStore.get(chaId);
-        if (charChats && expectedChatId) {
-            const chat = charChats.get(expectedChatId);
-            if (chat) {
-                if (!restoreColdStorageChat(chat)) {
-                    return res.status(500).json({ error: 'Cold storage restore failed' });
-                }
-                const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
-                res.setHeader('Content-Type', 'application/octet-stream');
-                res.setHeader('x-chat-etag', computeChatEtag(chat));
-                return res.send(encoded);
-            }
-        }
-
-        // Fallback: load from disk and find by index
-        const raw = kvGet('database/database.bin');
-        if (!raw) {
-            return res.status(404).json({ error: 'Database not found' });
-        }
-        const dbObj = await decodeRisuSave(raw);
-        const char = dbObj.characters?.find(c => c?.chaId === chaId);
-        if (!char?.chats?.[chatIndex]) {
+        const indexedStub = appDataStore.getChatStubAt(chaId, chatIndex);
+        const resolvedChatId = expectedChatId || indexedStub?.id;
+        if (!indexedStub || !resolvedChatId) {
             return res.status(404).json({ error: 'Chat not found' });
         }
-        const chat = char.chats[chatIndex];
         // Verify chatId matches if provided
-        if (expectedChatId && chat.id !== expectedChatId) {
+        if (expectedChatId && indexedStub.id !== expectedChatId) {
             return res.status(409).json({ error: 'Chat ID mismatch — index may have shifted' });
         }
+        await ensureChatStore(chaId, resolvedChatId);
+        const chat = fullChatStore.get(chaId)?.get(resolvedChatId);
+        if (!chat) return res.status(404).json({ error: 'Chat not found' });
         if (!restoreColdStorageChat(chat)) {
             return res.status(500).json({ error: 'Cold storage restore failed' });
         }
@@ -4766,13 +5656,16 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             return res.status(400).json({ error: 'Chat data and x-chat-id required' });
         }
 
+        // Original-compatible imports may carry bookmark fields inside the
+        // chat. Absorb them once into the server table, while keeping the
+        // canonical full-chat payload free of a second bookmark source.
+        const importedBookmarks = readChatCompatibility(chatData);
+        stripChatCompatibility(chatData);
+
         if (isCloudflareTunnelRequest(req)) {
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
-                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                    return res.status(404).json({ error: 'Chat not found' });
-                }
+            const dbObj = appDataStore.exportProjection({ includeMessages: false });
+            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                return res.status(404).json({ error: 'Chat not found' });
             }
         }
 
@@ -4783,6 +5676,19 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             expectedEtag: req.headers['x-chat-if-match'],
             originClientId: getSyncClientIdFromRequest(req),
         });
+        if (importedBookmarks) {
+            if (bookmarkStore.replaceChatCompatibility(chaId, expectedChatId, importedBookmarks)) {
+                broadcastBookmarksInvalidated(req);
+            }
+        }
+        else {
+            const validMessageIds = new Set(
+                (chatData.message ?? []).map(message => message?.chatId).filter(Boolean),
+            );
+            if (bookmarkStore.pruneChatMessages(chaId, expectedChatId, validMessageIds) > 0) {
+                broadcastBookmarksInvalidated(req);
+            }
+        }
         res.json({ success: true, etag: commit.etag });
     } catch (error) {
         if (error instanceof CanonicalChatCommitError) {
@@ -4844,7 +5750,7 @@ app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
             res.status(400).json({ error: 'Cannot access directory' });
             return;
         }
-        const result = await importHexFilesFromDir(resolved);
+        const result = await queueStorageOperation(() => importHexFilesFromDir(resolved));
         res.json({ ok: true, imported: result.imported });
     } catch (error) {
         res.status(400).json({ error: error.message || 'Import failed' });
@@ -4905,7 +5811,7 @@ app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
             return;
         }
 
-        const result = await importHexEntries(entries);
+        const result = await queueStorageOperation(() => importHexEntries(entries));
         res.json({ ok: true, imported: result.imported });
     } catch (error) {
         res.status(400).json({ error: error.message || 'Import failed' });
@@ -4963,8 +5869,7 @@ app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
 const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const ASSET_PREFIXES = [
-    'assets/',
-    'remotes/',
+    STORED_ASSET_PREFIX,
     'inlay/',
     'inlay_thumb/',
     'inlay_meta/',
@@ -4973,69 +5878,6 @@ const ASSET_PREFIXES = [
     'cache/hypa-vector/',
     'cache/llm-translate/',
 ];
-
-function statsBasename(s) {
-    if (!s) return '';
-    return String(s).replace(/\\/g, '/').split('/').pop();
-}
-
-// Mirrors src/ts/globalApi.svelte.ts:getUncleanables — every asset reference reachable from the DB.
-function buildUncleanableSet(dbObj, assetsOnly = false) {
-    const set = new Set();
-    const add = (v) => {
-        if (assetsOnly) {
-            const normalized = typeof v === 'string' ? v.replace(/\\/g, '/') : '';
-            if (!normalized.startsWith('assets/')) return;
-        }
-        const bn = statsBasename(v);
-        if (bn) set.add(bn);
-    };
-    if (!dbObj) return set;
-    add(dbObj.customBackground);
-    add(dbObj.userIcon);
-    add(dbObj.messageSound);
-    add(dbObj.translateSound);
-    if (Array.isArray(dbObj.customSounds)) {
-        for (const sound of dbObj.customSounds) add(sound?.path);
-    }
-    if (Array.isArray(dbObj.characters)) {
-        for (const cha of dbObj.characters) {
-            if (!cha) continue;
-            add(cha.image);
-            if (Array.isArray(cha.emotionImages)) for (const em of cha.emotionImages) add(em?.[1]);
-            if (Array.isArray(cha.additionalAssets)) for (const em of cha.additionalAssets) add(em?.[1]);
-            if (cha.vits?.files) for (const k of Object.keys(cha.vits.files)) add(cha.vits.files[k]);
-            if (Array.isArray(cha.ccAssets)) for (const a of cha.ccAssets) add(a?.uri);
-        }
-    }
-    if (Array.isArray(dbObj.modules)) {
-        for (const m of dbObj.modules) {
-            if (Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
-            add(m?.icon);
-        }
-    }
-    if (Array.isArray(dbObj.personas)) {
-        for (const persona of dbObj.personas) {
-            add(persona?.icon);
-            if (Array.isArray(persona?.embeddedModule?.assets)) {
-                for (const asset of persona.embeddedModule.assets) add(asset?.[1]);
-            }
-            add(persona?.embeddedModule?.icon);
-        }
-    }
-    if (Array.isArray(dbObj.characterOrder)) {
-        for (const item of dbObj.characterOrder) {
-            if (item && typeof item === 'object') {
-                add(item.img);
-                add(item.imgFile);
-            }
-        }
-    }
-    if (Array.isArray(dbObj.botPresets)) {
-        for (const preset of dbObj.botPresets) add(preset?.image);
-    }
-    return set;
-}
 
 function statSafe(p) {
     try { return require('fs').statSync(p); } catch { return null; }
@@ -5074,19 +5916,28 @@ async function sumInlayFsBytes() {
 // /api/backup/server/save without writing anything. Inlay files live on the
 // filesystem (post-migration), so we have to fs.stat them rather than read
 // kvSize. Cost: ~5-50 ms typical, ~200 ms for users with thousands of inlays.
-async function estimateServerBackupSize(dbBytesOverride = null) {
+async function estimateServerBackupSize(dbBytesOverride = null, inlayBytesOverride = null) {
     let total = 0;
-    total += typeof dbBytesOverride === 'number' ? dbBytesOverride : (kvSize(DB_BLOB_KEY) || 0);
+    if (typeof dbBytesOverride === 'number') {
+        total += dbBytesOverride;
+    } else {
+        total += appDataStore.getState().initialized
+            ? appDataStore.estimateProjectionBytes()
+            : 0;
+    }
     for (const it of kvListWithSizes('assets/')) total += it.size;
     for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
     for (const e of listColdStorageBackupEntries()) total += e.size;
-    total += await sumInlayFsBytes();
+    total += typeof inlayBytesOverride === 'number'
+        ? inlayBytesOverride
+        : await sumInlayFsBytes();
     return total;
 }
 
 app.get('/api/db/stats', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
+        await ensureCanonicalStorage();
         const saveDir = path.join(process.cwd(), 'save');
         const dbFilePath = path.join(saveDir, 'risuai.db');
         const walPath = dbFilePath + '-wal';
@@ -5119,6 +5970,28 @@ app.get('/api/db/stats', async (req, res, next) => {
             backupDisk = { ...bDisk, path: backupsDir, sameAsSaveDir };
         }
 
+        // The backup page only needs capacity and a conservative next-backup
+        // estimate. Do not make that tab wait for chunk reachability, orphan
+        // asset discovery, or snapshot accounting used exclusively by the
+        // storage dashboard.
+        if (req.query?.scope === 'backup') {
+            const inlayFsBytes = await sumInlayFsBytes();
+            const estimatedBackupSize = await estimateServerBackupSize(
+                appDataStore.getState().initialized
+                    ? appDataStore.estimateProjectionBytes()
+                    : 0,
+                inlayFsBytes,
+            );
+            return res.json({
+                files,
+                disk,
+                backupDisk,
+                estimatedBackupSize,
+                inlayFsBytes,
+                etag: dbEtag,
+            });
+        }
+
         const pageSize = sqliteDb.pragma('page_size', { simple: true });
         const pageCount = sqliteDb.pragma('page_count', { simple: true });
         const freelistCount = sqliteDb.pragma('freelist_count', { simple: true });
@@ -5131,7 +6004,7 @@ app.get('/api/db/stats', async (req, res, next) => {
         // Physical storage of the chunked DB blob (and all snapshots, which share
         // chunks). This is where the blob bytes actually live post-chunking — kv
         // holds only a tiny marker, so the chart must count this table separately.
-        const chunkStat = sqliteDb.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(LENGTH(data)), 0) AS b FROM chunks').get();
+        const chunkStat = chunkStorageStats();
         // Bytes the next gc() would reclaim (true orphans + chunks pinned only by
         // stale/raw-overwritten manifests) — drives the Optimize button.
         const orphanChunkBytes = reclaimableChunkBytes();
@@ -5154,8 +6027,10 @@ app.get('/api/db/stats', async (req, res, next) => {
             }
         }
         prefixes[DB_BACKUP_PREFIX] = { totalSize: backupTotal, count: backupKeys.length };
+        let storedAssets = [];
         for (const p of ASSET_PREFIXES) {
             const items = kvListWithSizes(p);
+            if (p === STORED_ASSET_PREFIX) storedAssets = items;
             let total = 0;
             for (const it of items) total += it.size;
             prefixes[p] = { totalSize: total, count: items.length };
@@ -5193,29 +6068,33 @@ app.get('/api/db/stats', async (req, res, next) => {
             }
             trashed.available = true;
         }
-        if (stripped) {
-            const uncleanable = buildUncleanableSet(stripped);
-            for (const it of kvListWithSizes('assets/')) {
-                if (!uncleanable.has(statsBasename(it.key))) {
-                    orphan.count++;
-                    orphan.totalSize += it.size;
-                }
-            }
+        if (stripped && Array.isArray(stripped.characters)) {
+            const victims = findOrphanAssets(
+                storedAssets,
+                collectProtectedAssetBasenames(stripped, assetReferenceStorage),
+            );
+            orphan.count = victims.length;
+            orphan.totalSize = victims.reduce((sum, asset) => sum + asset.size, 0);
             orphan.available = true;
         }
 
-        const estimatedBackupSize = await estimateServerBackupSize();
         // Inlay payload now lives on the filesystem (post-migration) rather
         // than in kv `inlay/*` prefixes. Surface explicitly so the dashboard
         // chart can include it in the inlay slice instead of underreporting.
         const inlayFsBytes = await sumInlayFsBytes();
+        const estimatedBackupSize = await estimateServerBackupSize(
+            appDataStore.getState().initialized
+                ? appDataStore.estimateProjectionBytes()
+                : 0,
+            inlayFsBytes,
+        );
 
         res.json({
             files,
             disk,
             backupDisk,
             sqlite: { pageSize, pageCount, freelistCount, reclaimable, journalMode, autoVacuum },
-            chunks: { count: chunkStat.c, bytes: chunkStat.b, orphanBytes: orphanChunkBytes, liveChunked },
+            chunks: { count: chunkStat.count, bytes: chunkStat.bytes, orphanBytes: orphanChunkBytes, liveChunked },
             prefixes,
             kvRows,
             kvTotalBytes,
@@ -5235,30 +6114,22 @@ app.get('/api/db/stats', async (req, res, next) => {
 app.get('/api/db/stats/characters', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
-        await ensureChatStore();
-        const raw = kvGet(DB_BLOB_KEY);
-        if (!raw) {
+        await ensureCanonicalStorage();
+        if (!appDataStore.getState().initialized) {
             res.json({ characters: [], orphan: { count: 0, totalSize: 0 }, chatBytesNote: 'estimate' });
             return;
         }
-        const dbObj = await decodeRisuSave(raw);
+        const dbObj = dbCache[DB_HEX_KEY] ?? { characters: [] };
 
         const assetSize = new Map();
         for (const it of kvListWithSizes('assets/')) {
             assetSize.set(statsBasename(it.key), it.size);
         }
-        // remotes/<chaId>.local.bin (+ optional .meta sidecar) → bucket by chaId.
-        const remoteSize = new Map();
-        for (const it of kvListWithSizes('remotes/')) {
-            const bn = statsBasename(it.key).replace(/\.meta$/, '');
-            const chaId = bn.replace(/\.local\.bin$/, '');
-            if (chaId) remoteSize.set(chaId, (remoteSize.get(chaId) || 0) + it.size);
-        }
-
         const claimed = new Set();
         const characters = [];
-        const list = Array.isArray(dbObj.characters) ? dbObj.characters : [];
-        for (const cha of list) {
+        const list = appDataStore.listCharacterStorage();
+        for (const stored of list) {
+            const cha = stored.character;
             if (!cha) continue;
             const refs = [];
             const collect = (v) => { if (v) refs.push(statsBasename(v)); };
@@ -5278,23 +6149,8 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
                     claimed.add(bn);
                 }
             }
-            const remoteBytes = remoteSize.get(cha.chaId) || 0;
-
-            let chatBytes = 0;
-            const charChats = fullChatStore?.get(cha.chaId);
-            if (charChats) {
-                for (const chat of charChats.values()) {
-                    try { chatBytes += JSON.stringify(chat).length; } catch { /* skip un-serializable */ }
-                }
-            }
-
-            // Card body = the character row minus chats (which we count separately).
-            // Asset URIs themselves are tiny strings — leaving them in card body is fine.
-            let cardBytes = 0;
-            try {
-                const { chats: _drop, ...body } = cha;
-                cardBytes = JSON.stringify(body).length;
-            } catch { /* skip un-serializable */ }
+            const chatBytes = stored.chatBytes;
+            const cardBytes = stored.cardBytes;
 
             characters.push({
                 chaId: cha.chaId || '',
@@ -5302,26 +6158,25 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
                 image: cha.image || '',
                 trashed: !!cha.trashTime,
                 cardBytes,
-                imgBytes: imgBytes + remoteBytes,
+                imgBytes,
                 chatBytes,
-                totalBytes: cardBytes + imgBytes + remoteBytes + chatBytes,
+                totalBytes: cardBytes + imgBytes + chatBytes,
             });
         }
 
-        const uncleanable = buildUncleanableSet(dbObj);
-        let orphanCount = 0, orphanTotal = 0;
-        for (const it of kvListWithSizes('assets/')) {
-            if (!uncleanable.has(statsBasename(it.key))) {
-                orphanCount++;
-                orphanTotal += it.size;
-            }
-        }
+        const orphanAssets = findOrphanAssets(
+            kvListWithSizes(STORED_ASSET_PREFIX),
+            collectProtectedAssetBasenames(dbObj, assetReferenceStorage),
+        );
 
         characters.sort((a, b) => b.totalBytes - a.totalBytes);
         res.json({
             characters,
-            orphan: { count: orphanCount, totalSize: orphanTotal },
-            chatBytesNote: 'JSON.stringify estimate; on-disk msgpack ~0.6×',
+            orphan: {
+                count: orphanAssets.length,
+                totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
+            },
+            chatBytesNote: 'relational msgpack payload bytes',
             etag: dbEtag,
         });
     } catch (err) { next(err); }
@@ -5334,13 +6189,12 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
 app.get('/api/db/stats/modules', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
-        const raw = kvGet(DB_BLOB_KEY);
-        if (!raw) {
+        await ensureCanonicalStorage();
+        if (!appDataStore.getState().initialized) {
             res.json({ modules: [] });
             return;
         }
-        const dbObj = await decodeRisuSave(raw);
-        const list = Array.isArray(dbObj.modules) ? dbObj.modules : [];
+        const list = appDataStore.listModuleStorage();
 
         const assetSize = new Map();
         for (const it of kvListWithSizes('assets/')) {
@@ -5348,14 +6202,10 @@ app.get('/api/db/stats/modules', async (req, res, next) => {
         }
 
         const modules = [];
-        for (const m of list) {
+        for (const stored of list) {
+            const m = stored.module;
             if (!m) continue;
-
-            let bodyBytes = 0;
-            try {
-                const { assets: _drop, ...body } = m;
-                bodyBytes = JSON.stringify(body).length;
-            } catch { /* skip un-serializable */ }
+            const bodyBytes = stored.bodyBytes;
 
             let assetBytes = 0;
             const seen = new Set();
@@ -5383,6 +6233,51 @@ app.get('/api/db/stats/modules', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+app.post('/api/db/assets/purge-orphans', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const result = await queueStorageOperation(async () => {
+            // Decide from persisted bytes after pending client writes land; the
+            // dashboard's in-memory estimate is informational only.
+            await flushPendingDb();
+            if (!appDataStore.getState().initialized) {
+                return { error: 'No relational database' };
+            }
+            const dbObj = appDataStore.exportProjection({ includeMessages: true });
+            if (!dbObj || !Array.isArray(dbObj.characters)) {
+                return { error: 'Database decode failed' };
+            }
+
+            const storedAssets = kvListWithSizes(STORED_ASSET_PREFIX);
+            const explicitAssetReferences = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
+            if (explicitAssetReferences.size === 0 && storedAssets.length > 0) {
+                return { error: 'Reference scan produced no references — refusing to purge' };
+            }
+            const databaseReferences = collectDatabaseAssetBasenames(dbObj);
+            for (const basename of collectPersistentPluginAssetBasenames(assetReferenceStorage)) {
+                databaseReferences.add(basename);
+            }
+
+            const victims = findOrphanAssets(storedAssets, databaseReferences);
+            sqliteDb.transaction(() => {
+                for (const asset of victims) kvDel(asset.key);
+            })();
+
+            const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
+            if (victims.length > 0) {
+                try { checkpointWal('TRUNCATE'); }
+                catch (error) { logger.warn('[PurgeOrphans] checkpoint failed:', error?.message || error); }
+            }
+            return { ok: true, deleted: victims.length, bytes, scanned: storedAssets.length };
+        });
+
+        if (result.error) return res.status(400).json(result);
+        logger.info(`[PurgeOrphans] removed ${result.deleted}/${result.scanned} assets (${result.bytes} bytes)`);
+        res.json(result);
+    } catch (err) { next(err); }
+});
+
 app.post('/api/db/optimize', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     if (!requireSyncClientId(req, res)) return;
@@ -5390,12 +6285,13 @@ app.post('/api/db/optimize', async (req, res, next) => {
         const saveDir = path.join(process.cwd(), 'save');
         const dbFilePath = path.join(saveDir, 'risuai.db');
         const preDbSize = statSafe(dbFilePath)?.size ?? 0;
+        const requiredFreeBytes = estimateVacuumRequiredBytes(preDbSize);
 
         const { free } = await diskFreeStat(saveDir);
-        if (preDbSize > 0 && free != null && free < preDbSize * 1.2) {
+        if (requiredFreeBytes > 0 && free != null && free < requiredFreeBytes) {
             return res.status(400).json({
                 error: 'Insufficient disk space for VACUUM',
-                required: Math.ceil(preDbSize * 1.2),
+                required: requiredFreeBytes,
                 free,
             });
         }
@@ -5409,7 +6305,7 @@ app.post('/api/db/optimize', async (req, res, next) => {
             let gcDeleted = 0;
             try { gcDeleted = gcChunks(); } catch (e) { logger.warn('[Optimize] chunk gc failed:', e?.message || e); }
             try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] checkpoint failed:', e?.message || e); }
-            sqliteDb.exec('VACUUM');
+            vacuumDatabase();
             // VACUUM streams the whole DB through the WAL; without this checkpoint the
             // -wal file stays inflated until the next 5-min background TRUNCATE.
             try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] post-VACUUM checkpoint failed:', e?.message || e); }
@@ -5536,43 +6432,104 @@ app.delete('/api/db/snapshots', async (req, res, next) => {
         if (!key.startsWith(DB_BACKUP_PREFIX)) {
             return res.status(400).json({ error: 'Invalid snapshot key' });
         }
-        kvDel(key);
+        deleteSnapshotState(key);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
 
-async function restoreDatabaseBlob(blob) {
+app.post('/api/db/snapshots/promote', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const key = typeof req.body?.key === 'string' ? req.body.key : '';
+        const note = normalizeBackupNote(req.body?.note);
+        if (!key.startsWith(DB_BACKUP_PREFIX)) {
+            return res.status(400).json({ error: 'Invalid snapshot key' });
+        }
+        if (!note) {
+            return res.status(400).json({ error: 'A note is required to preserve this snapshot' });
+        }
+        const raw = kvGet(key);
+        if (!raw) return res.status(404).json({ error: 'Snapshot not found' });
+
+        const database = normalizeJSON(await decodeRisuSave(raw));
+        // New snapshots keep bookmarks in a dedicated snapshot table. Project
+        // that historical catalog into the portable file; legacy snapshots
+        // already carry their bookmark compatibility fields in the blob.
+        bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
+        const blob = Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
+
+        const dir = getManualSnapshotsDir();
+        await fs.mkdir(dir, { recursive: true });
+        try {
+            const stat = await fs.statfs(dir);
+            const required = Math.ceil(blob.length * 1.05);
+            if (stat.bsize * stat.bavail < required) {
+                return res.status(400).json({
+                    error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB)`,
+                    code: 'insufficient_space',
+                    required,
+                    free: stat.bsize * stat.bavail,
+                });
+            }
+        } catch (error) {
+            if (error?.code === 'insufficient_space') throw error;
+            logger.warn('[Snapshot promotion] pre-flight disk check failed:', error?.message || error);
+        }
+
+        const tick = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+        const timestamp = Number.isFinite(tick) ? tick * 100 : Date.now();
+        const filename = makeManualSnapshotFilename(timestamp);
+        const finalPath = path.join(dir, filename);
+        const temporaryPath = finalPath + '.tmp';
+        let fileCreated = false;
+        try {
+            await fs.writeFile(temporaryPath, blob);
+            await fs.rename(temporaryPath, finalPath);
+            fileCreated = true;
+            setBackupNote(getBackupNotesDir(), 'manual', filename, note);
+            deleteSnapshotState(key);
+        } catch (error) {
+            await fs.unlink(temporaryPath).catch(() => {});
+            if (fileCreated) await fs.unlink(finalPath).catch(() => {});
+            deleteBackupNote(getBackupNotesDir(), 'manual', filename);
+            throw error;
+        }
+
+        res.json({
+            ok: true,
+            snapshot: { filename, size: blob.length, timestamp, note },
+        });
+    } catch (err) { next(err); }
+});
+
+async function restoreDatabaseBlob(blob, options = {}) {
     await queueStorageOperation(async () => {
         // Drain any pending debounced persist first — same pattern as
         // /api/db/optimize. Without this, an in-flight save could land
         // after the restore and overwrite the restored snapshot.
         await flushPendingDb();
-        kvSet(DB_BLOB_KEY, Buffer.from(blob));
-        invalidateDbCache();
-        // Snapshot may pre-date the remote-block migration. Clear the marker
-        // so migrateRemoteBlocksIfNeeded re-evaluates against the restored
-        // bytes instead of skipping based on the prior post-migration state.
-        kvDel(remoteMigrationMarkerKey);
-        // Pre-warm chat store from the just-restored blob so subsequent
-        // /api/read fetches and patch-sync baselines see the new data.
-        // Use decodeDatabaseWithPersistentChatIds so it runs the migration
-        // (now unmarked) and refreshes stale raw if the snapshot was a
-        // REMOTE-block format.
-        try {
-            const raw = kvGet(DB_BLOB_KEY);
-            if (raw) {
-                const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
-                    createBackup: false,
-                });
-                initChatStore(dbObj);
-                // Migration may have rewritten database.bin — etag must
-                // reflect the post-migration bytes the next /api/read sends.
-                const finalRaw = kvGet(DB_BLOB_KEY);
-                if (finalRaw) dbEtag = computeBufferEtag(Buffer.from(finalRaw));
+        const decoded = await decodeRisuSave(Buffer.from(blob));
+        const { database } = normalizeLegacyDatabaseProjection(decoded);
+        sqliteDb.transaction(() => {
+            const restoredBookmarkSnapshot = options.bookmarkSnapshotKey
+                ? bookmarkStore.restoreSnapshot(options.bookmarkSnapshotKey)
+                : false;
+            if (options.importBookmarkCompatibility
+                || (options.bookmarkSnapshotKey && !restoredBookmarkSnapshot)) {
+                bookmarkStore.replaceDatabaseCompatibility(database);
+            } else {
+                bookmarkStore.migrateLegacyDatabase(database);
             }
-        } catch (e) {
-            logger.warn('[Snapshot restore] post-restore decode failed:', e?.message || e);
-        }
+            // Snapshot blobs contain compatibility fields by design. A restored
+            // bookmark side-table does not mutate that decoded object, so strip
+            // them unconditionally before installing canonical chat rows.
+            bookmarkStore.stripDatabaseCompatibility(database);
+            appDataStore.replaceFromProjection(database, {
+                expectedRevision: appDataStore.getState().revision,
+            });
+        })();
+        refreshCanonicalDatabaseCache({ invalidateChats: true });
     });
 }
 
@@ -5592,8 +6549,9 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
         if (!blob) {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
-        await restoreDatabaseBlob(blob);
+        await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
         broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5602,6 +6560,7 @@ app.get('/api/db/manual-snapshots', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
         const dir = getManualSnapshotsDir();
+        const notes = readBackupNotes(getBackupNotesDir());
         let entries;
         try {
             entries = await fs.readdir(dir, { withFileTypes: true });
@@ -5617,6 +6576,7 @@ app.get('/api/db/manual-snapshots', async (req, res, next) => {
                 filename: entry.name,
                 size: stat.size,
                 timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+                note: getBackupNote(notes, 'manual', entry.name),
             });
         }
         snapshots.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
@@ -5629,7 +6589,7 @@ app.post('/api/db/manual-snapshots', async (req, res, next) => {
     if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
-        const blob = kvGet(DB_BLOB_KEY);
+        const blob = await createCompatibleDatabaseValue();
         if (!blob) {
             return res.status(404).json({ error: 'Database not found' });
         }
@@ -5659,12 +6619,15 @@ app.post('/api/db/manual-snapshots', async (req, res, next) => {
         await fs.rename(tmpPath, finalPath);
         const stat = await fs.stat(finalPath);
         const tsMatch = filename.match(/^dbbackup-(\d+)\.bin$/);
+        const note = normalizeBackupNote(req.body?.note);
+        if (note) setBackupNote(getBackupNotesDir(), 'manual', filename, note);
         res.json({
             ok: true,
             snapshot: {
                 filename,
                 size: stat.size,
                 timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+                note,
             },
             path: dir,
         });
@@ -5688,6 +6651,7 @@ app.delete('/api/db/manual-snapshots', async (req, res, next) => {
             }
             throw err;
         }
+        deleteBackupNote(getBackupNotesDir(), 'manual', filename);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5710,8 +6674,9 @@ app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
             }
             throw err;
         }
-        await restoreDatabaseBlob(blob);
+        await restoreDatabaseBlob(blob, { importBookmarkCompatibility: true });
         broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5817,11 +6782,83 @@ app.put('/api/backup/server/path', async (req, res, next) => {
 });
 
 // ── Inlay bulk compression endpoint ──────────────────────────────────────────
-const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp']);
+const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'avif']);
+const INLAY_IMAGE_SIZE_PIXELS = Object.freeze({
+    '1k': 1024 * 1024,
+    '2k': 2048 * 2048,
+    '4k': 4096 * 4096,
+    'original': Number.POSITIVE_INFINITY,
+});
+const INLAY_WEBP_EFFORT = 5;
+
+function normalizeInlayImageSettings(input) {
+    const size = Object.hasOwn(INLAY_IMAGE_SIZE_PIXELS, input?.size) ? input.size : '1k';
+    const format = input?.format === 'png' ? 'png' : 'webp';
+    const lossy = input?.lossy !== false;
+    const rawQuality = Number(input?.quality);
+    const quality = Number.isFinite(rawQuality)
+        ? Math.min(1, Math.max(0.01, rawQuality > 1 ? rawQuality / 100 : rawQuality))
+        : 0.85;
+    return { size, format, lossy, quality };
+}
+
+async function encodeInlayImageBuffer(buffer, settings) {
+    const vips = await getVips();
+    const source = vips.Image.newFromBuffer(buffer);
+    let rotated = null;
+    let image = null;
+    try {
+        rotated = source.autorot();
+        const maxPixels = INLAY_IMAGE_SIZE_PIXELS[settings.size];
+        const currentPixels = rotated.width * rotated.height;
+        const scale = currentPixels > maxPixels ? Math.sqrt(maxPixels / currentPixels) : 1;
+        image = scale < 1
+            ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
+            : rotated;
+
+        const output = settings.format === 'png'
+            ? image.writeToBuffer('.png', { Q: 100 })
+            : image.writeToBuffer('.webp', settings.lossy
+                ? { Q: Math.round(settings.quality * 100), effort: INLAY_WEBP_EFFORT }
+                : { lossless: true, effort: INLAY_WEBP_EFFORT });
+
+        return {
+            buffer: Buffer.from(output),
+            ext: settings.format,
+            width: image.width,
+            height: image.height,
+        };
+    } finally {
+        if (image && image !== rotated) image.delete();
+        if (rotated) rotated.delete();
+        source.delete();
+    }
+}
+
+app.post('/api/inlays/encode-webp', sessionAuthMiddleware, async (req, res) => {
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+            return res.status(400).json({ error: 'Image body required' });
+        }
+        const settings = normalizeInlayImageSettings({
+            size: 'original',
+            format: 'webp',
+            lossy: req.headers['x-inlay-lossy'] !== '0',
+            quality: req.headers['x-inlay-quality'],
+        });
+        const encoded = await encodeInlayImageBuffer(req.body, settings);
+        res.setHeader('Content-Type', 'image/webp');
+        res.setHeader('Content-Length', encoded.buffer.length);
+        return res.send(encoded.buffer);
+    } catch (err) {
+        return res.status(400).json({ error: err?.message || 'Image encoding failed' });
+    }
+});
 
 app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
     if (!requireSyncClientId(req, res)) return;
-    const quality = typeof req.body?.quality === 'number' ? req.body.quality : 85;
+    const settings = normalizeInlayImageSettings(req.body);
 
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -5841,7 +6878,7 @@ app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
             if (!COMPRESS_IMAGE_EXTS.has(entry.ext)) continue;
             const sidecar = await readInlaySidecar(entry.id);
             if (sidecar && sidecar.type !== 'image') continue;
-            imageFiles.push(entry);
+            imageFiles.push({ ...entry, sidecar });
         }
 
         const total = imageFiles.length;
@@ -5849,33 +6886,21 @@ app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
         let skipped = 0;
         let totalSaved = 0;
 
-        const vips = await getVips()
-
         for (let i = 0; i < imageFiles.length; i++) {
             const entry = imageFiles[i];
             try {
                 const original = await fs.readFile(entry.filePath);
-                const img = vips.Image.newFromBuffer(original)
-                let webpBuf
-                try {
-                    const out = img.writeToBuffer('.webp', { Q: quality })
-                    webpBuf = Buffer.from(out);
-                } finally {
-                    img.delete()
-                }
-
-                if (webpBuf.length < original.length) {
-                    const sidecar = await readInlaySidecar(entry.id);
-                    const info = sidecar || {};
-                    await writeInlayFile(entry.id, 'webp', webpBuf, { ...info, ext: 'webp' });
-                    // invalidate thumbnail cache
-                    kvDel(`inlay_thumb/${entry.id}`);
-                    const saved = original.length - webpBuf.length;
-                    totalSaved += saved;
-                    compressed++;
-                } else {
-                    skipped++;
-                }
+                const encoded = await encodeInlayImageBuffer(original, settings);
+                const info = entry.sidecar || {};
+                await writeInlayFile(entry.id, encoded.ext, encoded.buffer, {
+                    ...info,
+                    ext: encoded.ext,
+                    width: encoded.width,
+                    height: encoded.height,
+                });
+                kvDel(`inlay_thumb/${entry.id}`);
+                totalSaved += original.length - encoded.buffer.length;
+                compressed++;
             } catch {
                 skipped++;
             }
@@ -6400,7 +7425,11 @@ app.post('/api/tunnel/stop', async (req, res) => {
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    res.status(500).json({ error: err?.message || 'internal server error' });
+    const unsupportedRemote = err?.code === 'UNSUPPORTED_REMOTE_SAVE';
+    res.status(unsupportedRemote ? 400 : 500).json({
+        error: err?.message || 'internal server error',
+        ...(err?.code ? { code: err.code } : {}),
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6436,7 +7465,6 @@ async function getHttpsOptions() {
 async function startServer() {
     try {
         await migrateInlaysToFilesystem();
-        await migrateRemoteBlocksIfNeeded();
         const port = process.env.PORT || 6001;
         const httpsOptions = await getHttpsOptions();
         let server;
@@ -6509,7 +7537,12 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
             job.abortController.abort();
             if (job.runPromise) generationRuns.push(job.runPromise);
         }
+        imageGenerationJobService.abortAll();
+        const imageGenerationRuns = [...imageGenerationJobService.jobs.values()]
+            .map(job => job.runPromise)
+            .filter(Boolean);
         if (generationRuns.length > 0) await Promise.allSettled(generationRuns);
+        if (imageGenerationRuns.length > 0) await Promise.allSettled(imageGenerationRuns);
         try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         try { checkpointGenerationDb('TRUNCATE'); } catch { /* non-fatal */ }
@@ -6518,6 +7551,13 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
 }
 
 (async () => {
+    try {
+        await ensureCanonicalStorage();
+    } catch (error) {
+        logger.error('[AppData] Failed to initialize canonical relational storage:', error);
+        process.exitCode = 1;
+        return;
+    }
     try { await rebuildMissingGenerationProjections(); }
     catch (error) { logger.error('[GenerationJob] Initial projection rebuild failed:', error); }
     try { pruneRetainedGenerationJobs(); }

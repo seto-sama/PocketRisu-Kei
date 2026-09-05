@@ -1,13 +1,13 @@
 <script lang="ts">
-    import { DownloadIcon, HardDriveUploadIcon, PlusIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { DBState } from "src/ts/stores.svelte";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
+    import Input from "../../../UI/components/Input.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
 
     let search = $state('');
 
@@ -24,7 +24,7 @@
 </script>
 
 <SettingLayout variant="search" className="mb-4">
-    <ShInput bind:value={search} placeholder={language.presetRegexSearchPlaceholder} />
+    <Input bind:value={search} placeholder={language.presetRegexSearchPlaceholder} />
     {#snippet control()}
         <IconButtonGroup size="lg">
         <IconButton onclick={addRegex} aria-label={language.add}>
@@ -34,7 +34,7 @@
             <DownloadIcon />
         </IconButton>
         <IconButton onclick={importPresetRegex} aria-label={language.import}>
-            <HardDriveUploadIcon />
+            <UploadIcon />
         </IconButton>
         </IconButtonGroup>
     {/snippet}

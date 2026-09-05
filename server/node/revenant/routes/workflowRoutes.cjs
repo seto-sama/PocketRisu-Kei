@@ -11,6 +11,7 @@ const {
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
+    acknowledgeTerminalGenerationJobsForRoom,
 } = require('../generationDb.cjs');
 const {
     isValidRevenantWorkflowKey,
@@ -21,8 +22,10 @@ const {
     normalizeRevenantWorkflowTerminalStatus,
 } = require('../generation.cjs');
 const {
+    getUnregisteredWorkflowRetryAfterMs,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
@@ -31,12 +34,14 @@ function installRevenantWorkflowRoutes(app, deps) {
         requireSyncClientId,
         scheduleHypaWorkflowExecution,
         scheduleRevenantPostprocess = () => {},
+        scheduleImageGenerationWorkflow = () => {},
         notifyRevenantWorkflowUpdated = () => {},
         terminateGenerationWorkflow,
         commitWorkflowInput = async () => {
             throw new Error('Workflow input commit service unavailable');
         },
         cancelGenerationStepExecution,
+        isSyncClientConnected,
         randomUUID,
     } = deps;
 
@@ -52,6 +57,11 @@ function installRevenantWorkflowRoutes(app, deps) {
             return;
         }
         try {
+            // Once the user explicitly starts another generation, output from
+            // older terminal workflows must never be drained back into this
+            // room. A cancelled partial that lost to a swipe deletion is
+            // superseded here, before the new durable input base is captured.
+            acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
             const input = {
                 workflowId: randomUUID(),
                 characterId,
@@ -60,11 +70,40 @@ function installRevenantWorkflowRoutes(app, deps) {
                 context,
             };
             let result = createGenerationWorkflow(input);
+            if (!result.busy && context.kind === 'image-generation') {
+                const actionId = `image-generation:${context.operationId}`;
+                updateGenerationWorkflowStep(result.workflow.workflowId, 'image.generate', {
+                    status: 'running',
+                    metadata: {
+                        schemaVersion: 1,
+                        action: {
+                            schemaVersion: 1,
+                            actionId,
+                            kind: 'image.generate',
+                            payload: {
+                                prompt: context.prompt,
+                                negativePrompt: context.negativePrompt,
+                                seed: context.seed,
+                                target: context.target,
+                                messageId: context.messageId,
+                                projection: context.projection || 'append',
+                                bridgeId: context.comfyBridgeId,
+                            },
+                        },
+                    },
+                });
+                result = { ...result, workflow: getGenerationWorkflow(result.workflow.workflowId) };
+                scheduleImageGenerationWorkflow(result.workflow.workflowId);
+            }
             if (result.busy) {
                 const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
-                if (isUnregisteredWorkflowExpired(result.workflow, jobs)) {
+                if (
+                    isUnregisteredWorkflowExpired(result.workflow, jobs)
+                    || shouldSupersedeFailedActiveWorkflow(result.workflow, jobs)
+                ) {
                     await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
                     notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                    acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
                     result = createGenerationWorkflow({
                         ...input,
                         workflowId: randomUUID(),
@@ -72,12 +111,19 @@ function installRevenantWorkflowRoutes(app, deps) {
                 }
             }
             if (result.busy) {
-                const hasMainJob = hasRegisteredMainJob(
-                    listGenerationWorkflowJobs(result.workflow.workflowId),
+                const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+                const hasMainJob = hasRegisteredMainJob(jobs);
+                const retryAfterMs = getUnregisteredWorkflowRetryAfterMs(
+                    result.workflow,
+                    jobs,
                 );
                 res.status(409).send({
                     error: 'A generation workflow is already active for this room',
                     ...(hasMainJob ? { workflow: result.workflow } : {}),
+                    ...(retryAfterMs === undefined ? {} : {
+                        busyReason: 'main_job_unregistered',
+                        retryAfterMs,
+                    }),
                 });
                 return;
             }
@@ -120,7 +166,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             return;
         }
         const jobs = listGenerationWorkflowJobs(workflow.workflowId);
-        if (!hasRegisteredMainJob(jobs)) {
+        if (!hasRegisteredMainJob(jobs) && workflow.context?.kind !== 'image-generation') {
             if (isUnregisteredWorkflowExpired(workflow, jobs)) {
                 await terminateGenerationWorkflow(workflow.workflowId, 'failed');
                 notifyRevenantWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
@@ -200,6 +246,8 @@ function installRevenantWorkflowRoutes(app, deps) {
             stepKey,
             actionId,
             String(req.headers['x-sync-client-id'] || ''),
+            undefined,
+            isSyncClientConnected,
         );
         if (!result) {
             res.status(404).send({ error: 'Pending workflow client action not found' });

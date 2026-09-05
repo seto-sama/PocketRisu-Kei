@@ -2,7 +2,7 @@ import { language } from "../../../lang";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeSystemRoleReplacement, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { v4 as uuidv4 } from "uuid";
 import { simplifySchema, sleep } from "../../util";
@@ -15,6 +15,7 @@ import { runTrigger } from "../triggers";
 import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId, removeEmptyChatMessages, type ModelModeExtended } from './shared';
 import {
     ModelPresetAdapterError,
+    isTransientOverloadMessage,
     runToolLoop,
     type AdapterCacheContext,
     type AdapterChatMessage, type AdapterChatOptions, type AdapterCredential,
@@ -28,7 +29,12 @@ import {
     type CompiledModelPreset,
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
-import { pumpPresetStream } from "./presetStreamPump";
+import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
+import {
+    cancelOnOutputRepetition,
+    normalizeOutputRepetitionLimit,
+} from "./repetitionDetector";
+import { requestRetryDelayMs } from './retryPolicy';
 import { resolveChatModelBinding, buildModelPresetCredential, applyPromptPresetParams } from "./modelPresetBinding";
 import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
 import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
@@ -43,7 +49,12 @@ import {
     startStatus, appendText, endStatus, hasRequestStatus, markPhase, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
-import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
+import { setRequestStatusAction } from "src/ts/status/requestStatusActions";
+import type {
+    RevenantJobCreatedHandler,
+    RevenantOperationContext,
+    RevenantProviderJobSpec,
+} from "../revenant";
 import {
     appendRevenantJobRequestText,
     bindRevenantTerminalOutcome,
@@ -65,6 +76,7 @@ export type ToolCall = {
 
 export interface requestDataArgument{
     formated: OpenAIChat[]
+    promptCacheKey?: string
     bias: {[key:number]:number}
     biasString?: [string,number][]
     currentChar?: character
@@ -91,20 +103,28 @@ export interface requestDataArgument{
     blockPlugins?: boolean
     /** Module that owns this auxiliary LLM request, when applicable. */
     moduleId?: string
+    /** One-request model preset override used by isolated tools such as the translation dialog. */
+    modelPresetOverrideId?: string
+    /** Overrides the click behavior of this request's existing status toast. */
+    onRequestStatusActivate?: () => void
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
     /** Who acknowledges the durable auxiliary result after provider completion. */
     revenantAuxiliaryResultPolicy?:Exclude<RevenantAuxiliaryResultPolicy, 'automatic'>
     revenantDispatchPolicy?:import('../revenant').RevenantDispatchPolicy
     revenantWorkflowDependency?:import('../revenant').RevenantWorkflowDependency
+    /** Workflow ownership captured when the chat generation was submitted. */
+    revenantWorkflowId?:string
     /** Room captured when the request was submitted; stable across UI navigation. */
     revenantRoomId?:string
     /** Continuation prefix captured from that same room. */
     revenantContinuationPrefix?:string
-    onRevenantJobCreated?:(jobId:string) => void
+    onRevenantJobCreated?:RevenantJobCreatedHandler
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
     onRevenantTerminal?:(terminal:import('../revenant').RevenantGenerationTerminal) => void
+    /** Called once when the response stream is stopped by repetition detection. */
+    onOutputRepetitionDetected?:() => void
     llmExecutionPolicy?:LLMExecutionPolicy
     revenantClientAction?: {
         workflowId: string
@@ -137,6 +157,7 @@ export type requestDataResponse = {
         emotion?: string
     },
     failByServerError?: boolean
+    retryAfterMs?: number
     model?: string
 }|{
     type: "streaming",
@@ -155,6 +176,14 @@ export type requestDataResponse = {
 }
 
 export interface StreamResponseChunk{[key:string]:string}
+
+function applyOutputRepetitionDetection(
+    stream: ReadableStream<StreamResponseChunk>,
+    onDetected?: () => void,
+): ReadableStream<StreamResponseChunk> {
+    const limit = normalizeOutputRepetitionLimit(getDatabase().outputRepetitionLimit)
+    return limit === undefined ? stream : cancelOnOutputRepetition(stream, limit, onDetected)
+}
 
 export async function requestChatData(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     const db = getDatabase()
@@ -213,6 +242,10 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             tools,
         }, model, abortSignal)
 
+        if (da.type === 'streaming') {
+            da.result = applyOutputRepetitionDetection(da.result, arg.onOutputRepetitionDetected)
+        }
+
         // A ModelPreset response that already executed tools must be returned
         // as-is and NEVER re-run: the side effects (possibly writes) are done.
         // after-replacers still run (transform only), but in a try/catch so a
@@ -265,17 +298,10 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             return da
         }
 
-        if(da.failByServerError){
-            await sleep(1000)
-            if(db.antiServerOverloads){
-                trys -= 0.5 // reduce trys by 0.5, so that it will retry twice as much
-            }
-        }
-
         trys += 1
-        if(trys > db.requestRetrys){
-            return da
-        }
+        const retryDelayMs = requestRetryDelayMs(da, trys, db.requestRetrys)
+        if(retryDelayMs === null) return da
+        if(retryDelayMs > 0) await sleep(retryDelayMs)
     }
 }
 
@@ -302,7 +328,7 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
         for(let i=0;i<formated.length;i++){
             if(formated[i].role === 'system'){
                 formated[i].content = db.systemContentReplacement ? db.systemContentReplacement.replace('{{slot}}', formated[i].content) : `system: ${formated[i].content}`
-                formated[i].role = db.systemRoleReplacement
+                formated[i].role = normalizeSystemRoleReplacement(db.systemRoleReplacement)
             }
         }
     }
@@ -373,7 +399,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     arg.formated = removeEmptyChatMessages(arg.formated)
 
     const currentChat = getCurrentChat()
-    const binding = resolveChatModelBinding(currentChat, model, arg.moduleId)
+    const binding = resolveChatModelBinding(currentChat, model, arg.moduleId, arg.modelPresetOverrideId)
     if(binding.kind === 'modelPreset'){
         return executeModelPresetRequest(
             arg,
@@ -401,9 +427,9 @@ async function executeModelPresetRequest(
     const callerOnJobCreated = arg.onRevenantJobCreated
     const targ:RequestDataArgumentExtended = {
         ...arg,
-        onRevenantJobCreated: jobId => {
+        onRevenantJobCreated: (jobId, createdAt) => {
             createdJobIds.push(jobId)
-            callerOnJobCreated?.(jobId)
+            callerOnJobCreated?.(jobId, createdAt)
         },
     }
     targ.mode = model
@@ -589,6 +615,7 @@ async function requestPluginPreset(
             phase: 'connecting',
             now: Date.now(),
             abortSignal: abortSignal ?? undefined,
+            onActivate: arg.onRequestStatusActivate,
         }))
     }
 
@@ -655,7 +682,10 @@ async function requestPluginPreset(
             })
         }
         if (!exposeStreaming || preset.decoupledStreaming) {
-            const text = await collectStreamingText(responseStream)
+            const text = await collectStreamingText(applyOutputRepetitionDetection(
+                responseStream,
+                arg.onOutputRepetitionDetected,
+            ))
             return { type: 'success', result: text, model: preset.name }
         }
         return { ...result, result: responseStream, model: preset.name }
@@ -813,6 +843,7 @@ function describeModelPresetError(err: unknown): Record<string, unknown> {
             name: (e.name as string) ?? undefined,
             kind: e.kind,
             status: e.status,
+            retryAfterMs: e.retryAfterMs,
             retryable: e.retryable,
             fallbackEligible: e.fallbackEligible,
             message: e.message ?? String(err),
@@ -825,12 +856,17 @@ function describeModelPresetError(err: unknown): Record<string, unknown> {
 export function modelPresetRequestFailurePolicy(error: unknown): {
     noRetry?: boolean
     failByServerError?: boolean
+    retryAfterMs?: number
 } {
     if (!(error instanceof ModelPresetAdapterError)) return {}
+    const failByServerError = error.kind === 'rate-limit'
+        || error.status === 503
+        || error.status === 529
+        || isTransientOverloadMessage(error.message)
     return {
         noRetry: !error.retryable,
-        failByServerError: error.retryable
-            && (error.kind === 'server' || error.kind === 'rate-limit'),
+        failByServerError: error.retryable && failByServerError,
+        ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
     }
 }
 
@@ -1000,10 +1036,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     let statusJobId:string|undefined
     const callerOnJobCreated = arg.onRevenantJobCreated
     const callerOnRegistrationUnavailable = arg.onRevenantJobRegistrationUnavailable
-    arg.onRevenantJobCreated = jobId => {
+    arg.onRevenantJobCreated = (jobId, createdAt) => {
         registrationSettled = true
         statusJobId = jobId
-        callerOnJobCreated?.(jobId)
+        callerOnJobCreated?.(jobId, createdAt)
     }
     arg.onRevenantJobRegistrationUnavailable = error => {
         if (registrationSettled) return
@@ -1207,6 +1243,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 tools,
                 abortSignal,
                 structuredOutput,
+                arg.promptCacheKey,
             )
             return { type: 'success', result, model: preset.name, toolExecuted: toolsExecuted }
         }
@@ -1222,6 +1259,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         arg.revenantStreaming = useStreaming
         const options: AdapterChatOptions = {
             messages,
+            promptCacheKey: arg.promptCacheKey,
             abortSignal: abortSignal ?? undefined,
             fetchImpl,
             generationId: genId,
@@ -1236,9 +1274,11 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 phase: 'connecting',
                 now: startedAt,
                 abortSignal: abortSignal ?? undefined,
+                onActivate: arg.onRequestStatusActivate,
             }))
             const startObservedRequestStatus = (startedAt: number) => {
                 if (statusJobId && hasRequestStatus(genId)) {
+                    setRequestStatusAction(genId, arg.onRequestStatusActivate)
                     safeStatus(() => markPhase(genId, 'connecting', startedAt))
                     return
                 }
@@ -1255,10 +1295,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             }
         }
         if(useStreaming){
-            const gen = adapter.stream(preset, options, credential)
-            const stream = new ReadableStream<StreamResponseChunk>({
-                start(controller){
-                    return pumpPresetStream(gen, controller, {
+            let presetStreamResponseStarted = false
+            const createPresetStream = (finalizeFailure: boolean) => new ReadableStream<StreamResponseChunk>({
+                start(controller) {
+                    return pumpPresetStream(adapter.stream(preset, options, credential), controller, {
                         intervalMs: STREAM_FLUSH_INTERVAL_MS,
                         formatReasoning: (text) => formatPresetReasoning([{ text }]),
                         // A user cancellation terminates the stream with an
@@ -1272,32 +1312,38 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                         // appendText owns the phase transition (thinking/responding)
                         // from which kind of text arrives, and recovers from 'stalled'
                         // when chunks resume — no local phase tracking needed here.
-                        onDelta: reportStatus ? (delta) => safeStatus(() => {
-                            const now = Date.now()
-                            if (delta.reasoningDelta && !(statusJobId
-                                && appendRevenantJobRequestText(
-                                    statusJobId,
-                                    { thinking: delta.reasoningDelta },
-                                    now,
-                                ))) {
-                                appendText(genId, { thinking: delta.reasoningDelta }, now)
+                        onDelta: (delta) => {
+                            if (delta.textDelta || delta.reasoningDelta) {
+                                presetStreamResponseStarted = true
                             }
-                            if (delta.textDelta && !(statusJobId
-                                && appendRevenantJobRequestText(
-                                    statusJobId,
-                                    { response: delta.textDelta },
-                                    now,
-                                ))) {
-                                appendText(genId, { response: delta.textDelta }, now)
-                            }
-                        }) : undefined,
+                            if (!reportStatus) return
+                            safeStatus(() => {
+                                const now = Date.now()
+                                if (delta.reasoningDelta && !(statusJobId
+                                    && appendRevenantJobRequestText(
+                                        statusJobId,
+                                        { thinking: delta.reasoningDelta },
+                                        now,
+                                    ))) {
+                                    appendText(genId, { thinking: delta.reasoningDelta }, now)
+                                }
+                                if (delta.textDelta && !(statusJobId
+                                    && appendRevenantJobRequestText(
+                                        statusJobId,
+                                        { response: delta.textDelta },
+                                        now,
+                                    ))) {
+                                    appendText(genId, { response: delta.textDelta }, now)
+                                }
+                            })
+                        },
                         onFinish: (outcome, lastUsage) => {
                             if (outcome === 'done') {
                                 releasePendingRegistration(new Error(
                                     'The model stream completed before durable job registration.',
                                 ))
                             }
-                            if (!reportStatus) return
+                            if (!reportStatus || (outcome === 'failed' && !finalizeFailure)) return
                             safeStatus(() => {
                                 // A stream that ends via abort throws inside the
                                 // generator → 'failed'; reclassify as 'aborted' so the
@@ -1329,9 +1375,53 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             // adapter.send return byte-for-byte — the chat renderer paints it
             // once instead of token-by-token.
             if(preset.decoupledStreaming){
-                const text = await collectStreamingText(stream)
-                return { type: 'success', result: text, model: preset.name }
+                const stream = applyOutputRepetitionDetection(
+                    createPresetStream(true),
+                    arg.onOutputRepetitionDetected,
+                )
+                try {
+                    const text = await collectStreamingText(stream)
+                    return { type: 'success', result: text, model: preset.name }
+                } catch (error) {
+                    if (!presetStreamResponseStarted) throw error
+                    return {
+                        type: 'fail',
+                        result: error instanceof Error ? error.message : String(error),
+                        model: preset.name,
+                        ...modelPresetRequestFailurePolicy(error),
+                        noRetry: true,
+                    }
+                }
             }
+            let streamTrys = 0
+            const stream = createRetryingSnapshotStream({
+                createAttempt: () => createPresetStream(false),
+                startsResponse: chunk => Object.values(chunk).some(value => value.length > 0),
+                retryDelayMs: (error) => {
+                    if (abortSignal?.aborted) return null
+                    const policy = modelPresetRequestFailurePolicy(error)
+                    // Match the non-streaming retry policy exactly, with one
+                    // extra safety boundary supplied by the stream wrapper:
+                    // response content must not have started yet.
+                    if (policy.noRetry) return null
+                    const db = getDatabase()
+                    streamTrys += 1
+                    return requestRetryDelayMs(policy, streamTrys, db.requestRetrys)
+                },
+                onRetry: () => {
+                    if (reportStatus) safeStatus(() => markPhase(genId, 'retrying', Date.now()))
+                },
+                onFinalError: (error) => {
+                    if (!reportStatus) return
+                    const outcome = abortSignal?.aborted ? 'aborted' : 'failed'
+                    safeStatus(() => endStatus(genId, terminalOutcome.resolve(outcome), {
+                        now: Date.now(),
+                        error: outcome === 'failed'
+                            ? (error instanceof Error ? error.message : String(error))
+                            : undefined,
+                    }))
+                },
+            })
             // endStatus fires from the pump's onFinish once the consumer drains
             // the stream — NOT here, because the stream outlives this return.
             return { type: 'streaming', result: stream, model: preset.name }
@@ -1438,6 +1528,7 @@ async function runModelPresetToolLoop(
     tools: AdapterToolDef[],
     abortSignal: AbortSignal | null,
     structuredOutput?: AdapterChatOptions['structuredOutput'],
+    promptCacheKey?: string,
 ): Promise<{ result: string; toolsExecuted: boolean }> {
     // Tracks whether any tool actually ran, so the caller can block outer
     // success-path retries that would otherwise re-execute side-effecting tools.
@@ -1448,7 +1539,7 @@ async function runModelPresetToolLoop(
         abortSignal: abortSignal ?? undefined,
         send: (convo) => adapter.send(
             preset,
-            { messages: convo, tools, structuredOutput, abortSignal: abortSignal ?? undefined, fetchImpl },
+            { messages: convo, tools, structuredOutput, promptCacheKey, abortSignal: abortSignal ?? undefined, fetchImpl },
             credential,
         ),
         executeTool: async (call) => {
