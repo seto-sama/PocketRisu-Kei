@@ -12,6 +12,7 @@
     import { DBState, invalidateChatMessageRender, showPopupEditor } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
+    import { shouldSuppressGenerationErrorModal } from '../../ts/process/generationErrorPresentation';
     import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
@@ -1301,7 +1302,7 @@ import { isMobile } from 'src/ts/platform'
                 generationTarget: origin,
             })
         } catch (error) {
-            if(!detached){
+            if(!detached && !shouldSuppressGenerationErrorModal(error, foregroundContext.abortController.signal)){
                 console.error(error)
                 alertError(error)
             }

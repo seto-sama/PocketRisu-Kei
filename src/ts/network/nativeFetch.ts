@@ -6,6 +6,7 @@ import { DBState, bodyIntercepterStore } from '../stores.svelte'
 import { forageStorage } from '../storage/autoStorage'
 
 export interface FetchNativeArgs {
+    serverProviderAuth?: import('./transportTypes').ServerProviderAuth
     body?: string | Uint8Array | ArrayBuffer
     headers?: Record<string, string>
     method?: 'POST' | 'GET' | 'PUT' | 'DELETE'
@@ -185,6 +186,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
                     signal: requestSignal,
                     requestTimeoutMs: arg.requestTimeoutMs,
                     generationRequest: revenantRequest,
+                    serverProviderAuth: arg.serverProviderAuth,
                     onJobCreated: (jobId, createdAt) => {
                         revenantJobId = jobId
                         revenantRequest.lifecycle?.onJobCreated?.(jobId, createdAt)

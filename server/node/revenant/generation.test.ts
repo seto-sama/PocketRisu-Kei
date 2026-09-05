@@ -534,6 +534,22 @@ describe('revenant workflow validation', () => {
             randomSeed: 'seed',
         }
         expect(normalizeRevenantHypaExecutionRecipe(recipe)).toEqual(recipe)
+        const planned = {
+            ...recipe,
+            summaryProvider: { profileSnapshot: {} },
+            summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
+            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: ['memo-1'],
+                prompt: [{ role: 'user', content: 'summarize' }] }],
+        }
+        expect(normalizeRevenantHypaExecutionRecipe(planned)).toEqual(planned)
+        expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [] })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
+            expectedOperationIds: ['operation-1', 'operation-1'],
+            summaryRequests: [planned.summaryRequests[0], planned.summaryRequests[0]],
+        })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
+            summaryDispatch: { maxConcurrent: 40, requestsPerMinute: 20 },
+        })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({
             ...recipe,
             embedding: { model: 'MiniLM', apiKey: '' },

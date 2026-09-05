@@ -5,6 +5,7 @@ const {
     hasGenerationWorkflowClientActionClaim,
     updateGenerationWorkflowStep,
     createGenerationJob,
+    createSingleGenerationJob,
     getGenerationJob,
     listGenerationWorkflowJobs,
     setGenerationJobClientProjection,
@@ -113,7 +114,7 @@ function installRevenantJobRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid revenant operation context' });
             return;
         }
-        const workflowId = typeof req.body?.workflowId === 'string' ? req.body.workflowId : undefined;
+        let workflowId = typeof req.body?.workflowId === 'string' ? req.body.workflowId : undefined;
         const workflowStepKey = typeof req.body?.workflowStepKey === 'string'
             ? req.body.workflowStepKey
             : undefined;
@@ -224,6 +225,7 @@ function installRevenantJobRoutes(app, deps) {
                 : 'Desktop',
         };
         const requestSpec = dispatchPolicy || workflowDependency ? {
+            serverProviderAuth: req.body?.serverProviderAuth,
             targetUrl: url,
             headers: forwardHeaders,
             method,
@@ -238,7 +240,9 @@ function installRevenantJobRoutes(app, deps) {
         } : undefined;
         let persistedJob;
         try {
-            persistedJob = routeCreateGenerationJob({
+            const createJob = workflowId ? routeCreateGenerationJob
+                : (deps.createSingleGenerationJob ?? createSingleGenerationJob);
+            persistedJob = createJob({
                 jobId,
                 chatId: req.body?.chatId,
                 jobType,
@@ -263,6 +267,7 @@ function installRevenantJobRoutes(app, deps) {
                     || (workflowDependency ? 1000 : undefined),
                 requestSpec,
             });
+            workflowId = persistedJob.workflowId;
             if (delegatedMainDispatch && !updateGenerationWorkflowStep(
                 workflowId,
                 delegatedParentStepKey,
@@ -329,6 +334,7 @@ function installRevenantJobRoutes(app, deps) {
             scheduleGenerationDispatch();
         } else {
             job.runPromise = runGenerationProviderJob(job, {
+                serverProviderAuth: req.body?.serverProviderAuth,
                 targetUrl: url,
                 headers: forwardHeaders,
                 method,
@@ -344,6 +350,7 @@ function installRevenantJobRoutes(app, deps) {
 
         res.send({
             jobId,
+            workflowId,
             createdAt: persistedJob.createdAt,
             heartbeatSec: job.heartbeatSec,
         });

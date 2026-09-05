@@ -139,6 +139,7 @@ async function prepareAnthropicBody(
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
+        tokenCache: options.tokenCache,
         abortSignal: options.abortSignal,
     })
     // Wire invariants overwrite any customBody collisions (plan §4-5):

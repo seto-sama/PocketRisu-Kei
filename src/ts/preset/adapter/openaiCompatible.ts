@@ -160,6 +160,7 @@ async function prepareOpenAiBody(
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
+        tokenCache: options.tokenCache,
         abortSignal: options.abortSignal,
         generatedBodyDefaults: supportsPromptCacheBreakpoints && options.promptCacheKey
             ? { prompt_cache_key: options.promptCacheKey }

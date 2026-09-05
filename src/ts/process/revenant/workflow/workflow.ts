@@ -15,6 +15,7 @@ import type {
     RevenantWorkflowExecution,
     RevenantWorkflowPlanStep,
     RevenantWorkflowStatus,
+    RevenantWorkflowRequestStatus,
     RevenantWorkflowStepStatus,
 } from '../types'
 import { getComfyBridgeId } from './comfyBridgeId'
@@ -184,11 +185,13 @@ const LOCAL_PRE_MODEL_STEP_KEYS = new Set([
 /** Marks the local-only prompt assembly boundary before the workflow is sent. */
 export function completeChatGenerationPreModelPlan(
     plan: RevenantWorkflowPlanStep[],
+    pendingHypaExecution = false,
 ): RevenantWorkflowPlanStep[] {
     return plan.map(step => LOCAL_PRE_MODEL_STEP_KEYS.has(step.key)
         ? {
             ...step,
-            status: step.status === 'skipped' ? 'skipped' : 'completed',
+            status: step.status === 'skipped' ? 'skipped'
+                : pendingHypaExecution && step.key === 'memory.hypav3' ? 'pending' : 'completed',
         }
         : step)
 }
@@ -316,6 +319,17 @@ export async function getActiveRevenantWorkflow(
     if (body.workflow) return rememberWorkflow(body.workflow)
     forgetWorkflow(undefined, characterId, roomId)
     return undefined
+}
+
+export async function getRevenantWorkflowRequestStatus(
+    workflowId: string, signal?: AbortSignal,
+): Promise<RevenantWorkflowRequestStatus> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/request-status`,
+        { headers: await revenantHeaders(), signal },
+    )
+    if (!response.ok) throw new Error(`Failed to load workflow request status: ${response.status}`)
+    return response.json()
 }
 
 export async function getRevenantWorkflow(workflowId: string): Promise<RevenantWorkflow> {

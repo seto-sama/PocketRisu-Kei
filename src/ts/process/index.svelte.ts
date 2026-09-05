@@ -21,7 +21,6 @@ import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
-import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
@@ -39,6 +38,7 @@ import {
 } from "./revenant/recovery";
 import {
     beginRevenantWorkflow,
+    prepareRevenantHypaExecution,
     cancelRevenantWorkflow,
     completeChatGenerationPreModelPlan,
     coordinateRevenantGeneration,
@@ -52,6 +52,7 @@ import {
     waitForRevenantHypaExecution,
 } from "./revenant/workflow";
 import { observeRevenantServerImageActions } from './revenant/workflow/imageWorkflow';
+import { observeRevenantWorkflowRequests } from './revenant/workflow/requestStatus';
 import {
     createChatGenerationSession,
     type ChatGenerationSession,
@@ -232,6 +233,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
     let workflowSession: ChatGenerationSession
     let revenantMainDependency:RevenantWorkflowDependency|undefined
+    let plannedHypaExecution:Record<string, unknown>|undefined
     let revenantMainBackend:'http'|'plugin'|'echo'|undefined
     let revenantMainJobCreated = (resumeWorkflow?.steps
         .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
@@ -260,7 +262,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         stage4Duration: 0
     }
 
-    let isAborted = false
     let findCharCache:{[key:string]:character} = {}
     function findCharacterbyIdwithCache(id:string){
         const d = findCharCache[id]
@@ -284,9 +285,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     function reformatContent(data:string){
-        if(chatProcessIndex === -1){
-            return data.trim()
-        }
         return data.trim()
     }
 
@@ -301,6 +299,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     function throwError(error:string){
+        if(abortSignal.aborted) return
         alertError(error)
     }
 
@@ -314,6 +313,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     async function finishWorkflow(status:'completed'|'cancelled'|'failed'){
         await workflowSession.finish(status)
+    }
+
+    async function finishCancelledGeneration(content?:string):Promise<false>{
+        finishStreamingDisplay()
+        preserveFailedGenerationMessage(content)
+        await finishWorkflow('cancelled')
+        doingChat.set(false)
+        return false
     }
 
     async function waitForServerWorkflow(workflowId:string):Promise<boolean>{
@@ -665,7 +672,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     currentChar = nowChatroom
     const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
-    const deferredHypaMemoryPrompt = workflowSession.workflowId && !hasEditRequestLua
+    const deferredHypaMemoryPrompt = (workflowSession.workflowId || compiledMainPreset)
+        && !arg.preview && !arg.previewPrompt && !hasEditRequestLua
         ? `__RISU_REVENANT_HYPA_${v4()}__`
         : undefined
 
@@ -1335,10 +1343,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             height: inlayData.height
                         })
                     }
-                    else{
-                        const captionResult = await runImageEmbedding(inlayData.data) 
-                        formatedChat += `[${captionResult[0].generated_text}]`
-                    }
                 }
                 if(inlayData?.type === 'video' || inlayData?.type === 'audio'){
                     if(multimodal.length === 0){
@@ -1474,6 +1478,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 tokenizer,
                 {
                     workflowId: workflowSession.workflowId,
+                    planServerExecution: !resumeWorkflow && !!compiledMainPreset,
                     signal: abortSignal,
                     deferredMemoryPrompt: deferredHypaMemoryPrompt,
                     onRemoteSelectionRequiresClient: hasEditRequestLua
@@ -1484,13 +1489,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             })
                         }
                         : undefined,
-                    onClientEmbeddingRequired: async embeddingModel => {
-                        await setWorkflowStep('memory.hypav3', 'waiting_client', {
-                            checkpoint: 'embedding.local',
-                            embeddingModel,
-                            reason: 'browser_local_embedding',
-                        })
-                    },
                 },
             )
             if(sp.error){
@@ -1500,11 +1498,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
                 }
                 console.log(sp)
+                if(abortSignal.aborted) return finishCancelledGeneration()
                 throwError(sp.error)
                 await setWorkflowStep('memory.hypav3', 'failed')
                 await finishWorkflow('failed')
                 return false
             }
+            plannedHypaExecution = sp.serverExecution
             chats = sp.chats
             currentTokens = sp.currentTokens
             if(sp.deferredRemoteSelection && deferredHypaMemoryPrompt){
@@ -1986,7 +1986,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 // prompt. Plugin transports register their durable nativeFetch
                 // job through the same ordinary request path as HTTP adapters.
                 pluginProvider: false,
-            }))
+            }), !!plannedHypaExecution)
             beginChatGenerationProjection(nowChatroom.chaId, durableInputChat, {
                 messageChatId,
                 isContinuation,
@@ -1999,6 +1999,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 plan,
             })
             workflowSession.adopt(workflow.workflowId)
+            observeRevenantWorkflowRequests(workflow.workflowId, arg.detachSignal
+                ? AbortSignal.any([abortSignal, arg.detachSignal]) : abortSignal)
             arg.onWorkflowStarted?.(workflow.workflowId)
             const committedInputEtag = workflow.steps
                 .find(step => step.key === 'input.commit' && step.status === 'completed')
@@ -2075,6 +2077,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     kind: 'main',
                     label: generationInfo?.model,
                     startedAt: createdAt,
+                    deferStart: !!revenantMainDependency,
                 })
                 lifecycle.onJobCreated?.(jobId, createdAt)
             },
@@ -2120,11 +2123,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             // The result promise is already running. Waiting on registration first
             // makes the client/server ownership boundary explicit: once a job id
             // exists, the server can finish Hypa and dispatch main independently.
-            await mainGeneration.registered
+            const mainJobId = await mainGeneration.registered
+            if (mainJobId && plannedHypaExecution) {
+                await prepareRevenantHypaExecution(workflowSession.workflowId, plannedHypaExecution)
+            }
             return mainGeneration.result
         })()
     }
     catch(error) {
+        if(abortSignal.aborted) return finishCancelledGeneration()
         const message = error instanceof Error ? error.message : String(error)
         if(!shouldSuppressGenerationErrorModal(error)) throwError(message)
         preserveFailedGenerationMessage('')
@@ -2139,10 +2146,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     // as permanently false across the async Hypa wait below.
     const generationWasAborted = () => abortSignal.aborted
     if(generationWasAborted()){
-        finishStreamingDisplay()
-        preserveFailedGenerationMessage()
-        await finishWorkflow('cancelled')
-        return false
+        return finishCancelledGeneration()
     }
     if(req.type === 'fail'){
         finishStreamingDisplay()
@@ -2171,12 +2175,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     if(revenantMainDependency && workflowSession.workflowId){
-        const remoteSelection = await waitForRevenantHypaExecution<{
-            memory: SerializableHypaV3Data
-        }>(workflowSession.workflowId, abortSignal)
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        currentChat.hypaV3Data = safeStructuredClone(remoteSelection.memory)
-        DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+        try {
+            const remoteSelection = await waitForRevenantHypaExecution<{
+                memory: SerializableHypaV3Data
+            }>(workflowSession.workflowId, abortSignal)
+            currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
+            currentChat.hypaV3Data = safeStructuredClone(remoteSelection.memory)
+            DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+        } catch(error) {
+            if(abortSignal.aborted) return finishCancelledGeneration()
+            throw error
+        }
     }
 
     console.log(req)
@@ -2212,10 +2221,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     if(abortSignal.aborted === true){
-        finishStreamingDisplay()
-        preserveFailedGenerationMessage()
-        await finishWorkflow('cancelled')
-        return false
+        return finishCancelledGeneration()
     }
     if(req.type === 'streaming'){
         const reader = req.result.getReader()
@@ -2340,9 +2346,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return false
         }
         if(streamAborted || abortSignal.aborted){
-            preserveFailedGenerationMessage(rawResult || undefined)
-            await finishWorkflow('cancelled')
-            return false
+            return finishCancelledGeneration(rawResult || undefined)
         }
         if(streamFailure){
             const message = streamFailure instanceof Error

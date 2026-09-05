@@ -1,7 +1,6 @@
 import { ModelPresetAdapterError } from '../error'
 import { DEFAULT_SCOPE, type ParsedServiceAccount } from './serviceAccount'
 import {
-    exchangeServiceAccountForAccessToken,
     type AccessTokenResult,
     type ExchangeServiceAccountInput,
 } from './token'
@@ -22,8 +21,7 @@ export interface ResolvedAccessToken {
 
 export interface ServiceAccountTokenCacheOptions {
     now?: () => number
-    exchange?: (input: ExchangeServiceAccountInput) => Promise<AccessTokenResult>
-    fetchImpl?: typeof fetch
+    exchange: (input: ExchangeServiceAccountInput) => Promise<AccessTokenResult>
 }
 
 export interface ServiceAccountTokenCache {
@@ -37,11 +35,10 @@ interface CacheEntry {
 }
 
 export function createServiceAccountTokenCache(
-    options: ServiceAccountTokenCacheOptions = {},
+    options: ServiceAccountTokenCacheOptions,
 ): ServiceAccountTokenCache {
     const now = options.now ?? Date.now
-    const exchange = options.exchange ?? exchangeServiceAccountForAccessToken
-    const fetchImpl = options.fetchImpl
+    const exchange = options.exchange
     const entries = new Map<string, CacheEntry>()
 
     function cacheKey(sa: ParsedServiceAccount, scope: string): string {
@@ -67,7 +64,6 @@ export function createServiceAccountTokenCache(
             serviceAccount,
             scope,
             now,
-            fetchImpl,
         }).then(
             (result) => {
                 const resolved: ResolvedAccessToken = {
@@ -127,19 +123,6 @@ export function createServiceAccountTokenCache(
             entries.clear()
         },
     }
-}
-
-let defaultInstance: ServiceAccountTokenCache | undefined
-
-export function getDefaultServiceAccountTokenCache(): ServiceAccountTokenCache {
-    if (!defaultInstance) {
-        defaultInstance = createServiceAccountTokenCache()
-    }
-    return defaultInstance
-}
-
-export function resetDefaultServiceAccountTokenCacheForTest(): void {
-    defaultInstance = undefined
 }
 
 function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {

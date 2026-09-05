@@ -116,6 +116,19 @@ export interface RevenantWorkflow {
     completedAt?: number
 }
 
+export type RevenantWorkflowRequestJob = Pick<RecoverableAuxiliaryJob,
+    'jobId' | 'chatId' | 'workflowId' | 'roomId' | 'status' | 'generationInfo'
+    | 'createdAt' | 'dispatchedAt' | 'completedAt' | 'error'> & {
+        jobType: 'model' | RecoverableAuxiliaryJob['jobType']
+    }
+
+export interface RevenantWorkflowRequestStatus {
+    workflowId: string
+    roomId: string
+    status: RevenantWorkflowStatus
+    jobs: RevenantWorkflowRequestJob[]
+}
+
 export interface RevenantPostprocessDatabaseSnapshot {
     presetRegex: customscript[]
     templateDefaultVariables: string
@@ -207,6 +220,7 @@ export interface RevenantImageWorkflowContext {
 export type RevenantWorkflowContext =
     | RevenantChatWorkflowContext
     | RevenantImageWorkflowContext
+    | { schemaVersion: 1, kind: 'llm-request', target: { characterId?: string, roomId?: string } }
 
 export interface RevenantWorkflowExecution<TResult = unknown> {
     workflowId: string
@@ -331,6 +345,7 @@ export interface RecoverableGenerationJob {
 }
 
 export interface RecoverableAuxiliaryJob {
+    generationInfo?: MessageGenerationInfo
     jobId: string
     chatId: string
     jobType: Exclude<ModelModeExtended, 'model'>

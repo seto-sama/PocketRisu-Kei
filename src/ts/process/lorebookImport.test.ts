@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     DBState: { db: { characters: [] as character[] } },
     selectFile: vi.fn(), save: vi.fn(), hydrate: vi.fn(), dirty: vi.fn(), error: vi.fn(),
 }))
-vi.mock(import('../stores.svelte'), () => ({ DBState: mocks.DBState, selectedCharID: writable(0) }))
+vi.mock(import('../stores.svelte'), () => ({ DBState: mocks.DBState as { db: import('../storage/database.svelte').Database }, selectedCharID: writable(0) }))
 vi.mock(import('../util'), () => ({ selectSingleFile: mocks.selectFile }))
 vi.mock(import('../globalApi.svelte'), () => ({ requestImmediateSave: mocks.save }))
 vi.mock(import('../storage/chatStorage'), () => ({

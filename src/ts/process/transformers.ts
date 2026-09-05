@@ -1,4 +1,4 @@
-import type { SummarizationOutput, TextToAudioPipeline, FeatureExtractionPipeline, TextGenerationPipeline, TextGenerationOutput, ImageToTextOutput } from '@huggingface/transformers';
+import type { TextToAudioPipeline } from '@huggingface/transformers';
 import { unzip } from 'fflate';
 import { loadAsset, saveAsset } from 'src/ts/globalApi.svelte';
 import { selectSingleFile, asBuffer  } from 'src/ts/util';
@@ -6,7 +6,6 @@ import { v4 } from 'uuid';
 let tfCache: Cache = null
 let tfLoaded = false
 let tfMap: { [key: string]: string } = {}
-type TextGenerationConfig = NonNullable<Parameters<TextGenerationPipeline['_call']>[1]>
 
 async function initTransformers() {
     if (tfLoaded) {
@@ -35,71 +34,6 @@ async function initTransformers() {
     }
     tfLoaded = true
     console.log('transformers loaded')
-}
-
-export const runTransformers = async (baseText: string, model: string, config: TextGenerationConfig, device: 'webgpu' | 'wasm' = 'wasm') => {
-    await initTransformers()
-    const { pipeline } = await import('@huggingface/transformers');
-    let text = baseText
-    let generator = await pipeline('text-generation', model, {
-        device
-    });
-    let output = await generator(text, config) as TextGenerationOutput
-    const outputOne = output[0]
-    return outputOne
-}
-
-export const runSummarizer = async (text: string) => {
-    await initTransformers()
-    const { pipeline } = await import('@huggingface/transformers');
-    let classifier = await pipeline("summarization", "Xenova/distilbart-cnn-6-6")
-    const v = await classifier(text) as SummarizationOutput
-    return v[0].summary_text
-}
-
-let extractor: FeatureExtractionPipeline = null
-let lastEmbeddingModelQuery: string = ''
-type EmbeddingModel = 'Xenova/all-MiniLM-L6-v2' | 'nomic-ai/nomic-embed-text-v1.5'
-export const runEmbedding = async (texts: string[], model: EmbeddingModel = 'Xenova/all-MiniLM-L6-v2', device: 'webgpu' | 'wasm'): Promise<Float32Array[]> => {
-    await initTransformers()
-    console.log('running embedding')
-    let embeddingModelQuery = model + device
-    const { pipeline } = await import('@huggingface/transformers');
-    if (!extractor || embeddingModelQuery !== lastEmbeddingModelQuery) {
-        // Dispose old extractor
-        if (extractor) {
-            await extractor.dispose()
-        }
-        extractor = await pipeline<"feature-extraction">('feature-extraction', model, {
-            // Default dtype for webgpu is fp32, so we can use q8, which is the default dtype in wasm.
-            dtype: "q8",
-            device: device,
-            progress_callback: (progress) => {
-                console.log(progress)
-            }
-        });
-        lastEmbeddingModelQuery = embeddingModelQuery
-        console.log('extractor loaded')
-    }
-    let result = await extractor(texts, { pooling: 'mean', normalize: true });
-    console.log(texts, result)
-    const data = result.data as Float32Array
-    console.log(data)
-    const lenPerText = data.length / texts.length
-    let res: Float32Array[] = []
-    for (let i = 0; i < texts.length; i++) {
-        res.push(data.subarray(i * lenPerText, (i + 1) * lenPerText))
-    }
-    console.log(res)
-    return res ?? [];
-}
-
-export const runImageEmbedding = async (dataurl: string) => {
-    await initTransformers()
-    const { pipeline } = await import('@huggingface/transformers');
-    const captioner = await pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning');
-    const output = await captioner(dataurl)
-    return output as ImageToTextOutput
 }
 
 let synthesizer: TextToAudioPipeline = null

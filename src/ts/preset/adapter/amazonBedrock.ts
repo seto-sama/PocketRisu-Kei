@@ -118,6 +118,7 @@ async function prepareAmazonBedrockBody(
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
+        tokenCache: options.tokenCache,
         abortSignal: options.abortSignal,
     })
     const region = resolveBedrockRegion(preset)

@@ -11,6 +11,7 @@ export type LLMExecutionPolicy =
         durability: 'required'
         providerRoute: 'server'
     }
+
     | {
         kind: 'single'
         durability: 'required'
@@ -45,3 +46,13 @@ export const EPHEMERAL_DIRECT_LLM_EXECUTION = Object.freeze({
     durability: 'off',
     providerRoute: 'direct',
 } as const satisfies LLMExecutionPolicy)
+
+export interface ServerProviderAuth {
+    kind: 'google-service-account'
+    serviceAccountJson: string
+    scope?: string
+}
+
+export interface ServerAuthenticatedRequestInit extends RequestInit {
+    serverProviderAuth?: ServerProviderAuth
+}

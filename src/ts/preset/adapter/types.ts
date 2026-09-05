@@ -1,3 +1,5 @@
+import type { ServiceAccountTokenCache } from './googleServiceAccount/cache'
+import type { ServerProviderAuth } from '../../network/transportTypes'
 import type { GeminiPromptCachingConfig } from '../cache/geminiContextCache'
 import type { ModelPreset } from '../types'
 
@@ -24,6 +26,7 @@ export interface AdapterRequestContext {
 }
 
 export interface AdapterPreparedRequest {
+    serverProviderAuth?: ServerProviderAuth
     method: 'POST'
     url: string
     headers: Record<string, string>
@@ -196,6 +199,8 @@ export interface AdapterCacheContext {
 }
 
 export interface AdapterChatOptions {
+    /** Execution host supplies token exchange; omitted by browser callers. */
+    tokenCache?: ServiceAccountTokenCache
     messages: AdapterChatMessage[]
     // Automatically derived GPT-5.6 prompt-cache routing key. The Responses
     // adapter applies it only when the preset did not explicitly configure

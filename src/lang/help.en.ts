@@ -665,7 +665,7 @@ export const helpEn = {
             "Fish-speech (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
 
         emotionMethod:
-            "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **MiniLM-L6-v2**: local embedding-based classifier (free, fast, lower accuracy)\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
+            "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **Embedding model**: classify using the configured remote embedding service\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
 
         webuiApiWarning:
             "You must use WebUI with the `--api` flag. Use either a WebUI without an AGPL license or an unmodified AGPL-licensed version in compliance with its license terms.",

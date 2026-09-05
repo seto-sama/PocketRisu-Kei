@@ -299,10 +299,17 @@ async function selectHypaMemory(recipe, summaries, deps = {}) {
         }
         const recentChats = recipe.chats.slice(-settings.queryChatCount)
             .filter(chat => String(chat.content || '').trim());
-        const queries = recentChats.flatMap((chat, chatIndex) => {
+        const queryChats = recipe.querySummary
+            ? [...recentChats, { content: recipe.querySummary }]
+            : recentChats;
+        const queries = queryChats.flatMap((chat, chatIndex) => {
+            if (settings.queryMode === 'chat') {
+                return [{ content: String(chat.content),
+                    weight: (chatIndex + 1) / ((queryChats.length * (queryChats.length + 1)) / 2) }];
+            }
             const parts = String(chat.content).split('\n\n').map(value => value.trim()).filter(Boolean);
             const baseWeight = (chatIndex + 1)
-                / ((recentChats.length * (recentChats.length + 1)) / 2);
+                / ((queryChats.length * (queryChats.length + 1)) / 2);
             return parts.map(content => ({ content, weight: baseWeight / parts.length }));
         });
         if (chunks.length > 0 && queries.length > 0) {
