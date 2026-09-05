@@ -190,6 +190,7 @@ async function openRecoverableJournalStream(
 }
 
 export async function fetchViaGenerationJob(url: string, arg: {
+    serverProviderAuth?: import('../../../network/transportTypes').ServerProviderAuth
     method: string
     headers: Record<string, string>
     body?: Uint8Array
@@ -214,6 +215,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
             url,
             method: arg.method,
             headers: arg.headers,
+            serverProviderAuth: arg.serverProviderAuth,
             bodyBase64,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,
@@ -234,9 +236,10 @@ export async function fetchViaGenerationJob(url: string, arg: {
         throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
-    const { jobId, createdAt } = await jobRes.json() as {
+    const { jobId, createdAt, workflowId } = await jobRes.json() as {
         jobId?: unknown
         createdAt?: unknown
+        workflowId?: string
     }
     if (
         typeof jobId !== 'string'
@@ -247,7 +250,12 @@ export async function fetchViaGenerationJob(url: string, arg: {
     }
     arg.onJobCreated?.(jobId, createdAt)
     setRevenantGenerationLocallyObserved(jobId, true)
-    trackRevenantGenerationWorkflow(jobId, arg.generationRequest.workflow?.workflowId)
+    trackRevenantGenerationWorkflow(jobId, workflowId ?? arg.generationRequest.workflow?.workflowId)
+    if (workflowId) {
+        void import('../workflow/requestStatus').then(({ observeRevenantWorkflowRequests }) => {
+            observeRevenantWorkflowRequests(workflowId, arg.signal)
+        })
+    }
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {
         trackRevenantGenerationJob(arg.generationRequest.job.chatId, jobId)
     }

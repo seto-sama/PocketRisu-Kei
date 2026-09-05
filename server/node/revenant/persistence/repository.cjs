@@ -542,11 +542,14 @@ function ensureGenerationStepExecution(input, status) {
 function linkGenerationJobToWorkflow(input) {
     if (!input.workflowId) return;
     const workflow = stmtGetWorkflow.get(input.workflowId);
+    const context = workflow?.context ? JSON.parse(workflow.context) : undefined;
+    const target = context?.kind === 'llm-request' ? context.target
+        : { characterId: workflow?.character_id, roomId: workflow?.room_id };
     if (
         !workflow
         || workflow.status !== 'active'
-        || workflow.character_id !== input.characterId
-        || workflow.room_id !== input.roomId
+        || target.characterId !== input.characterId
+        || target.roomId !== input.roomId
     ) {
         const error = new Error('Generation workflow is not active for this room');
         error.httpStatus = 409;
@@ -643,12 +646,30 @@ function parseNormalizedProjection(value) {
     }
 }
 
+function createSingleGenerationJob(input) {
+    return db.transaction(() => {
+        const workflowId = `request.${input.jobId}`;
+        const result = createGenerationWorkflow({
+            workflowId, characterId: input.characterId || 'requests', roomId: workflowId,
+            context: { schemaVersion: 1, kind: 'llm-request', target: {
+                characterId: input.characterId, roomId: input.roomId,
+            } },
+            plan: [{ key: 'request.llm', kind: 'provider', order: 0,
+                recoveryPolicy: 'replay_output', status: 'pending' }],
+        });
+        if (result.busy) throw new Error('Request workflow already exists');
+        return createGenerationJob({ ...input, workflowId,
+            workflowStepKey: 'request.llm', stepExecutionId: input.jobId });
+    })();
+}
+
 function createGenerationJob(input) {
     const now = Date.now();
     const activeWorkflow = input.characterId && input.roomId
         ? stmtGetActiveWorkflowForRoom.get(input.characterId, input.roomId)
         : null;
-    if (activeWorkflow && activeWorkflow.workflow_id !== input.workflowId) {
+    if (activeWorkflow && activeWorkflow.workflow_id !== input.workflowId
+        && getGenerationWorkflow(input.workflowId, false)?.context?.kind !== 'llm-request') {
         const error = new Error('A generation workflow is already active for this room');
         error.httpStatus = 409;
         error.workflowId = activeWorkflow.workflow_id;
@@ -781,6 +802,13 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
         jobId,
         status === 'generated' ? 'output_ready' : 'failed',
     );
+    if (job?.workflow_id && getGenerationWorkflow(job.workflow_id, false)?.context?.kind === 'llm-request') {
+        updateGenerationWorkflowStep(job.workflow_id, 'request.llm', {
+            status: status === 'generated' ? 'completed' : 'failed',
+        });
+        finishGenerationWorkflow(job.workflow_id,
+            status === 'generated' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'failed');
+    }
     if (job?.job_type === 'model' && job.workflow_id && status !== 'generated') {
         updateGenerationWorkflowStep(job.workflow_id, 'model.main', {
             status: 'failed',
@@ -918,6 +946,7 @@ function checkpointGenerationDb(mode = 'PASSIVE') {
 }
 
 module.exports = {
+    createSingleGenerationJob,
     createGenerationWorkflow,
     getGenerationWorkflow,
     getActiveGenerationWorkflow,

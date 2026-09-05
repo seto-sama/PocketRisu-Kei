@@ -54,6 +54,7 @@ describe('generation job creation route', () => {
             randomUUID: vi.fn(() => 'job-1'),
             terminateGenerationWorkflow: vi.fn(),
             createGenerationJob: repository.createGenerationJob,
+            createSingleGenerationJob: repository.createGenerationJob,
         })
         const send = vi.fn()
 

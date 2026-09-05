@@ -6,6 +6,7 @@ import {
     parseRetryAfterMs,
 } from './error'
 import type { AdapterPreparedRequest } from './types'
+import type { ServerAuthenticatedRequestInit } from '../../network/transportTypes'
 
 export interface AdapterHttpTransportOptions {
     fetchImpl?: typeof fetch
@@ -14,6 +15,15 @@ export interface AdapterHttpTransportOptions {
 
 interface SendPreparedRequestOptions {
     accept?: string
+}
+
+export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: AdapterHttpTransportOptions): typeof fetch {
+    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    if (!prepared.serverProviderAuth) return fetchImpl
+    if (!options.fetchImpl) throw new ModelPresetAdapterError('auth', 'Service account requests require server transport')
+    return (input, init) => fetchImpl(input, {
+        ...init, serverProviderAuth: prepared.serverProviderAuth,
+    } satisfies ServerAuthenticatedRequestInit)
 }
 
 /**
@@ -27,7 +37,7 @@ export async function sendPreparedRequest(
     options: AdapterHttpTransportOptions,
     requestOptions: SendPreparedRequestOptions = {},
 ): Promise<Response> {
-    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const fetchImpl = preparedRequestFetch(prepared, options)
     let response: Response
     try {
         response = await fetchImpl(prepared.url, {

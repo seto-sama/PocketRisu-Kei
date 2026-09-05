@@ -3,9 +3,20 @@ import { describe, expect, it, vi } from 'vitest'
 import serviceAccountPkg from './googleServiceAccount.cjs'
 import { getTestKeyPair, makeServiceAccountFixture } from '../../src/ts/preset/adapter/googleServiceAccount/__testFixtures'
 
-const { exchangeGoogleServiceAccountToken, createServerServiceAccountTokenCache } = serviceAccountPkg
+const { exchangeGoogleServiceAccountToken, createServerServiceAccountTokenCache, createServerProviderAuthResolver } = serviceAccountPkg
 
 describe('server service account token exchange', () => {
+    it('resolves deferred credentials at provider dispatch and reuses the server token', async () => {
+        const account = makeServiceAccountFixture()
+        const fetchImpl = vi.fn(async () => Response.json({ access_token: 'server-token', expires_in: 3600 }))
+        const resolveAuth = createServerProviderAuthResolver({ fetchImpl })
+        const auth = { kind: 'google-service-account', serviceAccountJson: account.sourceJson }
+        const headers = { Authorization: 'Bearer [server-auth]' }
+        await resolveAuth(auth, headers)
+        await resolveAuth(auth, {})
+        expect(headers).toEqual({ authorization: 'Bearer server-token' })
+        expect(fetchImpl).toHaveBeenCalledOnce()
+    })
     it('signs and exchanges directly with Google without browser session authentication', async () => {
         const serviceAccount = makeServiceAccountFixture()
         const fetchImpl = vi.fn(async () => Response.json({ access_token: 'token', expires_in: 3600 }))

@@ -1,28 +1,15 @@
 import {
     extractErrorMessage,
     ModelPresetAdapterError,
-    normalizeFetchError,
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from '../error'
-import { DEFAULT_SCOPE, type ParsedServiceAccount } from './serviceAccount'
-
-// JWT signing + Google OAuth exchange run on the Node server, not the browser:
-// crypto.subtle needs a Secure Context (HTTPS/localhost) which NodeOnly's HTTP
-// remote-access pattern does not provide, and node:crypto isn't available in
-// the client bundle. The client forwards the service account JSON to this
-// endpoint (auth-gated) and the server returns Google's token response verbatim
-// so the status/error mapping below is unchanged.
-const TOKEN_ENDPOINT = '/api/model-preset/google-service-account/token'
+import { type ParsedServiceAccount } from './serviceAccount'
 
 export interface ExchangeServiceAccountInput {
     serviceAccount: ParsedServiceAccount
     scope?: string
     now?: () => number
-    fetchImpl?: typeof fetch
-    // Returns the `risu-auth` JWT for the NodeOnly server. Defaults to the app's
-    // shared session auth; injected in tests to avoid pulling in globalApi.
-    getAuthHeader?: () => Promise<string>
     abortSignal?: AbortSignal
 }
 
@@ -33,56 +20,12 @@ export interface AccessTokenResult {
     issuedAtMs: number
 }
 
-async function defaultAuthHeader(): Promise<string> {
-    const { createStorageAuth } = await import('../../../storage/auth')
-    return createStorageAuth()
-}
-
-export async function exchangeServiceAccountForAccessToken(
-    input: ExchangeServiceAccountInput,
-): Promise<AccessTokenResult> {
-    const now = input.now ?? Date.now
-    const issuedAtMs = now()
-    const scope = input.scope && input.scope.length > 0 ? input.scope : DEFAULT_SCOPE
-
-    const fetchImpl = input.fetchImpl ?? globalThis.fetch
-    if (typeof fetchImpl !== 'function') {
-        throw new ModelPresetAdapterError(
-            'unsupported',
-            'No fetch implementation available for OAuth token exchange',
-            { retryable: false, fallbackEligible: false },
-        )
-    }
-
-    const authHeader = await (input.getAuthHeader ?? defaultAuthHeader)()
-
-    let response: Response
-    try {
-        response = await fetchImpl(TOKEN_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'risu-auth': authHeader,
-            },
-            body: JSON.stringify({ serviceAccountJson: input.serviceAccount.sourceJson, scope }),
-            signal: input.abortSignal,
-        })
-    } catch (err) {
-        throw normalizeFetchError(err)
-    }
-
-    return parseAccessTokenResponse(response, issuedAtMs)
-}
-
 export async function parseAccessTokenResponse(
     response: Response,
     issuedAtMs: number,
 ): Promise<AccessTokenResult> {
     const bodyText = await response.text().catch(() => '')
 
-    // The server forwards Google's token response verbatim (status + body), so
-    // a non-2xx maps the same way a direct Google call would.
     const httpError = normalizeHttpStatus(
         response.status,
         extractErrorMessage(bodyText) ?? `HTTP ${response.status}`,

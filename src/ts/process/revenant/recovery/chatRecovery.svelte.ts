@@ -229,7 +229,10 @@ export function updateRevenantAuxiliaryRecoveryStatus(
     chatId: string,
 ): void {
     // Workflow-owned request lifecycle comes from its complete job snapshot.
-    if (job.workflowId) return
+    if (job.workflowId) {
+        observeRevenantWorkflowRequests(job.workflowId)
+        return
+    }
     const statusId = requestStatusIdForJob(job)
     const action = recoveryStatusAction(
         job.status,

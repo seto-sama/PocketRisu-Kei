@@ -2373,6 +2373,8 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
+const resolveProviderAuth = require('./googleServiceAccount.cjs').createServerProviderAuthResolver();
+
 async function runGenerationProviderJob(job, arg) {
     const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
     if (!targetUrl) {
@@ -2410,6 +2412,7 @@ async function runGenerationProviderJob(job, arg) {
     };
 
     try {
+        await resolveProviderAuth(arg.serverProviderAuth, headers, job.abortController.signal);
         job.providerStartedAt ||= Date.now();
         notifyRevenantJournalWaiters(job);
         setGenerationJobGenerating(job.id);
@@ -3815,27 +3818,6 @@ app.post('/api/crypto', async (req, res) => {
         res.status(500).send({ error: 'Crypto operation failed' });
     }
 })
-
-// Vertex / google-service-account access tokens. The browser cannot sign the
-// RS256 JWT itself: crypto.subtle needs a Secure Context that HTTP remote
-// access lacks, and node:crypto isn't in the client bundle. So the client
-// forwards the SA JSON here and the server signs + exchanges it. Google's token
-// response is forwarded verbatim so the client maps statuses unchanged.
-// Never log the SA JSON / private key / assertion / OAuth body.
-const { exchangeGoogleServiceAccountToken } = require('./googleServiceAccount.cjs');
-app.post('/api/model-preset/google-service-account/token', async (req, res) => {
-    if (!await checkAuth(req, res)) return
-    try {
-        const googleRes = await exchangeGoogleServiceAccountToken(req.body || {});
-        const text = await googleRes.text().catch(() => '');
-        const contentType = googleRes.headers.get('content-type');
-        if (contentType) res.set('content-type', contentType);
-        res.status(googleRes.status).send(text);
-    } catch {
-        res.status(500).send({ error: 'service account token exchange failed' });
-    }
-})
-
 
 app.post('/api/set_password', async (req, res) => {
     if(password === ''){

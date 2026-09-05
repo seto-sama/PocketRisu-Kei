@@ -101,4 +101,21 @@ function createServerServiceAccountTokenCache(options = {}) {
     });
 }
 
-module.exports = { exchangeGoogleServiceAccountToken, createServerServiceAccountTokenCache };
+function createServerProviderAuthResolver(options = {}) {
+    const cache = createServerServiceAccountTokenCache(options);
+    const { parseServiceAccountJson } = require(path.join(
+        __dirname, '../../src/ts/preset/adapter/googleServiceAccount/serviceAccount.ts',
+    ));
+    return async (auth, headers, signal) => {
+        if (!auth) return;
+        if (auth.kind !== 'google-service-account') throw new Error('Invalid provider authentication');
+        const token = await cache.getAccessToken({
+            serviceAccount: parseServiceAccountJson(auth.serviceAccountJson),
+            scope: auth.scope, abortSignal: signal,
+        });
+        for (const key of Object.keys(headers)) if (key.toLowerCase() === 'authorization') delete headers[key];
+        headers.authorization = `Bearer ${token.accessToken}`;
+    };
+}
+
+module.exports = { exchangeGoogleServiceAccountToken, createServerServiceAccountTokenCache, createServerProviderAuthResolver };

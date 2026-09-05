@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
     decode: vi.fn(),
 }))
 
+vi.mock('../workflow/requestStatus', () => ({ observeRevenantWorkflowRequests: vi.fn() }))
+
 vi.mock('./client', () => ({
     createRevenantCancellationHeaders: vi.fn(),
     createRevenantGenerationAuth: vi.fn(async () => 'auth'),

@@ -220,6 +220,7 @@ export interface RevenantImageWorkflowContext {
 export type RevenantWorkflowContext =
     | RevenantChatWorkflowContext
     | RevenantImageWorkflowContext
+    | { schemaVersion: 1, kind: 'llm-request', target: { characterId?: string, roomId?: string } }
 
 export interface RevenantWorkflowExecution<TResult = unknown> {
     workflowId: string

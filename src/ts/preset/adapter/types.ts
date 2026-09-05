@@ -1,4 +1,5 @@
 import type { ServiceAccountTokenCache } from './googleServiceAccount/cache'
+import type { ServerProviderAuth } from '../../network/transportTypes'
 import type { GeminiPromptCachingConfig } from '../cache/geminiContextCache'
 import type { ModelPreset } from '../types'
 
@@ -25,6 +26,7 @@ export interface AdapterRequestContext {
 }
 
 export interface AdapterPreparedRequest {
+    serverProviderAuth?: ServerProviderAuth
     method: 'POST'
     url: string
     headers: Record<string, string>

@@ -5,7 +5,6 @@ import {
     settleGeminiCacheTasks,
 } from '../cache/geminiCacheWiring'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
-import * as serviceAccountCache from './googleServiceAccount/cache'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
 
@@ -20,19 +19,6 @@ const VERTEX_SA_JSON = JSON.stringify({
     client_id: '1',
     token_uri: 'https://oauth2.googleapis.com/token',
 })
-
-// Replaces the default SA token cache so google-service-account profiles resolve
-// to a fixed bearer token without a JWT-signing / OAuth round trip.
-function stubServiceAccountToken(accessToken: string): void {
-    vi.spyOn(serviceAccountCache, 'getDefaultServiceAccountTokenCache').mockReturnValue({
-        getAccessToken: async () => ({
-            accessToken,
-            tokenType: 'Bearer',
-            expiresAtMs: Date.now() + 3_600_000,
-        }),
-        clear() {},
-    })
-}
 
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
@@ -976,7 +962,6 @@ describe('context caching wiring', () => {
     }
 
     test('Vertex: cachedContents URL is location-rooted and the create model is the full resource path', async () => {
-        stubServiceAccountToken('ya29.access-token')
         const { fetchImpl, calls } = routedFetch(chatJson(10_000))
         await sendGoogleChatRequest(
             makeVertexPreset(),
@@ -988,7 +973,7 @@ describe('context caching wiring', () => {
             'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global'
             + '/publishers/google/models/gemini-demo:generateContent',
         )
-        expect(calls[0].headers['Authorization']).toBe('Bearer ya29.access-token')
+        expect(calls[0].headers['Authorization']).toBe('Bearer [server-auth]')
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
@@ -996,7 +981,7 @@ describe('context caching wiring', () => {
         expect(calls[1].url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global/cachedContents',
         )
-        expect(calls[1].headers['Authorization']).toBe('Bearer ya29.access-token')
+        expect(calls[1].headers['Authorization']).toBe('Bearer [server-auth]')
         expect(calls[1].body).toEqual({
             model: 'projects/my-proj/locations/global/publishers/google/models/gemini-demo',
             ttl: '600s',
@@ -1006,7 +991,6 @@ describe('context caching wiring', () => {
     })
 
     test('Vertex: second turn applies the cache (cachedContent + suffix), Bearer auth reused', async () => {
-        stubServiceAccountToken('ya29.access-token')
         const { fetchImpl, calls } = routedFetch(chatJson(10_000))
         await sendGoogleChatRequest(
             makeVertexPreset(),
@@ -1027,7 +1011,7 @@ describe('context caching wiring', () => {
         )
         expect(calls[2].body.cachedContent).toBe('cachedContents/created-1')
         expect(calls[2].body.systemInstruction).toBeUndefined()
-        expect(calls[2].headers['Authorization']).toBe('Bearer ya29.access-token')
+        expect(calls[2].headers['Authorization']).toBe('Bearer [server-auth]')
     })
 
     test('second turn applies the cache: cachedContent + suffix only, systemInstruction stripped', async () => {

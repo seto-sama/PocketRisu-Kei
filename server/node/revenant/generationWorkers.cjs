@@ -148,6 +148,7 @@ function createGenerationWorkers(options) {
                 job.updatedAt = Date.now();
                 job.deadlineAt = Date.now() + job.timeoutMs;
                 job.runPromise = runGenerationProviderJob(job, {
+                    serverProviderAuth: request.serverProviderAuth,
                     targetUrl: request.targetUrl,
                     headers: request.headers,
                     method: request.method,
