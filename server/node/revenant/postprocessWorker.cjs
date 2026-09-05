@@ -1,5 +1,7 @@
 'use strict';
 
+const { canExecuteServerProviderAction } = require('./providerActions.cjs');
+
 const {
     runRevenantOutputStage,
     runRevenantOutputTransform,
@@ -36,6 +38,7 @@ function createRevenantPostprocessWorker(options) {
             throw new Error('Revenant materializer is not configured');
         },
         executeImageAction,
+        executeProviderAction,
     } = options;
     let timer = null;
     let running = false;
@@ -70,18 +73,25 @@ function createRevenantPostprocessWorker(options) {
         }, Math.max(0, Number(delayMs) || 0));
     }
 
-    function startServerImageAction(workflow, stepKey, metadata, action) {
-        if (action?.kind !== 'image.generate' || typeof executeImageAction !== 'function') return false;
+    function startServerAction(workflow, stepKey, metadata, action, chat) {
+        const providerAction = typeof executeProviderAction === 'function'
+            && canExecuteServerProviderAction(action);
+        if (!providerAction && (action?.kind !== 'image.generate' || typeof executeImageAction !== 'function')) return false;
         updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
             status: 'running',
             metadata: { ...metadata, schemaVersion: 1, action },
         });
         onWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
-        void executeImageAction({ workflow, action, projection: false })
+        const execution = providerAction
+            ? executeProviderAction({ workflow, action, chat })
+            : executeImageAction({ workflow, action, projection: false });
+        void execution
             .then(result => {
                 const latest = getGenerationWorkflow(workflow.workflowId)?.steps
                     ?.find(step => step.key === stepKey);
-                if (latest?.status !== 'running') return;
+                if (getGenerationWorkflow(workflow.workflowId)?.status !== 'active'
+                    || latest?.status !== 'running'
+                    || latest.metadata?.action?.actionId !== action.actionId) return;
                 updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
                     status: 'pending',
                     metadata: {
@@ -89,7 +99,7 @@ function createRevenantPostprocessWorker(options) {
                         schemaVersion: 1,
                         responses: {
                             ...(latest.metadata?.responses || {}),
-                            [action.actionId]: result.reference,
+                            [action.actionId]: providerAction ? result : result.reference,
                         },
                     },
                 });
@@ -97,13 +107,14 @@ function createRevenantPostprocessWorker(options) {
                 schedule();
             })
             .catch(error => {
+                if (getGenerationWorkflow(workflow.workflowId)?.status !== 'active') return;
                 const message = error instanceof Error ? error.message : String(error);
                 updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
                     status: 'failed',
                     metadata: { ...metadata, schemaVersion: 1, error: message },
                 });
                 finishGenerationWorkflow(workflow.workflowId, 'failed');
-                logger.error(`[Revenant] Server image action failed for ${workflow.workflowId}:`, error);
+                logger.error(`[Revenant] Server action failed for ${workflow.workflowId}:`, error);
                 notifyActionableWorkflowState(workflow.workflowId);
             });
         return true;
@@ -133,11 +144,12 @@ function createRevenantPostprocessWorker(options) {
                             transformOutput,
                         });
                         if (result.status === 'waiting_client'
-                            && startServerImageAction(
+                            && startServerAction(
                                 workflow,
                                 'output.transform',
                                 outputStep.metadata,
                                 result.action,
+                                result.chat,
                             )) {
                             outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
                                 ?.find(step => step.key === 'output.transform');
@@ -186,11 +198,12 @@ function createRevenantPostprocessWorker(options) {
                             responses: triggerStep.metadata?.responses,
                         });
                         if (result.status === 'waiting_client'
-                            && startServerImageAction(
+                            && startServerAction(
                                 workflow,
                                 'trigger.output',
                                 triggerStep.metadata,
                                 result.action,
+                                result.chat,
                             )) {
                             triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
                                 ?.find(step => step.key === 'trigger.output');
@@ -263,25 +276,27 @@ function createRevenantPostprocessWorker(options) {
                         const actionId = 'igp.provider';
                         const response = igpStep.metadata?.responses?.[actionId];
                         if (response === undefined) {
-                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                                status: 'waiting_client',
-                                metadata: {
+                            const metadata = {
+                                schemaVersion: 1,
+                                ...(igpStep.metadata?.responses
+                                    ? { responses: igpStep.metadata.responses }
+                                    : {}),
+                                action: {
                                     schemaVersion: 1,
-                                    ...(igpStep.metadata?.responses
-                                        ? { responses: igpStep.metadata.responses }
-                                        : {}),
-                                    action: {
-                                        schemaVersion: 1,
-                                        actionId,
-                                        kind: 'provider.igp',
-                                        payload: {
-                                            backend: igpProvider.backend,
-                                            modelPreset: igpProvider.modelPreset,
-                                            prompt,
-                                        },
+                                    actionId,
+                                    kind: 'provider.igp',
+                                    payload: {
+                                        backend: igpProvider.backend,
+                                        modelPreset: igpProvider.modelPreset,
+                                        prompt,
                                     },
                                 },
-                            });
+                            };
+                            if (!startServerAction(workflow, 'igp', metadata, metadata.action, currentChat)) {
+                                updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                                    status: 'waiting_client', metadata,
+                                });
+                            }
                         }
                         else if (response?.success !== true || typeof response.result !== 'string') {
                             updateGenerationWorkflowStep(workflow.workflowId, 'igp', {

@@ -118,6 +118,7 @@ export interface HypaV3Result {
     error?: string;
     memory?: SerializableHypaV3Data;
     deferredRemoteSelection?: boolean;
+    serverExecution?: Record<string, unknown>;
 }
 
 export interface HypaV3ExecutionOptions {
@@ -128,6 +129,7 @@ export interface HypaV3ExecutionOptions {
     /** Called when prompt construction must wait for browser-side Lua. */
     onRemoteSelectionRequiresClient?: () => Promise<void>;
     workflowId?: string;
+    planServerExecution?: boolean;
     signal?: AbortSignal;
 }
 
@@ -189,6 +191,85 @@ function getRemoteEmbeddingConfig(model: HypaModel): {
         return { model, apiKey: db.voyageApiKey?.trim() || '' };
     }
     return undefined;
+}
+
+const SERVER_HYPA_TOKENIZERS = new Set([
+    'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
+    'novellist', 'gemma', 'deepseek',
+]);
+
+function canPlanServerHypaSelection(options: HypaV3ExecutionOptions | undefined, room: Chat, tokenizer: ChatTokenizer): boolean {
+    if (!options?.planServerExecution || !options.deferredMemoryPrompt
+        || !getRemoteEmbeddingConfig(getDatabase().hypaModel || 'MiniLM')
+        || !SERVER_HYPA_TOKENIZERS.has(tokenizer.getRevenantSpec().tokenizer)) return false;
+    const binding = resolveChatModelBinding(room, 'memory');
+    if (binding.kind !== 'modelPreset' || binding.preset.claudeBatching) return false;
+    return compileModelPreset(binding.preset).backend !== 'plugin';
+}
+
+function planServerHypaSelection(input: {
+    options?: HypaV3ExecutionOptions; room: Chat; tokenizer: ChatTokenizer;
+    settings: HypaV3Settings; chats: OpenAIChat[]; data: HypaV3Data;
+    batches: OpenAIChat[][]; startIdx: number; currentTokens: number;
+    maxContextTokens: number; availableMemoryTokens: number; memoryTokens: number;
+    shouldReserveMemoryTokens: boolean;
+}): HypaV3Result | undefined {
+    const { options, room, tokenizer, settings, chats, data, batches } = input;
+    if (!canPlanServerHypaSelection(options, room, tokenizer)) return undefined;
+    const binding = resolveChatModelBinding(room, 'memory');
+    if (binding.kind !== 'modelPreset') return undefined;
+    const batchId = uuidv4();
+    const summaryRequests = batches.map(batch => ({
+        operationId: uuidv4(),
+        chatMemos: batch.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+        prompt: buildHypaSummaryPrompt(batch, settings),
+        purpose: 'memory',
+    }));
+    const recentChats = chats.slice(-settings.queryChatCount).filter(chat => chat.content.trim());
+    if (!settings.useExperimentalImpl && settings.enableSimilarityCorrection
+        && settings.similarMemoryRatio > 0 && recentChats.length > 1
+        && (data.summaries.length > 0 || batches.length > 0)) {
+        summaryRequests.push({
+            operationId: uuidv4(), chatMemos: [], purpose: 'query',
+            prompt: buildHypaSummaryPrompt(recentChats, settings),
+        });
+    }
+    const memory = toSerializableHypaV3Data(data);
+    return {
+        currentTokens: input.currentTokens,
+        chats: [
+            { role: 'system', content: options.deferredMemoryPrompt, memo: 'supaMemory' },
+            ...chats.slice(input.startIdx),
+        ],
+        memory,
+        deferredRemoteSelection: true,
+        serverExecution: {
+            schemaVersion: 1, batchId,
+            expectedOperationIds: summaryRequests.map(request => request.operationId),
+            summaryRequests,
+            summaryProvider: structuredClone(binding.preset),
+            summaryDispatch: {
+                maxConcurrent: settings.useExperimentalImpl ? settings.summarizationMaxConcurrent : 1,
+                requestsPerMinute: settings.summarizationRequestsPerMinute,
+            },
+            embedding: getRemoteEmbeddingConfig(getDatabase().hypaModel || 'MiniLM'),
+            tokenizer: tokenizer.getRevenantSpec(),
+            settings: {
+                recentMemoryRatio: settings.recentMemoryRatio,
+                similarMemoryRatio: settings.similarMemoryRatio,
+                queryChatCount: settings.queryChatCount,
+                summaryChunkSeparator: settings.summaryChunkSeparator,
+                queryMode: settings.useExperimentalImpl ? 'paragraph' : 'chat',
+            },
+            memory,
+            chats: chats.map(chat => ({ role: chat.role, content: chat.content,
+                ...(chat.name ? { name: chat.name } : {}), ...(chat.memo ? { memo: chat.memo } : {}) })),
+            startIdx: input.startIdx, currentTokens: input.currentTokens,
+            maxContextTokens: input.maxContextTokens, availableMemoryTokens: input.availableMemoryTokens,
+            memoryTokens: input.memoryTokens, shouldReserveMemoryTokens: input.shouldReserveMemoryTokens,
+            randomSeed: batchId,
+        },
+    };
 }
 
 async function executeDurableHypaBatch<T>(
@@ -285,7 +366,8 @@ export async function recoverHypaV3SummaryJobs(
             jobType: 'memory',
             isContext: isRevenantHypaV3SummaryOperation,
             matchesContext: context =>
-                context.characterId === char.chaId && context.roomId === room.id,
+                context.purpose !== 'query'
+                && context.characterId === char.chaId && context.roomId === room.id,
             matchesJob: job => !options.workflowId || job.workflowId === options.workflowId,
             force: options.force,
             onJobUpdate: options.onJobUpdate,
@@ -419,8 +501,10 @@ export async function hypaMemoryV3(
             room,
             char,
             tokenizer,
+            options,
         );
     } catch (error) {
+        if (options?.signal?.aborted) throw error;
         if (error instanceof Error) {
             // Standard Error instance
             error.message = `${logPrefix} ${error.message}`;
@@ -645,6 +729,13 @@ async function hypaMemoryV3MainExp(
         currentTokens -= toSummarizeTokens;
         startIdx = currentIndex;
     }
+
+    const serverPlan = planServerHypaSelection({
+        options, room, tokenizer, settings, chats, data, batches: toSummarizeArray,
+        startIdx, currentTokens, maxContextTokens, availableMemoryTokens,
+        memoryTokens, shouldReserveMemoryTokens,
+    });
+    if (serverPlan) return serverPlan;
 
     let remoteExecutionPrepared = false;
     const prepareRemoteSelection = async (
@@ -1372,6 +1463,7 @@ async function hypaMemoryV3Main(
     room: Chat,
     char: character,
     tokenizer: ChatTokenizer,
+    options?: HypaV3ExecutionOptions,
 ): Promise<HypaV3Result> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -1445,6 +1537,9 @@ async function hypaMemoryV3Main(
         currentTokens += memoryTokens;
         console.log(logPrefix, "Reserved max memory tokens:", memoryTokens);
     }
+
+    const serverPlanning = canPlanServerHypaSelection(options, room, tokenizer);
+    const plannedBatches: OpenAIChat[][] = [];
 
     // If summarization is needed
     const summarizationMode = currentTokens > maxContextTokens;
@@ -1553,7 +1648,10 @@ async function hypaMemoryV3Main(
         }
 
         // Attempt summarization
-        if (toSummarize.length > 0) {
+        if (toSummarize.length > 0 && serverPlanning) {
+            plannedBatches.push(toSummarize);
+        }
+        else if (toSummarize.length > 0) {
             console.log(
                 logPrefix,
                 "Attempting summarization:",
@@ -1593,6 +1691,17 @@ async function hypaMemoryV3Main(
 
         currentTokens -= toSummarizeTokens;
         startIdx = endIdx;
+    }
+
+    if (serverPlanning) {
+        const serverPlan = planServerHypaSelection({
+            options, room, tokenizer, settings, chats, data, batches: plannedBatches,
+            startIdx, currentTokens, maxContextTokens, availableMemoryTokens,
+            memoryTokens: shouldReserveEmptyMemoryTokens ? emptyMemoryTokens : memoryTokens,
+            shouldReserveMemoryTokens: true,
+        });
+        if (serverPlan) return serverPlan;
+        throw new Error('Hypa server plan became unavailable before dispatch');
     }
 
     console.log(
@@ -2114,14 +2223,7 @@ export interface HypaV3SummarizeOptions {
     onRequestStatusActivate?: () => void;
 }
 
-export async function summarize(
-    oaiMessages: OpenAIChat[],
-    isResummarize: boolean = false,
-    options: HypaV3SummarizeOptions = {},
-): Promise<string> {
-    const settings = getCurrentHypaV3Preset().settings;
-    const { revenantTarget, signal, onRequestStatusActivate } = options;
-
+function buildHypaSummaryPrompt(oaiMessages: OpenAIChat[], settings: HypaV3Settings, isResummarize = false): OpenAIChat[] {
     const strMessages = oaiMessages
         .map((chat) => `${chat.role}: ${sanitizeSummaryContent(chat.content)}`)
         .join("\n");
@@ -2132,7 +2234,7 @@ export async function summarize(
             ? "[Summarize the ongoing role story, It must also remove redundancy and unnecessary text and content from the output.]"
             : settings.summarizationPrompt;
 
-    const formated: OpenAIChat[] = parseChatML(
+    return parseChatML(
         summarizationPrompt.replaceAll("{{slot}}", strMessages)
     ) ?? [
             {
@@ -2144,6 +2246,18 @@ export async function summarize(
                 content: summarizationPrompt,
             },
         ];
+
+}
+
+export async function summarize(
+    oaiMessages: OpenAIChat[],
+    isResummarize: boolean = false,
+    options: HypaV3SummarizeOptions = {},
+): Promise<string> {
+    const settings = getCurrentHypaV3Preset().settings;
+    const { revenantTarget, signal, onRequestStatusActivate } = options;
+
+    const formated = buildHypaSummaryPrompt(oaiMessages, settings, isResummarize);
 
     const currentCharacter = getCurrentCharacter()
     const currentRoom = currentCharacter?.chats[currentCharacter.chatPage]

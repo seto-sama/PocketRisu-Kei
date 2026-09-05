@@ -19,6 +19,7 @@ export interface RevenantChatMessageTranslationTarget {
 
 export interface RevenantHypaV3SummaryOperation {
     kind: 'hypav3-summary'
+    purpose?: 'memory' | 'query'
     operationId: string
     batchId: string
     characterId: string

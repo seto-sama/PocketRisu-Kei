@@ -48,6 +48,7 @@ export function subscribeRecoverableGeneration(
     handlers: {
         onContent: (content: string) => void
         onProgress?: (progress: { thinking: string, response: string, usage?: AdapterUsage }) => void
+        onProviderStarted?: (startedAt: number) => void
         onDone: (terminal?: RevenantGenerationTerminal, usage?: AdapterUsage) => void
         onError?: (error: unknown) => void
     },
@@ -77,7 +78,7 @@ export function subscribeRecoverableGeneration(
     }
     void openRecoverableJournalStream(job, controller.signal, value => {
         terminal = value
-    }, () => finishCatchUp())
+    }, () => finishCatchUp(), handlers.onProviderStarted)
         .then(stream => decodeRevenantGenerationJournal(
             job,
             stream,
@@ -129,6 +130,7 @@ async function openRecoverableJournalStream(
     signal?: AbortSignal,
     onTerminal?: (terminal: RevenantGenerationTerminal) => void,
     onSnapshotConsumed?: () => void,
+    onProviderStarted?: (startedAt: number) => void,
 ): Promise<ReadableStream<Uint8Array>> {
     const auth = await createRevenantGenerationAuth()
     const snapshotResponse = await fetch(
@@ -151,6 +153,7 @@ async function openRecoverableJournalStream(
         recovery: true,
         initialOffset: snapshotOffset,
         onDone: onTerminal,
+        onProviderStarted,
         onHeaders(status, headers) {
             job.responseStatus = status
             job.responseHeaders = headers

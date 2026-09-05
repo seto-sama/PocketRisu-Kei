@@ -15,6 +15,7 @@ function createGenerationWorkers(options) {
         finishGenerationWorkflowExecution,
         getGenerationDispatchState,
         getGenerationWorkflowExecution,
+        getGenerationWorkflow,
         listGenerationWorkflowJobs,
         listQueuedGenerationDispatches,
         listQueuedGenerationWorkflowExecutions,
@@ -32,6 +33,7 @@ function createGenerationWorkers(options) {
         embeddingTimeoutMs = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
         resolveWorkflowRequestBody = resolveRevenantWorkflowRequestBody,
         selectMemory = selectHypaMemory,
+        executeSummaryAction,
     } = options;
 
     let dispatchTimer = null;
@@ -186,6 +188,7 @@ function createGenerationWorkers(options) {
     let hypaRunning = false;
     let hypaRerunRequested = false;
     const hypaRuns = new Map();
+    const summaryRuns = new Map();
 
     function scheduleHypaWorkflowExecution(delayMs = 0) {
         if (hypaRunning) {
@@ -221,6 +224,51 @@ function createGenerationWorkers(options) {
                     job.operationContext?.kind === 'hypav3-summary'
                     && job.operationContext.batchId === recipe.batchId
                     && expectedIds.has(job.operationContext.operationId));
+                if (Array.isArray(recipe.summaryRequests)) {
+                    const workflow = getGenerationWorkflow(item.workflowId);
+                    if (workflow?.status !== 'active') continue;
+                    // No summary can start until the dependent main request is
+                    // durable. Reloading after this point only drops observers.
+                    if (!listGenerationWorkflowJobs(item.workflowId).some(job =>
+                        job.workflowStepKey === 'model.main' && ['queued', 'generating'].includes(job.status))) continue;
+                    for (const request of recipe.summaryRequests) {
+                        const key = `${item.workflowId}:${request.operationId}`;
+                        if (jobs.some(job => job.operationContext.operationId === request.operationId)
+                            || summaryRuns.has(key)) continue;
+                        const run = Promise.resolve().then(() => executeSummaryAction({
+                            workflow,
+                            action: {
+                                actionId: `hypa.${request.operationId}`, kind: 'provider.llm',
+                                payload: { modelPreset: recipe.summaryProvider, prompt: request.prompt, mode: 'memory' },
+                            },
+                            operationContext: {
+                                kind: 'hypav3-summary', operationId: request.operationId, purpose: request.purpose,
+                                characterId: workflow.characterId, roomId: workflow.roomId,
+                                batchId: recipe.batchId, chatMemos: request.chatMemos,
+                            },
+                            dispatchPolicy: recipe.summaryDispatch,
+                        })).then(result => {
+                            if (!result.success || !String(result.result ?? '').replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '').trim()) {
+                                throw new Error(result.result || 'Empty Hypa summary');
+                            }
+                        }).catch(error => {
+                            if (getGenerationWorkflow(item.workflowId)?.status !== 'active') return;
+                            const message = error instanceof Error ? error.message : String(error);
+                            finishGenerationWorkflowExecution(item.workflowId, 'failed', null, message);
+                            updateGenerationWorkflowStep(item.workflowId, 'memory.hypav3', {
+                                status: 'failed', metadata: { error: message },
+                            });
+                            scheduleGenerationDispatch();
+                        }).finally(() => {
+                            summaryRuns.delete(key);
+                            scheduleHypaWorkflowExecution();
+                        });
+                        summaryRuns.set(key, run);
+                    }
+                    // Wait for decoding/validation too, not just the provider's
+                    // terminal job, before claiming the selection execution.
+                    if (recipe.summaryRequests.some(request => summaryRuns.has(`${item.workflowId}:${request.operationId}`))) continue;
+                }
                 // Job creation/completion explicitly wakes this worker.
                 if (jobs.length < expectedIds.size || jobs.some(job =>
                     job.status === 'queued' || job.status === 'generating')) continue;
@@ -264,7 +312,9 @@ function createGenerationWorkers(options) {
                     ]));
                     const summaries = [
                         ...recipe.memory.summaries,
-                        ...recipe.expectedOperationIds.map(operationId => {
+                        ...recipe.expectedOperationIds.filter(operationId =>
+                            recipe.summaryRequests?.find(request => request.operationId === operationId)?.purpose !== 'query',
+                        ).map(operationId => {
                             const job = byOperation.get(operationId);
                             return {
                                 text: job.projection.content
@@ -275,7 +325,11 @@ function createGenerationWorkers(options) {
                             };
                         }),
                     ];
-                    const result = await selectMemory(recipe, summaries, {
+                    const queryOperationId = recipe.summaryRequests?.find(request => request.purpose === 'query')?.operationId;
+                    const querySummary = queryOperationId
+                        ? byOperation.get(queryOperationId).projection.content.replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '').trim()
+                        : undefined;
+                    const result = await selectMemory({ ...recipe, querySummary }, summaries, {
                         sanitizeUrl: sanitizeGenerationTargetUrl,
                         signal: controller.signal,
                     });

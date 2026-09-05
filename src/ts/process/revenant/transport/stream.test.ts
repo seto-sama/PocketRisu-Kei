@@ -27,6 +27,7 @@ vi.mock('./journalDecoder', () => ({
 }))
 
 import { subscribeRecoverableGeneration } from './stream'
+import { openRevenantJournalSocket } from './journalSocket'
 import type { RecoverableGenerationJob } from '../types'
 
 const job: RecoverableGenerationJob = {
@@ -66,9 +67,13 @@ describe('subscribeRecoverableGeneration', () => {
         const onContent = vi.fn()
         const onProgress = vi.fn()
         const onDone = vi.fn()
+        const onProviderStarted = vi.fn()
 
-        subscribeRecoverableGeneration(job, { onContent, onProgress, onDone })
+        subscribeRecoverableGeneration(job, { onContent, onProgress, onDone, onProviderStarted })
         await vi.advanceTimersByTimeAsync(0)
+        const socketOptions = vi.mocked(openRevenantJournalSocket).mock.calls.at(-1)![0]
+        socketOptions.onProviderStarted?.(123)
+        expect(onProviderStarted).toHaveBeenCalledWith(123)
 
         expect(onContent.mock.calls.map(call => call[0])).toEqual(['abc'])
         expect(onProgress.mock.calls.map(call => call[0].response)).toEqual(['abc'])

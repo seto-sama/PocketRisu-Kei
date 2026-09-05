@@ -3,7 +3,7 @@ import type {
     AdapterImagePart,
     AdapterMediaPart,
 } from 'src/ts/preset/adapter'
-import { extractThinkTags } from 'src/ts/preset/thinkingTags'
+import { extractThinkTags } from '../../preset/thinkingTags'
 import type { OpenAIChat } from '../index.svelte'
 import type { toolCallData } from '../mcp/mcp'
 import type { RPCToolCallContent } from '../mcp/mcplib'

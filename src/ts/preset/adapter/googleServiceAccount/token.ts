@@ -72,6 +72,13 @@ export async function exchangeServiceAccountForAccessToken(
         throw normalizeFetchError(err)
     }
 
+    return parseAccessTokenResponse(response, issuedAtMs)
+}
+
+export async function parseAccessTokenResponse(
+    response: Response,
+    issuedAtMs: number,
+): Promise<AccessTokenResult> {
     const bodyText = await response.text().catch(() => '')
 
     // The server forwards Google's token response verbatim (status + body), so

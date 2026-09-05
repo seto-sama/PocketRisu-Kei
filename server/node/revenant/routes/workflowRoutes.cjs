@@ -43,6 +43,8 @@ function installRevenantWorkflowRoutes(app, deps) {
         cancelGenerationStepExecution,
         isSyncClientConnected,
         randomUUID,
+        getWorkflowRequestStatusWorkflow = getGenerationWorkflow,
+        getWorkflowRequestStatusJobs = listGenerationWorkflowJobs,
     } = deps;
 
     app.post('/api/generation/workflows', async (req, res, next) => {
@@ -188,6 +190,25 @@ function installRevenantWorkflowRoutes(app, deps) {
             return;
         }
         res.send({ workflow });
+    });
+
+    app.get('/api/generation/workflows/:workflowId/request-status', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const workflow = getWorkflowRequestStatusWorkflow(req.params.workflowId, false);
+        if (!workflow) {
+            res.status(404).send({ error: 'Generation workflow not found' });
+            return;
+        }
+        // Include consumed jobs: request lifecycle does not depend on whether
+        // a result still needs recovery. Keep prompts and provider data out.
+        const jobs = getWorkflowRequestStatusJobs(workflow.workflowId).map(job => ({
+            jobId: job.jobId, chatId: job.chatId, jobType: job.jobType,
+            workflowId: workflow.workflowId, roomId: workflow.roomId,
+            status: job.status, generationInfo: { model: job.generationInfo?.model },
+            createdAt: job.createdAt, dispatchedAt: job.dispatchedAt,
+            completedAt: job.completedAt, error: job.error || job.finishReason,
+        }));
+        res.send({ workflowId: workflow.workflowId, roomId: workflow.roomId, status: workflow.status, jobs });
     });
 
     // Cancellation is an authenticated terminal control command. Workflow

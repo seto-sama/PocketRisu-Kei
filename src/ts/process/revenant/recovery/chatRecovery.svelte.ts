@@ -50,6 +50,7 @@ import {
 import { applyCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import { observeRevenantServerImageActions } from '../workflow/imageWorkflow'
+import { observeRevenantWorkflowRequests } from '../workflow/requestStatus'
 import {
     clientActionRecoveryMode,
     recoveryStatusAction,
@@ -227,6 +228,8 @@ export function updateRevenantAuxiliaryRecoveryStatus(
     job: RecoverableAuxiliaryJob,
     chatId: string,
 ): void {
+    // Workflow-owned request lifecycle comes from its complete job snapshot.
+    if (job.workflowId) return
     const statusId = requestStatusIdForJob(job)
     const action = recoveryStatusAction(
         job.status,
@@ -266,6 +269,7 @@ function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string)
     const action = recoveryStatusAction(
         job.status,
         notifiedRecoveryJobs.has(job.jobId) || hasRequestStatus(statusId),
+        { startQueued: false },
     )
     if (action === 'start') {
         startRecoveryStatus(
@@ -411,6 +415,7 @@ export async function recoverRevenantGenerationsForChat(
     try {
         let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
         if (activeWorkflow) observeRevenantServerImageActions(activeWorkflow)
+        if (activeWorkflow) observeRevenantWorkflowRequests(activeWorkflow.workflowId)
         const hasWaitingClientStep = activeWorkflow?.steps.some(step =>
             step.status === 'waiting_client') === true
         const hypaMemoryCheckpoint = activeWorkflow?.steps
@@ -524,7 +529,7 @@ export async function recoverRevenantGenerationsForChat(
         const jobs = mainJobs
             .filter(isDetachedJobForCurrentChat)
             .sort((a, b) => a.createdAt - b.createdAt)
-        jobs.forEach(job => updateMainRecoveryStatus(job, chat.id))
+        jobs.filter(job => !job.workflowId).forEach(job => updateMainRecoveryStatus(job, chat.id))
         for (const job of jobs) {
             const messageChatId = job.chatId
             if (Date.now() < (recoveryRetryAt.get(job.jobId) ?? 0)) break
@@ -687,6 +692,10 @@ export async function recoverRevenantGenerationsForChat(
                 if (!recoveryStreamSubscriptions.has(job.jobId)) {
                     const statusId = requestStatusIdForJob(job)
                     const unsubscribe = subscribeRecoverableGeneration(job, {
+                        onProviderStarted: startedAt => startRecoveryStatus(
+                            job.jobId, 'main', chat.id, startedAt, statusId,
+                            job.generationInfo?.model ?? '', job.workflowId,
+                        ),
                         onProgress: progress => {
                             observeRevenantJobRequestText(job.jobId, progress)
                         },

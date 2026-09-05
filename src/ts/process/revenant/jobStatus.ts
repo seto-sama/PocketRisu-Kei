@@ -48,6 +48,7 @@ export function registerRevenantRequestStatus(input: {
     kind: RequestKind
     label?: string
     startedAt: number
+    deferStart?: boolean
 }): void {
     const session: RevenantRequestStatusSession = {
         jobId: input.jobId,
@@ -57,7 +58,7 @@ export function registerRevenantRequestStatus(input: {
         kind: input.kind,
     }
     requestStatusSessions.set(input.jobId, session)
-    if (!hasRequestStatus(input.statusId)) {
+    if (!input.deferStart && !hasRequestStatus(input.statusId)) {
         startStatus(input.statusId, {
             kind: input.kind,
             label: input.label ?? '',
