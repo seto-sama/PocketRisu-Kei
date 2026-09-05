@@ -50,12 +50,11 @@
     import Button from "../UI/components/Button.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import type { SortableEvent } from "sortablejs";
-    import { getCharacterIndexObject, makeAgoText, selectSingleFile } from "src/ts/util";
+    import { getCharacterIndexObject, makeAgoText } from "src/ts/util";
     import { v4 } from "uuid";
-    import { checkCharOrder, getFileSrc, saveAsset } from "src/ts/globalApi.svelte";
-    import { alertInput, alertSelect } from "src/ts/alert";
+    import { checkCharOrder } from "src/ts/globalApi.svelte";
     import SideChatList from "./SideChatList.svelte";
-    import { folderColorOptions } from "./folderColors";
+    import { openSidebarFolderMenu } from "./sidebarFolderMenu";
     import {
       applySidebarDrop,
       createSidebarDragController,
@@ -117,8 +116,9 @@
   // sort is cheap; the $derived is only read while on the home screen.
   let recentChars = $derived(
     DBState.db.characters
-      .map((c, index) => ({ index, name: c.name, image: c.image, lastInteraction: c.lastInteraction ?? 0 }))
-      .filter((c) => c.lastInteraction > 0)
+      .flatMap((c, index) => !c.trashTime && c.lastInteraction > 0
+        ? [{ index, name: c.name, image: c.image, lastInteraction: c.lastInteraction }]
+        : [])
       .sort((a, b) => b.lastInteraction - a.lastInteraction)
   );
   let sidebarScrollElement: HTMLDivElement | null = $state(null);
@@ -697,82 +697,9 @@
             <SidebarAvatar src="slot" size={String(SIDEBAR_ROOT_ITEM_SIZE)} rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
               mergeTarget={folderDropTargetId === char.id}
-              oncontextmenu={async (e) => {
+              oncontextmenu={(e) => {
                 e.preventDefault()
-                const remoteVisibilityLabel = char.localOnly
-                  ? language.showFolderOnRemoteAccess
-                  : language.hideFolderOnRemoteAccess
-                const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,remoteVisibilityLabel,language.cancel]))
-                if(sel === 0){
-                  const v = await alertInput(language.changeFolderName, [], char.name)
-                  const db = DBState.db
-                  if(v){
-                    const oder = db.characterOrder[ind]
-                    if(typeof(oder) === 'string'){
-                      return
-                    }
-                    oder.name = v
-                    db.characterOrder[ind] = oder
-                  }
-                }
-                else if(sel === 1){
-                  const colorSelection = parseInt(await alertSelect(
-                    folderColorOptions.map(({ label }) => label)
-                  ))
-                  const selectedColor = folderColorOptions[colorSelection]?.value
-                  if(!selectedColor){
-                    return
-                  }
-                  const db = DBState.db
-                  const oder = db.characterOrder[ind]
-                  if(typeof(oder) === 'string'){
-                    return
-                  }
-                  oder.color = selectedColor
-                  db.characterOrder[ind] = oder
-                }
-                else if(sel === 2) {
-                  const sel = parseInt(await alertSelect(['Reset to Default Image', 'Select Image File']))
-                  const db = DBState.db
-                  const oder = db.characterOrder[ind]
-                  if(typeof(oder) === 'string'){
-                    return
-                  }
-
-                  switch (sel) {
-                    case 0:
-                      oder.imgFile = null
-                      oder.img = ''
-                      break;
-                  
-                    case 1:
-                      const folderImage = await selectSingleFile([
-                        'png',
-                        'jpg',
-                        'webp',
-                      ])
-
-                      if(!folderImage) {
-                        return
-                      }
-
-                      const folderImageData = await saveAsset(folderImage.data)
-
-                      oder.imgFile = folderImageData
-                      oder.img = await getFileSrc(folderImageData)
-                      db.characterOrder[ind] = oder
-                      break;
-                  }
-                }
-                else if(sel === 3) {
-                  const db = DBState.db
-                  const oder = db.characterOrder[ind]
-                  if(typeof(oder) === 'string'){
-                    return
-                  }
-                  oder.localOnly = !oder.localOnly
-                  db.characterOrder[ind] = oder
-                }
+                void openSidebarFolderMenu(char.id)
               }}
               onClick={() => {
                 if(suppressNextClick) return

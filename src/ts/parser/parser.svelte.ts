@@ -509,8 +509,9 @@ type AssetPaths = {[key:string]:{
 
 let assetsCache: AssetPaths | null = null
 let emoAssetsCache: AssetPaths | null = null
+let assetsCacheCharacterId = ''
 
-export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][]) {
+export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][], characterId = '') {
     const assetPaths: AssetPaths = {}
     const charEmoPaths: AssetPaths = {}
 
@@ -520,6 +521,7 @@ export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], 
 
     assetsCache = assetPaths
     emoAssetsCache = charEmoPaths
+    assetsCacheCharacterId = characterId
 }
 
 $effect.root(() => {
@@ -535,7 +537,7 @@ $effect.root(() => {
         const emoAssets = char.emotionImages ?? []
         const moduleAssets = getModuleAssets()
 
-        resetAssetsCache(charAssets, emoAssets, moduleAssets)
+        resetAssetsCache(charAssets, emoAssets, moduleAssets, char.chaId)
     })
 })
 
@@ -545,8 +547,8 @@ const videoExtensions = ['mp4', 'webm', 'avi', 'm4p', 'm4v']
 async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|character, mode:'normal'|'back', arg:{ch:number}){
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
-    if (char.type === 'character' && (!assetsCache || !emoAssetsCache)) {
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages, getModuleAssets())
+    if (!assetsCache || !emoAssetsCache || assetsCacheCharacterId !== char.chaId) {
+        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
     }
 
     const assetPaths = assetsCache ?? {}
