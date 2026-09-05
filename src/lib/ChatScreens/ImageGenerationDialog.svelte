@@ -12,6 +12,7 @@
     import ImageGenerationPresetList from 'src/lib/UI/ImageGenerationPresetList.svelte'
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets'
     import ImageStylePresetList from 'src/lib/UI/ImageStylePresetList.svelte'
+    import NovelAIUsageGauge from 'src/lib/UI/NovelAIUsageGauge.svelte'
     import { applyImageStylePreset, listImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
     import NumberInput from '../UI/components/NumberInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
@@ -154,6 +155,12 @@
         <span class="inline-flex items-center">
             {language.imageGeneration}<Help key="imageGenerationPresetQuickEdit" name={language.imageGeneration} />
         </span>
+    {/snippet}
+
+    {#snippet headerActions()}
+        {#if getCurrentImageGenerationPreset(DBState.db).settings.sdProvider === 'novelai'}
+            <NovelAIUsageGauge settings={getCurrentImageGenerationPreset(DBState.db).settings} {open} {generating} />
+        {/if}
     {/snippet}
 
     <div>
