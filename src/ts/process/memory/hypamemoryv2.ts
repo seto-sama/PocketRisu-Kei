@@ -1,4 +1,4 @@
-import { type HypaModel, localModels, isBrowserLocalHypaModel, getPersistedHypaVector, setPersistedHypaVector, contextHash } from "./hypamemory";
+import { type HypaModel, localModels, isBrowserLocalHypaModel, getPersistedHypaVector, setPersistedHypaVector, contextHash, truncateErrorBody } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
@@ -146,15 +146,17 @@ export class HypaProcessorV2<TMetadata> {
             `Cache hit for getting embedding ${index} with model ${this.options.model}`
           );
 
-          // Add metadata
-          cached.metadata = metadata;
+          // The persisted cache is shared by every processor. Keep request
+          // metadata on a detached result so a metadata-less query cannot
+          // erase the summary metadata held by another processor.
+          const ebdResult: EmbeddingResult<TMetadata> = { ...cached, id, metadata };
 
           // Save to memory
           if (saveToMemory) {
-            this.vectors.set(id, cached);
+            this.vectors.set(id, ebdResult);
           }
 
-          resultMap.set(id, cached);
+          resultMap.set(id, ebdResult);
         } else {
           toEmbed.push(item);
         }
@@ -490,8 +492,8 @@ export class HypaProcessorV2<TMetadata> {
       throw new Error(`Unsupported model: ${this.options.model}`);
     }
 
-    if (!response.ok || !response.data.data) {
-      throw new Error(JSON.stringify(response.data));
+    if (!response.ok || !response.data?.data) {
+      throw new Error(truncateErrorBody(response.data));
     }
 
     const embeddings: EmbeddingVector[] = response.data.data.map(

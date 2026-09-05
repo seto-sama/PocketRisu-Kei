@@ -13,7 +13,7 @@
     let {search}: Props = $props();
 
     function sortChar(char: (character)[]) {
-        return char.map((c, i) => ({
+        return char.flatMap((c, i) => c.trashTime ? [] : [{
                 name: c.name || "Unnamed",
                 image: c.image,
                 chats: c.chats.length,
@@ -21,7 +21,7 @@
                 type: c.type,
                 interaction: c.lastInteraction || 0,
                 agoText: makeAgoText(c.lastInteraction || 0),
-            })).sort((a, b) => {
+            }]).sort((a, b) => {
             if (a.interaction === b.interaction) {
                 return a.name.localeCompare(b.name);
             }

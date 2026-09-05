@@ -7,8 +7,10 @@ import App from "./App.svelte";
 import { loadData } from "./ts/bootstrap";
 import { preLoadCheck } from "./preload";
 import { mount } from "svelte";
+import { applyEarlyFontPreference } from "./ts/gui/fontPreference";
 
 preLoadCheck()
+applyEarlyFontPreference()
 let app = mount(App, {
     target: document.getElementById("app"),
 });

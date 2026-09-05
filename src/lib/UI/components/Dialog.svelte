@@ -27,6 +27,7 @@
         onOpenAutoFocus?: (event: Event) => void;
         onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
+        headerActions?: Snippet;
         description?: Snippet;
         footer?: Snippet;
         children?: Snippet;
@@ -52,6 +53,7 @@
         onOpenAutoFocus,
         onCloseAutoFocus,
         title,
+        headerActions,
         description,
         footer,
         children,
@@ -185,12 +187,19 @@
             onOpenAutoFocus={handleOpenAutoFocus}
             {onCloseAutoFocus}
         >
-            {#if title || description || closable}
+            {#if title || description || closable || headerActions}
                 <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
-                    {#if title}
-                        <Dialog.Title class="text-lg font-semibold text-maintext leading-tight">
-                            {@render title()}
-                        </Dialog.Title>
+                    {#if title || headerActions}
+                        <div class="flex items-center justify-between gap-2">
+                            {#if title}
+                                <Dialog.Title class="text-lg font-semibold text-maintext leading-tight">
+                                    {@render title()}
+                                </Dialog.Title>
+                            {/if}
+                            {#if headerActions}
+                                <div class="ml-auto shrink-0 self-start">{@render headerActions()}</div>
+                            {/if}
+                        </div>
                     {/if}
                     {#if description}
                         <Dialog.Description class="text-sm text-subtext">

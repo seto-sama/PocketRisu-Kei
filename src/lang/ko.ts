@@ -46,6 +46,7 @@ export const languageKorean = {
     persistFailureTitle:
       "서버 저장 실패 — 변경사항이 디스크에 반영되지 않습니다",
     persistFailureAttemptedSize: "시도 크기",
+    storageRequestTooLarge: "저장 요청이 서버 또는 리버스 프록시의 요청 크기 제한을 초과했습니다. 업로드 크기를 줄이거나 서버·프록시의 제한을 확인하세요. 이 요청은 저장되지 않았습니다.",
     chatGuardTitle: "채팅 데이터 보호 작동 — 안전 저장 모드로 전환됨",
     chatGuardDesc:
       "비정상적인 저장 패턴이 차단되어 안전 저장(full-write)으로 전환됐어요. 변경사항은 그 경로로 디스크에 저장됩니다. 반복되면 브라우저 콘솔 로그와 함께 제보해주세요.",
@@ -844,6 +845,10 @@ export const languageKorean = {
   presets: "프리셋",
   themePresets: "테마 프리셋",
   imageGeneration: "이미지 생성",
+  imageGenerationRemainingQuota: "잔여 할당량",
+  imageGenerationQuotaHelp: "NAI V5 전용 할당량의 잔량입니다. 할당량은 매 분마다 조금씩 충전됩니다.",
+  imageGenerationQuotaRemainingTime: "완충까지 남은 시간(추정치)",
+  imageGenerationQuotaTimeUnavailable: "남은 시간을 확인할 수 없습니다.",
   imageGenerationPreset: "이미지 생성 세팅",
   imageGenerationPresetNew: "새 생성 세팅",
   imageGenerationPresetDefault: "기본 이미지 생성 세팅",

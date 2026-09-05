@@ -1,12 +1,14 @@
 import { get } from "svelte/store";
 import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
-import { type Message, type loreBook } from "../storage/database.svelte";
+import type { Message, loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { findCharacterbyId, pickHashRand, selectSingleFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "../../lang";
-import { downloadFile } from "../globalApi.svelte";
+import { downloadFile, requestImmediateSave } from "../globalApi.svelte";
+import { ensureChatHydrated, getChatServerEtag } from '../storage/chatStorage';
+import { markChatWorkingCopyDirty } from '../storage/chatWorkingCopy';
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
 import { v4 } from "uuid";
@@ -650,35 +652,43 @@ export async function loadLoreBookV3Prompt(options: {
 }
 
 export async function importLoreBook(mode:'global'|'local'){
-    const selectedID = get(selectedCharID)
-    const page = DBState.db.characters[selectedID].chatPage
-    let lore = 
-        mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
-        DBState.db.characters[selectedID].chats[page].localLore
+    const initialCharacter = DBState.db.characters[get(selectedCharID)]
+    if (!initialCharacter || initialCharacter.trashTime) return
+    const characterId = initialCharacter.chaId
+    const chatId = mode === 'local' ? initialCharacter.chats[initialCharacter.chatPage]?.id : undefined
+    if (mode === 'local' && !chatId) return
+    const getTargetCharacter = () => DBState.db.characters.find(character =>
+        character.chaId === characterId && !character.trashTime)
     const lorebook = (await selectSingleFile(['json', 'lorebook']))?.data
     if(!lorebook){
         return
     }
- 
-
-
     try {
         const importedlore = JSON.parse(Buffer.from(lorebook).toString('utf-8'))
-        if(importedlore.type === 'risu' && importedlore.data){
-            const datas:loreBook[] = importedlore.data
-            for(const data of datas){
-                lore.push(data)
-            }
-        }
-        else if(importedlore.entries){
-            const entries:{[key:string]:CCLorebook} = importedlore.entries
-            lore.push(...convertExternalLorebook(entries))
-        }
+        const entries: loreBook[] = importedlore.type === 'risu' && Array.isArray(importedlore.data)
+            ? importedlore.data
+            : importedlore.entries ? convertExternalLorebook(importedlore.entries) : []
+        if (entries.length === 0) return
+        const character = getTargetCharacter()
+        if (!character) return
         if(mode === 'global'){
-            DBState.db.characters[selectedID].globalLore = lore
+            for (const entry of entries) character.globalLore.push(entry)
+            await requestImmediateSave({ characterIds: [characterId] })
         }
         else{
-            DBState.db.characters[selectedID].chats[page].localLore = lore
+            const index = character.chats.findIndex(chat => chat.id === chatId)
+            if (index === -1) return
+            let chat = character.chats[index]
+            if (chat._placeholder) {
+                await ensureChatHydrated(character.chats, index, characterId)
+                // Re-resolve only after hydration yields; sync may replace the body.
+                chat = getTargetCharacter()?.chats.find(chat => chat.id === chatId)
+                if (!chat || chat._placeholder) return
+            }
+            const lore = chat.localLore ??= []
+            for (const entry of entries) lore.push(entry)
+            markChatWorkingCopyDirty(characterId, chatId, getChatServerEtag(characterId, chatId))
+            await requestImmediateSave({ chatTargets: [{ characterId, chatId }] })
         }
     } catch (error) {
         alertError(error)

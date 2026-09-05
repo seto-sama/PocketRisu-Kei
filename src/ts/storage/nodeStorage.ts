@@ -9,6 +9,7 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
+import { storageRequestError, StorageRequestError } from './storageRequest'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityResult,
@@ -283,11 +284,11 @@ export class NodeStorage{
             throw new ConflictError(data.error, data.currentEtag)
         }
         if(da.status < 200 || da.status >= 300){
-            throw "setItem Error"
+            throw await storageRequestError('setItem', da)
         }
         const data = await da.json()
         if(data.error){
-            throw data.error
+            throw new StorageRequestError('setItem', da.status, String(data.error))
         }
         const nextEtag = data.etag as string | undefined
         if (key === 'database/database.bin' && nextEtag) {
@@ -306,7 +307,7 @@ export class NodeStorage{
             },
         })
         if (!response.ok) {
-            throw new Error(`Inlay WebP encoding failed (${response.status})`)
+            throw await storageRequestError('encodeInlayWebp', response)
         }
         return new Blob([await response.arrayBuffer()], { type: 'image/webp' })
     }
@@ -318,7 +319,7 @@ export class NodeStorage{
 
         const da = await this.authFetch('/api/read', { method: "GET", headers })
         if(da.status < 200 || da.status >= 300){
-            throw "getItem Error"
+            throw await storageRequestError('getItem', da)
         }
 
         // Capture ETag for database.bin
@@ -354,7 +355,7 @@ export class NodeStorage{
             headers
         })
         if(da.status < 200 || da.status >= 300){
-            throw "listItem Error"
+            throw await storageRequestError('listItem', da)
         }
         const data = await da.json()
         if(data.error){
@@ -376,7 +377,7 @@ export class NodeStorage{
             }
         })
         if(da.status < 200 || da.status >= 300){
-            throw "removeItem Error"
+            throw await storageRequestError('removeItem', da)
         }
         const data = await da.json()
         if(data.error){
@@ -500,8 +501,7 @@ export class NodeStorage{
             headers,
         })
         if (!response.ok) {
-            const body = await response.text().catch(() => '')
-            throw new Error(`Database projection read failed (${response.status})${body ? `: ${body}` : ''}`)
+            throw await storageRequestError('getDatabaseProjection', response)
         }
 
         const data = await response.json() as DatabaseProjection<T>
@@ -521,6 +521,7 @@ export class NodeStorage{
             body: JSON.stringify({ database, expectedRevision }),
             headers: { 'content-type': 'application/json' },
         })
+        if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
             error?: string
             etag?: string
@@ -537,8 +538,8 @@ export class NodeStorage{
         if (response.status === 409) {
             return { success: false, conflict: true, etag, revision }
         }
-        if (!response.ok || data.error) {
-            throw new Error(data.error ?? `Database initialization failed (${response.status})`)
+        if (data.error) {
+            throw new StorageRequestError('initializeDatabase', response.status, data.error)
         }
         return {
             success: true,
@@ -568,6 +569,7 @@ export class NodeStorage{
         // so it must not enter the network/CAS lane with a potentially stale
         // hash while a server-owned generation commit is advancing the DB.
         if (patchData.patch.length === 0) return { success: true }
+        const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
 
         const headers: Record<string, string> = {
             'content-type': 'application/json',
@@ -609,13 +611,11 @@ export class NodeStorage{
             }
         }
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.text().catch(() => '')
-            console.error(`[Patch] Server rejected patch (${da.status}):`, body)
-            return { success: false }
+            throw await storageRequestError(operation, da)
         }
         const data = await da.json()
         if (data.error) {
-            return { success: false }
+            throw new StorageRequestError(operation, da.status, String(data.error))
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
@@ -639,7 +639,7 @@ export class NodeStorage{
                 'accept': 'application/octet-stream'
             }
         })
-        if (da.status < 200 || da.status >= 300) throw 'getItems Error'
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('getItems', da)
 
         const ct = da.headers.get('content-type') || ''
         if (ct.includes('application/octet-stream')) {
@@ -677,7 +677,7 @@ export class NodeStorage{
                     'content-type': 'application/json'
                 }
             })
-            if (da.status < 200 || da.status >= 300) throw 'setItems Error'
+            if (da.status < 200 || da.status >= 300) throw await storageRequestError('setItems', da)
         }
     }
 
@@ -1054,7 +1054,7 @@ export class NodeStorage{
             headers: { 'x-chat-id': chatId },
         })
         if (da.status === 404) return null
-        if (da.status < 200 || da.status >= 300) throw new Error(`fetchChatContent error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
         const etag = da.headers.get('x-chat-etag')
         if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
         const buffer = new Uint8Array(await da.arrayBuffer())
@@ -1087,8 +1087,9 @@ export class NodeStorage{
             const data = await da.json().catch(() => ({}))
             throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '')
         }
-        if (da.status < 200 || da.status >= 300) throw new Error(`saveChatContent error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('saveChatContent', da)
         const data = await da.json()
+        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error))
         if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
     }
 
