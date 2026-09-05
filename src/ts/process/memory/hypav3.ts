@@ -1,4 +1,4 @@
-import { type HypaModel, type memoryVector, HypaProcesser, isBrowserLocalHypaModel, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
+import { type HypaModel, type memoryVector, HypaProcesser, DEFAULT_HYPA_MODEL, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
@@ -122,8 +122,6 @@ export interface HypaV3Result {
 }
 
 export interface HypaV3ExecutionOptions {
-    /** Called before a Hypa run that may require browser-only embedding work. */
-    onClientEmbeddingRequired?: (model: HypaModel) => Promise<void>;
     /** Placeholder used to pre-register main while server-side selection runs. */
     deferredMemoryPrompt?: string;
     /** Called when prompt construction must wait for browser-side Lua. */
@@ -147,14 +145,6 @@ const logPrefix = "[HypaV3]";
 const memoryPromptTag = "Past Events Summary";
 const summarySeparator = "\n\n";
 
-async function markClientEmbeddingBoundary(
-    options: HypaV3ExecutionOptions | undefined,
-    model: HypaModel,
-): Promise<void> {
-    if (!options?.onClientEmbeddingRequired || !isBrowserLocalHypaModel(model)) return;
-    await options.onClientEmbeddingRequired(model);
-}
-
 function canUseDurableHypaDispatch(room: Chat): boolean {
     try {
         const binding = resolveChatModelBinding(room, 'memory');
@@ -172,7 +162,6 @@ function getRemoteEmbeddingConfig(model: HypaModel): {
     customUrl?: string;
     customModel?: string;
 } | undefined {
-    if (isBrowserLocalHypaModel(model)) return undefined;
     const db = getDatabase();
     if (model === 'custom') {
         const customUrl = db.hypaCustomSettings?.url?.trim();
@@ -200,7 +189,7 @@ const SERVER_HYPA_TOKENIZERS = new Set([
 
 function canPlanServerHypaSelection(options: HypaV3ExecutionOptions | undefined, room: Chat, tokenizer: ChatTokenizer): boolean {
     if (!options?.planServerExecution || !options.deferredMemoryPrompt
-        || !getRemoteEmbeddingConfig(getDatabase().hypaModel || 'MiniLM')
+        || !getRemoteEmbeddingConfig(getDatabase().hypaModel || DEFAULT_HYPA_MODEL)
         || !SERVER_HYPA_TOKENIZERS.has(tokenizer.getRevenantSpec().tokenizer)) return false;
     const binding = resolveChatModelBinding(room, 'memory');
     if (binding.kind !== 'modelPreset' || binding.preset.claudeBatching) return false;
@@ -252,7 +241,7 @@ function planServerHypaSelection(input: {
                 maxConcurrent: settings.useExperimentalImpl ? settings.summarizationMaxConcurrent : 1,
                 requestsPerMinute: settings.summarizationRequestsPerMinute,
             },
-            embedding: getRemoteEmbeddingConfig(getDatabase().hypaModel || 'MiniLM'),
+            embedding: getRemoteEmbeddingConfig(getDatabase().hypaModel || DEFAULT_HYPA_MODEL),
             tokenizer: tokenizer.getRevenantSpec(),
             settings: {
                 recentMemoryRatio: settings.recentMemoryRatio,
@@ -471,11 +460,10 @@ export async function hypaMemoryV3(
     }
     const settings = getCurrentHypaV3Preset().settings;
     if (settings.similarMemoryRatio > 0) {
-        const model = getDatabase().hypaModel || "MiniLM";
+        const model = getDatabase().hypaModel || DEFAULT_HYPA_MODEL;
         // Persist this boundary before waiting for detached summary jobs. If
         // the page disappears during that wait, the server may finish those
         // jobs but knows that embedding needs a browser before proceeding.
-        await markClientEmbeddingBoundary(options, model);
     }
     await recoverHypaV3SummaryJobs(char, room);
 
@@ -742,7 +730,7 @@ async function hypaMemoryV3MainExp(
         batchId: string,
         operationIds: string[],
     ): Promise<boolean> => {
-        const embeddingModel = db.hypaModel || 'MiniLM';
+        const embeddingModel = db.hypaModel || DEFAULT_HYPA_MODEL;
         const remoteEmbedding = getRemoteEmbeddingConfig(embeddingModel);
         const tokenizerSpec = tokenizer.getRevenantSpec();
         const serverTokenizers = new Set([

@@ -1,44 +1,12 @@
 import { globalFetch } from "src/ts/globalApi.svelte";
-import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 
-export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyage4large'|'voyageContext3'|'voyageContext4'
-
-// In a typical environment, bge-m3 is a heavy model.
-// If your GPU can't handle this model, you'll see errror below.
-// Failed to execute 'mapAsync' on 'GPUBuffer': [Device] is lost
-export const localModels = {
-    models: {
-        'MiniLM':'Xenova/all-MiniLM-L6-v2',
-        'MiniLMGPU': "Xenova/all-MiniLM-L6-v2",
-        'nomic':'nomic-ai/nomic-embed-text-v1.5',
-        'nomicGPU':'nomic-ai/nomic-embed-text-v1.5',
-        'bgeSmallEn': 'Xenova/bge-small-en-v1.5',
-        'bgeSmallEnGPU': 'Xenova/bge-small-en-v1.5',
-        'bgem3': 'Xenova/bge-m3',
-        'bgem3GPU': 'Xenova/bge-m3',
-        'multiMiniLM': 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-        'multiMiniLMGPU': 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-        'bgeM3Ko': 'HyperBlaze/BGE-m3-ko',
-        'bgeM3KoGPU': 'HyperBlaze/BGE-m3-ko',
-    },
-    gpuModels:[
-        'MiniLMGPU',
-        'nomicGPU',
-        'bgeSmallEnGPU',
-        'bgem3GPU',
-        'multiMiniLMGPU',
-        'bgeM3KoGPU',
-    ]
-}
-
-export function isBrowserLocalHypaModel(model: string): boolean {
-    return Object.prototype.hasOwnProperty.call(localModels.models, model)
-}
+import { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
+export { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
 
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
@@ -96,7 +64,7 @@ export class HypaProcesser{
         this.vectors = []
         const db = getDatabase()
         if(model === 'auto'){
-            this.model = db.hypaModel || 'MiniLM'
+            this.model = db.hypaModel || DEFAULT_HYPA_MODEL
         }
         else{
             this.model = model
@@ -131,11 +99,6 @@ export class HypaProcesser{
             const groups = inputs.map(s => [s])
             const results = await provider.embedDocumentGroups(groups)
             return results.map(group => group[0])
-        }
-        if(isBrowserLocalHypaModel(this.model)){
-            const inputs:string[] = Array.isArray(input) ? input : [input]
-            let results:Float32Array[] = await runEmbedding(inputs, localModels.models[this.model], localModels.gpuModels.includes(this.model) ? 'webgpu' : 'wasm')
-            return results
         }
         let gf = null;
         if(this.model === 'custom'){

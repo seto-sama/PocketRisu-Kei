@@ -1,3 +1,4 @@
+import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
 import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleFile, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
@@ -658,7 +659,9 @@ export function setDatabase(data:Database){
     data.colorScheme = normalizeColorScheme(data.colorScheme) ?? safeStructuredClone(defaultColorScheme)
     data.colorSchemeName ??= 'default'
     data.NAIsettings.starter ??= ""
-    data.hypaModel ??= 'MiniLM'
+    if (!(remoteHypaModels as readonly string[]).includes(data.hypaModel)) {
+        data.hypaModel = data.voyageApiKey ? 'voyageContext3' : DEFAULT_HYPA_MODEL
+    }
     data.mancerHeader ??= ''
     data.emotionProcesser ??= 'submodel'
     data.translatorType ??= 'bergamot'

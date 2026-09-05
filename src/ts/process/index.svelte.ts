@@ -21,7 +21,6 @@ import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
-import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
@@ -1344,10 +1343,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             height: inlayData.height
                         })
                     }
-                    else{
-                        const captionResult = await runImageEmbedding(inlayData.data) 
-                        formatedChat += `[${captionResult[0].generated_text}]`
-                    }
                 }
                 if(inlayData?.type === 'video' || inlayData?.type === 'audio'){
                     if(multimodal.length === 0){
@@ -1494,13 +1489,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             })
                         }
                         : undefined,
-                    onClientEmbeddingRequired: async embeddingModel => {
-                        await setWorkflowStep('memory.hypav3', 'waiting_client', {
-                            checkpoint: 'embedding.local',
-                            embeddingModel,
-                            reason: 'browser_local_embedding',
-                        })
-                    },
                 },
             )
             if(sp.error){

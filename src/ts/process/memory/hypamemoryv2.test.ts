@@ -9,7 +9,6 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     }),
 }))
 vi.mock('src/ts/globalApi.svelte', () => ({ globalFetch: vi.fn() }))
-vi.mock('src/ts/process/transformers', () => ({ runEmbedding: vi.fn() }))
 vi.mock('src/ts/storage/persistentKv', () => ({
     makeHashedStorageKey: vi.fn(async (_prefix: string, key: string) => key),
     readPersistentJson: vi.fn(async () => undefined),

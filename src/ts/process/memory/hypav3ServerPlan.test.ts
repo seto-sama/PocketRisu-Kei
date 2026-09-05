@@ -22,7 +22,7 @@ vi.mock('../revenant', () => ({ createRevenantOperation: (value: unknown) => val
 vi.mock('../revenant/workflow', () => ({
     getRevenantHypaExecution: async () => null, prepareRevenantHypaExecution: vi.fn(), waitForRevenantHypaExecution: vi.fn(),
 }))
-vi.mock('./hypamemory', () => ({ HypaProcesser: class {}, isBrowserLocalHypaModel: () => false }))
+vi.mock('./hypamemory', () => ({ HypaProcesser: class {} }))
 vi.mock('./hypamemoryv2', () => ({ HypaProcessorV2: class {} }))
 vi.mock('./contextualEmbedding', () => ({ isContextModel: () => true, getContextProvider: vi.fn() }))
 
