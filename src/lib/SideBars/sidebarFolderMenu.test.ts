@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { folder } from 'src/ts/storage/database.svelte'
+import type { folder, Database } from 'src/ts/storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({
     DBState: { db: { characterOrder: [] as Array<string | folder> } },
     select: vi.fn(), input: vi.fn(), file: vi.fn(), save: vi.fn(), src: vi.fn(),
 }))
-vi.mock(import('src/ts/stores.svelte'), () => ({ DBState: mocks.DBState }))
+vi.mock(import('src/ts/stores.svelte'), () => ({ DBState: mocks.DBState as { db: Database } }))
 vi.mock(import('src/ts/alert'), () => ({ alertSelect: mocks.select, alertInput: mocks.input }))
 vi.mock(import('src/ts/util'), () => ({ selectSingleFile: mocks.file }))
 vi.mock(import('src/ts/globalApi.svelte'), () => ({ saveAsset: mocks.save, getFileSrc: mocks.src }))

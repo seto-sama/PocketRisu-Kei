@@ -11,6 +11,15 @@ export { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
 export const hypaVectorCachePrefix = 'cache/hypa-vector/';
+const MAX_CACHED_VECTORS = 512;
+
+function rememberVector(key: string, value: memoryVector): void {
+    hypaVectorCache.delete(key);
+    hypaVectorCache.set(key, value);
+    while (hypaVectorCache.size > MAX_CACHED_VECTORS) {
+        hypaVectorCache.delete(hypaVectorCache.keys().next().value);
+    }
+}
 
 const MAX_ERROR_BODY_LENGTH = 300
 
@@ -30,14 +39,16 @@ export function truncateErrorBody(data: unknown): string {
 
 export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
     if (hypaVectorCache.has(cacheKey)) {
-        return hypaVectorCache.get(cacheKey)
+        const value = hypaVectorCache.get(cacheKey)
+        rememberVector(cacheKey, value)
+        return value
     }
     const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
     const payload = await readPersistentJson<{ key: string, value: memoryVector }>(storageKey)
     if (!payload || payload.key !== cacheKey) {
         return undefined
     }
-    hypaVectorCache.set(cacheKey, payload.value)
+    rememberVector(cacheKey, payload.value)
     return payload.value
 }
 
@@ -46,7 +57,7 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         ...value,
         embedding: Array.from(value.embedding)
     }
-    hypaVectorCache.set(cacheKey, normalizedValue)
+    rememberVector(cacheKey, normalizedValue)
     const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
     await writePersistentJson(storageKey, {
         key: cacheKey,

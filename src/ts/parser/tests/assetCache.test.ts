@@ -17,14 +17,14 @@ vi.mock(import('../../stores.svelte'), () => ({
 }))
 vi.mock(import('../../process/modules'), () => ({ getModuleAssets: () => [] }))
 vi.mock(import('../../process/scripts'), () => ({
-    processScriptFull: async (_char: unknown, data: string) => ({ data }),
+    processScriptFull: async (_char: unknown, data: string) => ({ data, emoChanged: false }),
 }))
 
 import { prepareMarkdownSource, resetAssetsCache, type simpleCharacterArgument } from '../parser.svelte'
 
 function makeCharacter(id: string): simpleCharacterArgument {
     return {
-        type: 'simple', chaId: id, name: id,
+        type: 'simple', chaId: id, name: id, customscript: [],
         additionalAssets: [['shared', `${id}.png`, 'png']],
         emotionImages: [['happy', `${id}-happy.png`]],
     }
@@ -51,6 +51,6 @@ describe('character asset cache ownership', () => {
         a.additionalAssets = [['shared', 'replacement.png', 'png']]
         resetAssetsCache(a.additionalAssets, a.emotionImages, [], a.chaId)
         expect(await prepareMarkdownSource('{{raw::shared}}', a)).toBe('/resolved/replacement.png')
-        expect(await prepareMarkdownSource('{{raw::shared}}', { type: 'simple', chaId: 'empty', name: 'empty' })).toBe('')
+        expect(await prepareMarkdownSource('{{raw::shared}}', { type: 'simple', chaId: 'empty', name: 'empty', customscript: [] })).toBe('')
     })
 })
