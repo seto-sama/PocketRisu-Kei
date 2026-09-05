@@ -3899,6 +3899,40 @@ function sendDatabaseProjectionError(res, error) {
     return true;
 }
 
+const PLUGIN_STORAGE_EXCLUSION_HEADER = 'x-risu-plugin-storage-exclusion';
+
+function pluginStorageProjectionOptions(req) {
+    const raw = req.get(PLUGIN_STORAGE_EXCLUSION_HEADER);
+    if (!raw) return {};
+    if (raw === 'all') return { excludeAllPluginStorage: true };
+    try {
+        const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+        const excludedPluginNames = Array.isArray(parsed.plugins)
+            ? [...new Set(parsed.plugins.filter(name => typeof name === 'string'))]
+            : [];
+        return {
+            excludedPluginNames,
+            excludeUnclassifiedPluginStorage: parsed.unclassified === true,
+        };
+    } catch {
+        throw new DatabaseProjectionServiceError('Invalid plugin storage exclusion header', {
+            code: 'INVALID_PLUGIN_STORAGE_EXCLUSION',
+            statusCode: 400,
+        });
+    }
+}
+
+app.get('/api/plugin-storage/startup-stats', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureCanonicalStorage();
+        res.json(appDataStore.pluginStorageFootprint());
+    } catch (error) {
+        next(error);
+    }
+});
+
 // The browser-facing startup shell and metadata commit boundary. This API is
 // JSON by design: database.bin is reserved for explicit compatibility
 // import/export and never participates in ordinary autosave.
@@ -3908,6 +3942,7 @@ app.get('/api/database', async (req, res, next) => {
         await ensureCanonicalStorage();
         res.json(databaseProjectionService.getStartupProjection({
             remote: isCloudflareTunnelRequest(req),
+            ...pluginStorageProjectionOptions(req),
         }));
     } catch (error) {
         if (!sendDatabaseProjectionError(res, error)) next(error);
@@ -3942,12 +3977,16 @@ app.patch('/api/database', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     if (!requireSyncClientId(req, res)) return;
     try {
+        const projectionOptions = {
+            remote: isCloudflareTunnelRequest(req),
+            ...pluginStorageProjectionOptions(req),
+        };
         const result = await queueStorageOperation(async () => {
             await ensureCanonicalStorage();
             const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
             if (chatInternalOps.length > 0) {
                 const current = databaseProjectionService.getStartupProjection({
-                    remote: isCloudflareTunnelRequest(req),
+                    ...projectionOptions,
                 });
                 const error = new DatabaseProjectionServiceError(
                     'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
@@ -3959,7 +3998,7 @@ app.patch('/api/database', async (req, res, next) => {
                 throw error;
             }
             const patched = databaseProjectionService.patchDatabase(req.body, {
-                remote: isCloudflareTunnelRequest(req),
+                ...projectionOptions,
             });
             refreshCanonicalDatabaseCache();
             if (patched.changed) {

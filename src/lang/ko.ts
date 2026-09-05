@@ -961,7 +961,7 @@ export const languageKorean = {
   unrecommended: "비권장",
   chatNotes: "채팅 노트",
   showUnrecommended: "비권장 설정 보이기",
-  allowV2Plugin: "플러그인 V2.0 허용",
+  allowV2Plugin: "플러그인 V2 허용",
   altGreet: "추가 첫 메시지",
   scripts: "스크립트",
   settings: "설정",
@@ -1767,6 +1767,20 @@ export const languageKorean = {
   paste: "붙여넣기",
   depth: "깊이",
   returnCSSError: "CSS 오류 반환",
+  pluginMemoryWarningTitle: "플러그인 데이터 경고",
+  pluginMemoryWarningDescription: "플러그인 데이터 용량이 경고 설정 용량을 초과했습니다. 대용량 플러그인으로 인한 OOM이 우려되는 경우 플러그인을 끄고 DB를 로딩할 수 있습니다.",
+  pluginMemoryWarningDescriptionMobile: "대용량 플러그인으로 인한 OOM이 우려되는 경우 플러그인을 끄고 DB를 로딩할 수 있습니다.",
+  pluginMemoryStoredData: "전체 데이터 용량",
+  pluginStorageWarningThreshold: "경고 설정 용량",
+  pluginMemoryStillToDisable: "초과 용량",
+  pluginMemorySelectedTotal: "불러올 데이터: {}",
+  pluginMemoryUnclassified: "미분류·레거시 데이터",
+  pluginMemoryUnclassifiedDescription: "신뢰할 수 있는 소유권 정보가 없는 과거 및 V2/V2.1 저장 데이터입니다.",
+  pluginMemoryEnableAll: "전부 켜기",
+  pluginMemoryDisableAll: "전부 끄기",
+  pluginMemoryProceed: "진행",
+  pluginMemoryDisabledForSession: "메모리 보호를 위해 일시적으로 꺼짐",
+  pluginV2Blocked: "레거시 플러그인 V2 차단됨",
   alwaysActiveInChat: "언제나 활성화 (현재 챗)",
   childLoreDesc:
     "이것은 캐릭터 로어의 복사본이며, 삭제하거나 원본 로어에서 직접 비활성화하기 전에는 '언제나 활성화' 상태로 유지됩니다.",
@@ -2121,6 +2135,8 @@ export const languageKorean = {
     "플러그인 {} 이(가) Provider 접근 권한을 요청합니다. 무단 API 호출이 발생할 수 있습니다. 허용하시겠습니까?",
   sendChatConsent:
     "플러그인 {} 이(가) 사용자 대신 채팅 메시지를 전송할 권한을 요청합니다. AI 응답이 트리거됩니다. 허용하시겠습니까?",
+  inlayPermissionConsent:
+    "플러그인 {} 이(가) 인레이 에셋 접근 권한을 요청합니다. 채팅에 첨부된 파일이 노출될 수 있습니다. 허용하시겠습니까?",
   resetPluginPermission: "권한 응답 초기화",
   resetPluginPermissionConfirm:
     '플러그인 "{}"의 저장된 권한 응답(허용/거부 이력)을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
@@ -2134,6 +2150,7 @@ export const languageKorean = {
   removePlugin: "플러그인 삭제",
   updatePlugin: "플러그인 업데이트 설치",
   pluginCreated: "플러그인을 만들었습니다.",
+  pluginUpdated: "플러그인을 업데이트했습니다.",
   pluginV2WarningTitle: "구형 플러그인 API 경고",
   pluginV2Warning:
     "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",

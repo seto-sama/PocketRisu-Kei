@@ -70,6 +70,15 @@ export class AutoStorage{
         return this.realStorage.getDatabaseProjection<T>()
     }
 
+    async getPluginStorageStartupStats() {
+        await this.Init()
+        return this.realStorage.getPluginStorageStartupStats()
+    }
+
+    setPluginStorageExclusion(exclusion: Parameters<NodeStorage['setPluginStorageExclusion']>[0]) {
+        this.realStorage.setPluginStorageExclusion(exclusion)
+    }
+
     async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
         await this.Init()
         return this.realStorage.initializeDatabase(database, expectedRevision)

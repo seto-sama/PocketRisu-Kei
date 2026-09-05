@@ -9,6 +9,10 @@ const {
     mergeChatStubWithFullChat,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
+const {
+    classifiedPluginOwner,
+    installedV3Plugins,
+} = require('./pluginStorageProjection.cjs');
 
 const APP_DATA_SCHEMA_VERSION = 1;
 const STATE_ROW_ID = 1;
@@ -498,6 +502,13 @@ function createAppDataStore(db) {
     const selectPluginStorage = db.prepare(`
       SELECT storage_key, payload FROM app_plugin_storage ORDER BY rowid
     `);
+    const selectPluginStorageSizes = db.prepare(`
+      SELECT storage_key, LENGTH(payload) AS bytes
+      FROM app_plugin_storage ORDER BY rowid
+    `);
+    const selectRootValue = db.prepare(`
+      SELECT payload FROM app_root_fields WHERE field_key = ?
+    `);
     const selectCharacters = db.prepare(`
       SELECT character_id, payload FROM app_characters ORDER BY position
     `);
@@ -568,6 +579,45 @@ function createAppDataStore(db) {
             });
         }
         return result;
+    }
+
+    /**
+     * Lightweight startup guard data. Values are never decoded here: only the
+     * per-key SQLite payload lengths and the small ownership/plugin manifests
+     * are read, so the browser can decide before requesting the full DB.
+     */
+    function pluginStorageFootprint() {
+        const ownerRow = selectRootValue.get('pluginStorageMeta');
+        const ownerMeta = decodeValue(ownerRow?.payload) ?? {};
+        const installedPlugins = selectPlugins.all('legacy')
+            .map(row => decodeValue(row.payload));
+        const v3Plugins = installedV3Plugins(installedPlugins);
+        const bytesByPlugin = new Map(
+            Array.from(v3Plugins.keys(), name => [name, 0]),
+        );
+        let totalBytes = 0;
+        let unclassifiedBytes = 0;
+        for (const row of selectPluginStorageSizes.all()) {
+            const bytes = Number(row.bytes ?? 0);
+            totalBytes += bytes;
+            const owner = classifiedPluginOwner(ownerMeta, row.storage_key, v3Plugins);
+            if (owner !== null) {
+                bytesByPlugin.set(owner, (bytesByPlugin.get(owner) ?? 0) + bytes);
+            } else {
+                unclassifiedBytes += bytes;
+            }
+        }
+        return {
+            totalBytes,
+            unclassifiedBytes,
+            plugins: Array.from(v3Plugins, ([name, plugin]) => ({
+                name,
+                displayName: typeof plugin.displayName === 'string'
+                    ? plugin.displayName
+                    : name,
+                bytes: bytesByPlugin.get(name) ?? 0,
+            })).sort((a, b) => b.bytes - a.bytes || a.displayName.localeCompare(b.displayName)),
+        };
     }
 
     function readMessages(characterId, chatId) {
@@ -1188,6 +1238,7 @@ function createAppDataStore(db) {
         hasChat,
         listCharacterStorage,
         listModuleStorage,
+        pluginStorageFootprint,
         projectionEtag,
         projectionEtagFor,
         replaceFromProjection,

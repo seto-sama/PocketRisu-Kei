@@ -1,5 +1,6 @@
 
 import type { SettingItem } from './types';
+import { DEFAULT_PLUGIN_STORAGE_WARNING_MB, getPluginStorageWarningMB, setPluginStorageWarningMB } from '../plugins/pluginMemorySafety';
 import { loadPlugins } from '../plugins/plugins.svelte';
 import { GENERATION_COUNT_MAX, GENERATION_COUNT_MIN } from '../process/automaticReroll';
 import {
@@ -76,6 +77,13 @@ export const advancedSettingsItems: SettingItem[] = [
         }
     },
     // Experimental Section
+    {
+        id: 'adv.pluginStorageWarning', type: 'number', labelKey: 'pluginMemoryWarningTitle',
+        helpKey: 'pluginStorageWarningThreshold',
+        getValue: () => getPluginStorageWarningMB(),
+        setValue: (_db, value) => setPluginStorageWarningMB(value),
+        options: { min: 0, suffix: 'MB', disableable: true, defaultValue: DEFAULT_PLUGIN_STORAGE_WARNING_MB },
+    },
     {
         id: 'adv.exp.cachePoint', type: 'check', labelKey: 'automaticCachePoint', bindKey: 'automaticCachePoint',
         helpKey: 'automaticCachePoint', showExperimental: true

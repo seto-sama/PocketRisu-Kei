@@ -33,6 +33,20 @@ import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
 import { isNodeServer } from './platform';
+import {
+    applyPluginMemoryDecision,
+    getPluginStorageWarningBytes,
+    requestPluginMemoryDecision,
+} from './plugins/pluginMemorySafety';
+
+async function configurePluginStartupMemoryGuard() {
+    const thresholdBytes = getPluginStorageWarningBytes()
+    if (thresholdBytes === null) return
+    const stats = await forageStorage.getPluginStorageStartupStats()
+    if (stats.totalBytes < thresholdBytes) return
+    const decision = await requestPluginMemoryDecision(stats, thresholdBytes)
+    forageStorage.setPluginStorageExclusion(applyPluginMemoryDecision(decision))
+}
 
 /**
  * Loads the application data.
@@ -48,6 +62,7 @@ export async function loadData() {
 
                 LoadingStatusState.text = "Loading Local Save File..."
                 if (isNodeServer) {
+                    await configurePluginStartupMemoryGuard()
                     const projection = await forageStorage.getDatabaseProjection<Database>()
                     if (projection.database === null) {
                         createdFreshDatabase = true

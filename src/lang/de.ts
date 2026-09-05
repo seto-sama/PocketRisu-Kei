@@ -1197,6 +1197,7 @@ export const languageGerman = {
     "replacerPermissionConsent": "Plugin {} fordert die Berechtigung an, Inhalte im Chat zu ersetzen, was zur Manipulation der Konversation verwendet werden könnte. Möchten Sie dies zulassen?",
     "providerPermissionConsent": "Plugin {} fordert die Berechtigung an, auf den Provider zuzugreifen, was unautorisierte API-Aufrufe ermöglichen könnte. Möchten Sie dies zulassen?",
     "sendChatConsent": "Plugin {} fordert die Berechtigung an, in Ihrem Namen Chat-Nachrichten zu senden, was KI-Antworten auslöst. Möchten Sie dies zulassen?",
+    "inlayPermissionConsent": "Plugin {} fordert die Berechtigung an, auf Inlay-Assets zuzugreifen. Dadurch können an Chats angehängte Dateien offengelegt werden. Möchten Sie dies zulassen?",
     "pluginV2Warning": "Plugin V2 und V2.1 gelten als unsicher und werden in zukünftigen Versionen nicht mehr funktionieren. **Bitte verwenden Sie diese Versionen von Plugins nicht.** Wenn Sie der Entwickler dieses Plugins sind, aktualisieren Sie bitte so schnell wie möglich auf V3.",
     "newMessageButtonRightCenter": "Mitte rechts",
     "trimStartNewChat": "„Neuen Chat starten“-Nachrichten kürzen",

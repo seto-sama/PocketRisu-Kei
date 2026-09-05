@@ -159,7 +159,9 @@ describe('plugin permission state keys', () => {
         state.given.add('foo')
         state.given.add(permissionKeyOf('foo', 'db'))
         state.denied.add(permissionKeyOf('foo', 'provider'))
+        state.denied.add(permissionKeyOf('foo', 'inlay'))
         state.cache.set(permissionLastGrantKeyOf('foo', 'db'), 111)
+        state.cache.set(permissionLastGrantKeyOf('foo', 'inlay'), 333)
         state.given.add(permissionKeyOf('foo_bar', 'db'))
         state.cache.set(permissionLastGrantKeyOf('foo_bar', 'db'), 222)
 

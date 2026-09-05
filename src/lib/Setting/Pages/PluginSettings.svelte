@@ -6,7 +6,7 @@
     import { TriangleAlertIcon } from '@lucide/svelte';
 
     import { DBState, showPopupEditor } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
+    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, isLegacyV2Plugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
     import Input from "../../UI/components/Input.svelte";
@@ -18,8 +18,13 @@
     import Textarea from "../../UI/components/Textarea.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import Tooltip from "../../UI/components/Tooltip.svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import { removePluginSidebarMenuItems } from "src/ts/sidebarMenuOrder";
+    import {
+        pluginDisabledForMemorySession,
+        pluginMemorySessionStore,
+    } from "src/ts/plugins/pluginMemorySafety";
 
     let showParams = $state<string[]>([])
     let pluginSearch = $state('')
@@ -75,27 +80,21 @@
         void requestImmediateSave()
     }
 
-    function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
+    function openPluginScriptEditor(plugin: RisuPlugin) {
         const originalScript = plugin.script ?? ''
         showPopupEditor({
             value: originalScript,
             title: pluginTitle(plugin),
             mode: 'plain',
             commitMode: 'submit',
-            onCommit: (nextScript) => {
+            onCommit: async (nextScript) => {
                 if (nextScript === originalScript) return true
-
-                const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
-                const currentIndex = foundIndex >= 0 ? foundIndex : index
-                const currentPlugin = DBState.db.plugins?.[currentIndex]
-                if (!currentPlugin) return true
-
-                currentPlugin.script = nextScript
-                DBState.db.plugins[currentIndex] = currentPlugin
-                loadPlugins()
-                void requestImmediateSave()
-                notifySuccess('Plugin updated.')
-                return true
+                const updated = await importPlugin(nextScript, {
+                    isUpdate: true,
+                    originalPluginName: plugin.name,
+                })
+                if (updated) notifySuccess(language.pluginUpdated)
+                return updated
             },
         })
     }
@@ -155,6 +154,18 @@
         <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
+        {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
+        {@const memoryPowerLocked = pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore)}
+        {@const legacyPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
+        {@const pluginPowerLocked = memoryPowerLocked || legacyPowerLocked}
+        {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
+        {@const pluginPowerLabel = memoryPowerLocked
+            ? language.pluginMemoryDisabledForSession
+            : legacyPowerLocked
+                ? language.pluginV2Blocked
+                : pluginPoweredOn
+                    ? language.disablePlugin
+                    : language.enablePlugin}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
@@ -177,7 +188,7 @@
                 <span class="text-xs text-subtext truncate">{pluginDescription(plugin)}</span>
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
-            {#if plugin.version === 2 || plugin.version === "2.1"}
+            {#if legacyV2Plugin}
                 <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-warning" onclick={(e) => {
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
@@ -227,25 +238,34 @@
                 {/await}
             {/if}
 
-            <IconButton
-                title={plugin.enabled ? language.disablePlugin : language.enablePlugin}
-                aria-label={plugin.enabled ? language.disablePlugin : language.enablePlugin}
-                active={plugin.enabled}
-                activeColor="primary"
-                onclick={async (e) => {
-                    plugin.enabled = !plugin.enabled
-                    DBState.db.plugins[index] = plugin
-                    loadPlugins()
-                    void requestImmediateSave()
-                    e.stopPropagation()
-                }}
-            >
-                {#if plugin.enabled}
-                    <PowerIcon />
-                {:else}
-                    <PowerOffIcon />
-                {/if}
-            </IconButton>
+            <Tooltip disabled={!pluginPowerLocked}>
+                {#snippet trigger(props)}
+                    <span {...props} class="inline-flex">
+                        <IconButton
+                            title={pluginPowerLabel}
+                            aria-label={pluginPowerLabel}
+                            active={pluginPoweredOn}
+                            activeColor="primary"
+                            disabled={pluginPowerLocked}
+                            onclick={(e) => {
+                                e.stopPropagation()
+                                if(pluginPowerLocked) return
+                                plugin.enabled = !plugin.enabled
+                                DBState.db.plugins[index] = plugin
+                                void loadPlugins()
+                                void requestImmediateSave()
+                            }}
+                        >
+                            {#if pluginPoweredOn}
+                                <PowerIcon />
+                            {:else}
+                                <PowerOffIcon />
+                            {/if}
+                        </IconButton>
+                    </span>
+                {/snippet}
+                {pluginPowerLabel}
+            </Tooltip>
 
             <IconButton
                 title={language.resetPluginPermission}
@@ -269,7 +289,7 @@
                 aria-label={language.editPlugin}
                 onclick={(e) => {
                     e.stopPropagation()
-                    openPluginScriptEditor(index, plugin)
+                    openPluginScriptEditor(plugin)
                 }}
             >
                 <SquarePenIcon />

@@ -3,6 +3,10 @@
 const { applyPatch: applyJsonPatch } = require('fast-json-patch');
 const { calculateHash, normalizeJSON } = require('./utils.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
+const {
+    classifiedPluginOwner,
+    installedV3Plugins,
+} = require('./pluginStorageProjection.cjs');
 
 const STARTUP_PROJECTION_OPTIONS = Object.freeze({ includeMessages: false });
 
@@ -79,6 +83,65 @@ function compositionalHash(value) {
     return calculateHash(value).toString(16);
 }
 
+function pluginStorageExclusion(database, requestOptions = {}) {
+    const names = requestOptions.excludedPluginNames ?? [];
+    if (!requestOptions.excludeAllPluginStorage
+        && !requestOptions.excludeUnclassifiedPluginStorage && names.length === 0) {
+        return null;
+    }
+    return {
+        all: requestOptions.excludeAllPluginStorage === true,
+        unclassified: requestOptions.excludeUnclassifiedPluginStorage === true,
+        names: new Set(names),
+        knownV3Names: installedV3Plugins(database?.plugins),
+    };
+}
+
+function pluginStorageKeyIsExcluded(database, key, exclusion) {
+    if (exclusion.all) return true;
+    const owner = classifiedPluginOwner(database?.pluginStorageMeta, key, exclusion.knownV3Names);
+    if (owner === null) return exclusion.unclassified;
+    return exclusion.names.has(owner);
+}
+
+function filterPluginStorage(database, requestOptions = {}) {
+    const exclusion = pluginStorageExclusion(database, requestOptions);
+    if (!exclusion) {
+        return database;
+    }
+    const filteredStorage = {};
+    for (const [key, value] of Object.entries(database?.pluginCustomStorage ?? {})) {
+        if (!pluginStorageKeyIsExcluded(database, key, exclusion)) {
+            filteredStorage[key] = value;
+        }
+    }
+    const filteredMeta = {};
+    for (const [key, value] of Object.entries(database?.pluginStorageMeta ?? {})) {
+        if (!pluginStorageKeyIsExcluded(database, key, exclusion)) filteredMeta[key] = value;
+    }
+    return {
+        ...database,
+        pluginCustomStorage: filteredStorage,
+        pluginStorageMeta: filteredMeta,
+    };
+}
+
+function restoreExcludedPluginStorage(incoming, canonical, requestOptions = {}) {
+    const exclusion = pluginStorageExclusion(canonical, requestOptions);
+    if (!exclusion) {
+        return incoming;
+    }
+    const storage = { ...(incoming?.pluginCustomStorage ?? {}) };
+    for (const [key, value] of Object.entries(canonical?.pluginCustomStorage ?? {})) {
+        if (pluginStorageKeyIsExcluded(canonical, key, exclusion)) storage[key] = value;
+    }
+    const meta = { ...(incoming?.pluginStorageMeta ?? {}) };
+    for (const [key, value] of Object.entries(canonical?.pluginStorageMeta ?? {})) {
+        if (pluginStorageKeyIsExcluded(canonical, key, exclusion)) meta[key] = value;
+    }
+    return { ...incoming, pluginCustomStorage: storage, pluginStorageMeta: meta };
+}
+
 function createDatabaseProjectionService(options = {}) {
     const appDataStore = options.appDataStore ?? options.store;
     if (!appDataStore
@@ -132,9 +195,16 @@ function createDatabaseProjectionService(options = {}) {
         return normalizeProjection(filterRemoteProjection(snapshot.database));
     }
 
-    function currentConflictDetails(remote = false) {
+    function projectionVisibleToRequest(snapshot, requestOptions = {}) {
+        return filterPluginStorage(
+            visibleDatabase(snapshot, requestOptions.remote === true),
+            requestOptions,
+        );
+    }
+
+    function currentConflictDetails(requestOptions = {}) {
         const snapshot = canonicalSnapshot();
-        const visible = visibleDatabase(snapshot, remote);
+        const visible = projectionVisibleToRequest(snapshot, requestOptions);
         return {
             currentEtag: snapshot.etag,
             currentRevision: snapshot.revision,
@@ -142,25 +212,24 @@ function createDatabaseProjectionService(options = {}) {
         };
     }
 
-    function wrapStoreConflict(error, remote, message = 'Database projection changed') {
+    function wrapStoreConflict(error, requestOptions, message = 'Database projection changed') {
         if (!(error instanceof AppDataConflictError)
             && error?.name !== 'AppDataConflictError') {
             throw error;
         }
         throw new DatabaseProjectionConflictError(message, {
             code: 'DATABASE_PROJECTION_CHANGED',
-            ...currentConflictDetails(remote),
+            ...currentConflictDetails(requestOptions),
             cause: error,
         });
     }
 
     /** Return the lightweight, chat-stub-only browser startup projection. */
     function getStartupProjection(requestOptions = {}) {
-        const remote = requestOptions.remote === true;
         const snapshot = canonicalSnapshot();
         return {
             database: snapshot.initialized
-                ? visibleDatabase(snapshot, remote)
+                ? projectionVisibleToRequest(snapshot, requestOptions)
                 : null,
             etag: snapshot.etag,
             revision: snapshot.revision,
@@ -232,7 +301,7 @@ function createDatabaseProjectionService(options = {}) {
                 etag: appDataStore.projectionEtag(STARTUP_PROJECTION_OPTIONS),
             };
         } catch (error) {
-            wrapStoreConflict(error, remote, 'Database changed during initialization');
+            wrapStoreConflict(error, { remote }, 'Database changed during initialization');
         }
 
         return {
@@ -259,7 +328,7 @@ function createDatabaseProjectionService(options = {}) {
 
         const remote = requestOptions.remote === true;
         const snapshot = canonicalSnapshot();
-        const visible = visibleDatabase(snapshot, remote);
+        const visible = projectionVisibleToRequest(snapshot, requestOptions);
         const currentHash = compositionalHash(visible);
 
         // JSON Patch identity has no write intent. In particular, a stale
@@ -299,6 +368,7 @@ function createDatabaseProjectionService(options = {}) {
                     mergeRemoteProjection(snapshot.database, incoming),
                 );
             }
+            incoming = restoreExcludedPluginStorage(incoming, snapshot.database, requestOptions);
             incoming = normalizeProjection(
                 restoreServerOwnedMetadata(incoming, snapshot.database),
             );
@@ -316,7 +386,7 @@ function createDatabaseProjectionService(options = {}) {
                 expectedEtag: snapshot.etag,
             });
         } catch (error) {
-            wrapStoreConflict(error, remote);
+            wrapStoreConflict(error, requestOptions);
         }
 
         return {
