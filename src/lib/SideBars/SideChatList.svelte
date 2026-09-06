@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { v4 } from "uuid";
     import { DownloadIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
@@ -210,7 +211,7 @@
                     onReorder={syncChatOrderFromDom}
                 >
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
-                    <span class="no-sort flex justify-center text-subtext">Empty</span>
+                    <EmptyState title={language.chatFolderEmpty} description="" layout="inline" density="compact" className="no-sort" />
                     <div></div>
                     {:else}
                     {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat (chat.id)}

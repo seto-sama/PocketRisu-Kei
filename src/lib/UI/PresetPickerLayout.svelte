@@ -1,5 +1,6 @@
 <script lang="ts">
-    import type { Snippet } from "svelte";
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import type { ComponentProps, Snippet } from "svelte";
     import { CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PackageIcon, PencilIcon, SearchIcon, SettingsIcon, TagIcon, TagsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertInput } from "src/ts/alert";
@@ -48,8 +49,8 @@
         allowItemDropOnReadOnlyFolders?: boolean;
         visibleItemIndexes?: number[];
         emptyMessage?: string;
-        noSearchResultsMessage?: string;
         folderEmptyMessage?: string;
+        folderEmptySize?: ComponentProps<typeof EmptyState>['size'];
         folderNamePrompt?: string;
         folderRenamePrompt?: string;
         folderDeleteConfirm?: string;
@@ -73,6 +74,9 @@
         itemContent?: Snippet<[number, InlineEditableNameController]>;
         itemActions?: Snippet<[number]>;
         listFooter?: Snippet;
+        onSelectNone?: () => void;
+        noneSelected?: boolean;
+        noneLabel?: string;
         children?: Snippet;
     }
 
@@ -102,8 +106,8 @@
         allowItemDropOnReadOnlyFolders = false,
         visibleItemIndexes = $bindable([]),
         emptyMessage = $bindable(''),
-        noSearchResultsMessage = language.presetNoSearchResults,
         folderEmptyMessage = organizationKind === 'tag' ? language.presetTagEmpty : language.presetFolderEmpty,
+        folderEmptySize = 'default',
         folderNamePrompt = organizationKind === 'tag' ? language.presetTagNamePrompt : language.presetFolderNamePrompt,
         folderRenamePrompt = organizationKind === 'tag' ? language.presetTagRenamePrompt : language.presetFolderRenamePrompt,
         folderDeleteConfirm = organizationKind === 'tag' ? language.presetTagDeleteConfirm : language.presetFolderDeleteConfirm,
@@ -127,6 +131,9 @@
         itemContent,
         itemActions,
         listFooter,
+        onSelectNone,
+        noneSelected = false,
+        noneLabel = language.bindingNone,
         children,
     }: Props = $props();
 
@@ -136,6 +143,10 @@
     let itemDragOrigin: SortableDragOrigin | null = null;
     const folderIds = $derived(new Set(folders.map(folder => folder.id)));
     const normalizedSearchQuery = $derived(searchQuery.trim().toLocaleLowerCase());
+    const showNoneOption = $derived(!!onSelectNone
+        && (selectedFolder === 'all' || selectedFolder === 'uncategorized') && (
+        !normalizedSearchQuery || noneLabel.toLocaleLowerCase().includes(normalizedSearchQuery)
+    ));
 
     function itemHasFolder(value: string | string[] | undefined, folderId: string): boolean {
         return Array.isArray(value) ? value.includes(folderId) : value === folderId;
@@ -173,7 +184,7 @@
                 return inFolder && (!normalizedSearchQuery
                     || (itemSearchTexts[index] ?? itemNames[index] ?? '').toLocaleLowerCase().includes(normalizedSearchQuery));
             });
-        emptyMessage = normalizedSearchQuery ? noSearchResultsMessage : folderEmptyMessage;
+        emptyMessage = normalizedSearchQuery ? language.noSearchResults : folderEmptyMessage;
     });
 
     function folderCount(id: string) {
@@ -418,7 +429,7 @@
                 </div>
             {/if}
         </aside>
-        <section class="min-w-0 min-h-0 grow flex flex-col p-3">
+        <section class="min-w-0 min-h-0 grow flex flex-col px-2 py-3">
             <SettingLayout variant="search" className="mb-2">
                 <div class="risu-field-border flex items-center gap-2 rounded-md px-2.5">
                     <SearchIcon size={18} class="text-subtext shrink-0"/>
@@ -428,7 +439,7 @@
             </SettingLayout>
             {#if itemContent && onSelectItem}
                 <SortableList
-                    className="grow min-h-0 overflow-y-auto flex flex-col [&>*]:shrink-0"
+                    className="relative grow min-h-0 overflow-y-auto flex flex-col [&>*]:shrink-0"
                     disabled={!onMoveItem && !allowFolderAssignmentDrag}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
@@ -465,19 +476,37 @@
                             }}>
                             {@render itemContent(index, renameController)}
                             {#if itemRenameable || itemActions || onDuplicateItem || onExportItem || onDeleteItem}
-                                <IconButtonGroup className="-my-2 -ml-2 -mr-2 shrink-0 py-2 pl-5 pr-2" onclick={(e) => e.stopPropagation()}>
+                                <IconButtonGroup className="ml-3 self-stretch shrink-0" onclick={(e) => e.stopPropagation()}>
                                     {#if itemRenameable}<InlineRenameAction controller={renameController} />{/if}
                                     {@render itemActions?.(index)}
                                     {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
                                     {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
-                                    {#if onDeleteItem}<IconButton tone="destructive" onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
+                                    {#if onDeleteItem}<IconButton tone="destructive" title={itemDeleteLabel} aria-label={itemDeleteLabel} onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
                                 </IconButtonGroup>
                             {/if}
                         </div>
                     {:else}
-                        <div class="h-full min-h-32 flex items-center justify-center text-subtext text-sm">{emptyMessage}</div>
+                        {#if !showNoneOption}
+                            <EmptyState
+                                layout="overlay"
+                                size={normalizedSearchQuery ? 'default' : folderEmptySize}
+                                title={normalizedSearchQuery ? undefined : emptyMessage}
+                                description={normalizedSearchQuery ? undefined : ''}
+                            />
+                        {/if}
                     {/each}
                     {@render listFooter?.()}
+                    {#if showNoneOption}
+                        <button
+                            type="button"
+                            class="risu-selectable-row w-full h-10 flex items-center rounded-md text-left px-2 text-sm text-subtext"
+                            data-selected={noneSelected}
+                            data-preset-select-none
+                            onclick={onSelectNone}
+                        >
+                            <span class="truncate">{noneLabel}</span>
+                        </button>
+                    {/if}
                 </SortableList>
             {/if}
             {@render children?.()}

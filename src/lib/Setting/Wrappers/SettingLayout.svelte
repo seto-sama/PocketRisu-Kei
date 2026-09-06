@@ -142,7 +142,7 @@
             <Collapsible.Trigger class="group flex items-center gap-1 text-subtext risu-interactive-foreground text-sm transition-colors">
                 <FilterIcon size={12} />
                 <span>{title}</span>
-                {#if activeCount > 0}<Badge variant="secondary" className="ml-1">{activeCount}</Badge>{/if}
+                {#if activeCount > 0}<Badge variant="secondary" className="ml-1 leading-none">{activeCount}</Badge>{/if}
                 <ChevronDownIcon size={16} class="transition-transform group-data-[state=closed]:-rotate-90" />
             </Collapsible.Trigger>
             {#if (activeCount > 0 && clearLabel && onClear) || control}

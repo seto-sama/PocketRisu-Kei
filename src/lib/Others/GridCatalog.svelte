@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { changeChar, emptyCharacterTrash, getCharImage, removeChar } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
     import { DBState, selectedCharID } from 'src/ts/stores.svelte';
@@ -257,7 +258,11 @@
                         </article>
                     {:else}
                         <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
-                            {language.noData}
+                            {#if search.trim()}
+                                <EmptyState />
+                            {:else}
+                                <EmptyState title={language.noData} description="" />
+                            {/if}
                         </div>
                     {/each}
                 </div>
@@ -277,7 +282,11 @@
                     </HorizontalMasonry>
                 {:else}
                     <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
-                        {language.noData}
+                        {#if search.trim()}
+                            <EmptyState />
+                        {:else}
+                            <EmptyState title={language.noData} description="" />
+                        {/if}
                     </div>
                 {/if}
             {:else}
@@ -332,7 +341,11 @@
                         </article>
                     {:else}
                         <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
-                            {language.noData}
+                            {#if search.trim()}
+                                <EmptyState />
+                            {:else}
+                                <EmptyState title={language.noData} description="" />
+                            {/if}
                         </div>
                     {/each}
                 </div>

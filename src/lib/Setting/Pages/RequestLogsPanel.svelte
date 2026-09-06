@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from 'src/lib/UI/components/EmptyState.svelte'
     import Button from '../../UI/components/Button.svelte'
     import Input from '../../UI/components/Input.svelte'
     import Tooltip from '../../UI/components/Tooltip.svelte'
@@ -243,11 +244,14 @@
 <SettingLayout variant="status" shownCount={displayedRequestLogs.length} totalCount={requestLogsTotal}
     loading={requestLogsLoading} error={requestLogsError ? `${language.systemLogsFailedLoad}: ${requestLogsError}` : null} />
 
-{#if displayedRequestLogs.length === 0}
+{#if !requestLogsLoading && !requestLogsError && displayedRequestLogs.length === 0}
     <div class="flex flex-col items-center justify-center text-center py-16 border border-darkborderc rounded-md bg-darkbg/30">
         <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
-        <div class="text-maintext font-medium mb-1">{language.noRequestLogs}</div>
-        <div class="text-subtext text-sm">{language.requestLogsEmptyDesc}</div>
+        {#if requestSearch.trim()}
+            <EmptyState />
+        {:else}
+            <EmptyState title={language.noRequestLogs} description={language.requestLogsEmptyDesc} />
+        {/if}
     </div>
 {:else}
     <SettingLayout variant="list">

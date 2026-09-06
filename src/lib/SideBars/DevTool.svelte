@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
     import Input from "../UI/components/Input.svelte";
     import NumberInput from "../UI/components/NumberInput.svelte";
@@ -179,7 +180,7 @@
 
 <Accordion class="mt-2" name={language.autopilot}>
     {#if $devToolAutopilotStore.length === 0}
-        <span class="text-sm text-subtext">{language.noData}</span>
+        <EmptyState title={language.noData} description="" layout="section" density="compact" />
     {/if}
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">

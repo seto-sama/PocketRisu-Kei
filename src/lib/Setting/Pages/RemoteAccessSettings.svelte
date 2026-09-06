@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "src/lang";
     import SettingPage from "../../UI/components/SettingPage.svelte";
     import { forageStorage } from "src/ts/globalApi.svelte";
@@ -152,7 +153,7 @@
     </div>
 
     {#if !devicesLoading && activeDevices.length === 0}
-        <p class="text-subtext text-sm py-2">{language.deviceListEmpty}</p>
+        <EmptyState title={language.deviceListEmpty} description="" layout="section" density="compact" />
     {:else if !devicesLoading}
         <div class="flex flex-col divide-y divide-darkborderc/60 border border-darkborderc rounded-md overflow-hidden">
             {#each activeDevices as session (session.id)}

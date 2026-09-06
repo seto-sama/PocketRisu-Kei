@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { SearchIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import Dialog from '../UI/components/Dialog.svelte';
@@ -45,7 +46,7 @@
         {#if !query.trim()}
             <span class="text-subtext text-sm px-1 py-2">{language.searchSettingsHint}</span>
         {:else if results.length === 0}
-            <span class="text-subtext text-sm px-1 py-2">{language.searchSettingsNoResults}</span>
+            <EmptyState layout="section" density="compact" />
         {:else}
             {#each results as result (result.key)}
                 <button class="flex flex-col items-start text-left px-2 py-2 rounded-md risu-interactive-surface-strong shrink-0" onclick={() => select(result)}>

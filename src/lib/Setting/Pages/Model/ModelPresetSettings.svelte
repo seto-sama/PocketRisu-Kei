@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { ArrowLeftIcon, CopyIcon, PlusIcon, RefreshCwIcon, TrashIcon, TriangleAlertIcon } from "@lucide/svelte";
     import SettingPage from "../../../UI/components/SettingPage.svelte";
     import Accordion from "../../../UI/components/Accordion.svelte";
@@ -584,8 +585,8 @@
     {:else}
         <SettingTabs
             tabs={[
-                { label: language.modelPresetTabPresets, value: 0 },
-                { label: language.apiKeyManagerMenu, value: 1 },
+                { label: language.modelPresetTabPresets, value: 0, description: language.help.modelPresetManagerDesc },
+                { label: language.apiKeyManagerMenu, value: 1, description: language.help.apiKeyManagerDesc },
                 { label: language.modelPresetTabOptions, value: 2 },
             ]}
             bind:selected={$ModelPresetListTabIndex}
@@ -614,9 +615,7 @@
             </div>
 
             {#if DBState.db.modelPresets.length === 0}
-                <div class="text-subtext text-sm text-center py-8">
-                    {language.modelPresetEmpty}
-                </div>
+                <EmptyState title={language.modelPresetEmpty} description="" layout="section" />
             {:else}
                 <SortableList
                     className="flex flex-col gap-3"

@@ -1,8 +1,7 @@
 <script lang="ts">
     import { DBState, selectedCharID, openPresetList, presetSelectCallback } from "src/ts/stores.svelte";
     import { language } from "src/lang";
-    import { changeToPreset, getCurrentChat } from "src/ts/storage/database.svelte";
-    import { alertConfirmMulti, alertSelect, notifySuccess } from "src/ts/alert";
+    import { changeToPreset } from "src/ts/storage/database.svelte";
     import { ChevronDownIcon, PinIcon, PinOffIcon, SlidersHorizontalIcon } from "@lucide/svelte";
     import Button from "../UI/components/Button.svelte";
     import Switch from "../UI/components/Switch.svelte";
@@ -37,41 +36,9 @@
         }
     })
 
-    function unbindPreset() {
-        const chat = getCurrentChat()
-        if (!chat) return
-        chat.bindedBotPreset = ''
-        notifySuccess(language.promptUnbindedSuccess)
-    }
-
-    async function handlePresetBindClick() {
-        if (isPresetBound) {
-            const sel = await alertConfirmMulti(
-                language.promptBindingLabel,
-                [
-                    language.promptBindChange,
-                    { label: language.promptBindUnbind, variant: 'destructive' },
-                ]
-            )
-            if (sel === 0) {
-                presetSelectCallback.set(bindPromptPresetToCurrentChat)
-                openPresetList.set(true)
-            } else if (sel === 1) {
-                unbindPreset()
-            }
-        } else {
-            const sel = parseInt(await alertSelect([
-                language.promptBindCurrent,
-                language.presetSelectOther,
-                language.cancel
-            ]))
-            if (sel === 0) {
-                bindPromptPresetToCurrentChat(DBState.db.botPresetsId)
-            } else if (sel === 1) {
-                presetSelectCallback.set(bindPromptPresetToCurrentChat)
-                openPresetList.set(true)
-            }
-        }
+    function handlePresetBindClick() {
+        presetSelectCallback.set(bindPromptPresetToCurrentChat)
+        openPresetList.set(true)
     }
 </script>
 

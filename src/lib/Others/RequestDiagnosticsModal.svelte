@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import {
         ActivityIcon,
         BracesIcon,
@@ -158,7 +159,7 @@
 
     <SettingTabs tabs={tabs} bind:selected={selectedTab} className="mb-3" />
 
-    <div class="min-h-80 pr-1">
+    <div class="pr-1" class:min-h-80={selectedTab !== requestDiagnosticsTabs.requestLog || !!requestLog}>
         {#if selectedTab === requestDiagnosticsTabs.overview}
             <div class="flex flex-col gap-4">
                 <section>
@@ -259,23 +260,21 @@
             {:else if !requestKey}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
                     <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
-                    <div class="font-medium text-maintext">{language.requestDiagnostics.unlinkedRequestLog}</div>
-                    <div class="mt-1 max-w-md text-sm text-subtext">{language.requestDiagnostics.unlinkedRequestLogDesc}</div>
+                    <EmptyState title={language.requestDiagnostics.unlinkedRequestLog} description={language.requestDiagnostics.unlinkedRequestLogDesc} className="max-w-md" />
                 </div>
             {:else if requestLog}
                 <RequestLogDetail log={requestLog} />
             {:else}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
                     <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
-                    <div class="font-medium text-maintext">{language.requestDiagnostics.noRequestLog}</div>
-                    <div class="mt-1 max-w-md text-sm text-subtext">{language.requestDiagnostics.noRequestLogDesc}</div>
+                    <EmptyState title={language.requestDiagnostics.noRequestLog} description={language.requestDiagnostics.noRequestLogDesc} className="max-w-md" />
                 </div>
             {/if}
         {:else if selectedTab === requestDiagnosticsTabs.prompt}
             {#if !promptInfo || Object.keys(promptInfo).length === 0}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
                     <FileTextIcon size={40} class="mb-3 text-subtext opacity-60" />
-                    <div class="font-medium text-maintext">{language.promptInfoEmptyMessage}</div>
+                    <EmptyState title={language.promptInfoEmptyMessage} description="" />
                 </div>
             {:else}
                 <div class="flex flex-col gap-4">

@@ -136,6 +136,9 @@
         {selectedItemIndex}
         onMoveItem={movePreset}
         onSelectItem={(index) => pick(presets[index].id)}
+        onSelectNone={blankable ? () => pick('') : undefined}
+        noneSelected={!value}
+        noneLabel={blankLabel ?? language.useDefaultSubModel}
         onDuplicateItem={duplicatePreset}
         onDeleteItem={deletePreset}
         itemRenameable
@@ -149,17 +152,6 @@
                 placeholder="string"
                 onActivate={() => pick(presets[index].id)}
             />
-        {/snippet}
-        {#snippet listFooter()}
-            {#if blankable}
-                <button
-                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {!value ? '' : 'risu-interactive-surface'}"
-                    class:bg-selected={!value}
-                    onclick={() => pick('')}
-                >
-                    <span class="truncate">{blankLabel ?? language.useDefaultSubModel}</span>
-                </button>
-            {/if}
         {/snippet}
         <PresetPickerActions onCreate={createPreset} />
     </PresetPickerLayout>

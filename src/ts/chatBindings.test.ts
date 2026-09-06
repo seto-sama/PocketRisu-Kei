@@ -18,6 +18,8 @@ vi.mock('src/lang', () => ({
     language: {
         promptBindedSuccess: 'prompt bound',
         personaBindedSuccess: 'persona bound',
+        promptUnbindedSuccess: 'prompt unbound',
+        personaUnbindedSuccess: 'persona unbound',
     },
 }))
 
@@ -40,5 +42,26 @@ describe('current chat bindings', () => {
             bindedPersona: state.database.personas[0].id,
         })
         expect(state.notifySuccess).toHaveBeenCalledTimes(2)
+    })
+
+    it('clears only the selected binding when the picker selects none', () => {
+        state.chat = { bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' }
+        expect(bindPromptPresetToCurrentChat(-1)).toBe(true)
+        expect(state.chat).toEqual({ bindedBotPreset: '', bindedPersona: 'persona-id' })
+        expect(bindPersonaToCurrentChat(-1)).toBe(true)
+        expect(state.chat).toEqual({ bindedBotPreset: '', bindedPersona: '' })
+        expect(state.notifySuccess).toHaveBeenNthCalledWith(1, 'prompt unbound')
+        expect(state.notifySuccess).toHaveBeenNthCalledWith(2, 'persona unbound')
+    })
+
+    it('does not change bindings for a missing chat or an invalid preset', () => {
+        state.chat = { bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' }
+        expect(bindPromptPresetToCurrentChat(99)).toBe(false)
+        expect(bindPersonaToCurrentChat(-2)).toBe(false)
+        expect(state.chat).toEqual({ bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' })
+        state.chat = null
+        expect(bindPromptPresetToCurrentChat(-1)).toBe(false)
+        expect(bindPersonaToCurrentChat(-1)).toBe(false)
+        expect(state.notifySuccess).not.toHaveBeenCalled()
     })
 })

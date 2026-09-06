@@ -1,8 +1,6 @@
 <script lang="ts">
     import { DBState, selectedCharID } from "src/ts/stores.svelte";
     import { language } from "src/lang";
-    import { getCurrentChat } from "src/ts/storage/database.svelte";
-    import { alertConfirmMulti, alertSelect, notifySuccess } from "src/ts/alert";
     import { PinIcon, PinOffIcon } from "@lucide/svelte";
     import { openPersonaList, personaSelectCallback } from "src/ts/stores.svelte";
     import Button from "../UI/components/Button.svelte";
@@ -18,41 +16,9 @@
     let displayPersona = $derived(boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])
     let isPersonaBound = $derived(!!boundPersona)
 
-    function unbindPersona() {
-        const chat = getCurrentChat()
-        if (!chat) return
-        chat.bindedPersona = ''
-        notifySuccess(language.personaUnbindedSuccess)
-    }
-
-    async function handlePersonaBindClick() {
-        if (isPersonaBound) {
-            const sel = await alertConfirmMulti(
-                language.personaBindingLabel,
-                [
-                    language.personaBindChange,
-                    { label: language.personaBindUnbind, variant: 'destructive' },
-                ]
-            )
-            if (sel === 0) {
-                personaSelectCallback.set(bindPersonaToCurrentChat)
-                openPersonaList.set(true)
-            } else if (sel === 1) {
-                unbindPersona()
-            }
-        } else {
-            const sel = parseInt(await alertSelect([
-                language.personaBindCurrent,
-                language.personaSelectOther,
-                language.cancel
-            ]))
-            if (sel === 0) {
-                bindPersonaToCurrentChat(DBState.db.selectedPersona)
-            } else if (sel === 1) {
-                personaSelectCallback.set(bindPersonaToCurrentChat)
-                openPersonaList.set(true)
-            }
-        }
+    function handlePersonaBindClick() {
+        personaSelectCallback.set(bindPersonaToCurrentChat)
+        openPersonaList.set(true)
     }
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "src/lang";
     import { PlusIcon, SquarePenIcon, TrashIcon } from "@lucide/svelte";
     import { DBState } from "src/ts/stores.svelte";
@@ -107,8 +108,6 @@
 </script>
 
 <div class="flex flex-col gap-3">
-    <p class="text-xs text-subtext">{language.help.apiKeyManagerDesc}</p>
-
     {#snippet apiKeyForm()}
         <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
             <div class="flex flex-col gap-1">
@@ -148,7 +147,7 @@
     {/if}
 
     {#if entries.length === 0}
-        <div class="text-subtext text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
+        <EmptyState title={language.apiKeyPoolEmpty} description="" layout="section" density="compact" />
     {:else}
         <SortableList
             className="flex flex-col gap-3"

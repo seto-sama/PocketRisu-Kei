@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import Input from './components/Input.svelte'
     import { parseMarkdownSafe } from 'src/ts/parser/parser.svelte'
 
@@ -39,7 +40,11 @@
 
     <div class="min-h-0 flex-1 overflow-y-auto pr-1">
         {#if filteredItems.length === 0}
-            <p class="py-8 text-center text-sm text-subtext">{emptyMessage}</p>
+            {#if searchTerm.trim()}
+                <EmptyState layout="section" />
+            {:else}
+                <EmptyState title={emptyMessage} description="" layout="section" />
+            {/if}
         {:else}
             <div class="grid gap-3">
                 {#each filteredItems as item (item.name)}

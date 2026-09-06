@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { ListFilterIcon, SearchIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { DBState } from "src/ts/stores.svelte";
@@ -102,7 +103,7 @@
     {#snippet description()}{language.modelProviderFilterDialogDescription}{/snippet}
 
     {#if providers.length === 0}
-        <p class="text-sm text-subtext py-6 text-center">{language.modelProviderFilterEmpty}</p>
+        <EmptyState title={language.modelProviderFilterEmpty} description="" layout="section" density="compact" />
     {:else}
         <div class="flex flex-col gap-3">
             <div class="flex items-center gap-2">
@@ -128,9 +129,7 @@
 
             <SettingLayout variant="list">
                 {#if filteredProviders.length === 0}
-                    <p class="text-sm text-subtext py-6 text-center">
-                        {language.modelProviderFilterNoMatch}
-                    </p>
+                    <EmptyState layout="section" density="compact" />
                 {:else}
                     {#each filteredProviders as provider (provider.id)}
                         <SettingLayout variant="item" className="py-2.5">

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
     import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
     import { language } from "src/lang";
@@ -396,9 +397,11 @@
 
         <div class="flex flex-col gap-1 overflow-y-auto">
             {#if filtered.length === 0}
-                <div class="text-subtext text-sm text-center py-8">
-                    {activeTab === 'custom' ? language.customProfileEmpty : language.noProfileMatch}
-                </div>
+                {#if activeTab === 'custom' && !query.trim()}
+                    <EmptyState title={language.customProfileEmpty} description="" layout="section" />
+                {:else}
+                    <EmptyState layout="section" />
+                {/if}
             {:else}
                 {#each groupedByProvider as group (group.id)}
                     <section class="flex flex-col gap-1 mt-2 first:mt-0">

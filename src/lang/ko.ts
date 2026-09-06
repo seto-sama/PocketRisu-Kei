@@ -1,6 +1,8 @@
 import { helpKo } from "./help.ko";
 import { appendKoreanJosa } from "./koreanJosa";
 
+const missingItem = (item: string) => `${appendKoreanJosa(item, "이/가")} 없습니다.`;
+
 export const languageKorean = {
   formating: {
     main: "메인 프롬프트",
@@ -860,6 +862,7 @@ export const languageKorean = {
   imageStylePresetName: "프리셋 이름",
   imageStylePresetGenerationBinding: "생성 세팅 바인딩",
   imageStylePresetBindingNone: "바인딩 안 함",
+  bindingNone: "바인딩 안 함",
   imageStylePresetDeleteConfirm: "이 그림체 프리셋을 삭제할까요?",
   imageStylePresetPositive: "긍정 프롬프트",
   imageStylePresetNegative: "부정 프롬프트",
@@ -918,6 +921,13 @@ export const languageKorean = {
   provider: "공급자",
   key: "키",
   noData: "데이터 없음",
+  noDisplayItems: missingItem("표시할 항목"),
+  noSearchResults: "검색 결과가 없습니다",
+  noSearchResultsDesc: "현재 검색 조건에 맞는 결과가 없습니다.",
+  noRegexScripts: missingItem("정규식 스크립트"),
+  noTriggerScripts: missingItem("트리거 스크립트"),
+  noLorebook: missingItem("로어북"),
+  noMCP: missingItem("설치된 MCP"),
   currentImageGeneration: "현재 이미지 생성 데이터",
   SwipeRegenerate: "스와이프 리롤 사용",
   removeMessageOnly: "이 메시지만 삭제",
@@ -1188,7 +1198,7 @@ export const languageKorean = {
   resetPromptTemplateConfirm: "정말로 프롬프트 템플릿을 초기화하시겠습니까?",
   promptTemplateWarnings: {
     title: "프롬프트 템플릿 경고",
-    missing: (item: string) => `${appendKoreanJosa(item, "이/가")} 없습니다.`,
+    missing: missingItem,
     multiple: (item: string) => `${appendKoreanJosa(item, "이/가")} 여러 개입니다.`,
     missingChatEnd: '범위 끝이 "채팅 끝까지"인 과거 채팅 항목이 없습니다.',
     unconnectedChatRanges: (ranges: string) => `과거 채팅 범위가 연결되지 않았습니다: [${ranges}]`,
@@ -1277,7 +1287,7 @@ export const languageKorean = {
   largePersonaPortrait: "페르소나 세로 이미지",
   module: "모듈",
   modules: "모듈",
-  noModules: "모듈이 없습니다.",
+  noModules: missingItem("설치된 모듈"),
   createModule: "모듈 만들기",
   basicInfo: "기본 정보",
   moduleContent: "모듈 내용",
@@ -1400,7 +1410,7 @@ export const languageKorean = {
   loadAutoServerBackup: "자동 서버 백업 불러오기",
   notCharxWarn:
     "이 캐릭터는 여러 에셋을 사용합니다. 더 나은 호환성을 위해 이 캐릭터를 CharX 포맷으로 엑스포트하는 것이 좋습니다.",
-  noPlugins: "설치된 플러그인이 없습니다.",
+  noPlugins: missingItem("설치된 플러그인"),
   clipboardSuccess: "클립보드에 복사됨",
   translateContent: "컨텐츠 번역",
   translationInputPlaceholder: "번역할 텍스트를 입력하세요…",
@@ -1466,7 +1476,8 @@ export const languageKorean = {
   presetNoSearchResults: "일치하는 프리셋이 없습니다",
   chatSearch: "채팅 검색...",
   chatFolderDeleteConfirm: "이 폴더를 삭제하시겠습니까? 폴더 안의 채팅은 미분류로 이동합니다.",
-  chatFolderEmpty: "이 폴더에 채팅이 없습니다",
+  chatFolderEmpty: missingItem("이 폴더에 채팅"),
+  lorebookFolderEmpty: missingItem("이 폴더에 로어북"),
   chatNoSearchResults: "일치하는 채팅이 없습니다",
   modelPresets: "모델 프리셋",
   modelPresetEmpty: "등록된 모델 프리셋이 없습니다",
@@ -1600,7 +1611,8 @@ export const languageKorean = {
   importTranslationCacheSuccess: "번역 캐시 {0}개 항목을 가져왔습니다.",
   importTranslationCacheFailed:
     "{0}개 항목을 가져왔지만 {1}개 항목 저장에 실패했습니다. 저장 공간이 가득 찼을 수 있습니다.",
-  exportTranslationCacheEmpty: "번역 캐시가 비어 있습니다.",
+  exportTranslationCacheEmpty: missingItem("번역 캐시"),
+  translationCacheEmptyDesc: "채팅 메시지를 번역하면 서버에 보관되어 여기에 표시됩니다.",
   clearTranslationCacheSuccess: "번역 캐시를 모두 지웠습니다.",
   clearTranslationCacheConfirm:
     "모든 번역 캐시 항목이 삭제됩니다. 되돌릴 수 없습니다. 계속하시겠습니까?",
@@ -2085,7 +2097,7 @@ export const languageKorean = {
   requestLogsDesc:
     "서버에 보관된 리퀘스트 로그를 확인합니다.",
   requestLogsEmptyDesc:
-    "리퀘스트가 발생하면 서버에 보관되어 여기에 표시됩니다.",
+    "리퀘스트를 보내면 서버에 보관되어 여기에 표시됩니다.",
   requestLogsSearchPlaceholder: "URL, 기기, 상태, 채팅 ID 검색",
   requestLogsClearConfirm:
     "서버에 보관된 모든 리퀘스트 로그를 삭제할까요? 되돌릴 수 없습니다.",
@@ -2107,7 +2119,8 @@ export const languageKorean = {
   usageCacheCreationTokens: "캐시 생성",
   usageEstimatedCost: "예상 비용",
   usageSearchPlaceholder: "모델 또는 공급자 검색",
-  usageEmpty: "기록된 사용량이 없습니다.",
+  usageEmpty: missingItem("기록된 사용량"),
+  usageEmptyDesc: "리퀘스트를 보내면 서버에 보관되어 여기에 표시됩니다.",
   usageUnknownModel: "알 수 없는 모델",
   usageClearConfirm: "저장된 모든 사용량 기록을 삭제할까요? 되돌릴 수 없습니다.",
   usageDeleteConfirm: "이 사용량 기록을 삭제할까요?",
@@ -2423,7 +2436,7 @@ export const languageKorean = {
   pluginStorageBackendIdbDesc: "IndexedDB 기반 · JSON 지원 · 기기 로컬",
   pluginStorageSearch: "키 또는 값 검색...",
   pluginStorageRefresh: "새로고침",
-  pluginStorageEmpty: "항목이 없습니다.",
+  pluginStorageEmpty: missingItem("저장된 항목"),
   pluginStorageLoadError: "저장소를 불러올 수 없습니다.",
   popupEditorSave: "저장",
   popupEditorFormatJson: "JSON 정렬",

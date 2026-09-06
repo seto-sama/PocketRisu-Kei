@@ -5,8 +5,14 @@ import { getCurrentChat, getDatabase } from './storage/database.svelte'
 
 export function bindPromptPresetToCurrentChat(presetIndex: number): boolean {
     const chat = getCurrentChat()
+    if (!chat) return false
+    if (presetIndex === -1) {
+        chat.bindedBotPreset = ''
+        notifySuccess(language.promptUnbindedSuccess)
+        return true
+    }
     const preset = getDatabase().botPresets[presetIndex]
-    if (!chat || !preset) return false
+    if (!preset) return false
 
     preset.id ||= v4()
     chat.bindedBotPreset = preset.id
@@ -16,8 +22,14 @@ export function bindPromptPresetToCurrentChat(presetIndex: number): boolean {
 
 export function bindPersonaToCurrentChat(personaIndex: number): boolean {
     const chat = getCurrentChat()
+    if (!chat) return false
+    if (personaIndex === -1) {
+        chat.bindedPersona = ''
+        notifySuccess(language.personaUnbindedSuccess)
+        return true
+    }
     const persona = getDatabase().personas[personaIndex]
-    if (!chat || !persona) return false
+    if (!persona) return false
 
     persona.id ||= v4()
     chat.bindedPersona = persona.id

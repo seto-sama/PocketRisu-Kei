@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
   import { onDestroy, untrack } from "svelte";
   import { 
     type SerializableSummary, 
@@ -695,9 +696,7 @@
         <!-- Only the summaries list scrolls between the top and bottom controls. -->
         <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:gap-4" tabindex="-1">
           {#if hypaV3Data.summaries.length === 0}
-            <div class="p-4 text-center text-subtext sm:p-3 md:p-4">
-              {language.hypaV3Modal.noSummariesLabel}
-            </div>
+            <EmptyState title={language.hypaV3Modal.noSummariesLabel} description="" layout="section" density="compact" />
           {/if}
 
           {#each hypaV3Data.summaries as summary, i (summary)}

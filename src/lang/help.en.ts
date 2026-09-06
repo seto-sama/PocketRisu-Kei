@@ -561,6 +561,7 @@ export const helpEn = {
         modelPresetCacheGrowthHelp: "Recreate the cache once the prompt has grown by this many tokens since it was created.",
         modelPresetTestHelp: "Send a single message to this preset to check its credentials and endpoint respond. Not saved to any chat.",
         apiKeyManagerDesc: "Save API keys to reuse across multiple presets.",
+        modelPresetManagerDesc: "Save LLM model information to use in requests.",
         modelPresetPromptPresetFirst:
             "Use the prompt preset values for maximum context and response size.",
         modelPresetPromptParamsFirst:

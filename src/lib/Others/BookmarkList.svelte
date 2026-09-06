@@ -114,7 +114,6 @@
     folderRenamePrompt={language.bookmarkTagRenamePrompt}
     folderDeleteConfirm={language.bookmarkTagDeleteConfirm}
     folderEmptyMessage={language.noBookmarks}
-    noSearchResultsMessage={language.bookmarkNoSearchResults}
     allowFolderAssignmentDrag
     {close}
     onFoldersChange={(next) => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
@@ -484,7 +485,7 @@
                         {#if previewError}
                             <p class="text-sm text-danger">{previewError}</p>
                         {:else if !previewText}
-                            <p class="text-sm text-subtext">{language.popupEditorPreviewEmpty}</p>
+                            <EmptyState title={language.popupEditorPreviewEmpty} description="" />
                         {:else}
                             <pre
                                 class="m-0 font-mono leading-relaxed text-maintext"

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
   import {
     PlusIcon,
     XIcon,
@@ -182,10 +183,7 @@
 
         <!-- Empty State -->
         {#if categories.filter(c => c.id !== "").length === 0 && !categoryManagerState.editingCategory}
-          <div class="py-8 text-center text-sm text-subtext">
-            {language.hypaV3Modal.noCategoriesYet}<br>
-            <span class="text-xs">{language.hypaV3Modal.addNewCategoryHint}</span>
-          </div>
+          <EmptyState title={language.hypaV3Modal.noCategoriesYet} description={language.hypaV3Modal.addNewCategoryHint} layout="section" />
         {/if}
   </div>
 </Dialog>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { alertGenerationInfoStore } from "../../ts/alert";
     
     import { DBState } from 'src/ts/stores.svelte';
@@ -661,13 +662,13 @@
             </label>
 
             {#if !DBState.db.togglePresets?.length}
-                <p class="text-subtext text-sm">{language.togglePresetEmpty}</p>
+                <EmptyState title={language.togglePresetEmpty} description="" layout="section" />
             {:else}
                 {@const filteredPresets = togglePresetShowAll
                     ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))
                     : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)}
                 {#if filteredPresets.length === 0}
-                    <p class="text-subtext text-sm">{language.togglePresetEmptyFiltered}</p>
+                    <EmptyState layout="section" />
                 {:else}
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}

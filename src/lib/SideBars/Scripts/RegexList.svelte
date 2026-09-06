@@ -1,4 +1,6 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { language } from "src/lang";
     import type { customscript } from "src/ts/storage/database.svelte";
     import RegexData from "./RegexData.svelte";
     import Sortable from "sortablejs";
@@ -97,7 +99,11 @@
 {#key sorted}
     <DisclosureList className={embedded ? '' : 'mt-2'} bind:element={ele}>
         {#if scriptGroups.length === 0 || !scriptGroups.some(matchesSearch)}
-            <div class="text-subtext text-sm px-3 py-8 text-center">No Scripts</div>
+            {#if search.trim()}
+                <EmptyState layout="section" />
+            {:else}
+                <EmptyState title={language.noRegexScripts} description="" layout="inline" />
+            {/if}
         {/if}
         {#each scriptGroups as group}
             {@const customscript = group.scripts[0]}

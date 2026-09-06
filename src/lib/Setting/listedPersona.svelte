@@ -4,6 +4,7 @@
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { changeUserPersona, createUserPersona, deleteUserPersona, exportUserPersona, importUserPersona, moveUserPersona, saveUserPersona } from "src/ts/persona";
     import { DBState, settingsOpen } from "src/ts/stores.svelte";
+    import { getCurrentChat } from "src/ts/storage/database.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
@@ -23,6 +24,9 @@
     let visibleItemIndexes = $state<number[]>([]);
     let emptyMessage = $state('');
     const tags = $derived(DBState.db.personaTags ?? []);
+    const selectedPersonaIndex = $derived(onSelect
+        ? DBState.db.personas.findIndex(persona => !!persona.id && persona.id === getCurrentChat()?.bindedPersona)
+        : DBState.db.selectedPersona);
 
     function selectPersona(index: number) {
         if (onSelect) onSelect(index);
@@ -72,7 +76,9 @@
     bind:searchQuery
     bind:visibleItemIndexes
     bind:emptyMessage
-    selectedItemIndex={DBState.db.selectedPersona}
+    selectedItemIndex={selectedPersonaIndex}
+    onSelectNone={onSelect ? () => selectPersona(-1) : undefined}
+    noneSelected={selectedPersonaIndex < 0}
     onMoveItem={moveUserPersona}
     onSelectItem={selectPersona}
     onDuplicateItem={duplicatePersona}

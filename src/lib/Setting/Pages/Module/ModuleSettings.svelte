@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "src/lang";
     import SettingPage from "../../../UI/components/SettingPage.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -66,10 +67,11 @@
     } = $props();
 
     function filteredModules(modules:RisuModule[], search:string){
+        const normalized = search.trim().toLowerCase()
         return modules.map((rmodule, index) => ({ rmodule, index })).filter(({ rmodule }) => {
             if (view === 'mcp' ? !rmodule.mcp : !!rmodule.mcp) return false
-            if(search === '') return true
-            return rmodule.name.toLowerCase().includes(search.toLowerCase())
+            if(!normalized) return true
+            return rmodule.name.toLowerCase().includes(normalized)
         })
     }
 
@@ -317,7 +319,7 @@
 {#if mode === 0}
     <SettingPage title={embedded ? undefined : view === 'mcp' ? 'MCP' : language.modules}>
 
-    <SettingLayout variant="search" className="mt-4">
+    <SettingLayout variant="search" className="mb-4">
         <Input className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
         {#snippet control()}
         <IconButtonGroup size="lg">
@@ -359,20 +361,19 @@
     </SettingLayout>
 
     <SortableList
-        className="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
+        className="contain w-full max-w-full flex flex-col gap-3 flex-1 overflow-y-auto"
         onReorder={reorderModules}
     >
-        {#if managedModuleCount === 0}
-            <div class="text-subtext text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
+        {#if moduleSearch.trim() && visibleModules.length === 0}
+            <EmptyState layout="section" />
+        {:else if managedModuleCount === 0}
+            <EmptyState title={view === 'mcp' ? language.noMCP : language.noModules} description="" layout="section" />
         {:else}
-            {#if visibleModules.length === 0}
-                <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
-            {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
+                    class={`flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
                     onclick={() => editModule(rmodule)}

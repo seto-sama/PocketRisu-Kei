@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SelectOption from "../../UI/components/SelectOption.svelte";
@@ -123,7 +124,7 @@
 
     const removeTriggerAt = async (index: number) => {
         const trigger = value?.[index]
-        if (!trigger || index === 0 || value.length <= 2) return
+        if (!trigger || index === 0) return
         const confirmed = await alertConfirm(language.removeConfirm + (trigger.comment || 'Unnamed Trigger'))
         if (!confirmed) return
         openedTriggers.delete(trigger)
@@ -131,6 +132,7 @@
         openedTriggers = new Set(openedTriggers)
         openedEffects = new Set(openedEffects)
         value = value.filter((_, triggerIndex) => triggerIndex !== index)
+        addingEffectForIndex = -1
         if (selectedIndex === index) selectedIndex = 0
     }
 
@@ -383,7 +385,7 @@
 {#key triggerListKey}
     <DisclosureList className="mt-2" bind:element={triggerListElement}>
         {#if value.length <= 1}
-            <div class="px-3 py-8 text-center text-sm text-subtext">No Scripts</div>
+            <EmptyState title={language.noTriggerScripts} description="" layout="inline" />
         {/if}
         {#each value as trigger, i}
             {#if i > 0}
@@ -409,7 +411,6 @@
                             tone="destructive"
                             data-disclosure-action="delete"
                             aria-label={language.remove}
-                            disabled={value.length <= 2}
                             onclick={(event) => {
                                 event.stopPropagation()
                                 removeTriggerAt(i)
@@ -492,7 +493,7 @@
 
                     <DisclosureList background={false} className="border-darkborderc p-2">
                         {#if trigger.effect.length === 0}
-                            <div class="px-3 py-6 text-center text-sm text-subtext">{language.noEffect}</div>
+                            <EmptyState title={language.noEffect} description="" layout="inline" density="compact" />
                         {/if}
                         <SortableList
                             className="w-full"

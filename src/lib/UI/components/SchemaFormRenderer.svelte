@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import type {
         ModelPreset,
         RegistryFieldSchema,
@@ -184,9 +185,9 @@
         <!-- Fully degenerate snapshot (no schema fields to even fall back to) that
              heal couldn't repair. Don't dead-end on a blank/"no items" form —
              point the user at re-download / replace. -->
-        <p class="text-subtext text-sm py-4">{language.modelPresetSnapshotEmpty}</p>
+        <EmptyState title={language.modelPresetSnapshotEmpty} description="" layout="section" density="compact" />
     {:else if visibility !== 'info'}
-        <p class="text-subtext text-sm py-4">표시할 항목이 없습니다.</p>
+        <EmptyState title={language.noDisplayItems} description="" layout="section" density="compact" />
     {/if}
 {:else}
     <div class="flex flex-col gap-6">

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import Button from '../../UI/components/Button.svelte'
     import Input from '../../UI/components/Input.svelte'
     import DateTimeInput from '../../UI/components/DateTimeInput.svelte'
@@ -590,7 +591,11 @@
             {#if displayedEntries.length === 0}
                 <div class="flex flex-col items-center justify-center text-center py-12 bg-darkbg/30">
                     <ChartNoAxesColumnIcon size={40} class="text-subtext mb-3 opacity-50" />
-                    <div class="text-maintext font-medium">{language.usageEmpty}</div>
+                    {#if entrySearch.trim() || (entries.length > 0 && rangeEntries.length === 0)}
+                        <EmptyState />
+                    {:else}
+                        <EmptyState title={language.usageEmpty} description={language.usageEmptyDesc} />
+                    {/if}
                 </div>
             {:else}
                 <SettingLayout variant="list">

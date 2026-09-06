@@ -10,7 +10,7 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { language } from "src/lang";
     import TranslationCachePanel from "./Language/TranslationCachePanel.svelte";
-    import { LanguageSubmenuIndex } from "src/ts/stores.svelte";
+    import { DBState, LanguageSubmenuIndex } from "src/ts/stores.svelte";
 </script>
 
 <SettingPage title={language.language}>
@@ -25,8 +25,10 @@
 {#if $LanguageSubmenuIndex === 0}
     <div class="flex flex-col w-full">
         <SettingLayout variant="section" title={language.languageSettingsSection} first><SettingRenderer items={languageAndDisplaySettingsItems} layout="row" /></SettingLayout>
-        <SettingLayout variant="section" title={language.translatorConfigurationSection}><SettingRenderer items={translatorConfigurationItems} layout="row" /></SettingLayout>
-        <SettingLayout variant="section" title={language.translatorSettingsSection}><SettingRenderer items={translationBehaviorItems} layout="row" /></SettingLayout>
+        {#if DBState.db.translator}
+            <SettingLayout variant="section" title={language.translatorConfigurationSection}><SettingRenderer items={translatorConfigurationItems} layout="row" /></SettingLayout>
+            <SettingLayout variant="section" title={language.translatorSettingsSection}><SettingRenderer items={translationBehaviorItems} layout="row" /></SettingLayout>
+        {/if}
     </div>
 {:else if $LanguageSubmenuIndex === 1}
     <TranslationCachePanel />

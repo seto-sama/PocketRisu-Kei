@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     // Inline server-backup list component (extracted from the legacy
     // serverBackupManager modal). Renders the list with restore / download /
     // delete actions but no modal chrome — embedded directly in pages.
@@ -184,7 +185,7 @@
 {#if loading}
     <p class="text-subtext text-sm">{language.serverBackupLoading}</p>
 {:else if backups.length === 0}
-    <p class="text-subtext text-sm">{language.serverBackupEmpty}</p>
+    <EmptyState title={language.serverBackupEmpty} description="" layout="section" density="compact" />
 {:else}
     <SettingLayout variant="list">
         {#each displayedBackups as backup (backup.filename)}
