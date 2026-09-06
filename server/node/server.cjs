@@ -3842,6 +3842,7 @@ function sendDatabaseProjectionError(res, error) {
             ? { currentRevision: error.currentRevision }
             : {}),
         ...(error.currentHash ? { currentHash: error.currentHash } : {}),
+        ...(error.hashDiagnostics ? { hashDiagnostics: error.hashDiagnostics } : {}),
     });
     return true;
 }

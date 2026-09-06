@@ -11,6 +11,7 @@ import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
 import { storageRequestError, StorageRequestError } from './storageRequest'
+import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityResult,
@@ -47,6 +48,9 @@ export interface PersistWarning {
 }
 
 export interface PatchItemResult {
+    conflictCode?: string
+    currentHash?: string
+    hashDiagnostics?: PatchHashDiagnostics
     success: boolean
     etag?: string
     revision?: number
@@ -620,6 +624,9 @@ export class NodeStorage{
                 etag: currentEtag,
                 revision: currentRevision,
                 conflict: !rejectedByChatGuard,
+                conflictCode: typeof data.code === 'string' ? data.code : undefined,
+                currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
+                hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
             }
         }

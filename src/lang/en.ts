@@ -39,6 +39,7 @@ export const languageEnglish = {
         persistFailureTitle: "Server save failed — changes are not being written to disk",
         persistFailureAttemptedSize: "attempted size",
         storageRequestTooLarge: "The save request exceeds the server or reverse proxy request-size limit. Reduce the upload size or check the server/proxy limit. The request was not saved.",
+        saveConflictRetryExhausted: "Repeated save conflicts stopped automatic retries. Your pending edits remain in this tab but are not saved. Keep this tab open, stop editing on other devices, then edit again to retry. Check System Logs for conflict details.",
         chatGuardTitle: "Chat data guard triggered — switched to safe save mode",
         chatGuardDesc: "Suspicious save patterns blocked. Your changes will be persisted via the safe full-write fallback. If this keeps happening, please report it with browser console logs.",
         chatGuardPersistTitle: "Save aborted to protect existing chat data",

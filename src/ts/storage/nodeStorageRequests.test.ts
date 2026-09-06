@@ -103,3 +103,21 @@ it('never propagates unsolicited server text or ids from reference responses', a
     expect(await storage.scanContentReferences('translation', ['known', 'unused']))
         .toEqual({ kind: 'translation', scannedAt: 1, keys: ['known'] })
 })
+
+it('carries hash diagnostics through the existing patch request without another fetch', async () => {
+    const hashDiagnostics = { keys: { language: 'abc' }, characters: [{ id: 'a', hash: 'def' }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 'DATABASE_HASH_MISMATCH', currentHash: '123', currentRevision: 9,
+        currentEtag: 'server', hashDiagnostics,
+    }), { status: 409 }))
+    expect(await storage.patchDatabase(patch)).toMatchObject({
+        conflict: true, conflictCode: 'DATABASE_HASH_MISMATCH', currentHash: '123',
+        revision: 9, hashDiagnostics,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(patch)
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        hashDiagnostics: { keys: null, characters: [] },
+    }), { status: 409 }))
+    expect(await storage.patchDatabase(patch)).toMatchObject({ conflict: true, hashDiagnostics: undefined })
+})

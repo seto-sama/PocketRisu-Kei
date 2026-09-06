@@ -52,3 +52,39 @@ export function isRetryableSaveError(error: unknown): boolean {
     }
     return true
 }
+
+export class SaveConflictError extends Error {
+    constructor() {
+        super(language.errors.saveConflictRetryExhausted)
+        this.name = 'SaveConflictError'
+    }
+}
+
+// One budget for transport failures and successful requests that ask us to
+// rebase. A new edit can start another budget after automatic saving stops.
+const SAVE_RETRY_LIMIT = 4
+const SAVE_RETRY_DELAY_MS = 500
+const SAVE_RETRY_MAX_DELAY_MS = 3000
+
+export type SaveAttemptResult = 'saved' | 'retry' | 'noop' | 'discarded'
+
+export class SaveRetryPolicy {
+    private failures = 0
+
+    reset() { this.failures = 0 }
+
+    async runAttempt(save: () => Promise<SaveAttemptResult>) {
+        const result = await save()
+        if (result === 'retry') throw new SaveConflictError()
+        if (result === 'saved') this.reset()
+        return result
+    }
+
+    recordFailure(error: unknown) {
+        this.failures += 1
+        return {
+            retry: isRetryableSaveError(error) && this.failures <= SAVE_RETRY_LIMIT,
+            delayMs: Math.min(SAVE_RETRY_DELAY_MS * this.failures, SAVE_RETRY_MAX_DELAY_MS),
+        }
+    }
+}
