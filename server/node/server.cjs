@@ -7054,13 +7054,18 @@ app.post('/api/self-update', async (req, res) => {
         const isWin = process.platform === 'win32';
         const updateTmp = path.join(appDir, '.update-tmp');
 
-        // Restore from a previous interrupted update if leftover exists
+        // Restore from a previous interrupted update only when its in-progress
+        // marker is still there. A leftover backup/ alone is not proof of an
+        // interrupted update: on Windows the running launcher exe keeps
+        // backup/PocketRisu.exe locked, so the restart script's rmdir leaves
+        // the folder behind after a SUCCESSFUL update — restoring from it
+        // would roll the app back to the previous version.
         const prevBackup = path.join(updateTmp, 'backup');
-        try {
-            await fs.access(prevBackup);
+        const inProgressMarker = path.join(updateTmp, 'in-progress');
+        if (existsSync(inProgressMarker) && existsSync(prevBackup)) {
             console.log('[Update] Restoring files from previous interrupted update...');
             await restoreBackup(prevBackup, appDir);
-        } catch { /* no leftover */ }
+        }
         await fs.rm(updateTmp, { recursive: true, force: true }).catch(() => {});
         await fs.mkdir(updateTmp, { recursive: true });
 
@@ -7080,6 +7085,10 @@ app.post('/api/self-update', async (req, res) => {
         // Phase 1: move old files to backup — rollback immediately on any failure
         const backupDir = path.join(updateTmp, 'backup');
         await fs.mkdir(backupDir, { recursive: true });
+        // Present only while app files are being replaced. A leftover backup
+        // after a successful update must never roll back the installed release.
+        await fs.writeFile(inProgressMarker, `v${targetVersion}`);
+
 
         const oldEntries = await fs.readdir(appDir);
         for (const e of oldEntries) {
@@ -7137,6 +7146,10 @@ app.post('/api/self-update', async (req, res) => {
             }
         } catch { /* no scripts in release */ }
 
+        // The app files are complete and verified; keep successful-update
+        // leftovers from being mistaken for an interrupted replacement.
+        await fs.rm(inProgressMarker, { force: true }).catch(() => {});
+
         // Phase 4 (Windows): stage bin/ for restart script to apply after exit
         if (isWin) {
             const newBin = path.join(sourceDir, 'bin');
@@ -7172,42 +7185,54 @@ app.post('/api/self-update', async (req, res) => {
                 // Windows: use a .bat script to apply bin/, finalize version, and restart.
                 // A bat script can replace bin/node.exe after the Node process exits,
                 // avoiding file-lock issues that a Node child process would hit.
+                //
+                // cmd.exe parses .bat files in the OEM code page (e.g. CP949 on Korean
+                // Windows), not UTF-8, so any non-ASCII path (Korean user name, "바탕 화면")
+                // written literally into the script would be mangled and every command
+                // would fail. Keep the script pure ASCII and pass paths through environment
+                // variables, which reach cmd.exe as UTF-16 via CreateProcessW.
                 const batScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.bat`);
                 const utmp = path.join(appDir, '.update-tmp');
-                const binDir = path.join(appDir, 'bin');
-                const binBackup = path.join(utmp, 'old-bin');
                 const batLines = [
                     '@echo off',
-                    'timeout /t 3 /nobreak >nul',
+                    // Wait ~3s for the Node process to exit before touching
+                    // bin/. Not `timeout`: with stdio ignored, stdin is NUL
+                    // and timeout exits at once ("input redirection is not
+                    // supported"); ping does not read stdin.
+                    'ping -n 4 127.0.0.1 >nul',
                     // Apply staged bin/: backup current → copy new → on failure restore backup
-                    `if exist "${path.join(utmp, 'new-bin')}\\" (`,
-                    `  if exist "${binDir}\\" (`,
-                    `    xcopy /E /I /Y "${binDir}\\*" "${binBackup}\\" >nul`,
-                    `  )`,
-                    `  xcopy /E /I /Y "${path.join(utmp, 'new-bin')}\\*" "${binDir}\\" >nul`,
-                    `  if errorlevel 1 (`,
-                    `    echo [Update] bin/ copy failed, restoring backup...`,
-                    `    if exist "${binBackup}\\" (`,
-                    `      xcopy /E /I /Y "${binBackup}\\*" "${binDir}\\" >nul`,
-                    `    )`,
-                    `    echo [Update] bin/ restored. Staged files kept for retry.`,
-                    `    goto start`,
-                    `  )`,
-                    `)`,
+                    'if exist "%RISU_UTMP%\\new-bin\\" (',
+                    '  if exist "%RISU_APP_DIR%\\bin\\" (',
+                    '    xcopy /E /I /Y "%RISU_APP_DIR%\\bin\\*" "%RISU_UTMP%\\old-bin\\" >nul',
+                    '  )',
+                    '  xcopy /E /I /Y "%RISU_UTMP%\\new-bin\\*" "%RISU_APP_DIR%\\bin\\" >nul',
+                    '  if errorlevel 1 (',
+                    '    echo [Update] bin/ copy failed, restoring backup...',
+                    '    if exist "%RISU_UTMP%\\old-bin\\" (',
+                    '      xcopy /E /I /Y "%RISU_UTMP%\\old-bin\\*" "%RISU_APP_DIR%\\bin\\" >nul',
+                    '    )',
+                    '    echo [Update] bin/ restored. Staged files kept for retry.',
+                    '    goto start',
+                    '  )',
+                    ')',
                     // Finalize version marker only after successful bin/ copy
-                    `if exist "${path.join(utmp, 'latest-version')}" (`,
-                    `  copy /Y "${path.join(utmp, 'latest-version')}" "${path.join(appDir, '.installed-version')}" >nul`,
-                    `)`,
+                    'if exist "%RISU_UTMP%\\latest-version" (',
+                    '  copy /Y "%RISU_UTMP%\\latest-version" "%RISU_APP_DIR%\\.installed-version" >nul',
+                    ')',
                     // Cleanup .update-tmp (includes old-bin backup)
-                    `rmdir /s /q "${utmp}" 2>nul`,
+                    'rmdir /s /q "%RISU_UTMP%" 2>nul',
                     ':start',
                     // Start server with correct working directory
-                    `cd /d "${appDir}"`,
-                    `start "" "${path.join(appDir, 'bin', 'node.exe')}" "${path.join(appDir, 'server', 'node', 'server.cjs')}"`,
+                    'cd /d "%RISU_APP_DIR%"',
+                    'start "" "%RISU_APP_DIR%\\bin\\node.exe" "%RISU_APP_DIR%\\server\\node\\server.cjs"',
                     'exit /b 0',
                 ];
-                writeFileSync(batScript, batLines.join('\r\n'));
-                spawn('cmd.exe', ['/c', batScript], { detached: true, stdio: 'ignore' }).unref();
+                writeFileSync(batScript, batLines.join('\r\n'), 'ascii');
+                spawn('cmd.exe', ['/c', batScript], {
+                    detached: true,
+                    stdio: 'ignore',
+                    env: Object.assign({}, process.env, { RISU_APP_DIR: appDir, RISU_UTMP: utmp }),
+                }).unref();
             } else {
                 // Unix: Node restart helper with port-check to avoid clashing with process managers
                 const restartScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.cjs`);
