@@ -138,6 +138,7 @@ export interface RevenantPostprocessDatabaseSnapshot {
     personaPrompt: string
     selectedPersona: number
     personas: unknown[]
+    showPersonaInSidebar?: boolean
     dynamicAssets: boolean
     dynamicAssetsEditDisplay: boolean
     igpPrompt: string

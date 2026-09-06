@@ -1,3 +1,4 @@
+import { getChatBoundPersona } from '../chatBindingState';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
@@ -360,9 +361,6 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.autoTranslateLastOutputOnly)){
         data.autoTranslateLastOutputOnly = false
-    }
-    if(checkNullish(data.fullScreen)){
-        data.fullScreen = false
     }
     if(checkNullish(data.playMessage)){
         data.playMessage = false
@@ -937,7 +935,6 @@ export function setDatabase(data:Database){
     data.pluginCustomStorage ??= {}
     data.longPressToPopupEditor ??= false
     data.showInputActionBar ??= true
-    data.moveInsteadOfCopyOnCMPConvert ??= false
     data.chatLoadInitialPages = normalizeChatLoadPages(data.chatLoadInitialPages, DEFAULT_CHAT_LOAD_INITIAL_PAGES)
     data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
     data.fixedChatTextarea ??= true
@@ -1048,9 +1045,7 @@ function parseToggleKeysFromTemplate(template:string){
 }
 
 function getEnabledModuleDefinitions(db:Database, char:character, chat:Chat){
-    const persona = chat?.bindedPersona
-        ? db.personas?.find((v) => v.id === chat.bindedPersona)
-        : db.personas?.[db.selectedPersona]
+    const persona = getChatBoundPersona(db, chat) ?? db.personas?.[db.selectedPersona]
     const ids = [
         ...(db.enabledModules ?? []),
         ...((persona?.id && db.personaEnabledModules?.[persona.id]) ? db.personaEnabledModules[persona.id] : []),
@@ -1208,7 +1203,6 @@ export interface Database{
     textgenWebUIStreamURL:string
     textgenWebUIBlockingURL:string
     autoTranslate: boolean
-    fullScreen:boolean
     playMessage:boolean
     /** Sound for the message-complete notification. Holds either a bundled
      * preset id (e.g. "bell") or an uploaded asset path ("assets/<hash>.mp3").
@@ -1456,7 +1450,6 @@ export interface Database{
     falLoraScale: number
     moduleIntergration: string
     customCSS: string
-    betaMobileGUI:boolean
     jsonSchemaEnabled:boolean
     jsonSchema:string
     strictJsonSchema:boolean
@@ -1503,7 +1496,6 @@ export interface Database{
     disableMobileDragDrop:boolean
     disableMobileBackNavigation:boolean
     disableToggleBinding:boolean
-    menuSideBar:boolean
     pluginV2: RisuPlugin[]
     showSavingIcon:boolean
     presetRegex: customscript[]
@@ -1623,7 +1615,6 @@ export interface Database{
     pluginStorageMeta?:{[key:string]:{plugin:string,updatedAt:number}}
     longPressToPopupEditor?: boolean
     showInputActionBar?: boolean
-    moveInsteadOfCopyOnCMPConvert?:boolean
     chatLoadInitialPages?: number
     chatLoadAdditionalPages?: number
     ImagenModel:string
@@ -2073,8 +2064,6 @@ export interface themePreset extends PresetTagFields {
     cornerBracketStyling?: boolean
     customQuotes: boolean
     customQuotesData?: [string, string, string, string]
-    betaMobileGUI: boolean
-    menuSideBar: boolean
 }
 
 interface hordeConfig{
@@ -2513,8 +2502,6 @@ export const themePresetTemplate: themePreset = {
     cornerBracketStyling: false,
     customQuotes: false,
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
-    betaMobileGUI: false,
-    menuSideBar: false,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2848,8 +2835,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         cornerBracketStyling: db.cornerBracketStyling,
         customQuotes: db.customQuotes,
         customQuotesData: db.customQuotesData ? [...db.customQuotesData] as [string,string,string,string] : ['"','"','\u2018','\u2019'],
-        betaMobileGUI: db.betaMobileGUI,
-        menuSideBar: db.menuSideBar,
     }
     if(!Array.isArray(pres)){
         pres = []
@@ -2914,8 +2899,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.cornerBracketStyling = p.cornerBracketStyling ?? db.cornerBracketStyling
     db.customQuotes = p.customQuotes ?? db.customQuotes
     db.customQuotesData = p.customQuotesData ? [...p.customQuotesData] as [string,string,string,string] : db.customQuotesData
-    db.betaMobileGUI = p.betaMobileGUI ?? db.betaMobileGUI
-    db.menuSideBar = p.menuSideBar ?? db.menuSideBar
 }
 
 export function copyThemePreset(id: number){

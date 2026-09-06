@@ -302,7 +302,8 @@
                 />
             {:else if uiField.widget === 'secret'}
                 <SecretInput
-                    className="h-8 px-2.5 py-0 text-sm"
+                    size="sm"
+                    className="py-0"
                     bind:value={userValues[fieldKey] as string}
                     placeholder={uiField.placeholder ?? ''}
                     fullwidth

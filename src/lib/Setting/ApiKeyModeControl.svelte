@@ -91,7 +91,8 @@
             <SecretInput
                 bind:value={directValue}
                 {placeholder}
-                className="h-8 px-2.5 py-0 text-sm"
+                size="sm"
+                className="py-0"
                 fullwidth
             />
             {#if showSaveDirect}

@@ -57,4 +57,13 @@ describe('quote styling', () => {
 
         expect(rendered).toContain('risu-mark="blockquote2"')
     })
+
+    it('renders quotes without automatic styling when formatting is off', async () => {
+        storeMocks.DBState.db.unformatQuotes = true
+
+        const rendered = await renderPreparedMarkdown('"설명입니다."', 'notrim')
+
+        expect(rendered).toContain('설명입니다.')
+        expect(rendered).not.toContain('risu-mark=')
+    })
 })

@@ -432,70 +432,6 @@
   class:dynamic-sidebar-panel={$DynamicGUI}
   class:sidebar-menu-editing={editMode}
 >
-{#if DBState.db.menuSideBar}
-<div
-  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
-  class:flex={!hidden}
->
-<IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!(
-    $selectedCharID < 0 &&
-    !$settingsOpen
-  )}
-  onclick={() => {
-    reseter();
-    selectedCharID.set(-1)
-    OpenRealmStore.set(false)
-  }}
->
-  <HomeIcon />
-  <span class="text-xs">{language.home}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!(
-    $selectedCharID >= 0
-  )}
-  onclick={() => {
-    reseter();
-    openGrid();
-
-  }}
->
-  <User2Icon />
-  <span class="text-xs">{language.character}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  onclick={() => {
-    reseter();
-    bookmarkListOpen.set(true)
-  }}
->
-  <BookmarkCheckIcon />
-  <span class="text-xs">{language.bookmarks}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!$settingsOpen}
-  onclick={() => {
-    if ($settingsOpen) {
-      reseter();
-      settingsOpen.set(false);
-    } else {
-      reseter();
-      settingsOpen.set(true);
-    }
-  }}
->
-  <SettingsIcon />
-  <span class="text-xs">{language.settings}</span>
-</button>
-</IconButtonGroup>
-</div>
-{:else}
 <div
   class="h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:risu-layer-chrome={!editMode}
@@ -799,7 +735,6 @@
     </div>
   </div>
 </div>
-{/if}
 
 <div
   class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"

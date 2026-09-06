@@ -1,6 +1,7 @@
+import { getChatBoundPersona } from '../../../chatBindingState'
 import { pocketKeiVer } from '../../../version'
 import { registerCBS, type RegisterCallback } from '../../../cbs'
-import type { Chat, character } from '../../../storage/database.svelte'
+import type { Chat, character, RisuPersona } from '../../../storage/database.svelte'
 import type { RevenantPostprocessRecipe } from '../types'
 
 type TemplateState = {
@@ -139,10 +140,11 @@ function setChatVariable(state: TemplateState, key: string, value: string): void
 }
 
 function selectedPersona(state: TemplateState): any {
-    const personas = state.recipe.database.personas ?? []
-    return state.chat.bindedPersona
-        ? personas.find((item: any) => item?.id === state.chat.bindedPersona)
-        : personas[state.recipe.database.selectedPersona ?? 0]
+    const personas = (state.recipe.database.personas ?? []) as RisuPersona[]
+    return getChatBoundPersona({
+        personas,
+        showPersonaInSidebar: state.recipe.database.showPersonaInSidebar,
+    }, state.chat) ?? personas[state.recipe.database.selectedPersona ?? 0]
 }
 
 function truthy(value: unknown): boolean {

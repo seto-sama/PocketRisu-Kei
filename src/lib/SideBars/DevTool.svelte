@@ -23,6 +23,8 @@
     import { risuChatParser } from "src/ts/process/scripts";
     import { getModules } from "src/ts/process/modules";
 
+    const variableInputClass = 'box-border h-6 min-h-6 min-w-0 max-w-full w-full py-0';
+
     async function getCharacterDescriptionToken() {
         const char = DBState.db.characters[$selectedCharID]
         return tokenize(risuChatParser(char.desc, { chara: char }))
@@ -110,6 +112,7 @@
     </SettingsList>
 {/snippet}
 
+<div class="w-full min-w-0 shrink-0">
 <Accordion name={language.chatVariables}>
     <SettingsList spacing="none">
         {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate).length > 0}
@@ -125,9 +128,9 @@
                         {#if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "object"}
                             <div class="text-center text-sm text-subtext">Object</div>
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "string"}
-                            <Input size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
+                            <Input size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "number"}
-                            <NumberInput size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as number} />
+                            <NumberInput size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as number} />
                         {/if}
                     </div>
                     <button
@@ -307,3 +310,4 @@
         </SettingsList>
     </SettingsList>
 </Accordion>
+</div>

@@ -24,7 +24,7 @@ vi.mock(import('./storage/database.svelte'), () => ({
     getDatabase: () => mocks.dbRef.db,
 } as any))
 
-import { getPersonaPrompt } from './util'
+import { getPersonaPrompt, getUserName, getUserIcon, getUserIconProtrait } from './util'
 
 // Regression guard for the persona-prompt bind bug:
 // when a chat has a bindedPersona, getPersonaPrompt() must return that
@@ -53,6 +53,24 @@ function setup(opts: {
 }
 
 describe('getPersonaPrompt', () => {
+    it('resolves name, icon, portrait, and prompt through the same binding state', () => {
+        setup({ globalPersonaPrompt: 'global prompt', bindedPersona: 'p1' })
+        Object.assign(mocks.dbRef.db, {
+            username: 'Global', userIcon: 'global.png', selectedPersona: 0,
+            personas: [
+                { id: 'p0', name: 'Global', icon: 'global.png', largePortrait: false },
+                { id: 'p1', name: 'Bound', icon: 'bound.png', largePortrait: true, personaPrompt: 'bound prompt' },
+            ],
+        })
+        const values = () => [getUserName(), getUserIcon(), getUserIconProtrait(), getPersonaPrompt()]
+        expect(values()).toEqual(['Bound', 'bound.png', true, 'bound prompt'])
+        mocks.dbRef.db.showPersonaInSidebar = false
+        expect(values()).toEqual(['Global', 'global.png', false, 'global prompt'])
+        expect(mocks.dbRef.db.characters[0].chats[0].bindedPersona).toBe('p1')
+        mocks.dbRef.db.showPersonaInSidebar = true
+        expect(values()).toEqual(['Bound', 'bound.png', true, 'bound prompt'])
+    })
+
     it('returns the global personaPrompt when no persona is bound', () => {
         setup({ globalPersonaPrompt: 'global prompt' })
         expect(getPersonaPrompt()).toBe('global prompt')

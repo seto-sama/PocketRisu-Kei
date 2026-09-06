@@ -1,6 +1,7 @@
 <script lang="ts">
     import { EyeIcon, EyeOffIcon } from "@lucide/svelte";
     import Input from "./Input.svelte";
+    import type { ComponentProps } from "svelte";
     import type { InputCommitMode } from "src/ts/inputCommit";
 
     interface Props {
@@ -8,6 +9,7 @@
         placeholder?: string;
         fullwidth?: boolean;
         className?: string;
+        size?: ComponentProps<typeof Input>['size'];
         disabled?: boolean;
         commitMode?: InputCommitMode;
         debounceMs?: number;
@@ -19,6 +21,7 @@
         placeholder = '',
         fullwidth = false,
         className = '',
+        size = 'md',
         disabled = false,
         commitMode = 'blur',
         debounceMs = undefined,
@@ -32,6 +35,7 @@
 
 <div class="relative" class:w-full={fullwidth}>
     <Input
+        {size}
         className={`pr-10 w-full ${className}`}
         autocomplete="off"
         {placeholder}

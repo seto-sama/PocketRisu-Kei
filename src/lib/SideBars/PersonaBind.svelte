@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { getChatBoundPersona } from "src/ts/chatBindingState";
     import { DBState, selectedCharID } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { PinIcon, PinOffIcon } from "@lucide/svelte";
@@ -8,11 +9,7 @@
 
     let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
 
-    let boundPersona = $derived.by(() => {
-        const id = currentChat?.bindedPersona
-        if (!id) return null
-        return DBState.db.personas.find(p => p.id === id) ?? null
-    })
+    let boundPersona = $derived(getChatBoundPersona(DBState.db, currentChat))
     let displayPersona = $derived(boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])
     let isPersonaBound = $derived(!!boundPersona)
 

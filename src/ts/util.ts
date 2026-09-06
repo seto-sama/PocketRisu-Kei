@@ -1,3 +1,4 @@
+import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
 import type { Database, Message } from "./storage/database.svelte"
 import { getDatabase } from "./storage/database.svelte"
@@ -84,19 +85,9 @@ export const replacePlaceholders = (msg:string, name:string) => {
 }
 
 export function checkPersonaBinded(){
-    try {
-        let db = getDatabase()
-        const selectedChar = get(selectedCharID)
-        const character = db.characters[selectedChar]
-        const chat = character.chats[character.chatPage]
-        if(!chat.bindedPersona){
-            return null
-        }
-        const persona = db.personas.find(v => v.id === chat.bindedPersona)
-        return persona 
-    } catch (error) {
-        return null
-    }
+    const db = getDatabase()
+    const character = db.characters?.[get(selectedCharID)]
+    return getChatBoundPersona(db, character?.chats?.[character.chatPage])
 }
 
 export function getUserName(){
@@ -201,10 +192,6 @@ function readFileAsUint8Array(file: File) {
   
       reader.readAsArrayBuffer(file);
     });
-}
-
-export async function changeFullscreen(){
-    // Fullscreen control requires Tauri; no-op in Node-only mode
 }
 
 export async function getCustomBackground(db:string){

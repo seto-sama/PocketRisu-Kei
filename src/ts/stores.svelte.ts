@@ -342,6 +342,7 @@ $effect.root(() => {
         DBState?.db?.enabledModules
         DBState?.db?.enabledModules?.length
         DBState?.db?.personaEnabledModules
+        DBState?.db?.showPersonaInSidebar
         DBState?.db?.selectedPersona
         DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.bindedPersona
         DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.modules?.length

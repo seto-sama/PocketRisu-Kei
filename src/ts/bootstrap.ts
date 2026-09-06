@@ -1,4 +1,4 @@
-import { changeFullscreen, checkNullish } from "./util"
+import { checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
 import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
@@ -215,7 +215,7 @@ export async function loadData() {
             if (db.botSettingAtStart) {
                 botMakerMode.set(true)
             }
-            if ((db.betaMobileGUI && window.innerWidth <= 800) || import.meta.env.VITE_RISU_LITE === 'TRUE') {
+            if (import.meta.env.VITE_RISU_LITE === 'TRUE') {
                 initMobileGesture()
                 MobileGUI.set(true)
             }

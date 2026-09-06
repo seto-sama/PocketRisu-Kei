@@ -1,4 +1,4 @@
-import { changeFullscreen, checkNullish, sleep } from "./util"
+import { checkNullish, sleep } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";

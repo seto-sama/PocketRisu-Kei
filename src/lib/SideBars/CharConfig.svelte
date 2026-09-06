@@ -267,7 +267,7 @@
             </button>
         </div>
         {#if DBState.db.characters[$selectedCharID].alternateGreetings.length === 0}
-            <EmptyState title={language.noData} description="" layout="section" density="compact" />
+            <EmptyState title={language.noAlternateGreetings} description="" layout="section" density="compact" size="sm" />
         {/if}
         {#each DBState.db.characters[$selectedCharID].alternateGreetings as greeting, i}
             <div class="mt-2">
