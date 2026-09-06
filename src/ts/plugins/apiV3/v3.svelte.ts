@@ -38,6 +38,7 @@ import {
     type TTSHookFn,
 } from "src/ts/process/ttsHooks";
 import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
+import { resolveProviderRequestContext, withProviderRequestContext } from './providerRequestContext';
 import { getInlayAsset } from "src/ts/process/files/inlays";
 import {
     clearPluginPermissionStateFor,
@@ -760,11 +761,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         // Some older API 3.0 providers do not forward addProvider's
         // AbortSignal. Preserve the existing unambiguous single-request
         // fallback, but never attach it to auth/cache/metadata fetches.
-        const requestContext = contextToken
-            ? pluginRequestContexts.get(contextToken)
-            : pluginRequestContexts.size === 1
-                ? pluginRequestContexts.values().next().value
-                : undefined
+        const requestContext = resolveProviderRequestContext(pluginRequestContexts, contextToken)
         if (!requestContext) return undefined
         const classification = classifyPluginProviderFetch(
             url,
@@ -860,13 +857,11 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                }
 
                const contextToken = v4()
-               pluginRequestContexts.set(contextToken, requestContext)
                setRpcAbortSignalMetadata(abortSignal, providerRequestContextMetadataKey, contextToken)
-               try {
-                   return await func(arg, abortSignal);
-               } finally {
-                   pluginRequestContexts.delete(contextToken)
-               }
+               return await withProviderRequestContext(
+                   pluginRequestContexts, contextToken, requestContext, abortSignal,
+                   () => func(arg, abortSignal),
+               );
             }
             pluginV2.providers.set(name, provider)
             pluginV2.providerOptions.set(name, options ?? {})
