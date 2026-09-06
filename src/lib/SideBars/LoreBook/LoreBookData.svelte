@@ -28,7 +28,6 @@
         externalLoreBooks?: loreBook[];
         idgroup: string;
         isOpen?: boolean;
-        openFolders?: number;
         isLastInContainer?: boolean;
         moduleMode?: boolean;
         openedRefs?: Set<loreBook>;
@@ -43,7 +42,6 @@
         externalLoreBooks = $bindable(),
         idgroup,
         isOpen = false,
-        openFolders = 0,
         isLastInContainer = false,
         moduleMode = false,
         openedRefs = $bindable(new Set<loreBook>()),
@@ -51,6 +49,7 @@
     const renameController = new InlineEditableNameController();
     
     let open = $derived(isOpen)
+    const showEntryDivider = $derived(value.mode !== 'folder' && open && !isLastInContainer)
     const itemIconSize = 18
 
     function isLocallyActivated(book: loreBook){
@@ -146,13 +145,17 @@
 </script>
 <DisclosureList
     variant="item"
+    appearance={value.mode === 'folder' ? 'folder' : 'row'}
+    data-tree-item
+    data-tree-expanded={value.mode !== 'folder' && open ? 'true' : undefined}
     open={open}
     disclosure={value.mode !== 'child'}
     isLast={isLastInContainer}
     onToggle={toggleOpen}
-    className={value.mode === 'folder' && openFolders > 0 ? 'no-sort' : ''}
+    className={showEntryDivider ? 'pb-1' : ''}
+    data-lore-mode={value.mode}
     bodyPadded={value.mode !== 'folder'}
-    bodyClass={value.mode === 'folder' ? 'mb-2' : ''}
+    bodyClass={value.mode === 'folder' ? 'mb-1' : (showEntryDivider ? 'border-b border-selected' : '')}
     data-disclosure-drag-name={value.mode === 'child'
         ? getParentLoreName(value)
         : value.mode === 'folder'
@@ -168,12 +171,14 @@
         {:else}
             {#if value.mode === 'folder'}
                 {#if open}
-                    <FolderOpenIcon size={itemIconSize} class="mr-2 shrink-0" />
+                    <FolderOpenIcon size={itemIconSize} class="risu-folder-icon mr-2 shrink-0" />
                 {:else}
-                    <FolderIcon size={itemIconSize} class="mr-2 shrink-0" />
+                    <FolderIcon size={itemIconSize} class="risu-folder-icon mr-2 shrink-0" />
                 {/if}
             {/if}
             <InlineEditableName
+                size="row"
+                editorLeadingInset={value.mode === 'folder' ? 'border' : 'row'}
                 controller={renameController}
                 bind:value={value.comment}
                 label={value.mode === 'folder'
@@ -315,21 +320,23 @@
                 </div>
             {/if}
 
-            {#if !value.alwaysActive && getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
-                <div data-disclosure-row>
-                    <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
-                    <Switch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
-                </div>
-            {/if}
             {#if !value.alwaysActive}
-                <div data-disclosure-row>
-                    <span class="flex items-center text-sm text-maintext">
-                        {language.useRegexLorebook}
-                        <Help key="useRegexLorebook"/>
-                    </span>
-                    <Switch checked={value.useRegex} onCheckedChange={(checked) => {
-                        value.useRegex = checked
-                    }} />
+                <div class="my-2 flex flex-col gap-2">
+                    {#if getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
+                            <Switch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
+                        </div>
+                    {/if}
+                    <div class="flex items-center justify-between">
+                        <span class="flex items-center text-sm text-maintext">
+                            {language.useRegexLorebook}
+                            <Help key="useRegexLorebook"/>
+                        </span>
+                        <Switch checked={value.useRegex} onCheckedChange={(checked) => {
+                            value.useRegex = checked
+                        }} />
+                    </div>
                 </div>
             {/if}
         </div>

@@ -1,12 +1,12 @@
 <script lang="ts">
-    import { onDestroy, tick, type Snippet } from 'svelte';
+    import { onDestroy, tick, type ComponentProps, type Snippet } from 'svelte';
     import InlineNameInput from './InlineNameInput.svelte';
     import type { InlineEditableNameController } from './InlineEditableNameController.svelte';
 
     interface Props {
         value?: string;
         label?: string;
-        size?: 'compact' | 'default';
+        size?: ComponentProps<typeof InlineNameInput>['size'];
         editorLeadingInset?: 'border' | 'row';
         placeholder?: string;
         disabled?: boolean;

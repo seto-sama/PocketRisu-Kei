@@ -137,6 +137,6 @@
     }
 
     .wheel-picker-option::before {
-        inset-inline: 0.125rem;
+        inset: 0.125rem;
     }
 </style>

@@ -95,7 +95,7 @@ export const helpKo = {
         "dynamicAssets": "활성화되면 데이터 처리 중 에셋 이름을 찾을 수 없을 때, 벡터 검색을 사용하여 가장 유사한 에셋 이름을 찾아 대체합니다.",
         "dynamicAssetsEditDisplay": "활성화되면 동적 에셋이 디스플레이 수정 단계에도 적용됩니다. 단, 성능 문제가 발생할 수 있습니다.",
         "nickname": "닉네임이 설정되면 채팅에서 캐릭터 이름 대신 `{{char}}` 또는 `<char>`에 사용됩니다.",
-        "useRegexLorebook": "활성화되면 로어북 검색에 문자열 일치 대신 정규식을 사용합니다. /regex/flags 형식을 사용합니다.",
+        "useRegexLorebook": "활성화되면 로어북 검색에 문자열 일치 대신 정규식을 사용합니다.\n/regex/flags 형식을 입력할 수 있습니다.",
         "customChainOfThought": "경고: 생각의 사슬 토글 사용은 더 이상 권장되지 않습니다. 대신 다른 프롬프트 항목에 생각의 사슬 프롬프트를 입력하세요.",
         "customPromptTemplateToggle": "여기서 고유한 프롬프트 토글을 정의할 수 있습니다. 개행으로 구분하여 `<토글 변수>=<토글 이름>` 형식을 사용하세요. 예: `cot=COT 토글`. 프롬프트에서 `{{getglobalvar::toggle_<토글 변수>}}`를 사용하여 이 토글을 사용할 수 있습니다. 예: `{{getglobalvar::toggle_cot}}`.",
         "defaultVariables": "여기에서는 기본 변수를 정의할 수 있습니다. `<변수 이름>=<변수 값>` 형식으로 작성하고 개행으로 구분합니다. 예를 들어, `name=PocketRisu Kei`는 트리거 스크립트 및 변수 CBS와 함께 `{{getvar::A}}`, `{{setvar::A::B}}` 또는 `{{? $A + 1}}`과 같이 사용할 수 있습니다. 프롬프트 템플릿의 기본 변수와 캐릭터의 기본 변수가 동일한 이름을 가진 경우 캐릭터의 기본 변수가 사용됩니다.",

@@ -17,37 +17,21 @@
     let submenu = $state('character')
     let loreSubmenu = $derived(submenu === 'character' ? 0 : 1)
 
-    function isAllCharacterLoreAlwaysActive() {
-        const globalLore = DBState.db.characters[$selectedCharID].globalLore;
-        return globalLore && globalLore.every((book) => book.alwaysActive);
-    }
+    const currentLoreEntries = $derived.by(() => {
+        const character = DBState.db.characters[$selectedCharID];
+        const lore = submenu === 'character'
+            ? character?.globalLore
+            : submenu === 'chat' ? character?.chats[character.chatPage]?.localLore : [];
+        return (lore ?? []).filter(book => book.mode !== 'folder');
+    });
+    const allLoreAlwaysActive = $derived(currentLoreEntries.length > 0
+        && currentLoreEntries.every(book => book.alwaysActive));
+    const bulkToggleLabel = $derived(`${submenu === 'character' ? language.character : language.Chat}: ${language.bulkEnabling}`);
 
-    function isAllChatLoreAlwaysActive() {
-        const localLore = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore;
-        return localLore && localLore.every((book) => book.alwaysActive);
-    }
-
-    function toggleCharacterLoreAlwaysActive() {
-        const globalLore = DBState.db.characters[$selectedCharID].globalLore;
-
-        if (!globalLore) return;
-        
-        const allActive = globalLore.every((book) => book.alwaysActive);
-        
-        globalLore.forEach((book) => {
-            book.alwaysActive = !allActive;
-        });
-    }
-
-    function toggleChatLoreAlwaysActive() {
-        const localLore = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore;
-
-        if (!localLore) return;
-
-        const allActive = localLore.every((book) => book.alwaysActive);
-
-        localLore.forEach((book) => {
-            book.alwaysActive = !allActive;
+    function toggleCurrentLoreAlwaysActive() {
+        const nextActive = !allLoreAlwaysActive;
+        currentLoreEntries.forEach(book => {
+            book.alwaysActive = nextActive;
         });
     }
 
@@ -123,7 +107,7 @@
 {/if}
 {#if submenu !== 'settings'}
 
-<IconButtonGroup className="mt-2">
+<IconButtonGroup className="risu-list-actions">
     <IconButton onclick={() => {addLorebook(loreSubmenu)}}>
         <PlusIcon />
     </IconButton>
@@ -138,28 +122,22 @@
         <UploadIcon />
     </IconButton>
     {#if DBState.db.bulkEnabling}
-        <button class="flex items-center gap-1 text-subtext risu-interactive-accent" onclick={() => {
-            toggleCharacterLoreAlwaysActive()
-        }}>
-            {#if isAllCharacterLoreAlwaysActive()}
-                <SunIcon size={18} />
+        <IconButton
+            className="ml-auto"
+            title={bulkToggleLabel}
+            aria-label={bulkToggleLabel}
+            aria-pressed={allLoreAlwaysActive}
+            disabled={currentLoreEntries.length === 0}
+            onclick={toggleCurrentLoreAlwaysActive}
+        >
+            {#if allLoreAlwaysActive}
+                <SunIcon />
             {:else}
-                <LinkIcon size={18} />
+                <LinkIcon />
             {/if}
-            <span class="text-xs">CHAR</span>
-        </button>
-        <button class="flex items-center gap-1 risu-interactive-accent" onclick={() => {
-            toggleChatLoreAlwaysActive()
-        }}>
-            {#if isAllChatLoreAlwaysActive()}
-                <SunIcon size={18} />
-            {:else}
-                <LinkIcon size={18} />
-            {/if}
-            <span class="text-xs">CHAT</span>
-        </button>
+        </IconButton>
     {/if}
-    <IconButton className="ml-auto" onclick={() => {
+    <IconButton className={DBState.db.bulkEnabling ? '' : 'ml-auto'} onclick={() => {
         addLorebookFolder(loreSubmenu)
     }}>
         <FolderPlusIcon />

@@ -211,8 +211,65 @@
   @apply hover:bg-selected;
 }
 
-/* Dense selectable rows keep their layout flush while painting an inset
-   surface, so adjacent hover/selected states remain visually separated. */
+@utility risu-folder-header {
+  @apply flex min-h-8 min-w-0 items-center rounded-md px-2 py-0.5;
+}
+
+@utility risu-list-actions {
+  @apply mt-2 border-t border-selected pt-2;
+}
+
+.risu-folder-section {
+  --risu-folder-color: var(--risu-theme-subtext);
+}
+
+.risu-folder-icon {
+  color: var(--risu-folder-color);
+}
+
+.risu-folder-children {
+  --risu-tree-indent: 0.625rem;
+  margin-left: 1rem;
+  padding-left: var(--risu-tree-indent);
+  min-width: 0;
+}
+
+[data-tree-item] {
+  position: relative;
+}
+
+/* Use live DOM placement while Sortable moves rows before committing data.
+   Drop pads/hidden markers are not tree items; floating drag clones do not
+   participate in the tree. Expanded final rows end at their bottom controls. */
+.risu-tree-list > [data-tree-item]:not(.sortable-fallback)::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  left: calc(-1 * var(--risu-tree-indent));
+  top: calc(-1 * var(--risu-tree-gap, 0.25rem) - 2 * var(--risu-tree-item-border, 0px));
+  bottom: 0;
+  width: calc(var(--risu-tree-indent) - 0.25rem);
+  border-left: 1px solid color-mix(in srgb, var(--risu-folder-color) 40%, transparent);
+}
+
+.risu-tree-list > :nth-last-child(1 of [data-tree-item]:not(.sortable-fallback))::after {
+  bottom: auto;
+  height: 1.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--risu-folder-color) 40%, transparent);
+  border-bottom-left-radius: 0.4rem;
+}
+
+.risu-tree-list > :nth-last-child(1 of [data-tree-item]:not(.sortable-fallback))[data-tree-expanded="true"]::after {
+  height: auto;
+  bottom: 1.5rem;
+}
+
+.risu-tree-list.risu-tree-list-centered > :nth-last-child(1 of [data-tree-item]:not(.sortable-fallback))::after {
+  height: auto;
+  bottom: 50%;
+}
+
+/* Highlight the entire row; list containers own the spacing between rows. */
 .risu-selectable-row {
   position: relative;
   z-index: 0;
@@ -221,14 +278,14 @@
 .risu-selectable-row::before {
   content: "";
   position: absolute;
-  inset: 0.125rem 0;
+  inset: 0;
   z-index: -1;
   border-radius: inherit;
   pointer-events: none;
   transition: background-color 200ms ease;
 }
 
-.risu-selectable-row:not([data-selected="true"]):is(:hover, :focus-visible)::before {
+.risu-selectable-row:not([data-selected="true"]):is(:hover, :focus-visible, :has(:focus-visible))::before {
   background-color: color-mix(in srgb, var(--risu-theme-selected) 50%, transparent);
 }
 
