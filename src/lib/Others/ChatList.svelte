@@ -133,7 +133,7 @@
         searchPlaceholder={language.chatSearch}
         folderDeleteConfirm={language.chatFolderDeleteConfirm}
         folderEmptyMessage={language.chatFolderEmpty}
-        noSearchResultsMessage={language.chatNoSearchResults}
+        folderEmptySize="sm"
         selectedItemIndex={character.chatPage}
         allowFolderAssignmentDrag
         {close}

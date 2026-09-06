@@ -85,7 +85,7 @@ describe('#each', () => {
 
   test('does nothing when not a JSON array, pass the input as is', () => {
     expect(quickParse('#each a,b,c as n', '{{slot::n}} ')).toBe('a,b,c')
-    expect(quickParse('#each {{getvar::aa}} as n', '{{slot::n}} ')).toBe('null')
+    expect(quickParse('#each {{getvar::aa}} as n', '{{slot::n}} ')).toBe('')
     expect(quickParse('#each [1][2] as n', '{{slot::n}} ')).toBe('[1][2]')
   })
 

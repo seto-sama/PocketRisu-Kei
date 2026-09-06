@@ -1,4 +1,6 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { language } from "src/lang";
     import { type loreBook } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import LoreBookData from "./LoreBookData.svelte";
@@ -429,10 +431,9 @@
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if visibleItems.length === 0}
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(externalLoreBooks)} aria-hidden="true"></div>
+                <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
-            {#if externalLoreBooks.length === 0}
-                <span class="text-subtext">No Lorebook</span>
-            {:else}
+            {#if externalLoreBooks.length > 0}
                 {#each externalLoreBooks as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, externalLoreBooks)} aria-hidden="true"></div>
@@ -468,10 +469,9 @@
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if visibleItems.length === 0}
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(DBState.db.characters[$selectedCharID].globalLore)} aria-hidden="true"></div>
+                <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
-            {#if DBState.db.characters[$selectedCharID].globalLore.length === 0}
-                <span class="text-subtext">No Lorebook</span>
-            {:else}
+            {#if DBState.db.characters[$selectedCharID].globalLore.length > 0}
                 {#each DBState.db.characters[$selectedCharID].globalLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, DBState.db.characters[$selectedCharID].globalLore)} aria-hidden="true"></div>
@@ -508,10 +508,9 @@
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if visibleItems.length === 0}
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore)} aria-hidden="true"></div>
+                <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
-            {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.length === 0}
-                <span class="text-subtext">No Lorebook</span>
-            {:else}
+            {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.length > 0}
                 {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore)} aria-hidden="true"></div>

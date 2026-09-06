@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { onDestroy } from "svelte";
     import {
     CharEmotion,
@@ -849,7 +850,7 @@
       {#if DBState.db.nodeOnlyHideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
-        <span class="block text-sm text-subtext mt-2">{language.noRecentChatsDesc}</span>
+        <EmptyState title={language.noRecentChatsDesc} description="" className="mt-2" />
       {:else}
         <div class="relative mt-2">
           <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-subtext" />
@@ -863,7 +864,7 @@
           />
         </div>
         {#if filteredRecentChars.length === 0}
-          <span class="block text-sm text-subtext mt-2">{language.noRecentChatsSearchResults}</span>
+          <EmptyState className="mt-2" />
         {:else}
         <HorizontalMasonry itemCount={displayedRecentChars.length} className="mt-2">
           {#snippet children(index)}

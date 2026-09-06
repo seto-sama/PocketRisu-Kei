@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     // System → Plugin Storage tab. Built-in replacement for the community
     // "plugin-storage-viewer" plugin. Plugin data is stored in a single global
     // namespace (not per-plugin), so this is a flat key/value manager over the
@@ -402,7 +403,11 @@
             <span class="text-xs opacity-60">{loadError}</span>
         </div>
     {:else if displayed.length === 0}
-        <div class="text-subtext text-sm text-center py-12">{language.pluginStorageEmpty}</div>
+        {#if isFiltered}
+            <EmptyState layout="section" density="spacious" />
+        {:else}
+            <EmptyState title={language.pluginStorageEmpty} description="" layout="section" density="spacious" />
+        {/if}
     {:else}
         {#each displayed as entry (entry.key)}
             <SettingLayout variant="item" interactive

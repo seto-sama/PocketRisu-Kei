@@ -87,6 +87,7 @@ export const promptPresetParameterItems: SettingItem[] = [
     {
         id: 'promptPreset.params.repetitionPenalty',
         type: 'slider',
+        labelKey: 'modelPresetRepetitionPenalty',
         fallbackLabel: 'Repetition penalty',
         helpKey: 'repetitionPenalty',
         bindKey: 'repetition_penalty',

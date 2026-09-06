@@ -4683,6 +4683,7 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
 });
 
 async function createSettingsBackupPlan(includeModuleAssets = true) {
+    const { withExportColorSchemes } = await import('../shared/colorScheme.js');
     await ensureCanonicalStorage();
     const databaseValue = appDataStore.getState().initialized
         ? Buffer.from(encodeRisuSaveLegacy(
@@ -4693,17 +4694,21 @@ async function createSettingsBackupPlan(includeModuleAssets = true) {
         databaseValue,
         assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
         decodeDatabase: decodeRisuSave,
-        encodeDatabase: (database) => encodeRisuSaveLegacy(database, 'compression'),
+        encodeDatabase: (database) => encodeRisuSaveLegacy(withExportColorSchemes(database), 'compression'),
         includeModuleAssets,
     });
 }
 
-async function createCompatibleDatabaseValue() {
+async function createCompatibleDatabaseValue({ exportColors = false } = {}) {
     await ensureCanonicalStorage();
     if (!appDataStore.getState().initialized) return null;
     const database = appDataStore.exportProjection({ includeMessages: true });
     bookmarkStore.projectDatabaseCompatibility(database);
-    return Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
+    // Internal snapshots retain canonical fields; only portable backups get aliases.
+    const output = exportColors
+        ? (await import('../shared/colorScheme.js')).withExportColorSchemes(database)
+        : database;
+    return Buffer.from(encodeRisuSaveLegacy(output, 'compression'));
 }
 
 app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
@@ -4786,7 +4791,7 @@ app.get('/api/backup/export', async (req, res, next) => {
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
         const exportedDatabase = settingsPlan?.encodedDatabase
-            ?? await createCompatibleDatabaseValue();
+            ?? await createCompatibleDatabaseValue({ exportColors: true });
         const dbSize = exportedDatabase?.length ?? 0;
         const totalBytes = namespacedEntries.reduce((sum, entry) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
@@ -4990,7 +4995,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
     if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
-        const dbBackupValue = await createCompatibleDatabaseValue();
+        const dbBackupValue = await createCompatibleDatabaseValue({ exportColors: true });
 
         // Pre-flight disk check — bail before streaming if the target dir
         // can't fit the backup. Avoids wasted minutes + half-written tmp files.

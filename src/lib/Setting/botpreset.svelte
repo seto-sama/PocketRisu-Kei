@@ -1,7 +1,7 @@
 <script lang="ts">
     import { alertConfirm, notifyError, notifySuccess } from "../../ts/alert";
     import { language } from "../../lang";
-    import { changeToPreset, copyPreset, downloadPreset, importPreset, saveCurrentPreset, withStableActivePreset } from "../../ts/storage/database.svelte";
+    import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset, withStableActivePreset } from "../../ts/storage/database.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
@@ -18,6 +18,9 @@
     let selectedFolder = $state<string>('all')
 
     const tags = $derived(DBState.db.promptPresetTags ?? [])
+    const selectedPresetIndex = $derived($presetSelectCallback
+        ? DBState.db.botPresets.findIndex(preset => !!preset.id && preset.id === getCurrentChat()?.bindedBotPreset)
+        : DBState.db.botPresetsId)
 
     function assignPresetToTag(index: number, tagId: string | undefined) {
         DBState.db.botPresets[index].tagIds = togglePresetTag(DBState.db.botPresets[index].tagIds, tagId)
@@ -155,7 +158,9 @@
                 ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
             )
         }}
-        selectedItemIndex={DBState.db.botPresetsId}
+        selectedItemIndex={selectedPresetIndex}
+        onSelectNone={$presetSelectCallback ? () => selectPreset(-1) : undefined}
+        noneSelected={selectedPresetIndex < 0}
         onMoveItem={movePreset}
         onSelectItem={selectPreset}
         onDuplicateItem={duplicatePreset}

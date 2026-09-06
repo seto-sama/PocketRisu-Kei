@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import SettingPage from '../../UI/components/SettingPage.svelte'
     import SettingTabs from '../../UI/components/SettingTabs.svelte'
     import Button from '../../UI/components/Button.svelte'
@@ -446,13 +447,14 @@
         error={loadError ? `${language.systemLogsFailedLoad}: ${loadError}` : null} />
 
     <!-- List -->
-    {#if !loading && displayed.length === 0}
+    {#if !loading && !loadError && displayed.length === 0}
         <div class="flex flex-col items-center justify-center text-center py-16 border border-darkborderc rounded-md bg-darkbg/30">
             <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
-            <div class="text-maintext font-medium mb-1">{language.systemLogsEmpty}</div>
-            <div class="text-subtext text-sm">
-                {hasMore ? language.systemLogsEmptyButMore : language.systemLogsEmptyDesc}
-            </div>
+            {#if search.trim() || activeFilterCount > 0 || entries.length > 0}
+                <EmptyState />
+            {:else}
+                <EmptyState title={language.systemLogsEmpty} description={language.systemLogsEmptyDesc} />
+            {/if}
         </div>
     {:else}
         <SettingLayout variant="list">

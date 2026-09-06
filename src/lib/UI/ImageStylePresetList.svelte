@@ -484,6 +484,9 @@
         onDeleteItem={(index) => { void deletePreset(presets[index]) }}
         {selectedItemIndex}
         onSelectItem={selectPreset}
+        onSelectNone={selectNone}
+        noneSelected={!DBState.db.imageStylePresetId}
+        noneLabel={language.imageStylePresetNone}
     >
         {#snippet sidebarFooterActions()}
             <IconButton
@@ -507,15 +510,6 @@
             <IconButton onclick={() => startEdit(item)} aria-label={language.edit} title={language.edit}>
                 <SquarePenIcon />
             </IconButton>
-        {/snippet}
-        {#snippet listFooter()}
-            <button
-                class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {!DBState.db.imageStylePresetId ? '' : 'risu-interactive-surface'}"
-                class:bg-selected={!DBState.db.imageStylePresetId}
-                onclick={selectNone}
-            >
-                <span class="truncate">{language.imageStylePresetNone}</span>
-            </button>
         {/snippet}
         <PresetPickerActions onCreate={startCreate} />
     </PresetPickerLayout>
@@ -597,6 +591,12 @@
             }))
         }}
         selectedItemIndex={boundImageGenerationPresetIndex}
+        onSelectNone={() => {
+            editorImageGenerationPresetId = ''
+            bindingPickerOpen = false
+        }}
+        noneSelected={!editorImageGenerationPresetId}
+        noneLabel={language.imageStylePresetBindingNone}
         onMoveItem={(fromIndex, toIndex) => {
             moveImageGenerationPreset(DBState.db, fromIndex, toIndex)
         }}
@@ -620,18 +620,6 @@
                     bindingPickerOpen = false
                 }}
             />
-        {/snippet}
-        {#snippet listFooter()}
-            <button
-                class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {editorImageGenerationPresetId ? 'risu-interactive-surface' : ''}"
-                class:bg-selected={!editorImageGenerationPresetId}
-                onclick={() => {
-                    editorImageGenerationPresetId = ''
-                    bindingPickerOpen = false
-                }}
-            >
-                <span class="truncate">{language.imageStylePresetBindingNone}</span>
-            </button>
         {/snippet}
         <PresetPickerActions
             onCreate={addImageGenerationPreset}

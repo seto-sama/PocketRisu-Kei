@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { AudioLinesIcon, CopyIcon, DownloadIcon, LoaderCircleIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
@@ -334,8 +335,8 @@
             <Button onclick={deselectAll} variant="outline" size="sm">
               {language.inlayGallery.inlayDeselectAll} ({selection.size})
             </Button>
-          {:else if filteredItems.length > 0}
-            <Button onclick={selectAll} variant="outline" size="sm">{language.inlayGallery.inlaySelectAll}</Button>
+          {:else}
+            <Button onclick={selectAll} variant="outline" size="sm" disabled={filteredItems.length === 0}>{language.inlayGallery.inlaySelectAll}</Button>
           {/if}
         </div>
       </div>
@@ -392,14 +393,13 @@
           <p class="text-subtext text-sm">{language.inlayGallery.inlayLoadingMore}</p>
         </div>
       {:else if filteredItems.length === 0}
-        <div class="min-h-full flex flex-col items-center justify-center text-center text-subtext">
-          <p class="text-lg">{language.inlayGallery.inlayEmpty}</p>
-          <p class="text-sm mt-2">
-            {$InlayGallerySubmenuIndex === 0
+          <EmptyState
+            title={activeFilterCount > 0 ? undefined : language.inlayGallery.inlayEmpty}
+            description={activeFilterCount > 0 ? undefined : $InlayGallerySubmenuIndex === 0
               ? language.inlayGallery.inlayImageGalleryEmptyDesc
               : language.inlayGallery.inlayMediaGalleryEmptyDesc}
-          </p>
-        </div>
+            layout="section" density="spacious" className="min-h-full"
+          />
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {#each displayedItems as item (item.id)}

@@ -6,7 +6,7 @@ export function getChatVar(key:string): string {
     const selectedChar = get(selectedCharID)
     const char = DBState.db.characters[selectedChar]
     if(!char){
-        return 'null'
+        return ''
     }
     const chat = char.chats[char.chatPage]
     chat.scriptstate ??= {}
@@ -19,7 +19,7 @@ export function getChatVar(key:string): string {
         if(findResult){
             return findResult[1]
         }
-        return 'null'
+        return ''
     }
     return state.toString()
 }
@@ -33,5 +33,5 @@ export function setChatVar(key:string, value:string): void {
 }
 
 export function getGlobalChatVar(key:string): string {
-    return DBState.db.globalChatVariables[key] ?? 'null'
+    return DBState.db.globalChatVariables[key] ?? ''
 }

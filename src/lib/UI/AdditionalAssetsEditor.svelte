@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
@@ -262,7 +263,7 @@
 <div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
     {#if assets.length === 0}
         <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-subtext">
-            {language.noData}
+            <EmptyState title={language.noData} description="" />
         </div>
     {:else}
         {#each displayedAssets as asset, i}

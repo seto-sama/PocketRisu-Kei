@@ -1,8 +1,9 @@
 import fc from 'fast-check'
 import { writable } from 'svelte/store'
 import { beforeEach, expect, test, vi } from 'vitest'
-import { DBState } from '../../stores.svelte'
+import { DBState, selectedCharID } from '../../stores.svelte'
 import { getChatVar, getGlobalChatVar, setChatVar } from '../chatVar.svelte'
+import { risuChatParser } from '../parser.svelte'
 import { resetChatVariables } from './cbs/lib'
 
 //#region module mocks
@@ -59,6 +60,7 @@ const anyValidDefaultVarValue = fc
 beforeEach(() => {
   vi.resetAllMocks()
   resetChatVariables()
+  selectedCharID.set(0)
 })
 
 test('can get a character default variable', () => {
@@ -123,11 +125,30 @@ test('can get a global chat variable', () => {
   )
 })
 
-test('returns "null" for undefined variables', () => {
+test('returns an empty string for undefined variables', () => {
   fc.assert(
     fc.property(fc.string({ unit: 'grapheme' }), (key) => {
-      expect(getChatVar(key)).toBe('null')
-      expect(getGlobalChatVar(`toggle_${key}`)).toBe('null')
+      expect(getChatVar(key)).toBe('')
+      expect(getGlobalChatVar(`toggle_${key}`)).toBe('')
     })
   )
+})
+
+test('returns an empty string without a selected character', () => {
+  selectedCharID.set(-1)
+  expect(getChatVar('missing')).toBe('')
+})
+
+test.each(['', '0', 'null'])('preserves the stored value %j', (value) => {
+  DBState.db.characters[0].defaultVariables = 'value=fallback'
+  setChatVar('value', value)
+  DBState.db.globalChatVariables.toggle_value = value
+
+  expect(getChatVar('value')).toBe(value)
+  expect(getGlobalChatVar('toggle_value')).toBe(value)
+})
+
+test('CBS renders unset chat variables and toggles as empty strings', () => {
+  expect(risuChatParser('[{{getvar::missing}}][{{getglobalvar::toggle_missing}}]')).toBe('[][]')
+  expect(risuChatParser('{{equal::{{getglobalvar::toggle_missing}}::}}')).toBe('1')
 })

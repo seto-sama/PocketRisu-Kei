@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import Button from '../../UI/components/Button.svelte'
     import Badge from '../../UI/components/Badge.svelte'
     import Alert from '../../UI/components/Alert.svelte'
@@ -660,7 +661,7 @@
                 {/if}
             </div>
             {#if characters.characters.length === 0}
-                <div class="text-subtext text-sm">{language.storageCharactersEmpty}</div>
+                <EmptyState title={language.storageCharactersEmpty} description="" layout="section" density="compact" />
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each charSlice as c (c.chaId || c.name)}
@@ -738,7 +739,7 @@
                 {/if}
             </div>
             {#if modules.modules.length === 0}
-                <div class="text-subtext text-sm">{language.storageModulesEmpty}</div>
+                <EmptyState title={language.storageModulesEmpty} description="" layout="section" density="compact" />
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each modSlice as m (m.id || m.name)}

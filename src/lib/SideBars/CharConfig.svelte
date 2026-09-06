@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "../../lang";
     import { saveImage as saveAsset, type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
@@ -266,7 +267,7 @@
             </button>
         </div>
         {#if DBState.db.characters[$selectedCharID].alternateGreetings.length === 0}
-            <span class="text-subtext text-sm">{language.noData}</span>
+            <EmptyState title={language.noData} description="" layout="section" density="compact" />
         {/if}
         {#each DBState.db.characters[$selectedCharID].alternateGreetings as greeting, i}
             <div class="mt-2">

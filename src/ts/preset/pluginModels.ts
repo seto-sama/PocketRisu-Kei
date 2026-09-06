@@ -88,6 +88,7 @@ const PARAMETER_SCHEMA: Record<string, Omit<RegistryFieldSchema, 'key'>> = {
     repetition_penalty: {
         type: 'number',
         label: 'Repetition penalty',
+        labelKey: 'modelPresetRepetitionPenalty',
         helpKey: 'repetitionPenalty',
         default: 1,
         min: 0,

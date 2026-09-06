@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { DownloadIcon, PlusIcon, TrashIcon, LinkIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon, UploadIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SettingPage from "../../UI/components/SettingPage.svelte";
@@ -51,7 +52,7 @@
     }
 
     function filteredPlugins(plugins: RisuPlugin[] = [], search: string) {
-        const normalized = search.toLowerCase()
+        const normalized = search.trim().toLowerCase()
         return plugins.map((plugin, index) => ({ plugin, index })).filter(({ plugin }) => {
             if (!normalized) return true
             return pluginTitle(plugin).toLowerCase().includes(normalized)
@@ -120,7 +121,7 @@
 </script>
 
 {#snippet content()}
-<SettingLayout variant="search" className="mt-4">
+<SettingLayout variant="search" className="mb-4">
     <Input className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
     {#snippet control()}
     <IconButtonGroup size="lg">
@@ -144,14 +145,13 @@
 </SettingLayout>
 
 <SortableList
-    className="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
+    className="w-full max-w-full flex flex-col gap-3 flex-1 overflow-y-auto"
     onReorder={reorderPlugins}
 >
-    {#if !DBState.db.plugins || DBState.db.plugins?.length === 0}
-        <div class="text-subtext text-sm text-center py-8">{language.noPlugins}</div>
-    {/if}
-    {#if DBState.db.plugins && DBState.db.plugins.length > 0 && visiblePlugins.length === 0}
-        <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
+    {#if pluginSearch.trim() && visiblePlugins.length === 0}
+        <EmptyState layout="section" />
+    {:else if !DBState.db.plugins || DBState.db.plugins?.length === 0}
+        <EmptyState title={language.noPlugins} description="" layout="section" />
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
         {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
@@ -169,7 +169,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
-            class="mt-2 flex items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+            class="flex items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
             role="button"
             tabindex="0"
             onclick={() => {
@@ -342,7 +342,7 @@
             </span>
             <!--List up args-->
         {:else if Object.keys(plugin.arguments).filter((i) => !i.startsWith("hidden_")).length > 0 && showParams.includes(pluginKey(plugin, index))}
-            <div class="flex flex-col mt-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
+            <div class="flex flex-col bg-dark-900/50 p-3 rounded-md border border-darkborderc">
                 {#each Object.keys(plugin.arguments) as arg}
                     {#if !arg.startsWith("hidden_")}
                         {#if typeof(plugin?.argMeta?.[arg]?.divider) === 'string'}

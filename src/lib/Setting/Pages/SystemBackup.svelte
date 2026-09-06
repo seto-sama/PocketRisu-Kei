@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     // System → Backups tab. Single home for snapshot management, full server
     // backups, local backup actions, and migration-style import/export tools.
     import Button from '../../UI/components/Button.svelte'
@@ -752,7 +753,7 @@
             {snapshotError}
         </Alert>
     {:else if snapshots.length === 0 && !snapshotLoading}
-        <p class="text-subtext text-sm">{language.backupSnapshotEmpty}</p>
+        <EmptyState title={language.backupSnapshotEmpty} description="" layout="section" density="compact" />
     {:else if snapshots.length > 0}
         <SettingLayout variant="list">
             {#each displayedSnapshots as snap (snap.key)}
@@ -795,7 +796,7 @@
 	    </div>
 
     {#if manualSnapshots.length === 0 && !manualSnapshotLoading}
-        <p class="text-subtext text-sm">{language.manualSnapshotEmpty}</p>
+        <EmptyState title={language.manualSnapshotEmpty} description="" layout="section" density="compact" />
     {:else if manualSnapshots.length > 0}
         <SettingLayout variant="list">
             {#each displayedManualSnapshots as snap (snap.filename)}

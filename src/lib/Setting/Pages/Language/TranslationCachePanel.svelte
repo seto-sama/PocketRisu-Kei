@@ -1,4 +1,5 @@
 <script lang="ts">
+    import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { Collapsible } from 'bits-ui';
     import { ArrowDownUpIcon, ChevronDownIcon, CopyIcon, DownloadIcon, UploadIcon, LanguagesIcon, SquarePenIcon, ScrollTextIcon, SearchIcon, Trash2Icon } from '@lucide/svelte';
     import Button from "../../../UI/components/Button.svelte";
@@ -433,10 +434,16 @@
                     </Collapsible.Root>
                 {/each}
             </SettingLayout>
-        {:else}
+        {:else if !cacheLoadError}
             <div class="flex flex-col items-center justify-center text-center py-16 bg-darkbg/30">
                 <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
-                <div class="text-maintext font-medium mb-1">{cacheIsPending ? language.loading : cacheSearch.trim() ? language.noData : language.exportTranslationCacheEmpty}</div>
+                {#if cacheIsPending}
+                    <div class="text-maintext font-medium">{language.loading}</div>
+                {:else if cacheSearch.trim()}
+                    <EmptyState />
+                {:else}
+                    <EmptyState title={language.exportTranslationCacheEmpty} description={language.translationCacheEmptyDesc} />
+                {/if}
             </div>
         {/if}
 
