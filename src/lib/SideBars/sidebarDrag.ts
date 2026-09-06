@@ -84,7 +84,18 @@ function uniqueCharacterIds(ids: string[], seen: Set<string>) {
     })
 }
 
-export function readSidebarOrderFromDom(root: HTMLElement, currentOrder: SidebarOrder): SidebarOrder {
+/** Hidden entries keep their slots while visible entries follow the new DOM order. */
+function preserveHiddenSlots<T>(current: readonly T[], visible: readonly T[], isHidden: (entry: T) => boolean): T[] {
+    const result: T[] = []
+    let index = 0
+    for (const entry of current) {
+        if (isHidden(entry)) result.push(entry)
+        else if (index < visible.length) result.push(visible[index++])
+    }
+    return result.concat(visible.slice(index))
+}
+
+export function readSidebarOrderFromDom(root: HTMLElement, currentOrder: SidebarOrder, hiddenIds: ReadonlySet<string> = new Set()): SidebarOrder {
     const existingFolders = new Map(
         currentOrder
             .filter((item): item is folder => typeof item !== 'string')
@@ -112,11 +123,15 @@ export function readSidebarOrderFromDom(root: HTMLElement, currentOrder: Sidebar
             : existingFolder.data
         nextOrder.push({
             ...existingFolder,
-            data: uniqueCharacterIds(folderIds, seenCharacterIds),
+            data: uniqueCharacterIds(preserveHiddenSlots(
+                existingFolder.data,
+                folderIds.filter(id => !hiddenIds.has(id)),
+                id => hiddenIds.has(id),
+            ), seenCharacterIds),
         })
     }
 
-    return nextOrder
+    return preserveHiddenSlots(currentOrder, nextOrder, entry => typeof entry === 'string' && hiddenIds.has(entry))
 }
 
 function cloneSidebarOrder(order: SidebarOrder): SidebarOrder {

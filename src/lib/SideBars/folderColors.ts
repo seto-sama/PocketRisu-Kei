@@ -34,5 +34,12 @@ export const folderColorOptions = [
 ] as const;
 
 export function getFolderColorStyle(color?: string | null): FolderColorStyle {
+    if (color && /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(color)) {
+        return {
+            fill: 'bg-[color-mix(in_srgb,var(--risu-folder-color)_20%,transparent)]',
+            border: 'border-[color-mix(in_srgb,var(--risu-folder-color)_40%,transparent)]',
+            accent: color,
+        };
+    }
     return color ? folderColorStyles[color] ?? defaultFolderColorStyle : defaultFolderColorStyle;
 }

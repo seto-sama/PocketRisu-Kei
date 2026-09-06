@@ -1701,6 +1701,11 @@ export function getBasename(data: string) {
 export function checkCharOrder() {
     let db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
+    if (db.nodeOnlyHiddenCharacterIds?.length) {
+        const knownIds = new Set(db.characters.map(character => character.chaId))
+        const hiddenIds = [...new Set(db.nodeOnlyHiddenCharacterIds)].filter(id => knownIds.has(id))
+        if (hiddenIds.length !== db.nodeOnlyHiddenCharacterIds.length) db.nodeOnlyHiddenCharacterIds = hiddenIds
+    }
     let ordered = []
     for (let i = 0; i < db.characterOrder.length; i++) {
         const folder = db.characterOrder[i]

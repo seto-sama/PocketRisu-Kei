@@ -57,6 +57,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex: role and tabindex are both omitted for noninteractive avatar reuse -->
 <span class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target"
+      style:--risu-folder-color={folderColorStyle.accent}
       class:rounded-md={!rounded}
       class:rounded-full={rounded}
       oncontextmenu={interactive ? handleContextMenu : undefined}

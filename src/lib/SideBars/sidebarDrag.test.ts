@@ -111,6 +111,32 @@ describe('applySidebarDrop', () => {
 })
 
 describe('readSidebarOrderFromDom', () => {
+    it('preserves hidden root and folder slots when visible characters move between them', () => {
+        const root = document.createElement('div')
+        addItem(root, 'folder-visible', 'character')
+        const folderElement = addItem(root, 'folder', 'folder')
+        const folderList = document.createElement('div')
+        folderList.dataset.risuSortableList = ''
+        folderList.dataset.sortableContainerKey = 'folder'
+        addItem(folderList, 'root-visible', 'character')
+        folderElement.appendChild(folderList)
+        const current: SidebarOrder = [
+            'root-hidden', 'root-visible',
+            folderItem('folder', ['folder-hidden', 'folder-visible']),
+        ]
+        expect(readSidebarOrderFromDom(root, current, new Set(['root-hidden', 'folder-hidden']))).toEqual([
+            'root-hidden', 'folder-visible',
+            folderItem('folder', ['folder-hidden', 'root-visible']),
+        ])
+    })
+
+    it('keeps hidden characters exactly once in a closed folder', () => {
+        const root = document.createElement('div')
+        addItem(root, 'folder', 'folder')
+        const current = [folderItem('folder', ['hidden', 'visible'])]
+        expect(readSidebarOrderFromDom(root, current, new Set(['hidden']))).toEqual(current)
+    })
+
     it('reads root and open-folder order while preserving folder metadata', () => {
         const root = document.createElement('div')
         const folderElement = addItem(root, 'folder', 'folder')

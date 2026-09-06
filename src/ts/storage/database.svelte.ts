@@ -1199,6 +1199,7 @@ export interface Database{
     plugins: RisuPlugin[]
     currentPluginProvider: string
     zoomsize:number
+    nodeOnlyHiddenCharacterIds?: string[]
     trashRetentionDays: number
     customBackground:string
     /** Custom CSS that is applied independently of the selected theme preset. */
@@ -2075,7 +2076,11 @@ interface hordeConfig{
     softPrompt:string
 }
 
+export type FolderDisplayMode = 'icon' | 'image' | 'name'
+
 export interface folder{
+    nodeOnlyDisplay?: FolderDisplayMode
+    nodeOnlyIcon?: string
     name:string
     data:string[]
     color:string

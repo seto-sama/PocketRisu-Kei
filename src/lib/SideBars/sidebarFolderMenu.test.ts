@@ -1,91 +1,79 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { get } from 'svelte/store'
 import type { folder, Database } from 'src/ts/storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({
     DBState: { db: { characterOrder: [] as Array<string | folder> } },
-    select: vi.fn(), input: vi.fn(), file: vi.fn(), save: vi.fn(), src: vi.fn(),
+    file: vi.fn(), save: vi.fn(),
 }))
 vi.mock(import('src/ts/stores.svelte'), () => ({ DBState: mocks.DBState as { db: Database } }))
-vi.mock(import('src/ts/alert'), () => ({ alertSelect: mocks.select, alertInput: mocks.input }))
 vi.mock(import('src/ts/util'), () => ({ selectSingleFile: mocks.file }))
-vi.mock(import('src/ts/globalApi.svelte'), () => ({ saveAsset: mocks.save, getFileSrc: mocks.src }))
+vi.mock(import('src/ts/globalApi.svelte'), () => ({ saveAsset: mocks.save }))
 
-import { openSidebarFolderMenu } from './sidebarFolderMenu'
-import { folderColorOptions } from './folderColors'
-
+import { folderSettingsTarget, openSidebarFolderMenu, updateSidebarFolder, pickSidebarFolderImage } from './sidebarFolderMenu'
+import { folderDisplayMode } from './folderDisplay'
 const makeFolder = (id: string): folder => ({ id, name: id, color: 'default', data: [] })
 
-describe('sidebar folder menu target', () => {
+describe('sidebar folder settings', () => {
     beforeEach(() => {
         vi.resetAllMocks()
+        folderSettingsTarget.set(null)
         mocks.DBState.db = { characterOrder: [makeFolder('a'), makeFolder('b')] }
     })
 
-    it('renames the original folder after reordering while the input is open', async () => {
-        mocks.select.mockResolvedValue('0')
-        mocks.input.mockImplementation(async () => {
-            mocks.DBState.db.characterOrder.reverse()
-            return 'renamed'
-        })
-        await openSidebarFolderMenu('a')
+    it('opens an existing folder and patches it by ID after a reorder', () => {
+        openSidebarFolderMenu('missing')
+        expect(get(folderSettingsTarget)).toBeNull()
+        openSidebarFolderMenu('a')
+        expect(get(folderSettingsTarget)).toBe('a')
+        mocks.DBState.db.characterOrder.reverse()
+        updateSidebarFolder('a', { name: 'renamed', nodeOnlyDisplay: 'name' })
         expect(mocks.DBState.db.characterOrder).toEqual([
-            makeFolder('b'), { ...makeFolder('a'), name: 'renamed' },
+            makeFolder('b'), { ...makeFolder('a'), name: 'renamed', nodeOnlyDisplay: 'name' },
         ])
     })
 
-    it('patches the current folder after a projection replacement during an upload', async () => {
-        mocks.select.mockResolvedValueOnce('2').mockResolvedValueOnce('1')
+    it('patches the original target after projection replacement and switching dialogs during upload', async () => {
         mocks.file.mockResolvedValue({ data: new Uint8Array([1]) })
         mocks.save.mockImplementation(async () => {
             mocks.DBState.db = { characterOrder: [makeFolder('b'), {
                 ...makeFolder('a'), name: 'remote name', color: 'red', data: ['new-member'],
             }] }
+            openSidebarFolderMenu('b')
             return 'assets/new.png'
         })
-        mocks.src.mockResolvedValue('/new.png')
-        await openSidebarFolderMenu('a')
+        await pickSidebarFolderImage('a')
+        expect(mocks.DBState.db.characterOrder[0]).toEqual(makeFolder('b'))
         expect(mocks.DBState.db.characterOrder[1]).toEqual({
             ...makeFolder('a'), name: 'remote name', color: 'red', data: ['new-member'],
-            imgFile: 'assets/new.png', img: '/new.png',
+            imgFile: 'assets/new.png', img: '',
         })
     })
 
-    it('does not recreate a folder deleted during the file dialog or upload', async () => {
-        mocks.select.mockResolvedValueOnce('2').mockResolvedValueOnce('1')
+    it('does not recreate a folder deleted during the picker or upload', async () => {
         mocks.file.mockImplementation(async () => {
             mocks.DBState.db.characterOrder.shift()
             return { data: new Uint8Array([1]) }
         })
-        await openSidebarFolderMenu('a')
+        await pickSidebarFolderImage('a')
         expect(mocks.save).not.toHaveBeenCalled()
-        expect(mocks.DBState.db.characterOrder).toEqual([makeFolder('b')])
-
         mocks.DBState.db.characterOrder.unshift(makeFolder('a'))
-        mocks.select.mockResolvedValueOnce('2').mockResolvedValueOnce('1')
         mocks.file.mockResolvedValue({ data: new Uint8Array([1]) })
-        mocks.save.mockResolvedValue('assets/new.png')
-        mocks.src.mockImplementation(async () => {
+        mocks.save.mockImplementation(async () => {
             mocks.DBState.db.characterOrder.shift()
-            return '/new.png'
+            return 'assets/new.png'
         })
-        await openSidebarFolderMenu('a')
+        await pickSidebarFolderImage('a')
         expect(mocks.DBState.db.characterOrder).toEqual([makeFolder('b')])
     })
 
-    it('uses the shared color choices and keeps remote visibility changes on the same folder', async () => {
-        mocks.select.mockResolvedValueOnce('1').mockImplementationOnce(async () => {
-            mocks.DBState.db.characterOrder.reverse()
-            return '0'
-        })
-        await openSidebarFolderMenu('a')
-        expect((mocks.DBState.db.characterOrder[1] as folder).color).toBe(folderColorOptions[0].value)
-
-        mocks.select.mockImplementationOnce(async () => {
-            mocks.DBState.db.characterOrder.reverse()
-            return '3'
-        })
-        await openSidebarFolderMenu('a')
-        expect((mocks.DBState.db.characterOrder[0] as folder).localOnly).toBe(true)
-        expect((mocks.DBState.db.characterOrder[1] as folder).localOnly).toBeUndefined()
+    it('preserves legacy display precedence until a folder explicitly chooses its mode', () => {
+        const target = makeFolder('a')
+        expect(folderDisplayMode(target, false)).toBe('icon')
+        expect(folderDisplayMode(target, true)).toBe('name')
+        target.imgFile = 'assets/old.png'
+        expect(folderDisplayMode(target, true)).toBe('image')
+        target.nodeOnlyDisplay = 'name'
+        expect(folderDisplayMode(target, false)).toBe('name')
     })
 })
