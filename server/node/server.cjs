@@ -547,8 +547,6 @@ function isCloudflareTunnelRequest(req) {
 
 const databaseProjectionService = createDatabaseProjectionService({
     appDataStore,
-    readStartupProjection: () => dbCache[DB_HEX_KEY]
-        ?? appDataStore.exportProjection({ includeMessages: false }),
     filterRemoteOnlyFolders,
     mergeRemoteFilteredDatabase,
     restoreGenerationOwnedMetadata,
@@ -790,6 +788,9 @@ async function scheduleCanonicalChatPersist({ characterId, chatId, chat }) {
         undefined,
         { requireExpected: false },
     );
+    // Creating a chat also changes the startup list. Keep legacy cache readers
+    // and the database ETag aligned with the durable commit before publishing it.
+    if (committed.projectionChanged) refreshCanonicalDatabaseCache();
     clearPersistFailure();
     try {
         scheduleBackupAndRotate();

@@ -1,4 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
+import { preparePatchConflictRebase } from './patchRebase'
 
 // Mock heavy deps so importing risuSave.ts doesn't pull the Svelte runtime
 // or trigger module-level side effects. The patcher and the helper it
@@ -14,6 +15,28 @@ vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 const { diffArrayWithIdGuard, RisuSavePatcher } = await import('./risuSave')
 const { compare } = await import('fast-json-patch')
+
+test('retries an acknowledged chat insertion from the exact saved baseline without duplicates', async () => {
+    const old = { id: 'old', name: 'Old', _stub: true }
+    const added = { id: 'new', name: 'New', _stub: true }
+    const base = { characters: [{ chaId: 'character', chats: [old] }], modules: [], botPresets: [] }
+    const local = { ...base, characters: [{ chaId: 'character', chats: [added, old] }] }
+    const server = { ...base, characters: [{ chaId: 'character', chats: [old, added] }] }
+    const patcher = new RisuSavePatcher()
+    await patcher.init(base)
+    const accepted = patcher.getBaselineSnapshot()
+    const rejected = await patcher.set(local, { ...emptyToSave(), character: ['character'] })
+    expect(accepted.characters[0].chats).toEqual([old])
+
+    const { mergedValue, serverBaseline } = preparePatchConflictRebase(server, {
+        patch: rejected.patch, baseline: accepted,
+    })
+    expect(mergedValue).toEqual(local)
+    await patcher.init(serverBaseline)
+    const retry = await patcher.set(mergedValue, { ...emptyToSave(), character: ['character'] })
+    const { applyPatch } = await import('fast-json-patch')
+    expect(applyPatch(structuredClone(server), retry.patch, true).newDocument).toEqual(local)
+})
 
 // ──────────────────────────────────────────────────────────────────────────
 // diffArrayWithIdGuard — direct tests on the structural-vs-elementwise pivot.

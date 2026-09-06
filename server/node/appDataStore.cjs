@@ -1133,6 +1133,7 @@ function createAppDataStore(db) {
                 revision: state.revision,
                 updatedAt: state.updatedAt,
                 changed: false,
+                projectionChanged: false,
             };
         }
 
@@ -1169,7 +1170,11 @@ function createAppDataStore(db) {
         }
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        return { chat: canonical, etag, revision, updatedAt, changed: true };
+        return {
+            chat: canonical, etag, revision, updatedAt, changed: true,
+            // Existing rows retain their stub metadata during content commits.
+            projectionChanged: !currentRow,
+        };
     });
 
     function commitChat(characterId, chatId, incoming, expectedEtag, options = {}) {

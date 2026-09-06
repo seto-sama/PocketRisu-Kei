@@ -162,11 +162,7 @@ function createDatabaseProjectionService(options = {}) {
     const restoreServerOwnedMetadata = options.restoreServerOwnedMetadata
         ?? options.restoreGenerationOwnedMetadata
         ?? identity;
-    const readStartupProjection = options.readStartupProjection
-        ?? (() => appDataStore.exportProjection(STARTUP_PROJECTION_OPTIONS));
-
     for (const [name, callback] of [
-        ['readStartupProjection', readStartupProjection],
         ['filterRemoteProjection', filterRemoteProjection],
         ['mergeRemoteProjection', mergeRemoteProjection],
         ['restoreServerOwnedMetadata', restoreServerOwnedMetadata],
@@ -177,7 +173,10 @@ function createDatabaseProjectionService(options = {}) {
     }
 
     function canonicalSnapshot() {
-        const database = readStartupProjection();
+        // Reads, conflict recovery, and the storage CAS must share the same
+        // durable pre-image. A process cache can miss independent chat commits
+        // and otherwise keep returning a baseline that can never be saved.
+        const database = appDataStore.exportProjection(STARTUP_PROJECTION_OPTIONS);
         const state = appDataStore.getState();
         return {
             database,

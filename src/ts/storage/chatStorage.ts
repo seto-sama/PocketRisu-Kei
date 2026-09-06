@@ -56,6 +56,16 @@ export function chatToStub(chat: Chat | ChatStub): ChatStub {
     return stub
 }
 
+/** Keep a hydrated body while adopting the complete merged list metadata. */
+export function mergeHydratedChatWithMetadata(chat: Chat, metadata: Chat | ChatStub): Chat {
+    const merged = { ...chat } as Record<string, any>
+    for (const key of Object.keys(chatToStub(chat))) delete merged[key]
+    Object.assign(merged, chatToStub(metadata))
+    delete merged._stub
+    delete merged._placeholder
+    return merged as Chat
+}
+
 /**
  * Replace all ChatStubs in a character's chats array with placeholder Chats.
  * Call this once after decoding database.bin so runtime code only sees Chat objects.

@@ -783,6 +783,10 @@ export function diffArrayWithIdGuard(
 
 export class RisuSavePatcher {
     private lastSyncedDb: any;
+
+    getBaselineSnapshot(): any {
+        return structuredClone(this.lastSyncedDb)
+    }
     private hashBlocks: { [key: string]: number } = {};
     // Cheap change pre-check baselines. calculateHash over normalizeJSON'd data
     // is the client↔server patch protocol (the server recomputes the same hash,

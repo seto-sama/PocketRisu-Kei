@@ -12,7 +12,7 @@ import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
+import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
     cloneChatValue,
@@ -459,8 +459,8 @@ export async function saveDb() {
     let patcher = new RisuSavePatcher()
     let acceptedPatchBaseline: Database | null = null
     if (isNodeServer || supportsPatchSync) {
-        acceptedPatchBaseline = safeStructuredClone(patchSyncBaseline ?? getDatabase()) as Database
-        await patcher.init(acceptedPatchBaseline)
+        await patcher.init(patchSyncBaseline ?? getDatabase())
+        acceptedPatchBaseline = patcher.getBaselineSnapshot()
         patchSyncBaseline = null
     }
 
@@ -783,7 +783,7 @@ export async function saveDb() {
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
                 await patcher.init(data)
-                acceptedPatchBaseline = safeStructuredClone(data) as Database
+                acceptedPatchBaseline = patcher.getBaselineSnapshot()
             }
             forageStorage.setDbEtag(etag)
             knownChatIdsByCharacter.clear()
@@ -891,7 +891,7 @@ export async function saveDb() {
         if (latestDb) {
             const preparedRebase = preparePatchConflictRebase(
                 latestDb,
-                exactPatch,
+                exactPatch ? { patch: exactPatch, baseline: acceptedPatchBaseline! } : undefined,
             )
             const mergedDb = preparedRebase.mergedValue as Database
             const serverBaseline = preparedRebase.serverBaseline as Database
@@ -949,10 +949,11 @@ export async function saveDb() {
             )
             for (const character of mergedDb.characters ?? []) {
                 const localCharacter = localCharacters.get(character.chaId)
+                const localChats = new Map((localCharacter?.chats ?? []).map(chat => [chat?.id, chat]))
                 character.chats = convertStubsToPlaceholders(character.chats ?? []).map(remoteChat => {
-                    const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat?.id)
+                    const localChat = localChats.get(remoteChat?.id)
                     return localChat && !localChat._placeholder
-                        ? safeStructuredClone(localChat)
+                        ? mergeHydratedChatWithMetadata(localChat, remoteChat)
                         : remoteChat
                 })
             }
@@ -976,7 +977,7 @@ export async function saveDb() {
                 // Keep them live and dirty, but hash from the exact server
                 // pre-image so the retry can submit them again successfully.
                 await patcher.init(serverBaseline)
-                acceptedPatchBaseline = safeStructuredClone(serverBaseline) as Database
+                acceptedPatchBaseline = patcher.getBaselineSnapshot()
             }
         }
         requeueTrackedChanges(toSave)
@@ -1341,11 +1342,11 @@ export async function saveDb() {
             }
         }
 
-        if (isNodeServer) {
+        if (isNodeServer || supportsPatchSync) {
             // The projection is now acknowledged even if a deferred chat body
             // later fails in transport. Imported chats already own stable ids,
             // so the patcher's normalized local projection is the server shape.
-            acceptedPatchBaseline = safeStructuredClone(db) as Database
+            acceptedPatchBaseline = patcher.getBaselineSnapshot()
         }
 
         for (const [chaId, chatId] of deferredNewCharacterChats) {

@@ -417,7 +417,7 @@ describe('relational chat content CAS', () => {
             'character-1', 'chat-1', chat, computeChatEtag(chat),
         )
 
-        expect(result).toMatchObject({ changed: false, revision: before.revision })
+        expect(result).toMatchObject({ changed: false, projectionChanged: false, revision: before.revision })
         expect(store.getState()).toEqual(before)
     })
 
@@ -443,6 +443,7 @@ describe('relational chat content CAS', () => {
         )
 
         expect(committed.chat.name).toBe('첫 채팅')
+        expect(committed.projectionChanged).toBe(false)
         expect(committed.chat.folderId).toBeNull()
         expect(committed.chat.message).toHaveLength(3)
         expect(store.exportProjection().characters[0].chats[0]).toEqual(committed.chat)
