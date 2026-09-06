@@ -66,3 +66,40 @@ describe('storage request integration', () => {
         })
     })
 })
+
+
+it('fetches fresh cleanup references without replacing the autosave baseline', async () => {
+    storage.setDbEtag('accepted')
+    storage.setDbRevision(7)
+    const result = { kind: 'translation', scannedAt: 1, used: [true] }
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(result)))
+    expect(await storage.scanContentReferences('translation', ['known text'])).toEqual({ kind: 'translation', scannedAt: 1, keys: ['known text'] })
+    expect(fetchMock).toHaveBeenCalledWith('/api/database/content-references', expect.objectContaining({ method: 'POST', cache: 'no-store', body: JSON.stringify({ kind: 'translation', candidates: ['known text'] }) }))
+    expect(storage._lastDbEtag).toBe('accepted')
+    expect(storage._lastDbRevision).toBe(7)
+})
+
+it('refuses cleanup when the server scan fails or returns malformed data', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('failed', { status: 500 }))
+    await expect(storage.scanContentReferences('inlay', ['known'])).rejects.toMatchObject({ status: 500 })
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({})))
+    await expect(storage.scanContentReferences('inlay', ['known'])).rejects.toThrow('Invalid content reference scan response')
+})
+
+it.each([
+    { kind: 'translation', scannedAt: 1, keys: ['secret server text'] },
+    { kind: 'translation', scannedAt: 1, used: [] },
+    { kind: 'translation', scannedAt: 1, used: ['true'] },
+])('rejects legacy or incomplete reference results: %j', async response => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(response)))
+    await expect(storage.scanContentReferences('translation', ['known']))
+        .rejects.toThrow('Invalid content reference scan response')
+})
+
+it('never propagates unsolicited server text or ids from reference responses', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        kind: 'translation', scannedAt: 1, used: [true, false], keys: ['server secret'], totalMessages: 999,
+    })))
+    expect(await storage.scanContentReferences('translation', ['known', 'unused']))
+        .toEqual({ kind: 'translation', scannedAt: 1, keys: ['known'] })
+})

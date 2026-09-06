@@ -1,3 +1,4 @@
+import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 // ── NodeOnly: server-side JWT ────────────────────────────────────────────────
 // Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
 // Context (HTTPS/localhost). NodeOnly needs HTTP remote access, so JWT
@@ -488,6 +489,18 @@ export class NodeStorage{
             throw new Error(`Plugin storage startup stats failed (${response.status})`)
         }
         return await response.json() as PluginStorageStartupStats
+    }
+
+    /** Read cleanup references without replacing the autosave revision/ETag. */
+    async scanContentReferences(kind: ContentReferenceKind, candidates: string[]) {
+        const response = await this.authFetch('/api/database/content-references', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ kind, candidates }),
+            cache: 'no-store',
+        })
+        if (!response.ok) throw await storageRequestError('scanContentReferences', response)
+        return validateContentReferences(await response.json(), kind, candidates)
     }
 
     /** Load the relational database's client projection as JSON. */

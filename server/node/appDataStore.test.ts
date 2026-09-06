@@ -537,3 +537,52 @@ describe('relational chat content CAS', () => {
         expect(sqlite.pragma('foreign_key_check')).toEqual([])
     })
 })
+
+
+describe('cleanup reference snapshot', () => {
+    it('scans persisted chats including server-only characters, trash, greetings, swipes and summaries', () => {
+        const { store } = createStore()
+        store.replaceFromProjection({ characters: [
+            { chaId: 'one', firstMessage: '{{inlay::greeting}}', alternateGreetings: ['alternate'], chats: [
+                { id: 'chat', message: [{ role: 'char', data: '{{inlayed::server}}', swipes: ['{{inlayeddata::swipe}}'] },
+                    { role: 'user', data: 'comment', isComment: true }], hypaV3Data: { summaries: [{ text: 'summary' }] } },
+            ] },
+            { chaId: 'trash', trashTime: 1, chats: [{ id: 'hidden', message: [{ role: 'char', data: '{{inlay::trash}}' }] }] },
+        ] })
+        const inlays = store.scanContentReferences('inlay', ['greeting', 'server', 'swipe', 'trash', 'unused'])
+        expect(inlays.used).toEqual([true, true, true, true, false])
+        expect(Object.keys(inlays).sort()).toEqual(['kind', 'scannedAt', 'used'])
+        const candidates = ['{{inlay::greeting}}', 'alternate', '{{inlayed::server}}', '{{inlayeddata::swipe}}', 'summary', '{{inlay::trash}}', 'comment', 'unused']
+        const translations = store.scanContentReferences('translation', candidates)
+        expect(translations.used).toEqual([true, true, true, true, true, true, false, false])
+        expect(Object.keys(translations).sort()).toEqual(['kind', 'scannedAt', 'used'])
+        expect(JSON.stringify(translations)).not.toContain('summary')
+        const before = store.getState().revision
+        store.scanContentReferences('inlay', [])
+        expect(store.getState().revision).toBe(before)
+    })
+
+    it('fails closed when stored messages cannot be decoded', () => {
+        const { store, sqlite } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        sqlite.prepare('UPDATE app_messages SET payload = ?').run(Buffer.from([0xd9]))
+        expect(() => store.scanContentReferences('inlay', ['known'])).toThrow()
+        expect(() => store.scanContentReferences('translation', ['known'])).toThrow()
+    })
+})
+
+it('protects hidden folder references without disclosing hidden messages, ids, or totals', () => {
+    const { store } = createStore()
+    store.replaceFromProjection({
+        characters: [
+            { chaId: 'hidden-character', firstMessage: 'secret greeting', chats: [{ id: 'hidden-chat', message: [{ role: 'char', data: 'secret text {{inlay::hidden-image}}' }] }] },
+        ],
+        characterOrder: [{ id: 'private', name: 'Private', localOnly: true, data: ['hidden-character'] }],
+    })
+    const result = store.scanContentReferences('translation', ['unused', 'secret greeting'])
+    expect(result.used).toEqual([false, true])
+    const wire = JSON.stringify(result)
+    for (const value of ['secret', 'hidden', 'private', 'totalMessages', 'keys']) expect(wire).not.toContain(value)
+    expect(store.scanContentReferences('inlay', ['hidden-image', 'unused']).used).toEqual([true, false])
+    expect(() => store.scanContentReferences('translation')).toThrow('Invalid content reference candidates')
+})

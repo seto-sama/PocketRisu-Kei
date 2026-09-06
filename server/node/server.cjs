@@ -1,4 +1,5 @@
 const express = require('express');
+const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
 const app = express();
 const http = require('http');
 const https = require('https');
@@ -3874,6 +3875,22 @@ app.get('/api/plugin-storage/startup-stats', async (req, res, next) => {
     try {
         await ensureCanonicalStorage();
         res.json(appDataStore.pluginStorageFootprint());
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/api/database/content-references', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    const { kind, candidates } = req.body ?? {};
+    try { validateReferenceCandidates(kind, candidates); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    try {
+        const result = await queueStorageOperation(async () => {
+            await ensureCanonicalStorage();
+            return appDataStore.scanContentReferences(kind, candidates);
+        });
+        res.set('Cache-Control', 'no-store').json(result);
     } catch (error) {
         next(error);
     }

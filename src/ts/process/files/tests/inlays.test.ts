@@ -2,6 +2,7 @@ import fc from 'fast-check'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { InlayAsset } from '../inlays'
 import {
+    scanInlayReferences,
     fitInlayImageSize,
     buildInlayReference,
     getInlayAsset,
@@ -32,6 +33,8 @@ describe('inlay viewer helpers', () => {
         expect(getInlayDownloadFileName('', 'png')).toBe('inlay-asset.png')
     })
 })
+
+const { scanReferencesMock } = vi.hoisted(() => ({ scanReferencesMock: vi.fn() }))
 
 //#region module mocks
 
@@ -69,6 +72,7 @@ vi.mock('src/ts/storage/nodeStorage', () => {
 
     class MockNodeStorage {
         authChecked = true
+        scanContentReferences = scanReferencesMock
         async setItem(key: string, value: Uint8Array) {
             nodeStorageMap.set(key, value)
         }
@@ -532,5 +536,24 @@ describe('set -> remove -> get', () => {
         expect(await getInlayAsset(id)).not.toBeNull()
         await removeInlayAsset(id)
         expect(await getInlayAsset(id)).toBeNull()
+    })
+})
+
+
+describe('inlay reference scan', () => {
+    test('protects references in unopened chats, alternate greetings, swipes and summaries', async () => {
+        getDatabaseMock.mockReturnValue({ characters: [{ chaId: 'char',
+            firstMessage: '{{inlay::greeting}}', alternateGreetings: ['{{inlayed::alternate}}'],
+            chats: [{ id: 'unopened', _placeholder: true, message: [] }],
+        }] })
+        scanReferencesMock.mockResolvedValue({ kind: 'inlay', scannedAt: 1, totalMessages: 1, refCounts: { used: 1, swipe: 1, summary: 1 } })
+        expect((await scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts).toEqual({ greeting: 1, alternate: 1, used: 1, swipe: 1, summary: 1 })
+        scanReferencesMock.mockResolvedValue({ kind: 'inlay', scannedAt: 2, totalMessages: 1, refCounts: { 'new-reference': 1 } })
+        expect((await scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts['new-reference']).toBe(1)
+    })
+    test('never classifies assets as unused after an incomplete scan', async () => {
+        getDatabaseMock.mockReturnValue({ characters: [{ chaId: 'char', chats: [{ id: 'unopened', _placeholder: true }] }] })
+        scanReferencesMock.mockRejectedValue(new Error('offline'))
+        await expect(scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).rejects.toThrow('offline')
     })
 })

@@ -1,6 +1,6 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-  import { onDestroy } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { AudioLinesIcon, CopyIcon, DownloadIcon, LoaderCircleIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
   import SelectOption from "../../UI/components/SelectOption.svelte";
@@ -10,7 +10,7 @@
 
   import { language } from 'src/lang'
   import { InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
-  import { alertConfirm } from 'src/ts/alert'
+  import { alertConfirm, notifyError } from 'src/ts/alert'
   import {
     getCharacterChatIndex,
     getInlayAssetUrl,
@@ -18,7 +18,6 @@
     getInlayVideoThumbnailUrl,
     listInlayExplorerItems,
     removeInlayAsset,
-    removeInlayAssets,
     scanInlayReferences,
     type CharacterChatIndexItem,
     type InlayExplorerItem,
@@ -57,6 +56,9 @@
 
   // Scan state
   let scanResult = $state<InlayScanResult | null>(null)
+  let scanning = $state(false)
+  let scanError = $state('')
+  let scanSequence = 0
 
   // Viewer state
   let viewerOpen = $state(false)
@@ -64,7 +66,7 @@
   let viewerUrl = $state('')
   let viewerLoading = $state(false)
   let viewerError = $state('')
-  let deletingAsset = false
+  let deletingAsset = $state(false)
   const incrementalList = createIncrementalList({
     pageSize: 40,
     rootMargin: '200px 0px',
@@ -93,7 +95,7 @@
         if (specialFilter === 'meta-missing' && item.hasMeta) return false
         if (specialFilter === 'orphan-character' && !isOrphanCharacter(item)) return false
         if (specialFilter === 'orphan-chat' && !isOrphanChat(item)) return false
-        if (specialFilter === 'orphan-message' && (scanResult?.refCounts[item.id] ?? 0) > 0) return false
+        if (specialFilter === 'orphan-message' && (!scanResult || scanning || (scanResult.refCounts[item.id] ?? 0) > 0)) return false
         return true
       })
   })
@@ -228,14 +230,24 @@
     else selection.add(id)
   }
 
-  const selectAll = () => displayedItems.forEach((item) => selection.add(item.id))
+  const selectAll = () => {
+    if (!scanning && !deletingAsset) displayedItems.forEach((item) => selection.add(item.id))
+  }
   const deselectAll = () => selection.clear()
 
   const deleteAsset = async (id: string, name: string) => {
-    if (deletingAsset) return
+    if (deletingAsset || scanning) return
     deletingAsset = true
     try {
+      const protectReferences = specialFilter === 'orphan-message'
       if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', name)))) return
+      if (protectReferences) {
+        const result = await refreshReferenceScan()
+        if ((result.refCounts[id] ?? 0) > 0) {
+          selection.delete(id)
+          return
+        }
+      }
       const currentIndex = sortedItems.findIndex((item) => item.id === id)
       const neighborId = currentIndex >= 0
         ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
@@ -247,19 +259,53 @@
         if (neighborId) openViewer(neighborId)
         else closeViewer()
       }
+    } catch (error) {
+      notifyError(error)
     } finally {
       deletingAsset = false
     }
   }
 
   const deleteSelected = async () => {
-    if (selection.size === 0) return
-    if (!(await alertConfirm(language.inlayGallery.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) return
+    if (selection.size === 0 || deletingAsset || scanning) return
+    deletingAsset = true
+    const protectReferences = specialFilter === 'orphan-message'
     const ids = allItems.filter((item) => selection.has(item.id)).map((item) => item.id)
-    await removeInlayAssets(ids)
-    allItems = allItems.filter((item) => !selection.has(item.id))
-    if (viewerId && selection.has(viewerId)) closeViewer()
-    selection.clear()
+    try {
+      if (!(await alertConfirm(language.inlayGallery.inlayDeleteMultipleConfirm.replace('{count}', ids.length.toString())))) return
+      const references = protectReferences ? await refreshReferenceScan() : null
+      for (const id of ids) {
+        if (references && (references.refCounts[id] ?? 0) > 0) {
+          selection.delete(id)
+          continue
+        }
+        await removeInlayAsset(id)
+        allItems = allItems.filter((item) => item.id !== id)
+        selection.delete(id)
+        if (viewerId === id) closeViewer()
+      }
+    } catch (error) {
+      notifyError(error)
+    } finally {
+      deletingAsset = false
+    }
+  }
+
+  async function refreshReferenceScan() {
+    const sequence = ++scanSequence
+    scanning = true
+    scanError = ''
+    scanResult = null
+    try {
+      const result = await scanInlayReferences(allItems.map(item => item.id))
+      if (sequence === scanSequence) scanResult = result
+      return result
+    } catch (error) {
+      if (sequence === scanSequence) scanError = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      if (sequence === scanSequence) scanning = false
+    }
   }
 
   // --- Effects ---
@@ -286,11 +332,14 @@
     galleryScrollContainer?.scrollTo({ top: 0 })
   })
 
-  // Auto-scan when orphan-message filter is selected
+  // Rescan on each entry. Do not treat missing/failed scan results as unused.
   $effect(() => {
-    if (specialFilter === 'orphan-message' && !scanResult) {
-      scanResult = scanInlayReferences()
-    }
+    const filter = specialFilter
+    allItems
+    untrack(() => {
+      selection.clear()
+      if (filter === 'orphan-message') void refreshReferenceScan().catch(notifyError)
+    })
   })
 
   onDestroy(() => {
@@ -392,6 +441,11 @@
           <LoaderCircleIcon class="size-12 animate-spin text-primary" />
           <p class="text-subtext text-sm">{language.inlayGallery.inlayLoadingMore}</p>
         </div>
+      {:else if specialFilter === 'orphan-message' && scanning}
+        <p class="text-subtext">{language.inlayGallery.inlayScanning}</p>
+      {:else if specialFilter === 'orphan-message' && scanError}
+        <p role="alert">{scanError}</p>
+        <Button onclick={() => { void refreshReferenceScan().catch(notifyError) }} variant="outline" size="sm">{language.inlayGallery.inlayScanMessages}</Button>
       {:else if filteredItems.length === 0}
           <EmptyState
             title={activeFilterCount > 0 ? undefined : language.inlayGallery.inlayEmpty}
