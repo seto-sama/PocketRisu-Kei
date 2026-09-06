@@ -22,7 +22,7 @@
 
 ## 1. 本地備份檔案(.bin)
 
-從現有 RisuAI 匯出 `.bin` 備份檔案,然後匯入 PocketRisu。無論來源環境(web / Tauri / Capacitor / 本地)如何均可使用。
+從現有 RisuAI 匯出 `.bin` 備份檔案,然後匯入 PocketRisu。無論來源環境(web / Capacitor / 本地)如何均可使用。
 
 1. **在現有 RisuAI 中**: 設定 > 備份 > "儲存本地備份" 匯出 `.bin` 檔案。
 2. **在 PocketRisu 中**: 設定 > 資料遷移 > "匯入原版 Risu 本地備份" 匯入 `.bin` 檔案。

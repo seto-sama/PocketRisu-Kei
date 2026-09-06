@@ -52,7 +52,7 @@ interface DeclarativeSource {
 }
 
 const advancedRequestIds = new Set([
-    'adv.retries', 'adv.outputRepetition', 'adv.genTime', 'adv.sayNothing', 'adv.autoFill',
+    'adv.retries', 'adv.outputRepetition', 'adv.genTime', 'adv.sayNothing',
     'adv.exp.cachePoint', 'adv.toolUsage', 'adv.simpleTool', 'adv.banChar', 'adv.lbDepth',
     'adv.lbToken', 'adv.disableLbRecursive', 'adv.localActivationInCharacterLorebook', 'adv.bulkEnabling',
 ]);
@@ -90,7 +90,6 @@ function routeLabel(route: SettingsRouteValue): string {
         case SettingsRoute.Accessibility: return language.accessibility;
         case SettingsRoute.Hotkeys: return language.hotkey;
         case SettingsRoute.Persona: return language.persona;
-        case SettingsRoute.Prompt: return language.prompt;
         case SettingsRoute.ModelPreset: return language.modelPresetMenu;
         case SettingsRoute.PromptPreset: return language.promptPresetMenu;
         case SettingsRoute.RemoteAccess: return language.connectionManagement;

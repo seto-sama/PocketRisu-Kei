@@ -15,7 +15,6 @@ import { AddonSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex,
 
 export const SettingsRoute = {
     None: -1 as const,
-    Migration: 0 as const,
     OtherBots: 2 as const,
     SoundAndDisplay: 3 as const,
     Display: 3 as const,
@@ -25,7 +24,6 @@ export const SettingsRoute = {
     Language: 10 as const,
     Accessibility: 11 as const,
     Persona: 12 as const,
-    Prompt: 13 as const,
     ModelPreset: 16 as const,
     PromptPreset: 17 as const,
     RemoteAccess: 21 as const,
@@ -87,12 +85,7 @@ export function openSettings(
     accessibilityTab?: AccessibilityTabValue,
     modelPresetTab?: ModelPresetTabValue,
 ) {
-    if (route === SettingsRoute.Migration) {
-        SettingsMenuIndex.set(SettingsRoute.System);
-        SystemSubmenuIndex.set(StorageManagementTab.Backups);
-    } else {
-        SettingsMenuIndex.set(route);
-    }
+    SettingsMenuIndex.set(route);
     if (storageTab !== undefined) {
         SystemSubmenuIndex.set(storageTab);
     }

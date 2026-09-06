@@ -1242,7 +1242,7 @@ export const languageKorean = {
   saveBackupLocal: "로컬 백업 저장",
   saveBackupForUpstream: "원본 리스용 백업 내보내기",
   saveBackupForUpstreamConfirm:
-    "이 백업은 원본 RisuAI(웹·Tauri)로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
+    "이 백업은 원본 RisuAI로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
   loadBackupLocal: "로컬 백업 불러오기",
   topP: "Top P",
   genTimes: "생성 횟수",

@@ -20,7 +20,7 @@ There are three ways to migrate data from an existing RisuAI installation (Web R
 
 ## 1. Local Backup File (.bin)
 
-Export a `.bin` backup file from existing RisuAI, then import it into PocketRisu. Works regardless of the source environment (web / Tauri / Capacitor / local).
+Export a `.bin` backup file from existing RisuAI, then import it into PocketRisu. Works regardless of the source environment (web / Capacitor / local).
 
 1. **In existing RisuAI**: Settings > Backup > "Save Local Backup" to export a `.bin` file.
 2. **In PocketRisu**: Settings > Data Migration > "Import Original Risu Local Backup" to import the `.bin` file.
