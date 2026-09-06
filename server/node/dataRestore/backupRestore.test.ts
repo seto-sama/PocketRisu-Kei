@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto'
-import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash, createCipheriv } from 'node:crypto'
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import Database from 'better-sqlite3'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import pkg from './index.cjs'
 
 const {
@@ -41,6 +41,7 @@ async function makeTemporaryDirectory(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
+    vi.unstubAllGlobals()
     await Promise.all([...temporaryDirectories].map((directory) =>
         rm(directory, { recursive: true, force: true }),
     ))
@@ -70,6 +71,7 @@ async function fullRestoreHarness(
         install(): unknown
         coldStorageFailed?: number
     }>,
+    overrides: Record<string, any> = {},
 ) {
     const root = await makeTemporaryDirectory('pocketrisu-full-restore-')
     const savePath = join(root, 'save')
@@ -115,6 +117,7 @@ async function fullRestoreHarness(
         parseColdStorageJsonBuffer: () => ({ coldData: {} }),
         encodeColdStorageCanonicalBuffer: () => Buffer.alloc(0),
         logger: { info: () => {}, warn: () => {}, error: () => {} },
+        ...overrides,
     })
     return { db, get, inlayDir, savePath, service }
 }
@@ -611,4 +614,71 @@ describe('createLegacyRestoreService', () => {
             .toBe('current')
     })
 
+})
+
+// OriginalRisu encryptBuffer: SHA-256 of the UTF-8 key string, AES-GCM,
+// 12 zero IV bytes, and the default 128-bit tag appended to ciphertext.
+function encryptedAccountDatabase(plaintext: Buffer, key: string) {
+    const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(key).digest(), Buffer.alloc(12))
+    return Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
+}
+const accountMarker = backupEntry('encryption.risudat', Buffer.from(JSON.stringify({ type: 'account', time: 1788710000000 })))
+
+describe('encrypted account backup restore', () => {
+    it.each([true, false])('decrypts before projection validation, marker first: %s', async markerFirst => {
+        const { encodeRisuSaveLegacy, decodeRisuSave } = require('../utils.cjs')
+        const plaintext = Buffer.from(encodeRisuSaveLegacy({ characters: [], language: 'ko' }, 'compression'))
+        const key = 'fixture-account-key'
+        const snapshot = vi.fn()
+        const harness = await fullRestoreHarness(async raw => {
+            expect(raw).toEqual(plaintext)
+            expect(await decodeRisuSave(raw)).toMatchObject({ characters: [], language: 'ko' })
+            return { install: () => {} }
+        }, { createBackupAndRotate: snapshot })
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify({ key })))
+        vi.stubGlobal('fetch', fetchMock)
+        const databaseEntry = backupEntry('database.risudat', encryptedAccountDatabase(plaintext, key))
+        const buffer = Buffer.concat([
+            backupEntry('image.png', Buffer.from('asset')),
+            ...(markerFirst ? [accountMarker, databaseEntry] : [databaseEntry, accountMarker]),
+        ])
+        async function* chunks() { for (let offset = 0; offset < buffer.length; offset += 7) yield buffer.subarray(offset, offset + 7) }
+        try {
+            expect(await harness.service.importBackupFromSource(chunks())).toMatchObject({ assetsRestored: 1 })
+            expect(harness.get.get('assets/encryption.risudat')).toBeUndefined()
+            expect(harness.get.get('assets/image.png').value).toEqual(Buffer.from('asset'))
+            expect(snapshot).toHaveBeenCalledOnce()
+            expect(fetchMock).toHaveBeenCalledOnce()
+        } finally { harness.db.close() }
+    })
+
+    it.each(['key-denied', 'wrong-key', 'corrupt-ciphertext', 'invalid-database'])('preserves all live data and snapshots on %s', async mode => {
+        const snapshot = vi.fn()
+        const prepare = vi.fn(async () => { throw new Error('invalid database') })
+        const harness = await fullRestoreHarness(prepare, { createBackupAndRotate: snapshot })
+        const sentinel = join(harness.inlayDir, 'original.png')
+        await writeFile(sentinel, 'original inlay')
+        const before = harness.db.prepare('SELECT key, value FROM kv ORDER BY key').all()
+        let ciphertext = encryptedAccountDatabase(Buffer.from('invalid database'), 'right-key')
+        if (mode === 'corrupt-ciphertext') ciphertext[0] ^= 1
+        vi.stubGlobal('fetch', vi.fn(async () => mode === 'key-denied'
+            ? new Response('denied', { status: 403 })
+            : new Response(JSON.stringify({ key: mode === 'wrong-key' ? 'wrong-key' : 'right-key' }))))
+        async function* chunks() {
+            yield backupEntry('new.png', Buffer.from('new asset'))
+            yield backupEntry('inlay/new.png', Buffer.from('new inlay'))
+            yield accountMarker
+            yield backupEntry('database.risudat', ciphertext)
+        }
+        try {
+            await expect(harness.service.importBackupFromSource(chunks())).rejects.toThrow()
+            expect(prepare).toHaveBeenCalledTimes(mode === 'invalid-database' ? 1 : 0)
+            expect(snapshot).not.toHaveBeenCalled()
+            expect(harness.db.prepare('SELECT key, value FROM kv ORDER BY key').all()).toEqual(before)
+            expect(harness.db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value).toBe('old projection')
+            expect(await readFile(sentinel, 'utf8')).toBe('original inlay')
+            expect(await readdir(harness.inlayDir)).toEqual(['original.png'])
+            expect((await readdir(harness.savePath)).filter(name => name.includes('staging') || name.startsWith('backup_restore_stage'))).toEqual([])
+        } finally { harness.db.close() }
+    })
 })

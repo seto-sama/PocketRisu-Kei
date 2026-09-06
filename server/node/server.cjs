@@ -5257,7 +5257,10 @@ app.post('/api/backup/server/restore', async (req, res, next) => {
         if (!res.headersSent) {
             next(error);
         } else {
-            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+            res.write(JSON.stringify({
+                type: 'error', message: error.message,
+                ...(error?.code ? { code: error.code } : {}),
+            }) + '\n');
             res.end();
         }
     } finally {

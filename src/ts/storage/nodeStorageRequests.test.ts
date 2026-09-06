@@ -160,3 +160,31 @@ it.each([503, 404])('does not retry chat HTTP %s responses', async status => {
     else await expect(storage.fetchChatContent('c', 0, 'chat')).rejects.toMatchObject({ status })
     expect(fetchMock).toHaveBeenCalledOnce()
 })
+
+it.each([
+    ['BACKUP_ENCRYPTION_METADATA_INVALID', 'encryption metadata'],
+    ['BACKUP_ENCRYPTION_KEY_UNAVAILABLE', 'decryption key'],
+    ['BACKUP_DECRYPTION_FAILED', 'Could not decrypt'],
+])('presents %s consistently for uploads and server-file restores', async (code, message) => {
+    vi.spyOn(storage, 'prepareImport').mockResolvedValue(undefined)
+    const event = JSON.stringify({ type: 'error', code, message: 'server fallback' }) + '\n'
+    class BackupXHR {
+        upload = {}
+        status = 200
+        responseText = ''
+        onprogress?: () => void
+        onload?: () => void
+        open() {}
+        setRequestHeader() {}
+        send() {
+            this.responseText = event.slice(0, 13)
+            this.onprogress?.()
+            this.responseText = event
+            this.onload?.()
+        }
+    }
+    vi.stubGlobal('XMLHttpRequest', BackupXHR)
+    await expect(storage.importBackup(new Blob(['fixture']))).rejects.toThrow(message)
+    fetchMock.mockResolvedValueOnce(new Response(event))
+    await expect(storage.restoreServerBackup('fixture.bin')).rejects.toThrow(message)
+})

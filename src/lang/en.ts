@@ -16,6 +16,9 @@ export const languageEnglish = {
         postEverything: "End-Injected Prompts",
     },
     errors: {
+        backupEncryptionMetadataInvalid: "The backup's encryption metadata is invalid or unsupported.",
+        backupEncryptionKeyUnavailable: "Could not retrieve the backup decryption key from RisuAI. Try again later or export a partial backup from OriginalRisu.",
+        backupDecryptionFailed: "Could not decrypt the backup. The key may not match or the file may be damaged.",
         toomuchtoken: "Error: The minimum required token is greater than the Max Context Size.",
         unknownModel: "Error: Unknown model selected",
         httpError: "Error: error in request:",

@@ -19,6 +19,9 @@ export const languageKorean = {
     postEverything: "최종 삽입 프롬프트",
   },
   errors: {
+    backupEncryptionMetadataInvalid: "백업의 암호화 정보가 잘못되었거나 지원하지 않는 형식입니다.",
+    backupEncryptionKeyUnavailable: "RisuAI 서버에서 백업 복호화 키를 받지 못했습니다. 나중에 다시 시도하거나 원본 RisuAI에서 부분 백업으로 내보내 주세요.",
+    backupDecryptionFailed: "백업을 복호화하지 못했습니다. 키가 일치하지 않거나 파일이 손상되었을 수 있습니다.",
     toomuchtoken: "에러: 요청에 필요한 최소 토큰이 최대 토큰보다 큽니다.",
     unknownModel: "에러: 알수없는 모델 선택됨",
     httpError: "요청 에러:",

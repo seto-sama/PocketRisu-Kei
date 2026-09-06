@@ -23,10 +23,14 @@ const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
 function serverErrorMessage(body: any, fallback: string): string {
-    if (body?.code === 'UNSUPPORTED_REMOTE_SAVE') {
-        return language.unsupportedRemoteSave
+    switch (body?.code) {
+        case 'BACKUP_ENCRYPTION_METADATA_INVALID': return language.errors.backupEncryptionMetadataInvalid
+        case 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE': return language.errors.backupEncryptionKeyUnavailable
+        case 'BACKUP_DECRYPTION_FAILED': return language.errors.backupDecryptionFailed
+        case 'UNSUPPORTED_REMOTE_SAVE': return language.unsupportedRemoteSave
     }
-    return typeof body?.error === 'string' ? body.error : fallback
+    return typeof body?.error === 'string' ? body.error
+        : typeof body?.message === 'string' ? body.message : fallback
 }
 
 // Custom error class for database conflict detection
@@ -789,9 +793,7 @@ export class NodeStorage{
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
-                        serverErrorMsg = msg.code === 'UNSUPPORTED_REMOTE_SAVE'
-                            ? language.unsupportedRemoteSave
-                            : typeof msg.message === 'string' ? msg.message : 'backup import failed'
+                        serverErrorMsg = serverErrorMessage(msg, 'backup import failed')
                     }
                     // Ignore 'heartbeat' and unknown event types.
                 }
@@ -909,9 +911,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.code === 'UNSUPPORTED_REMOTE_SAVE'
-                        ? language.unsupportedRemoteSave
-                        : msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup restore failed'))
                 }
             }
         }
