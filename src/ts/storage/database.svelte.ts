@@ -1,3 +1,4 @@
+import { normalizeTrashRetentionDays } from '../trashRetention';
 import { getChatBoundPersona } from '../chatBindingState';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
@@ -245,6 +246,7 @@ function normalizePromptTemplate(
 }
 
 export function setDatabase(data:Database){
+    data.trashRetentionDays = normalizeTrashRetentionDays(data.trashRetentionDays);
     normalizePresetTagState(data)
     delete (data as Database & { modelRegistrySeen?: unknown }).modelRegistrySeen
     const legacyInstructData = data as Database & {
@@ -1197,6 +1199,8 @@ export interface Database{
     plugins: RisuPlugin[]
     currentPluginProvider: string
     zoomsize:number
+    nodeOnlyHiddenCharacterIds?: string[]
+    trashRetentionDays: number
     customBackground:string
     /** Custom CSS that is applied independently of the selected theme preset. */
     globalCustomCSS:string
@@ -2072,7 +2076,11 @@ interface hordeConfig{
     softPrompt:string
 }
 
+export type FolderDisplayMode = 'icon' | 'image' | 'name'
+
 export interface folder{
+    nodeOnlyDisplay?: FolderDisplayMode
+    nodeOnlyIcon?: string
     name:string
     data:string[]
     color:string

@@ -1,3 +1,4 @@
+import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 // ── NodeOnly: server-side JWT ────────────────────────────────────────────────
 // Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
 // Context (HTTPS/localhost). NodeOnly needs HTTP remote access, so JWT
@@ -9,7 +10,9 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
-import { storageRequestError, StorageRequestError } from './storageRequest'
+import { CHAT_CONTENT_READ_POLICY, storageRequestError, StorageRequestError } from './storageRequest'
+import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
+import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityResult,
@@ -20,10 +23,14 @@ const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
 function serverErrorMessage(body: any, fallback: string): string {
-    if (body?.code === 'UNSUPPORTED_REMOTE_SAVE') {
-        return language.unsupportedRemoteSave
+    switch (body?.code) {
+        case 'BACKUP_ENCRYPTION_METADATA_INVALID': return language.errors.backupEncryptionMetadataInvalid
+        case 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE': return language.errors.backupEncryptionKeyUnavailable
+        case 'BACKUP_DECRYPTION_FAILED': return language.errors.backupDecryptionFailed
+        case 'UNSUPPORTED_REMOTE_SAVE': return language.unsupportedRemoteSave
     }
-    return typeof body?.error === 'string' ? body.error : fallback
+    return typeof body?.error === 'string' ? body.error
+        : typeof body?.message === 'string' ? body.message : fallback
 }
 
 // Custom error class for database conflict detection
@@ -46,6 +53,9 @@ export interface PersistWarning {
 }
 
 export interface PatchItemResult {
+    conflictCode?: string
+    currentHash?: string
+    hashDiagnostics?: PatchHashDiagnostics
     success: boolean
     etag?: string
     revision?: number
@@ -245,25 +255,30 @@ export class NodeStorage{
         }
     }
 
-    private async authFetch(input: RequestInfo | URL, init: RequestInit = {}, retry = true) {
-        await this.checkAuth()
-        const headers = new Headers(init.headers)
-        headers.set('risu-auth', await this.createAuth())
-        headers.set('x-sync-client-id', NodeStorage.sessionId)
-
-        const response = await fetch(input, {
-            ...init,
-            headers
-        })
-
-        if(retry && await this.shouldRetryAuth(response)){
-            this.authChecked = false
-            this.cachedJwt = null
+    private async authFetch(input: RequestInfo | URL, init: RequestInit = {}, policy: {
+        retryAuth?: boolean
+        firstResponseTimeoutMs?: number
+    } = {}): Promise<Response> {
+        const request = async (signal: AbortSignal | null | undefined) => {
             await this.checkAuth()
-            return this.authFetch(input, init, false)
+            const headers = new Headers(init.headers)
+            headers.set('risu-auth', await this.createAuth())
+            headers.set('x-sync-client-id', NodeStorage.sessionId)
+            // A timed-out auth preflight must not dispatch a late chat GET.
+            signal?.throwIfAborted()
+            const response = await fetch(input, { ...init, headers, signal })
+            if (policy.retryAuth !== false && await this.shouldRetryAuth(response)) {
+                this.authChecked = false
+                this.cachedJwt = null
+                return this.authFetch(input, { ...init, signal }, { retryAuth: false })
+            }
+            return response
         }
-
-        return response
+        if (!policy.firstResponseTimeoutMs) return request(init.signal)
+        return fetchWithRequestTimeout(request, {
+            signal: init.signal,
+            firstResponseTimeoutMs: policy.firstResponseTimeoutMs,
+        })
     }
 
     async setItem(key:string, value:Uint8Array, etag?:string) {
@@ -490,6 +505,18 @@ export class NodeStorage{
         return await response.json() as PluginStorageStartupStats
     }
 
+    /** Read cleanup references without replacing the autosave revision/ETag. */
+    async scanContentReferences(kind: ContentReferenceKind, candidates: string[]) {
+        const response = await this.authFetch('/api/database/content-references', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ kind, candidates }),
+            cache: 'no-store',
+        })
+        if (!response.ok) throw await storageRequestError('scanContentReferences', response)
+        return validateContentReferences(await response.json(), kind, candidates)
+    }
+
     /** Load the relational database's client projection as JSON. */
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
         const headers:Record<string, string> = { accept: 'application/json' }
@@ -607,6 +634,9 @@ export class NodeStorage{
                 etag: currentEtag,
                 revision: currentRevision,
                 conflict: !rejectedByChatGuard,
+                conflictCode: typeof data.code === 'string' ? data.code : undefined,
+                currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
+                hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
             }
         }
@@ -763,9 +793,7 @@ export class NodeStorage{
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
-                        serverErrorMsg = msg.code === 'UNSUPPORTED_REMOTE_SAVE'
-                            ? language.unsupportedRemoteSave
-                            : typeof msg.message === 'string' ? msg.message : 'backup import failed'
+                        serverErrorMsg = serverErrorMessage(msg, 'backup import failed')
                     }
                     // Ignore 'heartbeat' and unknown event types.
                 }
@@ -883,9 +911,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.code === 'UNSUPPORTED_REMOTE_SAVE'
-                        ? language.unsupportedRemoteSave
-                        : msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup restore failed'))
                 }
             }
         }
@@ -1052,7 +1078,7 @@ export class NodeStorage{
     async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             headers: { 'x-chat-id': chatId },
-        })
+        }, CHAT_CONTENT_READ_POLICY)
         if (da.status === 404) return null
         if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
         const etag = da.headers.get('x-chat-etag')

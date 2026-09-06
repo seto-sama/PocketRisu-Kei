@@ -11,7 +11,7 @@ import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, no
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
+import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
@@ -38,7 +38,8 @@ import {
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
-import { ChatSaveError, isRetryableSaveError } from './storage/storageRequest';
+import { ChatSaveError, SaveConflictError, SaveRetryPolicy, type SaveAttemptResult } from './storage/storageRequest';
+import { createPatchHashDiagnostics, comparePatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs';
 import { isNodeServer, supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -947,7 +948,7 @@ export async function saveDb() {
             forceFullWrite?: boolean
             skipBroadcast?: boolean
         }
-    ): Promise<'saved' | 'retry' | 'noop' | 'discarded'> {
+    ): Promise<SaveAttemptResult> {
         const db = getDatabase()
         if (!db.characters) {
             await sleep(1000)
@@ -1215,7 +1216,6 @@ export async function saveDb() {
                 }
                 if (isNodeServer) {
                     await rebaseTrackedLocalChangesOnLatestServerDb(null, db, toSave)
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
                 // Leave saved=false so the non-Node full-write path below kicks in.
@@ -1253,19 +1253,36 @@ export async function saveDb() {
                             db,
                             toSave,
                         )
-                        await sleep(Math.min(500 * (savetrys + 1), 3000))
                         return 'retry'
                     }
                 }
                 if (patchResult.conflict) {
-                    console.warn('[Save] Patch conflict detected, rebasing tracked local changes on latest server DB...')
+                    // set() already advanced the patcher; compare the rejected
+                    // request's accepted pre-image, not that speculative state.
+                    try {
+                        const mismatch = patchResult.hashDiagnostics && acceptedPatchBaseline
+                            ? comparePatchHashDiagnostics(
+                                createPatchHashDiagnostics(acceptedPatchBaseline, calculateHash),
+                                patchResult.hashDiagnostics,
+                            ) : undefined
+                        console.warn('[Save] Patch conflict; rebasing pending changes', {
+                            code: patchResult.conflictCode,
+                            revision: patchResult.revision,
+                            expectedHash: patchData.expectedHash,
+                            currentHash: patchResult.currentHash,
+                            ...mismatch,
+                        })
+                    } catch (error) {
+                        // Diagnostics must not turn a recoverable 409 into a
+                        // failed save, even with an older/malformed response.
+                        console.warn('[Save] Conflict diagnostics unavailable', error)
+                    }
                     await rebaseTrackedLocalChangesOnLatestServerDb(
                         patchResult.etag ?? null,
                         db,
                         toSave,
                         patchData.patch,
                     )
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
             }
@@ -1285,7 +1302,6 @@ export async function saveDb() {
                 if (conflictErr instanceof ConflictError) {
                     console.warn('[Save] Full-write conflict detected, rebasing tracked local changes on latest server DB...')
                     await rebaseTrackedLocalChangesOnLatestServerDb(conflictErr.currentEtag ?? null, db, toSave)
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
                 throw conflictErr
@@ -1325,6 +1341,8 @@ export async function saveDb() {
         return 'saved'
     }
 
+    const saveRetry = new SaveRetryPolicy()
+
     async function triggerSave(options?: {
         forceFullWrite?: boolean
         skipBroadcast?: boolean
@@ -1342,10 +1360,8 @@ export async function saveDb() {
         saveInFlight = (async () => {
             saving.state = true
             try {
-                const result = await persistTrackedChanges(toSave, options)
-                if (result === 'saved') {
-                    savetrys = 0
-                } else if (result === 'noop' && hasTrackedChanges(toSave)) {
+                const result = await saveRetry.runAttempt(() => persistTrackedChanges(toSave, options))
+                if (result === 'noop' && hasTrackedChanges(toSave)) {
                     requeueTrackedChanges(toSave)
                     changed = true
                 }
@@ -1359,21 +1375,19 @@ export async function saveDb() {
                 } else {
                     requeueTrackedChanges(toSave)
                 }
-                savetrys += 1
-                const retryable = isRetryableSaveError(error)
-                if (!retryable || savetrys > 4) {
-                    if (!retryable) {
-                        // Keep the requeued edits, but don't resend an unchanged
-                        // permanent failure on a pending debounce timer.
-                        cancelPendingSave()
-                        changed = false
-                    }
+                const decision = saveRetry.recordFailure(error)
+                if (!decision.retry) {
+                    // Preserve dirty targets, but stop both the retry loop and
+                    // a debounce scheduled before this failure. A later edit
+                    // or explicit save can retry with a fresh budget.
+                    cancelPendingSave()
+                    changed = false
+                    saveRetry.reset()
                     alertError(error)
-                    savetrys = 0
                 }
                 else {
-                    console.error(error)
-                    await sleep(Math.min(500 * savetrys, 3000))
+                    if (!(error instanceof SaveConflictError)) console.error(error)
+                    await sleep(decision.delayMs)
                     changed = true
                 }
             } finally {
@@ -1412,7 +1426,6 @@ export async function saveDb() {
         })
     }
 
-    let savetrys = 0
     while (true) {
         if (!changed) {
             await sleep(200)
@@ -1701,6 +1714,11 @@ export function getBasename(data: string) {
 export function checkCharOrder() {
     let db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
+    if (db.nodeOnlyHiddenCharacterIds?.length) {
+        const knownIds = new Set(db.characters.map(character => character.chaId))
+        const hiddenIds = [...new Set(db.nodeOnlyHiddenCharacterIds)].filter(id => knownIds.has(id))
+        if (hiddenIds.length !== db.nodeOnlyHiddenCharacterIds.length) db.nodeOnlyHiddenCharacterIds = hiddenIds
+    }
     let ordered = []
     for (let i = 0; i < db.characterOrder.length; i++) {
         const folder = db.characterOrder[i]

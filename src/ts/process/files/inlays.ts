@@ -1,3 +1,4 @@
+import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
 import { v4 } from "uuid";
 import { getImageType } from "src/ts/media";
 import { getDatabase } from "../../storage/database.svelte";
@@ -724,37 +725,9 @@ export type InlayScanResult = {
     refCounts: Record<string, number>
 }
 
-const INLAY_REF_REGEX = /\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/g
-
-/**
- * Scan all chat messages in the database and count how many times each inlay ID is referenced.
- * This is a synchronous read from the in-memory DB state — no async I/O needed.
- */
-export function scanInlayReferences(): InlayScanResult {
-    const db = getDatabase()
-    const characters = Array.isArray(db?.characters) ? db.characters : []
-    const refCounts: Record<string, number> = {}
-    let totalMessages = 0
-
-    for (const char of characters) {
-        if (!Array.isArray(char?.chats)) continue
-        for (const chat of char.chats) {
-            if (!Array.isArray(chat?.message)) continue
-            for (const msg of chat.message) {
-                if (typeof msg?.data !== 'string') continue
-                totalMessages++
-                // Reset regex state and create fresh instance to avoid lastIndex issues
-                const regex = new RegExp(INLAY_REF_REGEX.source, 'g')
-                let m: RegExpExecArray | null
-                while ((m = regex.exec(msg.data)) !== null) {
-                    const id = m[1]
-                    refCounts[id] = (refCounts[id] ?? 0) + 1
-                }
-            }
-        }
-    }
-
-    return { scannedAt: Date.now(), totalMessages, refCounts }
+/** Server references plus local unsaved references, shared with cache cleanup. */
+export async function scanInlayReferences(candidates: string[]): Promise<InlayScanResult> {
+    return await scanDatabaseContent('inlay', candidates)
 }
 
 export function supportsInlayImage() {

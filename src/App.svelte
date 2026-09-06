@@ -5,7 +5,9 @@
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
     import AlertComp from './lib/Others/AlertComp.svelte';
     import RealmPopUp from './lib/UI/Realm/RealmPopUp.svelte';
+    import FolderSettingsDialog from './lib/SideBars/FolderSettingsDialog.svelte';
     import GridChars from './lib/Others/GridCatalog.svelte';
+    import Dialog from './lib/UI/components/Dialog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
     import Settings from './lib/Setting/Settings.svelte';
     import { showRealmInfoStore, importCharacterProcess } from './ts/characterCards';
@@ -45,7 +47,7 @@
 
     function openCharacterGrid() {
         gridOpen = true
-        sideBarStore.set(false)
+        if ($DynamicGUI) sideBarStore.set(false)
     }
 
     function focusOverlay(node: HTMLElement) {
@@ -136,8 +138,8 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen || (!$MobileGUI && gridOpen)}
-            aria-hidden={$settingsOpen || (!$MobileGUI && gridOpen)}
+            inert={$settingsOpen}
+            aria-hidden={$settingsOpen}
         >
             {#if $MobileGUI}
                 <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
@@ -157,14 +159,17 @@
             {/if}
         </div>
 
-        {#if gridOpen && !$MobileGUI && !$settingsOpen}
-            <div
-                class="risu-layer-local-focus fixed inset-0 flex h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
-                tabindex="-1"
-                use:focusOverlay
+        {#if !$MobileGUI && !$settingsOpen}
+            <Dialog
+                bind:open={gridOpen}
+                size="xl"
+                closable={false}
+                ariaLabel={language.characterList}
+                contentClass="h-[90dvh] overflow-hidden bg-lightbg p-0 gap-0"
+                bodyClass="flex min-h-0 grow overflow-hidden"
             >
                 <GridChars endGrid={() => {gridOpen = false}} />
-            </div>
+            </Dialog>
         {/if}
 
         {#if $settingsOpen}
@@ -192,6 +197,7 @@
             </div>
         {/if}
     {/if}
+    <FolderSettingsDialog />
     <AlertComp />
     {#if $showRealmInfoStore}
         <RealmPopUp bind:openedData={$showRealmInfoStore} />

@@ -1,3 +1,4 @@
+import { isTrashExpired } from './trashRetention';
 import { checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
@@ -584,14 +585,9 @@ async function checkNewFormat(): Promise<void> {
     if (db.mainPrompt === oldJailbreak) {
         db.mainPrompt = defaultJailbreak;
     }
-    for (let i = 0; i < db.characters.length; i++) {
-        const trashTime = db.characters[i].trashTime;
-        const targetTrashTime = trashTime ? trashTime + 1000 * 60 * 60 * 24 * 3 : 0;
-        if (trashTime && targetTrashTime < Date.now()) {
-            db.characters.splice(i, 1);
-            i--;
-        }
-    }
+    const trashCleanupTime = Date.now();
+    db.characters = db.characters.filter(character =>
+        !isTrashExpired(character.trashTime, db.trashRetentionDays, trashCleanupTime));
     setDatabase(db);
     checkCharOrder();
 

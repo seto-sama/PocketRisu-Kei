@@ -52,7 +52,6 @@
             kv: { count: number; totalSize: number; oldest: number | null; newest: number | null }
             file: { count: number; totalSize: number; oldest: number | null; newest: number | null }
         }
-        trashed: { count: number; expiredCount: number; available: boolean }
         orphan: OrphanAssetStats
         etag: string | null
     }

@@ -3,6 +3,7 @@
 const { applyPatch: applyJsonPatch } = require('fast-json-patch');
 const { calculateHash, normalizeJSON } = require('./utils.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
+const { createPatchHashDiagnostics } = require('../../shared/patchHashDiagnostics.mjs');
 const {
     classifiedPluginOwner,
     installedV3Plugins,
@@ -43,6 +44,7 @@ class DatabaseProjectionConflictError extends DatabaseProjectionServiceError {
         this.currentEtag = options.currentEtag;
         this.currentRevision = options.currentRevision;
         this.currentHash = options.currentHash;
+        this.hashDiagnostics = options.hashDiagnostics;
     }
 }
 
@@ -351,6 +353,7 @@ function createDatabaseProjectionService(options = {}) {
                     currentEtag: snapshot.etag,
                     currentRevision: snapshot.revision,
                     currentHash,
+                    hashDiagnostics: createPatchHashDiagnostics(visible, calculateHash),
                 },
             );
         }

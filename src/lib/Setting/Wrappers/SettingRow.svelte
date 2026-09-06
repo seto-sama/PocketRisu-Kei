@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
+    import { cn } from 'src/lib/utils';
 
     interface Props {
         title?: string;
@@ -21,7 +22,7 @@
 </script>
 
 <div
-    class="py-3 border-t border-darkborderc {className}"
+    class={cn('py-3 border-t border-darkborderc', className)}
     class:flex={!stacked}
     class:items-center={!stacked}
     class:justify-between={!stacked}

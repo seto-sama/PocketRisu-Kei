@@ -19,6 +19,9 @@ export const languageKorean = {
     postEverything: "최종 삽입 프롬프트",
   },
   errors: {
+    backupEncryptionMetadataInvalid: "백업의 암호화 정보가 잘못되었거나 지원하지 않는 형식입니다.",
+    backupEncryptionKeyUnavailable: "RisuAI 서버에서 백업 복호화 키를 받지 못했습니다. 나중에 다시 시도하거나 원본 RisuAI에서 부분 백업으로 내보내 주세요.",
+    backupDecryptionFailed: "백업을 복호화하지 못했습니다. 키가 일치하지 않거나 파일이 손상되었을 수 있습니다.",
     toomuchtoken: "에러: 요청에 필요한 최소 토큰이 최대 토큰보다 큽니다.",
     unknownModel: "에러: 알수없는 모델 선택됨",
     httpError: "요청 에러:",
@@ -49,6 +52,7 @@ export const languageKorean = {
       "서버 저장 실패 — 변경사항이 디스크에 반영되지 않습니다",
     persistFailureAttemptedSize: "시도 크기",
     storageRequestTooLarge: "저장 요청이 서버 또는 리버스 프록시의 요청 크기 제한을 초과했습니다. 업로드 크기를 줄이거나 서버·프록시의 제한을 확인하세요. 이 요청은 저장되지 않았습니다.",
+    saveConflictRetryExhausted: "저장 충돌이 반복되어 자동 재시도를 멈췄습니다. 미저장 변경은 이 탭에 남아 있습니다. 탭을 닫지 말고 다른 기기의 편집을 멈춘 뒤 다시 편집하면 저장을 재시도합니다. 충돌 상세는 시스템 로그에서 확인할 수 있습니다.",
     chatGuardTitle: "채팅 데이터 보호 작동 — 안전 저장 모드로 전환됨",
     chatGuardDesc:
       "비정상적인 저장 패턴이 차단되어 안전 저장(full-write)으로 전환됐어요. 변경사항은 그 경로로 디스크에 저장됩니다. 반복되면 브라우저 콘솔 로그와 함께 제보해주세요.",
@@ -1351,6 +1355,17 @@ export const languageKorean = {
   grid: "그리드",
   list: "리스트",
   trash: "휴지통",
+  folderSettings: "폴더 설정",
+  folderColor: "폴더 색상",
+  folderDisplayMode: "표시 방식",
+  folderModeIcon: "아이콘",
+  folderModeImage: "이미지",
+  folderModeName: "이름",
+  selectImage: "이미지 선택",
+  hideFromSidebar: "사이드바에서 숨기기",
+  showInSidebar: "사이드바에 표시",
+  trashAutoDeleteSchedule: "자동 삭제 일정",
+  trashRetentionDaysSuffix: "일 후",
   restore: "복구",
   deletePermanently: "영구 삭제",
   emptyTrash: "휴지통 비우기",
@@ -1359,8 +1374,7 @@ export const languageKorean = {
   emptyTrashConfirm2:
     "진짜진짜 휴지통을 비우시겠습니까? 삭제한 캐릭터는 복구할 수 없습니다.",
   trashEmptied: "휴지통에서 캐릭터 {count}개를 영구 삭제했습니다.",
-  trashDesc:
-    "삭제된 캐릭터는 휴지통에 보관됩니다. 복구하거나 영구 삭제할 수 있습니다. 3일 후에는 자동으로 영구 삭제됩니다.",
+  trashDesc: helpKo.trash,
   shareExport: "공유/엑스포트",
   risupresetDesc:
     "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu 전용 포맷입니다.",

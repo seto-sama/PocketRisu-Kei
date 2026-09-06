@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
 import utilsPkg from './utils.cjs'
+import { createPatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const {
@@ -533,4 +534,30 @@ describe('remote and server-owned projection transforms', () => {
         expect(mergeRemoteProjection).toHaveBeenCalledOnce()
         expect(restoreServerOwnedMetadata).toHaveBeenCalledOnce()
     })
+})
+
+it('limits hash diagnostics to the same remote and plugin-filtered startup projection', () => {
+    const { store, service } = createService({
+        filterRemoteProjection: (database: any) => ({
+            ...database, localOnlyRoot: undefined,
+            characters: database.characters.filter((character: any) => character.chaId !== 'hidden'),
+        }),
+    })
+    const database = sampleDatabase()
+    store.replaceFromProjection({
+        ...database,
+        characters: [...database.characters, { chaId: 'hidden', name: 'secret', chats: [] }],
+        pluginCustomStorage: { private: 'plugin-secret' },
+    })
+    const options = { remote: true, excludeAllPluginStorage: true }
+    const before = store.getState()
+    const visible = service.getStartupProjection(options).database
+    const error = thrownBy(() => service.patchDatabase({
+        expectedHash: 'stale', patch: [{ op: 'replace', path: '/language', value: 'en' }],
+    }, options))
+    expect(error.hashDiagnostics).toEqual(createPatchHashDiagnostics(visible, calculateHash))
+    expect(error.hashDiagnostics.keys).not.toHaveProperty('localOnlyRoot')
+    expect(error.hashDiagnostics.characters.map((row: any) => row.id)).toEqual(['character-1'])
+    expect(JSON.stringify(error.hashDiagnostics)).not.toMatch(/secret|본문|해적/)
+    expect(store.getState()).toEqual(before)
 })
