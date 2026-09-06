@@ -77,6 +77,7 @@ const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
 } = require('./upstreamRequest.cjs');
+const { requestIdleTimeoutMs } = require('../../shared/requestTimeout.mjs');
 const {
     generationDb,
     getGenerationJob,
@@ -3132,7 +3133,8 @@ const reverseProxyFunc = async (req, res, next) => {
             method: req.method,
             headers: header,
             body: requestBody,
-            signal: timeout.signal
+            signal: timeout.signal,
+            idleTimeoutMs: requestIdleTimeoutMs(timeoutMs),
         });
         res.header(originalResponse.headers);
         res.status(originalResponse.status);
@@ -3141,15 +3143,15 @@ const reverseProxyFunc = async (req, res, next) => {
 
     }
     catch (err) {
-        if (err?.name === 'AbortError') {
+        if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
             if (!res.headersSent) {
                 res.status(504).send({
-                    error: timeoutMs
+                    error: err.name === 'TimeoutError' ? err.message : timeoutMs
                         ? `Proxy request timed out after ${timeoutMs}ms`
                         : 'Proxy request aborted'
                 });
             } else {
-                res.end();
+                res.destroy(err);
             }
             return;
         }

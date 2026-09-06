@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 const {
     executeEchoProviderRequest,
+    executeUpstreamRequest,
     filterUpstreamResponseHeaders,
 } = require('./upstreamRequest.cjs')
 
@@ -51,4 +52,23 @@ describe('executeEchoProviderRequest', () => {
 
         await expect(new Response(response.body).text()).rejects.toThrow('cancelled')
     })
+})
+
+test('the existing upstream executor surfaces idle body failures and retains response metadata', async () => {
+    vi.useFakeTimers()
+    try {
+        let signal: AbortSignal
+        const response = await executeUpstreamRequest({ url: 'https://provider.example', method: 'GET', idleTimeoutMs: 100 },
+            async (_url: string, init: RequestInit) => {
+                signal = init.signal!
+                return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream', 'content-length': '99' } })
+            })
+        expect(response.headers).toEqual({ 'content-type': 'text/event-stream' })
+        expect(response.status).toBe(200)
+        const failed = expect(new Response(response.body).text()).rejects.toMatchObject({ name: 'TimeoutError' })
+        await vi.advanceTimersByTimeAsync(100)
+        await failed
+        expect(signal!.aborted).toBe(true)
+        expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
 })

@@ -1,5 +1,7 @@
 'use strict';
 
+const { fetchWithRequestTimeout } = require('../../shared/requestTimeout.mjs');
+
 const BLOCKED_RESPONSE_HEADERS = new Set([
     'cache-control',
     'clear-site-data',
@@ -24,13 +26,18 @@ function filterUpstreamResponseHeaders(headers) {
 }
 
 async function executeUpstreamRequest(arg, fetchImpl = globalThis.fetch) {
-    const response = await fetchImpl(arg.url, {
+    const request = signal => fetchImpl(arg.url, {
         method: arg.method,
         headers: arg.headers,
         body: arg.body,
-        signal: arg.signal,
+        signal,
         redirect: arg.redirect || 'follow',
     });
+    // Durable generation already owns its deadline; ordinary proxy requests
+    // opt into an idle bound without changing that job lifecycle.
+    const response = arg.idleTimeoutMs
+        ? await fetchWithRequestTimeout(request, { signal: arg.signal, idleTimeoutMs: arg.idleTimeoutMs })
+        : await request(arg.signal);
     return {
         status: response.status,
         headers: filterUpstreamResponseHeaders(response.headers),

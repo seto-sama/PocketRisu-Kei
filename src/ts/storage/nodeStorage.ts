@@ -10,7 +10,8 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
-import { storageRequestError, StorageRequestError } from './storageRequest'
+import { CHAT_CONTENT_READ_POLICY, storageRequestError, StorageRequestError } from './storageRequest'
+import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
 import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
 import type {
     BookmarkCatalog,
@@ -250,25 +251,30 @@ export class NodeStorage{
         }
     }
 
-    private async authFetch(input: RequestInfo | URL, init: RequestInit = {}, retry = true) {
-        await this.checkAuth()
-        const headers = new Headers(init.headers)
-        headers.set('risu-auth', await this.createAuth())
-        headers.set('x-sync-client-id', NodeStorage.sessionId)
-
-        const response = await fetch(input, {
-            ...init,
-            headers
-        })
-
-        if(retry && await this.shouldRetryAuth(response)){
-            this.authChecked = false
-            this.cachedJwt = null
+    private async authFetch(input: RequestInfo | URL, init: RequestInit = {}, policy: {
+        retryAuth?: boolean
+        firstResponseTimeoutMs?: number
+    } = {}): Promise<Response> {
+        const request = async (signal: AbortSignal | null | undefined) => {
             await this.checkAuth()
-            return this.authFetch(input, init, false)
+            const headers = new Headers(init.headers)
+            headers.set('risu-auth', await this.createAuth())
+            headers.set('x-sync-client-id', NodeStorage.sessionId)
+            // A timed-out auth preflight must not dispatch a late chat GET.
+            signal?.throwIfAborted()
+            const response = await fetch(input, { ...init, headers, signal })
+            if (policy.retryAuth !== false && await this.shouldRetryAuth(response)) {
+                this.authChecked = false
+                this.cachedJwt = null
+                return this.authFetch(input, { ...init, signal }, { retryAuth: false })
+            }
+            return response
         }
-
-        return response
+        if (!policy.firstResponseTimeoutMs) return request(init.signal)
+        return fetchWithRequestTimeout(request, {
+            signal: init.signal,
+            firstResponseTimeoutMs: policy.firstResponseTimeoutMs,
+        })
     }
 
     async setItem(key:string, value:Uint8Array, etag?:string) {
@@ -1072,7 +1078,7 @@ export class NodeStorage{
     async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             headers: { 'x-chat-id': chatId },
-        })
+        }, CHAT_CONTENT_READ_POLICY)
         if (da.status === 404) return null
         if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
         const etag = da.headers.get('x-chat-etag')

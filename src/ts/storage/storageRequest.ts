@@ -2,6 +2,12 @@ import { language } from 'src/lang'
 
 const MAX_STORAGE_ERROR_MESSAGE_LENGTH = 512
 
+// Chat entry only: bound header wait without replaying the request or
+// limiting the time needed to download a large conversation after headers.
+export const CHAT_CONTENT_READ_POLICY = Object.freeze({
+    firstResponseTimeoutMs: 30_000,
+})
+
 export class StorageRequestError extends Error {
     constructor(
         readonly operation: string,

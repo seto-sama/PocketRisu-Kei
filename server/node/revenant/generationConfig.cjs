@@ -1,6 +1,6 @@
 'use strict';
 
-const GENERATION_REQUEST_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const { DEFAULT_REQUEST_TIMEOUT_MS: GENERATION_REQUEST_DEFAULT_TIMEOUT_MS } = require('../../../shared/requestTimeout.mjs');
 const GENERATION_REQUEST_MAX_TIMEOUT_MS = 60 * 60 * 1000;
 
 function normalizeGenerationRequestTimeoutMs(value) {

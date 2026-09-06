@@ -121,3 +121,42 @@ it('carries hash diagnostics through the existing patch request without another 
     }), { status: 409 }))
     expect(await storage.patchDatabase(patch)).toMatchObject({ conflict: true, hashDiagnostics: undefined })
 })
+
+it('ends a chat header timeout without replaying the request', async () => {
+    vi.useFakeTimers()
+    try {
+        fetchMock.mockImplementation(() => new Promise(() => {}))
+        const failed = expect(storage.fetchChatContent('character', 2, 'chat-id'))
+            .rejects.toMatchObject({ name: 'TimeoutError' })
+        await vi.advanceTimersByTimeAsync(30_000)
+        await failed
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock.mock.calls[0][0]).toBe('/api/chat-content/character/2')
+        expect(fetchMock.mock.calls[0][1].headers.get('x-chat-id')).toBe('chat-id')
+        expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
+        expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+})
+
+it('bounds auth preflight without dispatching a late chat request', async () => {
+    vi.useFakeTimers()
+    try {
+        let finishAuth: () => void
+        vi.mocked((storage as any).checkAuth).mockImplementation(() => new Promise<void>(resolve => { finishAuth = resolve }))
+        const failed = expect(storage.fetchChatContent('c', 0, 'chat')).rejects.toMatchObject({ name: 'TimeoutError' })
+        await vi.advanceTimersByTimeAsync(30_000)
+        await failed
+        finishAuth!()
+        await vi.advanceTimersByTimeAsync(0)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+})
+
+it.each([503, 404])('does not retry chat HTTP %s responses', async status => {
+    fetchMock.mockResolvedValue(new Response('unavailable', { status }))
+    if (status === 404) expect(await storage.fetchChatContent('c', 0, 'chat')).toBeNull()
+    else await expect(storage.fetchChatContent('c', 0, 'chat')).rejects.toMatchObject({ status })
+    expect(fetchMock).toHaveBeenCalledOnce()
+})
