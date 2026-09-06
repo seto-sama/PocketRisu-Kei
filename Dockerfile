@@ -49,6 +49,8 @@ COPY package.json .
 COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/shared ./shared
+COPY --from=builder /app/src ./src
 
 ENV NODE_ENV=production
 EXPOSE 6001
