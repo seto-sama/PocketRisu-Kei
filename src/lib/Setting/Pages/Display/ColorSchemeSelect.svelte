@@ -1,7 +1,7 @@
 <script lang="ts">
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
-    import { changeColorScheme, colorSchemeList, nonLegacyColorSchemes, colorSchemeLabels } from 'src/ts/gui/colorscheme';
+    import { changeColorScheme, colorSchemeList, colorSchemes } from 'src/ts/gui/colorscheme';
     import Select from '../../../UI/components/Select.svelte';
     import SelectOption from '../../../UI/components/SelectOption.svelte';
     import Switch from '../../../UI/components/Switch.svelte';
@@ -19,21 +19,20 @@
     const visibleSchemes = $derived(
         colorSchemeList.filter(
             (scheme) =>
-                nonLegacyColorSchemes.has(scheme) ||
+                !colorSchemes[scheme].legacy ||
                 showLegacy ||
                 scheme === DBState.db.colorSchemeName,
         ),
     );
 
-    // Pretty display label: "default" is localized, classics use the static
-    // label map (others fall back to the key), with a "(legacy)" suffix on
-    // legacy schemes.
-    const optionLabel = (scheme: string) => {
+    // The default label is localized; other names and legacy status come
+    // from the palette definition.
+    const optionLabel = (scheme: keyof typeof colorSchemes) => {
         const base =
             scheme === 'default'
                 ? language.colorSchemeDefault
-                : (colorSchemeLabels[scheme] ?? scheme);
-        return nonLegacyColorSchemes.has(scheme) ? base : `${base} (legacy)`;
+                : colorSchemes[scheme].label;
+        return !colorSchemes[scheme].legacy ? base : `${base} (legacy)`;
     };
 </script>
 

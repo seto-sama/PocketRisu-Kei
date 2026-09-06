@@ -1,3 +1,4 @@
+import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
 import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleFile, selectSingleFile } from '../util';
@@ -2799,8 +2800,7 @@ export function setPreset(db:Database, newPres: botPreset){
 
 // Theme preset functions
 
-export function saveCurrentThemePreset(){
-    let db = getDatabase()
+export function saveCurrentThemePreset(db: Database = getDatabase()){
     let pres = db.themePresets
     const saved: themePreset = {
         name: pres[db.themePresetsId]?.name ?? "Default",
@@ -2927,9 +2927,10 @@ export function copyThemePreset(id: number){
 }
 
 export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
-    saveCurrentThemePreset()
-    let db = getDatabase()
-    let pres = safeStructuredClone(db.themePresets[id])
+    const current = getDatabase()
+    const db = { ...current, themePresets: [...current.themePresets] }
+    saveCurrentThemePreset(db)
+    let pres = withExportColorSchemes(safeStructuredClone(db.themePresets[id]))
     pres.customBackground = ''
 
     if(type === 'json'){
