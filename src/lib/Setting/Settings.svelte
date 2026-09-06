@@ -15,7 +15,6 @@
     import AccessibilitySettings from "./Pages/AccessibilitySettings.svelte";
     import HotkeySettings from "./Pages/HotkeySettings.svelte";
     import PersonaSettings from "./Pages/PersonaSettings.svelte";
-    import PromptSettings from "./Pages/PromptSettings.svelte";
     import { isLite } from "src/ts/lite";
     import InlayImageGallery from "./Pages/InlayImageGallery.svelte";
     import RemoteAccessSettings from "./Pages/RemoteAccessSettings.svelte";
@@ -74,19 +73,6 @@
     }
     if(window.innerWidth >= 900 && $SettingsMenuIndex === -1 && !$MobileGUI){
         $SettingsMenuIndex = 16
-    }
-    if($SettingsMenuIndex === 1 || $SettingsMenuIndex === 15){
-        $SettingsMenuIndex = 16
-    }
-    else if($SettingsMenuIndex === 7){
-        $SettingsMenuIndex = 3
-    }
-    else if($SettingsMenuIndex === 14){
-        $SettingsMenuIndex = 4
-    }
-    else if($SettingsMenuIndex === 0){
-        $SettingsMenuIndex = 22
-        $SystemSubmenuIndex = 1
     }
 
 </script>
@@ -182,10 +168,6 @@
                             <HotkeySettings/>
                         {:else if $SettingsMenuIndex === 12}
                             <PersonaSettings/>
-                        {:else if $SettingsMenuIndex === 13}
-                            <PromptSettings onGoBack={() => {
-                                $SettingsMenuIndex = 17
-                            }}/>
                         {:else if $SettingsMenuIndex === 16}
                             <ModelPresetSettings/>
                         {:else if $SettingsMenuIndex === 17}

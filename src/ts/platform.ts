@@ -7,7 +7,6 @@ type UserAgentDataLike = {
 
 type BrowserNavigator = Navigator & {
     userAgentData?: UserAgentDataLike
-    standalone?: boolean
 }
 
 export type RisuEnvironmentLabel = "node" | "node(dev)"
@@ -17,8 +16,6 @@ const browserNavigator = navigator as BrowserNavigator
 export const isNodeServer: boolean = !!(globalThis as typeof globalThis & { __NODE__?: boolean }).__NODE__
 export const supportsPatchSync: boolean = !!(globalThis as typeof globalThis & { __PATCH_SYNC__?: boolean }).__PATCH_SYNC__
 export const isMobile: boolean = /Android|iPhone|iPad|iPod|webOS/i.test(browserNavigator.userAgent);
-
-export const isFirefox: boolean = browserNavigator.userAgent.includes("Firefox")
 
 function normalizeOSVersion(version?: string | null): string | null {
     if (!version) {
@@ -127,8 +124,3 @@ export async function getDetailedOSLabel(): Promise<string> {
 
     return joinOSLabel(osName, browserVersion ?? getUserAgentOSVersion(osName))
 }
-
-export const isInStandaloneMode =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    !!browserNavigator.standalone ||
-    document.referrer.includes("android-app://");

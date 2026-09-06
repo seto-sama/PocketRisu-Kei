@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { getChatBoundPersona } from "src/ts/chatBindingState";
     import { language } from "../../lang";
     import { getCharImage } from "src/ts/characters";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
@@ -24,9 +25,11 @@
     let visibleItemIndexes = $state<number[]>([]);
     let emptyMessage = $state('');
     const tags = $derived(DBState.db.personaTags ?? []);
-    const selectedPersonaIndex = $derived(onSelect
-        ? DBState.db.personas.findIndex(persona => !!persona.id && persona.id === getCurrentChat()?.bindedPersona)
-        : DBState.db.selectedPersona);
+    const selectedPersonaIndex = $derived.by(() => {
+        if (!onSelect) return DBState.db.selectedPersona;
+        const persona = getChatBoundPersona(DBState.db, getCurrentChat());
+        return persona ? DBState.db.personas.indexOf(persona) : -1;
+    });
 
     function selectPersona(index: number) {
         if (onSelect) onSelect(index);

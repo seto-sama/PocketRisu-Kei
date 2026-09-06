@@ -4,7 +4,7 @@
 
     interface Props extends Omit<HTMLInputAttributes, 'class' | 'value' | 'size'> {
         value?: string;
-        size?: 'compact' | 'default';
+        size?: 'compact' | 'row' | 'default';
         leadingInset?: 'none' | 'border' | 'row';
         className?: string;
     }
@@ -23,7 +23,9 @@
         'risu-field-border w-full min-w-0 bg-transparent px-0 py-1 text-maintext shadow-xs',
         size === 'compact'
             ? 'h-6 min-h-6 rounded-sm'
-            : 'h-8 min-h-8 rounded-md',
+            : size === 'row'
+                ? 'h-7 min-h-7 rounded-md'
+                : 'h-8 min-h-8 rounded-md',
         leadingInset === 'border' && 'inline-name-inset-border',
         leadingInset === 'row' && 'inline-name-inset-row',
         className,

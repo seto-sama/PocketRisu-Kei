@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { ChatSaveError, isRetryableSaveError, storageRequestError, StorageRequestError } from './storageRequest'
+import { describe, expect, it, vi } from 'vitest'
+import { ChatSaveError, SaveConflictError, SaveRetryPolicy, isRetryableSaveError, storageRequestError, StorageRequestError } from './storageRequest'
 
 describe('storage error details', () => {
     it('preserves server JSON and plain-text errors with bounded display text', async () => {
@@ -44,4 +44,41 @@ describe('storage error details', () => {
         expect(isRetryableSaveError(temporary)).toBe(true)
     })
 
+})
+
+describe('automatic save retry policy', () => {
+    it('bounds repeated rebase outcomes and mixed transport failures in one budget', async () => {
+        const policy = new SaveRetryPolicy()
+        const rebase = vi.fn(async () => 'retry' as const)
+        const send = vi.fn()
+            .mockImplementationOnce(rebase)
+            .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+            .mockImplementation(rebase)
+        let stopped: unknown
+        for (let attempt = 0; attempt < 20; attempt++) {
+            try {
+                await policy.runAttempt(send)
+            } catch (error) {
+                const decision = policy.recordFailure(error)
+                if (!decision.retry) { stopped = error; break }
+                expect(decision.delayMs).toBeGreaterThan(0)
+            }
+        }
+        expect(send).toHaveBeenCalledTimes(5)
+        expect(rebase).toHaveBeenCalledTimes(4)
+        expect(stopped).toBeInstanceOf(SaveConflictError)
+    })
+
+    it('resets after an acknowledged save or a new attempt after stopping, not a noop', async () => {
+        const policy = new SaveRetryPolicy()
+        const failure = new TypeError('network')
+        for (let i = 0; i < 4; i++) expect(policy.recordFailure(failure).retry).toBe(true)
+        await policy.runAttempt(async () => 'noop')
+        expect(policy.recordFailure(failure).retry).toBe(false)
+        policy.reset()
+        expect(policy.recordFailure(failure).delayMs).toBe(500)
+        await policy.runAttempt(async () => 'saved')
+        expect(policy.recordFailure(failure).delayMs).toBe(500)
+        expect(policy.recordFailure(new StorageRequestError('patchDatabase', 413)).retry).toBe(false)
+    })
 })

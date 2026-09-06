@@ -1,3 +1,4 @@
+import { fetchWithRequestTimeout, requestIdleTimeoutMs } from '../../../shared/requestTimeout.mjs'
 import { isLocalNetworkUrl } from './localNetwork'
 import type { LLMExecutionPolicy } from './transportTypes'
 import type { RevenantGenerationRequest } from '../process/revenant'
@@ -77,27 +78,30 @@ async function fetchViaProxy2(
     realBody: Uint8Array | undefined,
     arg: Pick<FetchNativeArgs, 'method' | 'signal' | 'useRisuTk' | 'requestTimeoutMs'>,
 ) {
-    const proxyHeaders: Record<string, string> = {
-        'risu-header': encodeURIComponent(JSON.stringify(headers)),
-        'risu-url': encodeURIComponent(url),
-        'risu-auth': await createRequiredNodeAuth(),
-        ...(arg.useRisuTk ? { 'x-risu-tk': 'use' } : {}),
-        ...(arg.requestTimeoutMs
-            ? { 'risu-timeout-ms': Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }
-            : {}),
-        ...(DBState?.db?.requestLocation ? { 'risu-location': DBState.db.requestLocation } : {}),
-    }
-    if (realBody) {
-        proxyHeaders['Content-Type'] = headers['Content-Type']
-            ?? headers['content-type']
-            ?? 'application/json'
-    }
-    const response = await fetch('/proxy2', {
-        body: realBody as BodyInit,
-        headers: proxyHeaders,
-        method: arg.method,
-        signal: arg.signal,
-    })
+    const response = await fetchWithRequestTimeout(async signal => {
+        const proxyHeaders: Record<string, string> = {
+            'risu-header': encodeURIComponent(JSON.stringify(headers)),
+            'risu-url': encodeURIComponent(url),
+            'risu-auth': await createRequiredNodeAuth(),
+            ...(arg.useRisuTk ? { 'x-risu-tk': 'use' } : {}),
+            ...(arg.requestTimeoutMs
+                ? { 'risu-timeout-ms': Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }
+                : {}),
+            ...(DBState?.db?.requestLocation ? { 'risu-location': DBState.db.requestLocation } : {}),
+        }
+        if (realBody) {
+            proxyHeaders['Content-Type'] = headers['Content-Type']
+                ?? headers['content-type']
+                ?? 'application/json'
+        }
+        signal.throwIfAborted()
+        return fetch('/proxy2', {
+            body: realBody as BodyInit,
+            headers: proxyHeaders,
+            method: arg.method,
+            signal,
+        })
+    }, { signal: arg.signal, idleTimeoutMs: requestIdleTimeoutMs(arg.requestTimeoutMs) })
     return new Response(response.body, { headers: response.headers, status: response.status })
 }
 
@@ -140,6 +144,12 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         : response
     const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
+    const fetchDirect = () => fetchWithRequestTimeout(signal => fetch(url, {
+        body: realBody as BodyInit,
+        headers,
+        method: arg.method,
+        signal,
+    }), { signal: requestSignal, idleTimeoutMs: requestIdleTimeoutMs(arg.requestTimeoutMs) })
     try {
         const revenantRequest = arg.generationRequest
         const useRevenantGenerationJob = !!revenantRequest
@@ -213,12 +223,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
             }))
         }
         if (arg.llmExecutionPolicy?.providerRoute === 'direct') {
-            return withFetchLog(await fetch(url, {
-                body: realBody as BodyInit,
-                headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
+            return withFetchLog(await fetchDirect())
         }
         if (arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)) {
             return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
@@ -227,14 +232,11 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
             }))
         }
         try {
-            return withFetchLog(await fetch(url, {
-                body: realBody as BodyInit,
-                headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
+            return withFetchLog(await fetchDirect())
         } catch (error) {
-            if (requestSignal?.aborted) throw error
+            // A timed-out POST may already be running upstream. Do not send
+            // the same request again through the proxy.
+            if (requestSignal?.aborted || error?.name === 'TimeoutError') throw error
             return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
                 ...arg,
                 signal: requestSignal,

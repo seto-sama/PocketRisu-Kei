@@ -323,7 +323,7 @@
             }}
         >
             <div class="min-h-0 grow overflow-y-auto">
-                <div class="flex flex-col">
+                <div class="flex flex-col gap-1">
                     {#each [
                         { id: 'all', name: language.presetAll },
                         ...(showUncategorized ? [{
@@ -331,7 +331,7 @@
                             name: organizationKind === 'tag' ? language.presetUntagged : language.presetUncategorized,
                         }] : []),
                     ] as folder}
-                        <button class="risu-selectable-row w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                        <button class="risu-selectable-row w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                             data-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -350,7 +350,7 @@
                 </div>
                 <div class="my-3 border-t border-darkborderc"></div>
                 <SortableList
-                    className="flex flex-col"
+                    className="flex flex-col gap-1"
                     disabled={!folderReorderable}
                     dataTransferKey="presetFolderId"
                     onReorder={(orderedIds, event) => {
@@ -366,7 +366,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="risu-selectable-row group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                    <div class="risu-selectable-row group w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                         data-sortable-key={folder.sortable === false ? undefined : folder.id}
                         data-sortable-no-scale
                         data-selected={selectedFolder === folder.id}
@@ -439,7 +439,7 @@
             </SettingLayout>
             {#if itemContent && onSelectItem}
                 <SortableList
-                    className="relative grow min-h-0 overflow-y-auto flex flex-col [&>*]:shrink-0"
+                    className="relative grow min-h-0 overflow-y-auto flex flex-col gap-1 [&>*]:shrink-0"
                     disabled={!onMoveItem && !allowFolderAssignmentDrag}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
@@ -466,7 +466,7 @@
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
                             data-inline-rename-row={itemRenameable ? '' : undefined}
-                            class="risu-selectable-row preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
+                            class="risu-selectable-row preset-picker-item w-full h-9 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
                             data-selected={index === selectedItemIndex}
                             class:cursor-grab={!!onMoveItem || allowFolderAssignmentDrag}
                             onclick={() => onSelectItem(index)}
@@ -499,7 +499,7 @@
                     {#if showNoneOption}
                         <button
                             type="button"
-                            class="risu-selectable-row w-full h-10 flex items-center rounded-md text-left px-2 text-sm text-subtext"
+                            class="risu-selectable-row w-full h-9 flex items-center rounded-md text-left px-2 text-sm text-subtext"
                             data-selected={noneSelected}
                             data-preset-select-none
                             onclick={onSelectNone}

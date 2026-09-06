@@ -190,7 +190,7 @@
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
     <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
-    <IconButtonGroup size="default" className="mt-2 w-full">
+    <IconButtonGroup size="default" className="risu-list-actions w-full">
         <IconButton onclick={() => {addLorebook()}}>
             <PlusIcon />
         </IconButton>

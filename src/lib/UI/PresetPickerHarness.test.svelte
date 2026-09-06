@@ -29,6 +29,9 @@
     onDeleteItem={onDelete}
     onDuplicateItem={() => {}}
     onExportItem={() => {}}
+    onFoldersChange={() => {}}
+    onAssignItem={() => {}}
+    onDeleteFolder={() => {}}
     itemRenameable
 >
     {#snippet itemContent(index, controller)}

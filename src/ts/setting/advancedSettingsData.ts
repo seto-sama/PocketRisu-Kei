@@ -53,19 +53,6 @@ export const advancedSettingsItems: SettingItem[] = [
             defaultValue: 8,
         }
     },
-    // Request Location (Non-Node/Tauri)
-    {
-        id: 'adv.reqLoc', type: 'segmented', labelKey: 'requestLocation', bindKey: 'requestLocation',
-        condition: () => false,
-        options: {
-            segmentOptions: [
-                { value: '', label: 'Default' },
-                { value: 'eu', label: 'EU (GDPR)' },
-                { value: 'fedramp', label: 'US (FedRAMP)' }
-            ]
-        }
-    },
-
     // Toggles
     { id: 'adv.sayNothing', type: 'check', labelKey: 'sayNothing', bindKey: 'useSayNothing', helpKey: 'sayNothing' },
     { id: 'adv.newImgBeta', type: 'check', labelKey: 'newImageHandlingBeta', bindKey: 'newImageHandlingBeta', helpKey: 'newImageHandlingBeta' },
@@ -88,7 +75,7 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.exp.cachePoint', type: 'check', labelKey: 'automaticCachePoint', bindKey: 'automaticCachePoint',
         helpKey: 'automaticCachePoint', showExperimental: true
     },
-    // Node/Tauri Specific
+    // Prompt Information
     {
         id: 'adv.requestInfo', type: 'check', labelKey: 'requestInfoInsideChat', bindKey: 'requestInfoInsideChat',
         helpKey: 'requestInfoInsideChat'

@@ -17,7 +17,7 @@ function isExpectedBrowserExternalization(warning: { message: string }) {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({command, mode}) => {
+export default defineConfig(({command}) => {
   return {
     plugins: [
       localFontsPlugin(),
@@ -38,25 +38,17 @@ export default defineConfig(({command, mode}) => {
       }) : null
     ],
 
-    // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-    // prevent vite from obscuring rust errors
+    // Keep the development server on a predictable port.
     clearScreen: false,
-    // tauri expects a fixed port, fail if that port is not available
     server: {
       host: '0.0.0.0', // listen on all addresses
       port: 5174,
       strictPort: true,
       // hmr: false,
     },
-    // to make use of `TAURI_ENV_DEBUG` and other env variables
-    // https://v2.tauri.app/reference/environment-variables/
-    envPrefix: ["VITE_", "TAURI_"],
     build: {
       target:'baseline-widely-available',
-      // don't minify for debug builds
-      minify: process.env.TAURI_ENV_DEBUG === 'true' ? false : 'oxc',
-      // produce sourcemaps for debug builds
-      sourcemap: process.env.TAURI_ENV_DEBUG === 'true',
+      minify: 'oxc',
       // The largest remaining JS chunk is lazy-loaded tiktoken vocabulary data.
       chunkSizeWarningLimit: 2500,
       rolldownOptions: {

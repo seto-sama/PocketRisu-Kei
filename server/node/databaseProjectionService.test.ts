@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
 import utilsPkg from './utils.cjs'
+import { createPatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const {
@@ -239,6 +240,96 @@ describe('database projection reads and initialization', () => {
 })
 
 describe('database projection JSON Patch commits', () => {
+    it.each([
+        {
+            change: 'root settings',
+            conflicts: true,
+            commit: (store: any) => {
+                const database = store.exportProjection({ includeMessages: false })
+                database.localOnlyRoot = { secret: false }
+                store.syncStartupProjection(database)
+            },
+        },
+        {
+            change: 'chat creation',
+            conflicts: true,
+            commit: (store: any) => {
+                const committed = store.commitChat('character-1', 'chat-2', {
+                    id: 'chat-2', name: '새 채팅',
+                    message: [{ chatId: 'new-message', role: 'user', data: '새 본문' }],
+                }, undefined, { requireExpected: false })
+                expect(committed.projectionChanged).toBe(true)
+            },
+        },
+        {
+            change: 'chat metadata',
+            conflicts: true,
+            commit: (store: any) => {
+                const database = store.exportProjection({ includeMessages: false })
+                database.characters[0].chats[0].name = 'Renamed on server'
+                store.syncStartupProjection(database)
+            },
+        },
+        {
+            change: 'character creation',
+            conflicts: true,
+            commit: (store: any) => {
+                const database = store.exportProjection({ includeMessages: false })
+                database.characters.push({
+                    chaId: 'character-2', name: 'New character',
+                    chats: [{ id: 'initial-chat', name: 'Initial chat', _stub: true }],
+                })
+                store.syncStartupProjection(database)
+            },
+        },
+        {
+            change: 'new message',
+            conflicts: false,
+            commit: (store: any) => {
+                const chat = store.getChat('character-1', 'chat-1')
+                chat.message.push({ chatId: 'message-2', role: 'user', data: 'New message' })
+                store.commitChat('character-1', chat.id, chat, undefined, { requireExpected: false })
+            },
+        },
+    ])('continues saves after an independent $change commit with a stale cache', ({ commit, conflicts }) => {
+        const { store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        const staleCache = store.exportProjection({ includeMessages: false })
+        const service = createDatabaseProjectionService({ appDataStore: store })
+        commit(store)
+        const durableDatabase = store.exportProjection()
+        const patch = [{ op: 'replace', path: '/language', value: 'en' }]
+
+        let baseline = staleCache
+        if (conflicts) {
+            const conflict = thrownBy(() => service.patchDatabase({
+                expectedHash: expectedHash(staleCache), patch,
+            }))
+            expect(conflict).toMatchObject({
+                code: 'DATABASE_HASH_MISMATCH',
+                currentEtag: store.projectionEtag({ includeMessages: false }),
+                currentRevision: store.getState().revision,
+            })
+
+            const latest = service.getStartupProjection()
+            expect(latest.database).toEqual(store.exportProjection({ includeMessages: false }))
+            expect(conflict.currentHash).toBe(expectedHash(latest.database))
+            expect(latest.etag).toBe(conflict.currentEtag)
+            baseline = latest.database
+        }
+        expect(service.patchDatabase({ expectedHash: expectedHash(baseline), patch }))
+            .toMatchObject({ success: true, changed: true })
+        expect(store.exportProjection()).toEqual({ ...durableDatabase, language: 'en' })
+
+        // Subsequent saves also succeed without restarting or repairing a cache.
+        const accepted = service.getStartupProjection()
+        expect(service.patchDatabase({
+            expectedHash: expectedHash(accepted.database),
+            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
+        })).toMatchObject({ success: true, changed: true })
+        expect(store.exportProjection()).toEqual(durableDatabase)
+    })
+
     it('commits against the visible hash without replacing chat bodies', () => {
         const { store, service } = createService()
         store.replaceFromProjection(sampleDatabase())
@@ -443,4 +534,30 @@ describe('remote and server-owned projection transforms', () => {
         expect(mergeRemoteProjection).toHaveBeenCalledOnce()
         expect(restoreServerOwnedMetadata).toHaveBeenCalledOnce()
     })
+})
+
+it('limits hash diagnostics to the same remote and plugin-filtered startup projection', () => {
+    const { store, service } = createService({
+        filterRemoteProjection: (database: any) => ({
+            ...database, localOnlyRoot: undefined,
+            characters: database.characters.filter((character: any) => character.chaId !== 'hidden'),
+        }),
+    })
+    const database = sampleDatabase()
+    store.replaceFromProjection({
+        ...database,
+        characters: [...database.characters, { chaId: 'hidden', name: 'secret', chats: [] }],
+        pluginCustomStorage: { private: 'plugin-secret' },
+    })
+    const options = { remote: true, excludeAllPluginStorage: true }
+    const before = store.getState()
+    const visible = service.getStartupProjection(options).database
+    const error = thrownBy(() => service.patchDatabase({
+        expectedHash: 'stale', patch: [{ op: 'replace', path: '/language', value: 'en' }],
+    }, options))
+    expect(error.hashDiagnostics).toEqual(createPatchHashDiagnostics(visible, calculateHash))
+    expect(error.hashDiagnostics.keys).not.toHaveProperty('localOnlyRoot')
+    expect(error.hashDiagnostics.characters.map((row: any) => row.id)).toEqual(['character-1'])
+    expect(JSON.stringify(error.hashDiagnostics)).not.toMatch(/secret|본문|해적/)
+    expect(store.getState()).toEqual(before)
 })

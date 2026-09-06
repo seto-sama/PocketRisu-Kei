@@ -52,6 +52,21 @@ function recipe(): RevenantPostprocessRecipe {
 }
 
 describe('revenant headless CBS parser', () => {
+    it('ignores a hidden persona binding in the persisted context', () => {
+        const input = recipe()
+        input.chat.bindedPersona = 'bound'
+        input.database.personas = [
+            { id: 'global', name: 'Global' },
+            { id: 'bound', name: 'Bound' },
+        ]
+        input.database.showPersonaInSidebar = false
+        expect(renderRevenantTemplate('{{user}}', input).text).toBe('Global')
+        expect(input.chat.bindedPersona).toBe('bound')
+
+        input.database.showPersonaInSidebar = true
+        expect(renderRevenantTemplate('{{user}}', input).text).toBe('Bound')
+    })
+
     it('uses the persisted character, user, chat, and variable context', () => {
         const result = renderRevenantTemplate(
             '{{user}}/{{char}}: {{lastmessage}} score={{getvar::score}} mood={{getvar::mood}}',

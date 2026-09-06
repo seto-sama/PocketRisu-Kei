@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { createContentReferenceCollector, validateReferenceCandidates, matchContentReferences } = require('../../shared/contentReferences.mjs');
 const { Packr, Unpackr } = require('msgpackr');
 const { normalizeJSON } = require('./utils.cjs');
 const {
@@ -675,6 +676,20 @@ function createAppDataStore(db) {
         return result;
     }
 
+    // A consistent server snapshot, decoding one chat at a time. Only the
+    // caller-owned candidates receive usage flags; no text or ids leave the server.
+    const scanContentReferences = db.transaction((kind, candidates) => {
+        validateReferenceCandidates(kind, candidates);
+        const collector = createContentReferenceCollector(kind);
+        for (const row of selectCharacters.iterate()) {
+            collector.addCharacter(decodeValue(row.payload));
+            for (const chat of selectChats.iterate(row.character_id)) {
+                collector.addChat(assembleChat(chat, row.character_id, true));
+            }
+        }
+        return matchContentReferences(collector.result(), candidates);
+    });
+
     function estimateProjectionBytes() {
         return Number(selectProjectionPayloadBytes.get()?.payload_bytes ?? 0);
     }
@@ -1133,6 +1148,7 @@ function createAppDataStore(db) {
                 revision: state.revision,
                 updatedAt: state.updatedAt,
                 changed: false,
+                projectionChanged: false,
             };
         }
 
@@ -1169,7 +1185,11 @@ function createAppDataStore(db) {
         }
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        return { chat: canonical, etag, revision, updatedAt, changed: true };
+        return {
+            chat: canonical, etag, revision, updatedAt, changed: true,
+            // Existing rows retain their stub metadata during content commits.
+            projectionChanged: !currentRow,
+        };
     });
 
     function commitChat(characterId, chatId, incoming, expectedEtag, options = {}) {
@@ -1243,6 +1263,7 @@ function createAppDataStore(db) {
         projectionEtagFor,
         replaceFromProjection,
         syncStartupProjection,
+        scanContentReferences,
     };
 }
 

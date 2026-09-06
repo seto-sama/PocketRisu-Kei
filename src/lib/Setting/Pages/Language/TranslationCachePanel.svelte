@@ -13,8 +13,7 @@
     import { listLLMCacheEntries, loadLLMCacheEntriesInBackground } from "./translationCacheEntries";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { selectFileByDom } from "src/ts/util";
-    import { getDatabase, type Chat, type Message } from "src/ts/storage/database.svelte";
-    import { fetchChatFromServer } from "src/ts/storage/chatStorage";
+    import { scanDatabaseContent } from "src/ts/storage/scanDatabaseContent";
     import { textAreaSize } from "src/ts/gui/guisize";
 
     type TranslationCacheEntry = {
@@ -226,46 +225,6 @@
         }
     }
 
-    async function getUsedTranslationCacheKeys(onProgress?: (current: number, total: number) => void) {
-        const db = getDatabase();
-        const usedKeys = new Set<string>();
-        const total = (db.characters ?? []).reduce((sum, char) => sum + 1 + (char.alternateGreetings?.length ?? 0) + (char.chats?.length ?? 0), 0);
-        let current = 0;
-        const addRawTextKey = (text?: string | null) => {
-            if (text?.trim()) usedKeys.add(text);
-        };
-        const progress = () => onProgress?.(++current, total);
-        const getFullChat = async (chat: Chat, charId: string, chatIndex: number) => {
-            if (!chat._placeholder) return chat;
-            if (!chat.id) throw new Error(`Missing chat id while scanning ${charId} #${chatIndex}`);
-            const fullChat = await fetchChatFromServer(charId, chatIndex, chat.id);
-            if (!fullChat) throw new Error(`Failed to load chat while scanning ${charId}/${chat.id}`);
-            return fullChat;
-        };
-
-        for (const char of db.characters ?? []) {
-            const addMessageKey = (message: Message) => {
-                if (message.data && !message.isComment) addRawTextKey(message.data);
-            };
-            addMessageKey({ role: "char", data: char.firstMessage });
-            progress();
-            for (const greeting of char.alternateGreetings ?? []) {
-                addMessageKey({ role: "char", data: greeting });
-                progress();
-            }
-            for (let chatIndex = 0; chatIndex < (char.chats?.length ?? 0); chatIndex++) {
-                const fullChat = await getFullChat(char.chats[chatIndex], char.chaId, chatIndex);
-                for (const message of fullChat.message ?? []) {
-                    addMessageKey(message);
-                    for (const swipe of message.swipes ?? []) addMessageKey({ ...message, data: swipe });
-                }
-                for (const summary of fullChat.hypaV3Data?.summaries ?? []) addRawTextKey(summary.text);
-                progress();
-            }
-        }
-        return usedKeys;
-    }
-
     function setCleanupProgress(message: string, progress: number) {
         alertStore.set({
             type: "progress",
@@ -277,16 +236,15 @@
     async function cleanupUnusedCache() {
         if (!await alertConfirm(language.cleanupUnusedTranslationCacheConfirm)) return;
         try {
-            setCleanupProgress(language.cleanupUnusedTranslationCacheProgressScanningChats, 0);
-            const usedKeys = await getUsedTranslationCacheKeys((current, total) => {
-                setCleanupProgress(language.cleanupUnusedTranslationCacheProgressScanningChats, total > 0 ? current / total * 35 : 35);
-            });
-            setCleanupProgress(language.cleanupUnusedTranslationCacheProgressLoadingCache, 35);
+            setCleanupProgress(language.cleanupUnusedTranslationCacheProgressLoadingCache, 0);
             const cache = await loadLLMCacheEntriesInBackground({
                 onProgress: ({ entries, total }) => {
-                    setCleanupProgress(language.cleanupUnusedTranslationCacheProgressLoadingCache, total > 0 ? 35 + entries.length / total * 35 : 70);
+                    setCleanupProgress(language.cleanupUnusedTranslationCacheProgressLoadingCache, total > 0 ? entries.length / total * 35 : 35);
                 },
             });
+            setCleanupProgress(language.cleanupUnusedTranslationCacheProgressScanningChats, 35);
+            const references = await scanDatabaseContent('translation', cache.entries.map(entry => entry.key));
+            const usedKeys = new Set(references.keys);
             const unusedEntries = cache.entries.filter((entry) => !usedKeys.has(entry.key));
             for (let index = 0; index < unusedEntries.length; index++) {
                 setCleanupProgress(language.cleanupUnusedTranslationCacheProgressDeleting(index + 1, unusedEntries.length), 70 + (index + 1) / unusedEntries.length * 30);

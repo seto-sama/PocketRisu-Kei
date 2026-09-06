@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
     import { alertConfirm, notifyError, notifySuccess } from "../../ts/alert";
     import { language } from "../../lang";
     import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset, withStableActivePreset } from "../../ts/storage/database.svelte";
@@ -19,7 +20,7 @@
 
     const tags = $derived(DBState.db.promptPresetTags ?? [])
     const selectedPresetIndex = $derived($presetSelectCallback
-        ? DBState.db.botPresets.findIndex(preset => !!preset.id && preset.id === getCurrentChat()?.bindedBotPreset)
+        ? getChatBoundPromptPresetIndex(DBState.db, getCurrentChat())
         : DBState.db.botPresetsId)
 
     function assignPresetToTag(index: number, tagId: string | undefined) {

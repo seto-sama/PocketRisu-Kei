@@ -12,7 +12,6 @@
         'adv.outputRepetition',
         'adv.genTime',
         'adv.sayNothing',
-        'adv.autoFill',
         'adv.exp.cachePoint',
         'adv.toolUsage',
         'adv.simpleTool',
@@ -28,15 +27,12 @@
     const dataDisplayItemIds = new Set([
         'adv.requestInfo',
         'adv.promptInfo',
-        'adv.promptTextInfo',
         'adv.allowExt',
         'adv.cssErr',
     ]);
     const laboratoryPrimaryItemIds = [
         'adv.newImgBeta',
         'adv.allowV2Plugin',
-        'adv.depTrig',
-        'adv.depTrigV2',
     ];
     const laboratoryPrimaryItemIdSet = new Set(laboratoryPrimaryItemIds);
     const laboratoryWarningItemIds = new Set(['adv.warn']);

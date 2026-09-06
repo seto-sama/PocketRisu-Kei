@@ -107,7 +107,7 @@
 
 </script>
 
-<div class="flex flex-col gap-3">
+<div class="flex flex-col gap-4">
     {#snippet apiKeyForm()}
         <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
             <div class="flex flex-col gap-1">

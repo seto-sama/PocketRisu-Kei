@@ -1,4 +1,7 @@
 <script lang="ts">
+  import FolderAvatar from './FolderAvatar.svelte';
+  import type { folder as CharacterFolder } from 'src/ts/storage/database.svelte';
+
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { onDestroy } from "svelte";
     import {
@@ -27,8 +30,6 @@
     SettingsIcon,
     ListIcon,
     LayoutGridIcon,
-    FolderIcon,
-    FolderOpenIcon,
     HomeIcon,
     MessageSquareIcon,
     PlusIcon,
@@ -110,7 +111,7 @@
   }
 
   type sortTypeNormal = { type:'normal',img: string, index: number, name:string }
-  type sortType =  sortTypeNormal|{type:'folder',folder:sortTypeNormal[],id:string, name:string, color:string, localOnly?:boolean, img?:string}
+  type sortType =  sortTypeNormal|{type:'folder',settings:CharacterFolder,folder:sortTypeNormal[],id:string, name:string, color:string}
   let charImages: sortType[] = $state([]);
   // Recently interacted characters for the home sidebar. Character-level
   // `lastInteraction` is already in memory (no chat hydration needed), so this
@@ -200,8 +201,10 @@
   $effect(() => {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
+    const hiddenIds = new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])
     for (const id of DBState.db.characterOrder) {
       if(typeof(id) === 'string'){
+        if (hiddenIds.has(id)) continue
         const index = idObject[id] ?? -1
         if(index !== -1){
           const cha = DBState.db.characters[index]
@@ -217,6 +220,7 @@
         const folder = id
         let folderCharImages: sortTypeNormal[] = []
         for(const id of folder.data){
+          if (hiddenIds.has(id)) continue
           const index = idObject[id] ?? -1
           if(index !== -1){
             const cha = DBState.db.characters[index]
@@ -229,13 +233,12 @@
           }
         }
         newCharImages.push({
+          settings: folder,
           folder: folderCharImages,
           type: "folder",
           id: folder.id,
           name: folder.name,
           color: folder.color,
-          localOnly: folder.localOnly,
-          img: folder.imgFile,
         });
       }
     }
@@ -327,7 +330,7 @@
 
   function syncSidebarOrderUnlessDropping(_orderedKeys: string[], event: SortableEvent) {
     if (!sidebarSortElement || !sidebarDragController.shouldSyncOrder(event)) return
-    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder))
+    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder, new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])))
   }
 
   function finishSidebarDrag(sourceId: string, event: SortableEvent) {
@@ -432,70 +435,6 @@
   class:dynamic-sidebar-panel={$DynamicGUI}
   class:sidebar-menu-editing={editMode}
 >
-{#if DBState.db.menuSideBar}
-<div
-  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
-  class:flex={!hidden}
->
-<IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!(
-    $selectedCharID < 0 &&
-    !$settingsOpen
-  )}
-  onclick={() => {
-    reseter();
-    selectedCharID.set(-1)
-    OpenRealmStore.set(false)
-  }}
->
-  <HomeIcon />
-  <span class="text-xs">{language.home}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!(
-    $selectedCharID >= 0
-  )}
-  onclick={() => {
-    reseter();
-    openGrid();
-
-  }}
->
-  <User2Icon />
-  <span class="text-xs">{language.character}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  onclick={() => {
-    reseter();
-    bookmarkListOpen.set(true)
-  }}
->
-  <BookmarkCheckIcon />
-  <span class="text-xs">{language.bookmarks}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-subtext={!$settingsOpen}
-  onclick={() => {
-    if ($settingsOpen) {
-      reseter();
-      settingsOpen.set(false);
-    } else {
-      reseter();
-      settingsOpen.set(true);
-    }
-  }}
->
-  <SettingsIcon />
-  <span class="text-xs">{language.settings}</span>
-</button>
-</IconButtonGroup>
-</div>
-{:else}
 <div
   class="h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:risu-layer-chrome={!editMode}
@@ -695,7 +634,7 @@
           {:else if char.type === "folder"}
             {#key char.color}
             {#key char.name}
-            <SidebarAvatar src="slot" size={String(SIDEBAR_ROOT_ITEM_SIZE)} rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
+            <FolderAvatar folder={char.settings} expanded={openFolders.includes(char.id)} size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
               mergeTarget={folderDropTargetId === char.id}
               oncontextmenu={(e) => {
@@ -714,17 +653,8 @@
                   openFolders.push(char.id)
                 }
                 openFolders = openFolders
-              }}>
-                {#if DBState.db.showFolderName}
-                  <div class="h-full w-full flex justify-center items-center">
-                    <span class="hyphens-auto truncate font-bold">{char.name}</span>
-                  </div>
-                {:else if openFolders.includes(char.id)}
-                  <FolderOpenIcon />
-                {:else}
-                  <FolderIcon />
-                {/if}
-              </SidebarAvatar>
+              }} />
+
             {/key}
             {/key}
           {/if}
@@ -799,7 +729,6 @@
     </div>
   </div>
 </div>
-{/if}
 
 <div
   class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"
@@ -975,15 +904,15 @@
 {/if}
 
 <style>
-  :global(.risu-ghost-item[data-sidebar-kind="character"]),
+  :global(.sidebar-character-root .risu-ghost-item[data-sidebar-kind="character"]),
   :global(.sidebar-sortable-fallback[data-sidebar-kind="character"]) {
     width: var(--sidebar-drag-size) !important;
     height: var(--sidebar-drag-size) !important;
     min-width: var(--sidebar-drag-size) !important;
   }
 
-  :global(.risu-ghost-item .avatar),
-  :global(.risu-ghost-item .avatar-tile),
+  :global(.sidebar-character-root .risu-ghost-item .avatar),
+  :global(.sidebar-character-root .risu-ghost-item .avatar-tile),
   :global(.sidebar-sortable-fallback .avatar),
   :global(.sidebar-sortable-fallback .avatar-tile) {
     width: var(--sidebar-drag-size) !important;

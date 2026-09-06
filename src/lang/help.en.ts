@@ -11,6 +11,8 @@
  */
 
 export const helpEn = {
+        "trashAutoDeleteSchedule": "Characters are permanently deleted after the specified number of days from pressing the delete button. Enter 0 to disable automatic deletion.",
+        "trash": "You can restore or permanently delete characters in the trash. Right-click the trash icon to set the permanent deletion schedule.",
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
         "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
         "translationDialogClearAfterConfirm": "Clears the translation input after the translated content has been appended to the message input.",
@@ -112,7 +114,7 @@ export const helpEn = {
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
         disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
-        disableToggleBinding: "Disable the toggle binding feature that pins toggle values to individual chats. When disabled, the bind/save/preset buttons are hidden and previously bound values are not restored on chat switch.",
+        disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
         useExperimental: "If enabled, it will show some experimental features.",
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
@@ -167,7 +169,6 @@ export const helpEn = {
             "You can enable or disable modules for this chat. You can also enable them for this character by right-clicking or long-pressing the enable button.",
         customCSS: "Custom CSS for styling.",
         globalCustomCSS: "Global custom CSS that remains active when switching themes.",
-        betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",
         unrecommended: "This is a unrecommended setting. it is not recommended to use this setting.",
         jsonSchema:
             "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In PocketRisu Kei, you can use subset of TypeScript interface instead of JSON Schema. PocketRisu Kei will convert it in runtime." +
@@ -368,8 +369,6 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
-        fullscreen:
-            "Switch the browser into fullscreen mode. On mobile, this can hide browser UI such as the address bar and give the chat more space.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         showFolderNameInIcon:
@@ -396,7 +395,7 @@ export const helpEn = {
         hideApiKeys:
             "Mask API key input fields in settings. Useful when sharing your screen or taking screenshots.",
         unformatQuotes:
-            "Disable the default quote formatting such as italics or colors and render quotes as normal text. Enable if your text already includes its own formatting.",
+            "Apply formatting such as italics and colors to dialogue enclosed in quotes. Turn off when using custom CSS.",
         blockquoteStyling:
             "Render Markdown `>` blockquotes with the styled quote design. When off, they appear as plain indented text.",
         cornerBracketStyling:
@@ -411,8 +410,6 @@ export const helpEn = {
             "Character to use at the start of single quotes. Examples: `'`, `‘`, `『`.",
         customQuotesSingleTrailing:
             "Character to use at the end of single quotes. Examples: `'`, `’`, `』`.",
-        menuSideBar:
-            "Use an always-visible sidebar menu instead of the classic hamburger menu. Useful on wider screens for faster navigation.",
         notification:
             "Enable browser notifications for new messages. Your browser may ask for permission the first time; if permission is denied, the option is turned back off.",
         UiLanguage:

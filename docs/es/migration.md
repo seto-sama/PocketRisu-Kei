@@ -22,7 +22,7 @@ Hay tres formas de migrar datos desde una instalación existente de RisuAI (Risu
 
 ## 1. Archivo de copia de seguridad local (.bin)
 
-Exporte un archivo de copia de seguridad `.bin` desde RisuAI existente y luego impórtelo en PocketRisu. Funciona independientemente del entorno de origen (web / Tauri / Capacitor / local).
+Exporte un archivo de copia de seguridad `.bin` desde RisuAI existente y luego impórtelo en PocketRisu. Funciona independientemente del entorno de origen (web / Capacitor / local).
 
 1. **En RisuAI existente**: Configuración > Copia de seguridad > "Guardar copia local" para exportar un archivo `.bin`.
 2. **En PocketRisu**: Configuración > Migración de datos > "Importar copia local de Risu original" para importar el archivo `.bin`.

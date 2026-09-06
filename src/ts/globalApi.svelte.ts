@@ -1,4 +1,4 @@
-import { changeFullscreen, checkNullish, sleep } from "./util"
+import { checkNullish, sleep } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
@@ -11,8 +11,8 @@ import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, no
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
+import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
+import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
     cloneChatValue,
@@ -38,7 +38,8 @@ import {
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
-import { ChatSaveError, isRetryableSaveError } from './storage/storageRequest';
+import { ChatSaveError, SaveConflictError, SaveRetryPolicy, type SaveAttemptResult } from './storage/storageRequest';
+import { createPatchHashDiagnostics, comparePatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs';
 import { isNodeServer, supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -49,7 +50,6 @@ import { deepTouch } from "./gui/deepTouch.svelte";
 import { updateLorebooks } from "./characters";
 import { moduleUpdate } from "./process/modules";
 import { isLocalNetworkUrl } from "./network/localNetwork";
-import { formatResponseBody } from "./requestLogFormat";
 import {
     createFetchLogEntry,
     clearServerFetchLogs as clearServerFetchLogsRequest,
@@ -128,14 +128,11 @@ export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer |
 }
 
 let fileCache: {
-    origin: string[], res: (Uint8Array | 'loading' | 'done')[]
+    origin: string[], res: (Uint8Array | 'loading')[]
 } = {
     origin: [],
     res: []
 }
-
-let pathCache: { [key: string]: string } = {}
-let checkedPaths: string[] = []
 
 function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number | undefined) {
     if (!timeoutMs || timeoutMs <= 0) {
@@ -176,63 +173,24 @@ export async function getFileSrc(loc: string) {
         return `/api/asset/${Buffer.from(loc, 'utf-8').toString('hex')}`
     }
     try {
-        if (usingSw) {
-            const encoded = Buffer.from(loc, 'utf-8').toString('hex')
-            let ind = fileCache.origin.indexOf(loc)
-            if (ind === -1) {
-                ind = fileCache.origin.length
-                fileCache.origin.push(loc)
-                fileCache.res.push('loading')
-                try {
-                    const hasCache: boolean = (await (await fetch("/sw/check/" + encoded)).json()).able
-                    if (hasCache) {
-                        fileCache.res[ind] = 'done'
-                        return "/sw/img/" + encoded
-                    }
-                    else {
-                        const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
-                        await fetch("/sw/register/" + encoded, {
-                            method: "POST",
-                            body: f as any
-                        })
-                        fileCache.res[ind] = 'done'
-                        await sleep(10)
-                    }
-                    return "/sw/img/" + encoded
-                } catch (error) {
-
-                }
-            }
-            else {
-                const f = fileCache.res[ind]
-                if (f === 'loading') {
-                    while (fileCache.res[ind] === 'loading') {
-                        await sleep(10)
-                    }
-                }
-                return "/sw/img/" + encoded
-            }
+        let ind = fileCache.origin.indexOf(loc)
+        if (ind === -1) {
+            ind = fileCache.origin.length
+            fileCache.origin.push(loc)
+            fileCache.res.push('loading')
+            const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
+            fileCache.res[ind] = f
+            return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
         }
         else {
-            let ind = fileCache.origin.indexOf(loc)
-            if (ind === -1) {
-                ind = fileCache.origin.length
-                fileCache.origin.push(loc)
-                fileCache.res.push('loading')
-                const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
-                fileCache.res[ind] = f
-                return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
-            }
-            else {
-                const f = fileCache.res[ind]
-                if (f === 'loading') {
-                    while (fileCache.res[ind] === 'loading') {
-                        await sleep(10)
-                    }
-                    return `data:image/png;base64,${Buffer.from(fileCache.res[ind]).toString('base64')}`
+            const f = fileCache.res[ind]
+            if (f === 'loading') {
+                while (fileCache.res[ind] === 'loading') {
+                    await sleep(10)
                 }
-                return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
+                return `data:image/png;base64,${Buffer.from(fileCache.res[ind]).toString('base64')}`
             }
+            return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
         }
     } catch (error) {
         console.error(error)
@@ -459,8 +417,8 @@ export async function saveDb() {
     let patcher = new RisuSavePatcher()
     let acceptedPatchBaseline: Database | null = null
     if (isNodeServer || supportsPatchSync) {
-        acceptedPatchBaseline = safeStructuredClone(patchSyncBaseline ?? getDatabase()) as Database
-        await patcher.init(acceptedPatchBaseline)
+        await patcher.init(patchSyncBaseline ?? getDatabase())
+        acceptedPatchBaseline = patcher.getBaselineSnapshot()
         patchSyncBaseline = null
     }
 
@@ -783,7 +741,7 @@ export async function saveDb() {
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
                 await patcher.init(data)
-                acceptedPatchBaseline = safeStructuredClone(data) as Database
+                acceptedPatchBaseline = patcher.getBaselineSnapshot()
             }
             forageStorage.setDbEtag(etag)
             knownChatIdsByCharacter.clear()
@@ -891,7 +849,7 @@ export async function saveDb() {
         if (latestDb) {
             const preparedRebase = preparePatchConflictRebase(
                 latestDb,
-                exactPatch,
+                exactPatch ? { patch: exactPatch, baseline: acceptedPatchBaseline! } : undefined,
             )
             const mergedDb = preparedRebase.mergedValue as Database
             const serverBaseline = preparedRebase.serverBaseline as Database
@@ -949,10 +907,11 @@ export async function saveDb() {
             )
             for (const character of mergedDb.characters ?? []) {
                 const localCharacter = localCharacters.get(character.chaId)
+                const localChats = new Map((localCharacter?.chats ?? []).map(chat => [chat?.id, chat]))
                 character.chats = convertStubsToPlaceholders(character.chats ?? []).map(remoteChat => {
-                    const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat?.id)
+                    const localChat = localChats.get(remoteChat?.id)
                     return localChat && !localChat._placeholder
-                        ? safeStructuredClone(localChat)
+                        ? mergeHydratedChatWithMetadata(localChat, remoteChat)
                         : remoteChat
                 })
             }
@@ -976,7 +935,7 @@ export async function saveDb() {
                 // Keep them live and dirty, but hash from the exact server
                 // pre-image so the retry can submit them again successfully.
                 await patcher.init(serverBaseline)
-                acceptedPatchBaseline = safeStructuredClone(serverBaseline) as Database
+                acceptedPatchBaseline = patcher.getBaselineSnapshot()
             }
         }
         requeueTrackedChanges(toSave)
@@ -989,7 +948,7 @@ export async function saveDb() {
             forceFullWrite?: boolean
             skipBroadcast?: boolean
         }
-    ): Promise<'saved' | 'retry' | 'noop' | 'discarded'> {
+    ): Promise<SaveAttemptResult> {
         const db = getDatabase()
         if (!db.characters) {
             await sleep(1000)
@@ -1257,7 +1216,6 @@ export async function saveDb() {
                 }
                 if (isNodeServer) {
                     await rebaseTrackedLocalChangesOnLatestServerDb(null, db, toSave)
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
                 // Leave saved=false so the non-Node full-write path below kicks in.
@@ -1295,19 +1253,36 @@ export async function saveDb() {
                             db,
                             toSave,
                         )
-                        await sleep(Math.min(500 * (savetrys + 1), 3000))
                         return 'retry'
                     }
                 }
                 if (patchResult.conflict) {
-                    console.warn('[Save] Patch conflict detected, rebasing tracked local changes on latest server DB...')
+                    // set() already advanced the patcher; compare the rejected
+                    // request's accepted pre-image, not that speculative state.
+                    try {
+                        const mismatch = patchResult.hashDiagnostics && acceptedPatchBaseline
+                            ? comparePatchHashDiagnostics(
+                                createPatchHashDiagnostics(acceptedPatchBaseline, calculateHash),
+                                patchResult.hashDiagnostics,
+                            ) : undefined
+                        console.warn('[Save] Patch conflict; rebasing pending changes', {
+                            code: patchResult.conflictCode,
+                            revision: patchResult.revision,
+                            expectedHash: patchData.expectedHash,
+                            currentHash: patchResult.currentHash,
+                            ...mismatch,
+                        })
+                    } catch (error) {
+                        // Diagnostics must not turn a recoverable 409 into a
+                        // failed save, even with an older/malformed response.
+                        console.warn('[Save] Conflict diagnostics unavailable', error)
+                    }
                     await rebaseTrackedLocalChangesOnLatestServerDb(
                         patchResult.etag ?? null,
                         db,
                         toSave,
                         patchData.patch,
                     )
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
             }
@@ -1327,7 +1302,6 @@ export async function saveDb() {
                 if (conflictErr instanceof ConflictError) {
                     console.warn('[Save] Full-write conflict detected, rebasing tracked local changes on latest server DB...')
                     await rebaseTrackedLocalChangesOnLatestServerDb(conflictErr.currentEtag ?? null, db, toSave)
-                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
                 throw conflictErr
@@ -1341,11 +1315,11 @@ export async function saveDb() {
             }
         }
 
-        if (isNodeServer) {
+        if (isNodeServer || supportsPatchSync) {
             // The projection is now acknowledged even if a deferred chat body
             // later fails in transport. Imported chats already own stable ids,
             // so the patcher's normalized local projection is the server shape.
-            acceptedPatchBaseline = safeStructuredClone(db) as Database
+            acceptedPatchBaseline = patcher.getBaselineSnapshot()
         }
 
         for (const [chaId, chatId] of deferredNewCharacterChats) {
@@ -1367,6 +1341,8 @@ export async function saveDb() {
         return 'saved'
     }
 
+    const saveRetry = new SaveRetryPolicy()
+
     async function triggerSave(options?: {
         forceFullWrite?: boolean
         skipBroadcast?: boolean
@@ -1384,10 +1360,8 @@ export async function saveDb() {
         saveInFlight = (async () => {
             saving.state = true
             try {
-                const result = await persistTrackedChanges(toSave, options)
-                if (result === 'saved') {
-                    savetrys = 0
-                } else if (result === 'noop' && hasTrackedChanges(toSave)) {
+                const result = await saveRetry.runAttempt(() => persistTrackedChanges(toSave, options))
+                if (result === 'noop' && hasTrackedChanges(toSave)) {
                     requeueTrackedChanges(toSave)
                     changed = true
                 }
@@ -1401,21 +1375,19 @@ export async function saveDb() {
                 } else {
                     requeueTrackedChanges(toSave)
                 }
-                savetrys += 1
-                const retryable = isRetryableSaveError(error)
-                if (!retryable || savetrys > 4) {
-                    if (!retryable) {
-                        // Keep the requeued edits, but don't resend an unchanged
-                        // permanent failure on a pending debounce timer.
-                        cancelPendingSave()
-                        changed = false
-                    }
+                const decision = saveRetry.recordFailure(error)
+                if (!decision.retry) {
+                    // Preserve dirty targets, but stop both the retry loop and
+                    // a debounce scheduled before this failure. A later edit
+                    // or explicit save can retry with a fresh budget.
+                    cancelPendingSave()
+                    changed = false
+                    saveRetry.reset()
                     alertError(error)
-                    savetrys = 0
                 }
                 else {
-                    console.error(error)
-                    await sleep(Math.min(500 * savetrys, 3000))
+                    if (!(error instanceof SaveConflictError)) console.error(error)
+                    await sleep(decision.delayMs)
                     changed = true
                 }
             } finally {
@@ -1454,7 +1426,6 @@ export async function saveDb() {
         })
     }
 
-    let savetrys = 0
     while (true) {
         if (!changed) {
             await sleep(200)
@@ -1496,12 +1467,6 @@ export async function getDbBackups(currentDbSize?: number) {
         await forageStorage.removeItem(`database/dbbackup-${last}.bin`)
     }
     return backups
-}
-
-let usingSw = false
-
-export function setUsingSw(value: boolean) {
-    usingSw = value
 }
 
 /**
@@ -1743,61 +1708,17 @@ export function getBasename(data: string) {
 
 
 /**
- * Replaces database resources with the provided replacer object.
- * 
- * @param {Database} db - The database object containing resources to be replaced.
- * @param {{[key: string]: string}} replacer - An object mapping original resource keys to their replacements.
- * @returns {Database} - The updated database object with replaced resources.
- */
-export function replaceDbResources(db: Database, replacer: { [key: string]: string }): Database {
-    /**
-     * Replaces a given data string with its corresponding value from the replacer object.
-     * 
-     * @param {string} data - The data string to be replaced.
-     * @returns {string} - The replaced data string or the original data if no replacement is found.
-     */
-    function replaceData(data: string): string {
-        if (!data) {
-            return data;
-        }
-        return replacer[data] ?? data;
-    }
-
-    db.customBackground = replaceData(db.customBackground);
-    db.userIcon = replaceData(db.userIcon);
-    db.messageSound = replaceData(db.messageSound);
-    db.translateSound = replaceData(db.translateSound);
-    if (db.customSounds) {
-        for (const s of db.customSounds) {
-            s.path = replaceData(s.path);
-        }
-    }
-
-    for (const cha of db.characters) {
-        if (cha.image) {
-            cha.image = replaceData(cha.image);
-        }
-        if (cha.emotionImages) {
-            for (let i = 0; i < cha.emotionImages.length; i++) {
-                cha.emotionImages[i][1] = replaceData(cha.emotionImages[i][1]);
-            }
-        }
-        if (cha.additionalAssets) {
-            for (let i = 0; i < cha.additionalAssets.length; i++) {
-                cha.additionalAssets[i][1] = replaceData(cha.additionalAssets[i][1]);
-            }
-        }
-    }
-    return db;
-}
-
-/**
  * Checks and updates the character order in the database.
  * Ensures that all characters are properly ordered and removes any invalid entries.
  */
 export function checkCharOrder() {
     let db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
+    if (db.nodeOnlyHiddenCharacterIds?.length) {
+        const knownIds = new Set(db.characters.map(character => character.chaId))
+        const hiddenIds = [...new Set(db.nodeOnlyHiddenCharacterIds)].filter(id => knownIds.has(id))
+        if (hiddenIds.length !== db.nodeOnlyHiddenCharacterIds.length) db.nodeOnlyHiddenCharacterIds = hiddenIds
+    }
     let ordered = []
     for (let i = 0; i < db.characterOrder.length; i++) {
         const folder = db.characterOrder[i]
@@ -1858,23 +1779,6 @@ export function checkCharOrder() {
     }
 
 
-}
-
-/**
- * Retrieves the request log as a formatted string.
- * 
- * @returns {string} The formatted request log.
- */
-export function getRequestLog() {
-    let logString = ''
-    const b = '\n\`\`\`json\n'
-    const bend = '\n\`\`\`\n'
-
-    for (const log of fetchLog) {
-        logString += `## ${log.date}\n\n* Request URL\n\n${b}${log.url}${bend}\n\n* Request Body\n\n${b}${log.body}${bend}\n\n* Request Header\n\n${b}${log.header}${bend}\n\n`
-            + `* Response Body\n\n${b}${formatResponseBody(log)}${bend}\n\n* Response Success\n\n${b}${log.success}${bend}\n\n`
-    }
-    return logString
 }
 
 /**
@@ -2175,18 +2079,6 @@ export class AppendableBuffer {
 /** Convert a byte stream to text. */
 export function textifyReadableStream(stream: ReadableStream<Uint8Array>) {
     return new Response(stream).text()
-}
-
-/**
- * Toggles the fullscreen mode of the document.
- * If the document is currently in fullscreen mode, it exits fullscreen.
- * If the document is not in fullscreen mode, it requests fullscreen with navigation UI hidden.
- */
-export function toggleFullscreen() {
-    const fullscreenElement = document.fullscreenElement
-    fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({
-        navigationUI: "hide"
-    })
 }
 
 /**

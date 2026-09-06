@@ -1,34 +1,11 @@
+import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
-import type { Database, Message } from "./storage/database.svelte"
+import type { Database } from "./storage/database.svelte"
 import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
 import { isIOS } from "src/ts/platform"
 import PopupList from "src/lib/UI/PopupList.svelte"
-
-export interface Messagec extends Message{
-    index: number
-}
-
-export function messageForm(arg:Message[], loadPages:number){
-    function reformatContent(data:string){
-        return data?.trim()
-    }
-
-    let a:Messagec[] = []
-    for(let i=0;i<arg.length;i++){
-        const m = arg[i]
-        a.unshift({
-            role: m.role,
-            data: reformatContent(m.data),
-            index: i,
-            saying: m.saying,
-            chatId: m.chatId ?? 'none',
-            generationInfo: m.generationInfo,
-        })
-    }
-    return a.slice(0, loadPages)
-}
 
 export function sleep(ms: number) {
     return new Promise( resolve => setTimeout(resolve, ms) );
@@ -74,29 +51,10 @@ export async function selectMultipleFile(ext:string[]){
     return arr
 }
 
-export const replacePlaceholders = (msg:string, name:string) => {
-    let db = getDatabase()
-    let selectedChar = get(selectedCharID)
-    let currentChar = db.characters[selectedChar]
-    return msg  .replace(/({{char}})|({{Char}})|(<Char>)|(<char>)/gi, currentChar.name)
-                .replace(/({{user}})|({{User}})|(<User>)|(<user>)/gi, getUserName())
-                .replace(/(\{\{((set)|(get))var::.+?\}\})/gu,'')
-}
-
 export function checkPersonaBinded(){
-    try {
-        let db = getDatabase()
-        const selectedChar = get(selectedCharID)
-        const character = db.characters[selectedChar]
-        const chat = character.chats[character.chatPage]
-        if(!chat.bindedPersona){
-            return null
-        }
-        const persona = db.personas.find(v => v.id === chat.bindedPersona)
-        return persona 
-    } catch (error) {
-        return null
-    }
+    const db = getDatabase()
+    const character = db.characters?.[get(selectedCharID)]
+    return getChatBoundPersona(db, character?.chats?.[character.chatPage])
 }
 
 export function getUserName(){
@@ -203,10 +161,6 @@ function readFileAsUint8Array(file: File) {
     });
 }
 
-export async function changeFullscreen(){
-    // Fullscreen control requires Tauri; no-op in Node-only mode
-}
-
 export async function getCustomBackground(db:string){
     if(db.length < 2){
         return ''
@@ -227,18 +181,6 @@ export function findCharacterbyId(id:string) {
     let unknown =createBlankChar()
     unknown.name = 'Unknown Character'
     return unknown
-}
-
-export function findCharacterIndexbyId(id:string) {
-    const db = getDatabase()
-    let i=0;
-    for(const char of db.characters){
-        if(char.chaId === id){
-            return i
-        }
-        i += 1
-    }
-    return -1
 }
 
 export function getCharacterIndexObject() {
@@ -1168,63 +1110,6 @@ export class Semaphore {
             this.available += 1
         }
     }
-}
-
-export function openKeypairStoreDB(name:string):Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open("DPoPDB", 1);
-
-        request.onupgradeneeded = (event) => {
-            const db = (event.target as IDBOpenDBRequest).result;
-            if (!db.objectStoreNames.contains(name || "DPoPStore")) {
-                db.createObjectStore(name || "DPoPStore");
-            }
-        };
-
-        request.onsuccess = (event) => resolve((event.target as IDBOpenDBRequest).result);
-        request.onerror = (event) => reject((event.target as IDBOpenDBRequest).error);
-    });
-}
-
-export async function saveKeypairStore(name:string, keyPair: CryptoKeyPair) {
-    const db = await openKeypairStoreDB(name);
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(name || "DPoPStore", 'readwrite');
-        const store = tx.objectStore(name || "DPoPStore");
-
-        const data = {
-            privateKey: keyPair.privateKey,
-            publicKey: keyPair.publicKey,
-        };
-
-        const request = store.put(data, 'dpop');
-
-        request.onsuccess = () => resolve(true);
-        request.onerror = (event) => reject((event.target as IDBRequest).error);
-    });
-}
-
-export async function getKeypairStore(name:string):Promise<CryptoKeyPair | null> {
-    const db = await openKeypairStoreDB(name);
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(name || "DPoPStore", 'readonly');
-        const store = tx.objectStore(name || "DPoPStore");
-        const request = store.get('dpop');
-
-        request.onsuccess = (event) => {
-            const result = (event.target as IDBRequest).result;
-            if (result) {
-                resolve({
-                    privateKey: result.privateKey,
-                    publicKey: result.publicKey,
-                } as CryptoKeyPair);
-            } else {
-                resolve(null);
-            }
-        };
-
-        request.onerror = (event) => reject((event.target as IDBRequest).error);
-    })
 }
 
 export function base64url(source: Uint8Array | ArrayBuffer): string {

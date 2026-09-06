@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { getChatBoundPersona } from "src/ts/chatBindingState";
 
     import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
@@ -1350,17 +1351,18 @@ import { isMobile } from 'src/ts/platform'
         }
     }
 
-    let { userIconPortrait, currentUsername, userIcon } = $derived.by(() => {
-        const bindedPersona = DBState?.db?.characters?.[$selectedCharID]?.chats?.[DBState?.db?.characters?.[$selectedCharID]?.chatPage]?.bindedPersona
+    const boundPersona = $derived(getChatBoundPersona(
+        DBState.db,
+        DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage],
+    ))
 
-        if(bindedPersona){
-            const persona = DBState.db.personas.find((p) => p.id === bindedPersona)
-            if(persona){
-                return {
-                    currentUsername: persona.name,
-                    userIconPortrait: persona.largePortrait,
-                    userIcon: persona.icon
-                }
+    let { userIconPortrait, currentUsername, userIcon } = $derived.by(() => {
+        const persona = boundPersona
+        if(persona){
+            return {
+                currentUsername: persona.name,
+                userIconPortrait: persona.largePortrait,
+                userIcon: persona.icon
             }
         }
 
@@ -1388,11 +1390,9 @@ import { isMobile } from 'src/ts/platform'
         'max-w-3xl'
     )
     // Effective persona name for the input placeholder (chat-bound persona overrides the selected one).
-    let activePersonaName = $derived.by(() => {
-        const chat = DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]
-        const bound = chat?.bindedPersona ? DBState.db.personas.find(p => p.id === chat.bindedPersona) : null
-        return (bound ?? DBState.db.personas[DBState.db.selectedPersona])?.name || 'User'
-    })
+    let activePersonaName = $derived(
+        (boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])?.name || 'User'
+    )
 
     function updateInputSizeAll() {
         updateInputSize()

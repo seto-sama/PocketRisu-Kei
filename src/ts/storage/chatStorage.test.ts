@@ -11,7 +11,7 @@ vi.mock('./database.svelte', () => ({
         && !Array.isArray(chat.message),
 }))
 
-const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders } = await import('./chatStorage')
+const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders, mergeHydratedChatWithMetadata } = await import('./chatStorage')
 type Chat = any
 type ChatStub = any
 
@@ -31,6 +31,23 @@ const blankChat = (overrides: Partial<Chat> = {}): Chat => ({
 })
 
 describe('chatToStub', () => {
+    test('restores a hydrated body without reverting merged metadata or deleted fields', () => {
+        const local = blankChat({
+            name: 'Old name', folderId: 'old-folder', modules: ['old-module'],
+            message: [{ chatId: 'm1', role: 'user', data: 'Local body' }],
+        })
+        const merged = mergeHydratedChatWithMetadata(local, {
+            id: local.id, name: 'Server rename', folderId: null, _stub: true,
+        })
+        expect(merged.message).toEqual(local.message)
+        expect(merged.name).toBe('Server rename')
+        expect(merged.folderId).toBeNull()
+        expect(merged).not.toHaveProperty('modules')
+        expect(merged).not.toHaveProperty('_stub')
+        expect(merged).not.toHaveProperty('_placeholder')
+        expect(local.modules).toEqual(['old-module'])
+    })
+
     test('same key-presence semantics applies to lastDate', () => {
         expect('lastDate' in chatToStub(blankChat({ lastDate: null as any }))).toBe(true)
         expect('lastDate' in chatToStub(blankChat({ lastDate: 0 }))).toBe(true)

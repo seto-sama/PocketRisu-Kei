@@ -1,4 +1,5 @@
 import { resolveModelPresetCredential } from '../../preset/runtime/credential'
+import { getEffectiveModelBinding } from '../../chatBindingState'
 import { getDatabase, type Chat, type Database } from 'src/ts/storage/database.svelte'
 import type { AdapterCredential } from 'src/ts/preset/adapter'
 import type { ModelPreset } from 'src/ts/preset/types'
@@ -15,7 +16,8 @@ import type { ModelModeExtended } from './shared'
  *
  * Resolution rules:
  *  - the persisted legacy model-mode settings are ignored; all chats use model
- *    presets. A chat without its own binding uses the global default binding.
+ *    presets. A chat without its own binding, or with sidebar model bindings
+ *    hidden, uses the global default binding.
  *  - mode 'model'    → main slot.  unresolved → block (main is often expensive;
  *                      never silently fall back to a different model).
  *  - mode 'submodel' → sub slot.   unresolved → block.
@@ -53,7 +55,7 @@ export function resolveChatModelBinding(
         const modulePreset = findPreset(db.moduleModelBindings?.[moduleId], db.modelPresets ?? [])
         if (modulePreset) return { kind: 'modelPreset', preset: modulePreset }
     }
-    const set = chat?.modelBinding ?? db.defaultModelBinding
+    const set = getEffectiveModelBinding(db, chat)
     if (!set) {
         return { kind: 'block', reason: mode === 'model' ? 'main-unset' : 'sub-unset' }
     }

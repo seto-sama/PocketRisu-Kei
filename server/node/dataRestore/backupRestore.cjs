@@ -7,6 +7,7 @@ const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { decryptAccountBackup } = require('./accountBackup.cjs');
 
 const DEFAULT_MAX_ENTRY_NAME_BYTES = 1024;
 const HASHED_ASSET_NAME = /^([0-9a-f]{64})\.[^/]+$/;
@@ -130,6 +131,7 @@ function createBackupRestoreService({
         let pendingTotal = 0;
         let nextEntryThreshold = 8;
         let databaseRaw = null;
+        let encryptionMarker = null;
         let assetsRestored = 0;
         let bytesReceived = 0;
         const seenEntryNames = new Set();
@@ -336,6 +338,8 @@ function createBackupRestoreService({
                         if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
                             writeStagingSidecarSync(id, legacyInlayInfoMap.get(id));
                         }
+                    } else if (name === 'encryption.risudat') {
+                        encryptionMarker = Buffer.from(data);
                     } else if (name === 'database.risudat') {
                         databaseRaw = Buffer.from(data);
                     } else if (!name.startsWith('inlay_thumb/')) {
@@ -391,6 +395,11 @@ function createBackupRestoreService({
             }
             if (typeof prepareDatabaseProjection !== 'function') {
                 throw new TypeError('prepareDatabaseProjection must be a function');
+            }
+            // Finish reading/staging first so entry order does not matter and
+            // an error can reach the uploading client over the existing stream.
+            if (encryptionMarker !== null) {
+                databaseRaw = await decryptAccountBackup(databaseRaw, encryptionMarker);
             }
             // Two-phase hook contract: preparation may decode/normalize
             // asynchronously but must not mutate live state. It returns a

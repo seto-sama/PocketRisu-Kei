@@ -5,6 +5,7 @@
 
     type Props = HTMLAttributes<HTMLDivElement> & {
         variant?: 'list' | 'item';
+        appearance?: 'divided' | 'folder' | 'row';
         element?: HTMLDivElement;
         background?: boolean;
         open?: boolean;
@@ -24,6 +25,7 @@
 
     let {
         variant = 'list',
+        appearance = 'divided',
         element = $bindable(),
         background = true,
         open = false,
@@ -43,26 +45,35 @@
     }: Props = $props();
 
     const listClasses = $derived(cn(
-        'w-full max-w-full p-2 border border-selected flex flex-col rounded-md',
-        background && 'bg-darkbg',
+        'w-full max-w-full flex flex-col',
+        appearance === 'divided' ? 'p-2 border border-selected rounded-md' : 'gap-1',
+        appearance === 'divided' && background && 'bg-darkbg',
         className,
     ));
     const itemClasses = $derived(cn(
         'w-full flex flex-col',
-        dividerTone === 'muted' ? 'border-darkborderc/50' : 'border-selected',
-        isLast === true
-            ? 'pb-0 mb-0 border-0'
-            : isLast === false
-                ? 'pb-1 mb-1 border-b'
-                : 'pb-1 mb-1 border-b last:pb-0 last:mb-0 last:border-0',
+        appearance === 'folder' && 'risu-folder-section',
+        appearance === 'divided' && [
+            dividerTone === 'muted' ? 'border-darkborderc/50' : 'border-selected',
+            isLast === true
+                ? 'pb-0 mb-0 border-0'
+                : isLast === false
+                    ? 'pb-1 mb-1 border-b'
+                    : 'pb-1 mb-1 border-b last:pb-0 last:mb-0 last:border-0',
+        ],
         className,
     ));
     const headerClasses = $derived(cn(
-        'flex min-h-6 w-full items-center p-1 transition-colors [&>button]:cursor-pointer',
+        'w-full transition-colors [&>button]:cursor-pointer',
+        appearance !== 'divided'
+            ? 'risu-folder-header risu-selectable-row'
+            : 'flex min-h-6 items-center p-1',
         headerClass,
     ));
     const bodyClasses = $derived(cn(
-        'mt-2 w-full flex flex-col',
+        'flex flex-col',
+        appearance === 'divided' ? 'mt-2' : 'mt-1',
+        appearance === 'folder' ? 'risu-folder-children' : 'w-full',
         '[&_[data-disclosure-field]]:mt-2 [&_[data-disclosure-field]]:flex [&_[data-disclosure-field]]:flex-col',
         '[&_[data-disclosure-label]]:flex [&_[data-disclosure-label]]:items-center [&_[data-disclosure-label]]:text-maintext',
         '[&_[data-disclosure-control]]:mt-2 [&_[data-disclosure-control]]:mb-2 [&_[data-disclosure-control]]:flex [&_[data-disclosure-control]]:w-full [&_[data-disclosure-control]]:flex-col',
@@ -97,7 +108,8 @@
             <div
                 role="button"
                 tabindex="0"
-                class="flex min-w-0 grow cursor-pointer items-center text-left risu-interactive-accent"
+                class="flex min-w-0 grow cursor-pointer items-center text-left"
+                class:risu-interactive-accent={appearance === 'divided'}
                 data-disclosure-toggle
                 aria-expanded={disclosure ? open : undefined}
                 onclick={onToggle}
@@ -125,7 +137,7 @@
         {...rest}
         bind:this={element}
         class={listClasses}
-        data-disclosure-background={background ? 'filled' : 'transparent'}
+        data-disclosure-background={appearance === 'divided' && background ? 'filled' : 'transparent'}
         ondragstart={createDragPreview}
     >
         {@render children?.()}
@@ -134,13 +146,12 @@
 
 <style>
     :global(.risu-ghost-item) {
-        background-color: var(--risu-theme-darkbg);
         border-color: var(--risu-theme-selected);
         opacity: 0.7;
     }
 
-    :global([data-disclosure-background="transparent"] > .risu-ghost-item) {
-        background-color: transparent;
+    :global([data-disclosure-background="filled"] > .risu-ghost-item) {
+        background-color: var(--risu-theme-darkbg);
     }
 
     /* A list item owns the full-width divider, so scaling its root also
@@ -151,8 +162,8 @@
         transform-origin: center;
     }
 
-    :global(.risu-drag-item [data-disclosure-toggle]),
-    :global(.risu-ghost-item [data-disclosure-toggle]) {
+    :global(.risu-drag-item [data-disclosure-toggle].risu-interactive-accent),
+    :global(.risu-ghost-item [data-disclosure-toggle].risu-interactive-accent) {
         color: var(--risu-theme-primary);
     }
 

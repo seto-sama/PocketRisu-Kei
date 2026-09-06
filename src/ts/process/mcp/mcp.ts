@@ -95,7 +95,7 @@ export async function initializeMCPs(additionalMCPs?:string[]) {
                         mcpUrl = MCPData.url;
                     }
                     else if(MCPData.command && MCPData.args) {
-                        throw new Error('stdio MCPs are only supported in Tauri/Desktop Version');
+                        throw new Error('stdio command MCPs are not supported. Use an HTTP or HTTPS MCP URL instead.');
                     }
                     else {
                         throw new Error('MCP JSON does not contain a valid URL');

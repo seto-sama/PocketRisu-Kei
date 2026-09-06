@@ -32,6 +32,41 @@ beforeEach(() => {
 })
 
 describe('resolveChatModelBinding — model-preset-only mode', () => {
+    test.each(['model', 'submodel', 'memory', 'translate', 'emotion', 'otherAx'] as const)(
+        'uses the global %s binding while hidden and restores the saved chat binding when shown', (mode) => {
+            const globalPreset = { id: 'p-global', name: 'Global' }
+            mockDb.modelPresets.push(globalPreset)
+            const chat = { modelBinding: {
+                main: 'p-main', sub: 'p-main', separateAux: true,
+                aux: { memory: 'p-main', translate: 'p-main', emotion: 'p-main', otherAx: 'p-main' },
+            } } as any
+            mockDb.defaultModelBinding = {
+                main: 'p-global', sub: 'p-global', separateAux: true,
+                aux: { memory: 'p-global', translate: 'p-global', emotion: 'p-global', otherAx: 'p-global' },
+            }
+            const savedBinding = structuredClone(chat.modelBinding)
+            mockDb.showModelInSidebar = false
+            expect(resolveChatModelBinding(chat, mode)).toEqual({ kind: 'modelPreset', preset: globalPreset })
+            expect(chat.modelBinding).toEqual(savedBinding)
+
+            mockDb.showModelInSidebar = true
+            expect(resolveChatModelBinding(chat, mode)).toEqual({ kind: 'modelPreset', preset: PRESET })
+        },
+    )
+
+    test('does not fall back to the hidden chat binding when the global binding is unset', () => {
+        mockDb.showModelInSidebar = false
+        const chat = { modelBinding: bindingWith('p-main') } as any
+        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'block', reason: 'main-unset' })
+    })
+
+    test('uses the global sub slot when separate auxiliary bindings are off', () => {
+        mockDb.showModelInSidebar = false
+        mockDb.defaultModelBinding = { ...emptyModelBinding(), sub: 'p-main' }
+        const chat = { modelBinding: bindingWith('missing') } as any
+        expect(resolveChatModelBinding(chat, 'translate')).toEqual({ kind: 'modelPreset', preset: PRESET })
+    })
+
     test('resolves the chat binding regardless of its legacy mode value', () => {
         const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })

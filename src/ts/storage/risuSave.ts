@@ -742,23 +742,20 @@ export function normalizeJSON(value: any, seen?: WeakSet<object>): any {
 // returned ops with `for (const op of ops) patch.push(op)` rather than spread,
 // to stay safe even when a single item's internal diff is large.
 //
-// `idKey != null` (modules, botPresets — both gained stable string ids):
-// structural detection by id equality at each index, with a safety belt
-// that forces `replace` when ids are falsy or duplicated (defensive against
-// corrupted backups, or backups predating the id field). `idKey == null`:
-// length-only detection — retained as a fallback for arrays without stable
-// ids, currently unused by callers but kept for future use.
+// Detect structural changes by id equality at each index, forcing `replace`
+// when ids are falsy or duplicated (defensive against corrupted backups or
+// backups predating the id field).
 export function diffArrayWithIdGuard(
     compare: (a: any, b: any) => any[],
     path: string,
     lastArr: any[] | undefined,
     curArr: any[],
-    idKey: string | null,
+    idKey: string,
 ): any[] {
     const last = lastArr ?? []
     let structural = last.length !== curArr.length
 
-    if (!structural && idKey != null) {
+    if (!structural) {
         const lastIds = last.map((m: any) => m?.[idKey])
         const curIds = curArr.map((m: any) => m?.[idKey])
         const hasInvalidIds = curIds.some(id => !id) || lastIds.some(id => !id)
@@ -783,6 +780,10 @@ export function diffArrayWithIdGuard(
 
 export class RisuSavePatcher {
     private lastSyncedDb: any;
+
+    getBaselineSnapshot(): any {
+        return structuredClone(this.lastSyncedDb)
+    }
     private hashBlocks: { [key: string]: number } = {};
     // Cheap change pre-check baselines. calculateHash over normalizeJSON'd data
     // is the client↔server patch protocol (the server recomputes the same hash,

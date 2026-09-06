@@ -24,7 +24,6 @@ import CustomTextThemeEditor from 'src/lib/Setting/Pages/Display/CustomTextTheme
 import CustomBackgroundToggle from 'src/lib/Setting/Pages/Display/CustomBackgroundToggle.svelte';
 import NullableTextColorToggle from 'src/lib/Setting/Pages/Display/NullableTextColorToggle.svelte';
 import NotificationToggle from 'src/lib/Setting/Pages/Display/NotificationToggle.svelte';
-import CustomizationWarning from 'src/lib/Setting/Pages/Display/CustomizationWarning.svelte';
 import PromptEditorSection from 'src/lib/Setting/Pages/PromptPreset/PromptEditorSection.svelte';
 import ModelRegistryRefresh from 'src/lib/Setting/Pages/Model/ModelRegistryRefresh.svelte';
 import ModelProviderFilter from 'src/lib/Setting/Pages/Model/ModelProviderFilter.svelte';
@@ -43,7 +42,6 @@ export const customComponents: Record<string, Component<any>> = {
     'CustomBackgroundToggle': CustomBackgroundToggle,
     'NullableTextColorToggle': NullableTextColorToggle,
     'NotificationToggle': NotificationToggle,
-    'CustomizationWarning': CustomizationWarning,
     'PromptEditorSection': PromptEditorSection,
     'ModelRegistryRefresh': ModelRegistryRefresh,
     'ModelProviderFilter': ModelProviderFilter,

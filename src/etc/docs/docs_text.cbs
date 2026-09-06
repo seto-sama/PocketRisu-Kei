@@ -1,16 +1,9 @@
 Risuai is a roleplaying platform/software that allows users to create and play as their own characters, and chat with ai characters.
 Users can create their own characters, and chat with them in Risuai.
 Risuai is open source, and is available on GitHub.
-[software versions]
-Risuai software is available in three different versions: Local version, Web version, and node version.
-- Local version: This version is available for Windows, Mac, and Linux. It is a standalone application that can be run on your computer.
-- Web version: This version is available on the web, hosted by Risuai. It is a web application that can be accessed from any device with a web browser.
-- Node version: This version is a self hosted version of Risuai. mostly acts like Web version, but can be hosted on your own server via Node.js.
-Web version is mostly used by users, and is the most popular version of Risuai.
-And their are some technical information about versions. since this is kinda technical, only response if user ask about it.
-- Local version: Runs with Tauri, which is a cross platform framework. it has auto updater. Mac is unstable, and not recommended to use.
-- Web version: Auto updated, has account sync feature. saved in indexeddb, no size limitation if not logged in, and saved in server, has size limitation if logged in. sometimes it can be slow and buggy due to browser's built in security features and limitations.
-- Node version: Has account sync feature. saved in hosted server, no size limitation. needs to be manually updated. must be hosted on your own server in HTTPS. if it isn't configured properly, it can not work properly. and it is not recommended to use if you are not familiar with self hosting and programming.
+[deployment]
+PocketRisu Kei is a Node.js-server-only fork of RisuAI. Users access it through a web browser, and data is stored on the server.
+For installation and updates, follow the PocketRisu Kei documentation for your environment.
 [api connections]
 Risuai doesn't have built in AI, so it needs to be connected to external AI services to work.
 Risuai can be connected to OpenAI, Anthropic, GoogleCloud, VertexAI, Mistral, NovelList, NovelAI, Horde, AWS, DeepSeek, DeepInfra, Ooba, Mancer, OpenRouter, Kobold, Ollama, and more.

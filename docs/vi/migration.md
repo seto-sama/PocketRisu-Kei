@@ -22,7 +22,7 @@ Có ba cách để di chuyển dữ liệu từ cài đặt RisuAI hiện có (R
 
 ## 1. Tệp sao lưu cục bộ (.bin)
 
-Xuất tệp sao lưu `.bin` từ RisuAI hiện có, sau đó nhập vào PocketRisu. Hoạt động bất kể môi trường nguồn (web / Tauri / Capacitor / cục bộ).
+Xuất tệp sao lưu `.bin` từ RisuAI hiện có, sau đó nhập vào PocketRisu. Hoạt động bất kể môi trường nguồn (web / Capacitor / cục bộ).
 
 1. **Trong RisuAI hiện có**: Cài đặt > Sao lưu > "Lưu bản sao lưu cục bộ" để xuất tệp `.bin`.
 2. **Trong PocketRisu**: Cài đặt > Di chuyển dữ liệu > "Nhập bản sao lưu cục bộ Risu gốc" để nhập tệp `.bin`.

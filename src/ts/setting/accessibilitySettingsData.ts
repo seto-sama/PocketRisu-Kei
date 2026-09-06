@@ -5,7 +5,7 @@
  */
 
 import type { SettingItem } from './types';
-import { getCurrentChat, getDatabase, getStickyChatToolbarVariant, loadTogglesFromChat } from '../storage/database.svelte';
+import { getCurrentChat, getStickyChatToolbarVariant, loadTogglesFromChat } from '../storage/database.svelte';
 import { syncMobileBackNavigationGuard } from '../mobileBackNavigation';
 
 export const accessibilitySettingsItems: SettingItem[] = [
@@ -184,13 +184,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['hamburger', 'button', 'bottom', 'menu', 'sidebar', 'accessibility'],
     },
     {
-        id: 'acc.moveInsteadOfCopyOnCMPConvert',
-        type: 'check',
-        labelKey: 'moveInsteadOfCopyOnCMPConvert',
-        bindKey: 'moveInsteadOfCopyOnCMPConvert',
-        keywords: ['move', 'instead', 'of', 'copy', 'on', 'CMP', 'convert'],
-    },
-    {
         id: 'acc.hideLeftBarCollapseButton',
         type: 'check',
         labelKey: 'hideLeftBarCollapseButton',
@@ -274,11 +267,13 @@ export const accessibilitySettingsItems: SettingItem[] = [
         id: 'acc.disableToggleBinding',
         type: 'check',
         labelKey: 'disableToggleBinding',
-        bindKey: 'disableToggleBinding',
+        // Keep the stored disable flag compatible with existing databases.
+        getValue: (db) => !db.disableToggleBinding,
+        setValue: (db, visible) => { db.disableToggleBinding = !visible; },
         helpKey: 'disableToggleBinding',
-        keywords: ['toggle', 'binding', 'chat', 'disable'],
-        onChange: () => {
-            if (!getDatabase().disableToggleBinding) {
+        keywords: ['sidebar', 'toggle', 'binding', 'chat', 'show'],
+        onChange: (visible) => {
+            if (visible) {
                 const chat = getCurrentChat();
                 if (chat) loadTogglesFromChat(chat);
             }
@@ -314,10 +309,10 @@ export const accessibilityScrollItems = pick([
 ]);
 
 export const accessibilityChatPanelItems = pick([
-    'acc.disableToggleBinding',
     'acc.showModelInSidebar',
     'acc.showPresetInSidebar',
     'acc.showPersonaInSidebar',
+    'acc.disableToggleBinding',
     'acc.showModuleSidebar',
 ]);
 
@@ -338,5 +333,4 @@ export const accessibilityOtherItems = pick([
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
     'acc.disableMobileDragDrop',
-    'acc.moveInsteadOfCopyOnCMPConvert',
 ]);

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
     import { DBState, selectedCharID, openPresetList, presetSelectCallback } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { changeToPreset } from "src/ts/storage/database.svelte";
@@ -14,11 +15,7 @@
     let globalPromptParamsOn = $derived(DBState.db.modelPresetPromptParamsFirst === true);
     let promptParamsOn = $derived(globalPromptParamsOn || currentChat?.usePromptPresetParams === true);
 
-    let boundPresetIndex = $derived.by(() => {
-        const id = currentChat?.bindedBotPreset
-        if (!id) return -1
-        return DBState.db.botPresets.findIndex(p => p.id === id)
-    })
+    let boundPresetIndex = $derived(getChatBoundPromptPresetIndex(DBState.db, currentChat))
     let isPresetBound = $derived(boundPresetIndex >= 0)
     let displayPreset = $derived(
         isPresetBound

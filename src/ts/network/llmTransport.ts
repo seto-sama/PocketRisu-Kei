@@ -1,4 +1,5 @@
 import { fetchNative } from './nativeFetch'
+import { DEFAULT_REQUEST_TIMEOUT_MS } from '../../../shared/requestTimeout.mjs'
 import type { RevenantGenerationRequest } from '../process/revenant'
 import { isLocalNetworkUrl } from './localNetwork'
 import {
@@ -57,7 +58,7 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
             serverProviderAuth: (init as ServerAuthenticatedRequestInit)?.serverProviderAuth,
             networkRoute: localNetwork ? 'local_network' : 'auto',
             requestTimeoutMs: localNetwork
-                ? (options.localNetworkTimeoutMs ?? 600_000)
+                ? (options.localNetworkTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
                 : undefined,
         })
     }) as typeof fetch

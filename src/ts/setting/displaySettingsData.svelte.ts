@@ -5,7 +5,6 @@
  */
 
 import type { SettingContext, SettingItem } from './types';
-import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
@@ -354,7 +353,15 @@ export const displayOtherChatItems: SettingItem[] = [
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
-    { id: 'display.unformatQuotes', type: 'check', labelKey: 'unformatQuotes', helpKey: 'unformatQuotes', bindKey: 'unformatQuotes', keywords: ['quotes'] },
+    {
+        id: 'display.unformatQuotes',
+        type: 'check',
+        labelKey: 'unformatQuotes',
+        helpKey: 'unformatQuotes',
+        getValue: (db) => !db.unformatQuotes,
+        setValue: (db, enabled) => { db.unformatQuotes = !enabled; },
+        keywords: ['quotes', 'formatting', 'enable'],
+    },
     { id: 'display.blockquoteStyling', type: 'check', labelKey: 'blockquoteStyling', helpKey: 'blockquoteStyling', bindKey: 'blockquoteStyling', keywords: ['blockquote', 'quote'] },
     { id: 'display.cornerBracketStyling', type: 'check', labelKey: 'cornerBracketStyling', helpKey: 'cornerBracketStyling', bindKey: 'cornerBracketStyling', keywords: ['corner', 'bracket', 'quote'] },
     { id: 'display.customQuotes', type: 'check', labelKey: 'customQuotes', helpKey: 'customQuotes', bindKey: 'customQuotes', keywords: ['custom', 'quotes'] },
@@ -416,17 +423,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
 export const displayOtherAdvancedItems: SettingItem[] = [
     { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
     { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
-    {
-        id: 'display.fullScreen',
-        type: 'check',
-        labelKey: 'fullscreen',
-        helpKey: 'fullscreen',
-        bindKey: 'fullScreen',
-        onChange: () => changeFullscreen(),
-        keywords: ['fullscreen'],
-    },
-    { id: 'display.menuSideBar', type: 'check', labelKey: 'menuSideBar', helpKey: 'menuSideBar', bindKey: 'menuSideBar', keywords: ['menu', 'sidebar'] },
-    { id: 'display.betaMobileGUI', type: 'check', labelKey: 'betaMobileGUI', helpKey: 'betaMobileGUI', bindKey: 'betaMobileGUI', keywords: ['beta', 'mobile', 'gui'] },
 ];
 
 export const displaySettingsItems: SettingItem[] = [
