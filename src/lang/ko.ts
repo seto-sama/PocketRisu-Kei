@@ -1351,6 +1351,8 @@ export const languageKorean = {
   grid: "그리드",
   list: "리스트",
   trash: "휴지통",
+  trashAutoDeleteSchedule: "자동 삭제 일정",
+  trashRetentionDaysSuffix: "일 후",
   restore: "복구",
   deletePermanently: "영구 삭제",
   emptyTrash: "휴지통 비우기",
@@ -1359,8 +1361,7 @@ export const languageKorean = {
   emptyTrashConfirm2:
     "진짜진짜 휴지통을 비우시겠습니까? 삭제한 캐릭터는 복구할 수 없습니다.",
   trashEmptied: "휴지통에서 캐릭터 {count}개를 영구 삭제했습니다.",
-  trashDesc:
-    "삭제된 캐릭터는 휴지통에 보관됩니다. 복구하거나 영구 삭제할 수 있습니다. 3일 후에는 자동으로 영구 삭제됩니다.",
+  trashDesc: helpKo.trash,
   shareExport: "공유/엑스포트",
   risupresetDesc:
     "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu 전용 포맷입니다.",

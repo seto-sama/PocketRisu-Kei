@@ -1,4 +1,8 @@
 <script lang="ts">
+    import * as ContextMenu from "../UI/components/context-menu";
+    import SettingNumber from "../Setting/Wrappers/SettingNumber.svelte";
+    import type { SettingItem } from "src/ts/setting/types";
+    import { normalizeTrashRetentionDays } from "src/ts/trashRetention";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { changeChar, emptyCharacterTrash, getCharImage, removeChar } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
@@ -50,6 +54,16 @@
     let deletingCharacterId = $state<string | null>(null);
     let emptyingTrash = $state(false);
 
+    const trashRetentionSetting: SettingItem = $derived({
+        id: 'trashRetentionDays',
+        type: 'number',
+        labelKey: 'trashAutoDeleteSchedule',
+        helpKey: 'trashAutoDeleteSchedule',
+        getValue: (db) => normalizeTrashRetentionDays(db.trashRetentionDays),
+        setValue: (db, value) => { db.trashRetentionDays = normalizeTrashRetentionDays(value); },
+        options: { min: 0, suffix: language.trashRetentionDaysSuffix },
+    });
+
     function setViewMode(mode: 'simple' | 'grid') {
         viewMode = mode;
         writeViewPreference(viewPreferenceKeys.characterCatalog, mode);
@@ -61,7 +75,7 @@
     }
 
     function handleEscape(event: KeyboardEvent) {
-        if (event.key !== 'Escape' || event.isComposing) return;
+        if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return;
         if (doingAlert() || document.querySelector('[aria-modal="true"][data-state="open"]')) return;
 
         event.preventDefault();
@@ -143,7 +157,7 @@
 
     async function handleEmptyTrash(event: MouseEvent) {
         (event.currentTarget as HTMLElement | null)?.blur();
-        if (emptyingTrash || deletingCharacterId !== null) return;
+        if (emptyingTrash || deletingCharacterId !== null || !DBState.db.characters.some(character => character.trashTime)) return;
 
         emptyingTrash = true;
         try {
@@ -166,7 +180,7 @@
         >
             <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
         </button>
-        <header class="shrink-0 px-4 pb-4 pt-6 sm:px-6">
+        <header class="shrink-0 px-4 pt-6 sm:px-6 {section === 1 ? 'pb-2' : 'pb-4'}">
             <div class="mb-4 flex items-baseline gap-2 pr-10">
                 <h1 class="text-xl font-bold text-maintext">{language.characterList}</h1>
                 <span class="text-xs text-subtext">
@@ -217,23 +231,30 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
-                        <IconButton
-                            tone="destructive"
-                            className="text-danger"
-                            title={language.emptyTrash}
-                            aria-label={language.emptyTrash}
-                            disabled={formatChars('', DBState.db, true).length === 0 || deletingCharacterId !== null || emptyingTrash}
-                            onclick={handleEmptyTrash}
-                        >
-                            <TrashIcon />
-                        </IconButton>
-                    </IconButtonGroup>
+                    <ContextMenu.Root>
+                        <ContextMenu.Trigger class="inline-flex shrink-0">
+                            <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
+                                <IconButton
+                                    tone="destructive"
+                                    className="text-danger"
+                                    title={language.emptyTrash}
+                                    aria-label={language.emptyTrash}
+                                    disabled={deletingCharacterId !== null || emptyingTrash}
+                                    onclick={handleEmptyTrash}
+                                >
+                                    <TrashIcon />
+                                </IconButton>
+                            </IconButtonGroup>
+                        </ContextMenu.Trigger>
+                        <ContextMenu.Content class="w-96 max-w-[calc(100vw-2rem)] p-3 [&_[data-setting-id]]:border-0 [&_[data-setting-id]]:py-0">
+                            <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
+                        </ContextMenu.Content>
+                    </ContextMenu.Root>
                 {/if}
             </div>
         </header>
 
-        <div class="min-h-0 grow overflow-y-auto px-4 py-4 sm:px-6">
+        <div class="min-h-0 grow overflow-y-auto px-4 pb-4 sm:px-6 {section === 1 ? 'pt-2' : 'pt-4'}">
             {#if section === 1}
                 <p class="mb-4 text-sm text-subtext">{language.trashDesc}</p>
                 <div class="flex flex-col gap-2">

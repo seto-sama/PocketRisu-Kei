@@ -7,6 +7,8 @@
  */
 
 export const helpKo = {
+        "trashAutoDeleteSchedule": "삭제 버튼을 누르고 해당 기간이 지나면 캐릭터가 영구 삭제됩니다. 0을 입력하면 자동 삭제를 하지 않습니다.",
+        "trash": "휴지통에서 삭제된 캐릭터를 복구하거나 영구 삭제할 수 있으며, 휴지통 아이콘을 우클릭해 영구 삭제 일정을 지정할 수 있습니다.",
         "usageEntryTokens": "입력 토큰은 전체 입력(캐시 읽기|캐시 생성), 출력 토큰은 전체 출력(추론) 형식입니다. 캐시 생성이 없으면 캐시 읽기만 표시됩니다.",
         "translationCacheSearchLimit": "번역 캐시를 최신순으로 100개씩 불러오며, 현재까지 불러온 항목을 검색합니다.",
         "translationDialogClearAfterConfirm": "번역 완료된 내용이 입력창에 붙여넣기된 후 번역 입력칸을 비웁니다.",

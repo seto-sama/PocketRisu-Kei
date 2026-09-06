@@ -6022,20 +6022,8 @@ app.get('/api/db/stats', async (req, res, next) => {
         } catch { /* backups dir may not exist */ }
 
         // Quick estimates from in-memory cache only — never decode the BLOB just for stats.
-        let trashed = { count: 0, expiredCount: 0, available: false };
         let orphan = { count: 0, totalSize: 0, available: false };
         const stripped = dbCache[DB_HEX_KEY];
-        if (stripped?.characters) {
-            const now = Date.now();
-            const GRACE = 1000 * 60 * 60 * 24 * 3;
-            for (const c of stripped.characters) {
-                if (c?.trashTime) {
-                    trashed.count++;
-                    if (c.trashTime + GRACE < now) trashed.expiredCount++;
-                }
-            }
-            trashed.available = true;
-        }
         if (stripped && Array.isArray(stripped.characters)) {
             const victims = findOrphanAssets(
                 storedAssets,
@@ -6072,7 +6060,6 @@ app.get('/api/db/stats', async (req, res, next) => {
                 kv: { count: backupKeys.length, totalSize: backupTotal, oldest: backupOldest, newest: backupNewest },
                 file: fileBackups,
             },
-            trashed,
             orphan,
             etag: dbEtag,
         });
