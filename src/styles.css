@@ -19,8 +19,6 @@
 }
 
 @theme {
-  --breakpoint-xs: 25rem;
-
   --color-lightbg: var(--risu-theme-lightbg);
   --color-darkbg: var(--risu-theme-darkbg);
   --color-lightborderc: var(--risu-theme-lightborderc);

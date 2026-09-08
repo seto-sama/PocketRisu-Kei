@@ -37,6 +37,7 @@ const storeMocks = vi.hoisted(() => {
         ReloadGUIPointer: writable(0),
         selectedCharID: writable(0),
         HideIconStore: writable(false),
+        mdViewport: writable(true),
         CurrentTriggerIdStore: writable<string | null>(null),
         selIdState: { selId: 0 },
         popupStore: { openId: 0, children: null, mouseX: 0, mouseY: 0 },
@@ -77,6 +78,7 @@ const translatorMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('src/ts/stores.svelte', () => storeMocks)
+vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport: storeMocks.mdViewport }))
 vi.mock('src/ts/globalApi.svelte', () => ({
     aiLawApplies: () => false,
     changeChatTo: vi.fn(),

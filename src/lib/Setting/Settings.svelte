@@ -25,6 +25,7 @@
     import SettingsSearch from "./SettingsSearch.svelte";
     import { normalizeSettingsMenuOrder, settingsMenuKey, SETTINGS_MENU_SEARCH } from "src/ts/settingsMenuOrder";
     import { SettingsRoute } from "src/ts/routing";
+    import { mdViewport } from "src/ts/gui/breakpoints";
 
     // Dev panel is opt-in via localStorage['risu-dev-panel']='1' in devtools.
     // Read once on mount — flag changes require reload. Gates both the menu
@@ -70,16 +71,16 @@
             suppressMenuClick = false;
         }, 0);
     }
-    if(window.innerWidth >= 900 && $SettingsMenuIndex === -1){
+    if(mdViewport.matches() && $SettingsMenuIndex === -1){
         $SettingsMenuIndex = 16
     }
 
 </script>
 <div class="setting-bg h-full w-full flex justify-center rs-setting-cont">
     <div class="h-full max-w-4xl w-full flex relative rs-setting-cont-2">
-        {#if window.innerWidth >= 700 || $SettingsMenuIndex === -1}
+        {#if $mdViewport || $SettingsMenuIndex === -1}
             <div class="flex h-full flex-col bg-darkbg p-4 pt-8 gap-2 overflow-y-auto relative rs-setting-cont-3 shrink-0"
-                class:w-full={window.innerWidth < 700}
+                class:w-full={!$mdViewport}
             >
                 <IconButtonGroup
                     size="lg"
@@ -135,14 +136,14 @@
                     </button>
                 {/each}
                 </IconButtonGroup>
-                {#if window.innerWidth < 700}
+                {#if !$mdViewport}
                     <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
             </div>
         {/if}
-        {#if window.innerWidth >= 700 || $SettingsMenuIndex !== -1}
+        {#if $mdViewport || $SettingsMenuIndex !== -1}
             {#key $SettingsMenuIndex}
                 <div class="grow py-6 px-4 bg-lightbg flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 min-w-0">
                     <div class="w-full max-w-2xl mx-auto flex flex-col">
@@ -183,7 +184,7 @@
             </div>
             {/key}
             <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
-                if(window.innerWidth >= 700){
+                if($mdViewport){
                     settingsOpen.set(false)
                 }
                 else{

@@ -97,7 +97,7 @@
 
     <!-- Category Manager / Category Filter Button -->
     <IconButton
-      className="header-category-action"
+      className="hidden md:inline-flex"
       tabindex={-1}
       onclick={onOpenCategoryManager}
     >
@@ -137,7 +137,7 @@
 
     <!-- Open Global Settings Button -->
     <IconButton
-      className="header-settings-action"
+      className="hidden md:inline-flex"
       tabindex={-1}
       onclick={openGlobalSettings}
     >
@@ -155,11 +155,11 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="end" class="min-w-44">
-        <DropdownMenu.Item class="dropdown-category-action" onSelect={onOpenCategoryManager}>
+        <DropdownMenu.Item class="md:hidden" onSelect={onOpenCategoryManager}>
           <TagIcon />
           {language.hypaV3Modal.categoryManager}
         </DropdownMenu.Item>
-        <DropdownMenu.Item class="dropdown-settings-action" onSelect={openGlobalSettings}>
+        <DropdownMenu.Item class="md:hidden" onSelect={openGlobalSettings}>
           <SettingsIcon />
           {language.settings}
         </DropdownMenu.Item>
@@ -184,30 +184,3 @@
     </IconButton>
   </IconButtonGroup>
 </div>
-
-<style>
-  :global(.header-category-action),
-  :global(.header-settings-action) {
-    display: none;
-  }
-
-  @media (min-width: 520px) {
-    :global(.header-category-action) {
-      display: inline-flex;
-    }
-
-    :global(.dropdown-category-action) {
-      display: none;
-    }
-  }
-
-  @media (min-width: 640px) {
-    :global(.header-settings-action) {
-      display: inline-flex;
-    }
-
-    :global(.dropdown-settings-action) {
-      display: none;
-    }
-  }
-</style>
