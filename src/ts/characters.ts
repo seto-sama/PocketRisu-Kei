@@ -7,7 +7,7 @@ import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
-import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
+import { OpenRealmStore, selectedCharID } from "./stores.svelte";
 import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
@@ -888,13 +888,11 @@ export async function emptyCharacterTrash(){
 export async function addCharacter(arg:{
     reseter?:()=>any,
 } = {}){
-    MobileGUIStack.set(100)
     const reseter = arg.reseter ?? (() => {})
     const r = await alertAddCharacter()
     if(r === 'importFromRealm'){
         selectedCharID.set(-1)
         OpenRealmStore.set(true)
-        MobileGUIStack.set(0)
         return
     }
     reseter();
@@ -906,14 +904,12 @@ export async function addCharacter(arg:{
             await importCharactersAndPackages()
             break
         default:
-            MobileGUIStack.set(1)
             return
     }
     let db = getDatabase()
     if(db.characters[db.characters.length-1]){
         changeChar(db.characters.length-1)
     }
-    MobileGUIStack.set(1)
 }
 
 export function changeChar(index: number, arg:{

@@ -59,9 +59,6 @@ export const openPersonaList = writable(false)
 export const personaSelectCallback = writable<((index: number) => void) | null>(null)
 export const openHypaV3PresetList = writable(false)
 export const bookmarkListOpen = writable(false)
-export const MobileGUI = writable(false)
-export const MobileGUIStack = writable(0)
-export const MobileSideBar = writable(0)
 export const SettingsMenuIndex = writable(-1)
 // Boot-time backup reminder prompt — set by bootstrap and rendered by
 // BootBackupPrompt. The component resolves the user's choice (proceed/skip)
@@ -139,7 +136,6 @@ export const OpenRealmStore = writable(false)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')
 export const SafeModeStore = writable(false)
-export const MobileSearch = writable('')
 export const CharConfigSubMenu = writable(0)
 export const alertStore = writable({
     type: 'none',

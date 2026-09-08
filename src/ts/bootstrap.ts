@@ -6,7 +6,7 @@ import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
 import { characterURLImport } from "./characterCards";
@@ -18,7 +18,7 @@ import { applyEarlyLanguage, changeLanguage, language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
-import { initHotkey, initMobileGesture } from "./hotkey";
+import { initHotkey } from "./hotkey";
 import { syncMobileBackNavigationGuard } from "./mobileBackNavigation";
 import { moduleUpdate } from "./process/modules";
 import {
@@ -215,10 +215,6 @@ export async function loadData() {
             }
             if (db.botSettingAtStart) {
                 botMakerMode.set(true)
-            }
-            if (import.meta.env.VITE_RISU_LITE === 'TRUE') {
-                initMobileGesture()
-                MobileGUI.set(true)
             }
             // Boot-time automatic backup schedule. This is intentionally checked
             // at startup instead of running a background timer while the app is

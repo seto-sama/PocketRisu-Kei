@@ -4,7 +4,6 @@ import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
 import { BufferToText, selectSingleFile } from "../util";
 import { notifyError } from "../alert";
-import { isLite } from "../lite";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
 import { normalizeTextTheme } from "./textTheme";
 import { applyFontPreference } from "./fontPreference";
@@ -350,10 +349,6 @@ export function updateColorScheme(){
             db.colorScheme = colorScheme
         }
 
-        if(get(isLite)){
-            colorScheme = safeStructuredClone(colorSchemes.lite.colors)
-        }
-
         colorScheme.highlight ??= defaultColorScheme.highlight
         colorScheme.warning ??= defaultColorScheme.warning
         colorScheme.success ??= defaultColorScheme.success
@@ -431,8 +426,8 @@ export function updateTextThemeAndCSS(){
     if(!root){
         return
     }
-    let textTheme = normalizeTextTheme(get(isLite) ? 'standard' : db.textTheme)
-    let colorScheme = get(isLite) ? 'dark' : db.colorScheme.type
+    let textTheme = normalizeTextTheme(db.textTheme)
+    let colorScheme = db.colorScheme.type
     switch(textTheme){
         case "standard":{
             if(colorScheme === 'dark'){

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
+    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -23,9 +23,6 @@
     import Themepreset from './lib/Setting/themepreset.svelte';
     import ListedPersona from './lib/Setting/listedPersona.svelte';
     import ListedHypaV3Preset from './lib/Setting/listedHypaV3Preset.svelte';
-    import MobileHeader from './lib/Mobile/MobileHeader.svelte';
-    import MobileBody from './lib/Mobile/MobileBody.svelte';
-    import MobileFooter from './lib/Mobile/MobileFooter.svelte';
     import { checkCharOrder } from './ts/globalApi.svelte';
     import { hypaV3ProgressStore } from "./ts/stores.svelte";
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
@@ -141,25 +138,17 @@
             inert={$settingsOpen}
             aria-hidden={$settingsOpen}
         >
-            {#if $MobileGUI}
-                <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
-                    <MobileHeader />
-                    <MobileBody />
-                    <MobileFooter />
-                </div>
-            {:else}
-                {#if (!$DynamicGUI)}
-                    <Sidebar
-                        openGrid={openCharacterGrid}
-                        onNavigate={() => {gridOpen = false}}
-                        hidden={!$sideBarStore}
-                    />
-                {/if}
-                <ChatScreen />
+            {#if !$DynamicGUI}
+                <Sidebar
+                    openGrid={openCharacterGrid}
+                    onNavigate={() => {gridOpen = false}}
+                    hidden={!$sideBarStore}
+                />
             {/if}
+            <ChatScreen />
         </div>
 
-        {#if !$MobileGUI && !$settingsOpen}
+        {#if !$settingsOpen}
             <Dialog
                 bind:open={gridOpen}
                 size="xl"
@@ -182,7 +171,7 @@
             </div>
         {/if}
 
-        {#if !$MobileGUI && $DynamicGUI}
+        {#if $DynamicGUI}
             <div
                 class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
                 class:fixed={$sideBarStore}

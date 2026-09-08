@@ -9,13 +9,12 @@
     import AdvancedSettings from "./Pages/AdvancedSettings.svelte";
     import StorageManagementSettings from "./Pages/StorageManagementSettings.svelte";
     import AdminStatsSettings from "./Pages/AdminStatsSettings.svelte";
-    import { additionalSettingsMenu, AdminStatsSubmenuIndex, MobileGUI, SettingsMenuIndex, settingsOpen, SystemSubmenuIndex } from "src/ts/stores.svelte";
+    import { additionalSettingsMenu, AdminStatsSubmenuIndex, SettingsMenuIndex, settingsOpen, SystemSubmenuIndex } from "src/ts/stores.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import LanguageSettings from "./Pages/LanguageSettings.svelte";
     import AccessibilitySettings from "./Pages/AccessibilitySettings.svelte";
     import HotkeySettings from "./Pages/HotkeySettings.svelte";
     import PersonaSettings from "./Pages/PersonaSettings.svelte";
-    import { isLite } from "src/ts/lite";
     import InlayImageGallery from "./Pages/InlayImageGallery.svelte";
     import RemoteAccessSettings from "./Pages/RemoteAccessSettings.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
@@ -24,7 +23,7 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import SettingsSearch from "./SettingsSearch.svelte";
-    import { getVisibleSettingsMenuOrder, mergeVisibleSettingsMenuOrder, normalizeSettingsMenuOrder, settingsMenuKey, SETTINGS_MENU_SEARCH } from "src/ts/settingsMenuOrder";
+    import { normalizeSettingsMenuOrder, settingsMenuKey, SETTINGS_MENU_SEARCH } from "src/ts/settingsMenuOrder";
     import { SettingsRoute } from "src/ts/routing";
 
     // Dev panel is opt-in via localStorage['risu-dev-panel']='1' in devtools.
@@ -54,7 +53,7 @@
     ]);
     const settingsMenuItemsByKey = $derived(new Map(settingsMenuItems.map((item) => [item.key, item])));
     const settingsMenuOrder = $derived(normalizeSettingsMenuOrder(DBState.db.settingsMenuOrder));
-    const visibleSettingsMenuItems = $derived(getVisibleSettingsMenuOrder(settingsMenuOrder, $isLite)
+    const visibleSettingsMenuItems = $derived(settingsMenuOrder
         .map((key) => settingsMenuItemsByKey.get(key))
         .filter((item) => item !== undefined));
 
@@ -64,24 +63,23 @@
         if (index === SettingsRoute.AdminAndStats) $AdminStatsSubmenuIndex = 0;
     }
     function reorderSettingsMenu(orderedKeys: string[]) {
-        DBState.db.settingsMenuOrder = mergeVisibleSettingsMenuOrder(settingsMenuOrder, orderedKeys);
+        DBState.db.settingsMenuOrder = normalizeSettingsMenuOrder(orderedKeys);
     }
     function endMenuDrag() {
         setTimeout(() => {
             suppressMenuClick = false;
         }, 0);
     }
-    if(window.innerWidth >= 900 && $SettingsMenuIndex === -1 && !$MobileGUI){
+    if(window.innerWidth >= 900 && $SettingsMenuIndex === -1){
         $SettingsMenuIndex = 16
     }
 
 </script>
-<div class="h-full w-full flex justify-center rs-setting-cont" class:bg-lightbg={$MobileGUI} class:setting-bg={!$MobileGUI}>
+<div class="setting-bg h-full w-full flex justify-center rs-setting-cont">
     <div class="h-full max-w-4xl w-full flex relative rs-setting-cont-2">
-        {#if (window.innerWidth >= 700 && !$MobileGUI) || $SettingsMenuIndex === -1}
-            <div class="flex h-full flex-col p-4 pt-8 gap-2 overflow-y-auto relative rs-setting-cont-3 shrink-0"
-                class:w-full={window.innerWidth < 700 || $MobileGUI}
-                class:bg-darkbg={!$MobileGUI} class:bg-lightbg={$MobileGUI}
+        {#if window.innerWidth >= 700 || $SettingsMenuIndex === -1}
+            <div class="flex h-full flex-col bg-darkbg p-4 pt-8 gap-2 overflow-y-auto relative rs-setting-cont-3 shrink-0"
+                class:w-full={window.innerWidth < 700}
             >
                 <IconButtonGroup
                     size="lg"
@@ -111,42 +109,40 @@
                         </button>
                     {/each}
                 </SortableList>
-                {#if !$isLite}
-                    {#if devPanelEnabled}
-                        <button class="flex items-center risu-interactive-foreground"
-                            class:text-maintext={$SettingsMenuIndex === 99}
-                            class:text-subtext={$SettingsMenuIndex !== 99}
-                            onclick={() => {
-                            $SettingsMenuIndex = 99
-                        }}>
-                            <FlaskConicalIcon />
-                            <span>Dev Panel</span>
-                        </button>
-                    {/if}
-                    {#if additionalSettingsMenu.length > 0}
-                        <div class="border-t border-selected mt-2 pt-2">
-                            <span class="text-subtext text-xs ml-1">{language.plugin}</span>
-                        </div>
-                    {/if}
-                    {#each additionalSettingsMenu as menu}
-                        <button class="flex items-center risu-interactive-foreground text-subtext"
-                            onclick={() => {
-                                menu.callback()
-                        }}>
-                            <PluginDefinedIcon ico={menu} />
-                            <span>{menu.name}</span>
-                        </button>
-                    {/each}
+                {#if devPanelEnabled}
+                    <button class="flex items-center risu-interactive-foreground"
+                        class:text-maintext={$SettingsMenuIndex === 99}
+                        class:text-subtext={$SettingsMenuIndex !== 99}
+                        onclick={() => {
+                        $SettingsMenuIndex = 99
+                    }}>
+                        <FlaskConicalIcon />
+                        <span>Dev Panel</span>
+                    </button>
                 {/if}
+                {#if additionalSettingsMenu.length > 0}
+                    <div class="border-t border-selected mt-2 pt-2">
+                        <span class="text-subtext text-xs ml-1">{language.plugin}</span>
+                    </div>
+                {/if}
+                {#each additionalSettingsMenu as menu}
+                    <button class="flex items-center risu-interactive-foreground text-subtext"
+                        onclick={() => {
+                            menu.callback()
+                    }}>
+                        <PluginDefinedIcon ico={menu} />
+                        <span>{menu.name}</span>
+                    </button>
+                {/each}
                 </IconButtonGroup>
-                {#if window.innerWidth < 700 && !$MobileGUI}
+                {#if window.innerWidth < 700}
                     <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
             </div>
         {/if}
-        {#if (window.innerWidth >= 700 && !$MobileGUI) || $SettingsMenuIndex !== -1}
+        {#if window.innerWidth >= 700 || $SettingsMenuIndex !== -1}
             {#key $SettingsMenuIndex}
                 <div class="grow py-6 px-4 bg-lightbg flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 min-w-0">
                     <div class="w-full max-w-2xl mx-auto flex flex-col">
@@ -186,18 +182,16 @@
                     </div>
             </div>
             {/key}
-            {#if !$MobileGUI}
-                <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
-                    if(window.innerWidth >= 700){
-                        settingsOpen.set(false)
-                    }
-                    else{
-                        $SettingsMenuIndex = -1
-                    }
-                }}>
-                    <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
-                </button>
-            {/if}
+            <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
+                if(window.innerWidth >= 700){
+                    settingsOpen.set(false)
+                }
+                else{
+                    $SettingsMenuIndex = -1
+                }
+            }}>
+                <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
+            </button>
         {/if}
     </div>
 </div>

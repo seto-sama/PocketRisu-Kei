@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";

@@ -16,7 +16,7 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { changeChar, emptyCharacterTrash, getCharImage, removeChar } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
-    import { DBState, MobileGUI, selectedCharID } from 'src/ts/stores.svelte';
+    import { DBState, selectedCharID } from 'src/ts/stores.svelte';
     import {
         EyeIcon,
         EyeOffIcon,
@@ -29,7 +29,6 @@
         SearchIcon,
         TrashIcon,
         Undo2Icon,
-        CircleXIcon,
         XIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
@@ -230,18 +229,12 @@
     <section class="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-lightbg">
         <button
             data-risu-dialog-close
-            class="risu-layer-composer absolute flex items-center justify-center {$MobileGUI
-                ? 'right-2 top-2 text-maintext risu-interactive-accent'
-                : 'right-4 top-4 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer'}"
+            class="risu-layer-composer absolute right-4 top-4 flex cursor-pointer items-center justify-center rounded-sm border border-transparent text-subtext transition-colors risu-interactive-foreground"
             aria-label={language.close}
             title={language.close}
             onclick={endGrid}
         >
-            {#if $MobileGUI}
-                <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
-            {:else}
-                <XIcon size={18} />
-            {/if}
+            <XIcon size={18} />
         </button>
         <header class="shrink-0 px-4 pt-6 pb-2 sm:px-6">
             <div class="mb-4 flex items-baseline gap-2 pr-10">
