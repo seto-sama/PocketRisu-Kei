@@ -31,5 +31,14 @@ describe('Tailwind breakpoint stores', () => {
         expect(matchMedia).toHaveBeenCalledWith('(min-width: 48rem)')
         expect(matchMedia).toHaveBeenCalledWith('(min-width: 64rem)')
         expect(matchMedia).toHaveBeenCalledTimes(2)
+
+        const media = matchMedia.mock.results[0].value
+        const unsubscribeFirst = mdViewport.subscribe(() => {})
+        const unsubscribeSecond = mdViewport.subscribe(() => {})
+        expect(media.addEventListener).toHaveBeenCalledTimes(1)
+        unsubscribeFirst()
+        expect(media.removeEventListener).not.toHaveBeenCalled()
+        unsubscribeSecond()
+        expect(media.removeEventListener).toHaveBeenCalledWith('change', vi.mocked(media.addEventListener).mock.calls[0][1])
     })
 })

@@ -38,6 +38,7 @@
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
+    import { mdViewport } from './ts/gui/breakpoints'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
@@ -45,6 +46,10 @@
     function openCharacterGrid() {
         gridOpen = true
         if ($DynamicGUI) sideBarStore.set(false)
+    }
+
+    function closeCharacterGrid() {
+        gridOpen = false
     }
 
     function focusOverlay(node: HTMLElement) {
@@ -135,30 +140,40 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen}
-            aria-hidden={$settingsOpen}
+            inert={$settingsOpen || ($DynamicGUI && gridOpen)}
+            aria-hidden={$settingsOpen || ($DynamicGUI && gridOpen)}
         >
             {#if !$DynamicGUI}
                 <Sidebar
                     openGrid={openCharacterGrid}
-                    onNavigate={() => {gridOpen = false}}
+                    onNavigate={closeCharacterGrid}
                     hidden={!$sideBarStore}
                 />
             {/if}
             <ChatScreen />
         </div>
 
-        {#if !$settingsOpen}
-            <Dialog
-                bind:open={gridOpen}
-                size="xl"
-                closable={false}
-                ariaLabel={language.characterList}
-                contentClass="h-[90dvh] overflow-hidden bg-lightbg p-0 gap-0"
-                bodyClass="flex min-h-0 grow overflow-hidden"
-            >
-                <GridChars endGrid={() => {gridOpen = false}} />
-            </Dialog>
+        {#if gridOpen && !$settingsOpen}
+            {#if !$mdViewport}
+                <div
+                    class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
+                    tabindex="-1"
+                    use:focusOverlay
+                >
+                    <GridChars endGrid={closeCharacterGrid} />
+                </div>
+            {:else}
+                <Dialog
+                    bind:open={gridOpen}
+                    size="xl"
+                    closable={false}
+                    ariaLabel={language.characterList}
+                    contentClass="h-[90dvh] overflow-hidden bg-lightbg p-0 gap-0"
+                    bodyClass="flex min-h-0 grow overflow-hidden"
+                >
+                    <GridChars endGrid={closeCharacterGrid} />
+                </Dialog>
+            {/if}
         {/if}
 
         {#if $settingsOpen}
@@ -180,7 +195,7 @@
             >
                 <Sidebar
                     openGrid={openCharacterGrid}
-                    onNavigate={() => {gridOpen = false}}
+                    onNavigate={closeCharacterGrid}
                     hidden={false}
                 />
             </div>

@@ -7,6 +7,7 @@
     import SortableList from "../UI/components/SortableList.svelte";
     import { readSidebarOrderFromDom } from "../SideBars/sidebarDrag";
     import type { MoveEvent } from "sortablejs";
+    import FolderAvatar from "../SideBars/FolderAvatar.svelte";
     import SidebarAvatar from "../SideBars/SidebarAvatar.svelte";
     import { getFolderColorStyle } from "../SideBars/folderColors";
     import { folderDisplayMode } from "../SideBars/folderDisplay";
@@ -22,18 +23,18 @@
         EyeOffIcon,
         FolderIcon,
         FolderOpenIcon,
-        EllipsisVerticalIcon,
         LayoutGridIcon,
         ListIcon,
         MessageSquareIcon,
         SearchIcon,
+        SettingsIcon,
         TrashIcon,
         Undo2Icon,
         XIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
-    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { makeAgoText } from "src/ts/util";
     import SettingTabs from "../UI/components/SettingTabs.svelte";
@@ -41,6 +42,9 @@
     import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
     import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
     import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
+
+    const catalogFolderIconSize = iconButtonSizeValues.lg.icon;
+    const catalogFolderThumbnailSize = iconButtonSizeValues.default.cell;
 
     interface Props {
         endGrid?: () => void;
@@ -302,7 +306,7 @@
                                 </IconButton>
                             </IconButtonGroup>
                         </ContextMenu.Trigger>
-                        <ContextMenu.Content class="w-96 max-w-[calc(100vw-2rem)] p-3 [&_[data-setting-id]]:border-0 [&_[data-setting-id]]:py-0">
+                        <ContextMenu.Content side="bottom" align="end" sticky="always" class="w-96 max-w-[calc(100vw-2rem)] p-3 [&_[data-setting-id]]:border-0 [&_[data-setting-id]]:py-0">
                             <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
                         </ContextMenu.Content>
                     </ContextMenu.Root>
@@ -327,11 +331,10 @@
                     {/each}
                 </div>
             {:else if viewMode === 'grid'}
-                {@const gridCharacters = visibleCharacters}
-                {#if gridCharacters.length > 0}
-                    <HorizontalMasonry itemCount={gridCharacters.length}>
+                {#if visibleCharacters.length > 0}
+                    <HorizontalMasonry itemCount={visibleCharacters.length}>
                         {#snippet children(index)}
-                            {@const char = gridCharacters[index]}
+                            {@const char = visibleCharacters[index]}
                             <CharacterMasonryIcon
                                 src={char.image ? getCharImage(char.image, 'plain') : ''}
                                 name={char.name}
@@ -356,17 +359,27 @@
                     {#each listEntries as entry (entry.type === 'folder' ? `folder:${entry.folder.id}` : entry.character.chaId)}
                         {#if entry.type === 'folder'}
                             {@const expanded = !!search.trim() || !collapsedFolders.has(entry.folder.id)}
-                            {@const CustomIcon = folderDisplayMode(entry.folder, DBState.db.showFolderName) === 'icon' ? folderIconComponent(entry.folder.nodeOnlyIcon) : undefined}
+                            {@const displayMode = folderDisplayMode(entry.folder, DBState.db.showFolderName)}
+                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.nodeOnlyIcon) : undefined}
                             {@const FolderGlyph = CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon)}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
-                                <div class="risu-folder-header risu-selectable-row text-maintext">
+                                <div class="risu-folder-header min-h-9 risu-selectable-row text-maintext">
                                     <button class="character-order-handle flex min-w-0 grow items-center py-1 text-left" aria-expanded={expanded} onclick={() => toggleFolder(entry.folder.id)}>
-                                        <FolderGlyph size={18} class="risu-folder-icon mr-2 shrink-0" />
+                                        {#if displayMode === 'image' && entry.folder.imgFile}
+                                            <span
+                                                class="mr-2 flex shrink-0 items-center justify-center"
+                                                style={`width:${catalogFolderThumbnailSize}px;height:${catalogFolderThumbnailSize}px`}
+                                            >
+                                                <FolderAvatar folder={entry.folder} size={String(catalogFolderThumbnailSize)} interactive={false} showTooltip={false} />
+                                            </span>
+                                        {:else}
+                                            <FolderGlyph size={catalogFolderIconSize} class="risu-folder-icon mr-2 shrink-0" />
+                                        {/if}
                                         <span class="grow truncate text-sm font-medium">{entry.folder.name}</span>
                                         <span class="ml-2 text-xs text-subtext">{entry.characters.length}</span>
                                     </button>
-                                    <IconButton className="ml-3 shrink-0" title={language.menu} aria-label={language.menu} onclick={() => openSidebarFolderMenu(entry.folder.id)}>
-                                        <EllipsisVerticalIcon />
+                                    <IconButton className="ml-3 shrink-0" title={language.folderSettings} aria-label={language.folderSettings} onclick={() => openSidebarFolderMenu(entry.folder.id)}>
+                                        <SettingsIcon />
                                     </IconButton>
                                 </div>
                                 {#if expanded}

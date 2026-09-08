@@ -69,6 +69,7 @@
     } from "./sidebarDrag";
 
   import { sideBarSize } from "src/ts/gui/guisize";
+  import { mdViewport } from "src/ts/gui/breakpoints";
   import DevTool from "./DevTool.svelte";
   import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
@@ -863,7 +864,7 @@
           <CharConfig />
         {/if}
       {:else}
-        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
+        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!$mdViewport} />
       {/if}
     {/if}
   {/if}

@@ -2267,6 +2267,7 @@ export interface ChatFolder{
     color?:string
     folded:boolean
     localOnly?:boolean
+    nodeOnlyIcon?:string
 }
 
 export interface Message{

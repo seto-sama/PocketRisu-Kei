@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon } from "@lucide/svelte";
+    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon, PencilIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
@@ -13,11 +13,14 @@
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
-    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButton, { iconButtonEdgeInset, iconButtonSizeValues } from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
     import TokenCount from "../../UI/components/TokenCount.svelte";
     import InlineRenameAction from "../../UI/components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "../../UI/components/InlineEditableNameController.svelte";
+    import PopupButton from "../../UI/PopupButton.svelte";
+    import { Item as DropdownMenuItem } from "../../UI/components/dropdown-menu";
+    import { mdViewport } from "src/ts/gui/breakpoints";
 
     interface Props {
         value: loreBook;
@@ -50,7 +53,8 @@
     
     let open = $derived(isOpen)
     const showEntryDivider = $derived(value.mode !== 'folder' && open && !isLastInContainer)
-    const itemIconSize = 18
+    const itemIconSize = iconButtonSizeValues.default.icon
+    const mobile = $derived(!$mdViewport)
 
     function isLocallyActivated(book: loreBook){
         return book.id ? getCurrentChat()?.localLore.some(e => e.id === book.id) : false
@@ -142,7 +146,94 @@
         }
     }
 
+    function addLorebookToFolder() {
+        externalLoreBooks.push({
+            key: '',
+            comment: '',
+            content: '',
+            mode: 'normal',
+            insertorder: 100,
+            alwaysActive: true,
+            secondkey: '',
+            selective: false,
+            folder: value.key,
+        })
+    }
+
+    function toggleActivation() {
+        if(value.mode === 'folder'){
+            for(const lore of externalLoreBooks){
+                if(lore.folder === value.key){
+                    lore.alwaysActive = !value.alwaysActive
+                }
+            }
+            value.alwaysActive = !value.alwaysActive
+            return
+        }
+        if(value.alwaysActive || value.selective){
+            value.alwaysActive = false
+            value.selective = false
+        }
+        else{
+            value.alwaysActive = true
+            value.selective = false
+        }
+    }
+
+    function toggleSelective(event: MouseEvent) {
+        event.preventDefault()
+        if(value.mode === 'folder') return
+        if(value.alwaysActive || value.selective){
+            value.alwaysActive = false
+            value.selective = false
+        }
+        else{
+            value.alwaysActive = false
+            value.selective = true
+            value.useRegex = false
+        }
+    }
+
 </script>
+
+{#snippet alwaysActiveAction()}
+    <IconButton
+        active={value.alwaysActive || value.selective}
+        aria-label={value.alwaysActive ? language.alwaysActive : value.selective ? language.selective : language.activationKeys}
+        onclick={toggleActivation}
+        oncontextmenu={toggleSelective}
+    >
+        {#if value.alwaysActive}
+            <SunIcon />
+        {:else if value.selective}
+            <MoonIcon />
+        {:else}
+            <LinkIcon />
+        {/if}
+    </IconButton>
+{/snippet}
+
+{#snippet mobileActions()}
+    <PopupButton>
+        {#if value.mode !== 'child'}
+            <DropdownMenuItem disabled={renameController.editing} onSelect={() => renameController.startEditing()}>
+                <PencilIcon />
+                <span>{language.togglePresetMenuRename}</span>
+            </DropdownMenuItem>
+        {/if}
+        {#if value.mode === 'folder'}
+            <DropdownMenuItem onSelect={addLorebookToFolder}>
+                <PlusIcon />
+                <span>{language.add}</span>
+            </DropdownMenuItem>
+        {/if}
+        <DropdownMenuItem variant="destructive" onSelect={() => { void removeEntry() }}>
+            <TrashIcon />
+            <span>{language.remove}</span>
+        </DropdownMenuItem>
+    </PopupButton>
+{/snippet}
+
 <DisclosureList
     variant="item"
     appearance={value.mode === 'folder' ? 'folder' : 'row'}
@@ -189,79 +280,29 @@
         {/if}
     {/snippet}
     {#snippet actions()}
-        <IconButtonGroup size="default" className="ml-3 shrink-0">
-            <InlineRenameAction controller={renameController} />
-            {#if value.mode === 'folder'}
-                <IconButton
-                    aria-label={language.add}
-                    onclick={() => {
-                        externalLoreBooks.push({
-                            key: '',
-                            comment: '',
-                            content: '',
-                            mode: 'normal',
-                            insertorder: 100,
-                            alwaysActive: true,
-                            secondkey: '',
-                            selective: false,
-                            folder: value.key,
-                        })
-                    }}
-                >
-                    <PlusIcon />
-                </IconButton>
+        <IconButtonGroup
+            size="default"
+            className="ml-3 shrink-0"
+            style={`margin-right:-${iconButtonEdgeInset(mobile ? 'lg' : 'default')}px`}
+        >
+            {#if !mobile}
+                <InlineRenameAction controller={renameController} />
+                {#if value.mode === 'folder'}
+                    <IconButton aria-label={language.add} onclick={addLorebookToFolder}>
+                        <PlusIcon />
+                    </IconButton>
+                {/if}
             {/if}
             {#if value.mode !== 'child'}
-                <IconButton
-                    active={value.alwaysActive || value.selective}
-                    aria-label={value.alwaysActive ? language.alwaysActive : value.selective ? language.selective : language.activationKeys}
-                    onclick={() => {
-                        if(value.mode === 'folder'){
-                            for(let i = 0; i < externalLoreBooks.length; i++){
-                                if(externalLoreBooks[i].folder === value.key){
-                                    externalLoreBooks[i].alwaysActive = !value.alwaysActive
-                                }
-                            }
-                            value.alwaysActive = !value.alwaysActive
-                            return
-                        }
-                        if(value.alwaysActive || value.selective){
-                            value.alwaysActive = false
-                            value.selective = false
-                        }
-                        else{
-                            value.alwaysActive = true
-                            value.selective = false
-                        }
-                    }}
-                    oncontextmenu={(event) => {
-                        event.preventDefault()
-                        if(value.mode === 'folder'){
-                            return
-                        }
-                        if(value.alwaysActive || value.selective){
-                            value.alwaysActive = false
-                            value.selective = false
-                        }
-                        else{
-                            value.alwaysActive = false
-                            value.selective = true
-                            value.useRegex = false
-                        }
-                    }}
-                >
-                    {#if value.alwaysActive}
-                        <SunIcon />
-                    {:else if value.selective}
-                        <MoonIcon />
-                    {:else}
-                        <LinkIcon />
-                    {/if}
-                </IconButton>
+                {@render alwaysActiveAction()}
             {/if}
-            <IconButton tone="destructive" data-disclosure-action="delete" aria-label={language.remove} onclick={removeEntry}>
-                <TrashIcon />
-            </IconButton>
+            {#if !mobile}
+                <IconButton tone="destructive" data-disclosure-action="delete" aria-label={language.remove} onclick={removeEntry}>
+                    <TrashIcon />
+                </IconButton>
+            {:else}
+                {@render mobileActions()}
+            {/if}
         </IconButtonGroup>
     {/snippet}
 

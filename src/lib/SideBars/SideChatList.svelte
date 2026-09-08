@@ -1,7 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { v4 } from "uuid";
-    import { DownloadIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, FolderIcon, FolderOpenIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, TrashIcon, FolderPlusIcon, FolderIcon, FolderOpenIcon, PackageIcon, CopyIcon, PencilIcon, SettingsIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
@@ -12,13 +12,15 @@
     import Button from "../UI/components/Button.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
-    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButton, { iconButtonEdgeInset, iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "../UI/components/InlineEditableNameController.svelte";
+    import PopupButton from "../UI/PopupButton.svelte";
+    import { Item as DropdownMenuItem } from "../UI/components/dropdown-menu";
 
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
-    import { alertConfirm, alertError, alertSelect, notifySuccess, notifyError } from "src/ts/alert";
+    import { alertConfirm, alertError, notifySuccess, notifyError } from "src/ts/alert";
 
     import { openModuleListStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
@@ -27,14 +29,18 @@
     import PromptBind from "./PromptBind.svelte";
     import ModelBind from "./ModelBind.svelte";
     import { changeChatTo, createPersistedChat, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte";
-    import { folderColorOptions, getFolderColorStyle } from "./folderColors";
+    import { getFolderColorStyle } from "./folderColors";
+    import { folderIconComponent } from "./folderIcons";
+    import { openChatFolderMenu } from "./sidebarFolderMenu";
 
     interface Props {
         chara: character;
+        mobile?: boolean;
     }
 
-    let { chara = $bindable() }: Props = $props();
+    let { chara = $bindable(), mobile = false }: Props = $props();
     const chatSortableOptions = { group: 'chats' };
+    const chatFolderIconSize = iconButtonSizeValues.default.icon;
 
     // Safety net: chats whose folderId references a deleted folder would
     // otherwise be invisible (excluded from both the no-folder section and
@@ -44,25 +50,42 @@
     const validFolderIds = $derived(
         new Set((chara.chatFolders ?? []).map(f => f.id).filter(Boolean))
     )
+    const chatsByFolder = $derived.by(() => {
+        const grouped = new Map<string, Chat[]>()
+        for (const chat of chara.chats) {
+            if (!chat.folderId) continue
+            const folderChats = grouped.get(chat.folderId)
+            if (folderChats) folderChats.push(chat)
+            else grouped.set(chat.folderId, [chat])
+        }
+        return grouped
+    })
+    const chatIndexes = $derived(new Map(chara.chats.map((chat, index) => [chat, index] as const)))
     const isOrphanFolder = (folderId: string | null | undefined): boolean =>
         folderId != null && !validFolderIds.has(folderId)
 
-    let listEle: HTMLDivElement = $state()
+    let listEle: HTMLDivElement | undefined = $state()
 
     function syncChatOrderFromDom() {
+        if (!listEle) return
         const activeChat = chara.chats[chara.chatPage]
         const chatsById = new Map(chara.chats.map(chat => [chat.id, chat]))
         const nextChats: Chat[] = []
+        const includedChats = new Set<Chat>()
 
         listEle.querySelectorAll<HTMLElement>('[data-sortable-chat-id]').forEach(chatElement => {
             const chat = chatsById.get(chatElement.dataset.sortableChatId ?? '')
-            if (!chat || nextChats.includes(chat)) return
+            if (!chat || includedChats.has(chat)) return
             chat.folderId = chatElement.closest<HTMLElement>('[data-risu-chat-folder-id]')?.dataset.risuChatFolderId ?? null
             nextChats.push(chat)
+            includedChats.add(chat)
         })
 
         for (const chat of chara.chats) {
-            if (!nextChats.includes(chat)) nextChats.push(chat)
+            if (!includedChats.has(chat)) {
+                nextChats.push(chat)
+                includedChats.add(chat)
+            }
         }
 
         chara.chats = nextChats
@@ -77,11 +100,32 @@
         syncChatOrderFromDom()
     }
 
+    function toggleChatFolder(index: number) {
+        const folder = chara.chatFolders[index]
+        if (!folder) return
+        folder.folded = !folder.folded
+        $ReloadGUIPointer += 1
+    }
+
+    function createNewFolder() {
+        const folders = chara.chatFolders ?? []
+        chara.chatFolders = [{
+            id: v4(),
+            name: `New Folder ${folders.length + 1}`,
+            folded: false,
+        }, ...folders]
+        $ReloadGUIPointer += 1
+    }
+
     async function createNewChat() {
-        const len = chara.chats.length
-        const newChat = {
-            message:[] as any[], note:'', name:`${language.newChat} ${len + 1}`, localLore:[] as any[], fmIndex: -1, id: v4(),
-            ...newChatModelDefaults()
+        const newChat: Chat = {
+            message: [],
+            note: '',
+            name: `${language.newChat} ${chara.chats.length + 1}`,
+            localLore: [],
+            fmIndex: -1,
+            id: v4(),
+            ...newChatModelDefaults(),
         }
         try {
             await createPersistedChat(chara, newChat)
@@ -91,18 +135,98 @@
         }
     }
 
-    function createNewFolder() {
-        chara.chatFolders ??= []
-        const folders = chara.chatFolders
-        folders.unshift({
-            id: v4(),
-            name: `New Folder ${folders.length + 1}`,
-            folded: false,
-        })
-        chara.chatFolders = folders
+    async function copyChat(chat: Chat) {
+        const characterId = chara.chaId
+        const chatId = chat.id
+        if (!(await alertConfirm(`${language.copyChatConfirm}${chat.name}`))) return
+        if (chara.chaId !== characterId) return
+        let chatIdx = chara.chats.findIndex(item => item.id === chatId)
+        if (chatIdx < 0) return
+        if (chara.chats[chatIdx]?._placeholder) {
+            await ensureChatHydrated(chara.chats, chatIdx, chara.chaId)
+            if (chara.chaId !== characterId) return
+            chatIdx = chara.chats.findIndex(item => item.id === chatId)
+            if (chatIdx < 0) return
+        }
+        if (chara.chats[chatIdx]?._placeholder) {
+            alertError('Failed to load chat data.')
+            return
+        }
+        try {
+            await createPersistedChatCopy(chara, chara.chats[chatIdx], 'Copy')
+            notifySuccess(language.copyChatSuccess)
+        } catch (error) {
+            alertError(error)
+        }
+    }
+
+    function exportSingleChat(chat: Chat) {
+        const chatIdx = chara.chats.indexOf(chat)
+        if (chatIdx >= 0) exportChat(chatIdx)
+    }
+
+    async function removeChat(chat: Chat) {
+        const characterId = chara.chaId
+        const chatId = chat.id
+        if (chara.chats.length === 1) {
+            notifyError(language.errors.onlyOneChat)
+            return
+        }
+        if (!await alertConfirm(`${language.removeConfirm}${chat.name}`)) return
+        if (chara.chaId !== characterId || !chara.chats.some(item => item.id === chatId)) return
+        // The list can change while the confirmation dialog is open.
+        if (chara.chats.length === 1) {
+            notifyError(language.errors.onlyOneChat)
+            return
+        }
+        changeChatTo(0)
         $ReloadGUIPointer += 1
+        chara.chats = chara.chats.filter(item => item.id !== chatId)
+        void requestImmediateSave()
     }
 </script>
+
+{#snippet chatActions(chat: Chat, renameController: InlineEditableNameController)}
+    <IconButtonGroup
+        className="no-sort ml-3 shrink-0"
+        style={`margin-right:-${iconButtonEdgeInset(mobile ? 'lg' : 'default')}px`}
+        onclick={(event) => event.stopPropagation()}
+        onkeydown={(event) => event.stopPropagation()}
+    >
+        {#if mobile}
+            <PopupButton>
+                <DropdownMenuItem onSelect={() => renameController.startEditing()}>
+                    <PencilIcon />
+                    <span>{language.togglePresetMenuRename}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { void copyChat(chat) }}>
+                    <CopyIcon />
+                    <span>{language.copy}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => exportSingleChat(chat)}>
+                    <DownloadIcon />
+                    <span>{language.export}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onSelect={() => { void removeChat(chat) }}>
+                    <TrashIcon />
+                    <span>{language.remove}</span>
+                </DropdownMenuItem>
+            </PopupButton>
+        {:else}
+            <InlineRenameAction controller={renameController} />
+            <IconButton onclick={() => { void copyChat(chat) }}>
+                <CopyIcon />
+            </IconButton>
+            <IconButton onclick={() => exportSingleChat(chat)}>
+                <DownloadIcon />
+            </IconButton>
+            <IconButton tone="destructive" onclick={() => { void removeChat(chat) }}>
+                <TrashIcon />
+            </IconButton>
+        {/if}
+    </IconButtonGroup>
+{/snippet}
+
 <div class="flex flex-col w-full">
     <div class="relative bottom-2 flex items-stretch gap-1">
         <Button className="min-w-0 flex-1" onclick={createNewChat}>
@@ -130,8 +254,8 @@
             <!-- chat folder -->
             {#each chara.chatFolders as folder, i (folder.id)}
             {@const folderColorStyle = getFolderColorStyle(folder.color)}
-            {@const folderChats = chara.chats.filter(chat => chat.folderId === folder.id)}
-            {@const renameController = new InlineEditableNameController()}
+            {@const folderChats = chatsByFolder.get(folder.id) ?? []}
+            {@const FolderGlyph = folderIconComponent(folder.nodeOnlyIcon) ?? (folder.folded ? FolderIcon : FolderOpenIcon)}
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="risu-folder-section flex flex-col mb-1"
                 style:--risu-folder-color={folderColorStyle.accent}>
@@ -141,74 +265,33 @@
                     tabindex="0"
                     aria-expanded={!folder.folded}
                     data-inline-rename-row
-                    onclick={() => {
-                        chara.chatFolders[i].folded = !folder.folded
-                        $ReloadGUIPointer += 1
-                    }}
+                    onclick={() => toggleChatFolder(i)}
                     onkeydown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault()
-                            chara.chatFolders[i].folded = !folder.folded
-                            $ReloadGUIPointer += 1
+                            toggleChatFolder(i)
                         }
                     }}
                     class="chat-folder-header risu-folder-header risu-selectable-row text-maintext cursor-pointer"
                 >
-                    {#if folder.folded}
-                        <FolderIcon size={18} class="risu-folder-icon mr-2 shrink-0" />
-                    {:else}
-                        <FolderOpenIcon size={18} class="risu-folder-icon mr-2 shrink-0" />
-                    {/if}
+                    <FolderGlyph size={chatFolderIconSize} class="risu-folder-icon mr-2 shrink-0" />
                     <InlineEditableName
                         size="row"
-                        controller={renameController}
                         bind:value={chara.chatFolders[i].name}
-                        onActivate={() => {
-                            chara.chatFolders[i].folded = !folder.folded
-                            $ReloadGUIPointer += 1
-                        }}
+                        onActivate={() => toggleChatFolder(i)}
                     />
-                    <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
-                        <InlineRenameAction controller={renameController} />
-                        <IconButton onclick={async () => {
-                            const remoteVisibilityLabel = folder.localOnly
-                                ? language.showFolderOnRemoteAccess
-                                : language.hideFolderOnRemoteAccess
-                            const sel = parseInt(await alertSelect([language.changeFolderColor, remoteVisibilityLabel, language.cancel]))
-                            switch (sel) {
-                                case 0:
-                                    const colorSelection = parseInt(await alertSelect(
-                                        folderColorOptions.map(({ label }) => label)
-                                    ))
-                                    const selectedColor = folderColorOptions[colorSelection]?.value
-                                    if (selectedColor) {
-                                        folder.color = selectedColor
-                                    }
-                                    break
-                                case 1:
-                                    folder.localOnly = !folder.localOnly
-                                    break
-                            }
-                        }}>
-                            <MenuIcon />
-                        </IconButton>
-                        <IconButton tone="destructive" onclick={async () => {
-                            const d = await alertConfirm(`${language.removeConfirm}${folder.name}`)
-                            if (d) {
-                                $ReloadGUIPointer += 1
-                                const folders = chara.chatFolders
-                                folders.splice(i, 1)
-                                chara.chats.forEach(chat => {
-                                    if (chat.folderId == folder.id) {
-                                        chat.folderId = null
-                                    }
-                                })
-                                chara.chatFolders = folders
-                            }
-                        }}>
-                            <TrashIcon />
-                        </IconButton>
-                    </IconButtonGroup>
+                    <IconButton
+                        className="no-sort ml-3"
+                        style={`margin-right:-${iconButtonEdgeInset('default')}px`}
+                        title={language.folderSettings}
+                        aria-label={language.folderSettings}
+                        onclick={(event) => {
+                            event.stopPropagation()
+                            openChatFolderMenu(chara.chaId, folder.id)
+                        }}
+                    >
+                        <SettingsIcon />
+                    </IconButton>
                 </div>
                 <!-- chats in folder -->
                 <SortableList
@@ -224,7 +307,7 @@
                     <div></div>
                     {:else}
                     {#each folderChats as chat (chat.id)}
-                    {@const chatIdx = chara.chats.indexOf(chat)}
+                    {@const chatIdx = chatIndexes.get(chat) ?? -1}
                     {@const renameController = new InlineEditableNameController()}
                     <div role="button" tabindex="0" data-tree-item data-inline-rename-row data-risu-chat-idx={chatIdx} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => changeChatTo(chatIdx)} onkeydown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -233,51 +316,7 @@
                         }
                     }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         <InlineEditableName size="row" controller={renameController} bind:value={chat.name} editorLeadingInset="row" onActivate={() => changeChatTo(chatIdx)} />
-                        <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
-                            <InlineRenameAction controller={renameController} />
-                            <IconButton onclick={async () => {
-                                const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
-                                if(!confirmed) return
-                                const chatIdx = chara.chats.indexOf(chat)
-                                if(chara.chats[chatIdx]?._placeholder){
-                                    await ensureChatHydrated(chara.chats, chatIdx, (chara as character).chaId)
-                                }
-                                if(chara.chats[chatIdx]?._placeholder){
-                                    alertError('Failed to load chat data.')
-                                    return
-                                }
-                                try {
-                                    await createPersistedChatCopy(chara, chara.chats[chatIdx], 'Copy')
-                                    notifySuccess(language.copyChatSuccess)
-                                } catch (error) {
-                                    alertError(error)
-                                }
-                            }}>
-                                <CopyIcon />
-                            </IconButton>
-                            <IconButton onclick={() => {
-                                exportChat(chara.chats.indexOf(chat))
-                            }}>
-                                <DownloadIcon />
-                            </IconButton>
-                            <IconButton tone="destructive" onclick={async () => {
-                                if(chara.chats.length === 1){
-                                    notifyError(language.errors.onlyOneChat)
-                                    return
-                                }
-                                const d = await alertConfirm(`${language.removeConfirm}${chat.name}`)
-                                if(d){
-                                    changeChatTo(0)
-                                    $ReloadGUIPointer += 1
-                                    let chats = chara.chats
-                                    chats.splice(chara.chats.indexOf(chat), 1)
-                                    chara.chats = chats
-                                    void requestImmediateSave()
-                                }
-                            }}>
-                                <TrashIcon />
-                            </IconButton>
-                        </IconButtonGroup>
+                        {@render chatActions(chat, renameController)}
                     </div>
                     {/each}
                     {/if}
@@ -306,50 +345,7 @@
             class="risu-selectable-row flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer"
             data-selected={i === chara.chatPage && !$chatDeselected}>
                 <InlineEditableName size="row" controller={renameController} bind:value={chara.chats[i].name} editorLeadingInset="row" onActivate={() => changeChatTo(i)} />
-                <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
-                    <InlineRenameAction controller={renameController} />
-                    <IconButton onclick={async () => {
-                        const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
-                        if(!confirmed) return
-                        if(chara.chats[i]?._placeholder){
-                            await ensureChatHydrated(chara.chats, i, (chara as character).chaId)
-                        }
-                        if(chara.chats[i]?._placeholder){
-                            alertError('Failed to load chat data.')
-                            return
-                        }
-                        try {
-                            await createPersistedChatCopy(chara, chara.chats[i], 'Copy')
-                            notifySuccess(language.copyChatSuccess)
-                        } catch (error) {
-                            alertError(error)
-                        }
-                    }}>
-                        <CopyIcon />
-                    </IconButton>
-                    <IconButton onclick={() => {
-                        exportChat(i)
-                    }}>
-                        <DownloadIcon />
-                    </IconButton>
-                    <IconButton tone="destructive" onclick={async () => {
-                        if(chara.chats.length === 1){
-                            notifyError(language.errors.onlyOneChat)
-                            return
-                        }
-                        const d = await alertConfirm(`${language.removeConfirm}${chat.name}`)
-                        if(d){
-                            changeChatTo(0)
-                            $ReloadGUIPointer += 1
-                            let chats = chara.chats
-                            chats.splice(i, 1)
-                            chara.chats = chats
-                            void requestImmediateSave()
-                        }
-                    }}>
-                        <TrashIcon />
-                    </IconButton>
-                </IconButtonGroup>
+                {@render chatActions(chat, renameController)}
             </div>
             {/if}
             {/each}

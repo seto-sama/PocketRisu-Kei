@@ -5,7 +5,7 @@ import { exportCharacterCard, importCharacterProcess } from './characterCards'
 import { AppendableBuffer, checkCharOrder, LocalWriter, requestImmediateSave, saveAsset, VirtualWriter } from './globalApi.svelte'
 import { language } from 'src/lang'
 import { type character, getDatabase, setDatabase, saveImage, normalizeChat } from './storage/database.svelte'
-import type { Chat } from './storage/database.svelte'
+import type { Chat, ChatFolder } from './storage/database.svelte'
 import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleFile } from './util'
 import { createBlankChar } from './characters'
@@ -280,7 +280,7 @@ async function importChatsToCharacter(
     if (mode === 'append') {
         // Remap folder IDs that collide with existing ones
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
-            const importedFolders = chatsJson.folders as { id: string, name?: string, color?: string, folded: boolean }[]
+            const importedFolders = chatsJson.folders as ChatFolder[]
             const existingFolders = targetChar.chatFolders ?? []
             const folderIdMap: Record<string, string> = {}
             for (const folder of importedFolders) {
