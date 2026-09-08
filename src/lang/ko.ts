@@ -2240,7 +2240,7 @@ export const languageKorean = {
     selectMatch: "수정할 블록을 선택하세요",
     selectDeleteMatch: "삭제할 블록을 선택하세요",
     matchesFound: "개의 매칭을 찾음",
-    lineNumber: (line: number) => `약 ${line}줄`,
+    lineNumber: (line: number) => `약 ${line}줄째에 위치함`,
     saveShortcut: "저장 (Ctrl+Enter)",
     cancelShortcut: "취소 (Esc)",
     save: "저장",

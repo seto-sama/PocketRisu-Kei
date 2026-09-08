@@ -1330,7 +1330,7 @@ export const languageChineseTraditional = {
         "selectMatch": "選擇要修改的區塊",
         "selectDeleteMatch": "選擇要刪除的區塊",
         "matchesFound": "個匹配結果",
-        "lineNumber": (line: number) => `約第 ${line} 行`,
+        "lineNumber": (line: number) => `位於約第 ${line} 行`,
         "saveShortcut": "儲存 (Ctrl+Enter)",
         "cancelShortcut": "取消 (Esc)",
         "save": "儲存",

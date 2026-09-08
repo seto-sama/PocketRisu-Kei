@@ -93,6 +93,27 @@ function renderManager(screenRoot: HTMLElement, messages: Message[], options: {
     return { target, mounted }
 }
 
+function mockTextSelection(
+    textNode: Node,
+    selectedText: string,
+    rects: DOMRect[],
+    boundingRect = rects[0] ?? new DOMRect(),
+) {
+    const range = {
+        commonAncestorContainer: textNode,
+        startContainer: textNode,
+        endContainer: textNode,
+        getBoundingClientRect: () => boundingRect,
+        getClientRects: () => rects,
+    } as unknown as Range
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        toString: () => selectedText,
+        getRangeAt: () => range,
+    } as unknown as Selection)
+}
+
 beforeEach(() => {
     DBState.db = {
         zoomsize: 100,
@@ -242,22 +263,12 @@ describe('PartialEditManager', () => {
         const paragraph = screenRoot.querySelector('p')!
         const textNode = paragraph.firstChild!
         const finalSelectedLineBounds = new DOMRect(20, 120, 60, 16)
-        const range = {
-            commonAncestorContainer: textNode,
-            startContainer: textNode,
-            endContainer: textNode,
-            getBoundingClientRect: () => new DOMRect(20, 100, 160, 36),
-            getClientRects: () => [
-                new DOMRect(20, 100, 160, 16),
-                finalSelectedLineBounds,
-            ],
-        } as unknown as Range
-        vi.spyOn(window, 'getSelection').mockReturnValue({
-            isCollapsed: false,
-            rangeCount: 1,
-            toString: () => 'message body',
-            getRangeAt: () => range,
-        } as unknown as Selection)
+        mockTextSelection(
+            textNode,
+            'message body',
+            [new DOMRect(20, 100, 160, 16), finalSelectedLineBounds],
+            new DOMRect(20, 100, 160, 36),
+        )
 
         renderManager(screenRoot, messages, { blockEditEnabled: false })
         await tick()
@@ -275,6 +286,48 @@ describe('PartialEditManager', () => {
         expect(left).toBeLessThanOrEqual(window.innerWidth)
         expect(top).toBeGreaterThanOrEqual(finalSelectedLineBounds.bottom)
         expect(top).toBeLessThanOrEqual(window.innerHeight)
+    })
+
+    it('edits the selected occurrence when a drag selection has multiple matches', async () => {
+        const messages: Message[] = [
+            { role: 'char', data: 'repeat phrase\nmiddle\nrepeat phrase', chatId: 'message-0' },
+        ]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const textNode = screenRoot.querySelector('p')!.firstChild!
+        mockTextSelection(textNode, 'repeat phrase', [new DOMRect(20, 100, 100, 16)])
+
+        renderManager(screenRoot, messages, { blockEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new Event('selectionchange'))
+        await vi.waitFor(() => {
+            expect(document.body.querySelector('.partial-edit-drag-btn-wrapper')).not.toBeNull()
+        })
+
+        document.body.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')?.click()
+        await vi.waitFor(() => {
+            expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+        })
+
+        const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!
+        const matchButtons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
+            .filter(button => button.textContent?.includes('repeat phrase'))
+        expect(matchButtons).toHaveLength(2)
+        expect(document.body.querySelector('textarea')).toBeNull()
+
+        matchButtons[1].click()
+        await vi.waitFor(() => {
+            expect(document.body.querySelector('textarea')).not.toBeNull()
+        })
+
+        const textarea = document.body.querySelector<HTMLTextAreaElement>('textarea')!
+        textarea.value = 'updated phrase'
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+        document.body.querySelector<HTMLButtonElement>('.partial-edit-save-btn')?.click()
+        await tick()
+
+        expect(messages[0].data).toBe('repeat phrase\nmiddle\nupdated phrase')
     })
 
     it('edits the active translation cache without mutating the original message', async () => {

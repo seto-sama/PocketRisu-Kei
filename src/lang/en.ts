@@ -2061,7 +2061,7 @@ export const languageEnglish = {
         selectMatch: "Select which block to edit",
         selectDeleteMatch: "Select which block to delete",
         matchesFound: "matches found",
-        lineNumber: (line: number) => `Line ~${line}`,
+        lineNumber: (line: number) => `Located around line ${line}`,
         saveShortcut: "Save (Ctrl+Enter)",
         cancelShortcut: "Cancel (Esc)",
         save: "Save",

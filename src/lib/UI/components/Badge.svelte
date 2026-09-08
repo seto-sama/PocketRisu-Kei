@@ -39,14 +39,14 @@
     const variantClasses: Record<BadgeVariant, string> = {
         default: 'bg-selected/60 text-maintext border-darkborderc',
         secondary: 'bg-darkbg text-subtext border-darkborderc',
-        destructive: 'bg-danger/20 text-danger border-danger/40',
+        destructive: 'risu-status-danger',
         outline: 'bg-transparent text-subtext border-darkborderc',
         ghost: 'bg-transparent text-subtext border-transparent risu-interactive-surface',
         link: 'bg-transparent text-lightborderc border-transparent underline-offset-4 hover:underline',
         attention: 'bg-highlight/20 text-highlight border-highlight/40',
-        warning: 'bg-warning/20 text-warning border-warning/40',
-        info: 'bg-accent/20 text-accent border-accent/40',
-        success: 'bg-success/20 text-success border-success/40',
+        warning: 'risu-status-warning',
+        info: 'risu-status-info',
+        success: 'risu-status-success',
     };
 </script>
 
