@@ -145,7 +145,7 @@
         {/if}
         {#if $mdViewport || $SettingsMenuIndex !== -1}
             {#key $SettingsMenuIndex}
-                <div class="grow py-6 px-4 bg-lightbg flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 min-w-0">
+                <div class="grow py-6 px-4 flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 risu-list-action-scroll-root risu-surface-light min-w-0">
                     <div class="w-full max-w-2xl mx-auto flex flex-col">
                         {#if $SettingsMenuIndex === 2}
                             <OtherBotSettings />

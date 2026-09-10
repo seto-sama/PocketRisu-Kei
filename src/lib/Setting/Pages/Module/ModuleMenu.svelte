@@ -16,7 +16,7 @@
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import { selectMultipleFile } from "src/ts/util";
     import IconButton from "../../../UI/components/IconButton.svelte";
-    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../../../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
     import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
     import { v4 } from "uuid";
@@ -190,7 +190,7 @@
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
     <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
-    <IconButtonGroup size="default" className="risu-list-actions w-full">
+    <ListActionBar mode="footer">
         <IconButton onclick={() => {addLorebook()}}>
             <PlusIcon />
         </IconButton>
@@ -205,7 +205,7 @@
         }}>
             <FolderPlusIcon />
         </IconButton>
-    </IconButtonGroup>
+    </ListActionBar>
 {/if}
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
@@ -213,7 +213,7 @@
     <Textarea commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
-    <IconButtonGroup size="default" className="mt-2">
+    <ListActionBar mode="footer">
         <IconButton onclick={() => {
             addRegex()
         }}><PlusIcon /></IconButton>
@@ -223,7 +223,7 @@
         <IconButton onclick={async () => {
             currentModule.regex = await importRegex(currentModule.regex)
         }}><UploadIcon /></IconButton>
-    </IconButtonGroup>
+    </ListActionBar>
 {/if}
 
 {#if submenu === 'assets' && (Array.isArray(currentModule.assets))}

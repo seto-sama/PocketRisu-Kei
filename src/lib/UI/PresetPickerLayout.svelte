@@ -10,6 +10,7 @@
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
     import IconButton from "./components/IconButton.svelte";
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
+    import ListActionBar from "./components/ListActionBar.svelte";
     import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
     import InlineRenameAction from "./components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "./components/InlineEditableNameController.svelte";
@@ -414,7 +415,7 @@
                 </SortableList>
             </div>
             {#if showCreateFolder || sidebarFooterActions}
-                <div class="shrink-0 mt-2 flex items-center gap-1">
+                <ListActionBar mode="inline" className="shrink-0 gap-1">
                     {#if showCreateFolder}
                         <button
                             class="min-w-0 grow flex items-center gap-2 rounded-md px-2 py-2 text-sm text-subtext risu-interactive-accent risu-interactive-surface"
@@ -426,7 +427,7 @@
                         </button>
                     {/if}
                     {@render sidebarFooterActions?.()}
-                </div>
+                </ListActionBar>
             {/if}
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col px-2 py-3">

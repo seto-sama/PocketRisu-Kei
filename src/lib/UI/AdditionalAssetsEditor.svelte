@@ -11,6 +11,7 @@
     import AssetViewerActions from './components/AssetViewerActions.svelte';
     import IconButton from './components/IconButton.svelte';
     import IconButtonGroup from './components/IconButtonGroup.svelte';
+    import ListActionBar from './components/ListActionBar.svelte';
     import Input from './components/Input.svelte';
     import { createIncrementalList } from './incrementalList.svelte';
 
@@ -260,7 +261,7 @@
     }
 </script>
 
-<div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
+<div class="mt-2 w-full max-w-full overflow-x-hidden">
     {#if assets.length === 0}
         <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-subtext">
             <EmptyState title={language.noData} description="" />
@@ -268,7 +269,7 @@
     {:else}
         {#each displayedAssets as asset, i}
             {@const extension = extensionOf(asset)}
-            <div class="flex min-w-0 items-start gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
+            <div class="flex min-w-0 items-start gap-2 py-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
                     class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
                     use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
@@ -339,11 +340,11 @@
         {/if}
     {/if}
 </div>
-<div class="mt-2 flex justify-start">
-    <IconButton onclick={addAssets}>
+<ListActionBar mode="footer">
+    <IconButton onclick={addAssets} title={language.selectFile} aria-label={language.selectFile}>
         <PlusIcon />
     </IconButton>
-</div>
+</ListActionBar>
 
 <FullscreenImageViewer
     open={previewIndex >= 0 && !!previewAsset}

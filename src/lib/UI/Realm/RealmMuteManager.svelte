@@ -12,7 +12,7 @@
     } from 'src/ts/realmMute';
     import PresetPickerLayout from '../PresetPickerLayout.svelte';
     import IconButton from '../components/IconButton.svelte';
-    import IconButtonGroup from '../components/IconButtonGroup.svelte';
+    import ListActionBar from '../components/ListActionBar.svelte';
 
     interface Props {
         onClose: () => void;
@@ -90,7 +90,7 @@
             <PencilIcon />
         </IconButton>
     {/snippet}
-    <IconButtonGroup className="mt-2 shrink-0 border-t border-darkborderc pt-2">
+    <ListActionBar mode="inline" className="shrink-0">
         <IconButton
             tone="destructive"
             disabled={entries.length === 0}
@@ -100,5 +100,5 @@
         >
             <TrashIcon />
         </IconButton>
-    </IconButtonGroup>
+    </ListActionBar>
 </PresetPickerLayout>

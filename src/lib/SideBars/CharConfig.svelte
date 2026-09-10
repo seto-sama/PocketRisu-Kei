@@ -35,6 +35,7 @@
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
     import TokenCount from "../UI/components/TokenCount.svelte";
     import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
@@ -332,7 +333,7 @@
     />
 
     {#if viewSubMenu === 'icon'}
-            <div class="mt-2 p-2 border-darkborderc border rounded-md grid grid-cols-3 gap-2">
+            <div class="mt-2 grid grid-cols-3 gap-2">
                 {#if DBState.db.characters[$selectedCharID].image !== '' && DBState.db.characters[$selectedCharID].image}
                     {#await getCharImage(DBState.db.characters[$selectedCharID].image, 'css')}
                         <div
@@ -488,28 +489,30 @@
         <span class="block text-maintext">{language.backgroundHTML}<Help key="backgroundHTML" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></Textarea>
 
-        <span class="mt-2 text-maintext">{language.regexScript}<Help key="regexScript"/></span>
-        <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
-        <IconButtonGroup className="my-2">
-            <IconButton onclick={() => {
-                if(DBState.db.characters[$selectedCharID].type === 'character'){
-                    let script = DBState.db.characters[$selectedCharID].customscript
-                    script.push({
-                    comment: "",
-                    in: "",
-                    out: "",
-                    type: "editinput"
-                    })
-                    DBState.db.characters[$selectedCharID].customscript = script
-                }
-            }}><PlusIcon /></IconButton>
-            <IconButton onclick={() => {
-                exportRegex(DBState.db.characters[$selectedCharID].customscript)
-            }}><DownloadIcon /></IconButton>
-            <IconButton onclick={async () => {
-                DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
-            }}><UploadIcon /></IconButton>
-        </IconButtonGroup>
+        <div class="relative">
+            <span class="mt-2 text-maintext">{language.regexScript}<Help key="regexScript"/></span>
+            <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
+            <ListActionBar mode="footer">
+                <IconButton onclick={() => {
+                    if(DBState.db.characters[$selectedCharID].type === 'character'){
+                        let script = DBState.db.characters[$selectedCharID].customscript
+                        script.push({
+                        comment: "",
+                        in: "",
+                        out: "",
+                        type: "editinput"
+                        })
+                        DBState.db.characters[$selectedCharID].customscript = script
+                    }
+                }}><PlusIcon /></IconButton>
+                <IconButton onclick={() => {
+                    exportRegex(DBState.db.characters[$selectedCharID].customscript)
+                }}><DownloadIcon /></IconButton>
+                <IconButton onclick={async () => {
+                    DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
+                }}><UploadIcon /></IconButton>
+            </ListActionBar>
+        </div>
 
         <TriggerList bind:value={(DBState.db.characters[$selectedCharID] as character).triggerscript} lowLevelAble={DBState.db.characters[$selectedCharID].lowLevelAccess}>
             {#snippet header()}

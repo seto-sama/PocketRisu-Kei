@@ -11,6 +11,7 @@
     import { onDestroy, onMount } from "svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
+    import ListActionBar from "../../UI/components/ListActionBar.svelte";
     import Alert from "../../UI/components/Alert.svelte";
 
     let warns: TemplateWarning[] = $state([])
@@ -165,7 +166,7 @@
         {/each}
     </SortableList>
 
-    <div class="flex items-center mb-6">
+    <ListActionBar mode="footer">
         <IconButton size="lg" onclick={() => {
             let value = DBState.db.promptTemplate
             value.push({
@@ -182,7 +183,7 @@
             <span aria-hidden="true">|</span>
             <span>{extokens} {language.exactTokens}</span>
         </div>
-    </div>
+    </ListActionBar>
 {:else}
     <SettingRenderer items={promptProcessingItems} layout="row" />
 

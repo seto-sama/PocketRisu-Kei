@@ -14,6 +14,7 @@
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import IconButton, { iconButtonEdgeInset, iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../UI/components/ListActionBar.svelte";
     import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "../UI/components/InlineEditableNameController.svelte";
     import PopupButton from "../UI/PopupButton.svelte";
@@ -352,8 +353,8 @@
         </SortableList>
     </div>
 
-    <div class="border-t border-selected mt-2">
-        <IconButtonGroup className="mt-2">
+    <div>
+        <ListActionBar mode="inline">
             <IconButton onclick={() => {
                 exportAllChats()
             }}>
@@ -364,7 +365,7 @@
             }}>
                 <UploadIcon />
             </IconButton>
-        </IconButtonGroup>
+        </ListActionBar>
 
         {#if !$chatDeselected}
             {#if DBState.db.showModelInSidebar}

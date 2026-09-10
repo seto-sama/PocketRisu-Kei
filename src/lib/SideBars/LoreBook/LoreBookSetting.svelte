@@ -11,7 +11,7 @@
     import Help from "src/lib/Others/Help.svelte";
     import { selectedCharID } from "src/ts/stores.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
-    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../../UI/components/ListActionBar.svelte";
     import ChoiceGroup from "../../UI/components/ChoiceGroup.svelte";
 
     let submenu = $state('character')
@@ -107,7 +107,7 @@
 {/if}
 {#if submenu !== 'settings'}
 
-<IconButtonGroup className="risu-list-actions">
+<ListActionBar mode="footer">
     <IconButton onclick={() => {addLorebook(loreSubmenu)}}>
         <PlusIcon />
     </IconButton>
@@ -142,6 +142,6 @@
     }}>
         <FolderPlusIcon />
     </IconButton>
-</IconButtonGroup>
+</ListActionBar>
 {/if}
 </div>

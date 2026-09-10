@@ -732,7 +732,7 @@
 </div>
 
 <div
-  class="setting-area risu-layer-chrome h-full max-md:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"
+  class="setting-area risu-layer-chrome risu-list-action-scroll-root risu-surface-dark h-full max-md:relative flex-col overflow-y-auto overflow-x-hidden py-6 text-maintext max-h-full"
   bind:this={sidebarScrollElement}
   class:w-96={$sideBarSize === 0}
   class:w-110={$sideBarSize === 1}

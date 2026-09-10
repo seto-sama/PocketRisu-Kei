@@ -7,10 +7,6 @@
     import { sleep, sortableOptions } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
-    import { DownloadIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
-    import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import IconButton from "../../UI/components/IconButton.svelte";
-    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
     import type { IconButtonSize } from "../../UI/components/IconButton.svelte";
     import {
         groupRegexScripts,
@@ -22,7 +18,6 @@
     } from "./regexScriptGroups";
     interface Props {
         value?: customscript[];
-        buttons?: boolean;
         embedded?: boolean;
         search?: string;
         actionIconSize?: IconButtonSize;
@@ -30,7 +25,6 @@
 
     let {
         value = $bindable([]),
-        buttons = false,
         embedded = false,
         search = '',
         actionIconSize = 'default',
@@ -139,23 +133,3 @@
         {/each}
     </DisclosureList>
 {/key}
-{#if buttons}
-    <IconButtonGroup size={actionIconSize} className="mt-2">
-        <IconButton onclick={() => {
-            value = [...value, {
-                comment: "",
-                in: "",
-                out: "",
-                type: "editinput"
-            }]
-        }}>
-            <PlusIcon />
-        </IconButton>
-        <IconButton onclick={() => {
-            exportRegex(value)
-        }}><DownloadIcon /></IconButton>
-        <IconButton onclick={async () => {
-            value = await importRegex(value)
-        }}><UploadIcon /></IconButton>
-    </IconButtonGroup>
-{/if}

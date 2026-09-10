@@ -9,6 +9,7 @@
     import Button from "../UI/components/Button.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../UI/components/ListActionBar.svelte";
     import { getChatToken, tokenize } from "src/ts/tokenizer";
     import { tokenizePreset } from "src/ts/process/prompt";
     
@@ -24,6 +25,7 @@
     import { getModules } from "src/ts/process/modules";
 
     const variableInputClass = 'box-border h-6 min-h-6 min-w-0 max-w-full w-full py-0';
+    let autopilotOpen = $state(false);
 
     async function getCharacterDescriptionToken() {
         const char = DBState.db.characters[$selectedCharID]
@@ -181,7 +183,7 @@
     <span class="mt-2 block text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
-<Accordion class="mt-2" name={language.autopilot}>
+<Accordion class="mt-2" name={language.autopilot} bind:open={autopilotOpen}>
     {#if $devToolAutopilotStore.length === 0}
         <EmptyState title={language.noData} description="" layout="section" density="compact" />
     {/if}
@@ -215,8 +217,10 @@
             </IconButtonGroup>
         </div>
     {/each}
-    <div class="mt-2 flex items-center justify-between">
-        <IconButtonGroup>
+</Accordion>
+{#if autopilotOpen}
+    <ListActionBar mode="footer" className="justify-between">
+        <div class="flex items-center">
             <IconButton
                 aria-label={language.add}
                 title={language.add}
@@ -231,7 +235,7 @@
             >
                 <UploadIcon />
             </IconButton>
-        </IconButtonGroup>
+        </div>
         <Button
             variant="outline"
             size="sm"
@@ -240,8 +244,8 @@
         >
             {language.run}
         </Button>
-    </div>
-</Accordion>
+    </ListActionBar>
+{/if}
 
 
 <Accordion class="mt-2" name={language.preview}>
