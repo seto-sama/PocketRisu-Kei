@@ -1,11 +1,10 @@
 import { notifyError } from "../alert";
 import { getCurrentCharacter, getDatabase, type character, type TTSApiKeyProvider } from "../storage/database.svelte";
-import { runTranslator, translateVox } from "../translator/translator";
-import { globalFetch, loadAsset } from "../globalApi.svelte";
+import { translateVox } from "../translator/translator";
+import { globalFetch } from "../globalApi.svelte";
 import { language } from "src/lang";
-import { sleep } from "../util";
-import { runVITS } from "./transformers";
 import { getApiKey } from "../preset/apiKeyPool";
+import { getActiveTTSPreset, getBoundTTSPreset, type TTSPresetSettings } from "../tts/presets";
 import {
     getTTSPreprocessors,
     getTTSPostprocessors,
@@ -16,13 +15,26 @@ import {
     type AfterTTSResult,
 } from "./ttsHooks";
 
-let sourceNode:AudioBufferSourceNode = null
+let sourceNode: AudioBufferSourceNode | null = null
+let playbackContext: AudioContext | null = null
+
+function getTTSPlaybackVolume(): number {
+    const value = getDatabase().ttsVolume ?? 100
+    return Math.min(1, Math.max(0, value / 100))
+}
 
 /** Resolve a saved TTS key at request time so edits in the key pool take effect immediately. */
-export function getTTSApiKey(provider: TTSApiKeyProvider, directKey = ''): string {
+export function getTTSApiKey(provider: TTSApiKeyProvider, directKey = '', settings?: TTSPresetSettings): string {
     const db = getDatabase()
-    const ref = db.ttsApiKeyRefs?.[provider]
-    return (getApiKey(ref)?.key ?? directKey).trim()
+    const current = settings ?? getActiveTTSPreset(db)?.settings
+    const ref = current?.apiKeyRefs?.[provider]
+    const presetKey = provider === 'elevenlabs' ? current?.elevenLabsKey : current?.fishAudioKey
+    return (getApiKey(ref)?.key ?? presetKey ?? directKey).trim()
+}
+
+function getTTSVoicevoxUrl(settings?: TTSPresetSettings): string {
+    const db = getDatabase()
+    return (settings?.voicevoxUrl ?? getActiveTTSPreset(db)?.settings.voicevoxUrl ?? '').trim().replace(/\/+$/, '')
 }
 
 /**
@@ -77,12 +89,41 @@ async function playAudio(audio: ArrayBuffer, mimeType: string, ctx: { ttsMode: s
     const processed = await runPostprocessorPipeline(audio, mimeType, ctx);
     if (processed.skip) return;
 
+    stopBufferedTTS();
     const audioContext = new AudioContext();
-    const decoded = await audioContext.decodeAudioData(processed.audio);
-    sourceNode = audioContext.createBufferSource();
-    sourceNode.buffer = decoded;
-    sourceNode.connect(audioContext.destination);
-    sourceNode.start();
+    let decoded: AudioBuffer;
+    try {
+        decoded = await audioContext.decodeAudioData(processed.audio);
+    } catch (error) {
+        void audioContext.close();
+        throw error;
+    }
+    const nextSource = audioContext.createBufferSource();
+    nextSource.buffer = decoded;
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = getTTSPlaybackVolume();
+    nextSource.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    sourceNode = nextSource;
+    playbackContext = audioContext;
+    nextSource.onended = () => {
+        if (sourceNode === nextSource) sourceNode = null;
+        if (playbackContext === audioContext) playbackContext = null;
+        void audioContext.close();
+    };
+    nextSource.start();
+}
+
+function stopBufferedTTS() {
+    const currentSource = sourceNode;
+    const currentContext = playbackContext;
+    sourceNode = null;
+    playbackContext = null;
+    if (currentSource) {
+        currentSource.onended = null;
+        try { currentSource.stop(); } catch {}
+    }
+    if (currentContext) void currentContext.close();
 }
 
 export async function sayTTS(character:character,text:string) {
@@ -97,9 +138,12 @@ export async function sayTTS(character:character,text:string) {
         }
     
         let db = getDatabase()
+        const preset = getBoundTTSPreset(db, character.ttsPresetId)
+        if (!preset) return
+        const settings = preset.settings
         text = text.replace(/\*/g,'')
     
-        if(character.ttsReadOnlyQuoted){
+        if(db.ttsReadOnlyQuoted){
             const matches = text.match(/["「](.*?)["」]/g)
             if(matches && matches.length > 0){
                 text = matches.map(match => match.slice(1, -1)).join("");
@@ -111,45 +155,50 @@ export async function sayTTS(character:character,text:string) {
 
         const beforeResult = await runHookPipeline<BeforeTTSContext, BeforeTTSResult>(
             getTTSPreprocessors(),
-            { text, ttsMode: character.ttsMode ?? '', characterId: character.chaId },
+            { text, ttsMode: settings.provider, characterId: character.chaId },
         );
         if (beforeResult.skip) {
             return;
         }
         text = beforeResult.ctx.text;
 
-        switch(character.ttsMode){
+        switch(settings.provider){
             case "webspeech":{
                 if(speechSynthesis && SpeechSynthesisUtterance){
                     const utterThis = new SpeechSynthesisUtterance(text);
                     const voices = speechSynthesis.getVoices();
                     let voiceIndex = 0
                     for(let i=0;i<voices.length;i++){
-                        if(voices[i].name === character.ttsSpeech){
+                        if(voices[i].name === settings.voice){
                             voiceIndex = i
                         }
                     }
                     utterThis.voice = voices[voiceIndex]
-                    const speak = speechSynthesis.speak(utterThis)
+                    utterThis.volume = getTTSPlaybackVolume()
+                    speechSynthesis.speak(utterThis)
                 }
                 break
             }
             case "elevenlab": {
-                const da = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${character.ttsSpeech}`, {
+                const voiceId = settings.voice.trim()
+                const apiKey = getTTSApiKey('elevenlabs', '', settings)
+                if (!apiKey) throw new Error(language.ttsApiKeyMissing('ElevenLabs'))
+                if (!voiceId) throw new Error(language.ttsVoiceNotSelected('ElevenLabs'))
+                const da = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
                     body: JSON.stringify({
                         text: text,
-                        model_id: "eleven_multilingual_v2"
+                        model_id: "eleven_v3"
                     }),
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        'xi-api-key': getTTSApiKey('elevenlabs', db.elevenLabKey) || undefined
+                        'xi-api-key': apiKey
                     }
                 })
                 if(da.status >= 200 && da.status < 300){
                     const buffer = await da.arrayBuffer()
                     const mimeType = da.headers.get('content-type') || 'audio/mpeg'
-                    await playAudio(buffer, mimeType, { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
+                    await playAudio(buffer, mimeType, { ttsMode: settings.provider, characterId: character.chaId })
                 }
                 else{
                     notifyError(await da.text())
@@ -158,193 +207,58 @@ export async function sayTTS(character:character,text:string) {
             }
             case "VOICEVOX": {
                 const jpText = await translateVox(text)
-                const query = await fetch(`${db.voicevoxUrl}/audio_query?text=${jpText}&speaker=${character.ttsSpeech}`, {
+                const baseUrl = getTTSVoicevoxUrl(settings)
+                const speaker = settings.voice.trim()
+                if (!baseUrl) throw new Error(language.ttsUrlNotConfigured('VOICEVOX'))
+                if (!speaker) throw new Error(language.ttsVoiceNotSelected('VOICEVOX'))
+                const params = new URLSearchParams({ text: jpText, speaker })
+                const query = await fetch(`${baseUrl}/audio_query?${params}`, {
                     method: 'POST',
                     headers: { "Content-Type": "application/json"},
                 })
                 if (query.status == 200){
                     const queryJson = await query.json();
-                    const bodyData = {
-                        accent_phrases: queryJson.accent_phrases,
-                        speedScale: character.voicevoxConfig.SPEED_SCALE,
-                        pitchScale: character.voicevoxConfig.PITCH_SCALE,
-                        volumeScale: character.voicevoxConfig.VOLUME_SCALE,
-                        intonationScale: character.voicevoxConfig.INTONATION_SCALE,
-                        prePhonemeLength: queryJson.prePhonemeLength,
-                        postPhonemeLength: queryJson.postPhonemeLength,
-                        outputSamplingRate: queryJson.outputSamplingRate,
-                        outputStereo: queryJson.outputStereo,
-                        kana: queryJson.kana,
-                    }
-                    const getVoice = await fetch(`${db.voicevoxUrl}/synthesis?speaker=${character.ttsSpeech}`, {
+                    const config = settings.voicevox
+                    queryJson.speedScale = config.speedScale
+                    queryJson.pitchScale = config.pitchScale
+                    queryJson.volumeScale = config.volumeScale
+                    queryJson.intonationScale = config.intonationScale
+                    const getVoice = await fetch(`${baseUrl}/synthesis?speaker=${encodeURIComponent(speaker)}`, {
                         method: 'POST',
                         headers: { "Content-Type": "application/json"},
-                        body: JSON.stringify(bodyData),
+                        body: JSON.stringify(queryJson),
                     })
-                    if (getVoice.status == 200 && getVoice.headers.get('content-type') === 'audio/wav'){
-                        await playAudio(await getVoice.arrayBuffer(), 'audio/wav', { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
+                    if (getVoice.ok && getVoice.headers.get('content-type')?.startsWith('audio/wav')){
+                        await playAudio(await getVoice.arrayBuffer(), 'audio/wav', { ttsMode: settings.provider, characterId: character.chaId })
+                    } else {
+                        throw new Error(language.ttsRequestFailed(language.ttsVoicevoxSynthesisTarget, getVoice.status))
                     }
+                } else {
+                    throw new Error(language.ttsRequestFailed(language.ttsVoicevoxAudioQueryTarget, query.status))
                 }
                 break
             }
-            case 'openai':{
-                const cfg = character.oaiTTSConfig?.enabled ? character.oaiTTSConfig : null
-                const baseURL = (cfg?.baseURL?.trim() || 'https://api.openai.com/v1').replace(/\/+$/, '')
-                const apiKey  = (cfg?.apiKey || getTTSApiKey('openai', db.openAIKey)).trim()
-                const model   = cfg?.model || 'tts-1'
-                const voice   = cfg?.voice || character.oaiVoice || 'alloy'
-                const format  = cfg?.format || 'mp3'
-
-                const res = await globalFetch(`${baseURL}/audio/speech`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
-                    },
-                    body: {
-                        model,
-                        input: text,
-                        voice,
-                        response_format: format,
-                        
-                    },
-                    rawResponse: true,
-                })
-                const dat = res.data
-    
-                if(res.ok){
-                    try {
-                        const audio = Buffer.from(dat).buffer
-                        await playAudio(audio, 'audio/mpeg', { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
-                    } catch (error) {
-                        notifyError(language.errors.httpError + `${error}`)
-                    }
-                }
-                else{
-                    if(dat.error && dat.error.message){                    
-                        notifyError((language.errors.httpError + `${dat.error.message}`))
-                    }
-                    else{                    
-                        notifyError((language.errors.httpError + `${Buffer.from(res.data).toString()}`))
-                    }
-                }
-                break;
-    
-            }
-            case 'novelai': {
-                if(text === ''){
-                    break;
-                }
-                const encodedText = encodeURIComponent(text);
-                const encodedSeed = encodeURIComponent(character.naittsConfig.voice);
-
-                const url = `https://api.novelai.net/ai/generate-voice?text=${encodedText}&voice=-1&seed=${encodedSeed}&opus=false&version=${character.naittsConfig.version}`;
-
-                const response = await globalFetch(url, {
-                    method: 'GET',
-                    headers: {
-                        "Authorization": "Bearer " + getTTSApiKey('novelai', db.NAIApiKey),
-                    },
-                    rawResponse: true
-                });
-
-                if (response.ok) {
-                    await playAudio(response.data.buffer, 'audio/wav', { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
-                } else {
-                    notifyError("Error fetching or decoding audio data");
-                }
-                break;
-            }
-            case 'huggingface': {
-                while(true){
-                    if(character.hfTTS.language !== 'en'){
-                        text = await runTranslator(text, false, 'en', character.hfTTS.language)
-                    }
-                    const response = await fetch(`https://api-inference.huggingface.co/models/${character.hfTTS.model}`, {
-                        method: 'POST',
-                        headers: {
-                            "Authorization": "Bearer " + getTTSApiKey('huggingface', db.huggingfaceKey),
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                            inputs: text,
-                        })
-                    });
-
-                    if(response.status === 503 && response.headers.get('content-type') === 'application/json'){
-                        const json = await response.json()
-                        if(json.estimated_time){
-                            await sleep(json.estimated_time * 1000)
-                            continue
-                        }
-                    }
-                    else if(response.status >= 400){
-                        notifyError(language.errors.httpError + `${await response.text()}`)
-                        return
-                    }
-                    else if (response.status === 200) {
-                        const buffer = await response.arrayBuffer();
-                        const mimeType = response.headers.get('content-type') || 'audio/wav'
-                        await playAudio(buffer, mimeType, { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
-                    } else {
-                        notifyError("Error fetching or decoding audio data");
-                    }
-                    return
-                }
-            }
-            case 'vits':{
-                await runVITS(text, character.vits)
-                break;
-            }
             case 'gptsovits':{
-                const audio: Uint8Array = await loadAsset(character.gptSoVitsConfig.ref_audio_data.assetId);
-                const base64Audio = btoa(new Uint8Array(audio).reduce((data, byte) => data + String.fromCharCode(byte), ''));
-
+                const config = settings.gptSoVits
+                const baseUrl = config.url.trim().replace(/\/+$/, '')
+                const referencePath = config.referenceAudioPath.trim()
+                if (!baseUrl) throw new Error(language.ttsGptSoVitsServerRequired)
+                if (config.useReferenceAudio && !referencePath) throw new Error(language.ttsGptSoVitsReferenceRequired)
                 const body = {
                     text: text,
-                    text_lang: character.gptSoVitsConfig.text_lang,
-                    ref_audio_path: undefined,
-                    ref_audio_name: character.gptSoVitsConfig.ref_audio_data.fileName,
-                    ref_audio_data: base64Audio,
-                    prompt_text: undefined,
-                    prompt_lang: character.gptSoVitsConfig.prompt_lang,
-                    top_p: character.gptSoVitsConfig.top_p,
-                    temperature: character.gptSoVitsConfig.temperature,
-                    speed_factor: character.gptSoVitsConfig.speed,
-                    top_k: character.gptSoVitsConfig.top_k,
-                    text_split_method: character.gptSoVitsConfig.text_split_method,
+                    text_lang: config.textLanguage,
+                    ref_audio_path: config.useReferenceAudio ? referencePath : '',
+                    prompt_text: config.useReferenceAudio ? config.referenceAudioScript : '',
+                    prompt_lang: config.useReferenceAudio ? config.referenceAudioLanguage : '',
+                    top_p: config.topP,
+                    temperature: config.temperature,
+                    speed_factor: config.speed,
+                    top_k: config.topK,
+                    text_split_method: config.textSplitMethod,
                     parallel_infer: true,
-                    // media_type: character.gptSoVitsConfig.ref_audio_data.fileName.split('.')[1],
-                    ref_free: character.gptSoVitsConfig.use_long_audio || !character.gptSoVitsConfig.use_prompt,
+                    media_type: 'wav',
                 }
-
-                if (character.gptSoVitsConfig.use_prompt){
-                    body.prompt_text = character.gptSoVitsConfig.prompt
-                }
-
-                if (character.gptSoVitsConfig.use_auto_path){
-                    console.log('auto')
-                    const path = await globalFetch(`${character.gptSoVitsConfig.url}/get_path`, {
-                        method: 'GET',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        rawResponse: false,
-                        plainFetchDeforce: true,
-                    })
-                    console.log(path)
-                    if(path.ok){
-                        body.ref_audio_path = path.data.message + '/public/audio/' + character.gptSoVitsConfig.ref_audio_data.fileName
-                    }
-                    else{
-                        throw new Error('Failed to Auto get path')
-                    }
-                } else {
-                    body.ref_audio_path = character.gptSoVitsConfig.ref_audio_path + '/public/audio/' + character.gptSoVitsConfig.ref_audio_data.fileName
-                }
-                console.log(body)
-
-                const response = await globalFetch(`${character.gptSoVitsConfig.url}/tts`, {
+                const response = await globalFetch(`${baseUrl}/tts`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -352,69 +266,49 @@ export async function sayTTS(character:character,text:string) {
                     body: body,
                     rawResponse: true,
                 })
-                console.log(response)
-
                 if (response.ok) {
-                    const mimeType = 'audio/wav'
-                    const hookCtx = { ttsMode: character.ttsMode ?? '', characterId: character.chaId }
-                    const volume = character.gptSoVitsConfig.volume
-                    if (volume !== undefined && volume !== 1.0) {
-                        // Volume != 1.0 requires a GainNode in the graph, so we can't
-                        // route through playAudio directly. Run the postprocessor
-                        // pipeline first to honor plugin hooks consistently, then
-                        // build the gain-enabled graph with the final bytes.
-                        const processed = await runPostprocessorPipeline(response.data.buffer, mimeType, hookCtx)
-                        if (!processed.skip) {
-                            const audioContext = new AudioContext();
-                            const decoded = await audioContext.decodeAudioData(processed.audio);
-                            sourceNode = audioContext.createBufferSource();
-                            sourceNode.buffer = decoded;
-                            const gainNode = audioContext.createGain();
-                            gainNode.gain.value = volume;
-                            sourceNode.connect(gainNode);
-                            gainNode.connect(audioContext.destination);
-                            sourceNode.start();
-                        }
-                    } else {
-                        await playAudio(response.data.buffer, mimeType, hookCtx)
-                    }
+                    await playAudio(response.data.buffer, 'audio/wav', {
+                        ttsMode: settings.provider,
+                        characterId: character.chaId,
+                    })
                 } else {
                     const textBuffer: Uint8Array = response.data.buffer
-                    const text = Buffer.from(textBuffer).toString('utf-8')
-                    throw new Error(text);
+                    throw new Error(Buffer.from(textBuffer).toString('utf-8'));
                 }
                 break;
             }
             case 'fishspeech':{
-                if (character.fishSpeechConfig.model._id === ''){
-                    throw new Error('FishSpeech Model is not selected')
+                const config = settings.fishAudio
+                const apiKey = getTTSApiKey('fishspeech', '', settings)
+                const referenceId = config.model._id.trim()
+                if (!apiKey) throw new Error(language.ttsApiKeyMissing('Fish Audio'))
+                if (!referenceId){
+                    throw new Error(language.ttsVoiceNotSelected('Fish Audio'))
                 }
 
                 const body = {
                     text: text,
-                    reference_id: character.fishSpeechConfig.model._id,
-                    chunk_length: character.fishSpeechConfig.chunk_length,
-                    normalize: character.fishSpeechConfig.normalize,
+                    reference_id: referenceId,
+                    chunk_length: config.chunkLength,
+                    normalize: config.normalize,
                     format: 'mp3',
-                    mp3_bitrate: 192,
+                    sample_rate: 44100,
+                    mp3_bitrate: 128,
+                    latency: 'normal',
                 }
-
-
-                console.log(body)
 
                 const response = await globalFetch(`https://api.fish.audio/v1/tts`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${getTTSApiKey('fishspeech', db.fishSpeechKey)}`
+                        'Authorization': `Bearer ${apiKey}`,
+                        'model': config.engine,
                     },
                     body: body,
                     rawResponse: true,
                 })
-                console.log(response)
-
                 if (response.ok) {
-                    await playAudio(response.data.buffer, 'audio/mpeg', { ttsMode: character.ttsMode ?? '', characterId: character.chaId })
+                    await playAudio(response.data.buffer, 'audio/mpeg', { ttsMode: settings.provider, characterId: character.chaId })
                 } else {
                     const textBuffer: Uint8Array = response.data.buffer
                     const text = Buffer.from(textBuffer).toString('utf-8')
@@ -424,20 +318,14 @@ export async function sayTTS(character:character,text:string) {
             }
         }
     } catch (error) {
-        notifyError(`TTS Error: ${error}`)
+        notifyError(`${language.ttsErrorPrefix}: ${error}`)
     }
 }
 
 
 
-export const oaiVoices = [
-    'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'
-]
-
 export function stopTTS(){
-    if(sourceNode){
-        sourceNode.stop()
-    }
+    stopBufferedTTS()
     if(speechSynthesis && SpeechSynthesisUtterance){
         speechSynthesis.cancel()
     }
@@ -450,33 +338,33 @@ export function getWebSpeechTTSVoices() {
     })
 }
 
-export async function getElevenTTSVoices() {
-    let db = getDatabase()
+export async function getElevenTTSVoices(apiKey = getTTSApiKey('elevenlabs')) {
+    if (!apiKey) return []
 
     const data = await fetch('https://api.elevenlabs.io/v1/voices', {
         headers: {
-            'xi-api-key': getTTSApiKey('elevenlabs', db.elevenLabKey) || undefined
+            'xi-api-key': apiKey
         }
     })
+    if (!data.ok) {
+        throw new Error(language.ttsRequestFailed(language.ttsElevenLabsVoicesTarget, data.status))
+    }
     const res = await data.json()
-
-    console.log(res)
-    return res.voices
+    return Array.isArray(res.voices) ? res.voices : []
 }
 
-export async function getVOICEVOXVoices() {
-    const db = getDatabase();
-    const baseUrl = db.voicevoxUrl.trim().replace(/\/+$/, '')
-    if (!baseUrl) throw new Error('VOICEVOX URL is not configured')
+export async function getVOICEVOXVoices(url = getTTSVoicevoxUrl()) {
+    const baseUrl = url.trim().replace(/\/+$/, '')
+    if (!baseUrl) throw new Error(language.ttsUrlNotConfigured('VOICEVOX'))
 
     const speakerData = await fetch(`${baseUrl}/speakers`)
     if (!speakerData.ok) {
-        throw new Error(`VOICEVOX speakers request failed: ${speakerData.status}`)
+        throw new Error(language.ttsRequestFailed(language.ttsVoicevoxSpeakersTarget, speakerData.status))
     }
 
     const speakerList = await speakerData.json()
     if (!Array.isArray(speakerList)) {
-        throw new Error('VOICEVOX speakers response is not an array')
+        throw new Error(language.ttsInvalidResponse(language.ttsVoicevoxSpeakersTarget))
     }
     const speakersInfo = speakerList.map((speaker) => {
       const styles = speaker.styles.map((style) => {
@@ -486,21 +374,4 @@ export async function getVOICEVOXVoices() {
     })
     speakersInfo.unshift({ name: language.none, list: ''})
     return speakersInfo;
-}
-
-export function getNovelAIVoices(){
-    return [
-        {
-            gender: "UNISEX",
-            voices: ['Anananan']
-        },
-        {
-            gender: "FEMALE",
-            voices: ['Aini', 'Orea', 'Claea', 'Lim', 'Aurae', 'Naia']
-        },
-        {
-            gender: "MALE",
-            voices: ['Aulon', 'Elei', 'Ogma', 'Raid', 'Pega', 'Lam']
-        }
-    ];
 }

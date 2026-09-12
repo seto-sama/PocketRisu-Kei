@@ -1408,7 +1408,7 @@
 {/snippet}
 
 {#snippet ttsButton(showNames:boolean)}
-    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && DBState.db.characters[selIdState.selId].ttsMode}
+    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsPresetId}
         <ChatAdaptiveAction menu={showNames} className="button-icon-tts" onclick={()=>{
             return sayTTS(null, message)
         }}>

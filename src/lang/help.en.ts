@@ -651,16 +651,14 @@ export const helpEn = {
         ttsEnable: "Enable the TTS button and related settings so messages can be played as speech.",
         ttsAutoSpeech:
             "Automatically play the character's response as speech when it arrives. Mobile browsers may block this in the background — after enabling, tap the screen once to grant permission.",
+        ttsReadOnlyQuoted:
+            "Play only text enclosed in double quotation marks (\") or Japanese corner brackets (「 」), instead of the entire response.",
         ttsElevenLabsKey:
             "ElevenLabs (`https://elevenlabs.io`) API key. Provides the most natural-sounding voices, with a small free tier and paid plans.",
         ttsVoicevoxUrl:
             "URL of a locally running VOICEVOX (`https://voicevox.hiroshiba.jp/`) engine (e.g. `http://localhost:50021`). Strong on Japanese synthesis.",
-        ttsOpenAIKey:
-            "OpenAI TTS API key. The same key as your main OpenAI key works, but use a separate one if you want to track TTS spend separately.",
-        ttsHuggingfaceKey:
-            "HuggingFace Inference API key. Required to call HuggingFace's free or paid TTS models.",
         ttsFishSpeechKey:
-            "Fish-speech (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
+            "Fish Audio (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
 
         emotionMethod:
             "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **Embedding model**: classify using the configured remote embedding service\n\nThe emotion images themselves work only after you register emotion assets on the character card.",

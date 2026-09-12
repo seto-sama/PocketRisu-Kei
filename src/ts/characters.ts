@@ -660,12 +660,6 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         creator: '',
         character_version: ''
     }
-    cha.voicevoxConfig = cha.voicevoxConfig ?? {
-        SPEED_SCALE: 1,
-        PITCH_SCALE: 0,
-        INTONATION_SCALE: 1,
-        VOLUME_SCALE: 1
-    }
     if(cha.postHistoryInstructions){
         cha.chats[cha.chatPage].note += "\n" + cha.postHistoryInstructions
         cha.chats[cha.chatPage].note = cha.chats[cha.chatPage].note.trim()
@@ -676,24 +670,12 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         depth: 0,
         prompt: ''
     }
-    cha.hfTTS ??= {
-        model: '',
-        language: 'en'
-    }
     cha.backgroundHTML ??= ''
     cha.backgroundCSS ??= ''
     cha.creation_date ??= Date.now()
     cha.globalLore = updateLorebooks(cha.globalLore)
     if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
     cha = updateInlayScreen(cha)
-    // Migrate legacy disabled values to '' for UI dropdown compatibility.
-    // `normal` was written by old character-card imports but is not a TTS
-    // provider and therefore had no matching dropdown option.
-    // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
-    if (cha.ttsMode === 'none' || cha.ttsMode === 'normal') {
-        cha.ttsMode = ''
-    }
-    cha.ttsMode ??= ''
     if(checkNullish(cha.customscript)){
         cha.customscript = []
     }

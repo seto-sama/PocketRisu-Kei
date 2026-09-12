@@ -1711,7 +1711,7 @@ import { isMobile } from 'src/ts/platform'
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content side="top" align="start" class="min-w-48">
                             <IconButtonGroup size="sm" direction="vertical" className="w-full items-stretch">
-                                {#if DBState.db.ttsEnabled && (DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab')}
+                                {#if DBState.db.ttsEnabled && DBState.db.characters[$selectedCharID].ttsPresetId}
                                     <DropdownMenu.Item onSelect={() => stopTTS()}>
                                         <MicOffIcon /><span>{language.ttsStop}</span>
                                     </DropdownMenu.Item>

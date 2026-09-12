@@ -6,7 +6,6 @@
         Share2Icon,
         SmileIcon,
         UserIcon,
-        Volume2Icon,
         WrenchIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
@@ -37,9 +36,6 @@
             <IconButton active={$CharConfigSubMenu === 1 && !devTool} onclick={() => selectSubMenu(1)}><SmileIcon /></IconButton>
             <IconButton active={$CharConfigSubMenu === 3 && !devTool} onclick={() => selectSubMenu(3)}><BookIcon /></IconButton>
             {#if character?.type === "character"}
-                {#if DBState.db.ttsEnabled}
-                    <IconButton active={$CharConfigSubMenu === 5 && !devTool} onclick={() => selectSubMenu(5)}><Volume2Icon /></IconButton>
-                {/if}
                 <IconButton active={$CharConfigSubMenu === 4 && !devTool} onclick={() => selectSubMenu(4)}><BracesIcon /></IconButton>
             {/if}
             <IconButton active={$CharConfigSubMenu === 2 && !devTool} onclick={() => selectSubMenu(2)}><ActivityIcon /></IconButton>

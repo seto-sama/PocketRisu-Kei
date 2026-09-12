@@ -400,11 +400,10 @@ export const helpKo = {
 
         "ttsEnable": "메시지를 음성으로 재생할 수 있도록 TTS 버튼과 관련 설정을 활성화합니다.",
         "ttsAutoSpeech": "캐릭터 응답이 도착하면 자동으로 음성으로 재생합니다. 모바일 백그라운드 사용 시 브라우저가 차단할 수 있으니, 활성화 후 직접 한 번 화면을 터치해 권한을 부여하세요.",
-        "ttsElevenLabsKey": "ElevenLabs(`https://elevenlabs.io`) API 키. 가장 자연스러운 음성을 제공하지만 사용량 한도가 작은 무료 플랜·과금 플랜이 있습니다.",
+        "ttsReadOnlyQuoted": "응답 전체가 아니라 큰따옴표(\") 또는 일본어 낫표(「 」) 안의 텍스트만 음성으로 재생합니다.",
+        "ttsElevenLabsKey": "ElevenLabs(`https://elevenlabs.io`) API 키. 무료 플랜·과금 플랜이 있습니다.",
         "ttsVoicevoxUrl": "로컬에서 실행 중인 VOICEVOX(`https://voicevox.hiroshiba.jp/`) 엔진의 URL (예: `http://localhost:50021`). 일본어 합성에 강점.",
-        "ttsOpenAIKey": "OpenAI TTS API 키. 메인 모델 키와 동일한 키로도 동작하지만, TTS 비용을 따로 추적하려면 분리하세요.",
-        "ttsHuggingfaceKey": "HuggingFace Inference API 키. HuggingFace의 무료/유료 TTS 모델을 호출할 때 필요.",
-        "ttsFishSpeechKey": "Fish-speech (`https://fish.audio/`) API 키. 멀티-스피커 자연스러운 음성을 제공.",
+        "ttsFishSpeechKey": "Fish Audio (`https://fish.audio/`) API 키. 멀티-스피커 자연스러운 음성을 제공.",
 
         "emotionMethod": "캐릭터 응답에서 감정을 추출해 감정 이미지를 띄울 때 사용할 분석 방식.",
 

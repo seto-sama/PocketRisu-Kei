@@ -13,7 +13,6 @@ import { hasher } from "./parser/parser.svelte"
 import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
-import type { OnnxModelFiles } from "./process/transformers"
 import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
 import { exportModuleLegacy, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
@@ -661,7 +660,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         ext: string
     }[] = []
     
-    let vits:null|OnnxModelFiles = null
     if(risuext && card.spec === 'chara_card_v2'){
         if(risuext.emotions){
             for(let i=0;i<risuext.emotions.length;i++){
@@ -711,40 +709,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                 extAssets.push([risuext.additionalAssets[i][0],imgp,fileName])
             }
         }
-        if(risuext.vits){
-            const keys = Object.keys(risuext.vits)
-            for(let i=0;i<keys.length;i++){
-                alertStore.set({
-                    type: 'progress',
-                    msg: `Loading... (Loading VITS)`,
-                    submsg: (i / keys.length * 100).toFixed(2)
-                })
-                await sleep(10)
-                const key = keys[i]
-                if(risuext.vits[key].startsWith('__asset:')){
-                    const rkey = risuext.vits[key].replace('__asset:', '')
-                    const imgp = assetDict[rkey]
-                    if(!imgp){
-                        throw new Error('Error while importing, asset ' + rkey + ' not found')
-                    }
-                    risuext.vits[key] = imgp
-                    continue
-                }
-                const imgp = await saveAsset(mode === 'hub' ? (await getHubResources(risuext.vits[key])) : Buffer.from(risuext.vits[key], 'base64'))
-                risuext.vits[key] = imgp
-            }
-
-            if(keys.length > 0){
-                vits = {
-                    name: "Imported VITS",
-                    files: risuext.vits,
-                    id: createEntityId().replace(/-/g, '')
-                }
-            }
-
-
-        }
-
         if(risuext){
             bias = risuext.bias ?? bias
             viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
@@ -919,8 +883,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         largePortrait: data?.extensions?.risuai?.largePortrait ?? (!data?.extensions?.risuai),
         inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
         newGenData: data?.extensions?.risuai?.newGenData ?? undefined,
-        vits: vits,
-        ttsMode: vits ? 'vits' : '',
         imported: true,
         source: card?.data?.extensions?.risuai?.source ?? [],
         ccAssets: ccAssets,
@@ -1137,8 +1099,7 @@ function createBaseV2(char:character) {
                     virtualscript: '', //removed dude to security issue
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
-                    newGenData: char.newGenData,
-                    vits: {}
+                    newGenData: char.newGenData
                 },
                 depth_prompt: char.depth_prompt
             }
@@ -1219,18 +1180,6 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                 }
             }
     
-            if(char.vits && char.ttsMode === 'vits'){
-                const keys = Object.keys(char.vits.files)
-                for(let i=0;i<keys.length;i++){
-                    onProgress('Loading... (Adding VITS)', i / keys.length * 100)
-                    const key = keys[i]
-                    const rData = await loadAsset(char.vits.files[key])
-                    const b64encoded = Buffer.from(rData).toString('base64')
-                    assetIndex++
-                    card.data.extensions.risuai.vits[key] = `__asset:${assetIndex}`
-                    await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
-                }
-            }
             if(type === 'json'){
                 await downloadFile(`${char.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.json`, Buffer.from(JSON.stringify(card, null, 4), 'utf-8'))
                 notifySuccess(language.successExport)
@@ -1544,7 +1493,6 @@ export function createBaseV3(char:character){
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
                     newGenData: char.newGenData,
-                    vits: {},
                     lowLevelAccess: char.lowLevelAccess ?? false,
                     defaultVariables: char.defaultVariables ?? '',
                     prebuiltAssetCommand: char.prebuiltAssetCommand ?? '',
@@ -1783,8 +1731,7 @@ type CharacterCardV2Risu = {
                 inlayViewScreen?:boolean
                 newGenData?: {
                     emotionInstructions: string,
-                },
-                vits?: {[key:string]:string}
+                }
             }
             depth_prompt?: { depth: number, prompt: string }
         }
