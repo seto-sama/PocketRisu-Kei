@@ -10,7 +10,7 @@
   "bugs": {
     "url": "https://github.com/seto-sama/PocketRisu-Kei/issues"
   },
-  "packageManager": "pnpm@11.3.0",
+  "packageManager": "pnpm@12.4.0",
   "engines": {
     "node": ">=22.13.0"
   },

@@ -10,7 +10,7 @@ COPY pnpm-lock.yaml .
 COPY pnpm-workspace.yaml .
 
 RUN corepack enable
-RUN corepack install --global pnpm@11.3.0
+RUN corepack install --global pnpm@12.4.0
 
 # ------------------------------------------------------------------------------------------
 
