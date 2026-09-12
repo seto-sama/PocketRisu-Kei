@@ -1,7 +1,7 @@
 <script lang="ts">
     import { getChatBoundPersona } from "src/ts/chatBindingState";
 
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
@@ -18,7 +18,7 @@
     import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
-    import { alertConfirm, alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
+    import { alertConfirm, alertError, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
@@ -26,7 +26,7 @@ import { isMobile } from 'src/ts/platform'
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import { CHAT_HISTORY_LOAD_THRESHOLD, createChatScrollController, isChatNearBottom, type ChatScrollController } from './chatScroll';
-    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile, requestImmediateSave } from 'src/ts/globalApi.svelte';
+    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, requestImmediateSave } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
     import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
@@ -460,8 +460,8 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // History depth belongs to a room. Carrying a large value (or Infinity
-    // from screenshot/search navigation) into the next room mounts its entire
+    // History depth belongs to a room. Carrying a large value from search
+    // navigation into the next room mounts its entire
     // history in one frame and makes translated chats especially expensive.
     $effect.pre(() => {
         if (loadPagesRoomKey === currentChatRoomKey) return
@@ -1512,61 +1512,6 @@ import { isMobile } from 'src/ts/platform'
         })
     }
 
-    async function screenShot(){
-        try {
-            loadPages = Infinity
-            const html2canvas = await import('html-to-image');
-            const chats = document.querySelectorAll('.default-chat-screen .risu-chat')
-            alertWait("Taking screenShot...")
-            let canvases:HTMLCanvasElement[] = []
-
-            for(const chat of chats){
-                const cnv = await html2canvas.toCanvas(chat as HTMLElement)
-                alertWait("Taking screenShot... "+canvases.length+"/"+chats.length)
-                canvases.push(cnv)
-            }
-
-            alertWait("Merging images...")
-
-            let mergedCanvas = document.createElement('canvas');
-            mergedCanvas.width = 0;
-            mergedCanvas.height = 0;
-            let mergedCtx = mergedCanvas.getContext('2d');
-
-            let totalHeight = 0;
-            let maxWidth = 0;
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                totalHeight += canvas.height;
-                maxWidth = Math.max(maxWidth, canvas.width);
-
-                mergedCanvas.width = maxWidth;
-                mergedCanvas.height = totalHeight;
-            }
-
-            mergedCtx.fillStyle = 'var(--risu-theme-lightbg)'
-            mergedCtx.fillRect(0, 0, maxWidth, totalHeight);
-            let indh = 0
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                indh += canvas.height
-                mergedCtx.drawImage(canvas, 0, indh - canvas.height);
-                canvases[i].remove();
-            }
-
-            if(mergedCanvas){
-                await downloadFile(`chat-${createEntityId()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
-                mergedCanvas.remove();
-            }
-            notifySuccess(language.screenshotSaved)
-            loadPages = getInitialChatLoadPages(DBState.db)
-        } catch (error) {
-            console.error(error)
-            notifyError("Error while taking screenshot")
-        }
-    }
-
-    
 </script>
 
 

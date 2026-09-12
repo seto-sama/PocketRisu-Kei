@@ -653,8 +653,6 @@ export const languageSpanish = {
     "able": "Habilitar",
     "assetWidth": "Ancho Máximo de Imágenes de Activos",
     "animationSpeed": "Velocidad de Animación",
-    "screenshot": "Captura de Pantalla",
-    "screenshotSaved": "Captura de Pantalla Guardada",
     "createBotwithAI": "Crear Bot con IA",
     "changeFolderName": "Ingresa el nuevo nombre de la carpeta (deja en blanco para cancelar)",
     "cancel": "Cancelar",

@@ -7,7 +7,7 @@
  *
  * Convention: keep this object as the canonical source of help-text keys.
  * Other locales (e.g. `help.ko.ts`) override entries by key; the merge happens
- * via `lodash/merge` in `src/lang/index.ts`.
+ * via the language fallback in `src/lang/index.ts`.
  */
 
 export const helpEn = {

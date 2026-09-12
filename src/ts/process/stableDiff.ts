@@ -1,10 +1,10 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store"
 import { getDatabase, type character } from "../storage/database.svelte"
 import { notifyError } from "../alert"
 import { globalFetch, readImage } from "../globalApi.svelte"
 import { CharEmotion } from "../stores.svelte"
 import { processZip } from "./processzip"
-import random from "lodash/random"
 import { getApiKey } from "../preset/apiKeyPool"
 import { setInlayMetaFields, writeInlayImage } from "./files/inlays"
 import { getCurrentImageGenerationPreset } from "../imageGeneration/presets"
@@ -18,6 +18,9 @@ import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId'
 const ENABLE_EXTRA_IMAGE_PROVIDERS = import.meta.env.VITE_EXTRA_IMAGE_PROVIDERS === 'TRUE'
 const NOVELAI_MAX_SEED = 2**32 - 1
 const COMFYUI_MAX_SEED = 999_999_999
+
+const randomInteger = (min: number, max: number): number =>
+    Math.floor(Math.random() * (max - min + 1)) + min
 
 interface NodeImageGenerationJob {
     jobId: string
@@ -61,8 +64,8 @@ async function runNodeImageGenerationJob(arg: {
 }
 
 function createImageGenerationSeed(provider: string): number | undefined {
-    if(provider === 'novelai') return random(0, NOVELAI_MAX_SEED)
-    if(provider === 'comfyui') return random(0, COMFYUI_MAX_SEED)
+    if(provider === 'novelai') return randomInteger(0, NOVELAI_MAX_SEED)
+    if(provider === 'comfyui') return randomInteger(0, COMFYUI_MAX_SEED)
     return undefined
 }
 
@@ -139,7 +142,7 @@ export async function generateAIImage(
         }
     }
     if(imageSettings.sdProvider === 'novelai'){
-        const generationSeed = requestedSeed ?? random(0, NOVELAI_MAX_SEED)
+        const generationSeed = requestedSeed ?? randomInteger(0, NOVELAI_MAX_SEED)
         genPrompt = genPrompt
             .replaceAll('\\(', "♧")
             .replaceAll('\\)', "♤")
@@ -508,7 +511,7 @@ export async function generateAIImage(
                 spec: {
                     prompt: genPrompt,
                     negativePrompt: neg,
-                    seed: requestedSeed ?? random(0, COMFYUI_MAX_SEED),
+                    seed: requestedSeed ?? randomInteger(0, COMFYUI_MAX_SEED),
                     bridgeId: getComfyBridgeId(),
                     timeoutSeconds: imageSettings.comfyConfig.timeout,
                 },

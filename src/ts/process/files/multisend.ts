@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { getDatabase, setDatabase } from 'src/ts/storage/database.svelte';
 import { selectedCharID } from 'src/ts/stores.svelte';
 import { get } from 'svelte/store';
@@ -106,35 +107,6 @@ async function sendPofile(arg:sendFileArg){
     await downloadFile('translated.po', result)
 }
 
-async function sendPDFFile(arg:sendFileArg) {
-    const pdfjsLib = (await import('pdfjs-dist'));
-    const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker?worker&url');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker.default;
-    const pdf = await pdfjsLib.getDocument({data: arg.file}).promise;
-    const texts:string[] = []
-    for(let i = 1; i<=pdf.numPages; i++){
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const items = content.items as {str:string}[];
-        for(const item of items){
-            texts.push(item.str)
-        }
-    }
-    console.log(texts)
-    const hypa = new HypaProcesser()
-    hypa.addText(texts)
-    const result = await hypa.similaritySearch(arg.query)
-    let message = ''
-    for(let i = 0; i<result.length; i++){
-        message += "\n" + result[i]
-        if(i>5){
-            break
-        }
-    }
-    console.log(message)
-    return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')
-}
-
 async function sendTxtFile(arg:sendFileArg) {
     const lines = arg.file.split('\n').filter((a) => {
         return a !== ''
@@ -218,7 +190,6 @@ export async function postChatFile(query:string|{
 
         //other format
         'po',
-        // 'pdf',
         'txt'
     ])) : [query]
 
@@ -241,17 +212,6 @@ export async function postChatFile(query:string|{
                 })
                 results.push({
                     type: 'void'
-                })
-                break
-            }
-            case 'pdf':{
-                results.push({
-                    type: 'text',
-                    data: await sendPDFFile({
-                        file: BufferToText(file.data),
-                        query: xquery
-                    }),
-                    name: file.name
                 })
                 break
             }

@@ -1110,8 +1110,6 @@ export const languageEnglish = {
     able: "Able",
     assetWidth: "Asset Images Max Width",
     animationSpeed: "Animation Speed",
-    screenshot: "Screenshot",
-    screenshotSaved: "Screenshot Saved",
     createBotwithAI: "Create Bot from AI",
     changeFolderName: "Input the new folder name (blank to cancel)",
     cancel: "Cancel",

@@ -725,8 +725,6 @@ export const languageChineseTraditional = {
     "able": "啟用",
     "assetWidth": "額外資源圖片最大寬度",
     "animationSpeed": "動畫速度",
-    "screenshot": "截圖",
-    "screenshotSaved": "截圖已儲存",
     "createBotwithAI": "使用 AI 建立角色",
     "changeFolderName": "輸入新資料夾名稱（留空以取消）",
     "cancel": "取消",
