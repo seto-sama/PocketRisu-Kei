@@ -214,15 +214,13 @@
 
         if (showFoldToggles) {
             addToggle('foldSystemPrompt', 'System Role Replacement', 'systemRoleReplacement', 'modelPresetFoldSystemHelp', 1);
+            if (editingPreset.foldSystemPrompt) {
+                addToggle('keepFirstSystemPrompt', 'Keep First System Prompt', 'modelPresetKeepFirstSystem', 'modelPresetKeepFirstSystemHelp', 2);
+            }
         }
         if (showSequenceToggles) {
-            addToggle('alternateRole', 'Force Alternating Roles', 'modelPresetAlternateRole', 'modelPresetAlternateRoleHelp', 2);
-            addToggle('startWithUserInput', 'Start With User Input', 'modelPresetStartWithUser', 'modelPresetStartWithUserHelp', 3);
-        }
-        if (showFoldToggles) {
-            if (editingPreset.foldSystemPrompt) {
-                addToggle('keepFirstSystemPrompt', 'Keep First System Prompt', 'modelPresetKeepFirstSystem', 'modelPresetKeepFirstSystemHelp', 4);
-            }
+            addToggle('alternateRole', 'Force Alternating Roles', 'modelPresetAlternateRole', 'modelPresetAlternateRoleHelp', 3);
+            addToggle('startWithUserInput', 'Start With User Input', 'modelPresetStartWithUser', 'modelPresetStartWithUserHelp', 4);
         }
         if (showImageInputToggle) {
             addToggle('imageInput', 'Image Input', 'modelPresetImageInput', 'modelPresetImageInputHelp', 5);
@@ -235,7 +233,6 @@
                 labelKey: 'gptVisionQuality',
                 helpKey: 'gptVisionQuality',
                 default: 'auto',
-                required: true,
                 enum: [
                     { value: 'auto', label: 'Auto' },
                     { value: 'low', label: 'Low' },

@@ -1131,9 +1131,10 @@ const GITHUB_REPO = 'seto-sama/PocketRisu-Kei';
 const UPDATE_CHECK_DISABLED = process.env.RISU_UPDATE_CHECK === 'false';
 const CUSTOM_UPDATE_CHECK_URL = process.env.RISU_UPDATE_URL || '';
 const UPDATE_CHECK_URL = CUSTOM_UPDATE_CHECK_URL || `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-const PUBLIC_STATS_URL = CUSTOM_UPDATE_CHECK_URL
-    ? CUSTOM_UPDATE_CHECK_URL.replace(/\/check$/, '/api/public-stats')
-    : '';
+const PUBLIC_STATS_URL = UPDATE_CHECK_DISABLED
+    ? ''
+    : (CUSTOM_UPDATE_CHECK_URL || 'https://risu-update-worker.nodridan.workers.dev/check')
+        .replace(/\/check$/, '/api/public-stats');
 
 // Re-read on each call so non-portable updates (docker/git pull) without a
 // process restart don't keep reporting the old version to the update worker.

@@ -4,10 +4,11 @@
 </script>
 
 <h2
-    class="relative mb-0 mt-6 text-4xl font-black text-maintext"
+    class="relative mb-0 mt-6 w-fit text-4xl font-black text-maintext"
     aria-label={PRODUCT_NAME}
 >
-    <span class="inline-flex items-center whitespace-nowrap">
-        {PRODUCT_BASE_NAME}<KeiSticker />
+    <span class="whitespace-nowrap">{PRODUCT_BASE_NAME}</span>
+    <span class="absolute left-full top-1/2 inline-flex -translate-y-1/2">
+        <KeiSticker />
     </span>
 </h2>
