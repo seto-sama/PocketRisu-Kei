@@ -345,22 +345,6 @@
             </div>
             <TokenCount value={value.content} className="mb-2" />
 
-            {#if !moduleMode && !(value.activationPercent === undefined || value.activationPercent === null)}
-                <div data-disclosure-field>
-                    <div data-disclosure-label>{language.activationProbability}</div>
-                    <div data-disclosure-control>
-                        <NumberInput bind:value={value.activationPercent} onChange={() => {
-                            if(isNaN(value.activationPercent) || !value.activationPercent || value.activationPercent < 0){
-                                value.activationPercent = 0
-                            }
-                            if(value.activationPercent > 100){
-                                value.activationPercent = 100
-                            }
-                        }} />
-                    </div>
-                </div>
-            {/if}
-
             {#if !value.alwaysActive}
                 <div class="my-2 flex flex-col gap-2">
                     {#if getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}

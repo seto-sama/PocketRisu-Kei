@@ -278,15 +278,14 @@ function hello(): string {
         // path uses alertConfirm() with language.xxxConsent strings, not the
         // (unused) alertPluginConfirm. Cycles through several permission types
         // so all consent translations get exercised.
-        const requests: { label: string; key: keyof typeof language }[] = [
+        const requests = [
             { label: 'DB 접근', key: 'getFullDatabaseConsent' },
             { label: '메인 Document 접근', key: 'mainDomAccessConsent' },
             { label: '채팅 메시지 전송', key: 'sendChatConsent' },
-        ];
+        ] as const;
         const pluginName = 'sample-plugin';
         for (const req of requests) {
-            const template = language[req.key] as string;
-            const ok = await alertConfirm(template.replace('{}', pluginName));
+            const ok = await alertConfirm(language[req.key](pluginName));
             if (!ok) {
                 notifyInfo(`"${req.label}" 권한 거부`);
                 setResult(`플러그인 권한 흐름 중단: ${req.label} 거부`);

@@ -218,14 +218,11 @@
             </h1>
             <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
-                {#if $alertStore.submsg === 'module'}
-                    <span class="text-subtext text-sm">{language.risuMDesc}</span>
-                {:else if $alertStore.submsg === 'preset'}
-                    <span class="text-subtext text-sm">{language.risupresetDesc}</span>
+                {#if $alertStore.submsg === 'preset'}
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
                         <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
-                {:else}
+                {:else if $alertStore.submsg !== 'module'}
                     <span class="text-subtext text-sm">{language.ccv3Desc}</span>
                     {#if cardExportType2 !== 'charx' && cardExportType2 !== 'charxJpeg' && isCharacterHasAssets(DBState.db.characters[$selectedCharID])}
                         <span class="text-danger text-sm">{language.notCharxWarn}</span>

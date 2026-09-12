@@ -369,23 +369,10 @@
 
 
 
-            {#if (settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2')
-            && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useSmea} description={language.help.naiUseSMEA}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm}/>{/snippet}</SettingLayout>
-            {/if}
-
-            {#if settings.NAIImgModel === 'nai-diffusion-3' && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useDyn} description={language.help.naiUseDYN}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm_dyn}/>{/snippet}</SettingLayout>
-            {/if}
-
             {#if settings.NAIImgModel === 'nai-diffusion-4-5-full' || settings.NAIImgModel === 'nai-diffusion-4-5-curated'
             || settings.NAIImgModel === 'nai-diffusion-4-full' || settings.NAIImgModel === 'nai-diffusion-4-curated-preview'
-            || settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3'}
+            }
                 <SettingLayout variant="row" title={language.imageSettings.varietyPlus} description={language.help.naiVarietyPlus}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.variety_plus}/>{/snippet}</SettingLayout>
-            {/if}
-
-            {#if settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2'}
-                <SettingLayout variant="row" title={language.imageSettings.decrisp} description={language.help.naiDecrisp}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.decrisp}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-4-full'

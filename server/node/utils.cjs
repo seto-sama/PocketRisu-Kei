@@ -73,8 +73,6 @@ const presetTemplate = {
     aiModel: "gemini-3-flash-preview",
     subModel: "gemini-3-flash-preview",
     currentPluginProvider: "",
-    textgenWebUIStreamURL: '',
-    textgenWebUIBlockingURL: '',
     forceReplaceUrl: '',
     forceReplaceUrl2: '',
     promptPreprocess: false,

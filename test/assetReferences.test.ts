@@ -16,13 +16,11 @@ describe('asset references', () => {
             }],
             personas: [{ image: 'assets/legacy-persona.png' }],
             NAIImgConfig: { character_image: 'assets/nai.png' },
-            wavespeedImage: { reference_image: 'assets/wavespeed.png' },
             pluginCustomStorage: { nested: { path: 'assets/plugin-db.webp' } },
         })
 
         expect(references).toEqual(new Set([
             'nai.png',
-            'wavespeed.png',
             'character.png',
             'reference.wav',
             'legacy-persona.png',

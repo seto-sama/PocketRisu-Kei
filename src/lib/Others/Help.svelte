@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { TriangleAlertIcon, FlaskConicalIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
+    import { TriangleAlertIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { parseMarkdownSafe } from "src/ts/parser/parser.svelte";
     import Tooltip from "../UI/components/Tooltip.svelte";
@@ -25,11 +25,7 @@
             style="vertical-align: -2px;"
             onclick={(event) => event.stopPropagation()}
         >
-            {#if key === "experimental"}
-                <span class="text-danger risu-interactive-accent">
-                    <FlaskConicalIcon size={16} />
-                </span>
-            {:else if unrecommended}
+            {#if unrecommended}
                 <span class="text-danger risu-interactive-accent">
                     <TriangleAlertIcon size={12} />
                 </span>
