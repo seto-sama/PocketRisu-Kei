@@ -1787,12 +1787,56 @@ function countActiveGenerationJobs() {
         .length;
 }
 
+const LOGIN_FAILURE_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_FAILURE_LIMIT = 10;
+const LOGIN_LOCK_MS = 30 * 60 * 1000;
+const loginBlockedUntil = new Map();
+
+const loginBlockCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, blockedUntil] of loginBlockedUntil) {
+        if (blockedUntil <= now) loginBlockedUntil.delete(key);
+    }
+}, LOGIN_FAILURE_WINDOW_MS);
+loginBlockCleanupTimer.unref?.();
+
+function loginClientKey(req) {
+    return rateLimit.ipKeyGenerator(req.ip);
+}
+
+function sendLoginBlocked(res, blockedUntil) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000));
+    res.set('Retry-After', String(retryAfterSeconds));
+    return res.status(429).send({
+        error: 'Too many failed attempts. Please wait and try again later.'
+    });
+}
+
+function startLoginBlock(req, res) {
+    const blockedUntil = Date.now() + LOGIN_LOCK_MS;
+    loginBlockedUntil.set(loginClientKey(req), blockedUntil);
+    return sendLoginBlocked(res, blockedUntil);
+}
+
+function rejectBlockedLogin(req, res, next) {
+    const key = loginClientKey(req);
+    const blockedUntil = loginBlockedUntil.get(key) || 0;
+    if (blockedUntil > Date.now()) {
+        sendLoginBlocked(res, blockedUntil);
+        return;
+    }
+    if (blockedUntil) loginBlockedUntil.delete(key);
+    next();
+}
+
 const loginRouteLimiter = rateLimit({
-    windowMs: 30 * 1000,
-    max: 10,
-    standardHeaders: true,
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: LOGIN_FAILURE_LIMIT,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.statusCode !== 401,
+    standardHeaders: false,
     legacyHeaders: false,
-    message: { error: 'Too many attempts. Please wait and try again later.' },
+    handler: startLoginBlock,
     validate: { xForwardedForHeader: false }
 });
 
@@ -3404,7 +3448,7 @@ app.get('/api/test_auth', async(req, res) => {
     }
 })
 
-app.post('/api/login', loginRouteLimiter, async (req, res) => {
+app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, async (req, res) => {
     if(password === ''){
         res.status(400).send({error: 'Password not set'})
         return;
@@ -3413,7 +3457,11 @@ app.post('/api/login', loginRouteLimiter, async (req, res) => {
         res.send({status:'success', token: createServerJwt()})
     }
     else{
-        res.status(400).send({error: 'Password incorrect'})
+        if ((req.rateLimit?.used ?? 0) >= LOGIN_FAILURE_LIMIT) {
+            startLoginBlock(req, res)
+            return
+        }
+        res.status(401).send({error: 'Password incorrect'})
     }
 })
 
