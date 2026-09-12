@@ -7,7 +7,6 @@
     import type { character } from "src/ts/storage/database.svelte";
     import { getCurrentChat, snapshotToggleValues, saveTogglesToChat } from "src/ts/storage/database.svelte";
     import { alertConfirm, alertTogglePresets, notifySuccess } from "src/ts/alert";
-    import { tooltip } from "src/ts/gui/tooltip";
     import { PinIcon, SaveIcon, FolderHeartIcon } from "@lucide/svelte";
     import Accordion from '../UI/components/Accordion.svelte'
     import Button from "../UI/components/Button.svelte";
@@ -18,6 +17,7 @@
     import SelectOption from "../UI/components/SelectOption.svelte";
     import Textarea from '../UI/components/Textarea.svelte'
     import Input from "../UI/components/Input.svelte";
+    import Tooltip from "../UI/components/Tooltip.svelte";
 
     interface Props {
         chara?: character
@@ -219,35 +219,55 @@
 <div class="text-[11px] text-subtext mt-4 px-1">{language.toggleBindingLabel}</div>
 <div class="flex gap-1 mt-1 items-stretch">
     {#if isPinned}
-        <span use:tooltip={language.togglePinRemove}>
-            <Button variant="primary" size="icon" onclick={pinToChat}>
-                <PinIcon />
-            </Button>
-        </span>
-        <span class="flex-1 min-w-0 flex" use:tooltip={language.togglePinUpdate}>
-            <Button
-                variant={isDirty ? 'destructive' : 'default'}
-                disabled={!isDirty}
-                className="w-full"
-                onclick={isDirty ? updatePin : undefined}
-            >
-                <SaveIcon class="shrink-0" />
-                <span class="truncate">{isDirty ? dirtyCount : language.togglePinUpdateLabel}</span>
-            </Button>
-        </span>
+        <Tooltip>
+            {#snippet trigger(props)}
+                <span {...props}>
+                    <Button variant="primary" size="icon" onclick={pinToChat}>
+                        <PinIcon />
+                    </Button>
+                </span>
+            {/snippet}
+            {language.togglePinRemove}
+        </Tooltip>
+        <Tooltip>
+            {#snippet trigger(props)}
+                <span {...props} class="flex-1 min-w-0 flex">
+                    <Button
+                        variant={isDirty ? 'destructive' : 'default'}
+                        disabled={!isDirty}
+                        className="w-full"
+                        onclick={isDirty ? updatePin : undefined}
+                    >
+                        <SaveIcon class="shrink-0" />
+                        <span class="truncate">{isDirty ? dirtyCount : language.togglePinUpdateLabel}</span>
+                    </Button>
+                </span>
+            {/snippet}
+            {language.togglePinUpdate}
+        </Tooltip>
     {:else}
-        <span class="flex-1 min-w-0 flex" use:tooltip={language.togglePinToChat}>
-            <Button className="w-full" onclick={pinToChat}>
-                <PinIcon class="shrink-0" />
-                <span class="truncate">{language.togglePinLabel}</span>
-            </Button>
-        </span>
+        <Tooltip>
+            {#snippet trigger(props)}
+                <span {...props} class="flex-1 min-w-0 flex">
+                    <Button className="w-full" onclick={pinToChat}>
+                        <PinIcon class="shrink-0" />
+                        <span class="truncate">{language.togglePinLabel}</span>
+                    </Button>
+                </span>
+            {/snippet}
+            {language.togglePinToChat}
+        </Tooltip>
     {/if}
-    <span use:tooltip={language.togglePresetList}>
-        <Button size="icon" onclick={openPresetList}>
-            <FolderHeartIcon />
-        </Button>
-    </span>
+    <Tooltip>
+        {#snippet trigger(props)}
+            <span {...props}>
+                <Button size="icon" onclick={openPresetList}>
+                    <FolderHeartIcon />
+                </Button>
+            </span>
+        {/snippet}
+        {language.togglePresetList}
+    </Tooltip>
 </div>
 {/if}
 
