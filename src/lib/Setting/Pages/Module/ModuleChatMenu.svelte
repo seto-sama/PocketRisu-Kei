@@ -9,6 +9,7 @@
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
     import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { movePresetItem } from "src/ts/preset/collection";
 
     interface Props {
         close?: (id: string) => void;
@@ -99,12 +100,9 @@
     }
 
     function moveModule(fromIndex: number, toIndex: number) {
-        const modules = [...DBState.db.modules];
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= modules.length || toIndex > modules.length) return;
-        const [moved] = modules.splice(fromIndex, 1);
-        if (!moved) return;
-        modules.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, moved);
-        DBState.db.modules = modules;
+        const result = movePresetItem(DBState.db.modules, -1, fromIndex, toIndex);
+        if (!result.changed) return;
+        DBState.db.modules = result.items;
         void requestImmediateSave();
     }
 

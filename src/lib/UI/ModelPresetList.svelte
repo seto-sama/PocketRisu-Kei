@@ -6,9 +6,9 @@
     import PresetPickerLayout from "./PresetPickerLayout.svelte";
     import PresetPickerActions from "./PresetPickerActions.svelte";
     import InlineEditableName from "./components/InlineEditableName.svelte";
-    import { createEntityId } from 'src/ts/id';
     import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { clonePresetWithNewId, duplicatePresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
 
     interface Props {
         value?: string;
@@ -73,13 +73,8 @@
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {
-        if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= presets.length || targetIndex > presets.length) return;
-        const next = [...presets];
-        const [moved] = next.splice(sourceIndex, 1);
-        if (!moved) return;
-        const insertionIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-        next.splice(insertionIndex, 0, moved);
-        DBState.db.modelPresets = next;
+        const result = movePresetItem(presets, selectedItemIndex, sourceIndex, targetIndex);
+        if (result.changed) DBState.db.modelPresets = result.items;
     }
 
     function assignPresetToTag(index: number, tagId: string | undefined) {
@@ -89,21 +84,24 @@
     }
 
     function duplicatePreset(index: number) {
-        const source = presets[index];
-        if (!source) return;
-        const copy = structuredClone($state.snapshot(source));
-        copy.id = createEntityId();
-        copy.name = `${source.name} ${language.copy}`;
-        copy.createdAt = Date.now();
-        copy.updatedAt = Date.now();
-        DBState.db.modelPresets = [...presets, copy];
+        const result = duplicatePresetItem(presets, index, source => {
+            const copy = clonePresetWithNewId($state.snapshot(source));
+            copy.name = `${source.name} ${language.copy}`;
+            copy.createdAt = Date.now();
+            copy.updatedAt = Date.now();
+            return copy;
+        });
+        if (!result.changed) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDuplicated);
     }
 
     async function deletePreset(index: number) {
         const preset = presets[index];
         if (!preset || !(await alertConfirm(`${language.removeConfirm}${preset.name}`))) return;
-        DBState.db.modelPresets = presets.filter((_, presetIndex) => presetIndex !== index);
+        const result = removePresetItem(presets, selectedItemIndex, index, 0);
+        if (!result.changed) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDeleted);
     }
 

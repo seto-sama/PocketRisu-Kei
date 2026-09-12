@@ -480,8 +480,8 @@
                                 <IconButtonGroup className="ml-3 self-stretch shrink-0" onclick={(e) => e.stopPropagation()}>
                                     {#if itemRenameable}<InlineRenameAction controller={renameController} />{/if}
                                     {@render itemActions?.(index)}
-                                    {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
-                                    {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
+                                    {#if onDuplicateItem && showDuplicateItem(index)}<IconButton title={language.presetDuplicate} aria-label={language.presetDuplicate} onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
+                                    {#if onExportItem && showExportItem(index)}<IconButton title={language.presetExport} aria-label={language.presetExport} onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
                                     {#if onDeleteItem}<IconButton tone="destructive" title={itemDeleteLabel} aria-label={itemDeleteLabel} onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
                                 </IconButtonGroup>
                             {/if}

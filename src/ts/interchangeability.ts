@@ -1,4 +1,4 @@
-import { createEntityId } from 'src/ts/id';
+import { createEntityId } from './id';
 import type { RisuModule} from './process/modules.ts'
 import type { character, RisuPersona } from './storage/database.svelte.js';
 import { createBlankChar } from "src/ts/characters";
@@ -137,6 +137,7 @@ export function convertPersonaToCharacter(p: RisuPersona): character {
 
 export function convertCharacterToPersona(c: character): RisuPersona {
     const p: RisuPersona = {
+        id: createEntityId(),
         name: c.name,
         icon: c.image,
         personaPrompt: c.desc,
@@ -175,6 +176,7 @@ export function convertPersonaToModule(p: RisuPersona): RisuModule {
 
 export function convertModuleToPersona(m: RisuModule): RisuPersona {
     let basePersona: RisuPersona = {
+        id: createEntityId(),
         name: "",
         icon: "",
         personaPrompt: "",

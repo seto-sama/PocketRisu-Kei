@@ -43,6 +43,7 @@ import {
 } from "../revenant/workflow";
 
 export interface HypaV3Preset extends PresetTagFields {
+    id: string;
     name: string;
     settings: HypaV3Settings;
 }
@@ -2353,6 +2354,7 @@ export function createHypaV3Preset(
     settings.summarizationModel = "subModel";
 
     return {
+        id: createEntityId(),
         name,
         settings,
     };

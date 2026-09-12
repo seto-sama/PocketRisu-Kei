@@ -5,8 +5,9 @@ import { AppendableBuffer, downloadFile, requestImmediateSave } from "./globalAp
 import { language } from "src/lang"
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
-import { createEntityId } from 'src/ts/id';
 import { readAvatarImageOrDefault } from "./avatarImage"
+import { appendPresetItem, movePresetItem, removePresetItem, reorderPresetSubset } from "./preset/collection"
+import { createEntityId } from './id'
 
 export async function selectUserImg() {
     const selected = await selectSingleFile(['png'])
@@ -50,15 +51,16 @@ export function changeUserPersona(id: number, save: 'save' | 'noSave' = 'save') 
 
 export function createUserPersona() {
     const db = getDatabase()
-    db.personas = [...db.personas, {
+    const result = appendPresetItem(db.personas, {
         id: createEntityId(),
         name: language.newPersona,
         icon: '',
         personaPrompt: '',
         note: '',
         tagIds: undefined,
-    }]
-    changeUserPersona(db.personas.length - 1)
+    })
+    db.personas = result.items
+    changeUserPersona(result.selectedIndex)
     void requestImmediateSave()
 }
 
@@ -70,22 +72,22 @@ export function reorderUserPersonas(orderedIndexes: number[]) {
         || orderedIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= db.personas.length)) return
 
     saveUserPersona()
-    const selected = db.personas[db.selectedPersona]
-    db.personas = orderedIndexes.map(index => db.personas[index])
-    changeUserPersona(Math.max(0, db.personas.indexOf(selected)), 'noSave')
+    const orderedIds = orderedIndexes.map(index => db.personas[index].id)
+    const result = reorderPresetSubset(db.personas, db.selectedPersona, orderedIds)
+    if (!result.changed) return
+    db.personas = result.items
+    changeUserPersona(result.selectedIndex, 'noSave')
     void requestImmediateSave()
 }
 
 export function moveUserPersona(fromIndex: number, toIndex: number) {
-    const personaCount = getDatabase().personas.length
-    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0
-        || fromIndex >= personaCount || toIndex > personaCount) return
-
-    const orderedIndexes = Array.from({ length: personaCount }, (_, index) => index)
-    const [movedIndex] = orderedIndexes.splice(fromIndex, 1)
-    const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-    orderedIndexes.splice(adjustedToIndex, 0, movedIndex)
-    reorderUserPersonas(orderedIndexes)
+    const db = getDatabase()
+    saveUserPersona()
+    const result = movePresetItem(db.personas, db.selectedPersona, fromIndex, toIndex)
+    if (!result.changed) return
+    db.personas = result.items
+    changeUserPersona(result.selectedIndex, 'noSave')
+    void requestImmediateSave()
 }
 
 export async function deleteUserPersona(index: number) {
@@ -96,11 +98,11 @@ export async function deleteUserPersona(index: number) {
 
     saveUserPersona()
     const deletingSelected = index === db.selectedPersona
-    const selected = db.personas[db.selectedPersona]
-    const next = db.personas.filter((_, personaIndex) => personaIndex !== index)
-    db.personas = next
-    const selectedIndex = deletingSelected ? Math.max(0, index - 1) : next.indexOf(selected)
-    changeUserPersona(selectedIndex >= 0 ? selectedIndex : 0, 'noSave')
+    const result = removePresetItem(db.personas, db.selectedPersona, index)
+    if (!result.changed) return
+    db.personas = result.items
+    const selectedIndex = deletingSelected ? Math.max(0, index - 1) : result.selectedIndex
+    changeUserPersona(selectedIndex, 'noSave')
     void requestImmediateSave()
 }
 
@@ -181,13 +183,13 @@ export async function importUserPersona() {
         const data: PersonaCard = JSON.parse(Buffer.from(decoded, 'base64').toString('utf-8'))
         if (data.name && data.personaPrompt) {
             let db = getDatabase()
-            db.personas.push({
+            db.personas = appendPresetItem(db.personas, {
                 name: data.name,
                 icon: await saveImage(await reencodeImage(v.data)),
                 personaPrompt: data.personaPrompt,
                 note: data.note,
                 id: createEntityId()
-            })
+            }).items
             notifySuccess(language.successImport)
         } else {
             alertError(language.errors.noData)

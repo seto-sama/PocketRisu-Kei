@@ -36,8 +36,8 @@
     } from "src/ts/preset/pluginModels";
     import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
     import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
+    import { clonePresetWithNewId, duplicatePresetItem, removePresetItem } from "src/ts/preset/collection";
     import { onMount } from "svelte";
-    import { createEntityId } from 'src/ts/id';
 
     let editingId = $state<string | null>(null);
     let submenu = $state(0);
@@ -313,14 +313,15 @@
     });
 
     function duplicate(index: number) {
-        const src = DBState.db.modelPresets[index];
-        if (!src) return;
-        const copy = safeStructuredClone(src);
-        copy.id = createEntityId();
-        copy.name = `${src.name} ${language.copy}`;
-        copy.createdAt = Date.now();
-        copy.updatedAt = Date.now();
-        DBState.db.modelPresets = [...DBState.db.modelPresets, copy];
+        const result = duplicatePresetItem(DBState.db.modelPresets, index, src => {
+            const copy = clonePresetWithNewId(src);
+            copy.name = `${src.name} ${language.copy}`;
+            copy.createdAt = Date.now();
+            copy.updatedAt = Date.now();
+            return copy;
+        });
+        if (!result.changed) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDuplicated);
     }
 
@@ -329,9 +330,9 @@
         if (!preset) return;
         const ok = await alertConfirm(`${language.removeConfirm}${preset.name}`);
         if (!ok) return;
-        const next = [...DBState.db.modelPresets];
-        next.splice(index, 1);
-        DBState.db.modelPresets = next;
+        const result = removePresetItem(DBState.db.modelPresets, -1, index, 0);
+        if (!result.changed) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDeleted);
     }
 

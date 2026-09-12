@@ -11,7 +11,6 @@
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
     import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
-    import { createEntityId } from 'src/ts/id';
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import Input from "../../../UI/components/Input.svelte";
     import { onDestroy } from "svelte";
@@ -31,6 +30,8 @@
     import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
     import { isEventFromInteractiveChild } from "src/lib/utils";
+    import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, removePresetItem, reorderPresetSubset } from "src/ts/preset/collection";
+    import { createEntityId } from "src/ts/id";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -192,20 +193,8 @@
     }
 
     function reorderModules(orderedIds: string[]) {
-        const modules = DBState.db.modules
-        const visibleById = new Map(visibleModules.map(({ rmodule }) => [rmodule.id, rmodule]))
-        const reorderedVisible = orderedIds
-            .map((id) => visibleById.get(id))
-            .filter((rmodule): rmodule is RisuModule => !!rmodule)
-        if (reorderedVisible.length !== orderedIds.length) return
-
-        const visibleIds = new Set(orderedIds)
-        let visibleIndex = 0
-        DBState.db.modules = modules.map((rmodule) =>
-            visibleIds.has(rmodule.id)
-                ? reorderedVisible[visibleIndex++] ?? rmodule
-                : rmodule
-        )
+        const result = reorderPresetSubset(DBState.db.modules, -1, orderedIds)
+        if (result.changed) DBState.db.modules = result.items
     }
 
     function startCreateModule() {
@@ -219,13 +208,14 @@
     }
 
     function duplicateModule(index: number) {
-        const source = DBState.db.modules[index]
-        if (!source || source.mcp) return
-        const duplicate = safeStructuredClone(source)
-        duplicate.id = createEntityId()
-        duplicate.name = `${source.name} ${language.copy}`
-        DBState.db.modules.splice(index + 1, 0, duplicate)
-        DBState.db.modules = [...DBState.db.modules]
+        if (DBState.db.modules[index]?.mcp) return
+        const result = duplicatePresetItem(DBState.db.modules, index, source => {
+            const duplicate = clonePresetWithNewId(source)
+            duplicate.name = `${source.name} ${language.copy}`
+            return duplicate
+        }, index + 1)
+        if (!result.changed) return
+        DBState.db.modules = result.items
         void requestImmediateSave()
         notifySuccess(language.moduleDuplicated)
     }
@@ -266,7 +256,9 @@
             }
         }
 
-        DBState.db.modules = DBState.db.modules.filter((_, moduleIndex) => moduleIndex !== index)
+        const result = removePresetItem(DBState.db.modules, -1, index, 0)
+        if (!result.changed) return
+        DBState.db.modules = result.items
         void requestImmediateSave()
         notifySuccess(language.moduleDeleted)
     }
@@ -516,7 +508,7 @@
     <SettingPage title={language.createModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
     <Button className="mt-6" onclick={() => {
-        DBState.db.modules.push(tempModule)
+        DBState.db.modules = appendPresetItem(DBState.db.modules, tempModule).items
         notifySuccess(language.moduleCreated)
         mode = 0
     }}>{language.createModule}</Button>

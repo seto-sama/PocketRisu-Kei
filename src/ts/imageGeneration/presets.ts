@@ -1,7 +1,8 @@
-import { createEntityId } from 'src/ts/id';
 import { safeStructuredClone } from '../polyfill'
 import type { Database, NAIImgConfig } from '../storage/database.svelte'
 import { normalizePresetTagFields, normalizeTagIds, type PresetTagFields } from '../preset/tags'
+import { appendPresetItem, duplicatePresetItem, movePresetItem, removePresetItem } from '../preset/collection'
+import { createEntityId } from '../id'
 
 export type NAIImageSizePreset = 'small' | 'normal' | 'large' | 'custom'
 export type NAIImageOrientation = 'landscape' | 'portrait' | 'square'
@@ -96,8 +97,9 @@ export function appendImageGenerationPreset(
     db: ImageGenerationPresetCollection,
     preset: ImageGenerationPreset,
 ): number {
-    db.imageGenerationPresets = [...db.imageGenerationPresets, preset]
-    db.imageGenerationPresetId = db.imageGenerationPresets.length - 1
+    const result = appendPresetItem(db.imageGenerationPresets, preset)
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
     return db.imageGenerationPresetId
 }
 
@@ -106,26 +108,26 @@ export function duplicateImageGenerationPreset(
     index: number,
     copyLabel: string,
 ): ImageGenerationPreset | undefined {
-    const source = db.imageGenerationPresets[index]
-    if (!source) return undefined
-    const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
-    preset.tagIds = safeStructuredClone(source.tagIds)
-    appendImageGenerationPreset(db, preset)
-    return preset
+    const result = duplicatePresetItem(db.imageGenerationPresets, index, source => {
+        const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
+        preset.tagIds = safeStructuredClone(source.tagIds)
+        return preset
+    })
+    if (!result.changed) return undefined
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.item
 }
 
 export function removeImageGenerationPreset(
     db: ImageGenerationPresetCollection,
     index: number,
 ): boolean {
-    if (db.imageGenerationPresets.length <= 1 || !db.imageGenerationPresets[index]) return false
-    const selectedId = db.imageGenerationPresets[db.imageGenerationPresetId]?.id
-    db.imageGenerationPresets = db.imageGenerationPresets.filter((_, presetIndex) => presetIndex !== index)
-    const selectedIndex = db.imageGenerationPresets.findIndex(preset => preset.id === selectedId)
-    db.imageGenerationPresetId = selectedIndex >= 0
-        ? selectedIndex
-        : Math.min(index, db.imageGenerationPresets.length - 1)
-    return true
+    const result = removePresetItem(db.imageGenerationPresets, db.imageGenerationPresetId, index)
+    if (!result.changed) return false
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.changed
 }
 
 export function moveImageGenerationPreset(
@@ -133,17 +135,11 @@ export function moveImageGenerationPreset(
     fromIndex: number,
     toIndex: number,
 ): boolean {
-    const presets = db.imageGenerationPresets
-    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return false
-    const selectedId = presets[db.imageGenerationPresetId]?.id
-    const next = [...presets]
-    const [moved] = next.splice(fromIndex, 1)
-    if (!moved) return false
-    const adjustedIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-    next.splice(adjustedIndex, 0, moved)
-    db.imageGenerationPresets = next
-    db.imageGenerationPresetId = Math.max(0, next.findIndex(preset => preset.id === selectedId))
-    return true
+    const result = movePresetItem(db.imageGenerationPresets, db.imageGenerationPresetId, fromIndex, toIndex)
+    if (!result.changed) return false
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.changed
 }
 
 function removeEmbeddedReferenceImages(

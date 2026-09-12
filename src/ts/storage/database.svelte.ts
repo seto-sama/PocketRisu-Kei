@@ -36,6 +36,7 @@ import { normalizeImageGenerationPresetState, type ImageGenerationPreset } from 
 import { normalizeGenerationCount } from '../process/automaticReroll';
 import { OUTPUT_REPETITION_DISABLED } from '../process/request/repetitionDetector';
 import { normalizePresetTagFields, normalizePresetTagState, type PresetTag, type PresetTagFields } from '../preset/tags';
+import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, ensurePresetIds } from '../preset/collection';
 
 export { pocketKeiVer } from '../version'
 export let webAppSubVer = ''
@@ -93,6 +94,7 @@ export function normalizeSystemRoleReplacement(role: unknown): 'user'|'assistant
 export function normalizePersonaSelection(data: Database): void {
     if(!Array.isArray(data.personas) || data.personas.length === 0){
         data.personas = [{
+            id: createEntityId(),
             name: data.username,
             personaPrompt: "",
             icon: data.userIcon,
@@ -100,6 +102,7 @@ export function normalizePersonaSelection(data: Database): void {
             largePortrait: false
         }]
     }
+    ensurePresetIds(data.personas)
     if(!Number.isInteger(data.selectedPersona)
         || data.selectedPersona < 0
         || data.selectedPersona >= data.personas.length){
@@ -415,10 +418,8 @@ export function setDatabase(data:Database){
     if (Array.isArray(data.botPresets)) {
         for (const preset of data.botPresets) {
             preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
-            if (preset && !preset.id) {
-                preset.id = createEntityId()
-            }
         }
+        ensurePresetIds(data.botPresets)
     }
     if(checkNullish(data.botPresetsId)){
         data.botPresetsId = 0
@@ -428,6 +429,7 @@ export function setDatabase(data:Database){
         defaultTheme.name = "Default"
         data.themePresets = [defaultTheme]
     }
+    ensurePresetIds(data.themePresets)
     if(checkNullish(data.themePresetsId)){
         data.themePresetsId = 0
     }
@@ -828,6 +830,7 @@ export function setDatabase(data:Database){
                 preset.name || `Preset ${i + 1}`,
                 preset.settings || {}
             ),
+            id: typeof preset.id === 'string' && preset.id ? preset.id : createEntityId(),
             tagIds: preset.tagIds,
         }))
     }
@@ -1164,7 +1167,7 @@ export interface RisuPersona extends PresetTagFields {
     name:string
     icon:string
     largePortrait?:boolean
-    id?:string
+    id:string
     note?:string
     embeddedModule?:RisuModule
 }
@@ -1237,7 +1240,7 @@ export interface Database{
     /**
      * @deprecated New code: use getActiveBotPreset() / setActiveBotPresetById() helpers.
      * Kept as the physical store for upstream RisuAI .bin backup compatibility.
-     * Reorder/delete must go through withStableActivePreset() to keep this in sync.
+     * Collection mutations must update it from the shared preset collection result.
      */
     botPresetsId:number
     themePresets:themePreset[]
@@ -2014,6 +2017,7 @@ export type { PresetTag }
 
 
 export interface themePreset extends PresetTagFields {
+    id: string
     name: string
     // Theme tab (submenu 0)
     theme: string
@@ -2460,6 +2464,7 @@ export const presetTemplate:botPreset = {
 }
 
 export const themePresetTemplate: themePreset = {
+    id: createEntityId(),
     name: "New Theme",
     theme: '',
     nodeOnlyStandardChatWidth: 'standard',
@@ -2523,9 +2528,7 @@ export const themePresetTemplate: themePreset = {
 // ─────────────────────────────────────────────────────────────
 
 export function createBotPresetTemplate(): botPreset {
-    const preset = safeStructuredClone(presetTemplate)
-    preset.id = createEntityId()
-    return preset
+    return clonePresetWithNewId(presetTemplate)
 }
 
 export function getActiveBotPreset(): botPreset | null {
@@ -2565,9 +2568,8 @@ export function setActiveBotPresetById(id: string | undefined): void {
 }
 
 /**
- * Run a botPresets mutation (reorder / splice) while preserving which preset
- * is active by its stable string id. Replaces ad-hoc index-recalculation code
- * paths and keeps db.botPresetsId in sync with the active preset's new index.
+ * Compatibility wrapper for callers that still perform an arbitrary botPresets
+ * mutation. New collection UI should use the shared preset collection helpers.
  */
 export function withStableActivePreset(fn: () => void): void {
     const activeId = getActiveBotPresetId()
@@ -2682,11 +2684,12 @@ export function saveCurrentPreset(){
 export function copyPreset(id:number){
     saveCurrentPreset()
     let db = getDatabase()
-    let pres = db.botPresets
-    const newPres = safeStructuredClone(pres[id])
-    newPres.id = createEntityId()
-    newPres.name += " Copy"
-    db.botPresets.push(newPres)
+    const result = duplicatePresetItem(db.botPresets, id, source => {
+        const copy = clonePresetWithNewId(source)
+        copy.name += " Copy"
+        return copy
+    })
+    if (result.changed) db.botPresets = result.items
 }
 
 export function changeToPreset(id =0, savecurrent = true){
@@ -2799,6 +2802,7 @@ export function setPreset(db:Database, newPres: botPreset){
 export function saveCurrentThemePreset(db: Database = getDatabase()){
     let pres = db.themePresets
     const saved: themePreset = {
+        id: pres[db.themePresetsId]?.id ?? createEntityId(),
         name: pres[db.themePresetsId]?.name ?? "Default",
         tagIds: safeStructuredClone(pres[db.themePresetsId]?.tagIds),
         theme: normalizeTheme(db.theme),
@@ -2913,9 +2917,12 @@ export function changeToThemePreset(id = 0, savecurrent = true){
 export function copyThemePreset(id: number){
     saveCurrentThemePreset()
     let db = getDatabase()
-    const newPres = safeStructuredClone(db.themePresets[id])
-    newPres.name += " Copy"
-    db.themePresets.push(newPres)
+    const result = duplicatePresetItem(db.themePresets, id, source => {
+        const copy = clonePresetWithNewId(source)
+        copy.name += " Copy"
+        return copy
+    })
+    if (result.changed) db.themePresets = result.items
 }
 
 export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
@@ -2973,9 +2980,10 @@ export async function importThemePreset(f: {
 
     let db = getDatabase()
     pre.name = pre.name ?? "Imported Theme"
+    pre.id = createEntityId()
     pre.theme = normalizeTheme(pre.theme)
     pre.textTheme = normalizeTextTheme(pre.textTheme)
-    db.themePresets.push(normalizePresetTagFields(pre))
+    db.themePresets = appendPresetItem(db.themePresets, normalizePresetTagFields(pre)).items
     notifySuccess(language.successImport)
 }
 
@@ -3066,7 +3074,7 @@ function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
     if(!Array.isArray(db.botPresets)){
         db.botPresets = []
     }
-    db.botPresets.push(pre)
+    db.botPresets = appendPresetItem(db.botPresets, pre).items
 }
 
 export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null){

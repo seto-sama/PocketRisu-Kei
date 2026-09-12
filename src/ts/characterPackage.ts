@@ -23,6 +23,7 @@ import {
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 import { readAvatarImageOrDefault, readDefaultAvatarImage } from './avatarImage'
+import { appendPresetItem } from './preset/collection'
 
 // ── Types ──
 
@@ -236,13 +237,13 @@ async function importPersonas(
         }
 
         const newId = createEntityId()
-        db.personas.push({
+        db.personas = appendPresetItem(db.personas, {
             name: card.name,
             icon: await saveImage(await reencodeImage(pngBytes)),
             personaPrompt: card.personaPrompt,
             note: card.note,
             id: newId,
-        })
+        }).items
         personaIdMap[entry.originalId] = newId
     }
 

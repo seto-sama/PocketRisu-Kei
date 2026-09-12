@@ -32,6 +32,8 @@
     } from "src/ts/preset/profileUpdate";
     import { localizeDisplayName, localizeDescription } from "src/ts/preset/registry/i18n";
     import { getDefaultApiKeyRef } from "src/ts/preset/apiKeyPool";
+    import { appendPresetItem } from "src/ts/preset/collection";
+    import { createEntityId } from "src/ts/id";
     import type { BaseProviderDefinition, ModelProfile, RegistryCache, RegistryProfileStatus } from "src/ts/preset/types";
     import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
     import {
@@ -43,7 +45,6 @@
     } from "src/ts/preset/pluginModels";
     import Input from "../UI/components/Input.svelte";
     import Badge from "../UI/components/Badge.svelte";
-    import { createEntityId } from 'src/ts/id';
     import { onMount } from "svelte";
 
     interface Props {
@@ -207,7 +208,7 @@
             alertError(language.profileDataIncomplete);
             return;
         }
-        DBState.db.modelPresets = [...DBState.db.modelPresets, preset];
+        DBState.db.modelPresets = appendPresetItem(DBState.db.modelPresets, preset).items;
         notifySuccess(language.modelPresetCreated);
         openModelPresetEditId.set(preset.id);
         close();

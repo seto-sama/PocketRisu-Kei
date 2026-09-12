@@ -35,6 +35,7 @@
         removeImageGenerationPreset,
     } from 'src/ts/imageGeneration/presets'
     import { selectSingleFile } from 'src/ts/util'
+    import { appendPresetItem, movePresetItem, removePresetItem } from 'src/ts/preset/collection'
 
     interface Props {
         compact?: boolean
@@ -221,7 +222,9 @@
         if (!await alertConfirm(language.imageStylePresetDeleteConfirm)) return
         const module = DBState.db.modules.find(item => item.id === preset.moduleId)
         if (!module?.lorebook?.[preset.lorebookIndex]) return
-        module.lorebook.splice(preset.lorebookIndex, 1)
+        const result = removePresetItem(module.lorebook, -1, preset.lorebookIndex, 0)
+        if (!result.changed) return
+        module.lorebook = result.items
         DBState.db.modules = [...DBState.db.modules]
         const nextBindings = { ...DBState.db.imageStylePresetTagBindings }
         delete nextBindings[preset.id]
@@ -274,11 +277,8 @@
         if (sourceIndex === targetIndex || sourceIndex < 0 || sourceIndex >= presets.length) return
         if (viewMode === 'tag') {
             const nextOrder = presets.map(item => item.id)
-            const [moved] = nextOrder.splice(sourceIndex, 1)
-            if (!moved) return
-            const insertionIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-            nextOrder.splice(Math.max(0, Math.min(insertionIndex, nextOrder.length)), 0, moved)
-            DBState.db.imageStylePresetOrder = nextOrder
+            const result = movePresetItem(nextOrder, -1, sourceIndex, targetIndex)
+            if (result.changed) DBState.db.imageStylePresetOrder = result.items
             return
         }
 
@@ -292,10 +292,9 @@
         let targetLorebookIndex = targetPreset?.moduleId === module.id
             ? targetPreset.lorebookIndex
             : lorebooks.length
-        const [moved] = lorebooks.splice(sourcePreset.lorebookIndex, 1)
-        if (!moved) return
-        if (sourcePreset.lorebookIndex < targetLorebookIndex) targetLorebookIndex -= 1
-        lorebooks.splice(Math.max(0, Math.min(targetLorebookIndex, lorebooks.length)), 0, moved)
+        const result = movePresetItem(lorebooks, -1, sourcePreset.lorebookIndex, targetLorebookIndex)
+        if (!result.changed) return
+        module.lorebook = result.items
         DBState.db.modules = [...DBState.db.modules]
     }
 
@@ -336,10 +335,12 @@
         if (sourceModule.id === targetModule.id) {
             lorebook.folder = target.lorebookFolder
         } else {
-            sourceModule.lorebook!.splice(preset.lorebookIndex, 1)
+            const removed = removePresetItem(sourceModule.lorebook!, -1, preset.lorebookIndex, 0)
+            if (!removed.changed) return
+            sourceModule.lorebook = removed.items
             lorebook.folder = target.lorebookFolder
             targetModule.lorebook ??= []
-            targetModule.lorebook.push(lorebook)
+            targetModule.lorebook = appendPresetItem(targetModule.lorebook, lorebook).items
         }
         DBState.db.modules = [...DBState.db.modules]
 

@@ -16,7 +16,7 @@
     import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
     import Button from "../../../UI/components/Button.svelte";
     import Badge from "../../../UI/components/Badge.svelte";
-    import { createEntityId } from 'src/ts/id';
+    import { clonePresetWithNewId, duplicatePresetItem, removePresetItem } from "src/ts/preset/collection";
 
     interface Props {
         preset: ModelPreset;
@@ -66,15 +66,18 @@
         const src = preset;
         const idx = DBState.db.modelPresets.findIndex(p => p.id === src.id);
         if (idx < 0) return;
-        const copy = safeStructuredClone(src);
-        copy.id = createEntityId();
-        copy.name = `${src.name} Copy`;
-        copy.createdAt = Date.now();
-        copy.updatedAt = Date.now();
-        DBState.db.modelPresets = [...DBState.db.modelPresets, copy];
+        const result = duplicatePresetItem(DBState.db.modelPresets, idx, source => {
+            const copy = clonePresetWithNewId(source);
+            copy.name = `${source.name} ${language.copy}`;
+            copy.createdAt = Date.now();
+            copy.updatedAt = Date.now();
+            return copy;
+        });
+        if (!result.changed || !result.item) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDuplicated);
         // Jump straight into the new copy's editor (parent watches this store).
-        openModelPresetEditId.set(copy.id);
+        openModelPresetEditId.set(result.item.id);
     }
 
     async function remove() {
@@ -82,9 +85,9 @@
         if (!ok) return;
         const idx = DBState.db.modelPresets.findIndex(p => p.id === preset.id);
         if (idx < 0) return;
-        const next = [...DBState.db.modelPresets];
-        next.splice(idx, 1);
-        DBState.db.modelPresets = next;
+        const result = removePresetItem(DBState.db.modelPresets, -1, idx, 0);
+        if (!result.changed) return;
+        DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDeleted);
         onAfterDelete();
     }

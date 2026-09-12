@@ -112,6 +112,7 @@ describe('database settings normalization', () => {
         normalizePersonaSelection(database)
 
         expect(database.personas).toEqual([{
+            id: expect.any(String),
             name: 'User',
             personaPrompt: '',
             icon: 'icon.png',
@@ -128,6 +129,7 @@ describe('database settings normalization', () => {
         normalizePersonaSelection(database)
 
         expect(database.personas).toBe(personas)
+        expect(database.personas.every((persona: { id?: string }) => !!persona.id)).toBe(true)
         expect(database.selectedPersona).toBe(0)
     })
 
