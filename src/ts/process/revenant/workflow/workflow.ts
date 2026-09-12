@@ -4,7 +4,7 @@ import {
     getRevenantGenerationSyncClientId,
 } from '../transport/client'
 import { writable } from 'svelte/store'
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import type {
     RevenantOperationContext,
     RevenantClientAction,
@@ -261,7 +261,7 @@ export async function beginImageGenerationWorkflow(arg: {
     projection?: 'append' | 'reroll'
     messageId?: string
 }): Promise<RevenantWorkflow> {
-    const operationId = uuidv4()
+    const operationId = createEntityId()
     return beginRevenantWorkflow({
         characterId: arg.characterId,
         roomId: `image-generation:${arg.roomId}`,
@@ -275,7 +275,7 @@ export async function beginImageGenerationWorkflow(arg: {
             kind: 'image-generation',
             comfyBridgeId: getComfyBridgeId(),
             operationId,
-            messageId: arg.messageId ?? uuidv4(),
+            messageId: arg.messageId ?? createEntityId(),
             target: {
                 characterId: arg.characterId,
                 roomId: arg.roomId,

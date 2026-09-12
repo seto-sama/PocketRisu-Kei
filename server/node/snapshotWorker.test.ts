@@ -1,5 +1,5 @@
 // @vitest-environment node
-import Database from 'better-sqlite3'
+import Database from './sqlite.cjs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

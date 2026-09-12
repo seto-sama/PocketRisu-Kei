@@ -3,9 +3,9 @@
     import { language } from "../../lang";
     import {
         changeToThemePreset,
-        copyThemePreset,
         downloadThemePreset,
         importThemePreset,
+        saveCurrentThemePreset,
         themePresetTemplate,
     } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
@@ -16,6 +16,7 @@
     import { updateAnimationSpeed } from "src/ts/gui/animation";
     import { updateGuisize } from "src/ts/gui/guisize";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
 
     let selectedFolder = $state('all');
 
@@ -27,18 +28,10 @@
     let { close = () => {} }: Props = $props();
 
     function movePreset(fromIndex: number, toIndex: number) {
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= DBState.db.themePresets.length || toIndex > DBState.db.themePresets.length) return;
-        const next = [...DBState.db.themePresets];
-        const [moved] = next.splice(fromIndex, 1);
-        if (!moved) return;
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-        next.splice(adjustedToIndex, 0, moved);
-
-        const current = DBState.db.themePresetsId;
-        if (current === fromIndex) DBState.db.themePresetsId = adjustedToIndex;
-        else if (fromIndex < current && adjustedToIndex >= current) DBState.db.themePresetsId = current - 1;
-        else if (fromIndex > current && adjustedToIndex <= current) DBState.db.themePresetsId = current + 1;
-        DBState.db.themePresets = next;
+        const result = movePresetItem(DBState.db.themePresets, DBState.db.themePresetsId, fromIndex, toIndex);
+        if (!result.changed) return;
+        DBState.db.themePresets = result.items;
+        DBState.db.themePresetsId = result.selectedIndex;
     }
 
     function assignPresetToTag(index: number, tagId: string | undefined) {
@@ -69,17 +62,30 @@
             return;
         }
         if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;
-        changeToThemePreset(0);
+        saveCurrentThemePreset();
+        const result = removePresetItem(DBState.db.themePresets, DBState.db.themePresetsId, index);
+        if (!result.changed) return;
+        DBState.db.themePresets = result.items;
+        changeToThemePreset(result.selectedIndex, false);
         applyThemeVisuals();
-        DBState.db.themePresets = DBState.db.themePresets.filter((_, presetIndex) => presetIndex !== index);
-        changeToThemePreset(0, false);
-        applyThemeVisuals();
+    }
+
+    function duplicatePreset(index: number) {
+        saveCurrentThemePreset();
+        const result = duplicatePresetItem(DBState.db.themePresets, index, source => {
+            const copy = clonePresetWithNewId(source);
+            copy.name += ` ${language.copy}`;
+            return copy;
+        });
+        if (!result.changed) return;
+        DBState.db.themePresets = result.items;
     }
 
 </script>
 
 <PresetPickerLayout
     title={language.themePresets}
+    titleHelpKey="themePresets"
     folders={tags}
     itemFolderIds={DBState.db.themePresets.map(preset => preset.tagIds)}
     organizationKind="tag"
@@ -97,7 +103,7 @@
     selectedItemIndex={DBState.db.themePresetsId}
     onMoveItem={movePreset}
     onSelectItem={selectPreset}
-    onDuplicateItem={copyThemePreset}
+    onDuplicateItem={duplicatePreset}
     onExportItem={(index) => downloadThemePreset(index, 'json')}
     onDeleteItem={deletePreset}
     itemRenameable
@@ -115,10 +121,10 @@
 
     <PresetPickerActions
         onCreate={() => {
-            const newPreset = safeStructuredClone(themePresetTemplate);
+            const newPreset = clonePresetWithNewId(themePresetTemplate);
             newPreset.name = 'New Theme';
             newPreset.tagIds = undefined;
-            DBState.db.themePresets = [...DBState.db.themePresets, newPreset];
+            DBState.db.themePresets = appendPresetItem(DBState.db.themePresets, newPreset).items;
         }}
         onImport={async () => {
             await importThemePreset();

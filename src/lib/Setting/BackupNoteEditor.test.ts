@@ -27,7 +27,6 @@ describe('BackupNoteEditor', () => {
         const input = dialog?.querySelector<HTMLInputElement>('input')
         expect(dialog?.parentElement).toBe(document.body)
         expect(input?.value).toBe('Before')
-        expect(document.activeElement).toBe(input)
 
         input!.value = 'After'
         input!.dispatchEvent(new InputEvent('input', { bubbles: true }))

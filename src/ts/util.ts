@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
 import type { Database } from "./storage/database.svelte"
@@ -51,6 +52,20 @@ export async function selectMultipleFile(ext:string[]){
     return arr
 }
 
+export function selectSingleImportFile() {
+    return selectSingleFile(['*'])
+}
+
+export function selectMultipleImportFiles() {
+    return selectMultipleFile(['*'])
+}
+
+export const GENERAL_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']
+
+export function selectSingleImageFile() {
+    return selectSingleFile(GENERAL_IMAGE_EXTENSIONS)
+}
+
 export function checkPersonaBinded(){
     const db = getDatabase()
     const character = db.characters?.[get(selectedCharID)]
@@ -102,17 +117,12 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
         fileInput.multiple = multiple === 'multiple';
-        const acceptAll = (getDatabase().allowAllExtentionFiles || isIOS() || allowedExtensions[0] === '*')
+        const acceptAll = isIOS() || allowedExtensions[0] === '*'
         if(!acceptAll){
             if (allowedExtensions && allowedExtensions.length) {
                 fileInput.accept = allowedExtensions.map(ext => `.${ext}`).join(',');
             }
         }
-        else{
-            fileInput.accept = '*'
-        }
-
-    
         fileInput.addEventListener('change', (event) => {
             if (fileInput.files.length === 0) {
                 resolve([]);

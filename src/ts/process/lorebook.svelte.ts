@@ -1,9 +1,10 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
 import type { Message, loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
-import { findCharacterbyId, pickHashRand, selectSingleFile } from "../util";
+import { findCharacterbyId, pickHashRand, selectSingleImportFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "../../lang";
 import { downloadFile, requestImmediateSave } from "../globalApi.svelte";
@@ -11,7 +12,7 @@ import { ensureChatHydrated, getChatServerEtag } from '../storage/chatStorage';
 import { markChatWorkingCopyDirty } from '../storage/chatWorkingCopy';
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { selectLorebookPromptsWithinBudget } from "./lorebookPrompt";
 
 export function addLorebook(type:number) {
@@ -45,7 +46,7 @@ export function addLorebook(type:number) {
 
 export function addLorebookFolder(type:number) {
     const selectedID = get(selectedCharID)
-    const id = v4()
+    const id = createEntityId()
     if(type === 0){
         DBState.db.characters[selectedID].globalLore.push({
             key: '\uf000folder:' + id,
@@ -83,7 +84,7 @@ export async function loadLoreBookV3Prompt(options: {
     const characterLore = char.globalLore ?? []
     const chatLore = char.chats[page].localLore ?? []
     const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
-    const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
+    const fullLore = structuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
     const currentChat = char.chats[page].message.filter(message => message.kind !== 'imageGeneration')
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
@@ -659,7 +660,7 @@ export async function importLoreBook(mode:'global'|'local'){
     if (mode === 'local' && !chatId) return
     const getTargetCharacter = () => DBState.db.characters.find(character =>
         character.chaId === characterId && !character.trashTime)
-    const lorebook = (await selectSingleFile(['json', 'lorebook']))?.data
+    const lorebook = (await selectSingleImportFile())?.data
     if(!lorebook){
         return
     }

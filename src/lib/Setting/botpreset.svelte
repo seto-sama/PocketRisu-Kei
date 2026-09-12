@@ -2,8 +2,7 @@
     import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
     import { alertConfirm, notifyError, notifySuccess } from "../../ts/alert";
     import { language } from "../../lang";
-    import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset, withStableActivePreset } from "../../ts/storage/database.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset } from "../../ts/storage/database.svelte";
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
@@ -15,6 +14,8 @@
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { appendPresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
+    import { createEntityId } from "src/ts/id";
 
     let selectedFolder = $state<string>('all')
 
@@ -48,17 +49,10 @@
     let secondPresetId = $state<number | null>(null);
 
     function movePreset(fromIndex: number, toIndex: number) {
-        if (fromIndex === toIndex) return;
-        if (fromIndex < 0 || toIndex < 0 || fromIndex >= DBState.db.botPresets.length || toIndex > DBState.db.botPresets.length) return;
-
-        withStableActivePreset(() => {
-            const botPresets = [...DBState.db.botPresets];
-            const movedItem = botPresets.splice(fromIndex, 1)[0];
-            if (!movedItem) return;
-            const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-            botPresets.splice(adjustedToIndex, 0, movedItem);
-            DBState.db.botPresets = botPresets;
-        });
+        const result = movePresetItem(DBState.db.botPresets, DBState.db.botPresetsId, fromIndex, toIndex);
+        if (!result.changed) return;
+        DBState.db.botPresets = result.items;
+        DBState.db.botPresetsId = result.selectedIndex;
     }
 
     function selectPreset(index: number) {
@@ -99,11 +93,10 @@
         // Flush in-flight top-level edits before mutating the preset array.
         saveCurrentPreset()
         const removingActive = index === DBState.db.botPresetsId
-        withStableActivePreset(() => {
-            const botPresets = DBState.db.botPresets
-            botPresets.splice(index, 1)
-            DBState.db.botPresets = botPresets
-        })
+        const result = removePresetItem(DBState.db.botPresets, DBState.db.botPresetsId, index)
+        if (!result.changed) return
+        DBState.db.botPresets = result.items
+        DBState.db.botPresetsId = result.selectedIndex
         if (removingActive) changeToPreset(0, false)
         notifySuccess(language.presetDeleted)
     }
@@ -200,13 +193,11 @@
         <PresetPickerActions
             onCreate={() => {
                 let botPresets = DBState.db.botPresets
-                let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
-                newPreset.id = uuidv4()
+                let newPreset = structuredClone(prebuiltPresets.OAI2)
+                newPreset.id = createEntityId()
                 newPreset.name = `New Preset`
                 newPreset.tagIds = undefined
-                botPresets.push(newPreset)
-
-                DBState.db.botPresets = botPresets
+                DBState.db.botPresets = appendPresetItem(botPresets, newPreset).items
             }}
             onImport={async () => {
                 const before = DBState.db.botPresets.length

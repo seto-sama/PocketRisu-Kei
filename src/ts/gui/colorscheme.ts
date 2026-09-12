@@ -2,9 +2,8 @@ import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases,
 import { get, writable } from "svelte/store";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
-import { BufferToText, selectSingleFile } from "../util";
+import { BufferToText, selectSingleImportFile } from "../util";
 import { notifyError } from "../alert";
-import { isLite } from "../lite";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
 import { normalizeTextTheme } from "./textTheme";
 import { applyFontPreference } from "./fontPreference";
@@ -332,7 +331,7 @@ export function changeColorScheme(colorScheme: string){
     try {
         let db = getDatabase()
         if(colorScheme !== 'custom'){
-            db.colorScheme = safeStructuredClone(colorSchemes[colorScheme].colors)
+            db.colorScheme = structuredClone(colorSchemes[colorScheme].colors)
         }
         db.colorSchemeName = colorScheme
         updateColorScheme()   
@@ -346,12 +345,8 @@ export function updateColorScheme(){
         let colorScheme = db.colorScheme
 
         if(colorScheme == null){
-            colorScheme = safeStructuredClone(defaultColorScheme)
+            colorScheme = structuredClone(defaultColorScheme)
             db.colorScheme = colorScheme
-        }
-
-        if(get(isLite)){
-            colorScheme = safeStructuredClone(colorSchemes.lite.colors)
         }
 
         colorScheme.highlight ??= defaultColorScheme.highlight
@@ -402,7 +397,7 @@ export function exportColorScheme(){
 }
 
 export async function importColorScheme(){
-    const uarray = await selectSingleFile(['json'])
+    const uarray = await selectSingleImportFile()
     if(uarray == null){
         return
     }
@@ -431,8 +426,8 @@ export function updateTextThemeAndCSS(){
     if(!root){
         return
     }
-    let textTheme = normalizeTextTheme(get(isLite) ? 'standard' : db.textTheme)
-    let colorScheme = get(isLite) ? 'dark' : db.colorScheme.type
+    let textTheme = normalizeTextTheme(db.textTheme)
+    let colorScheme = db.colorScheme.type
     switch(textTheme){
         case "standard":{
             if(colorScheme === 'dark'){

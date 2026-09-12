@@ -7,7 +7,7 @@
  *
  * Convention: keep this object as the canonical source of help-text keys.
  * Other locales (e.g. `help.ko.ts`) override entries by key; the merge happens
- * via `lodash/merge` in `src/lang/index.ts`.
+ * via the language fallback in `src/lang/index.ts`.
  */
 
 export const helpEn = {
@@ -20,20 +20,16 @@ export const helpEn = {
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
-        oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
-        forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
             "lower values make character follow prompts closely, but it will more likely to response like a machine.\nHigher values will result in creative behavior, but the character's response can break down more easily.",
         frequencyPenalty: "Higher values prevent the use of duplicate words in response, but character's response can break down more easily.",
         presensePenalty: "Higher values prevent the use of duplicate words in all context, but character's response can break down more easily.",
         sdProvider: "provider for image generation.",
-        msgSound: "Plays *ding* sound when character responses",
         descBrowserNotification: "Show a browser notification when a response completes.",
         descMessageSound: "Play a sound when a response completes.",
         descTranslateSound: "Play a sound when a translation completes.",
         charDesc: "Brief description of the character. This affects characters response.",
         charFirstMessage: "First message of the character. This highly affects characters response.",
-        charNote: "A note that strongly affects model behavior. Embbedded to current character, also known as UJB.",
         toggleNsfw: "toggles jailbreak prompt on and off.",
         lorebook: "Lorebook is a user-made dictionary for AI. AI only sees it when where is an activation keys in the context.",
         loreName: "Name of the lore. It doesn't affect the Ai.",
@@ -64,10 +60,6 @@ export const helpEn = {
             "\n- `<cbs>` - parses curly braced synatxes in IN." +
             "\n\nTo use with native flags, you can use like `gi<cbs><move_top>`.",
         regexOrder: "Regex scripts with a higher order run first.",
-        experimental: "This is a experimental feature. it might be unstable.",
-        oogaboogaURL:
-            "If your WebUI supports older version of api, your url should look *like https:.../run/textgen*\n\n" +
-            "If your WebUI supports newVersion of api, your url should look like *https://.../api/v1/generate* and use the api server as host, and add --api to arguments.",
         exampleMessage:
             "Example conversations that affects output of the character. It doesn't uses tokens permanently." +
             "\n\nExample format of conversations:" +
@@ -80,8 +72,6 @@ export const helpEn = {
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         utilityBot: "When activated, it ignores main prompt, jailbreak and other prompts. used for bot made for utility, not for roleplay.",
         loreSelective: "In multiple-key mode, the lore activates only when the context contains at least one match from Activation Keys and at least one match from Secondary Keys. Separate multiple keys in each field with commas.",
-        loreRandomActivation:
-            "If Use Probability Condition is abled, if the lore's other conditions are all met, the lore will be activated with a set probability which is set by 'Probability' each time a chat is sent.",
         additionalAssets:
             "Additional assets to display in your chat. \n\n - use `{{raw::<asset name>}}` to use as path.\n - use `{{image::<asset name>}}` to use as image\n - use `{{video::<asset name>}}` to use as video\n - use `{{audio::<asset name>}}` to use as audio\n    - recommended to put in Background HTML",
         replaceGlobalNote: "If its not blank, it replaces current global note to this.",
@@ -91,15 +81,9 @@ export const helpEn = {
             "\n - `{{bg::<asset name>}}`: inject the background as asset",
         additionalText: "The text that would be added to Character Description only when ai thinks its needed, so you can put long texts here. seperate with double newlines.",
         charjs: "A javascript code that would run with character. for example, you can check `https://github.com/kwaroran/Risuai/blob/main/src/etc/example-char.js` CURRENTLY NOT RECOMMENDED TO USE DUDE TO SECURITY REASONS. EXPORTING WOULD NOT INCLUDE THIS.",
-        romanizer:
-            "Romanizer is a plugin that converts non-roman characters to roman characters to reduce tokens when using non-roman characters while requesting data. this can result diffrent output from the original model. it is not recommended to use this plugin when using roman characters on chat.",
-        inlayImages: "If enabled, images could be inlayed to the chat and AIs can see it if they support it.",
-        metrica:
-            "Metric Systemizer is a plugin that converts metrics to imperial units when request, and vice versa on output to show user metric system while using imperial for performace. it is not recommended to use this plugin when using imperial units on chat.",
         topP: "Top P is a probability threshold for nucleus sampling. model considers the results of the tokens with top_p probability mass.",
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
-        showUnrecommended: "If enabled, it will show unrecommended, deprecated settings. it is NOT RECOMMENDED to use these settings.",
         allowV2Plugin: "Warning: This allows deprecated V2.0 and V2.1 plugins to be installed and run. These plugins may be unsafe. When disabled, installed V2 plugins are switched off and cannot be enabled. Enable only for plugins you explicitly trust and cannot migrate to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
@@ -115,7 +99,6 @@ export const helpEn = {
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
         disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
         disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
-        useExperimental: "If enabled, it will show some experimental features.",
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
@@ -204,24 +187,9 @@ export const helpEn = {
         comfyWorkflow:
             "Put the API workflow of comfy UI. you can get your API workflow in comfy UI by pressing the 'Workflow > Export (API)' button. you must also put {{risu_prompt}} in you workflow text. the {{risu_prompt}} will be replaced with the prompt provided by the Risu.",
         automaticCachePoint: "When no cache point is explicitly configured, automatically adds cache points to up to the 3 most recent user messages.",
-        experimentalChatCompressionDesc:
-            "Compresses the unused chat data and saves in seperate file. this greatly reduces the size of the chat data, and greatly improves the performance, however its experimental and can be unstable, causing issues in backup feature and more.",
         promptInfoInsideChatDesc:
             "When enabled, this stores prompt preset information in the chat metadata. The stored data includes the preset name, active toggles, and the prompt text. This may slightly increase processing time and storage usage.",
-        autoAdjustSchema: "When enabled, it will automatically adjust the JSON schema for Dynamic Output.",
-        dynamicMessages: "When enabled, it will allow the assistant to send multiple messages in a row, instead of one at a time.",
-        dynamicMemory: "When enabled, assistant will make memory notes on response time. additional prompting is required to utilize this feature.",
-        dynamicResponseTiming: "When enabled, it will adjust the response timing dynamically.",
-        dynamicRequest: "When enabled, it will request to model at random timing without waiting for user input.",
         settingsCloseButtonSize: "Size of the settings close button.",
-        showTypingEffect: "When enabled, it will show a typing indicator while the assistant is generating a response.",
-        dynamicOutputPrompt: "When enabled, the schema information will be included in the request.",
-        openRouterProviderOrder:
-            "The order of providers to use, the first provider will be used first, if the provider is not available, it will use the next provider. See datail on https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
-        openRouterProviderOnly:
-            "Only use the providers in this list, if all the provider is not available, the request will failed. See detail on https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
-        openRouterProviderIgnore:
-            "Ignore the providers in this list, if all the provider is ingored, the request will failed. See detail on https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         hideAllImagesDesc: "Hides bot icons, bot image assets, and RisuRealm cover images.",
         preloadChatImagesDesc: "Preloads nearby inlays and other chat images to prevent layout shifts while scrolling. Disable it to rely on browser lazy loading.",
         hideMessagePageCountDesc: "Hides the page counter (e.g. 1/3) for regenerated messages and first message greetings. Navigation arrows and the regenerate button remain visible.",
@@ -318,21 +286,15 @@ export const helpEn = {
         createFolderOnBranch:
             "Automatically create a folder when branching a chat, grouping the original and branched chats together.",
         hamburgerButtonBottom: "Move the hamburger/menu button to the bottom of the sidebar.",
-        hideLeftBarCollapseButton: "Hide the toggle button that collapses the left character grid bar on narrow screens (under 400px).",
+        hideLeftBarCollapseButton: "Hide the toggle button that collapses the left character grid bar on narrow screens.",
         loreBookDepth:
             "Number of previous messages to scan for lorebook activation keywords. `0` disables scanning; higher values can find older keywords but may activate unnecessary lore. (0-20)",
         loreBookToken:
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
-        newOAIHandle:
-            "Use the newer OpenAI response-handling path. Try this when a model or response breaks under the legacy handler. The default is recommended for normal use.",
         newImageHandlingBeta:
             "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
-        allowAllExtentionFiles:
-            "Disable extension filtering in file pickers and allow every file type. Useful for importing character cards saved with unusual or incorrect extensions.",
-        enableDevTools:
-            "Show developer tools for debugging chat and UI behavior. Most users can leave this off.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
         pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",
@@ -348,8 +310,6 @@ export const helpEn = {
             "Show tool-call results in a simplified chat-friendly format. Use this when raw tool output is too long or noisy.",
         unrecommendedNewGoogleTrans:
             "Use the new experimental Google Translate path. It may be faster than the old path, but can break in some cases.",
-        lightningRealmImport:
-            "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
@@ -388,8 +348,6 @@ export const helpEn = {
             "Show a small saving indicator while data is being saved. Helpful on pages where frequent saves happen.",
         showPromptComparison:
             "Show the built prompt in the prompt-comparison modal. Useful for debugging prompts or reducing token usage.",
-        useChatCopy:
-            "Show a copy button next to each message. When off, copy through the message menu instead.",
         useAdditionalAssetsPreview:
             "Show thumbnail previews in the character additional-assets list. Large asset collections may load a bit more slowly.",
         hideApiKeys:
@@ -446,74 +404,8 @@ export const helpEn = {
             "Regex scripts attached to this module. See the global Regex Script help for syntax and behavior.",
         moduleAdditionalAssets:
             "Additional assets bundled with this module. They can be referenced by module background HTML, regex scripts, triggers, and prompts.",
-        googleAIKey:
-            "API key from Google AI Studio (https://aistudio.google.com). Used for direct Gemini API calls. For enterprise Vertex AI, fill in the Vertex fields below instead.",
-        vertexProjectId:
-            "Google Cloud project ID for Vertex AI. The service account used must have Vertex AI permissions on this project.",
-        vertexClientEmail:
-            "Service account email used for Vertex authentication (`...@<project>.iam.gserviceaccount.com`). Copy from your service account JSON key file.",
-        vertexPrivateKey:
-            "The `private_key` value from your service account JSON key file. Paste the full `-----BEGIN PRIVATE KEY-----` ... `-----END PRIVATE KEY-----` block. This is highly sensitive — be careful when sharing backups.",
-        vertexRegion:
-            "Region to send Vertex AI requests to. `global` auto-routes; for US users `us-central1` or `us-west1` are common. Pick a region that matches any data residency requirements you have.",
-        novellistKey:
-            "API key for NovelList (the Korean AI Novelist service). The model lineup and access rules change frequently — check NovelList's own guidance before use.",
-        mancerKey:
-            "API key for Mancer. Required when using open-source models hosted on Mancer (https://mancer.tech/).",
-        claudeApiKey:
-            "Anthropic API key (starts with `sk-ant-`). Get one at https://console.anthropic.com/settings/keys.\n\nIf you've selected an AWS Bedrock model, this key is not used — Bedrock auth is configured separately.",
-        mistralKey:
-            "Mistral AI API key from https://console.mistral.ai/api-keys/. Only needed for direct Mistral calls. If you reach Mistral models through another provider (e.g. OpenRouter), leave this blank.",
         novelaiToken:
             "Bearer token used with the NovelAI (`https://novelai.net`) API. The same token can be used for text generation, image generation, and speech synthesis.",
-        proxyAPIKey:
-            "API key the reverse proxy expects for authentication. Leave blank if your proxy doesn't require one. The value is sent as `Authorization: Bearer <key>`.",
-        proxyRequestModel:
-            "Model name to send to the proxy. Some OpenAI-compatible proxies use their own naming conventions, so paste the exact model id the proxy expects (e.g. `gpt-4o`, `claude-3-5-sonnet-20241022`).",
-        proxyFormat:
-            "Request body format for the reverse proxy.\n\n- **OpenAI Compatible**: most common, OpenAI Chat Completions shape\n- **OpenAI Response API**: the new Response API (only on supporting models)\n- **Anthropic**: Claude API shape\n- **Mistral**: Mistral's own format\n- **Google Cloud**: Vertex / Gemini\n\nPick whichever the proxy accepts. If unsure, start with OpenAI Compatible.",
-        ollamaURL:
-            "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu's local-network mode for stable access to private LAN LLMs.",
-        ollamaModel:
-            "Model name to call on the Ollama server. Run `ollama list` to see installed models and copy the name verbatim (e.g. `llama3:8b`).",
-        nanogptKey:
-            "API key for NanoGPT (https://nano-gpt.com). NanoGPT supports both pay-per-message and subscription billing — if you're on a subscription plan, also enable the toggle below.",
-        nanoGPTUseSubscriptionEndpoint:
-            "Enable this if you're on a NanoGPT subscription plan. Requests are routed to the subscription endpoint instead of pay-per-message, so they don't draw down your prepaid balance. Non-subscribers will get rejected requests with this on.",
-        nanogptModelMode:
-            "How to choose the NanoGPT model. **Select from List** picks from a dropdown of popular models NanoGPT exposes; **Manual Input** lets you type a model id directly (useful for niche or newly added models).",
-        nanogptManualModel:
-            "Model id to send to NanoGPT. Copy the exact id from NanoGPT's model list page.",
-        openrouterKey:
-            "OpenRouter API key (https://openrouter.ai/keys). One key gives you access to models from many providers; usage is billed against your OpenRouter balance.",
-        openrouterModel:
-            "Model to call through OpenRouter. The grid shows popular models — use the search to narrow down. Pricing and context limits vary per model, so check before committing.",
-        tokenizer:
-            "Tokenizer used to count tokens. Picking one that doesn't match the actual model can make the max-context limit and the displayed token usage drift apart, so choose the tokenizer that matches your model.",
-        koboldURL:
-            "URL of your Kobold / KoboldCpp server (e.g. `http://localhost:5001`). You need to be running a KoboldCpp instance separately.",
-        echoMessage:
-            "The Echo model doesn't call any LLM — it just returns whatever you put here. Useful for testing UI flow or debugging prompts without spending tokens.",
-        echoDelay:
-            "Delay (in seconds) before the Echo model returns its response. Handy for testing streaming and loading UI behavior.",
-        hordeKey:
-            "API key for AI Horde (https://stablehorde.net). You can use Horde anonymously, but priority is low and responses are slow. Setting a key lets you spend (and earn) your own kudos.",
-        textgenBlockingURL:
-            "Synchronous (blocking) API endpoint for TextGen WebUI. The WebUI must be launched with the `--api` flag (e.g. `https://server.local/api/v1/generate`).",
-        textgenStreamURL:
-            "Streaming WebSocket endpoint for TextGen WebUI. Lets responses arrive token by token. Leave blank to disable streaming.",
-        streaming:
-            "Display the model's response token-by-token in real time (only on models that support it). When off, the full response appears all at once after generation finishes, which can feel slightly slower.",
-        streamGeminiThoughts:
-            "Also stream Gemini's `thinking` tokens in real time. Only meaningful when streaming is on and the chosen Gemini model supports thinking.",
-        reverseProxyOobaMode:
-            "Enable this when your reverse proxy uses an Oobabooga-style generate endpoint. Requests are routed through the Ooba code path instead of OpenAI Chat Completions.",
-        textAdventureNAI:
-            "Call NovelAI in text-adventure mode. Output takes on an adventure-game tone — only meaningful for the NovelAI models that support this mode.",
-        appendNameNAI:
-            "Automatically inject the character/persona name into the NovelAI prompt. Off sends just the body without the name.",
-        customPlugin:
-            "Custom models are powered by a plugin. Pick the plugin provider that should generate responses. If the plugin is disabled the response will come back empty.",
         maxContextSize:
             "Maximum input tokens to send to the model. Going over the model's own limit (e.g. 128K for GPT-4o) causes errors, so keep it within bounds. Larger values increase input cost.",
         streamingOverrideHelp: "When enabled, show the response a little at a time as it is generated instead of waiting for the whole answer.",
@@ -619,10 +511,6 @@ export const helpEn = {
             "Export the current persona as a PNG file.",
         personaDelete:
             "Delete the current persona. Unlike characters, personas are deleted immediately without being moved to the trash.",
-        openRouterFallback:
-            "When the selected model is temporarily unavailable, OpenRouter automatically routes the request to a compatible fallback model. Improves reliability. Turn off to surface the original error instead.",
-        openRouterMiddleOut:
-            "OpenRouter's context compression feature. For requests that exceed the model's max context, middle messages are auto-summarized. Some models do not support this.",
         customStopWords:
             "Use stop strings. The model's response is cut as soon as one of these strings appears. Useful for blocking patterns where the character impersonates the next speaker (e.g. `{{user}}: ...`).",
 
@@ -651,42 +539,18 @@ export const helpEn = {
         ttsEnable: "Enable the TTS button and related settings so messages can be played as speech.",
         ttsAutoSpeech:
             "Automatically play the character's response as speech when it arrives. Mobile browsers may block this in the background — after enabling, tap the screen once to grant permission.",
+        ttsReadOnlyQuoted:
+            "Play only text enclosed in double quotation marks (\") or Japanese corner brackets (「 」), instead of the entire response.",
         ttsElevenLabsKey:
             "ElevenLabs (`https://elevenlabs.io`) API key. Provides the most natural-sounding voices, with a small free tier and paid plans.",
         ttsVoicevoxUrl:
             "URL of a locally running VOICEVOX (`https://voicevox.hiroshiba.jp/`) engine (e.g. `http://localhost:50021`). Strong on Japanese synthesis.",
-        ttsOpenAIKey:
-            "OpenAI TTS API key. The same key as your main OpenAI key works, but use a separate one if you want to track TTS spend separately.",
-        ttsHuggingfaceKey:
-            "HuggingFace Inference API key. Required to call HuggingFace's free or paid TTS models.",
         ttsFishSpeechKey:
-            "Fish-speech (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
+            "Fish Audio (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
 
         emotionMethod:
             "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **Embedding model**: classify using the configured remote embedding service\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
 
-        webuiApiWarning:
-            "You must use WebUI with the `--api` flag. Use either a WebUI without an AGPL license or an unmodified AGPL-licensed version in compliance with its license terms.",
-        webuiUrl:
-            "URL of an AUTOMATIC1111 or compatible WebUI (e.g. `http://localhost:7860`). The WebUI must be launched with the `--api` flag.",
-        webuiSteps:
-            "Sampling steps. 20–50 is typical. More steps slightly improve quality but linearly increase generation time. (0–100)",
-        webuiCFG:
-            "Prompt adherence (CFG). Lower = freer interpretation, higher = forced match to the prompt. Around 7 is a common middle ground. (0–20)",
-        webuiWidth:
-            "Image width in pixels. Use 1024 as a baseline for SDXL and 512 for SD1.5. Non-standard resolutions can hurt quality.",
-        webuiHeight:
-            "Image height in pixels. Use 1024 as a baseline for SDXL and 512 for SD1.5. Non-standard resolutions can hurt quality.",
-        webuiSampler:
-            "Sampler name. Type the exact name supported by your WebUI (e.g. `Euler a`, `DPM++ 2M Karras`).",
-        webuiEnableHr:
-            "Use Hires fix. Generates at a smaller resolution first, then upscales and re-denoises to add detail. Roughly doubles generation time.",
-        webuiDenoising:
-            "Strength of the re-denoise pass during Hires fix. Lower stays close to the original; higher adds more detail but drifts further. 0.4–0.6 is a typical range.",
-        webuiHrScale:
-            "Upscale ratio used during Hires fix (e.g. 2 = 2×). Memory and time cost scale linearly.",
-        webuiUpscaler:
-            "Upscaler name (e.g. `Latent`, `R-ESRGAN 4x+`, `4x-UltraSharp`). Use a name available in your WebUI's settings.",
 
         naiModel:
             "NovelAI image model to use. Newer models look better and cost slightly more (Anlas drawn from your subscription plan).",
@@ -722,77 +586,23 @@ export const helpEn = {
             "Reference strength. Low = subtle borrowing, high = near-replica. 0.5–0.8 is a good range.",
         naiStyleAware:
             "Style-aware mode. With Character Reference, also matches the character's style more strongly.",
-        naiUseSMEA:
-            "Use SMEA (Smea) sampling. Improves detail on some NAI models.",
-        naiUseDYN:
-            "Use Dynamic Thresholding (DYN). Helps with color and exposure balance.",
         naiVarietyPlus:
             "Variety+ mode. Produces more varied results from the same prompt.",
-        naiDecrisp:
-            "Decrisp mode. Softens excessive sharpness (effect varies by model).",
         naiLegacyUC:
             "Use the legacy unconditional (negative-prompt) handling. Only meaningful on NAI Diffusion 4 full / curated models.",
         naiEnableI2I:
             "Enable image-to-image. Generate variations based on a reference image.",
 
-        dalleKey:
-            "OpenAI API key for Dall-E. The same key used for text models works.",
-        dalleQuality:
-            "Image quality (`standard` / `hd`). HD costs roughly 2× more.",
 
-        stabilityKey:
-            "Stability Platform API key (`https://platform.stability.ai/`).",
-        stabilityModel:
-            "Stability model to use (`ultra` / `core` / `sd3-large` / `sd3-medium`). Ultra is the most expensive and highest quality; Core is fast and cheap.",
-        stabilityCoreStyle:
-            "Style preset for the SD Core model (Photographic / Anime / 3D Model etc). Ignored on other models.",
 
         comfyUrl:
             "URL of the local ComfyUI server accessed by this browser (e.g. `http://localhost:8188`). During generation, the browser uses this URL and its local workflow to contact ComfyUI while Node coordinates only job state and the result, so no external firewall port is required.",
         comfyTimeout:
             "Maximum seconds to wait for a ComfyUI response. Use a longer value for complex workflows. (1–120)",
 
-        falKey:
-            "Fal.ai API key (`https://fal.ai/dashboard/keys`). Used to call Flux models.",
-        falWidth:
-            "Recommended Flux width. Same idea as SDXL — 1024×1024 or 16:9 aspect ratios are recommended.",
-        falHeight:
-            "Recommended Flux height. Same idea as SDXL — 1024×1024 or 16:9 aspect ratios are recommended.",
-        falModel:
-            "Which Flux variant to use. **dev** = standard, **dev+lora** = LoRA-applied, **pro** = high quality, **schnell** = fast and cheap.",
-        falLoraWeight:
-            "LoRA application strength. 0 = ignored, 1 = fully applied. Above 1.2 results tend to break.",
 
-        imagenKey:
-            "Google AI Studio API key. The same key as your main Gemini key works.",
-        imagenModel:
-            "Imagen model to use (version 3 / 4 etc). Newer versions produce higher quality.",
-        imagenImageSize:
-            "1K / 2K. 2K costs more and is supported only on some models.",
-        imagenAspectRatio:
-            "1:1, 4:3, 16:9 and so on. Quality may suffer outside the model's recommended ratios.",
-        imagenPersonGeneration:
-            "Person-generation policy.\n\n- **allow_all**: all people\n- **allow_adult**: adults only\n- **dont_allow**: no people\n\nPrompts that don't match the policy may be rejected.",
 
-        oaiImgUrl:
-            "URL of an OpenAI-compatible image API. Must follow a standard path like `/v1/images/generations`.",
-        oaiImgKey:
-            "API key. If your server doesn't require auth, you can put any value here.",
-        oaiImgModel:
-            "Name of the image model registered on the server (exactly as the server expects).",
-        oaiImgSize:
-            "Image size. Only sizes supported by the server work.",
-        oaiImgQuality:
-            "Quality option. Only meaningful when the server supports a `quality` parameter.",
 
-        waveKey:
-            "WaveSpeed.ai API key (`https://wavespeed.ai/`). A fast, low-cost image generation router.",
-        waveModel:
-            "WaveSpeed model to use. Use the \"Refresh Models\" button above to refresh the available list, and the search box to narrow it down.",
-        waveLoras:
-            "Register up to 3 LoRA URLs and weights. Applied only when the model supports LoRA.",
-        waveImageReference:
-            "Reference image mode (None / Upload / Use Character Image). Works only when the model supports image input.",
 
         bootBackupReminder:
             "When enabled, PocketRisu Kei prompts you on every boot whether to create a server backup right away. Useful as a lightweight safety net before opening the app each session. Confirming runs a full server backup (the loading screen waits while it finishes); skipping continues straight to the app.",

@@ -6,11 +6,13 @@
         onSelect = (_index: number) => {},
         onSelectNone,
         onDelete = (_index: number) => {},
+        onDuplicate = (_index: number) => {},
         names = $bindable(['First preset', 'Second preset']),
     }: {
         onSelect?: (index: number) => void;
         onSelectNone?: () => void;
         onDelete?: (index: number) => void;
+        onDuplicate?: (index: number) => void;
         names?: string[];
     } = $props();
 </script>
@@ -27,7 +29,7 @@
     noneLabel="바인딩 안 함"
     noneSelected
     onDeleteItem={onDelete}
-    onDuplicateItem={() => {}}
+    onDuplicateItem={onDuplicate}
     onExportItem={() => {}}
     onFoldersChange={() => {}}
     onAssignItem={() => {}}

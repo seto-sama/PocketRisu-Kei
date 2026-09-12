@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { Buffer } from 'buffer'
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { alertGenerationInfoStore } from "../../ts/alert";
     
@@ -27,7 +28,7 @@
     import Help from "./Help.svelte";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
     import { PRODUCT_NAME } from "src/ts/branding";
@@ -217,14 +218,11 @@
             </h1>
             <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
-                {#if $alertStore.submsg === 'module'}
-                    <span class="text-subtext text-sm">{language.risuMDesc}</span>
-                {:else if $alertStore.submsg === 'preset'}
-                    <span class="text-subtext text-sm">{language.risupresetDesc}</span>
+                {#if $alertStore.submsg === 'preset'}
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
                         <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
-                {:else}
+                {:else if $alertStore.submsg !== 'module'}
                     <span class="text-subtext text-sm">{language.ccv3Desc}</span>
                     {#if cardExportType2 !== 'charx' && cardExportType2 !== 'charxJpeg' && isCharacterHasAssets(DBState.db.characters[$selectedCharID])}
                         <span class="text-danger text-sm">{language.notCharxWarn}</span>
@@ -810,7 +808,7 @@
                     onclick={async () => {
                         let f: {name: string, data: Uint8Array} | undefined
                         try {
-                            f = await selectSingleFile(['json'])
+                            f = await selectSingleImportFile()
                         } catch { return }
                         if (!f) return
                         try {

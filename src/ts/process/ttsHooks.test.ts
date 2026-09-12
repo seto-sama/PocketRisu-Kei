@@ -8,7 +8,7 @@ import {
 
 const makeCtx = (overrides: Partial<BeforeTTSContext> = {}): BeforeTTSContext => ({
     text: 'hello',
-    ttsMode: 'openai',
+    ttsMode: 'elevenlab',
     characterId: 'char-1',
     ...overrides,
 });

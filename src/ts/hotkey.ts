@@ -4,8 +4,6 @@ import { getCurrentChat, getDatabase  } from "./storage/database.svelte"
 import {
     alertStore,
     botMakerMode,
-    MobileGUIStack,
-    MobileSideBar,
     openHypaV3PresetList,
     openModelPresetList,
     openPersonaList,
@@ -348,59 +346,4 @@ export async function quickMenu(){
     else if(showHypaV3 && sel === idx++){
         openHypaV3PresetList.set(true)
     }
-}
-
-export function initMobileGesture(){
-    let pressingPointers = new Map<number, {x:number, y:number}>()
-
-    document.addEventListener('pointerdown', (event) => {
-        if(
-            !event.isPrimary
-            || (event.pointerType === 'mouse' && event.button !== 0)
-            || (event.target instanceof Element && event.target.closest('button, input, select, textarea'))
-        ){
-            pressingPointers.delete(event.pointerId)
-            return
-        }
-        pressingPointers.set(event.pointerId, {x: event.clientX, y: event.clientY})
-    })
-
-    document.addEventListener('pointerup', (event) => {
-        const start = pressingPointers.get(event.pointerId)
-        pressingPointers.delete(event.pointerId)
-        if(!start){
-            return
-        }
-        const moveX = event.clientX - start.x
-        const moveY = event.clientY - start.y
-
-        if(moveX > 50 && Math.abs(moveY) < Math.abs(moveX)){
-            if(get(selectedCharID) === -1){
-                if(get(MobileGUIStack) > 0){
-                    MobileGUIStack.update(v => v - 1)
-                }
-            }
-            else{
-                if(get(MobileSideBar) > 0){
-                    MobileSideBar.update(v => v - 1)
-                }
-            }
-        }
-        else if(moveX < -50 && Math.abs(moveY) < Math.abs(moveX)){
-            if(get(selectedCharID) === -1){
-                if(get(MobileGUIStack) < 2){
-                    MobileGUIStack.update(v => v + 1)
-                }
-            }
-            else{
-                if(get(MobileSideBar) < 3){
-                    MobileSideBar.update(v => v + 1)
-                }
-            }
-        }
-    })
-
-    document.addEventListener('pointercancel', (event) => {
-        pressingPointers.delete(event.pointerId)
-    })
 }

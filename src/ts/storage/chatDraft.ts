@@ -18,8 +18,6 @@ import { createDebouncedDraftWriter } from "./draftPersistence"
 export interface ChatDraft {
     /** Raw message input. */
     m: string
-    /** Translate-input buffer (input-translation feature). */
-    t: string
 }
 
 const PREFIX = 'drafts/'
@@ -62,7 +60,7 @@ function enqueue(op: () => Promise<void>): Promise<void> {
 }
 
 async function persistSave(key: string, draft: ChatDraft): Promise<void> {
-    if (!draft.m && !draft.t) { await persistRemove(key); return }
+    if (!draft.m) { await persistRemove(key); return }
     await ensureIndex()
     const bytes = new TextEncoder().encode(JSON.stringify(draft))
     maybeSaved.add(key) // mark before the write: the server may keep it even if the response is lost
@@ -103,7 +101,7 @@ export async function loadChatDraft(chaId: string, chatId: string): Promise<Chat
         const buf = await forageStorage.getItem(key)
         if (!buf || buf.length === 0) return null
         const obj = JSON.parse(new TextDecoder().decode(buf))
-        return { m: obj.m ?? '', t: obj.t ?? '' }
+        return { m: obj.m ?? '' }
     } catch {
         return null
     }

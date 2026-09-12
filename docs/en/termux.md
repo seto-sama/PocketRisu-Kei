@@ -23,7 +23,7 @@ This guide explains how to build and run PocketRisu directly on an Android phone
 | **RAM**           | 2 GB            | 4 GB or more               |
 | **Free storage** | 2 GB            | 4 GB or more (with build)  |
 
-PocketRisu does not ship pre-compiled binaries for Termux, so the phone builds everything itself. Including native modules such as `better-sqlite3`, the build takes roughly **10 to 40 minutes** depending on phone performance.
+PocketRisu builds the application locally on the phone, so build time depends on phone performance.
 
 
 ---
@@ -33,7 +33,7 @@ PocketRisu does not ship pre-compiled binaries for Termux, so the phone builds e
 ### Use the F-Droid or GitHub Releases build of Termux
 
 > ⚠️ **The Play Store version of Termux cannot be used.**
-> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages PocketRisu needs (Node.js 22+).
+> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages PocketRisu needs (Node.js 24.15+).
 
 Install Termux from one of:
 
@@ -61,7 +61,7 @@ The command takes care of:
 1. Installing `git`
 2. Cloning the PocketRisu repository
 3. Installing build dependencies (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, etc.)
-4. `pnpm install` — JavaScript dependencies and native module compilation
+4. `pnpm install` — JavaScript dependencies and optional native acceleration
 5. `pnpm build` — frontend bundling
 
 When the build finishes, you'll see:

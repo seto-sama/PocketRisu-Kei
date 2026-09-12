@@ -592,7 +592,7 @@ function parseGeminiParts(content: unknown): {
                     // Keep Gemini's real call id when present so it round-trips on
                     // the wire (functionCall/functionResponse id matching for
                     // same-name parallel calls). When omitted, leave it empty:
-                    // encodeToolCall mints a unique KV key (`|| v4()`), and the
+                    // encodeToolCall mints a unique KV key with createEntityId(), and the
                     // wire falls back to name-based matching.
                     id: typeof fn['id'] === 'string' ? (fn['id'] as string) : '',
                     name: fn['name'] as string,

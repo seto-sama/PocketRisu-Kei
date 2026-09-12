@@ -19,8 +19,6 @@
 }
 
 @theme {
-  --breakpoint-xs: 25rem;
-
   --color-lightbg: var(--risu-theme-lightbg);
   --color-darkbg: var(--risu-theme-darkbg);
   --color-lightborderc: var(--risu-theme-lightborderc);
@@ -215,8 +213,18 @@
   @apply flex min-h-8 min-w-0 items-center rounded-md px-2 py-0.5;
 }
 
-@utility risu-list-actions {
-  @apply mt-2 border-t border-selected pt-2;
+@utility risu-list-action-scroll-root {
+  --list-action-bar-footer-offset: -1.5rem;
+}
+
+@utility risu-surface-dark {
+  --risu-surface-background: var(--risu-theme-darkbg);
+  background-color: var(--risu-surface-background);
+}
+
+@utility risu-surface-light {
+  --risu-surface-background: var(--risu-theme-lightbg);
+  background-color: var(--risu-surface-background);
 }
 
 .risu-folder-section {

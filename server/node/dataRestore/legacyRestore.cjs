@@ -1,35 +1,16 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const zlib = require('zlib');
 
-const DB_BLOB_KEY = 'database/database.bin';
 const COLD_STORAGE_HEADER = '\uEF01COLDSTORAGE\uEF01';
-const HEX_FILENAME = /^[0-9a-fA-F]+$/;
 
 function createLegacyRestoreService({
-    savePath,
     sqliteDb,
     kvGet,
     kvSet,
     kvDel,
-    kvDelPrefix,
-    clearEntities,
-    flushPendingDb,
-    createBackupAndRotate,
-    invalidateDbCache,
-    prepareDatabaseProjection,
     logger,
-    setDbEtag = () => {},
 }) {
-    const migrationMarkerPath = path.join(savePath, '.migrated_to_sqlite');
-
-    if (typeof prepareDatabaseProjection !== 'function') {
-        throw new TypeError(
-            'createLegacyRestoreService requires prepareDatabaseProjection',
-        );
-    }
     function isInvalidPathSegment(name) {
         return (
             !name ||
@@ -244,155 +225,7 @@ function createLegacyRestoreService({
         }
     }
 
-    function scanHexFilesInDir(dirPath) {
-        let files;
-        try {
-            files = fs.readdirSync(dirPath);
-        } catch {
-            return { hexFiles: [], count: 0, totalSize: 0, hasDatabase: false };
-        }
-        const hexFiles = files.filter((file) => HEX_FILENAME.test(file));
-        let totalSize = 0;
-        let hasDatabase = false;
-        for (const file of hexFiles) {
-            try { totalSize += fs.statSync(path.join(dirPath, file)).size; } catch {}
-            try {
-                if (Buffer.from(file, 'hex').toString('utf-8') === DB_BLOB_KEY) {
-                    hasDatabase = true;
-                }
-            } catch {}
-        }
-        return { hexFiles, count: hexFiles.length, totalSize, hasDatabase };
-    }
-
-    function clearExistingData() {
-        for (const prefix of [
-            'assets/', 'inlay/', 'inlay_thumb/', 'inlay_meta/', 'inlay_info/',
-            'drafts/', 'remotes/', 'coldstorage/',
-        ]) {
-            kvDelPrefix(prefix);
-        }
-        clearEntities();
-    }
-
-    async function prepareLegacyImport() {
-        await flushPendingDb();
-    }
-
-    function stageImportEntries(entries) {
-        if (!Array.isArray(entries)) {
-            throw new TypeError('Legacy import entries must be an array');
-        }
-        const stagedEntries = entries.map((entry, index) => {
-            if (!entry || typeof entry.key !== 'string') {
-                throw new TypeError(`Legacy import entry ${index} has an invalid key`);
-            }
-            let value;
-            try {
-                value = Buffer.from(entry.value);
-            } catch (error) {
-                throw new TypeError(
-                    `Legacy import entry ${index} has an invalid value`,
-                    { cause: error },
-                );
-            }
-            return { key: entry.key, value };
-        });
-        const stagedByKey = new Map(stagedEntries.map((entry) => [entry.key, entry.value]));
-        const database = stagedByKey.get(DB_BLOB_KEY);
-        if (!database) {
-            throw new Error('Data does not contain database/database.bin');
-        }
-        return { entries: stagedEntries, stagedByKey, database };
-    }
-
-    function createImportSource(kind, stagedByKey, options = {}) {
-        return Object.freeze({
-            kind,
-            ...(options.location ? { location: options.location } : {}),
-            // Only expose the validated in-memory import set. The projection
-            // preparer explicitly decides whether missing REMOTE data may fall
-            // back to live KV instead of legacyRestore doing so implicitly.
-            getEntry(key) {
-                const value = stagedByKey.get(key);
-                return value === undefined ? null : Buffer.from(value);
-            },
-        });
-    }
-
-    async function prepareStagedProjection(staged, source) {
-        const prepared = await prepareDatabaseProjection(staged.database, { source });
-        if (!prepared || typeof prepared.install !== 'function') {
-            throw new TypeError(
-                'prepareDatabaseProjection must resolve to an object with install()',
-            );
-        }
-        if (prepared.install.constructor?.name === 'AsyncFunction') {
-            throw new TypeError(
-                'Prepared database projection install() must be synchronous',
-            );
-        }
-        return prepared;
-    }
-
-    function importEntries(staged, preparedProjection) {
-        const insert = sqliteDb.prepare(
-            'INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-        );
-        const now = Date.now();
-        sqliteDb.transaction(() => {
-            clearExistingData();
-            // database.bin is an import projection, never live storage. Drop a
-            // stale pre-cutover value (including a chunk manifest) in the same
-            // transaction that installs its relational replacement.
-            kvDel(DB_BLOB_KEY);
-            for (const { key, value } of staged.entries) {
-                if (key !== DB_BLOB_KEY) insert.run(key, value, now);
-            }
-            const installResult = preparedProjection.install();
-            if (installResult && typeof installResult.then === 'function') {
-                throw new TypeError(
-                    'Prepared database projection install() must be synchronous',
-                );
-            }
-        })();
-        invalidateDbCache();
-        setDbEtag(null);
-        fs.writeFileSync(migrationMarkerPath, new Date().toISOString(), 'utf-8');
-        return { imported: staged.entries.length };
-    }
-
-    async function importHexFilesFromDir(dirPath) {
-        const { hexFiles, hasDatabase } = scanHexFilesInDir(dirPath);
-        if (hexFiles.length === 0) return { imported: 0 };
-        if (!hasDatabase) {
-            throw new Error('Save folder does not contain database/database.bin');
-        }
-        const staged = stageImportEntries(hexFiles.map((file) => ({
-            key: Buffer.from(file, 'hex').toString('utf-8'),
-            value: fs.readFileSync(path.join(dirPath, file)),
-        })));
-        await prepareLegacyImport();
-        const source = createImportSource('save-folder', staged.stagedByKey, {
-            location: path.resolve(dirPath),
-        });
-        const prepared = await prepareStagedProjection(staged, source);
-        createBackupAndRotate();
-        return importEntries(staged, prepared);
-    }
-
-    async function importHexEntries(entries) {
-        if (Array.isArray(entries) && entries.length === 0) return { imported: 0 };
-        const staged = stageImportEntries(entries);
-        await prepareLegacyImport();
-        const source = createImportSource('hex-entries', staged.stagedByKey);
-        const prepared = await prepareStagedProjection(staged, source);
-        createBackupAndRotate();
-        return importEntries(staged, prepared);
-    }
-
     return {
-        migrationMarkerPath,
         normalizeColdStorageStorageKey,
         parseColdStorageJsonBuffer,
         encodeColdStorageCanonicalBuffer,
@@ -400,9 +233,6 @@ function createLegacyRestoreService({
         listColdStorageBackupEntries,
         restoreColdStorageCharactersInDb,
         restoreColdStorageChat,
-        scanHexFilesInDir,
-        importHexFilesFromDir,
-        importHexEntries,
     };
 }
 

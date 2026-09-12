@@ -1,10 +1,11 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { type character, type customscript, getDatabase, getCurrentCharacter, getCurrentChat } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "src/lang";
-import { selectSingleFile } from "../util";
+import { selectSingleImportFile } from "../util";
 import { assetRegex, type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
 import { getModuleAssets, getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { HypaProcesser } from "./memory/hypamemory";
@@ -37,7 +38,7 @@ export function exportRegex(script:customscript[]){
 }
 
 export async function importRegex(o:customscript[]):Promise<customscript[]>{
-    const filedata = (await selectSingleFile(['json']))?.data
+    const filedata = (await selectSingleImportFile())?.data
     if(!filedata){
         return o
     }
@@ -302,7 +303,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
     for (const script of scripts){
         if(script.ableFlag && script.flag?.includes('<')){
             const rregex = /<(.+?)>/g
-            const scriptData = safeStructuredClone(script)
+            const scriptData = structuredClone(script)
             let order = 0
             const actions:string[] = []
             scriptData.flag = scriptData.flag?.replace(rregex, (v:string, p1:string) => {

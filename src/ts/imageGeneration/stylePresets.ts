@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from '../id'
 import type { RisuModule } from '../process/modules'
 import type { loreBook } from '../storage/database.svelte'
 
@@ -39,7 +39,7 @@ function isImageStylePresetLorebook(lorebook: loreBook): boolean {
 
 export function getImageStylePresetId(module: RisuModule, lorebook: loreBook): string {
     if (!(lorebook.secondkey ?? '').trim() && canUseSecondaryKeyAsPresetId(lorebook)) {
-        lorebook.secondkey = lorebook.id || uuidv4()
+        lorebook.secondkey = lorebook.id || createEntityId()
     }
     return JSON.stringify([module.id, lorebook.id || lorebook.secondkey || lorebook.comment])
 }
@@ -71,7 +71,7 @@ export function ensureImageStylePresetModule(db: ImageStylePresetDatabase): Risu
     let module = db.modules.find(item => item.namespace === IMAGE_STYLE_PRESET_MODULE_NAMESPACE)
     if (!module) {
         module = {
-            id: uuidv4(),
+            id: createEntityId(),
             name: IMAGE_STYLE_PRESET_MODULE_NAME,
             description: '이미지 생성 그림체 프리셋',
             namespace: IMAGE_STYLE_PRESET_MODULE_NAMESPACE,
@@ -114,7 +114,7 @@ export function createImageStylePreset(
     if (!trimmedName) throw new Error('Image style preset name is required')
     const lorebook: loreBook = {
         key: '',
-        secondkey: uuidv4(),
+        secondkey: createEntityId(),
         insertorder: 1000,
         comment: `${IMAGE_STYLE_PRESET_PREFIX}${trimmedName}`,
         content: formatImageStylePresetContent(positive, negative, target.imageGenerationPresetId),
@@ -146,7 +146,7 @@ export function createImageStyleLorebookFolder(
     const trimmedName = name.trim()
     if (!trimmedName) return undefined
     module.lorebook ??= []
-    const key = `\uf000folder:${uuidv4()}`
+    const key = `\uf000folder:${createEntityId()}`
     module.lorebook.push({
         key,
         secondkey: '',

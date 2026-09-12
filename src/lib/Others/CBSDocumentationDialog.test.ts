@@ -3,9 +3,14 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { mount, tick, unmount } from 'svelte'
 import CBSDocumentationDialog from './CBSDocumentationDialog.svelte'
+import { getCBSDocumentation } from 'src/ts/cbsDocumentation'
 
 vi.mock('src/ts/parser/parser.svelte', () => ({
     parseMarkdownSafe: (text:string) => text,
+}))
+
+vi.mock('src/ts/cbsDocumentation', () => ({
+    getCBSDocumentation: vi.fn(() => []),
 }))
 
 let component:unknown
@@ -26,8 +31,8 @@ describe('CBS documentation dialog', () => {
         })
         await tick()
 
-        expect(document.body.textContent).toContain('char')
-        expect(document.body.textContent).not.toContain('Loading')
+        expect(getCBSDocumentation).toHaveBeenCalledOnce()
+        expect(document.querySelector('[role="dialog"] input')).not.toBeNull()
 
         document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
         await tick()

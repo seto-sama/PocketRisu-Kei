@@ -1,6 +1,6 @@
 // @vitest-environment node
 import crypto from 'node:crypto'
-import Database from 'better-sqlite3'
+import Database from './sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataMigrationPkg from './appDataMigration.cjs'
 import appDataStorePkg from './appDataStore.cjs'

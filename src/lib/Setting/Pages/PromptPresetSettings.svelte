@@ -14,7 +14,7 @@
         promptPresetParameterItems,
     } from "src/ts/setting/promptPresetSettingsData.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImageFile } from "src/ts/util";
     import Button from "../../UI/components/Button.svelte";
     import { ImageIcon, XIcon } from "@lucide/svelte";
 
@@ -29,7 +29,7 @@
     }];
 
     async function uploadIcon() {
-        const selected = await selectSingleFile(['png', 'jpg', 'jpeg', 'webp']);
+        const selected = await selectSingleImageFile();
         if (!selected) return;
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');

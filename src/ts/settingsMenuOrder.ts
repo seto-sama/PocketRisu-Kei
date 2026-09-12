@@ -36,19 +36,3 @@ export function normalizeSettingsMenuOrder(value: unknown): string[] {
     }
     return normalized
 }
-
-export function getVisibleSettingsMenuOrder(order: string[], lite: boolean): string[] {
-    const visibleKeys = lite
-        ? new Set([SETTINGS_MENU_SEARCH, SETTINGS_MENU_LANGUAGE])
-        : settingsMenuKeys
-    return order.filter((key) => visibleKeys.has(key))
-}
-
-// Preserve the positions of entries hidden by the Lite UI while reordering visible entries.
-export function mergeVisibleSettingsMenuOrder(storedOrder: string[], visibleOrder: string[]): string[] {
-    const visibleKeys = new Set(visibleOrder)
-    let visibleIndex = 0
-    return storedOrder.map((key) =>
-        visibleKeys.has(key) ? visibleOrder[visibleIndex++] : key
-    )
-}

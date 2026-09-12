@@ -1,7 +1,7 @@
 <script lang="ts">
     import { getChatBoundPersona } from "src/ts/chatBindingState";
 
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
@@ -17,8 +17,8 @@
     import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
-    import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
-    import { alertConfirm, alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
+    import { recoverAuxiliaryTranslationJobs } from "../../ts/translator/translator";
+    import { alertConfirm, alertError, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
@@ -26,7 +26,7 @@ import { isMobile } from 'src/ts/platform'
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import { CHAT_HISTORY_LOAD_THRESHOLD, createChatScrollController, isChatNearBottom, type ChatScrollController } from './chatScroll';
-    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile, requestImmediateSave } from 'src/ts/globalApi.svelte';
+    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, requestImmediateSave } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
     import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
@@ -38,7 +38,7 @@ import { isMobile } from 'src/ts/platform'
         type PreparedChatReroll,
     } from 'src/ts/process/revenant/chatGeneration';
     import { runTrigger } from 'src/ts/process/triggers';
-    import { v4 } from 'uuid';
+    import { createEntityId } from 'src/ts/id';
     import { processMultiCommand } from 'src/ts/process/command';
     import { runAutomaticRerolls, type AutomaticRerollResult } from 'src/ts/process/automaticReroll';
     import { postChatFile } from 'src/ts/process/files/multisend';
@@ -104,13 +104,11 @@ import { isMobile } from 'src/ts/platform'
     }
 
     let messageInput:string = $state('')
-    let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
     let translationOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
-    let doingChatInputTranslate = false
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let showScrollNav = $state(false)
@@ -412,7 +410,7 @@ import { isMobile } from 'src/ts/platform'
 
         const character = currentCharacter
         const chat = currentChatSlot
-        const messageId = message.chatId ?? v4()
+        const messageId = message.chatId ?? createEntityId()
         message.chatId = messageId
         imageRerollingTarget = { roomId: chat.id, messageId }
         try {
@@ -460,8 +458,8 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // History depth belongs to a room. Carrying a large value (or Infinity
-    // from screenshot/search navigation) into the next room mounts its entire
+    // History depth belongs to a room. Carrying a large value from search
+    // navigation into the next room mounts its entire
     // history in one frame and makes translated chats especially expensive.
     $effect.pre(() => {
         if (loadPagesRoomKey === currentChatRoomKey) return
@@ -563,7 +561,7 @@ import { isMobile } from 'src/ts/platform'
     let draftLoading = $state(false)
 
     function persistDraftNow() {
-        flushChatDraft(draftChaId, draftChatId, { m: messageInput, t: messageInputTranslate })
+        flushChatDraft(draftChaId, draftChatId, { m: messageInput })
     }
 
     // Load on chat enter (keyed by id, so no wait for hydration); flush the
@@ -572,16 +570,15 @@ import { isMobile } from 'src/ts/platform'
         const chaId = draftChaId
         const chatId = draftChatId
         if (!chaId || !chatId) return
-        untrack(() => { messageInput = ''; messageInputTranslate = ''; draftLoading = true })
+        untrack(() => { messageInput = ''; draftLoading = true })
         let active = true
         ;(async () => {
             const draft = await loadChatDraft(chaId, chatId)
             if (!active) return
             untrack(() => {
                 // Don't clobber text the user began typing during the load.
-                if (draft && messageInput === '' && messageInputTranslate === '') {
+                if (draft && messageInput === '') {
                     messageInput = draft.m
-                    messageInputTranslate = draft.t
                 }
                 draftLoading = false
             })
@@ -594,7 +591,6 @@ import { isMobile } from 'src/ts/platform'
             active = false
             flushChatDraft(chaId, chatId, {
                 m: untrack(() => messageInput),
-                t: untrack(() => messageInputTranslate),
             })
         }
     })
@@ -605,9 +601,8 @@ import { isMobile } from 'src/ts/platform'
         const chaId = draftChaId
         const chatId = draftChatId
         const m = messageInput
-        const t = messageInputTranslate
         if (!chaId || !chatId || draftLoading) return
-        scheduleSaveChatDraft(chaId, chatId, { m, t })
+        scheduleSaveChatDraft(chaId, chatId, { m })
     })
 
     // Best-effort persist on tab hide / unload (refresh, app switch): the
@@ -681,7 +676,7 @@ import { isMobile } from 'src/ts/platform'
                         : Promise.resolve(0),
                     recoverRevenantGenerationsForChat(char, chat, {
                         onDeferredRecovered: recovered => {
-                            if (recovered > 0 && DBState.db.playMessage) {
+                            if (recovered > 0) {
                                 playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
                             }
                         },
@@ -689,10 +684,10 @@ import { isMobile } from 'src/ts/platform'
                 ])
                 if (recoveredTranslations + recoveredOther === 0) return
 
-                if (recoveredOther > 0 && DBState.db.playMessage) {
+                if (recoveredOther > 0) {
                     playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
                 }
-                else if (recoveredTranslations > 0 && DBState.db.playMessageOnTranslateEnd) {
+                else if (recoveredTranslations > 0) {
                     playNotificationSound(DBState.db.translateSound, DBState.db.translateSoundVolume)
                 }
             }).catch(error => {
@@ -953,7 +948,6 @@ import { isMobile } from 'src/ts/platform'
         let submittedMessageInput = messageInput
         const submittedFiles = [...fileInput]
         messageInput = ''
-        messageInputTranslate = ''
         fileInput = []
         removeChatDraft(generationTarget.characterId, generationTarget.roomId)
         const foregroundContext = beginForegroundGeneration(generationTarget)
@@ -1058,7 +1052,6 @@ import { isMobile } from 'src/ts/platform'
                 messageInput = nextValue
                 await tick()
                 updateInputSizeAll()
-                updateInputTransateMessage(false)
             },
             onSubmit: (nextValue) => {
                 messageInput = nextValue
@@ -1141,7 +1134,7 @@ import { isMobile } from 'src/ts/platform'
         }
         const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
         if (!prepared) return failedGenerationAttempt()
-        const messageChatId = v4()
+        const messageChatId = createEntityId()
         openMenu = false
         const foregroundContext = beginForegroundGeneration(generationTarget)
         foregroundContext.rerollSession = prepared.session
@@ -1310,7 +1303,7 @@ import { isMobile } from 'src/ts/platform'
         }
         if(!detached) $doingChat = false
         releaseForegroundGeneration(foregroundContext)
-        if(!detached && DBState.db.playMessage){
+        if(!detached){
             playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
         }
         // A detached generation is still owned by its Revenant workflow. Treat
@@ -1377,8 +1370,6 @@ import { isMobile } from 'src/ts/platform'
     let inputHeight = $state("44px")
     let inputOverflow = $state(false)
     let inputEle:HTMLTextAreaElement = $state()
-    let inputTranslateHeight = $state("44px")
-    let inputTranslateEle:HTMLTextAreaElement = $state()
 
     // Standard theme: composer width follows the configured chat width (matches message cards).
     // Other themes: no width limit (original full-width behavior).
@@ -1396,7 +1387,6 @@ import { isMobile } from 'src/ts/platform'
 
     function updateInputSizeAll() {
         updateInputSize()
-        updateInputTranslateSize()
     }
 
     async function appendTranslationToMessageInput(translation: string) {
@@ -1414,13 +1404,6 @@ import { isMobile } from 'src/ts/platform'
         updateInputSizeAll()
     }
 
-    function updateInputTranslateSize() {
-        if(inputTranslateEle) {
-            inputTranslateEle.style.height = "0";
-            inputTranslateHeight = (inputTranslateEle.scrollHeight) + "px";
-            inputTranslateEle.style.height = inputTranslateHeight
-        }
-    }
     // Measure the textarea's content height at a given css width (empty = current
     // flex width), restoring the override afterwards.
     function measureHeightAt(cssWidth:string):number {
@@ -1466,107 +1449,6 @@ import { isMobile } from 'src/ts/platform'
         updateInputSizeAll()
     });
 
-    async function updateInputTransateMessage(reverse: boolean) {
-        if(!DBState.db.useAutoTranslateInput){
-            return
-        }
-        if(isExpTranslator()){
-            if(!reverse){
-                messageInputTranslate = ''
-                return
-            }
-            if(messageInputTranslate === '') {
-                messageInput = ''
-                return
-            }
-            const lastMessageInputTranslate = messageInputTranslate
-            await sleep(1500)
-            if(lastMessageInputTranslate === messageInputTranslate){
-                translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-                    if(translatedMessage){
-                        if(reverse)
-                            messageInput = translatedMessage
-                        else
-                            messageInputTranslate = translatedMessage
-                    }
-                })
-            }
-            return
-
-        }
-        if(reverse && messageInputTranslate === '') {
-            messageInput = ''
-            return
-        }
-        if(!reverse && messageInput === '') {
-            messageInputTranslate = ''
-            return
-        }
-        translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-            if(translatedMessage){
-                if(reverse)
-                    messageInput = translatedMessage
-                else
-                    messageInputTranslate = translatedMessage
-            }
-        })
-    }
-
-    async function screenShot(){
-        try {
-            loadPages = Infinity
-            const html2canvas = await import('html-to-image');
-            const chats = document.querySelectorAll('.default-chat-screen .risu-chat')
-            alertWait("Taking screenShot...")
-            let canvases:HTMLCanvasElement[] = []
-
-            for(const chat of chats){
-                const cnv = await html2canvas.toCanvas(chat as HTMLElement)
-                alertWait("Taking screenShot... "+canvases.length+"/"+chats.length)
-                canvases.push(cnv)
-            }
-
-            alertWait("Merging images...")
-
-            let mergedCanvas = document.createElement('canvas');
-            mergedCanvas.width = 0;
-            mergedCanvas.height = 0;
-            let mergedCtx = mergedCanvas.getContext('2d');
-
-            let totalHeight = 0;
-            let maxWidth = 0;
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                totalHeight += canvas.height;
-                maxWidth = Math.max(maxWidth, canvas.width);
-
-                mergedCanvas.width = maxWidth;
-                mergedCanvas.height = totalHeight;
-            }
-
-            mergedCtx.fillStyle = 'var(--risu-theme-lightbg)'
-            mergedCtx.fillRect(0, 0, maxWidth, totalHeight);
-            let indh = 0
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                indh += canvas.height
-                mergedCtx.drawImage(canvas, 0, indh - canvas.height);
-                canvases[i].remove();
-            }
-
-            if(mergedCanvas){
-                await downloadFile(`chat-${v4()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
-                mergedCanvas.remove();
-            }
-            notifySuccess(language.screenshotSaved)
-            loadPages = getInitialChatLoadPages(DBState.db)
-        } catch (error) {
-            console.error(error)
-            notifyError("Error while taking screenshot")
-        }
-    }
-
-    
 </script>
 
 
@@ -1711,7 +1593,7 @@ import { isMobile } from 'src/ts/platform'
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content side="top" align="start" class="min-w-48">
                             <IconButtonGroup size="sm" direction="vertical" className="w-full items-stretch">
-                                {#if DBState.db.ttsEnabled && (DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab')}
+                                {#if DBState.db.ttsEnabled && DBState.db.characters[$selectedCharID].ttsPresetId}
                                     <DropdownMenu.Item onSelect={() => stopTTS()}>
                                         <MicOffIcon /><span>{language.ttsStop}</span>
                                     </DropdownMenu.Item>
@@ -1829,12 +1711,12 @@ import { isMobile } from 'src/ts/platform'
                             }
                         }
                     }}
-                          oninput={()=>{updateInputSizeAll();updateInputTransateMessage(false)}}
+                          oninput={updateInputSizeAll}
                           onblur={persistDraftNow}
                           style:height={inputHeight}
                 ></textarea>
 
-                {#if currentRoomHasMainGeneration || doingChatInputTranslate}
+                {#if currentRoomHasMainGeneration}
                     <button
                             aria-labelledby="cancel"
                             disabled={workflowCancelInFlight}
@@ -1858,33 +1740,6 @@ import { isMobile } from 'src/ts/platform'
                 </IconButtonGroup>
               </div>
             </div>
-            {#if DBState.db.useAutoTranslateInput}
-                <div class="flex items-center mt-2 mb-2">
-                    <label for='messageInputTranslate' class="text-maintext ml-4">
-                        <LanguagesIcon size={20} />
-                    </label>
-                    <textarea id = 'messageInputTranslate' class="risu-field-border text-maintext rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
-                              bind:value={messageInputTranslate}
-                              bind:this={inputTranslateEle}
-                              onkeydown={(e) => {
-                            if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
-                                if(shouldSendOnEnter(e)){
-                                    send()
-                                    e.preventDefault()
-                                }
-                            }
-                            if(e.key.toLocaleLowerCase() === "m" && (e.ctrlKey)){
-                                reroll()
-                                e.preventDefault()
-                            }
-                        }}
-                              oninput={()=>{updateInputSizeAll();updateInputTransateMessage(true)}}
-                              placeholder={language.enterMessageForTranslateToEnglish}
-                              style:height={inputTranslateHeight}
-                    ></textarea>
-                </div>
-            {/if}
-
             {#if fileInput.length > 0}
                 <div class="flex items-center ml-4 flex-wrap p-2 m-2 border-darkborderc border rounded-md">
                     {#each fileInput as file, i}

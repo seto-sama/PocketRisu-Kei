@@ -1,4 +1,4 @@
-import { v4 } from 'uuid';
+import { createEntityId } from './id';
 import type { RisuModule} from './process/modules.ts'
 import type { character, RisuPersona } from './storage/database.svelte.js';
 import { createBlankChar } from "src/ts/characters";
@@ -13,7 +13,7 @@ export function convertModuleToCharacter(m: RisuModule): character {
     char.name = m.name
     char.creatorNotes = m.description
     // deep-clone: the @@indicator consumption below splices this array — must not strip entries from the source module (upstream 912ecbbd is entry-only and misses this)
-    char.globalLore = safeStructuredClone(m.lorebook || [])
+    char.globalLore = structuredClone(m.lorebook || [])
     char.customscript = m.regex || []
     char.triggerscript = m.trigger || []
     char.lowLevelAccess = m.lowLevelAccess || false
@@ -25,7 +25,7 @@ export function convertModuleToCharacter(m: RisuModule): character {
     char.image = m.icon || ""
 
     for(let i = 0; i < char.globalLore.length; i++){
-        const lore = safeStructuredClone(char.globalLore[i])
+        const lore = structuredClone(char.globalLore[i])
         if(lore.content.startsWith('@@indicator replace_global_note') || lore.content.startsWith('@@indicator phi')){
             // Backward compatibility: older modules used the `phi` marker.
             char.replaceGlobalNote = lore.content.replace(/^@@indicator\s+(?:replace_global_note|phi)/, '').trim()
@@ -50,7 +50,7 @@ export function convertModuleToCharacter(m: RisuModule): character {
         }
     }
 
-    return safeStructuredClone(char)
+    return structuredClone(char)
 }
 
 export function convertCharacterToModule(c: character): RisuModule {
@@ -66,11 +66,11 @@ export function convertCharacterToModule(c: character): RisuModule {
         assets: c.additionalAssets,
         namespace: c.moduleNamespace,
         customModuleToggle: c.customModuleToggle,
-        id: v4(),
+        id: createEntityId(),
         icon: c.image
     }
     // deep-clone so the @@indicator entries pushed below don't mutate the source character's globalLore (upstream 8e6d3761)
-    mod.lorebook = safeStructuredClone(mod.lorebook || [])
+    mod.lorebook = structuredClone(mod.lorebook || [])
 
 
     if(c.desc){
@@ -118,7 +118,7 @@ export function convertCharacterToModule(c: character): RisuModule {
         })
     }
 
-    return safeStructuredClone(mod)
+    return structuredClone(mod)
 }
 
 export function convertPersonaToCharacter(p: RisuPersona): character {
@@ -132,29 +132,30 @@ export function convertPersonaToCharacter(p: RisuPersona): character {
     char.largePortrait = p.largePortrait || false
     char.creatorNotes = p.note || ""
     char.desc = p.personaPrompt
-    return safeStructuredClone(char)
+    return structuredClone(char)
 }
 
 export function convertCharacterToPersona(c: character): RisuPersona {
     const p: RisuPersona = {
+        id: createEntityId(),
         name: c.name,
         icon: c.image,
         personaPrompt: c.desc,
         note: c.creatorNotes,
         embeddedModule: convertCharacterToModule(c)
     }
-    return safeStructuredClone(p)
+    return structuredClone(p)
 }
 
 export function convertPersonaToModule(p: RisuPersona): RisuModule {
     let baseModule: RisuModule = {
         name: "",
         description: "",
-        id: v4()
+        id: createEntityId()
     }
     
     if(p.embeddedModule){
-        baseModule = safeStructuredClone(p.embeddedModule)
+        baseModule = structuredClone(p.embeddedModule)
     }
 
     baseModule.name = p.name
@@ -175,10 +176,11 @@ export function convertPersonaToModule(p: RisuPersona): RisuModule {
 
 export function convertModuleToPersona(m: RisuModule): RisuPersona {
     let basePersona: RisuPersona = {
+        id: createEntityId(),
         name: "",
         icon: "",
         personaPrompt: "",
-        embeddedModule: safeStructuredClone(m)
+        embeddedModule: structuredClone(m)
     }
 
     basePersona.name = m.name
@@ -191,5 +193,5 @@ export function convertModuleToPersona(m: RisuModule): RisuPersona {
         return true
     })
     basePersona.embeddedModule.id = '$embedded'
-    return safeStructuredClone(basePersona)
+    return structuredClone(basePersona)
 }

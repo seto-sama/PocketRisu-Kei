@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { getDatabase } from "./database.svelte";
 import { downloadFile } from "../globalApi.svelte";
 import { notifySuccess } from "../alert";

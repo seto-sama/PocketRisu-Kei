@@ -8,13 +8,14 @@ import { resetScriptCache } from "./process/scripts";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
 import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
+import { lgViewport } from './gui/breakpoints'
 
 function updateSize(){
     SizeStore.set({
         w: window.innerWidth,
         h: window.innerHeight
     })
-    DynamicGUI.set(window.innerWidth <= 1024)
+    DynamicGUI.set(!lgViewport.matches())
 }
 
 export const SizeStore = writable({
@@ -26,7 +27,7 @@ export const loadedStore = writable(false)
 export const isTouchDevice = writable(typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches)
 export const DynamicGUI = writable(false)
 export const sideBarClosing = writable(false)
-export const sideBarStore = writable(window.innerWidth > 1024)
+export const sideBarStore = writable(lgViewport.matches())
 export const leftBarCollapsed = writable(false)
 export const selectedCharID = writable(-1)
 export const chatDeselected = writable(false)
@@ -59,9 +60,6 @@ export const openPersonaList = writable(false)
 export const personaSelectCallback = writable<((index: number) => void) | null>(null)
 export const openHypaV3PresetList = writable(false)
 export const bookmarkListOpen = writable(false)
-export const MobileGUI = writable(false)
-export const MobileGUIStack = writable(0)
-export const MobileSideBar = writable(0)
 export const SettingsMenuIndex = writable(-1)
 // Boot-time backup reminder prompt — set by bootstrap and rendered by
 // BootBackupPrompt. The component resolves the user's choice (proceed/skip)
@@ -139,7 +137,6 @@ export const OpenRealmStore = writable(false)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')
 export const SafeModeStore = writable(false)
-export const MobileSearch = writable('')
 export const CharConfigSubMenu = writable(0)
 export const alertStore = writable({
     type: 'none',

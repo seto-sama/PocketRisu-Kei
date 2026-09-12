@@ -60,9 +60,8 @@ describe('PluginMemoryPrompt', () => {
         await tick()
         expect(switches[0].dataset.state).toBe('unchecked')
 
-        const proceed = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Proceed')
-        proceed?.click()
+        const dialogButtons = document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')
+        dialogButtons[dialogButtons.length - 1].click()
         await tick()
 
         expect(resolve).toHaveBeenCalledWith({

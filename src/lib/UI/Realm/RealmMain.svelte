@@ -11,7 +11,6 @@
     import IconButtonGroup from "../components/IconButtonGroup.svelte";
     import Dialog from "../components/Dialog.svelte";
     import * as DropdownMenu from "../components/dropdown-menu";
-    import { MobileGUIStack } from "src/ts/stores.svelte";
     import { filterMutedRealmCharacters, realmMuteStore } from "src/ts/realmMute";
     import RealmMuteManager from "./RealmMuteManager.svelte";
 
@@ -38,8 +37,7 @@
     function closeRealm() {
         open = false
         openedData = null
-        if (onClose) onClose()
-        else MobileGUIStack.set(1)
+        onClose?.()
     }
 
     async function getHub(){

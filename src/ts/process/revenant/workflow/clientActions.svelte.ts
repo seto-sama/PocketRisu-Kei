@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { get } from 'svelte/store'
 import { alertConfirm, alertError, alertInput, alertNormal, alertSelect } from '../../../alert'
 import { fetchNative, readImage } from '../../../globalApi.svelte'
@@ -106,7 +106,7 @@ async function executeProviderAction(
                 workflowId: workflow.workflowId,
                 parentStepKey: stepKey,
                 actionId: action.actionId,
-                executionId: uuidv4(),
+                executionId: createEntityId(),
                 jobStepKey: 'model.main',
             },
         }, preset, 'model', signal ?? null))
@@ -146,7 +146,7 @@ async function executeProviderAction(
             workflowId: workflow.workflowId,
             parentStepKey: stepKey,
             actionId: action.actionId,
-            executionId: uuidv4(),
+            executionId: createEntityId(),
         },
     }, preset, delegatedMode, signal ?? null)
     if (response.type === 'fail') return { success: false, result: `Error: ${response.result}` }

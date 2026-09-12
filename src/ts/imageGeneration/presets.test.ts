@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-    appendImageGenerationPreset,
     captureNAIImageCoreSettings,
     createImageGenerationPreset,
     decodeImageGenerationPresetFile,
     duplicateImageGenerationPreset,
     getNAIImageDimensions,
     getCurrentImageGenerationPreset,
-    moveImageGenerationPreset,
     normalizeImageGenerationPresetState,
-    removeImageGenerationPreset,
 } from './presets'
 
 function legacyImageState() {
@@ -26,8 +23,6 @@ function legacyImageState() {
             steps: 28,
             scale: 5,
             cfg_rescale: 0,
-            sm: true,
-            sm_dyn: false,
             noise: 0.2,
             strength: 0.65,
             image: 'assets/i2i.png',
@@ -39,7 +34,6 @@ function legacyImageState() {
             v4_prompt: { caption: { base_caption: '', char_captions: [] }, use_coords: false, use_order: true },
             v4_negative_prompt: { caption: { base_caption: '', char_captions: [] }, legacy_uc: false },
             variety_plus: false,
-            decrisp: false,
             reference_mode: '',
             character_image: '',
             character_base64image: '',
@@ -105,38 +99,20 @@ describe('image generation presets', () => {
         expect(getNAIImageDimensions('large', 'square')).toEqual([1472, 1472])
     })
 
-    it('keeps the selected preset stable while moving and removing presets', () => {
-        const state = legacyImageState()
-        normalizeImageGenerationPresetState(state as never)
-        state.imageGenerationPresets!.push(
-            createImageGenerationPreset('Second', state.imageGenerationPresets![0].settings),
-            createImageGenerationPreset('Third', state.imageGenerationPresets![0].settings),
-        )
-        state.imageGenerationPresetId = 1
-        const selectedId = state.imageGenerationPresets![1].id
-
-        expect(moveImageGenerationPreset(state as never, 1, 3)).toBe(true)
-        expect(getCurrentImageGenerationPreset(state as never).id).toBe(selectedId)
-        expect(removeImageGenerationPreset(state as never, 0)).toBe(true)
-        expect(getCurrentImageGenerationPreset(state as never).id).toBe(selectedId)
-
-        state.imageGenerationPresets = [state.imageGenerationPresets![state.imageGenerationPresetId]]
-        state.imageGenerationPresetId = 0
-        expect(removeImageGenerationPreset(state as never, 0)).toBe(false)
-    })
-
-    it('appends and duplicates presets while selecting the new entry', () => {
+    it('duplicates domain settings and tags with a fresh stable id', () => {
         const state = legacyImageState()
         normalizeImageGenerationPresetState(state as never)
         const first = state.imageGenerationPresets![0]
-        const added = createImageGenerationPreset('Added', first.settings)
+        first.tagIds = ['tag-a']
 
-        appendImageGenerationPreset(state as never, added)
         const duplicate = duplicateImageGenerationPreset(state as never, 0, 'Copy')
 
-        expect(state.imageGenerationPresetId).toBe(2)
+        expect(state.imageGenerationPresetId).toBe(1)
         expect(duplicate?.name).toBe(`${first.name} Copy`)
         expect(duplicate?.id).not.toBe(first.id)
+        expect(duplicate?.settings).not.toBe(first.settings)
+        expect(duplicate?.tagIds).toEqual(['tag-a'])
+        expect(duplicate?.tagIds).not.toBe(first.tagIds)
     })
 
     it('captures only lightweight fields for the quick editor', () => {

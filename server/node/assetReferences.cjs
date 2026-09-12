@@ -45,7 +45,6 @@ function collectDatabaseAssetBasenames(
     }
     add(dbObj.NAIImgConfig?.character_image);
     add(dbObj.NAIImgConfig?.image);
-    add(dbObj.wavespeedImage?.reference_image);
 
     if (Array.isArray(dbObj.characters)) {
         for (const character of dbObj.characters) {

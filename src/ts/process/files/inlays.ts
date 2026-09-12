@@ -1,5 +1,6 @@
+import { Buffer } from 'buffer'
 import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { getImageType } from "src/ts/media";
 import { getDatabase } from "../../storage/database.svelte";
 import { LLMFormat } from "src/ts/model/modellist";
@@ -475,14 +476,14 @@ export async function postInlayAsset(img: { name: string, data: Uint8Array }) {
 
     if (INLAY_AUDIO_EXTENSIONS.includes(extention as typeof INLAY_AUDIO_EXTENSIONS[number])) {
         const audioBlob = new Blob([asBuffer(img.data)], { type: `audio/${extention}` })
-        const imgid = v4()
+        const imgid = createEntityId()
         await setInlayAsset(imgid, { name: img.name, data: audioBlob, ext: extention, type: 'audio' })
         return `${imgid}`
     }
 
     if (INLAY_VIDEO_EXTENSIONS.includes(extention as typeof INLAY_VIDEO_EXTENSIONS[number])) {
         const videoBlob = new Blob([asBuffer(img.data)], { type: `video/${extention}` })
-        const imgid = v4()
+        const imgid = createEntityId()
         await setInlayAsset(imgid, { name: img.name, data: videoBlob, ext: extention, type: 'video' })
         return `${imgid}`
     }
@@ -521,7 +522,7 @@ export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: st
             },
         )
         : pngBlob
-    const imgid = arg.id ?? v4()
+    const imgid = arg.id ?? createEntityId()
     await setInlayAsset(imgid, { name: arg.name ?? imgid, data: imageBlob, ext, height: drawHeight, width: drawWidth, type: 'image' })
     return `${imgid}`
 }

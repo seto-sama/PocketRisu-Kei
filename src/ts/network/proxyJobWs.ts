@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 export type ProxyJobWsEvent =
     | { type: 'job_accepted', jobId: string }
     | { type: 'provider_started', startedAt: number }

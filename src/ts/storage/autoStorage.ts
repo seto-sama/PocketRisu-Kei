@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import {
     NodeStorage,
     type DatabaseProjection,
@@ -6,8 +7,6 @@ import {
 } from "./nodeStorage"
 
 export class AutoStorage{
-    isAccount:boolean = false
-
     realStorage:NodeStorage
 
     async setItem(key:string, value:Uint8Array, etag?:string):Promise<string|null> {
@@ -27,10 +26,6 @@ export class AutoStorage{
     }
     async removeItem(key:string){
         return await this.realStorage.removeItem(key)
-    }
-
-    async checkAccountSync(){
-        return false
     }
 
     async Init(){
@@ -124,12 +119,6 @@ export class AutoStorage{
     async deleteServerBackup(filename: string) { await this.Init(); return this.realStorage.deleteServerBackup(filename) }
     async downloadServerBackup(filename: string) { await this.Init(); return this.realStorage.downloadServerBackup(filename) }
 
-    // ── Save-folder migration ─────────────────────────────────────────────────
-    async scanSaveFolder(folderPath?: string) { await this.Init(); return this.realStorage.scanSaveFolder(folderPath) }
-    async executeSaveFolderImport(folderPath?: string) { await this.Init(); return this.realStorage.executeSaveFolderImport(folderPath) }
-    async uploadSaveFolderZip(file: Blob, onProgress?: (loaded: number, total: number) => void) { await this.Init(); return this.realStorage.uploadSaveFolderZip(file, onProgress) }
-    async scanCleanup() { await this.Init(); return this.realStorage.scanCleanup() }
-    async executeCleanup() { await this.Init(); return this.realStorage.executeCleanup() }
 }
 
 /** Process-wide storage facade shared by persistence and network services. */

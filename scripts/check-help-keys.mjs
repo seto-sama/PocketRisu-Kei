@@ -11,7 +11,7 @@
  *  2. **Dead keys** — entries defined in `help.en.ts` that no source file
  *     references. Candidates for removal.
  *  3. **Untranslated keys** — keys present in `help.en.ts` but missing in
- *     `help.ko.ts`. The user sees the English text as a `lodash/merge` fallback.
+ *     `help.ko.ts`. The user sees the English text through the language fallback.
  *
  * Usage:
  *   node scripts/check-help-keys.mjs           # report-only (exit 0)

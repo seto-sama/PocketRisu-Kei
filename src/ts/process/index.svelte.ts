@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
 import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
@@ -14,7 +15,7 @@ import { shouldSuppressGenerationErrorModal } from './generationErrorPresentatio
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { runTrigger, type additonalSysPrompt } from "./triggers";
 import { HypaProcesser } from "./memory/hypamemory";
 import { additionalInformations } from "./embedding/addinfo";
@@ -188,7 +189,7 @@ function restoreHypaChatCheckpoint(
             restored.push(chat)
         }
         else if(isOpenAIChatCheckpoint(checkpoint.chat)){
-            restored.push(safeStructuredClone(checkpoint.chat))
+            restored.push(structuredClone(checkpoint.chat))
         }
         else return undefined
     }
@@ -485,13 +486,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return false
     }
     targetChat.message = targetChat.message.map((v) => {
-        v.chatId = v.chatId ?? v4()
+        v.chatId = v.chatId ?? createEntityId()
         return v
     })
 
     const messageChatId = arg.revenantResume?.context.messageChatId
         ?? arg.messageChatId
-        ?? v4()
+        ?? createEntityId()
     const outgoingChat = nowChatroom.chats[selectedChat]
     workflowSession = createChatGenerationSession(
         { characterId: nowChatroom.chaId, roomId: outgoingChat.id },
@@ -499,9 +500,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     )
     const durableInputCommit = arg.durableInputCommit ?? createChatCommitSnapshot(
         nowChatroom.chaId,
-        normalizeChat(safeStructuredClone(outgoingChat)),
+        normalizeChat(structuredClone(outgoingChat)),
     )
-    const durableInputChat = normalizeChat(safeStructuredClone(durableInputCommit.chat))
+    const durableInputChat = normalizeChat(structuredClone(durableInputCommit.chat))
     if (durableInputChat.id !== outgoingChat.id) {
         alertError('Generation input does not belong to the target chat.')
         doingChat.set(false)
@@ -674,7 +675,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
     const deferredHypaMemoryPrompt = (workflowSession.workflowId || compiledMainPreset)
         && !arg.preview && !arg.previewPrompt && !hasEditRequestLua
-        ? `__RISU_REVENANT_HYPA_${v4()}__`
+        ? `__RISU_REVENANT_HYPA_${createEntityId()}__`
         : undefined
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
@@ -739,7 +740,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         'personaPrompt':([] as OpenAIChat[])
     }
 
-    let promptTemplate = safeStructuredClone(DBState.db.promptTemplate)
+    let promptTemplate = structuredClone(DBState.db.promptTemplate)
     const promptCacheKey = await createOpenAiPromptCacheKey(outgoingChat.id, promptTemplate)
     const hasPostEverything = promptTemplate.some(card => card.type === 'postEverything')
 
@@ -1003,9 +1004,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     function getDescriptionPrompts(role?: 'user'|'bot'|'system'){
         const pmt = [
-            ...safeStructuredClone(beforeDescriptionPrompts),
-            ...(baseDescriptionPrompt ? [safeStructuredClone(baseDescriptionPrompt)] : []),
-            ...safeStructuredClone(afterDescriptionPrompts)
+            ...structuredClone(beforeDescriptionPrompts),
+            ...(baseDescriptionPrompt ? [structuredClone(baseDescriptionPrompt)] : []),
+            ...structuredClone(afterDescriptionPrompts)
         ]
         if(baseDescriptionPrompt){
             applyPromptBlockRole([pmt[beforeDescriptionPrompts.length]], role)
@@ -1014,7 +1015,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     function getLorebookPrompts(role?: 'user'|'bot'|'system'){
-        const pmt = safeStructuredClone(unformated.lorebook)
+        const pmt = structuredClone(unformated.lorebook)
         if(!role){
             return pmt
         }
@@ -1038,7 +1039,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         for(const card of template){
             switch(card.type){
                 case 'persona':{
-                    let pmt = safeStructuredClone(unformated.personaPrompt)
+                    let pmt = structuredClone(unformated.personaPrompt)
                     applyPromptBlockRole(pmt, card.role)
                     for(let i=0;i<pmt.length;i++){
                         pmt[i].content = resolvePositionCBS(pmt[i].content)
@@ -1067,7 +1068,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'authornote':{
-                    let pmt = safeStructuredClone(unformated.authorNote)
+                    let pmt = structuredClone(unformated.authorNote)
                     applyPromptBlockRole(pmt, card.role)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
@@ -1305,7 +1306,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             name = `${getUserName()}`
         }
         if(!msg.chatId){
-            msg.chatId = v4()
+            msg.chatId = createEntityId()
         }
         let inlays:string[] = []
         if(msg.role === 'char'){
@@ -1456,7 +1457,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 && typeof checkpointMemory === 'object'
                 && Array.isArray((checkpointMemory as { summaries?: unknown }).summaries)
             ) {
-                currentChat.hypaV3Data = safeStructuredClone(
+                currentChat.hypaV3Data = structuredClone(
                     checkpointMemory as unknown as SerializableHypaV3Data,
                 )
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
@@ -1527,7 +1528,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             input === chat || (!!chat.memo && input.memo === chat.memo))
                         return inputIndex >= 0
                             ? { inputIndex, inputMemo: chat.memo }
-                            : { chat: safeStructuredClone(chat) }
+                            : { chat: structuredClone(chat) }
                     }),
                     currentTokens,
                 })
@@ -1647,7 +1648,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const card of template){
             switch(card.type){
                 case 'persona':{
-                    let pmt = safeStructuredClone(unformated.personaPrompt)
+                    let pmt = structuredClone(unformated.personaPrompt)
                     applyPromptBlockRole(pmt, card.role)
                     for(let i=0;i<pmt.length;i++){
                         pmt[i].content = resolvePositionCBS(pmt[i].content)
@@ -1676,7 +1677,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'authornote':{
-                    let pmt = safeStructuredClone(unformated.authorNote)
+                    let pmt = structuredClone(unformated.authorNote)
                     applyPromptBlockRole(pmt, card.role)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
@@ -1789,7 +1790,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'memory':{
-                    let pmt = safeStructuredClone(memories)
+                    let pmt = structuredClone(memories)
                     applyPromptBlockRole(pmt, card.role)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
@@ -1903,7 +1904,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 })
                 return {
                     backend: compiled.backend,
-                    modelPreset: safeStructuredClone(compiled.sourcePreset),
+                    modelPreset: structuredClone(compiled.sourcePreset),
                 }
             }
             const resumeContext:RevenantWorkflowResumeContext = {
@@ -1913,7 +1914,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 continue: isContinuation,
                 rerollSnapshot,
             }
-            const postprocessChat = safeStructuredClone(currentChat)
+            const postprocessChat = structuredClone(currentChat)
             ensureGenerationMessageTarget(postprocessChat, {
                 messageChatId,
                 characterId: currentChar.chaId,
@@ -1922,8 +1923,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 promptInfo,
                 rerollSnapshot,
             })
-            const postprocessCharacter = safeStructuredClone(nowChatroom)
-            postprocessCharacter.chats = [safeStructuredClone(postprocessChat)]
+            const postprocessCharacter = structuredClone(nowChatroom)
+            postprocessCharacter.chats = [structuredClone(postprocessChat)]
             postprocessCharacter.chatPage = 0
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
@@ -1931,7 +1932,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 comfyBridgeId: getComfyBridgeId(),
                 inputCommit: {
                     schemaVersion: 1,
-                    chat: safeStructuredClone(durableInputChat),
+                    chat: structuredClone(durableInputChat),
                     expectedEtag: durableInputCommit.expectedEtag,
                 },
                 resume: {
@@ -1947,7 +1948,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     isContinuation,
                     rerollSnapshot,
                     providerBackend: compiledMainPreset.backend,
-                    modelPreset: safeStructuredClone(compiledMainPreset.sourcePreset),
+                    modelPreset: structuredClone(compiledMainPreset.sourcePreset),
                     auxProviders: {
                         submodel: snapshotAuxProvider('submodel'),
                         emotion: snapshotAuxProvider('emotion'),
@@ -1956,15 +1957,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     character: postprocessCharacter,
                     chat: postprocessChat,
                     database: {
-                        presetRegex: safeStructuredClone(DBState.db.presetRegex ?? []),
+                        presetRegex: structuredClone(DBState.db.presetRegex ?? []),
                         templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',
-                        globalChatVariables: safeStructuredClone(DBState.db.globalChatVariables ?? {}),
+                        globalChatVariables: structuredClone(DBState.db.globalChatVariables ?? {}),
                         username: DBState.db.username ?? 'User',
                         userIcon: DBState.db.userIcon ?? '',
                         personaPrompt: DBState.db.personaPrompt ?? '',
                         selectedPersona: DBState.db.selectedPersona ?? 0,
                         showPersonaInSidebar: DBState.db.showPersonaInSidebar,
-                        personas: safeStructuredClone(DBState.db.personas ?? []),
+                        personas: structuredClone(DBState.db.personas ?? []),
                         dynamicAssets: DBState.db.dynamicAssets ?? false,
                         dynamicAssetsEditDisplay: DBState.db.dynamicAssetsEditDisplay ?? false,
                         igpPrompt: DBState.db.igpPrompt ?? '',
@@ -1974,9 +1975,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
                         emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                     },
-                    modules: safeStructuredClone(getModules()),
-                    moduleRegexScripts: safeStructuredClone(getModuleRegexScripts()),
-                    moduleTriggers: safeStructuredClone(getModuleTriggers()),
+                    modules: structuredClone(getModules()),
+                    moduleRegexScripts: structuredClone(getModuleRegexScripts()),
+                    moduleTriggers: structuredClone(getModuleTriggers()),
                 },
             }
             const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
@@ -2181,7 +2182,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 memory: SerializableHypaV3Data
             }>(workflowSession.workflowId, abortSignal)
             currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-            currentChat.hypaV3Data = safeStructuredClone(remoteSelection.memory)
+            currentChat.hypaV3Data = structuredClone(remoteSelection.memory)
             DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
         } catch(error) {
             if(abortSignal.aborted) return finishCancelledGeneration()

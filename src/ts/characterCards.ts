@@ -1,9 +1,10 @@
+import { Buffer } from 'buffer'
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
 import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
-import { v4 as uuidv4, v4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { characterFormatUpdate } from "./characters"
 import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
@@ -13,7 +14,6 @@ import { hasher } from "./parser/parser.svelte"
 import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
-import type { OnnxModelFiles } from "./process/transformers"
 import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
 import { exportModuleLegacy, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
@@ -47,7 +47,6 @@ export async function importCharacter() {
 export async function importCharacterProcess<T extends boolean = false>(f:{
     name: string;
     data: Uint8Array|File|ReadableStream<Uint8Array>
-    lightningRealmImport?:boolean
     returnCharacter?:T //note That this option only works with v3 charx
 }):Promise<T extends true ? character | number | null : number | null>{
     const fileName = f.name.toLowerCase()
@@ -166,9 +165,6 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         returnTrimed: true
     })
     const assets:{[key:string]:string} = {}
-    let queueFetch:Promise<Response>[] = []
-    let queueFetchKey:string[] = []
-    let queueFetchData:Buffer[] = []
     for await (const chunk of readGenerator){
         if(!chunk){
             continue
@@ -206,51 +202,9 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
 
             readedPngChunks++
 
-            if(db.account?.useSync && f.lightningRealmImport){
-                const id = await hasher(assetData)
-                const xid = 'assets/' + id + '.png'
-                queueFetchKey.push(assetIndex)
-                queueFetchData.push(assetData)
-                queueFetch.push(fetch('https://sv.risuai.xyz/rs/' + xid))
-                assets[assetIndex] =  'xid:' + xid
-                if(queueFetch.length > 10){
-                    const res = await Promise.all(queueFetch)
-                    for(let i=0;i<res.length;i++){
-                        if(res[i].status !== 200){
-                            const assetId = await saveAsset(queueFetchData[i])
-                            assets[queueFetchKey[i]] = assetId
-                        }
-                        else{
-                            assets[queueFetchKey[i]] = assets[queueFetchKey[i]].replace('xid:', '')
-                        }
-                    }
-                    queueFetch = []
-                    queueFetchKey = []
-                    queueFetchData = []
-                }
-                continue
-            }
-
-
             const assetId = await saveAsset(assetData)
             assets[assetIndex] = assetId
         }
-    }
-
-    if(queueFetch.length > 0){
-        const res = await Promise.all(queueFetch)
-        for(let i=0;i<res.length;i++){
-            if(res[i].status !== 200){
-                const assetId = await saveAsset(queueFetchData[i])
-                assets[queueFetchKey[i]] = assetId
-            }
-            else{
-                assets[queueFetchKey[i]] = assets[queueFetchKey[i]].replace('xid:', '')
-            }
-        }
-        queueFetch = []
-        queueFetchKey = []
-        queueFetchData = []
     }
 
     if(!readedChara && !readedCCv3){
@@ -415,7 +369,7 @@ export async function characterURLImport() {
     if(hash.startsWith('#import_module=')){
         const data = hash.replace('#import_module=', '')
         const importData = JSON.parse(Buffer.from(decodeURIComponent(data), 'base64').toString('utf-8'))
-        importData.id = v4()
+        importData.id = createEntityId()
 
         const db = getDatabase()
         if(importData.lowLevelAccess){
@@ -457,7 +411,7 @@ export async function characterURLImport() {
         }
         const module = new Uint8Array(await data.arrayBuffer())
         const md = await readModule(Buffer.from(module))
-        md.id = v4()
+        md.id = createEntityId()
         const db = getDatabase()
         db.modules.push(md)
         notifySuccess(language.successImport)
@@ -511,7 +465,7 @@ export async function characterURLImport() {
         }
         if(name.endsWith('risum')){
             const md = await readModule(Buffer.from(data))
-            md.id = v4()
+            md.id = createEntityId()
             const db = getDatabase()
             db.modules.push(md)
             notifySuccess(language.successImport)
@@ -578,7 +532,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
             note: '',
             name: 'Chat 1',
             localLore: [],
-            id: uuidv4(),
+            id: createEntityId(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -587,7 +541,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
         bias: [],
         globalLore: lorebook,
         viewScreen: 'none',
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         utilityBot: false,
         lowLevelAccess: false,
         hideChatIcon: false,
@@ -616,7 +570,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
 
 export async function exportChar(charaID:number):Promise<string> {
     const db = getDatabase({snapshot: true})
-    let char = safeStructuredClone(db.characters[charaID])
+    let char = structuredClone(db.characters[charaID])
 
     if(!char.image){
         char.image = await saveAsset(await readDefaultAvatarImage())
@@ -647,7 +601,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     let im = img ? await saveAsset(img) : undefined
     let db = getDatabase()
 
-    const risuext = safeStructuredClone(data.extensions.risuai)
+    const risuext = structuredClone(data.extensions.risuai)
     let emotions:[string, string][] = []
     let bias:[string, number][] = []
     let viewScreen: "none" | "emotion" = 'none'
@@ -661,7 +615,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         ext: string
     }[] = []
     
-    let vits:null|OnnxModelFiles = null
     if(risuext && card.spec === 'chara_card_v2'){
         if(risuext.emotions){
             for(let i=0;i<risuext.emotions.length;i++){
@@ -711,40 +664,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                 extAssets.push([risuext.additionalAssets[i][0],imgp,fileName])
             }
         }
-        if(risuext.vits){
-            const keys = Object.keys(risuext.vits)
-            for(let i=0;i<keys.length;i++){
-                alertStore.set({
-                    type: 'progress',
-                    msg: `Loading... (Loading VITS)`,
-                    submsg: (i / keys.length * 100).toFixed(2)
-                })
-                await sleep(10)
-                const key = keys[i]
-                if(risuext.vits[key].startsWith('__asset:')){
-                    const rkey = risuext.vits[key].replace('__asset:', '')
-                    const imgp = assetDict[rkey]
-                    if(!imgp){
-                        throw new Error('Error while importing, asset ' + rkey + ' not found')
-                    }
-                    risuext.vits[key] = imgp
-                    continue
-                }
-                const imgp = await saveAsset(mode === 'hub' ? (await getHubResources(risuext.vits[key])) : Buffer.from(risuext.vits[key], 'base64'))
-                risuext.vits[key] = imgp
-            }
-
-            if(keys.length > 0){
-                vits = {
-                    name: "Imported VITS",
-                    files: risuext.vits,
-                    id: uuidv4().replace(/-/g, '')
-                }
-            }
-
-
-        }
-
         if(risuext){
             bias = risuext.bias ?? bias
             viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
@@ -853,7 +772,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         loreExt = a.loreExt
     }
 
-    let ext = safeStructuredClone(data?.extensions ?? {})
+    let ext = structuredClone(data?.extensions ?? {})
 
     for(const key in ext){
         if(key === 'risuai'){
@@ -874,7 +793,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             note: '',
             name: 'Chat 1',
             localLore: [],
-            id: uuidv4(),
+            id: createEntityId(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -883,7 +802,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         bias: bias,
         globalLore: lorebook, //lorebook
         viewScreen: viewScreen,
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
         escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
@@ -919,8 +838,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         largePortrait: data?.extensions?.risuai?.largePortrait ?? (!data?.extensions?.risuai),
         inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
         newGenData: data?.extensions?.risuai?.newGenData ?? undefined,
-        vits: vits,
-        ttsMode: vits ? 'vits' : '',
         imported: true,
         source: card?.data?.extensions?.risuai?.source ?? [],
         ccAssets: ccAssets,
@@ -1072,7 +989,7 @@ function createBaseV2(char:character) {
                 key:string
                 data:string[]
             }
-        } = safeStructuredClone(lore.extentions ?? {})
+        } = structuredClone(lore.extentions ?? {})
 
         let caseSensitive = ext.risu_case_sensitive ?? false
         ext.risu_activationPercent = lore.activationPercent
@@ -1137,8 +1054,7 @@ function createBaseV2(char:character) {
                     virtualscript: '', //removed dude to security issue
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
-                    newGenData: char.newGenData,
-                    vits: {}
+                    newGenData: char.newGenData
                 },
                 depth_prompt: char.depth_prompt
             }
@@ -1219,18 +1135,6 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                 }
             }
     
-            if(char.vits && char.ttsMode === 'vits'){
-                const keys = Object.keys(char.vits.files)
-                for(let i=0;i<keys.length;i++){
-                    onProgress('Loading... (Adding VITS)', i / keys.length * 100)
-                    const key = keys[i]
-                    const rData = await loadAsset(char.vits.files[key])
-                    const b64encoded = Buffer.from(rData).toString('base64')
-                    assetIndex++
-                    card.data.extensions.risuai.vits[key] = `__asset:${assetIndex}`
-                    await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
-                }
-            }
             if(type === 'json'){
                 await downloadFile(`${char.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.json`, Buffer.from(JSON.stringify(card, null, 4), 'utf-8'))
                 notifySuccess(language.successExport)
@@ -1393,7 +1297,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                 const md:RisuModule = {
                     name: `${char.name} Module`,
                     description: "Module for " + char.name,
-                    id: v4(),
+                    id: createEntityId(),
                     trigger: card.data.extensions.risuai.triggerscript ?? [],
                     regex: card.data.extensions.risuai.customScripts ?? [],
                     lorebook: char.globalLore ?? [],
@@ -1438,7 +1342,7 @@ export function createBaseV3(char:character){
         uri: string
         name: string
         ext: string
-    }> = safeStructuredClone(char.ccAssets ?? [])
+    }> = structuredClone(char.ccAssets ?? [])
 
     if(char.additionalAssets){
         for(const asset of char.additionalAssets){
@@ -1477,7 +1381,7 @@ export function createBaseV3(char:character){
                 key:string
                 data:string[]
             }
-        } = safeStructuredClone(lore.extentions ?? {})
+        } = structuredClone(lore.extentions ?? {})
 
         let caseSensitive = ext.risu_case_sensitive ?? false
         ext.risu_activationPercent = lore.activationPercent
@@ -1544,7 +1448,6 @@ export function createBaseV3(char:character){
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
                     newGenData: char.newGenData,
-                    vits: {},
                     lowLevelAccess: char.lowLevelAccess ?? false,
                     defaultVariables: char.defaultVariables ?? '',
                     prebuiltAssetCommand: char.prebuiltAssetCommand ?? '',
@@ -1685,20 +1588,17 @@ export async function downloadRisuHub(id:string, arg:{
 
         const contentType = res.headers.get('content-type')?.split(';', 1)[0]
         if(contentType === 'image/png' || contentType === 'application/zip' || contentType === 'application/charx'){
-            const db = getDatabase()
             let importedIndex: number | null
             if(contentType === 'application/zip' || contentType === 'application/charx'){
                 importedIndex = await importCharacterProcess({
                     name: 'realm.charx',
                     data: new Uint8Array(await res.arrayBuffer()),
-                    lightningRealmImport: db.lightningRealmImport,
                 })
             }
             else{
                 importedIndex = await importCharacterProcess({
                     name: 'realm.png',
                     data: res.body,
-                    lightningRealmImport: db.lightningRealmImport,
                 })
             }
             return await finishImport(importedIndex)
@@ -1783,8 +1683,7 @@ type CharacterCardV2Risu = {
                 inlayViewScreen?:boolean
                 newGenData?: {
                     emotionInstructions: string,
-                },
-                vits?: {[key:string]:string}
+                }
             }
             depth_prompt?: { depth: number, prompt: string }
         }

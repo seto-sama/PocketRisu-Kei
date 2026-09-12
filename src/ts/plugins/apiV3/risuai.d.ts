@@ -179,7 +179,7 @@ type MCPToolCallContent = MCPToolCallTextContent | MCPToolCallImageAudioContent 
 interface BeforeTTSContext {
     /** The text that will be sent to the TTS provider. */
     text: string;
-    /** The provider the current character is configured to use (e.g. 'openai', 'gptsovits'). */
+    /** The provider the current character is configured to use (e.g. 'elevenlab', 'gptsovits'). */
     ttsMode: string;
     /** The stable character id (character.chaId). Use risuai.getCharacter() if you need the full object. */
     characterId: string;
@@ -1806,7 +1806,7 @@ interface RisuaiPluginAPI {
      * @example
      * ```typescript
      * await risuai.addTTSPreprocessor(async (ctx) => {
-     *   if (ctx.ttsMode !== 'openai') return;
+     *   if (ctx.ttsMode !== 'elevenlab') return;
      *   return { text: ctx.text.replace(/[*](.*?)[*]/g, '') };
      * });
      * ```
@@ -1824,9 +1824,8 @@ interface RisuaiPluginAPI {
      * timeout is enforced on hook execution; plugins that perform long-running
      * audio transforms should self-manage cancellation.
      *
-     * Skipped for the 'webspeech' provider (browser-native synthesis does not
-     * produce an audio buffer) and the 'vits' provider (uses a separate playback
-     * path that does not flow through the shared helper).
+     * Skipped for the 'webspeech' provider because browser-native synthesis does
+     * not produce an audio buffer.
      *
      * @example
      * ```typescript

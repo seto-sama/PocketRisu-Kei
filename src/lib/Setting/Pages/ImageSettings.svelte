@@ -11,7 +11,7 @@
     import Slider from "../../UI/components/Slider.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleFile, selectSingleImportFile } from "src/ts/util";
     import { getCharImage } from "src/ts/characters";
     import { saveAsset } from "src/ts/globalApi.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
@@ -121,7 +121,7 @@
 
     async function importImagePreset() {
         try {
-            const file = await selectSingleFile(["json"]);
+            const file = await selectSingleImportFile();
             if (!file?.data) return;
             const preset = decodeImageGenerationPresetFile(file.data, settings, language.imageGenerationPresetInvalid);
             appendImageGenerationPreset(DBState.db, preset);
@@ -132,7 +132,7 @@
     }
 
     async function uploadVibeFile() {
-        const file = await selectSingleFile(['naiv4vibe']);
+        const file = await selectSingleImportFile();
         if (!file) return;
 
         try {
@@ -369,23 +369,10 @@
 
 
 
-            {#if (settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2')
-            && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useSmea} description={language.help.naiUseSMEA}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm}/>{/snippet}</SettingLayout>
-            {/if}
-
-            {#if settings.NAIImgModel === 'nai-diffusion-3' && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useDyn} description={language.help.naiUseDYN}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm_dyn}/>{/snippet}</SettingLayout>
-            {/if}
-
             {#if settings.NAIImgModel === 'nai-diffusion-4-5-full' || settings.NAIImgModel === 'nai-diffusion-4-5-curated'
             || settings.NAIImgModel === 'nai-diffusion-4-full' || settings.NAIImgModel === 'nai-diffusion-4-curated-preview'
-            || settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3'}
+            }
                 <SettingLayout variant="row" title={language.imageSettings.varietyPlus} description={language.help.naiVarietyPlus}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.variety_plus}/>{/snippet}</SettingLayout>
-            {/if}
-
-            {#if settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2'}
-                <SettingLayout variant="row" title={language.imageSettings.decrisp} description={language.help.naiDecrisp}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.decrisp}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-4-full'

@@ -1,10 +1,15 @@
-import { v4 as uuidv4 } from 'uuid'
-import { safeStructuredClone } from '../polyfill'
 import type { Database, NAIImgConfig } from '../storage/database.svelte'
 import { normalizePresetTagFields, normalizeTagIds, type PresetTagFields } from '../preset/tags'
+import { appendPresetItem, duplicatePresetItem, movePresetItem, removePresetItem } from '../preset/collection'
+import { createEntityId } from '../id'
 
 export type NAIImageSizePreset = 'small' | 'normal' | 'large' | 'custom'
 export type NAIImageOrientation = 'landscape' | 'portrait' | 'square'
+export type ImageGenerationProvider = '' | 'novelai' | 'comfyui'
+
+function normalizeImageGenerationProvider(value: unknown): ImageGenerationProvider {
+    return value === 'novelai' || value === 'comfyui' ? value : ''
+}
 
 function normalizeNAIImageSizePreset(value: unknown): NAIImageSizePreset {
     return value === 'small' || value === 'normal' || value === 'large' || value === 'custom'
@@ -34,7 +39,7 @@ export function getNAIImageDimensions(
 }
 
 export interface ImageGenerationPresetSettings {
-    sdProvider: string
+    sdProvider: ImageGenerationProvider
     NAIApiKey: string
     imageApiKeyRefs: Database['imageApiKeyRefs']
     NAIImgModel: string
@@ -96,8 +101,9 @@ export function appendImageGenerationPreset(
     db: ImageGenerationPresetCollection,
     preset: ImageGenerationPreset,
 ): number {
-    db.imageGenerationPresets = [...db.imageGenerationPresets, preset]
-    db.imageGenerationPresetId = db.imageGenerationPresets.length - 1
+    const result = appendPresetItem(db.imageGenerationPresets, preset)
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
     return db.imageGenerationPresetId
 }
 
@@ -106,26 +112,26 @@ export function duplicateImageGenerationPreset(
     index: number,
     copyLabel: string,
 ): ImageGenerationPreset | undefined {
-    const source = db.imageGenerationPresets[index]
-    if (!source) return undefined
-    const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
-    preset.tagIds = safeStructuredClone(source.tagIds)
-    appendImageGenerationPreset(db, preset)
-    return preset
+    const result = duplicatePresetItem(db.imageGenerationPresets, index, source => {
+        const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
+        preset.tagIds = structuredClone(source.tagIds)
+        return preset
+    })
+    if (!result.changed) return undefined
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.item
 }
 
 export function removeImageGenerationPreset(
     db: ImageGenerationPresetCollection,
     index: number,
 ): boolean {
-    if (db.imageGenerationPresets.length <= 1 || !db.imageGenerationPresets[index]) return false
-    const selectedId = db.imageGenerationPresets[db.imageGenerationPresetId]?.id
-    db.imageGenerationPresets = db.imageGenerationPresets.filter((_, presetIndex) => presetIndex !== index)
-    const selectedIndex = db.imageGenerationPresets.findIndex(preset => preset.id === selectedId)
-    db.imageGenerationPresetId = selectedIndex >= 0
-        ? selectedIndex
-        : Math.min(index, db.imageGenerationPresets.length - 1)
-    return true
+    const result = removePresetItem(db.imageGenerationPresets, db.imageGenerationPresetId, index)
+    if (!result.changed) return false
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.changed
 }
 
 export function moveImageGenerationPreset(
@@ -133,17 +139,11 @@ export function moveImageGenerationPreset(
     fromIndex: number,
     toIndex: number,
 ): boolean {
-    const presets = db.imageGenerationPresets
-    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return false
-    const selectedId = presets[db.imageGenerationPresetId]?.id
-    const next = [...presets]
-    const [moved] = next.splice(fromIndex, 1)
-    if (!moved) return false
-    const adjustedIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-    next.splice(adjustedIndex, 0, moved)
-    db.imageGenerationPresets = next
-    db.imageGenerationPresetId = Math.max(0, next.findIndex(preset => preset.id === selectedId))
-    return true
+    const result = movePresetItem(db.imageGenerationPresets, db.imageGenerationPresetId, fromIndex, toIndex)
+    if (!result.changed) return false
+    db.imageGenerationPresets = result.items
+    db.imageGenerationPresetId = result.selectedIndex
+    return result.changed
 }
 
 function removeEmbeddedReferenceImages(
@@ -173,16 +173,16 @@ export function captureImageGenerationPresetSettings(
     db: ImageGenerationDatabase,
 ): ImageGenerationPresetSettings {
     return removeEmbeddedReferenceImages({
-        sdProvider: db.sdProvider,
+        sdProvider: normalizeImageGenerationProvider(db.sdProvider),
         NAIApiKey: db.NAIApiKey,
-        imageApiKeyRefs: safeStructuredClone(db.imageApiKeyRefs ?? {}),
+        imageApiKeyRefs: structuredClone(db.imageApiKeyRefs ?? {}),
         NAIImgModel: db.NAIImgModel,
-        NAIImgConfig: safeStructuredClone(db.NAIImgConfig),
+        NAIImgConfig: structuredClone(db.NAIImgConfig),
         NAIImgSizePreset: 'custom',
         NAIImgOrientation: 'landscape',
         NAII2I: db.NAII2I,
         comfyUiUrl: db.comfyUiUrl,
-        comfyConfig: safeStructuredClone(db.comfyConfig),
+        comfyConfig: structuredClone(db.comfyConfig),
     })
 }
 
@@ -191,9 +191,9 @@ export function createImageGenerationPreset(
     settings: ImageGenerationPresetSettings,
 ): ImageGenerationPreset {
     return {
-        id: uuidv4(),
+        id: createEntityId(),
         name,
-        settings: removeEmbeddedReferenceImages(safeStructuredClone(settings)),
+        settings: removeEmbeddedReferenceImages(structuredClone(settings)),
     }
 }
 
@@ -227,12 +227,13 @@ export function normalizeImageGenerationPresetSettings(
     fallback: ImageGenerationPresetSettings,
 ): ImageGenerationPresetSettings {
     const normalized = {
-        ...safeStructuredClone(fallback),
-        ...safeStructuredClone(value ?? {}),
-        imageApiKeyRefs: safeStructuredClone(value?.imageApiKeyRefs ?? fallback.imageApiKeyRefs),
+        ...structuredClone(fallback),
+        ...structuredClone(value ?? {}),
+        sdProvider: normalizeImageGenerationProvider(value?.sdProvider),
+        imageApiKeyRefs: structuredClone(value?.imageApiKeyRefs ?? fallback.imageApiKeyRefs),
         NAIImgConfig: {
-            ...safeStructuredClone(fallback.NAIImgConfig),
-            ...safeStructuredClone(value?.NAIImgConfig ?? {}),
+            ...structuredClone(fallback.NAIImgConfig),
+            ...structuredClone(value?.NAIImgConfig ?? {}),
         },
         NAIImgSizePreset: normalizeNAIImageSizePreset(value?.NAIImgSizePreset),
         NAIImgOrientation: normalizeNAIImageOrientation(value?.NAIImgOrientation),
@@ -259,7 +260,7 @@ export function normalizeImageGenerationPresetState(
     } else {
         db.imageGenerationPresets = db.imageGenerationPresets.map((preset, index) => normalizePresetTagFields({
             ...preset,
-            id: typeof preset?.id === 'string' && preset.id ? preset.id : uuidv4(),
+            id: typeof preset?.id === 'string' && preset.id ? preset.id : createEntityId(),
             name: typeof preset?.name === 'string' && preset.name
                 ? preset.name
                 : labels.fallbackName(index),

@@ -6,7 +6,7 @@
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import {
         getOfficialRegistryId,
         getOfficialRegistry,
@@ -32,6 +32,8 @@
     } from "src/ts/preset/profileUpdate";
     import { localizeDisplayName, localizeDescription } from "src/ts/preset/registry/i18n";
     import { getDefaultApiKeyRef } from "src/ts/preset/apiKeyPool";
+    import { appendPresetItem } from "src/ts/preset/collection";
+    import { createEntityId } from "src/ts/id";
     import type { BaseProviderDefinition, ModelProfile, RegistryCache, RegistryProfileStatus } from "src/ts/preset/types";
     import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
     import {
@@ -43,7 +45,6 @@
     } from "src/ts/preset/pluginModels";
     import Input from "../UI/components/Input.svelte";
     import Badge from "../UI/components/Badge.svelte";
-    import { v4 as uuidv4 } from "uuid";
     import { onMount } from "svelte";
 
     interface Props {
@@ -197,7 +198,7 @@
             profileId: profile.id,
             transient: entry.transientPlugin,
         }, {
-            id: uuidv4(),
+            id: createEntityId(),
             apiKeyRef: getDefaultApiKeyRef(profile.providerBaseId),
             abilityDefaults: entry.transientPlugin
                 ? pluginPresetAbilityDefaults(profile.modelId, customV3ProviderMetaStore)
@@ -207,7 +208,7 @@
             alertError(language.profileDataIncomplete);
             return;
         }
-        DBState.db.modelPresets = [...DBState.db.modelPresets, preset];
+        DBState.db.modelPresets = appendPresetItem(DBState.db.modelPresets, preset).items;
         notifySuccess(language.modelPresetCreated);
         openModelPresetEditId.set(preset.id);
         close();
@@ -276,7 +277,7 @@
     }
 
     async function importProfile() {
-        const file = await selectSingleFile(['json']);
+        const file = await selectSingleImportFile();
         if (!file) return;
         let parsed: unknown;
         try {

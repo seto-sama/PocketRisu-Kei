@@ -1,13 +1,14 @@
+import { Buffer } from 'buffer'
 import * as fflate from 'fflate'
-import { v4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
 import { AppendableBuffer, checkCharOrder, LocalWriter, requestImmediateSave, saveAsset, VirtualWriter } from './globalApi.svelte'
 import { language } from 'src/lang'
 import { type character, getDatabase, setDatabase, saveImage, normalizeChat } from './storage/database.svelte'
-import type { Chat } from './storage/database.svelte'
+import type { Chat, ChatFolder } from './storage/database.svelte'
 import { fetchChatFromServer } from './storage/chatStorage'
-import { selectSingleFile } from './util'
+import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
 import { getInlayAsset, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
@@ -23,6 +24,7 @@ import {
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 import { readAvatarImageOrDefault, readDefaultAvatarImage } from './avatarImage'
+import { appendPresetItem } from './preset/collection'
 
 // ── Types ──
 
@@ -235,14 +237,14 @@ async function importPersonas(
             continue
         }
 
-        const newId = v4()
-        db.personas.push({
+        const newId = createEntityId()
+        db.personas = appendPresetItem(db.personas, {
             name: card.name,
             icon: await saveImage(await reencodeImage(pngBytes)),
             personaPrompt: card.personaPrompt,
             note: card.note,
             id: newId,
-        })
+        }).items
         personaIdMap[entry.originalId] = newId
     }
 
@@ -274,18 +276,18 @@ async function importChatsToCharacter(
             chat.bindedPersona = personaIdMap[chat.bindedPersona]
         }
         remapBookmarkTags(chat, bookmarkTagIdMap)
-        chat.id = v4()
+        chat.id = createEntityId()
     }
 
     if (mode === 'append') {
         // Remap folder IDs that collide with existing ones
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
-            const importedFolders = chatsJson.folders as { id: string, name?: string, color?: string, folded: boolean }[]
+            const importedFolders = chatsJson.folders as ChatFolder[]
             const existingFolders = targetChar.chatFolders ?? []
             const folderIdMap: Record<string, string> = {}
             for (const folder of importedFolders) {
                 if (existingFolders.some(f => f.id === folder.id)) {
-                    const newId = v4()
+                    const newId = createEntityId()
                     folderIdMap[folder.id] = newId
                     folder.id = newId
                 } else {
@@ -396,7 +398,7 @@ export async function exportCharacterPackage(
 ): Promise<void> {
     try {
         const db = getDatabase({ snapshot: true })
-        const char = safeStructuredClone(db.characters[charIndex]) as character
+        const char = structuredClone(db.characters[charIndex]) as character
         if (!char) {
             alertError('Character not found')
             return
@@ -473,7 +475,7 @@ export async function exportCharacterPackage(
         if (options.includeCharacter) {
             progress(language.characterPackageProgressCharacter)
             const virtualWriter = new VirtualWriter()
-            const charClone = safeStructuredClone(char) as character
+            const charClone = structuredClone(char) as character
             charClone.image = charClone.image || ''
             if (!charClone.image) {
                 charClone.image = await saveAsset(await readDefaultAvatarImage())
@@ -611,7 +613,7 @@ export async function exportCharacterPackage(
 
 export async function importCharacterPackage(selectedFile?: { name: string, data: Uint8Array }): Promise<void> {
     try {
-        const file = selectedFile ?? await selectSingleFile(['zip'])
+        const file = selectedFile ?? await selectSingleImportFile()
         if (!file) return
 
         const parsed = await parseAndValidatePackage(file)
@@ -709,7 +711,7 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
 
 export async function importPackageToCharacter(charIndex: number): Promise<void> {
     try {
-        const file = await selectSingleFile(['zip'])
+        const file = await selectSingleImportFile()
         if (!file) return
 
         const parsed = await parseAndValidatePackage(file)

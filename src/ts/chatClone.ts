@@ -1,4 +1,4 @@
-import { v4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import type { Chat } from './storage/database.svelte'
 
 /**
@@ -15,7 +15,7 @@ export function reissueMessageIds(
 ): Chat {
     const idMap = new Map<string, string>()
     for (const message of chat.message) {
-        const next = v4()
+        const next = createEntityId()
         if (message.chatId) idMap.set(message.chatId, next)
         message.chatId = next
     }

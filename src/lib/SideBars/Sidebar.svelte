@@ -46,14 +46,14 @@
   } from "../../ts/characters";
     import CharConfig from "./CharConfig.svelte";
     import { language } from "../../lang";
-    import isEqual from "lodash/isEqual";
+    import isEqual from "fast-deep-equal";
     import SidebarAvatar from "./SidebarAvatar.svelte";
     import Switch from "../UI/components/Switch.svelte";
     import Button from "../UI/components/Button.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import type { SortableEvent } from "sortablejs";
     import { getCharacterIndexObject, makeAgoText } from "src/ts/util";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { checkCharOrder } from "src/ts/globalApi.svelte";
     import SideChatList from "./SideChatList.svelte";
     import { openSidebarFolderMenu } from "./sidebarFolderMenu";
@@ -69,6 +69,7 @@
     } from "./sidebarDrag";
 
   import { sideBarSize } from "src/ts/gui/guisize";
+  import { mdViewport } from "src/ts/gui/breakpoints";
   import DevTool from "./DevTool.svelte";
   import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
@@ -269,7 +270,7 @@
   function addSidebarMenuDivider() {
     DBState.db.sidebarMenuOrder = [
       ...sidebarMenuOrder,
-      dividerSidebarMenuKey(v4()),
+      dividerSidebarMenuKey(createEntityId()),
     ]
   }
 
@@ -336,7 +337,7 @@
   function finishSidebarDrag(sourceId: string, event: SortableEvent) {
     const target = sidebarDragController.end(event)
     const nextOrder = applySidebarDrop(DBState.db.characterOrder, sourceId, target, () => ({
-      id: v4(),
+      id: createEntityId(),
       name: SIDEBAR_DEFAULT_FOLDER_NAME,
       color: '',
     }))
@@ -439,7 +440,7 @@
   class="h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:risu-layer-chrome={!editMode}
   class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
-  class:max-xs:hidden={$leftBarCollapsed}
+  class:max-md:hidden={$leftBarCollapsed}
   class:flex={!hidden}
 >
   <div
@@ -452,7 +453,7 @@
         class="flex h-8 min-h-8 w-14 min-w-14 text-themewhite items-center justify-center rounded-md bg-subtext transition-colors hover:bg-lightborderc"
         class:cursor-pointer={!editMode}
         class:cursor-default={editMode}
-        class:max-xs:hidden={$leftBarCollapsed}
+        class:max-md:hidden={$leftBarCollapsed}
         aria-disabled={editMode}
         onclick={() => {
           if (editMode) return
@@ -465,7 +466,7 @@
 
       {#if !DBState.db.hideLeftBarCollapseButton}
         <button
-          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-darkborderc text-maintext transition-colors risu-interactive-border"
+          class="hidden max-md:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-darkborderc text-maintext transition-colors risu-interactive-border"
           aria-label="Collapse sidebar"
           onclick={() => leftBarCollapsed.set(true)}
         >
@@ -579,7 +580,7 @@
     <div
       bind:this={characterListElement}
       class="character-list flex min-h-0 w-full grow flex-col items-center overflow-x-hidden overflow-y-auto pr-0"
-      class:max-xs:hidden={$leftBarCollapsed}
+      class:max-md:hidden={$leftBarCollapsed}
       role="list"
       inert={editMode}
     >
@@ -731,7 +732,7 @@
 </div>
 
 <div
-  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"
+  class="setting-area risu-layer-chrome risu-list-action-scroll-root risu-surface-dark h-full max-md:relative flex-col overflow-y-auto overflow-x-hidden py-6 text-maintext max-h-full"
   bind:this={sidebarScrollElement}
   class:w-96={$sideBarSize === 0}
   class:w-110={$sideBarSize === 1}
@@ -759,7 +760,7 @@
   </button>
   {#if $leftBarCollapsed}
     <button
-      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-maintext opacity-50 hover:opacity-90 z-20"
+      class="hidden max-md:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-maintext opacity-50 hover:opacity-90 z-20"
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
@@ -820,7 +821,7 @@
         <IconButtonGroup size="sm" className="contents">
         <button
           type="button"
-          class="sidebar-mode-button sidebar-mode-tab"
+          class="sidebar-mode-button max-md:gap-[0.3rem] max-md:px-[0.35rem] max-md:text-xs"
           class:active={!$botMakerMode && !$sidebarDevTool}
           aria-current={!$botMakerMode && !$sidebarDevTool ? "page" : undefined}
           onclick={() => {
@@ -834,7 +835,7 @@
         </button>
         <button
           type="button"
-          class="sidebar-mode-button sidebar-mode-tab"
+          class="sidebar-mode-button max-md:gap-[0.3rem] max-md:px-[0.35rem] max-md:text-xs"
           class:active={$botMakerMode}
           aria-current={$botMakerMode ? "page" : undefined}
           onclick={() => {
@@ -863,7 +864,7 @@
           <CharConfig />
         {/if}
       {:else}
-        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
+        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!$mdViewport} />
       {/if}
     {/if}
   {/if}
@@ -981,14 +982,6 @@
 
   .sidebar-mode-button :global(svg) {
     flex: none;
-  }
-
-  @media (max-width: 420px) {
-    .sidebar-mode-tab {
-      gap: 0.3rem;
-      padding-inline: 0.35rem;
-      font-size: 0.75rem;
-    }
   }
 
   .sidebar-layout-slot {

@@ -76,7 +76,7 @@
                 {/if}
             </div>
         </div>
-        <div class="shrink-0">
+        <div data-slot="alert-action" class="shrink-0">
             {@render action()}
         </div>
     {:else}
@@ -100,3 +100,13 @@
         {/if}
     {/if}
 </div>
+
+<style>
+    [data-slot='alert-action'] {
+        border-color: inherit;
+    }
+
+    [data-slot='alert-action'] :global([data-slot='button']) {
+        border-color: inherit;
+    }
+</style>

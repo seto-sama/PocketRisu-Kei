@@ -9,6 +9,7 @@
     import Button from "../UI/components/Button.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../UI/components/ListActionBar.svelte";
     import { getChatToken, tokenize } from "src/ts/tokenizer";
     import { tokenizePreset } from "src/ts/process/prompt";
     
@@ -17,13 +18,14 @@
     import SettingsList from "../UI/components/SettingsList.svelte";
     import Textarea from "../UI/components/Textarea.svelte";
     import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, FileSearchIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { doingChat, sendChat } from "src/ts/process/index.svelte";
     import { loadLoreBookV3Prompt } from "src/ts/process/lorebook.svelte";
     import { risuChatParser } from "src/ts/process/scripts";
     import { getModules } from "src/ts/process/modules";
 
     const variableInputClass = 'box-border h-6 min-h-6 min-w-0 max-w-full w-full py-0';
+    let autopilotOpen = $state(false);
 
     async function getCharacterDescriptionToken() {
         const char = DBState.db.characters[$selectedCharID]
@@ -57,7 +59,7 @@
     }
 
     async function importAutopilot() {
-        const selected = await selectSingleFile(['txt', 'csv', 'json'])
+        const selected = await selectSingleImportFile()
         if (!selected) return
 
         const file = new TextDecoder().decode(selected.data)
@@ -148,7 +150,7 @@
                 </SettingsList>
             {/each}
         {:else}
-            <div class="p-2 text-center text-subtext">No variables</div>
+            <EmptyState title={language.chatVariablesEmpty} description="" layout="inline" />
         {/if}
     </SettingsList>
 </Accordion>
@@ -178,12 +180,12 @@
             {/await}
         {/if}
     </SettingsList>
-    <span class="mt-2 block text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
+    <span class="mt-2 block pl-1 text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
-<Accordion class="mt-2" name={language.autopilot}>
+<Accordion class="mt-2" name={language.autopilot} bind:open={autopilotOpen}>
     {#if $devToolAutopilotStore.length === 0}
-        <EmptyState title={language.noData} description="" layout="section" density="compact" />
+        <EmptyState title={language.autopilotScheduleEmpty} description="" layout="inline" />
     {/if}
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
@@ -215,8 +217,10 @@
             </IconButtonGroup>
         </div>
     {/each}
-    <div class="mt-2 flex items-center justify-between">
-        <IconButtonGroup>
+</Accordion>
+{#if autopilotOpen}
+    <ListActionBar mode="footer" className="justify-between">
+        <div class="flex items-center">
             <IconButton
                 aria-label={language.add}
                 title={language.add}
@@ -231,7 +235,7 @@
             >
                 <UploadIcon />
             </IconButton>
-        </IconButtonGroup>
+        </div>
         <Button
             variant="outline"
             size="sm"
@@ -240,8 +244,8 @@
         >
             {language.run}
         </Button>
-    </div>
-</Accordion>
+    </ListActionBar>
+{/if}
 
 
 <Accordion class="mt-2" name={language.preview}>

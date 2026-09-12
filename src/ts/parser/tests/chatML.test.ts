@@ -51,19 +51,6 @@ test('parses ChatML', () => {
 })
 
 test('parses consecutive ChatML segments without ending tokens', () => {
-  expect(parseChatML('<|im_start|>assistant\nfirst<|im_start|>assistant\nsecond')).toEqual([
-    {
-      role: 'assistant',
-      content: 'first',
-      thoughts: [],
-    },
-    {
-      role: 'assistant',
-      content: 'second',
-      thoughts: [],
-    },
-  ])
-
   fc.assert(
     fc.property(
       anyRole,

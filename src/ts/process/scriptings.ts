@@ -11,7 +11,7 @@ import { generateAIImageInlay } from "./stableDiff";
 import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { getModuleLorebooks, getModuleTriggers } from "./modules";
 import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
@@ -723,7 +723,7 @@ export async function runScripted(code:string, arg:{
             await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
             ScriptingEngineState.code = code
         }
-        let accessKey = v4()
+        let accessKey = createEntityId()
         if(mode === 'editDisplay'){
             ScriptingEditDisplayIds.add(accessKey)
         }

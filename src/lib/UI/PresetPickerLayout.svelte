@@ -4,12 +4,13 @@
     import { CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PackageIcon, PencilIcon, SearchIcon, SettingsIcon, TagIcon, TagsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertInput } from "src/ts/alert";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import Help from "../Others/Help.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
     import IconButton from "./components/IconButton.svelte";
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
+    import ListActionBar from "./components/ListActionBar.svelte";
     import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
     import InlineRenameAction from "./components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "./components/InlineEditableNameController.svelte";
@@ -199,7 +200,7 @@
             if (id) selectedFolder = id;
             return;
         }
-        const id = uuidv4();
+        const id = createEntityId();
         onFoldersChange([...folders, { id, name }]);
         selectedFolder = id;
     }
@@ -414,7 +415,7 @@
                 </SortableList>
             </div>
             {#if showCreateFolder || sidebarFooterActions}
-                <div class="shrink-0 mt-2 flex items-center gap-1">
+                <ListActionBar mode="inline" className="shrink-0 gap-1">
                     {#if showCreateFolder}
                         <button
                             class="min-w-0 grow flex items-center gap-2 rounded-md px-2 py-2 text-sm text-subtext risu-interactive-accent risu-interactive-surface"
@@ -426,7 +427,7 @@
                         </button>
                     {/if}
                     {@render sidebarFooterActions?.()}
-                </div>
+                </ListActionBar>
             {/if}
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col px-2 py-3">
@@ -479,8 +480,8 @@
                                 <IconButtonGroup className="ml-3 self-stretch shrink-0" onclick={(e) => e.stopPropagation()}>
                                     {#if itemRenameable}<InlineRenameAction controller={renameController} />{/if}
                                     {@render itemActions?.(index)}
-                                    {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
-                                    {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
+                                    {#if onDuplicateItem && showDuplicateItem(index)}<IconButton title={language.presetDuplicate} aria-label={language.presetDuplicate} onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
+                                    {#if onExportItem && showExportItem(index)}<IconButton title={language.presetExport} aria-label={language.presetExport} onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
                                     {#if onDeleteItem}<IconButton tone="destructive" title={itemDeleteLabel} aria-label={itemDeleteLabel} onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
                                 </IconButtonGroup>
                             {/if}

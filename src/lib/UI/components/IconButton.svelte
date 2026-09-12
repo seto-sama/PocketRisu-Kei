@@ -14,6 +14,13 @@
         lg: { icon: 20, cell: 80 / 3, labelGap: 5, labelPadding: 10 / 3 },
         xl: { icon: 24, cell: 32, labelGap: 6, labelPadding: 4 },
     };
+
+    // A bare SVG has no cell padding. Compensate only the group's outer edge
+    // when aligning it with one, preserving button spacing and hit targets.
+    export function iconButtonEdgeInset(size: IconButtonSize): number {
+        const values = iconButtonSizeValues[size];
+        return (values.cell - values.icon) / 2;
+    }
 </script>
 
 <script lang="ts">

@@ -10,13 +10,11 @@ COPY pnpm-lock.yaml .
 COPY pnpm-workspace.yaml .
 
 RUN corepack enable
-RUN corepack install --global pnpm@11.3.0
+RUN corepack install --global pnpm@12.4.0
 
 # ------------------------------------------------------------------------------------------
 
 FROM base AS deps
-# better-sqlite3 requires native build tools on Node 24
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 # Install only prod deps
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 

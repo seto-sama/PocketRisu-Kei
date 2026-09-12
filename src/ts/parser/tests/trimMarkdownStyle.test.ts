@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { writable } from 'svelte/store'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Database, character } from '../../storage/database.svelte'

@@ -6,7 +6,7 @@
     import { saveAsset } from 'src/ts/globalApi.svelte';
     import { selectSingleFile } from 'src/ts/util';
     import { DBState } from 'src/ts/stores.svelte';
-    import { v4 as uuidv4 } from 'uuid';
+    import { createEntityId } from 'src/ts/id';
     import { PlayIcon, UploadIcon, CheckIcon, Trash2Icon } from '@lucide/svelte';
 
     interface Props {
@@ -20,7 +20,9 @@
     let { open = $bindable(false), value = $bindable(''), volume = 100 }: Props = $props();
 
     function presetLabel(id: string) {
-        return id === 'default' ? language.soundDefault : id;
+        if (id === 'silent') return language.soundSilent;
+        if (id === 'default') return language.soundDefault;
+        return id;
     }
 
     function select(v: string) {
@@ -36,7 +38,7 @@
         // the existing one — but new content gets its own uuid-keyed entry.
         const path = await saveAsset(f.data, '', f.name);
         if (!(DBState.db.customSounds ?? []).some((s) => s.path === path)) {
-            DBState.db.customSounds = [...(DBState.db.customSounds ?? []), { id: uuidv4(), name: f.name, path }];
+            DBState.db.customSounds = [...(DBState.db.customSounds ?? []), { id: createEntityId(), name: f.name, path }];
         }
         select(path);
     }
@@ -56,7 +58,7 @@
 
     <div class="flex flex-col gap-1 pr-1">
         {#each bundledSoundIds as id}
-            {@const selected = value === id || (!value && id === 'default')}
+            {@const selected = value === id || (!value && id === 'silent')}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />

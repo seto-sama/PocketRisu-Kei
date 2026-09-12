@@ -27,8 +27,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "personaPrompt"
     ],
     "currentPluginProvider": "",
-    "textgenWebUIStreamURL": "",
-    "textgenWebUIBlockingURL": "",
     "forceReplaceUrl": "",
     "forceReplaceUrl2": "",
     "bias": [],
@@ -78,7 +76,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "stoptokens": "",
       "top_k": 140
     },
-    "proxyRequestModel": "",
     "openrouterRequestModel": "openai/gpt-3.5-turbo",
     "NAISettings": {
       "topK": 15,
@@ -240,8 +237,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "authorNote"
     ],
     "currentPluginProvider": "",
-    "textgenWebUIStreamURL": "",
-    "textgenWebUIBlockingURL": "",
     "forceReplaceUrl": "",
     "forceReplaceUrl2": "",
     "bias": [],
@@ -291,7 +286,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "stoptokens": "",
       "top_k": 140
     },
-    "proxyRequestModel": "claude-3-5-sonnet-20240620",
     "openrouterRequestModel": "anthropic/claude-2",
     "NAISettings": {
       "topK": 12,

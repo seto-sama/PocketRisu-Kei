@@ -52,11 +52,12 @@
     import { runTrigger } from 'src/ts/process/triggers'
     import { sayTTS } from "src/ts/process/tts"
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
+    import { mdViewport } from 'src/ts/gui/breakpoints'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
-    import { v4 as uuidv4, v4 } from 'uuid'
+    import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
@@ -865,7 +866,7 @@
 
         const assignedMessageId = !messageId;
         if (assignedMessageId) {
-            messageId = uuidv4();
+            messageId = createEntityId();
             chat.message[idx].chatId = messageId;
         }
 
@@ -999,7 +1000,7 @@
         class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
         class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
     >
-        <div class="chat-toolbar-sticky-footer">
+        <div class="chat-toolbar-sticky-footer md:rounded-b-lg">
             <div class="chat-toolbar-sticky-footer-content">
                 <div class="chat-toolbar-generation-info">
                     {@render genInfo()}
@@ -1127,7 +1128,7 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {#if window.innerWidth >= 640}
+                {#if $mdViewport}
                     {@render ttsButton(false)}
                     {@render translationButton()}
                     {@render copyButton(false)}
@@ -1407,7 +1408,7 @@
 {/snippet}
 
 {#snippet ttsButton(showNames:boolean)}
-    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && DBState.db.characters[selIdState.selId].ttsMode}
+    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsPresetId}
         <ChatAdaptiveAction menu={showNames} className="button-icon-tts" onclick={()=>{
             return sayTTS(null, message)
         }}>
@@ -1547,7 +1548,7 @@
         const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
-            const folderId = v4()
+            const folderId = createEntityId()
             DBState.db.characters[selIdState.selId].chatFolders ??= []
             DBState.db.characters[selIdState.selId].chatFolders.unshift({
                 id: folderId,
@@ -1570,7 +1571,7 @@
                         data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
                         isComment: true,
                         disabled: true,
-                        chatId: v4(),
+                        chatId: createEntityId(),
                     })
                 },
             )
@@ -1806,7 +1807,7 @@
     >
         {#if !blankMessage}
             <div
-                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg"
+                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg md:[--chat-shell-inline-padding:2rem]"
                 class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
             >
                 {#if !hideSender}
@@ -2073,16 +2074,6 @@
 
     .chat-message-shell.chat-message-shell-sticky {
         padding-bottom: 0;
-    }
-
-    @media (min-width: 640px) {
-        .chat-message-shell {
-            --chat-shell-inline-padding: 2rem;
-        }
-
-        .chat-toolbar-sticky-footer {
-            border-radius: 0 0 0.5rem 0.5rem;
-        }
     }
 
     .chat-toolbar-generation-info {

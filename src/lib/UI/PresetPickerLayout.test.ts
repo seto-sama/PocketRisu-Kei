@@ -86,10 +86,14 @@ describe('preset picker binding choice', () => {
     it('keeps normal selection and delete actions separate and omits none outside binding mode', async () => {
         const onSelect = vi.fn();
         const onDelete = vi.fn();
-        mounted.push(mount(Harness, { target: document.body, props: { onSelect, onDelete } }));
+        const onDuplicate = vi.fn();
+        mounted.push(mount(Harness, { target: document.body, props: { onSelect, onDelete, onDuplicate } }));
         await tick();
         expect(document.querySelector('[data-preset-select-none]')).toBeNull();
         const row = document.querySelector<HTMLElement>('.preset-picker-item')!;
+        row.querySelector<HTMLButtonElement>(`button[aria-label="${language.presetDuplicate}"]`)!.click();
+        expect(onDuplicate).toHaveBeenCalledWith(0);
+        expect(onSelect).not.toHaveBeenCalled();
         row.querySelector<HTMLButtonElement>(`button[aria-label="${language.presetDeleteAction}"]`)!.click();
         await vi.waitFor(() => expect(onDelete).toHaveBeenCalledWith(0));
         expect(onSelect).not.toHaveBeenCalled();

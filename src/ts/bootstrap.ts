@@ -1,12 +1,12 @@
 import { isTrashExpired } from './trashRetention';
 import { checkNullish } from "./util"
-import { v4 as uuidv4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { get } from "svelte/store";
 import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
 import { characterURLImport } from "./characterCards";
@@ -18,7 +18,7 @@ import { applyEarlyLanguage, changeLanguage, language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
-import { initHotkey, initMobileGesture } from "./hotkey";
+import { initHotkey } from "./hotkey";
 import { syncMobileBackNavigationGuard } from "./mobileBackNavigation";
 import { moduleUpdate } from "./process/modules";
 import {
@@ -72,7 +72,7 @@ export async function loadData() {
                         // clients cannot overwrite whichever initialization wins.
                         setDatabase({} as Database)
                     } else {
-                        setPatchSyncBaseline(safeStructuredClone(projection.database))
+                        setPatchSyncBaseline(structuredClone(projection.database))
                         setDatabase(projection.database)
                     }
                 } else {
@@ -84,7 +84,7 @@ export async function loadData() {
                     } else {
                         try {
                             const decoded = await decodeRisuSave(gotStorage)
-                            setPatchSyncBaseline(safeStructuredClone(decoded))
+                            setPatchSyncBaseline(structuredClone(decoded))
                             setDatabase(decoded)
                         } catch (error) {
                             console.error(error)
@@ -95,7 +95,7 @@ export async function loadData() {
                                     LoadingStatusState.text = `Reading Backup File ${backup}...`
                                     const backupData = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
                                     const backupDecoded = await decodeRisuSave(backupData)
-                                    setPatchSyncBaseline(safeStructuredClone(backupDecoded))
+                                    setPatchSyncBaseline(structuredClone(backupDecoded))
                                     setDatabase(backupDecoded)
                                     backupLoaded = true
                                     break
@@ -108,9 +108,7 @@ export async function loadData() {
                     }
                 }
 
-                if (getDatabase().didFirstSetup) {
-                    characterURLImport()
-                }
+                characterURLImport()
             }
             if (createdFreshDatabase) {
                 // Brand-new instance (no save file existed): apply the default
@@ -149,7 +147,7 @@ export async function loadData() {
                     if (persisted.database === null) {
                         throw new Error('Initial database projection was not persisted')
                     }
-                    setPatchSyncBaseline(safeStructuredClone(persisted.database))
+                    setPatchSyncBaseline(structuredClone(persisted.database))
                     setDatabase(persisted.database)
                 } else {
                     const initializedStorage = encodeRisuSaveLegacy(getDatabase())
@@ -170,7 +168,7 @@ export async function loadData() {
                         throw new Error('Initial database write did not persist database.bin')
                     }
                     const persistedDatabase = await decodeRisuSave(persistedStorage)
-                    setPatchSyncBaseline(safeStructuredClone(persistedDatabase))
+                    setPatchSyncBaseline(structuredClone(persistedDatabase))
                     setDatabase(persistedDatabase)
                 }
             }
@@ -209,16 +207,8 @@ export async function loadData() {
             updateGuisize()
             initHotkey()
             syncMobileBackNavigationGuard(db.disableMobileBackNavigation)
-            if (!db.didFirstSetup) {
-                // Node-only build skips the onboarding screen and lands on the main UI directly.
-                db.didFirstSetup = true
-            }
             if (db.botSettingAtStart) {
                 botMakerMode.set(true)
-            }
-            if (import.meta.env.VITE_RISU_LITE === 'TRUE') {
-                initMobileGesture()
-                MobileGUI.set(true)
             }
             // Boot-time automatic backup schedule. This is intentionally checked
             // at startup instead of running a background timer while the app is
@@ -437,7 +427,7 @@ async function checkNewFormat(): Promise<void> {
         if (!v) {
             return null;
         }
-        v.chaId ??= uuidv4();
+        v.chaId ??= createEntityId();
         v.type ??= 'character';
         v.chatPage ??= 0;
         v.chats ??= [];
@@ -526,7 +516,7 @@ async function checkNewFormat(): Promise<void> {
     });
 
     db.personas = (db.personas ?? []).map((v) => {
-        v.id ??= uuidv4()
+        v.id ??= createEntityId()
         return v
     }).filter((v) => {
         return v !== null && v !== undefined;
@@ -631,21 +621,21 @@ function assignIds() {
     for (let i = 0; i < DBState.db.characters.length; i++) {
         const cha = DBState.db.characters[i]
         if (!cha.chaId) {
-            cha.chaId = uuidv4()
+            cha.chaId = createEntityId()
         }
         if (assignedIds.has(cha.chaId)) {
             console.warn(`Duplicate chaId found: ${cha.chaId}. Assigning new ID.`);
-            cha.chaId = uuidv4();
+            cha.chaId = createEntityId();
         }
         assignedIds.add(cha.chaId)
         for (let i2 = 0; i2 < cha.chats.length; i2++) {
             const chat = cha.chats[i2]
             if (!chat.id) {
-                chat.id = uuidv4()
+                chat.id = createEntityId()
             }
             if (assignedIds.has(chat.id)) {
                 console.warn(`Duplicate chat ID found: ${chat.id}. Assigning new ID.`);
-                chat.id = uuidv4();
+                chat.id = createEntityId();
             }
             assignedIds.add(chat.id)
         }

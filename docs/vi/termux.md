@@ -25,7 +25,7 @@ Hướng dẫn này giải thích cách xây dựng và chạy PocketRisu trực
 | **RAM**             | 2 GB            | 4 GB trở lên                           |
 | **Dung lượng trống** | 2 GB            | 4 GB trở lên (bao gồm bản build)       |
 
-PocketRisu không cung cấp tệp nhị phân biên dịch sẵn cho Termux, vì vậy điện thoại tự xây dựng mọi thứ. Bao gồm các module gốc như `better-sqlite3`, quá trình xây dựng mất khoảng **10 đến 40 phút**, tùy theo hiệu năng điện thoại.
+PocketRisu xây dựng ứng dụng cục bộ trên điện thoại, vì vậy thời gian xây dựng phụ thuộc vào hiệu năng điện thoại.
 
 
 ---
@@ -35,7 +35,7 @@ PocketRisu không cung cấp tệp nhị phân biên dịch sẵn cho Termux, v�
 ### Sử dụng phiên bản Termux từ F-Droid hoặc GitHub Releases
 
 > ⚠️ **Không thể sử dụng phiên bản Termux trên Play Store.**
-> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà PocketRisu cần (Node.js 22+).
+> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà PocketRisu cần (Node.js 24.15+).
 
 Cài đặt Termux từ một trong các nguồn sau:
 
@@ -63,7 +63,7 @@ Lệnh này tự động xử lý:
 1. Cài đặt `git`
 2. Sao chép kho lưu trữ PocketRisu
 3. Cài đặt các phụ thuộc xây dựng (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, v.v.)
-4. `pnpm install` — phụ thuộc JavaScript và biên dịch module gốc
+4. `pnpm install` — phụ thuộc JavaScript và tăng tốc gốc tùy chọn
 5. `pnpm build` — đóng gói giao diện người dùng
 
 Khi quá trình xây dựng hoàn tất, bạn sẽ thấy:

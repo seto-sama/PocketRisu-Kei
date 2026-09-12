@@ -23,8 +23,6 @@ vi.mock('./stores.svelte', async () => {
         AdminStatsSubmenuIndex: writable(0),
         alertStore: writable(null),
         botMakerMode: writable(false),
-        MobileGUIStack: writable(0),
-        MobileSideBar: writable(0),
         openHypaV3PresetList: writable(false),
         openModelPresetList: writable(false),
         openPersonaList: writable(false),
@@ -45,40 +43,15 @@ vi.mock('./gui/colorscheme', () => ({ updateTextThemeAndCSS: vi.fn() }))
 vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
 
 import { hotkeyMatches, isSupportedHotkey } from './defaulthotkeys'
-import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey, initMobileGesture } from './hotkey'
+import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey } from './hotkey'
 import {
     botMakerMode,
-    MobileGUIStack,
     QuickSettings,
     selectedCharID,
     sidebarDevTool,
     sideBarStore,
     settingsOpen,
 } from './stores.svelte'
-
-function dispatchPointer(
-    type: 'pointerdown' | 'pointerup' | 'pointercancel',
-    target: EventTarget,
-    pointer: {
-        pointerId: number
-        clientX: number
-        clientY: number
-        pointerType?: 'touch' | 'mouse'
-        button?: number
-        isPrimary?: boolean
-    },
-) {
-    const event = new Event(type, { bubbles: true })
-    for(const [key, value] of Object.entries({
-        pointerType: 'touch',
-        button: 0,
-        isPrimary: true,
-        ...pointer,
-    })){
-        Object.defineProperty(event, key, { value })
-    }
-    target.dispatchEvent(event)
-}
 
 afterEach(() => {
     document.body.replaceChildren()
@@ -280,71 +253,5 @@ describe('findMostVisibleMessageAction', () => {
         })
 
         expect(findMostVisibleMessageAction(root, '.target-action')).toBe(actions[2])
-    })
-})
-
-describe('initMobileGesture', () => {
-    beforeAll(() => {
-        initMobileGesture()
-    })
-
-    it('ignores pointerup events without a tracked pointerdown', () => {
-        selectedCharID.set(-1)
-        MobileGUIStack.set(1)
-
-        const button = document.createElement('button')
-        const buttonIcon = document.createElement('span')
-        button.appendChild(buttonIcon)
-        document.body.appendChild(button)
-
-        expect(() => {
-            dispatchPointer('pointerdown', buttonIcon, {
-                pointerId: 1,
-                clientX: 100,
-                clientY: 0,
-            })
-            dispatchPointer('pointerup', buttonIcon, {
-                pointerId: 1,
-                clientX: 200,
-                clientY: 0,
-            })
-            dispatchPointer('pointerup', document.body, {
-                pointerId: 2,
-                clientX: 200,
-                clientY: 0,
-            })
-        }).not.toThrow()
-        expect(get(MobileGUIStack)).toBe(1)
-    })
-
-    it('uses the same navigation gesture for touch swipes and mouse drags', () => {
-        selectedCharID.set(-1)
-        MobileGUIStack.set(1)
-
-        dispatchPointer('pointerdown', document.body, {
-            pointerId: 3,
-            clientX: 100,
-            clientY: 0,
-        })
-        dispatchPointer('pointerup', document.body, {
-            pointerId: 3,
-            clientX: 200,
-            clientY: 0,
-        })
-        expect(get(MobileGUIStack)).toBe(0)
-
-        dispatchPointer('pointerdown', document.body, {
-            pointerId: 4,
-            pointerType: 'mouse',
-            clientX: 200,
-            clientY: 0,
-        })
-        dispatchPointer('pointerup', document.body, {
-            pointerId: 4,
-            pointerType: 'mouse',
-            clientX: 100,
-            clientY: 0,
-        })
-        expect(get(MobileGUIStack)).toBe(1)
     })
 })

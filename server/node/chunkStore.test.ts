@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import Database from 'better-sqlite3'
+import Database from './sqlite.cjs'
 import pkg from './chunkStore.cjs'
 
 const { cdcSplit, createChunkStore } = pkg as {

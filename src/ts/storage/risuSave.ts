@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
 import * as fflate from "fflate";
 import { language } from "src/lang";
@@ -26,19 +27,6 @@ const magicStreamCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 8
 const magicRisuSaveHeader = new TextEncoder().encode("RISUSAVE\0");
 
 
-async function checkCompressionStreams(){
-    if(!CompressionStream){
-        const {makeCompressionStream} = await import('compression-streams-polyfill/ponyfill');
-        //@ts-expect-error polyfill CompressionStream type is incompatible with globalThis.CompressionStream
-        globalThis.CompressionStream = makeCompressionStream(TransformStream);
-    }
-    if(!DecompressionStream){
-        const {makeDecompressionStream} = await import('compression-streams-polyfill/ponyfill');
-        //@ts-expect-error polyfill DecompressionStream type is incompatible with globalThis.DecompressionStream
-        globalThis.DecompressionStream = makeDecompressionStream(TransformStream);
-    }
-}
-
 export function encodeRisuSaveLegacy(data:any, compression:'noCompression'|'compression' = 'noCompression'){
     let encoded:Uint8Array = packr.encode(data)
     if(compression === 'compression'){
@@ -57,7 +45,6 @@ export function encodeRisuSaveLegacy(data:any, compression:'noCompression'|'comp
 }
 
 export async function encodeRisuSaveCompressionStream(data:any) {
-    await checkCompressionStreams()
     let encoded:Uint8Array = packr.encode(data)
     const cs = new CompressionStream('gzip');
     const writer = cs.writable.getWriter();
@@ -339,7 +326,6 @@ export class RisuSaveEncoder {
         let databuf: Uint8Array;
         const cacheBlock = arg.cache ?? true;
         if(arg.compression){
-            await checkCompressionStreams();
             const cs = new CompressionStream('gzip');
             const writer = cs.writable.getWriter();
             writer.write(new TextEncoder().encode(arg.data));
@@ -405,7 +391,6 @@ export class RisuSaveDecoder {
 
                 if (compression) {
                     //decode using DecompressionStream
-                    await checkCompressionStreams();
                     const cs = new DecompressionStream('gzip');
                     const writer = cs.writable.getWriter();
                     writer.write(blockData as any);
@@ -547,7 +532,6 @@ export async function decodeRisuSave(data:Uint8Array){
                 data = data.slice(magicHeader.length)
                 return unpackr.decode(data)
             case "stream":{
-                await checkCompressionStreams()
                 data = data.slice(magicStreamCompressedHeader.length)
                 const cs = new DecompressionStream('gzip');
                 const writer = cs.writable.getWriter();

@@ -1,9 +1,10 @@
+import { Buffer } from 'buffer'
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
 import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
-import { checkPersonaBinded, selectSingleFile, sleep } from "../util"
-import { v4 } from "uuid"
+import { checkPersonaBinded, selectSingleImportFile, sleep } from "../util"
+import { createEntityId } from "../id"
 import { convertExternalLorebook } from "./lorebook.svelte"
 import { compressImage } from '../media'
 import { decodeRPack, encodeRPack } from "../rpack/rpack_js"
@@ -78,7 +79,7 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
     }
 
     const assets = module.assets ?? []
-    module = safeStructuredClone(module)
+    module = structuredClone(module)
     module.assets ??= []
     module.assets = module.assets.map((asset) => {
         return [asset[0], '', asset[2]] as [string,string,string]
@@ -249,12 +250,12 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
         alertClear()
     }
 
-    module.id = v4()
+    module.id = createEntityId()
     return normalizePresetTagFields(module)
 }
 
 export async function importModule(){
-    const f = await selectSingleFile(['json', 'lorebook', 'risum', 'charx'])
+    const f = await selectSingleImportFile()
     if(!f){
         return
     }
@@ -303,7 +304,7 @@ export async function importModule(){
                 alertError(language.errors.noData)
                 return
             }
-            importData.id = v4()
+            importData.id = createEntityId()
 
             if(importData.lowLevelAccess){
                 const conf = await alertConfirm(language.lowLevelAccessConfirm)
@@ -323,7 +324,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Lorebook',
                 description: importData.description || 'Converted from risu lorebook',
                 lorebook: lores,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
@@ -335,7 +336,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Lorebook',
                 description: importData.description || 'Converted from external lorebook',
                 lorebook: lores,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
@@ -347,7 +348,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Regex',
                 description: importData.description || 'Converted from risu regex',
                 regex: regexs,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
@@ -525,7 +526,7 @@ export async function applyModule() {
         return
     }
 
-    const module = safeStructuredClone(getModuleById(sel))
+    const module = structuredClone(getModuleById(sel))
     if (!module) {
         return
     }

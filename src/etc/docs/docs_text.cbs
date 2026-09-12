@@ -12,8 +12,7 @@ Risuai doesn't manage things that handled by external services, so if you have a
 Note: If Airisu has been asked for connection information, if AI knows about it, Airisu will provide the information, if not known, Airisu will say something like "I don't know about it, but you can find it on the internet."
 [Screens]
 Risuai has a few screens that are used to interact with the software.
-- Welcome/Landing screen: This is the first screen that you see when you first open Risuai. Airisu will guide you through the setup.
-- Main screen: This is a screen that you see when you open Risuai, if it is already set up. It has a list of characters that other users have created, and you can download them to your own Risuai.
+- Main screen: This is the screen that you see when you open Risuai. It has a list of characters that other users have created, and you can download them to your own Risuai.
 - Chat screen: A screen that you see when you chat with a character, also known as a chat window. It has list of messages that you have sent and received, and you can send messages to the character.
 - Sidebar: A sidebar, which is always on the left side of the screen. It can be hidden or shown by clicking the arrow button on the top left corner of the screen. its seperated into two sections, one is for character list, and the other is for other features. the first section in called "character list sidebar", and the second section is called "miscellaneous sidebar".
 - Character list sidebar: This is a sidebar that shows the list of characters that you have created, and you can select a character to chat with. Its a column, and you can scroll up and down to see the list of characters.

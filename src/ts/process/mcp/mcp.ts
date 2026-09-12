@@ -3,7 +3,7 @@ import { MCPClient, type JsonRPC, type MCPTool, type RPCToolCallContent } from "
 import { DBState } from "src/ts/stores.svelte";
 import { getModuleMcps } from "../modules";
 import { notifySuccess, notifyError } from "src/ts/alert";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import type { MCPClientLike } from "./internalmcp";
 import { sleep } from "src/ts/util";
 import { registeredCustomPluginMCPs } from "./pluginmcp";
@@ -230,7 +230,7 @@ export async function importMCPModule(source:string):Promise<boolean>{
             mcp: {
                 url: x
             },
-            id: v4(),
+            id: createEntityId(),
             lorebook: [{
                 comment: "MCP Info",
                 content: `@@mcp\n\n<MCP Info>Name:${meta.serverInfo.name}\nVersion:${meta.serverInfo.version}\nInst:${meta.instructions ?? 'None'}</MCP Info>`,
@@ -264,7 +264,7 @@ const toolCallCache = new Map<string, toolCallData>();
 const toolCallCachePrefix = 'cache/mcp-tool-calls/';
 
 export async function encodeToolCall(call:toolCallData){
-    call.call.id = call.call.id || v4();
+    call.call.id = call.call.id || createEntityId();
     toolCallCache.set(call.call.id, call)
     await writePersistentJson(makeEncodedStorageKey(toolCallCachePrefix, call.call.id), call)
     return `<tool_call>${call.call.id}\uf100${call.call.name}</tool_call>\n\n`;

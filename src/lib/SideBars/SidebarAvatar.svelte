@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { tooltipRight } from "src/ts/gui/tooltip";
   import { getFolderColorStyle } from "./folderColors";
   import SelectionParticles from "../UI/SelectionParticles.svelte";
   import AvatarFallback from "../UI/AvatarFallback.svelte";
+  import Tooltip from "../UI/components/Tooltip.svelte";
 
   interface Props {
     rounded: boolean;
@@ -56,12 +56,14 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex: role and tabindex are both omitted for noninteractive avatar reuse -->
-<span class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target"
+<Tooltip side="right" variant="glass" disabled={!showTooltip || !name.trim()}>
+  {#snippet trigger(props)}
+  <span {...props} class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target"
       style:--risu-folder-color={folderColorStyle.accent}
       class:rounded-md={!rounded}
       class:rounded-full={rounded}
       oncontextmenu={interactive ? handleContextMenu : undefined}
-      onclick={interactive ? onClick : undefined} use:tooltipRight={showTooltip ? name : ''}
+      onclick={interactive ? onClick : undefined}
       role={interactive ? "button" : undefined}
       tabindex={interactive ? 0 : undefined}
       data-char-id={chaId}
@@ -136,7 +138,10 @@
     class="avatar-border-overlay box-border border {showFolderBorder ? folderColorStyle.border : 'border-transparent'}"
     aria-hidden="true"
   ></span>
-</span>
+  </span>
+  {/snippet}
+  {name}
+</Tooltip>
 
 <style>
   .sidebar-touch-target {

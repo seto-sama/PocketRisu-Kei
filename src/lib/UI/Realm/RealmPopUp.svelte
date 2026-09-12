@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon, TrashIcon } from "@lucide/svelte";
+    import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertInput, alertNormal, notifyInfo } from "src/ts/alert";
     import { hubURL, realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
@@ -7,12 +7,12 @@
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
     import MultiLangDisplay from "../components/MultiLangDisplay.svelte";
-    import { tooltip } from "src/ts/gui/tooltip";
     import Dialog from "../components/Dialog.svelte";
     import Button from "../components/Button.svelte";
     import IconButton from "../components/IconButton.svelte";
     import IconButtonGroup from "../components/IconButtonGroup.svelte";
     import RealmTagList from "./RealmTagList.svelte";
+    import Tooltip from "../components/Tooltip.svelte";
 
     interface Props {
         openedData: hubType;
@@ -89,9 +89,14 @@
                         }} aria-label="Lorebook"><BookIcon /></IconButton>
                     {/if}
                 </IconButtonGroup>
-                <span class="whitespace-nowrap text-subtext" use:tooltip={language.popularityLevelDesc}>
-                    {language.popularityLevel.replace('{}', openedData.download.toString())}
-                </span>
+                <Tooltip>
+                    {#snippet trigger(props)}
+                        <span {...props} class="whitespace-nowrap text-subtext">
+                            {language.popularityLevel.replace('{}', openedData.download.toString())}
+                        </span>
+                    {/snippet}
+                    {language.popularityLevelDesc}
+                </Tooltip>
             </div>
         </div>
     </div>
@@ -118,23 +123,6 @@
             })}>
                 <PaperclipIcon />
             </IconButton>
-            {#if (DBState.db.account?.token?.split('-') ?? [])[1] === openedData.creator}
-                <IconButton tone="destructive" aria-label="Remove character" onclick={(async () => {
-                        const conf = await alertConfirm('Do you want to remove this character from Realm?')
-                        if(conf){
-                            const da = await fetch(hubURL + '/hub/remove', {
-                                method: "POST",
-                                body: JSON.stringify({
-                                    id: openedData.id,
-                                    token: DBState.db.account?.token
-                                })
-                            })
-                            alertNormal(await da.text())
-                        }
-                })}>
-                    <TrashIcon />
-                </IconButton>
-            {/if}
             <IconButton tone="destructive" aria-label="Report character" onclick={(async () => {
                 const conf = await alertConfirm('Report this character?')
                 if(conf){

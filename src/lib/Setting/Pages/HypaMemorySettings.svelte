@@ -20,8 +20,9 @@
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
     import { createHypaV3Preset } from "src/ts/process/memory/hypav3";
     import { DBState } from "src/ts/stores.svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { normalizeTagIds, removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
 
     let { maxMemoryRatio }: { maxMemoryRatio: Promise<number> } = $props();
 
@@ -85,18 +86,10 @@
     });
 
     function movePreset(fromIndex: number, toIndex: number) {
-        const presets = DBState.db.hypaV3Presets;
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return;
-        const next = [...presets];
-        const [moved] = next.splice(fromIndex, 1);
-        if (!moved) return;
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-        next.splice(adjustedToIndex, 0, moved);
-        const current = DBState.db.hypaV3PresetId;
-        if (current === fromIndex) DBState.db.hypaV3PresetId = adjustedToIndex;
-        else if (fromIndex < current && adjustedToIndex >= current) DBState.db.hypaV3PresetId = current - 1;
-        else if (fromIndex > current && adjustedToIndex <= current) DBState.db.hypaV3PresetId = current + 1;
-        DBState.db.hypaV3Presets = next;
+        const result = movePresetItem(DBState.db.hypaV3Presets, DBState.db.hypaV3PresetId, fromIndex, toIndex);
+        if (!result.changed) return;
+        DBState.db.hypaV3Presets = result.items;
+        DBState.db.hypaV3PresetId = result.selectedIndex;
     }
 
     function selectPreset(index: number) {
@@ -107,15 +100,20 @@
     function addPreset() {
         const next = createHypaV3Preset();
         next.tagIds = undefined;
-        DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
-        DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
+        const result = appendPresetItem(DBState.db.hypaV3Presets, next);
+        DBState.db.hypaV3Presets = result.items;
+        DBState.db.hypaV3PresetId = result.selectedIndex;
     }
 
     function duplicatePreset(index: number) {
-        const next = safeStructuredClone(DBState.db.hypaV3Presets[index]);
-        next.name = `${next.name} Copy`;
-        DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
-        DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
+        const result = duplicatePresetItem(DBState.db.hypaV3Presets, index, source => {
+            const next = clonePresetWithNewId(source);
+            next.name = `${next.name} ${language.copy}`;
+            return next;
+        });
+        if (!result.changed) return;
+        DBState.db.hypaV3Presets = result.items;
+        DBState.db.hypaV3PresetId = result.selectedIndex;
         notifySuccess(language.presetDuplicated);
     }
 
@@ -123,8 +121,10 @@
         if (DBState.db.hypaV3Presets.length <= 1) return notifyError(language.hypaV3Settings.presetRequiredError);
         const target = DBState.db.hypaV3Presets[index];
         if (!await alertConfirm(`${language.removeConfirm}${target.name}`)) return;
-        DBState.db.hypaV3Presets = DBState.db.hypaV3Presets.filter((_, i) => i !== index);
-        DBState.db.hypaV3PresetId = Math.min(DBState.db.hypaV3PresetId, DBState.db.hypaV3Presets.length - 1);
+        const result = removePresetItem(DBState.db.hypaV3Presets, DBState.db.hypaV3PresetId, index);
+        if (!result.changed) return;
+        DBState.db.hypaV3Presets = result.items;
+        DBState.db.hypaV3PresetId = result.selectedIndex;
     }
 
     async function exportPreset(index: number) {
@@ -137,14 +137,15 @@
 
     async function importPreset() {
         try {
-            const file = await selectSingleFile(["json"]);
+            const file = await selectSingleImportFile();
             if (!file?.data) return;
             const obj = JSON.parse(Buffer.from(file.data).toString("utf-8"));
             if (obj.type !== "risu" || !obj.data) throw new Error(language.hypaV3Settings.invalidPresetError);
             const next = createHypaV3Preset(obj.data.name || "Imported Preset", obj.data.settings || {});
             next.tagIds = normalizeTagIds(obj.data.tagIds ?? obj.data.folderId);
-            DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
-            DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
+            const result = appendPresetItem(DBState.db.hypaV3Presets, next);
+            DBState.db.hypaV3Presets = result.items;
+            DBState.db.hypaV3PresetId = result.selectedIndex;
             notifySuccess(language.successImport);
         } catch (error) { alertError(`${error}`); }
     }

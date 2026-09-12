@@ -1,6 +1,5 @@
 import { applyPatch } from 'fast-json-patch'
-import isEqual from 'lodash/isEqual'
-import { safeStructuredClone } from '../polyfill'
+import isEqual from 'fast-deep-equal'
 
 // Stable identity fields used by persisted characters, entities, and messages.
 const identityKeys = ['chaId', 'id', 'chatId'] as const
@@ -58,14 +57,14 @@ export function preparePatchConflictRebase<T>(
     latestServerValue: T,
     rejected?: { patch: any[], baseline: T },
 ): { serverBaseline: T, mergedValue: T } {
-    const serverBaseline = safeStructuredClone(latestServerValue)
-    let mergedValue = safeStructuredClone(latestServerValue)
+    const serverBaseline = structuredClone(latestServerValue)
+    let mergedValue = structuredClone(latestServerValue)
     if (rejected) {
         // Array offsets belong to the rejected patch's original pre-image.
         // Replaying directly on the server list can duplicate additions or
         // overwrite another item after a concurrent insertion/reorder.
-        const target = safeStructuredClone(rejected.baseline)
-        const local = applyPatch(target as object, safeStructuredClone(rejected.patch), true).newDocument
+        const target = structuredClone(rejected.baseline)
+        const local = applyPatch(target as object, structuredClone(rejected.patch), true).newDocument
         mergedValue = mergeLocalChanges(rejected.baseline, local, mergedValue)
     }
     return { serverBaseline, mergedValue }

@@ -15,16 +15,13 @@ vi.mock("src/ts/rpack/rpack_js.js", () => ({
 }));
 
 import {
-    appendTranslatorPreset,
     createTranslatorPreset,
     decodeTranslatorPresetFile,
     duplicateTranslatorPreset,
     encodeTranslatorPresetFile,
     getCurrentTranslatorPresetFromState,
     getTranslatorPresetDownloadName,
-    moveTranslatorPreset,
     normalizeTranslatorPresetState,
-    removeTranslatorPreset,
     type TranslatorPresetStateLike,
 } from "./presets";
 
@@ -134,35 +131,23 @@ describe("getCurrentTranslatorPresetFromState", () => {
 });
 
 describe("translator preset collection operations", () => {
-    it("keeps the selected preset stable while moving and removing siblings", () => {
-        const first = createTranslatorPreset("First", { prompt: "first" });
-        const selected = createTranslatorPreset("Selected", { prompt: "selected" });
-        const third = createTranslatorPreset("Third", { prompt: "third" });
+    it("duplicates translator fields with a new stable id and syncs legacy fields", () => {
+        const first = createTranslatorPreset("First", { prompt: "first", tagIds: ["tag-a"] });
         const state = {
-            translatorPresets: [first, selected, third],
-            translatorPresetId: 1,
+            translatorPresets: [first],
+            translatorPresetId: 0,
             translatorPrompt: "",
             translatorMaxResponse: 0,
         };
 
-        expect(moveTranslatorPreset(state, 1, 3)).toBe(true);
-        expect(state.translatorPresets[state.translatorPresetId].id).toBe(selected.id);
-        expect(removeTranslatorPreset(state, 0)).toBe(true);
-        expect(state.translatorPresets[state.translatorPresetId].id).toBe(selected.id);
-        expect(state.translatorPrompt).toBe("selected");
-    });
-
-    it("appends and duplicates presets with new stable ids", () => {
-        const first = createTranslatorPreset("First");
-        const state = { translatorPresets: [first], translatorPresetId: 0 };
-        const added = createTranslatorPreset("Added");
-
-        appendTranslatorPreset(state, added);
         const duplicate = duplicateTranslatorPreset(state, 0, "Copy");
 
-        expect(state.translatorPresetId).toBe(2);
+        expect(state.translatorPresetId).toBe(1);
         expect(duplicate?.name).toBe("First Copy");
         expect(duplicate?.id).not.toBe(first.id);
+        expect(duplicate?.tagIds).toEqual(["tag-a"]);
+        expect(duplicate?.tagIds).not.toBe(first.tagIds);
+        expect(state.translatorPrompt).toBe("first");
     });
 });
 

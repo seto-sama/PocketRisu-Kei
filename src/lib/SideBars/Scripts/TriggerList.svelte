@@ -58,7 +58,7 @@
         const current = JSON.stringify(projectedV2Value)
         if (current === projectionBaseline) return
         projectionBaseline = current
-        value = safeStructuredClone(projectedV2Value)
+        value = structuredClone(projectedV2Value)
         projectionSource = null
     })
 </script>

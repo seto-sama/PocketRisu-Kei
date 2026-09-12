@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { Buffer } from 'buffer'
     import { language } from "src/lang";
     import Input from "../../../UI/components/Input.svelte";
     import type { loreBook } from "src/ts/storage/database.svelte";
@@ -14,12 +15,12 @@
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { alertError, notifySuccess } from "src/ts/alert";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import { selectMultipleFile } from "src/ts/util";
+    import { selectMultipleImportFiles } from "src/ts/util";
     import IconButton from "../../../UI/components/IconButton.svelte";
-    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../../../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
     import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
 
     let submenu = $state('basic')
     interface Props {
@@ -47,7 +48,7 @@
 
     function addLorebookFolder(){
         if(Array.isArray(currentModule.lorebook)){
-            const id = v4()
+            const id = createEntityId()
             currentModule.lorebook.push({
                 key: '\uf000folder:' + id,
                 comment: `New Folder`,
@@ -82,7 +83,7 @@
 
     async function importLoreBook(){
         let lore = currentModule.lorebook
-        const lorebook = (await selectMultipleFile(['json', 'lorebook']))
+        const lorebook = await selectMultipleImportFiles()
         if(!lorebook){
             return
         }
@@ -190,7 +191,7 @@
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
     <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
-    <IconButtonGroup size="default" className="risu-list-actions w-full">
+    <ListActionBar mode="footer">
         <IconButton onclick={() => {addLorebook()}}>
             <PlusIcon />
         </IconButton>
@@ -205,7 +206,7 @@
         }}>
             <FolderPlusIcon />
         </IconButton>
-    </IconButtonGroup>
+    </ListActionBar>
 {/if}
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
@@ -213,7 +214,7 @@
     <Textarea commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
-    <IconButtonGroup size="default" className="mt-2">
+    <ListActionBar mode="footer">
         <IconButton onclick={() => {
             addRegex()
         }}><PlusIcon /></IconButton>
@@ -223,7 +224,7 @@
         <IconButton onclick={async () => {
             currentModule.regex = await importRegex(currentModule.regex)
         }}><UploadIcon /></IconButton>
-    </IconButtonGroup>
+    </ListActionBar>
 {/if}
 
 {#if submenu === 'assets' && (Array.isArray(currentModule.assets))}

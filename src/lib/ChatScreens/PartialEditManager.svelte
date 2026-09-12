@@ -6,6 +6,7 @@
     import { language } from 'src/lang';
     import { iconButtonSizeValues } from '../UI/components/IconButton.svelte';
     import Button from '../UI/components/Button.svelte';
+    import Badge, { type BadgeVariant } from '../UI/components/Badge.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
     import Textarea from '../UI/components/Textarea.svelte';
     import OverlayPortal from '../UI/components/overlay/OverlayPortal.svelte';
@@ -62,6 +63,9 @@
     const PARTIAL_EDIT_BUTTON_CELL_SIZE = iconButtonSizeValues.default.cell;
     const PARTIAL_EDIT_BUTTON_GAP = 4;
     const PARTIAL_EDIT_VIEWPORT_GUTTER = 4;
+    const HIGH_CONFIDENCE_THRESHOLD = 0.95;
+    const MEDIUM_CONFIDENCE_THRESHOLD = 0.7;
+    const MATCH_PREVIEW_MAX_LENGTH = 150;
 
     let isEditing = $state(false);
     let editText = $state('');
@@ -114,6 +118,12 @@
             sourceData: '',
             translationKey: null as string | null,
         };
+    }
+
+    function matchConfidenceVariant(confidence: number): BadgeVariant {
+        if (confidence >= HIGH_CONFIDENCE_THRESHOLD) return 'success';
+        if (confidence >= MEDIUM_CONFIDENCE_THRESHOLD) return 'warning';
+        return 'destructive';
     }
 
     function hasOpenInteraction() {
@@ -437,7 +447,9 @@
             matchingState.mode = null;
             showMatchFailedModal = true;
         } else {
-            const highConfidenceMatches = matchingState.foundMatches.filter(m => m.confidence >= 0.95);
+            const highConfidenceMatches = matchingState.foundMatches.filter(
+                match => match.confidence >= HIGH_CONFIDENCE_THRESHOLD,
+            );
             if (highConfidenceMatches.length === 1) proceedCallback(highConfidenceMatches[0]);
             else if (matchingState.foundMatches.length === 1) proceedCallback(matchingState.foundMatches[0]);
         }
@@ -702,48 +714,49 @@
     onDestroy(() => resetInteraction(true));
 </script>
 
-{#snippet MatchSelectionModal(mode: MatchingMode, matches: RangeResultWithContext[], title: string)}
-    <OverlayPortal>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) cancelMatchSelection(); }}>
-        <div class="partial-match-selection-modal">
-            <div class="match-selection-header">
-                <span class="match-selection-title">{title}</span>
-                <span class="match-count">{matches.length} {language.partialEdit.matchesFound}</span>
-            </div>
-            <div class="match-list">
-                {#each matches as match, i}
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <div class="match-item" onclick={() => selectMatchAtIndex(i)}>
-                        <div class="match-meta">
-                            <span class="match-line">{language.partialEdit.lineNumber(match.lineNumber)}</span>
-                            <span class="match-confidence" class:high-confidence={match.confidence >= 0.95} class:medium-confidence={match.confidence >= 0.7 && match.confidence < 0.95} class:low-confidence={match.confidence < 0.7}>
-                                {(match.confidence * 100).toFixed(0)}%
-                            </span>
-                        </div>
-                        {#if match.contextBefore}
-                            <div class="match-context-before">{match.contextBefore}</div>
-                        {/if}
-                        <div class="match-text">
-                            {matchingState.sourceData.slice(match.start, match.end).slice(0, 150)}{matchingState.sourceData.slice(match.start, match.end).length > 150 ? '...' : ''}
-                        </div>
-                        {#if match.contextAfter}
-                            <div class="match-context-after">{match.contextAfter}</div>
-                        {/if}
+{#snippet MatchSelectionModal(matches: RangeResultWithContext[], dialogTitle: string)}
+    <Dialog
+        open={true}
+        size="lg"
+        closable={false}
+        closeOnEscape={true}
+        closeOnOutsideClick={true}
+        onRequestClose={cancelMatchSelection}
+        contentClass="overflow-hidden"
+        bodyClass="min-h-0 overflow-y-auto"
+    >
+        {#snippet title()}{dialogTitle}{/snippet}
+        {#snippet headerActions()}
+            <Badge variant="secondary">{matches.length} {language.partialEdit.matchesFound}</Badge>
+        {/snippet}
+
+        <div class="match-list">
+            {#each matches as match, i}
+                {@const matchedText = matchingState.sourceData.slice(match.start, match.end)}
+                <button type="button" class="match-item" onclick={() => selectMatchAtIndex(i)}>
+                    <div class="match-meta">
+                        <span class="text-sm text-subtext">
+                            {language.partialEdit.lineNumber(match.lineNumber)}
+                        </span>
+                        <Badge
+                            size="sm"
+                            variant={matchConfidenceVariant(match.confidence)}
+                            className="ml-auto"
+                        >
+                            {language.partialEdit.matchConfidence(Math.round(match.confidence * 100))}
+                        </Badge>
                     </div>
-                {/each}
-            </div>
-            <div class="partial-edit-buttons">
-                <Button variant="outline" size="sm" onclick={cancelMatchSelection}>
-                    <XIcon size={12} />
-                    <span>{language.cancel}</span>
-                </Button>
-            </div>
+                    <div class="match-preview">{#if match.contextBefore}<span>{match.contextBefore} </span>{/if}<mark class="match-highlight">{matchedText.slice(0, MATCH_PREVIEW_MAX_LENGTH)}</mark>{matchedText.length > MATCH_PREVIEW_MAX_LENGTH ? '...' : ''}{#if match.contextAfter}<span> {match.contextAfter}</span>{/if}</div>
+                </button>
+            {/each}
         </div>
-    </div>
-    </OverlayPortal>
+
+        {#snippet footer()}
+            <Button variant="outline" onclick={cancelMatchSelection}>
+                {language.cancel}
+            </Button>
+        {/snippet}
+    </Dialog>
 {/snippet}
 
 <!-- Match failed modal -->
@@ -778,14 +791,12 @@
             <div class="partial-delete-header">
                 <span class="partial-delete-title">{language.partialEdit.deleteModalTitle}</span>
                 <div class="partial-match-meta">
-                    <span
-                        class="partial-match-confidence"
-                        class:high-confidence={matchingState.selectedRange.confidence >= 0.95}
-                        class:medium-confidence={matchingState.selectedRange.confidence >= 0.7 && matchingState.selectedRange.confidence < 0.95}
-                        class:low-confidence={matchingState.selectedRange.confidence < 0.7}
+                    <Badge
+                        size="sm"
+                        variant={matchConfidenceVariant(matchingState.selectedRange.confidence)}
                     >
                         {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
-                    </span>
+                    </Badge>
                 </div>
             </div>
             <p class="partial-delete-message">{language.partialEdit.deleteConfirmMessage}</p>
@@ -809,9 +820,9 @@
 
 <!-- Match selection modal (shared for edit/delete) -->
 {#if matchingState.mode === 'edit'}
-    {@render MatchSelectionModal('edit', matchingState.foundMatches, language.partialEdit.selectMatch)}
+    {@render MatchSelectionModal(matchingState.foundMatches, language.partialEdit.selectMatch)}
 {:else if matchingState.mode === 'delete'}
-    {@render MatchSelectionModal('delete', matchingState.foundMatches, language.partialEdit.selectDeleteMatch)}
+    {@render MatchSelectionModal(matchingState.foundMatches, language.partialEdit.selectDeleteMatch)}
 {/if}
 
 <!-- Edit modal (shown only during edit) -->
@@ -824,18 +835,14 @@
         onOpenChange={(open) => { if (!open) handleCancel(); }}
         contentClass="gap-3"
     >
-        {#snippet title()}
-            <div class="partial-edit-header">
-                <span>{language.partialEdit.editModalTitle}</span>
-                <span
-                    class="partial-match-confidence"
-                    class:high-confidence={matchingState.selectedRange.confidence >= 0.95}
-                    class:medium-confidence={matchingState.selectedRange.confidence >= 0.7 && matchingState.selectedRange.confidence < 0.95}
-                    class:low-confidence={matchingState.selectedRange.confidence < 0.7}
-                >
-                    {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
-                </span>
-            </div>
+        {#snippet title()}{language.partialEdit.editModalTitle}{/snippet}
+        {#snippet headerActions()}
+            <Badge
+                size="sm"
+                variant={matchConfidenceVariant(matchingState.selectedRange.confidence)}
+            >
+                {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
+            </Badge>
         {/snippet}
         <div use:attachPartialEditTextarea>
             <Textarea
@@ -1015,95 +1022,16 @@
         width: 100%;
     }
 
-    .partial-edit-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        width: 100%;
-    }
-
-    .partial-match-confidence {
-        display: inline-flex;
-        align-items: center;
-        min-height: 32px;
-        padding: 0 10px;
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1;
-        border-radius: 6px;
-        border: 1px solid transparent;
-    }
-
-    .partial-match-confidence.high-confidence {
-        background: color-mix(in srgb, var(--risu-theme-success) 20%, var(--risu-theme-darkbg));
-        border: 1px solid color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-success);
-    }
-
-    .partial-match-confidence.medium-confidence {
-        background: color-mix(in srgb, var(--risu-theme-warning) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-warning) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-warning);
-    }
-
-    .partial-match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-danger);
-    }
-
     .partial-edit-buttons {
         display: flex;
         gap: 8px;
         justify-content: flex-end;
     }
 
-    /* Match Selection Modal */
-    .partial-match-selection-modal {
-        background: var(--risu-theme-lightbg);
-        border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 6px;
-        padding: 16px;
-        width: calc(100vw - 32px);
-        max-width: 768px;
-        max-height: calc(100% - 32px);
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        box-shadow: 0 8px 32px color-mix(in srgb, var(--risu-theme-darkbg) 70%, transparent);
-    }
-
-    .match-selection-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding-bottom: 12px;
-        border-bottom: 1px solid var(--risu-theme-darkborderc);
-    }
-
-    .match-selection-title {
-        font-weight: 600;
-        font-size: 16px;
-        color: var(--risu-theme-maintext);
-    }
-
-    .match-count {
-        font-size: 13px;
-        font-weight: 500;
-        padding: 4px 10px;
-        border-radius: 12px;
-        background: var(--risu-theme-darkbg);
-        color: var(--risu-theme-subtext);
-    }
-
     .match-list {
         display: flex;
         flex-direction: column;
         gap: 12px;
-        overflow-y: auto;
-        max-height: calc(100% - 160px);
-        padding: 4px;
     }
 
     .match-item {
@@ -1111,18 +1039,21 @@
         flex-direction: column;
         gap: 8px;
         padding: 16px;
+        width: 100%;
+        text-align: left;
         border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 8px;
-        background: var(--risu-theme-darkbg);
+        border-radius: 12px;
+        background: var(--risu-theme-lightbg);
+        color: var(--risu-theme-maintext);
         cursor: pointer;
-        transition: all 0.15s ease;
+        transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     .match-item:is(:hover, :focus-visible) {
-        background: var(--risu-theme-lightbg);
+        background: color-mix(in srgb, var(--risu-theme-selected) 30%, var(--risu-theme-lightbg));
         border-color: var(--risu-theme-lightborderc);
         box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-primary) 20%, transparent);
-        transform: translateY(-1px);
+        outline: none;
     }
 
     .match-meta {
@@ -1132,63 +1063,22 @@
         flex-wrap: wrap;
     }
 
-    .match-line {
-        font-size: 12px;
-        font-weight: 500;
+    .match-preview {
+        padding-top: 8px;
+        border-top: 1px solid var(--risu-theme-darkborderc);
+        font-family: monospace;
+        font-size: 14px;
         color: var(--risu-theme-maintext);
-        background: var(--risu-theme-lightbg);
-        padding: 2px 8px;
-        border-radius: 4px;
+        line-height: 1.25rem;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
     }
 
-    .match-confidence {
-        font-size: 11px;
-        font-weight: 600;
-        padding: 3px 8px;
-        border-radius: 4px;
-        border: 1px solid transparent;
-    }
-
-    .match-confidence.high-confidence {
-        background: color-mix(in srgb, var(--risu-theme-success) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-success);
-    }
-
-    .match-confidence.medium-confidence {
-        background: color-mix(in srgb, var(--risu-theme-warning) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-warning) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-warning);
-    }
-
-    .match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-danger);
-    }
-
-    .match-context-before,
-    .match-context-after {
-        font-size: 12px;
-        color: var(--risu-theme-subtext);
-        padding: 8px 12px;
-        background: var(--risu-theme-lightbg);
-        border-radius: 6px;
-        border-left: 3px solid var(--risu-theme-darkborderc);
-        line-height: 1.5;
-        font-style: italic;
-        white-space: pre-line;
-    }
-
-    .match-text {
-        font-size: 13px;
-        color: var(--risu-theme-maintext);
-        padding: 10px 12px;
-        background: var(--risu-theme-lightbg);
-        border-radius: 6px;
-        border-left: 3px solid var(--risu-theme-primary);
-        line-height: 1.5;
+    .match-highlight {
+        padding: 0 2px;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--risu-theme-primary) 15%, transparent);
+        color: var(--risu-theme-primary);
         font-weight: 500;
-        white-space: pre-line;
     }
 </style>

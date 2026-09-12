@@ -6,7 +6,7 @@ import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import DOMPurify from 'dompurify';
 import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
 import { automaticPluginSidebarMenuKey, pluginSidebarMenuKey, rememberPluginSidebarMenuItem, removeSidebarMenuKeys } from "src/ts/sidebarMenuOrder";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
 import { language } from "src/lang";
@@ -288,7 +288,7 @@ class SafeElement {
     public async addEventListener(type:string, listener: (event: any) => void, options?: boolean | AddEventListenerOptions):Promise<string> {
         const realOptions = typeof options === 'boolean' ? { capture: options } : options || {};
 
-        const id = v4()
+        const id = createEntityId()
 
         const trimEvent = (event: MouseEvent | KeyboardEvent | Event) => {
             if(event instanceof MouseEvent){
@@ -482,7 +482,7 @@ class SafeMutationObserver {
     }
 
     observe(element:SafeElement, options: MutationObserverInit) {
-        const identifier = v4();
+        const identifier = createEntityId();
         element.setAttribute('x-identifier', identifier);
         const rawElement = document.querySelector(`[x-identifier="${identifier}"]`) as HTMLElement;
         if(rawElement){
@@ -704,13 +704,13 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
         () => isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm()),
         async (pluginHash): Promise<boolean> => {
             let alertTitle =
-                permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
-                : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
-                : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
-                : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
-                : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
-                : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
-                : permissionDesc === 'inlay' ? language.inlayPermissionConsent.replace("{}", pluginName)
+                permissionDesc === 'fetchLogs' ? language.fetchLogConsent(pluginName)
+                : permissionDesc === 'db' ? language.getFullDatabaseConsent(pluginName)
+                : permissionDesc === 'mainDom' ? language.mainDomAccessConsent(pluginName)
+                : permissionDesc === 'replacer' ? language.replacerPermissionConsent(pluginName)
+                : permissionDesc === 'provider' ? language.providerPermissionConsent(pluginName)
+                : permissionDesc === 'sendChat' ? language.sendChatConsent(pluginName)
+                : permissionDesc === 'inlay' ? language.inlayPermissionConsent(pluginName)
                 : `Error`
             if(alertTitle === 'Error'){
                 return false;
@@ -856,7 +856,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                    return await func(arg, abortSignal);
                }
 
-               const contextToken = v4()
+               const contextToken = createEntityId()
                setRpcAbortSignalMetadata(abortSignal, providerRequestContextMetadataKey, contextToken)
                return await withProviderRequestContext(
                    pluginRequestContexts, contextToken, requestContext, abortSignal,
@@ -1193,7 +1193,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(typeof name !== 'string' || name.trim() === ''){
                 throw new Error("name must be a non-empty string");
             }
-            const menuId = id || v4()
+            const menuId = id || createEntityId()
             const menuDef:MenuDef = {
                 id: menuId,
                 name,
@@ -1223,7 +1223,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 return null;
             }
             
-            const id = v4();
+            const id = createEntityId();
             bodyIntercepterStore.push({
                 id,
                 callback
@@ -1265,7 +1265,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(typeof icon !== 'string'){
                 throw new Error("icon must be a string");
             }
-            const id = providedId || v4()
+            const id = providedId || createEntityId()
             const sameNameHamburgerCount = location === 'hamburger'
                 ? additionalHamburgerMenu.filter((item) => item.pluginName === plugin.name && item.name === name).length
                 : 0
@@ -1433,9 +1433,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return {
                 apiVersion: "3.0",
                 platform: 'node',
-                saveMethod:
-                    forageStorage.isAccount ? 'account' :
-                    'local',
+                saveMethod: 'local',
             }
         },
         getLocalPluginStorage: () => {

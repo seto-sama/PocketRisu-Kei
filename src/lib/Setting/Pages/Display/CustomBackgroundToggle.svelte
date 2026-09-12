@@ -3,7 +3,7 @@
     import { saveImage } from 'src/ts/storage/database.svelte';
     import { getFileSrc } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
-    import { selectSingleFile } from 'src/ts/util';
+    import { selectSingleImageFile } from 'src/ts/util';
     import Button from '../../../UI/components/Button.svelte';
     import { ImageIcon, XIcon } from '@lucide/svelte';
 
@@ -20,7 +20,7 @@
     });
 
     async function pick() {
-        const d = await selectSingleFile(['png', 'webp', 'gif', 'jpg', 'jpeg']);
+        const d = await selectSingleImageFile();
         if (!d) return;
         DBState.db.customBackground = await saveImage(d.data);
     }

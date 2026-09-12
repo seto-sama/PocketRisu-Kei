@@ -21,7 +21,7 @@ PocketRisu 有四种安装方式。
 | **CPU**      | 1 核                | 2 核及以上                          |
 | **内存**     | 1 GB(仅运行)      | 4 GB 及以上(包含构建)             |
 | **磁盘**     | 1 GB                | 2 GB 及以上                         |
-| **Node.js**  | 22.12 及以上        | (便携版/Docker 不需要)             |
+| **Node.js**  | 24.15 及以上        | (便携版/Docker 不需要)             |
 
 便携版和 Docker 无需构建步骤,可在 1 GB 内存下运行。直接构建(Git Clone、安装脚本)在构建时消耗大量内存,建议 4 GB 或更多。
 
@@ -150,11 +150,11 @@ docker compose pull && docker compose up -d
 
 ### 前置条件
 
-需要 Node.js 22.12 或更高版本:
+需要 Node.js 24.15 或更高版本:
 
 ```bash
 node --version
-# v22.12.0 或更高
+# v24.15.0 或更高
 ```
 
 如未安装,请从 [Node.js 官方网站](https://nodejs.org/)安装。

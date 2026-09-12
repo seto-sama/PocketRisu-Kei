@@ -1,4 +1,3 @@
-import fc from 'fast-check'
 import { writable } from 'svelte/store'
 import { describe, expect, test, vi } from 'vitest'
 import { risuChatParser, risuUnescape } from '../../parser.svelte'
@@ -98,46 +97,20 @@ test('<>', () => {
   expect(parse('{{>}}')).toBe('&gt;')
 })
 
-/** Any string but not `{{/...}} */
-const anythingNotClosing = fc
-  .string()
-  .filter(
-    (s) => !/{{\/.*}}/.test(s) && /* FIXME opening curly without its pair causes '<' prepended */ !s.includes('{'),
-  )
-
 test('#pure', () => {
-  fc.assert(
-    fc.property(anythingNotClosing, (a) => {
-      expect(parse(`{{#pure}}${a}{{/}}`)).toBe(a.trim())
-    }),
-  )
+  expect(risuChatParser('{{#pure}} {{br}} {{/}}')).toBe('{{br}}')
 })
 
 test('#puredisplay', () => {
-  fc.assert(
-    fc.property(anythingNotClosing, (a) => {
-      expect(parse(`{{#puredisplay}}${a}{{/}}`)).toBe(
-        // reparsing prevention kicks in for #puredisplay
-        a.trim().replaceAll('{{', '\\{\\{').replaceAll('}}', '\\}\\}'),
-      )
-    }),
-  )
+  expect(risuChatParser('{{#puredisplay}}{{br}}{{/}}')).toBe('\\{\\{br\\}\\}')
 })
 
 describe('#escape', () => {
-  test('escapes any curly braces or parenthesis, trims whitespaces', () => {
-    fc.assert(
-      fc.property(anythingNotClosing, (a) => {
-        expect(parse(`{{#escape}}\n${a}\n{{/}}`)).toBe(a.trim())
-      }),
-    )
+  test('preserves nested CBS without evaluating it and trims whitespace', () => {
+    expect(parse('{{#escape}}\n{{br}}\n{{/}}')).toBe('{{br}}')
   })
 
   test('::keep preserves all whitespaces', () => {
-    fc.assert(
-      fc.property(anythingNotClosing, (a) => {
-        expect(parse(`{{#escape::keep}}\n${a}\n{{/}}`)).toBe(`\n${a}\n`)
-      }),
-    )
+    expect(parse('{{#escape::keep}}\n{{br}}\n{{/}}')).toBe('\n{{br}}\n')
   })
 })

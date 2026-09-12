@@ -1,13 +1,14 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
-import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
-import { v4 as uuidv4, v4 } from 'uuid';
+import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
+import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
-import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
+import { OpenRealmStore, selectedCharID } from "./stores.svelte";
 import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
@@ -36,7 +37,7 @@ export function createNewCharacter() {
 }
 
 async function importCharactersAndPackages() {
-    const files = await selectFileByDom(['png', 'jpg', 'jpeg', 'json', 'charx', 'zip'], 'multiple')
+    const files = await selectFileByDom(['*'], 'multiple')
     if (!files) return
 
     for (const file of files) {
@@ -88,7 +89,7 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
 }
 
 export async function selectCharImg(charIndex:number) {
-    const selected = await selectSingleFile(['png', 'webp', 'gif', 'jpg', 'jpeg'])
+    const selected = await selectSingleImageFile()
     if(!selected){
         return
     }
@@ -416,7 +417,7 @@ export async function exportChat(page:number){
 }
 
 export async function importChat(){
-    const dat =await selectSingleFile(['json','jsonl','txt','html'])
+    const dat = await selectSingleImportFile()
     if(!dat){
         return
     }
@@ -432,7 +433,7 @@ export async function importChat(){
                 name: "Imported Chat",
                 localLore: [],
                 fmIndex: -1,
-                id: v4(),
+                id: createEntityId(),
                 ...newChatModelDefaults()
             }
 
@@ -476,7 +477,7 @@ export async function importChat(){
                 let folderIdMap = {}
                 folders.forEach(folder => {
                     if(db.characters[selectedID].chatFolders?.some(f => f.id === folder.id)){
-                        const newId = uuidv4()
+                        const newId = createEntityId()
                         folderIdMap[folder.id] = newId
                         folder.id = newId
                     } else {
@@ -493,7 +494,7 @@ export async function importChat(){
                         chat.folderId = folderIdMap[chat.folderId]
                     }
                     remapBookmarkTags(chat, bookmarkTagIdMap)
-                    chat.id = v4()
+                    chat.id = createEntityId()
                 })
                 const importedChats = chats.map(c => normalizeChat(c))
                 db.characters[selectedID].chats.unshift(...importedChats)
@@ -513,7 +514,7 @@ export async function importChat(){
                 if(Array.isArray(chats) && chats.length > 0){
                     db.characters[selectedID].chats.unshift(...(chats.map((v) => {
                         if(!v.id){
-                            v.id = uuidv4()
+                            v.id = createEntityId()
                         }
                         if(!v.localLore){
                             v.localLore = []
@@ -532,7 +533,7 @@ export async function importChat(){
                 const das:Chat = json.data
                 if(!(checkNullish(das.message) || checkNullish(das.note) || checkNullish(das.name) || checkNullish(das.localLore))){
                     das.fmIndex ??= -1
-                    das.id = v4()
+                    das.id = createEntityId()
                     db.characters[selectedID].chats.unshift(normalizeChat(das))
                     notifySuccess(language.successImport)
                     return
@@ -557,7 +558,7 @@ export async function importChat(){
             )
             if(!(checkNullish(json.message) || checkNullish(json.note) || checkNullish(json.name) || checkNullish(json.localLore))){
                 remapBookmarkTags(json, bookmarkTagIdMap)
-                json.id = v4()
+                json.id = createEntityId()
                 const importedChat = normalizeChat(json)
                 db.characters[selectedID].chats.unshift(importedChat)
                 await requestImmediateSave({
@@ -639,7 +640,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         cha.type = 'character'
     }
     if(!cha.chaId){
-        cha.chaId = uuidv4()
+        cha.chaId = createEntityId()
     }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
@@ -660,12 +661,6 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         creator: '',
         character_version: ''
     }
-    cha.voicevoxConfig = cha.voicevoxConfig ?? {
-        SPEED_SCALE: 1,
-        PITCH_SCALE: 0,
-        INTONATION_SCALE: 1,
-        VOLUME_SCALE: 1
-    }
     if(cha.postHistoryInstructions){
         cha.chats[cha.chatPage].note += "\n" + cha.postHistoryInstructions
         cha.chats[cha.chatPage].note = cha.chats[cha.chatPage].note.trim()
@@ -676,24 +671,12 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         depth: 0,
         prompt: ''
     }
-    cha.hfTTS ??= {
-        model: '',
-        language: 'en'
-    }
     cha.backgroundHTML ??= ''
     cha.backgroundCSS ??= ''
     cha.creation_date ??= Date.now()
     cha.globalLore = updateLorebooks(cha.globalLore)
     if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
     cha = updateInlayScreen(cha)
-    // Migrate legacy disabled values to '' for UI dropdown compatibility.
-    // `normal` was written by old character-card imports but is not a TTS
-    // provider and therefore had no matching dropdown option.
-    // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
-    if (cha.ttsMode === 'none' || cha.ttsMode === 'normal') {
-        cha.ttsMode = ''
-    }
-    cha.ttsMode ??= ''
     if(checkNullish(cha.customscript)){
         cha.customscript = []
     }
@@ -704,7 +687,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         const chat = cha.chats[i]
         chat.fmIndex ??= cha.firstMsgIndex ?? -1
         if(!chat.id){
-            chat.id = uuidv4()
+            chat.id = createEntityId()
         }
         if(!chat.localLore){
             chat.localLore = []
@@ -752,7 +735,7 @@ export function createBlankChar():character{
         bias: [],
         viewScreen: 'none',
         globalLore: [],
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         type: 'character',
         utilityBot: false,
         lowLevelAccess: false,
@@ -888,13 +871,11 @@ export async function emptyCharacterTrash(){
 export async function addCharacter(arg:{
     reseter?:()=>any,
 } = {}){
-    MobileGUIStack.set(100)
     const reseter = arg.reseter ?? (() => {})
     const r = await alertAddCharacter()
     if(r === 'importFromRealm'){
         selectedCharID.set(-1)
         OpenRealmStore.set(true)
-        MobileGUIStack.set(0)
         return
     }
     reseter();
@@ -906,14 +887,12 @@ export async function addCharacter(arg:{
             await importCharactersAndPackages()
             break
         default:
-            MobileGUIStack.set(1)
             return
     }
     let db = getDatabase()
     if(db.characters[db.characters.length-1]){
         changeChar(db.characters.length-1)
     }
-    MobileGUIStack.set(1)
 }
 
 export function changeChar(index: number, arg:{

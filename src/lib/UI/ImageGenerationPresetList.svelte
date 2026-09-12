@@ -23,7 +23,7 @@
     import PresetPickerActions from './PresetPickerActions.svelte'
     import PresetPickerLayout from './PresetPickerLayout.svelte'
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
-    import { selectSingleFile } from 'src/ts/util'
+    import { selectSingleImportFile } from 'src/ts/util'
 
     interface Props {
         compact?: boolean
@@ -138,7 +138,7 @@
 
     async function importPreset() {
         try {
-            const file = await selectSingleFile(['json'])
+            const file = await selectSingleImportFile()
             const source = selectedPreset ?? presets[0]
             if (!file?.data || !source) return
             const preset = decodeImageGenerationPresetFile(

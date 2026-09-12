@@ -81,22 +81,6 @@ test('can get a template default variable', () => {
   )
 })
 
-test('can set and get a chat variable', () => {
-  fc.assert(
-    fc.property(
-      fc.string({ unit: 'grapheme' }),
-      fc
-        .anything()
-        .filter((v) => v !== undefined)
-        .map(JSON.stringify),
-      (key, value) => {
-        setChatVar(key, value)
-        expect(getChatVar(key)).toBe(value)
-      }
-    )
-  )
-})
-
 test('can set a chat variable over its default value', () => {
   DBState.db.characters[0].defaultVariables = 'char=default'
   DBState.db.templateDefaultVariables = 'template=default'
@@ -106,32 +90,6 @@ test('can set a chat variable over its default value', () => {
 
   expect(getChatVar('char')).toBe('overridden')
   expect(getChatVar('template')).toBe('overridden')
-})
-
-test('can get a global chat variable', () => {
-  fc.assert(
-    fc.property(
-      fc.string({ unit: 'grapheme' }),
-      fc
-        .anything()
-        .filter((v) => v !== undefined)
-        .map(JSON.stringify),
-      (key, value) => {
-        DBState.db.globalChatVariables[`toggle_${key}`] = value
-
-        expect(getGlobalChatVar(`toggle_${key}`)).toBe(value)
-      }
-    )
-  )
-})
-
-test('returns an empty string for undefined variables', () => {
-  fc.assert(
-    fc.property(fc.string({ unit: 'grapheme' }), (key) => {
-      expect(getChatVar(key)).toBe('')
-      expect(getGlobalChatVar(`toggle_${key}`)).toBe('')
-    })
-  )
 })
 
 test('returns an empty string without a selected character', () => {

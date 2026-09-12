@@ -453,7 +453,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             onCacheState: (cached) => { translated = !cached },
         })
         signal?.throwIfAborted()
-        if(translated && db.playMessageOnTranslateEnd){
+        if(translated){
             playNotificationSound(db.translateSound, db.translateSoundVolume)
         }
 

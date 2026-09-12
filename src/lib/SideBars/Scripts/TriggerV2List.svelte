@@ -9,6 +9,7 @@
     import { onDestroy, onMount } from "svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import ListActionBar from "../../UI/components/ListActionBar.svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import Sortable, { type Options, type SortableEvent } from "sortablejs";
     import { sleep, sortableOptions } from "src/ts/util";
@@ -192,7 +193,7 @@
             const defaultEffect = createTriggerV2Effect(effect.type)
             if (defaultEffect) {
                 for (const [field, defaultValue] of Object.entries(defaultEffect)) {
-                    if (!(field in effect)) effect[field] = safeStructuredClone(defaultValue)
+                    if (!(field in effect)) effect[field] = structuredClone(defaultValue)
                 }
             }
             openedEffects.add(effect)
@@ -382,6 +383,7 @@
     })
 </script>
 
+<div class="relative">
 {#key triggerListKey}
     <DisclosureList className="mt-2" bind:element={triggerListElement}>
         {#if value.length <= 1}
@@ -552,11 +554,11 @@
     </DisclosureList>
 {/key}
 
-<IconButtonGroup className="mt-2">
+<ListActionBar mode="footer">
     <IconButton aria-label={language.add} onclick={addTrigger}>
         <PlusIcon />
     </IconButton>
-    <IconButton aria-label="Export triggers" onclick={() => {
+    <IconButton aria-label={language.export} title={language.export} onclick={() => {
         const jsonData = JSON.stringify(value.slice(1), null, 2)
         const blob = new Blob([jsonData], { type: 'application/json' })
         const url = URL.createObjectURL(blob)
@@ -570,7 +572,8 @@
     }}>
         <DownloadIcon />
     </IconButton>
-    <IconButton aria-label="Import triggers" onclick={importTriggers}>
+    <IconButton aria-label={language.import} title={language.import} onclick={importTriggers}>
         <UploadIcon />
     </IconButton>
-</IconButtonGroup>
+</ListActionBar>
+</div>

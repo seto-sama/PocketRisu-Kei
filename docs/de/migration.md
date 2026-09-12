@@ -6,11 +6,10 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/migration.md) oder [koreanische](../ko/migration.md) Version.
 
-Es gibt drei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (Web-RisuAI, Lokales RisuAI) zu PocketRisu zu migrieren. Wählen Sie je nach Quellumgebung und Datenmenge.
+Es gibt zwei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (Web-RisuAI, Lokales RisuAI) zu PocketRisu zu migrieren. Wählen Sie je nach Quellumgebung und Datenmenge.
 
 - [1. Lokale Backup-Datei (.bin)](#1-lokale-backup-datei-bin) — Funktioniert in allen Umgebungen. Die häufigste Methode.
-- [2. Save-Ordner Zip-Upload](#2-save-ordner-zip-upload) — Lokales RisuAI, kleine Datenmengen.
-- [3. Save-Ordner direkt kopieren](#3-save-ordner-direkt-kopieren) — Lokales RisuAI, große Datenmengen.
+- [2. Save-Ordner direkt kopieren](#2-save-ordner-direkt-kopieren) — Lokales RisuAI, große Datenmengen.
 
 
 ## Bevor Sie beginnen
@@ -30,20 +29,7 @@ Exportieren Sie eine `.bin`-Backup-Datei aus dem bestehenden RisuAI und importie
 
 ---
 
-## 2. Save-Ordner Zip-Upload
-
-Wenn Sie Lokales RisuAI (die Node-Server-Version) verwendet haben, können Sie Ihren `save`-Ordner zippen und hochladen.
-
-1. Komprimieren Sie den `save`-Ordner Ihres bestehenden RisuAI-Projekts als Zip-Datei.
-2. Öffnen Sie in PocketRisu Einstellungen > Datenmigration > "Save-Ordner von NodeOnly Risu importieren"-Akkordeon.
-3. Laden Sie die Zip über "Aus Save-Ordner importieren (Zip-Upload)" hoch.
-
-> Wenn die Zip-Datei zu groß ist, kann der Upload fehlschlagen. Verwenden Sie in diesem Fall [3. Save-Ordner direkt kopieren](#3-save-ordner-direkt-kopieren).
-
-
----
-
-## 3. Save-Ordner direkt kopieren
+## 2. Save-Ordner direkt kopieren
 
 Geeignet für große Datenmengen (mehrere GB oder mehr). Erfordert direkten Dateisystemzugriff auf den Server.
 
@@ -51,7 +37,7 @@ Geeignet für große Datenmengen (mehrere GB oder mehr). Erfordert direkten Date
 2. Überschreiben Sie den `save`-Ordner von PocketRisu mit dem `save`-Ordner des bestehenden RisuAI.
 3. Starten Sie den PocketRisu-Server neu — die automatische Migration beginnt.
     - Überwachen Sie den Fortschritt im Terminal oder in den PM2-Logs.
-4. Nach Abschluss der Migration verwenden Sie Einstellungen > Datenmigration > "Save-Ordner von NodeOnly Risu importieren"-Akkordeon > "Migrierte Save-Dateien aufräumen", um die Originaldateien zu entfernen und Speicherplatz freizugeben.
+4. Archivieren oder löschen Sie die ursprünglichen Hex-Dateien nach erfolgreicher Prüfung bei Bedarf manuell.
 
 
 ---
@@ -61,8 +47,7 @@ Geeignet für große Datenmengen (mehrere GB oder mehr). Erfordert direkten Date
 | Situation                                                  | Empfohlene Methode                |
 | ---------------------------------------------------------- | --------------------------------- |
 | Migration von Web-RisuAI                                   | 1. `.bin`-Backup                  |
-| Migration von Lokalem RisuAI, kleine Datenmenge            | 2. Zip-Upload                     |
-| Migration von Lokalem RisuAI, große Datenmenge (10GB+)     | 3. Save-Ordner direkt kopieren    |
+| Migration von Lokalem RisuAI, große Datenmenge (10GB+)     | 2. Save-Ordner direkt kopieren    |
 | Unsicher                                                   | 1. `.bin`-Backup                  |
 
 

@@ -11,8 +11,8 @@
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
-    import { v4 as uuidv4 } from "uuid";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { clonePresetWithNewId, duplicatePresetItem } from "src/ts/preset/collection";
 
     interface Props {
         close?: () => void;
@@ -47,12 +47,13 @@
 
     function duplicatePersona(index: number) {
         if (index === DBState.db.selectedPersona) saveUserPersona();
-        const source = DBState.db.personas[index];
-        if (!source) return;
-        const copy = safeStructuredClone(source);
-        copy.id = uuidv4();
-        copy.name = `${source.name} ${language.copy}`;
-        DBState.db.personas = [...DBState.db.personas, copy];
+        const result = duplicatePresetItem(DBState.db.personas, index, source => {
+            const copy = clonePresetWithNewId(source);
+            copy.name = `${source.name} ${language.copy}`;
+            return copy;
+        });
+        if (!result.changed) return;
+        DBState.db.personas = result.items;
         void requestImmediateSave();
     }
 

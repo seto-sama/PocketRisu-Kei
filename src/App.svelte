@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
+    import { Buffer } from 'buffer'
+    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -23,9 +24,6 @@
     import Themepreset from './lib/Setting/themepreset.svelte';
     import ListedPersona from './lib/Setting/listedPersona.svelte';
     import ListedHypaV3Preset from './lib/Setting/listedHypaV3Preset.svelte';
-    import MobileHeader from './lib/Mobile/MobileHeader.svelte';
-    import MobileBody from './lib/Mobile/MobileBody.svelte';
-    import MobileFooter from './lib/Mobile/MobileFooter.svelte';
     import { checkCharOrder } from './ts/globalApi.svelte';
     import { hypaV3ProgressStore } from "./ts/stores.svelte";
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
@@ -41,6 +39,7 @@
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
+    import { mdViewport } from './ts/gui/breakpoints'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
@@ -48,6 +47,10 @@
     function openCharacterGrid() {
         gridOpen = true
         if ($DynamicGUI) sideBarStore.set(false)
+    }
+
+    function closeCharacterGrid() {
+        gridOpen = false
     }
 
     function focusOverlay(node: HTMLElement) {
@@ -138,38 +141,40 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen}
-            aria-hidden={$settingsOpen}
+            inert={$settingsOpen || ($DynamicGUI && gridOpen)}
+            aria-hidden={$settingsOpen || ($DynamicGUI && gridOpen)}
         >
-            {#if $MobileGUI}
-                <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
-                    <MobileHeader />
-                    <MobileBody />
-                    <MobileFooter />
-                </div>
-            {:else}
-                {#if (!$DynamicGUI)}
-                    <Sidebar
-                        openGrid={openCharacterGrid}
-                        onNavigate={() => {gridOpen = false}}
-                        hidden={!$sideBarStore}
-                    />
-                {/if}
-                <ChatScreen />
+            {#if !$DynamicGUI}
+                <Sidebar
+                    openGrid={openCharacterGrid}
+                    onNavigate={closeCharacterGrid}
+                    hidden={!$sideBarStore}
+                />
             {/if}
+            <ChatScreen />
         </div>
 
-        {#if !$MobileGUI && !$settingsOpen}
-            <Dialog
-                bind:open={gridOpen}
-                size="xl"
-                closable={false}
-                ariaLabel={language.characterList}
-                contentClass="h-[90dvh] overflow-hidden bg-lightbg p-0 gap-0"
-                bodyClass="flex min-h-0 grow overflow-hidden"
-            >
-                <GridChars endGrid={() => {gridOpen = false}} />
-            </Dialog>
+        {#if gridOpen && !$settingsOpen}
+            {#if !$mdViewport}
+                <div
+                    class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
+                    tabindex="-1"
+                    use:focusOverlay
+                >
+                    <GridChars endGrid={closeCharacterGrid} />
+                </div>
+            {:else}
+                <Dialog
+                    bind:open={gridOpen}
+                    size="xl"
+                    closable={false}
+                    ariaLabel={language.characterList}
+                    contentClass="h-[90dvh] overflow-hidden bg-lightbg p-0 gap-0"
+                    bodyClass="flex min-h-0 grow overflow-hidden"
+                >
+                    <GridChars endGrid={closeCharacterGrid} />
+                </Dialog>
+            {/if}
         {/if}
 
         {#if $settingsOpen}
@@ -182,7 +187,7 @@
             </div>
         {/if}
 
-        {#if !$MobileGUI && $DynamicGUI}
+        {#if $DynamicGUI}
             <div
                 class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
                 class:fixed={$sideBarStore}
@@ -191,7 +196,7 @@
             >
                 <Sidebar
                     openGrid={openCharacterGrid}
-                    onNavigate={() => {gridOpen = false}}
+                    onNavigate={closeCharacterGrid}
                     hidden={false}
                 />
             </div>

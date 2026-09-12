@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
     DEFAULT_SETTINGS_MENU_ORDER,
-    getVisibleSettingsMenuOrder,
-    mergeVisibleSettingsMenuOrder,
     normalizeSettingsMenuOrder,
     settingsMenuKey,
     SETTINGS_MENU_LANGUAGE,
@@ -20,24 +18,5 @@ describe('settings menu ordering', () => {
         const saved = [SETTINGS_MENU_LANGUAGE, SETTINGS_MENU_SEARCH]
         expect(normalizeSettingsMenuOrder(saved).slice(0, 2)).toEqual(saved)
         expect(normalizeSettingsMenuOrder(saved)).toHaveLength(DEFAULT_SETTINGS_MENU_ORDER.length)
-    })
-
-    it('only exposes search and language in Lite mode', () => {
-        expect(getVisibleSettingsMenuOrder([...DEFAULT_SETTINGS_MENU_ORDER], true)).toEqual([
-            SETTINGS_MENU_SEARCH,
-            SETTINGS_MENU_LANGUAGE,
-        ])
-    })
-
-    it('reorders Lite entries without losing hidden entries', () => {
-        expect(mergeVisibleSettingsMenuOrder(
-            [...DEFAULT_SETTINGS_MENU_ORDER],
-            [SETTINGS_MENU_LANGUAGE, SETTINGS_MENU_SEARCH],
-        )).toEqual([
-            SETTINGS_MENU_LANGUAGE,
-            ...DEFAULT_SETTINGS_MENU_ORDER.slice(1, 5),
-            SETTINGS_MENU_SEARCH,
-            ...DEFAULT_SETTINGS_MENU_ORDER.slice(6),
-        ])
     })
 })

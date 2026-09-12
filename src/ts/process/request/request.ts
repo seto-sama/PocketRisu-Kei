@@ -5,7 +5,7 @@ import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
-import { v4 as uuidv4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { simplifySchema, sleep } from "../../util";
 import type { OpenAIChat } from "../index.svelte";
 import { setInlayAsset } from "../files/inlays";
@@ -195,7 +195,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         console.warn('Escape is enabled, disabling streaming')
     }
 
-    arg.formated = safeStructuredClone(arg.formated).map(m => {
+    arg.formated = structuredClone(arg.formated).map(m => {
         m.content = risuUnescape(m.content)
         return m
     })
@@ -507,7 +507,7 @@ async function requestPluginPreset(
     if (compiled.behavior.startWithUserInput) flags.push(LLMFlags.mustStartWithUserInput)
 
     try {
-        arg.formated = reformater(safeStructuredClone(arg.formated), flags)
+        arg.formated = reformater(structuredClone(arg.formated), flags)
     } catch (err) {
         return {
             type: 'fail',
@@ -862,7 +862,7 @@ function toAdapterToolDef(tool: MCPTool): AdapterToolDef {
         description: tool.description,
         // simplifySchema mutates; clone first. Stage 1 targets openai-compatible,
         // whose schema shape matches the default simplification.
-        parameters: simplifySchema(safeStructuredClone(tool.inputSchema)),
+        parameters: simplifySchema(structuredClone(tool.inputSchema)),
     }
 }
 
@@ -885,7 +885,7 @@ async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<strin
     if (!media || media.length === 0) return ''
     const markers: string[] = []
     for (const item of media) {
-        const id = uuidv4()
+        const id = createEntityId()
         const ext = item.mime.split('/')[1]?.split(';')[0] || (item.kind === 'image' ? 'png' : 'mp3')
         await setInlayAsset(id, {
             name: `generated-${item.kind}.${ext}`,
@@ -1056,11 +1056,11 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // content onto the first message of a run). The preset path returns before the
     // legacy clone below, and the retry loop reuses arg.formated, so mutating it
     // directly would re-merge on every retry
-    // (A,B → A\nB → A\nB\nB). Clone first, matching the classic path's safeStructuredClone.
+    // (A,B → A\nB → A\nB\nB). Clone first, matching the classic path's structuredClone.
     // Also guarded: reformater runs outside the request try below, so a throw returns
     // a graceful fail instead of propagating (mirrors the previewBody/request catches).
     try {
-        arg.formated = reformater(safeStructuredClone(arg.formated), presetFlags)
+        arg.formated = reformater(structuredClone(arg.formated), presetFlags)
     } catch (err) {
         return { type: 'fail', result: err instanceof Error ? err.message : String(err), model: preset.name }
     }

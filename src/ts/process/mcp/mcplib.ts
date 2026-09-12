@@ -1,4 +1,5 @@
-import { v4 } from "uuid"
+import { Buffer } from 'buffer'
+import { createEntityId } from 'src/ts/id';
 import { fetchNative, openURL } from "../../globalApi.svelte"
 import { alertInput } from "../../alert";
 
@@ -78,7 +79,7 @@ export abstract class MCPToolHandler {
 }
 
 export class MCPClient{
-    mcpClientObjectId:string = v4()
+    mcpClientObjectId:string = createEntityId()
     sessionId:string|null = null
     initialized:boolean = false
     url:string
@@ -238,11 +239,11 @@ export class MCPClient{
 
         const body = method === 'response' ? {
             jsonrpc: "2.0",
-            id: options?.id ?? v4(),
+            id: options?.id ?? createEntityId(),
             result: params
         } : {
             jsonrpc: "2.0",
-            id: options?.id ?? v4(),
+            id: options?.id ?? createEntityId(),
             method: method,
             params: params
         }
@@ -673,7 +674,7 @@ export class MCPClient{
 
         const clientData = await registerResponse.json()
 
-        const code_verifier = (v4() + v4()).replace(/-/g, "")
+        const code_verifier = (createEntityId() + createEntityId()).replace(/-/g, "")
         const sha256 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code_verifier))
         const code_challenge = Buffer.from(sha256).toString('base64').replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")
 
@@ -682,7 +683,7 @@ export class MCPClient{
         authUrl.searchParams.set("response_type", "code")
         authUrl.searchParams.set("redirect_uri", redirectURL)
         authUrl.searchParams.set("scope", "")
-        authUrl.searchParams.set("state", v4())
+        authUrl.searchParams.set("state", createEntityId())
         authUrl.searchParams.set("code_challenge", code_challenge)
         authUrl.searchParams.set("code_challenge_method", "S256")
 

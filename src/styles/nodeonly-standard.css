@@ -39,22 +39,11 @@
   background-color: var(--no-chat-background);
 }
 
-/* 제작자 코멘트 박스: 메시지 카드와 동일한 반응형 여백 및 가로폭 */
-.nodeonly-standard .creator-quote-container {
-  padding-inline: 0;
-}
-
 .nodeonly-standard .creator-quote {
   background-color: var(--risu-theme-lightbg) !important;
   width: 100%;
   max-width: var(--no-chat-max-width);
   margin-inline: auto;
-}
-
-@media (min-width: 640px) {
-  .nodeonly-standard .creator-quote-container {
-    padding-inline: 1rem;
-  }
 }
 
 /* genInfo: 좌측 정렬, 모바일에서 모델명 위 + 아이콘 아래로 줄바꿈 */

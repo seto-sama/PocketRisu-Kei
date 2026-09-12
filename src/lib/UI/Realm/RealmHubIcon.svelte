@@ -5,11 +5,11 @@
     import { parseMultilangString } from "src/ts/util";
     import Button from "../components/Button.svelte";
     import RealmTagList from "./RealmTagList.svelte";
-    import { tooltip } from "src/ts/gui/tooltip";
     import CharacterMasonryIcon from "../CharacterMasonryIcon.svelte";
     import { language } from "src/lang";
     import * as ContextMenu from "../components/context-menu";
     import { muteRealmCharacter, muteRealmCreator } from "src/ts/realmMute";
+    import Tooltip from "../components/Tooltip.svelte";
 
     interface Props {
         onClick?: () => void;
@@ -49,13 +49,28 @@
                     <div class="grow"></div>
                     <div class="flex flex-wrap w-full flex-row-reverse gap-1">
                         {#if chara.hasEmotion}
-                            <span class="inline-flex text-subtext" use:tooltip={'This character includes emotion images'}><SmileIcon /></span>
+                            <Tooltip>
+                                {#snippet trigger(props)}
+                                    <span {...props} class="inline-flex text-subtext"><SmileIcon /></span>
+                                {/snippet}
+                                This character includes emotion images
+                            </Tooltip>
                         {/if}
                         {#if chara.hasAsset}
-                            <span class="inline-flex text-subtext" use:tooltip={'This character includes additional assets'}><ImageIcon /></span>
+                            <Tooltip>
+                                {#snippet trigger(props)}
+                                    <span {...props} class="inline-flex text-subtext"><ImageIcon /></span>
+                                {/snippet}
+                                This character includes additional assets
+                            </Tooltip>
                         {/if}
                         {#if chara.hasLore}
-                            <span class="inline-flex text-subtext" use:tooltip={'This character includes lorebook'}><BookIcon /></span>
+                            <Tooltip>
+                                {#snippet trigger(props)}
+                                    <span {...props} class="inline-flex text-subtext"><BookIcon /></span>
+                                {/snippet}
+                                This character includes lorebook
+                            </Tooltip>
                         {/if}
                     </div>
                 </div>
