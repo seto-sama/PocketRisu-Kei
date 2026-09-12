@@ -1,6 +1,6 @@
 'use strict';
 
-const Database = require('better-sqlite3');
+const Database = require('./sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const { createChunkStore } = require('./chunkStore.cjs');

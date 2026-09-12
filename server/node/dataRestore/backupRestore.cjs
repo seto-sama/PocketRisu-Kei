@@ -6,7 +6,7 @@ const nodeCrypto = require('crypto');
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
-const Database = require('better-sqlite3');
+const Database = require('../sqlite.cjs');
 const { decryptAccountBackup } = require('./accountBackup.cjs');
 
 const DEFAULT_MAX_ENTRY_NAME_BYTES = 1024;

@@ -12,7 +12,7 @@
   },
   "packageManager": "pnpm@12.4.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.15.0"
   },
   "type": "module",
   "scripts": {
@@ -45,7 +45,6 @@
     "acorn": "^8.17.0",
     "acorn-walk": "^8.3.5",
     "astring": "^1.9.0",
-    "better-sqlite3": "^12.11.1",
     "bits-ui": "^2.18.1",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",

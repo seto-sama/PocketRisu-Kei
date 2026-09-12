@@ -11,17 +11,19 @@ fi
 echo "[1/5] Installing Termux packages..."
 pkg install -y nodejs-lts python make clang pkg-config tar curl
 
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 24 || (major === 24 && minor < 15)) { console.error('Node.js 24.15.0+ is required. Update the Termux nodejs-lts package.'); process.exit(1); }"
+
 echo "[2/5] Enabling pnpm via corepack..."
 corepack enable
-corepack install --global pnpm@11.3.0
+corepack install --global pnpm@12.4.0
 
 echo "[3/5] Termux wake lock (best effort)..."
 termux-wake-lock 2>/dev/null || true
 
-# Workaround for Termux nodejs-lts: its gyp config references android_ndk_path
-# without defining it, so native module builds (better-sqlite3 etc.) fail with
-# "Undefined variable android_ndk_path". Defining it as empty is harmless
-# because we are not cross-compiling against the Android NDK.
+# msgpackr-extract is an optional native accelerator and does not publish an
+# Android build. Do not force its Linux ARM64 binary: Termux uses Bionic, not
+# glibc. Let it compile locally while Android-native Vite dependencies use
+# their published Android ARM64 packages.
 export GYP_DEFINES="android_ndk_path=''"
 
 echo "[4/5] Installing dependencies..."

@@ -25,7 +25,7 @@
 | **記憶體**   | 2 GB         | 4 GB 或以上               |
 | **可用空間** | 2 GB         | 4 GB 或以上(含建置產物)   |
 
-PocketRisu 不為 Termux 提供預先編譯的二進位檔,因此由手機自行建置。包括 `better-sqlite3` 等原生模組在內,建置大約需要 **10 至 40 分鐘**,具體取決於手機效能。
+PocketRisu 會在手機上本機建置應用程式,因此建置時間取決於手機效能。
 
 
 ---
@@ -35,7 +35,7 @@ PocketRisu 不為 Termux 提供預先編譯的二進位檔,因此由手機自行
 ### 使用 F-Droid 或 GitHub Releases 版本的 Termux
 
 > ⚠️ **Play Store 版本的 Termux 無法使用。**
-> Termux 維護者已於 2020 年停止更新 Play Store 版本,無法再安裝 PocketRisu 所需的最新套件(Node.js 22+)。
+> Termux 維護者已於 2020 年停止更新 Play Store 版本,無法再安裝 PocketRisu 所需的最新套件(Node.js 24.15+)。
 
 請從以下任一來源安裝 Termux:
 
@@ -63,7 +63,7 @@ pkg install -y git && \
 1. 安裝 `git`
 2. 複製 PocketRisu 儲存庫
 3. 安裝建置相依套件(`nodejs-lts`、`python`、`make`、`clang`、`pnpm` 等)
-4. `pnpm install` — JavaScript 相依套件與原生模組編譯
+4. `pnpm install` — JavaScript 相依套件與選用的原生加速模組
 5. `pnpm build` — 前端打包
 
 建置完成後會顯示:

@@ -4,6 +4,5 @@ nodeOptions: --max-old-space-size=4096
 minimumReleaseAge: 4320
 
 allowBuilds:
-  better-sqlite3: true
   core-js: true
   msgpackr-extract: true
