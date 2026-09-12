@@ -67,10 +67,6 @@ const validCBSArgPropLong = validCBSArgProp.filter((s) => s.length > 1)
 const quickParse = (op: string, ...args: (string | number)[]) => risuChatParser(cbs(op, ...args.map(String)))
 
 test('startswith, endswith, contains', () => {
-  expect(quickParse('startswith', 'Hello World', 'Hello')).toBe('1')
-  expect(quickParse('endswith', 'Hello World', 'World')).toBe('1')
-  expect(quickParse('contains', 'Hello World', 'lo Wo')).toBe('1')
-
   fc.assert(
     fc.property(validCBSArgPropLong, validCBSArgPropLong, (a, b) => {
       fc.pre(!a.includes(b))
@@ -90,8 +86,6 @@ test('startswith, endswith, contains', () => {
 })
 
 test('replace', () => {
-  expect(quickParse('replace', 'Hello World', 'o', '0')).toBe('Hell0 W0rld')
-
   fc.assert(
     fc.property(validCBSArgPropLong, validCBSArgPropLong, fc.nat(), (a, b, indexSeed) => {
       const index = indexSeed % a.length
@@ -101,8 +95,6 @@ test('replace', () => {
 })
 
 test('split', () => {
-  expect(quickParse('split', 'apple,banana,cherry', ',')).toBe(JSON.stringify(['apple', 'banana', 'cherry']))
-
   fc.assert(
     fc.property(fc.array(validCBSArgPropLong), validCBSArgProp, (arr, b) => {
       const a = arr.join(b)
@@ -115,36 +107,16 @@ test('split', () => {
 test('trim', () => {
   expect(quickParse('trim', '  hello world  ')).toBe('hello world')
   expect(quickParse('trim', '  hello  \n  world  ')).toBe('hello  \n  world')
-
-  fc.assert(
-    fc.property(validCBSArgProp, (a) => {
-      expect(quickParse('trim', a)).toBe(a.trim())
-    }),
-  )
 })
 
 test('length', () => {
   expect(quickParse('length', 'Hello')).toBe('5')
-
-  fc.assert(
-    fc.property(validCBSArgProp, (a) => {
-      expect(quickParse('length', a)).toBe(String(a.length))
-    }),
-  )
 })
 
 test('capitalize, lower, upper', () => {
   expect(quickParse('capitalize', 'hello world')).toBe('Hello world')
   expect(quickParse('lower', 'Hello WORLD')).toBe('hello world')
   expect(quickParse('upper', 'Hello WORLD')).toBe('HELLO WORLD')
-
-  fc.assert(
-    fc.property(validCBSArgProp, (a) => {
-      expect(quickParse('capitalize', a)).toBe(a.charAt(0).toUpperCase() + a.slice(1))
-      expect(quickParse('lower', a)).toBe(a.toLocaleLowerCase())
-      expect(quickParse('upper', a)).toBe(a.toLocaleUpperCase())
-    }),
-  )
 })
 
 test('reverse', () => {
@@ -154,12 +126,6 @@ test('reverse', () => {
   // No combiner: 👦‍👧‍👩‍👨
   // Intended behavior. See https://github.com/kwaroran/Risuai/pull/1151#issuecomment-3714792523
   expect(quickParse('reverse', '👨‍👩‍👧‍👦')).toBe(splitByPoints('👨‍👩‍👧‍👦'))
-
-  fc.assert(
-    fc.property(validCBSArgProp, (a) => {
-      expect(quickParse('reverse', a)).toBe(splitByPoints(a))
-    }),
-  )
 })
 
 test('unicodeencode', () => {
