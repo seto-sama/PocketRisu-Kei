@@ -289,9 +289,6 @@ importers:
       markdown-it:
         specifier: ^14.3.0
         version: 14.3.0
-      mnemonist:
-        specifier: ^0.40.4
-        version: 0.40.4
       mobile-drag-drop:
         specifier: 3.0.0-rc.0
         version: 3.0.0-rc.0
@@ -2092,9 +2089,6 @@ packages:
   mkdirp-classic@0.5.3:
     resolution: {integrity: sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==}
 
-  mnemonist@0.40.4:
-    resolution: {integrity: sha512-ZAv+KNavneRVzu4tUeOgzkScI3W5BGwZ3rkxIpKtzzVgfTtWQFN1CgX0U72cyvyh3iTuHL3SiSmrQxTlryEIcw==}
-
   mobile-drag-drop@3.0.0-rc.0:
     resolution: {integrity: sha512-f8wIDTbBYLBW/+5sei1cqUE+StyDpf/LP+FRZELlVX6tmOOmELk84r3wh1z3woxCB9G5octhF06K5COvFjGgqg==}
 
@@ -2163,9 +2157,6 @@ packages:
   object-keys@1.1.1:
     resolution: {integrity: sha512-NuAESUOUMrlIXOfHKzD6bpPu3tYt3xvjNdRIQ+FeT0lNb4K8WR70CaDxhuNguS2XG+GjkyMwOzsN5ZktImfhLA==}
     engines: {node: '>= 0.4'}
-
-  obliterator@2.0.5:
-    resolution: {integrity: sha512-42CPE9AhahZRsMNslczq0ctAEtqk8Eka26QofnqC346BZdHDySk3LWka23LI7ULIw11NmltpiLagIq8gBozxTw==}
 
   obug@2.1.4:
     resolution: {integrity: sha512-4a+OsYv9UktOJKE+l1A4OufDgdRF9PifWj+tJnHURo/P+WOxpG4GzUFL9qCalmWauao6ogiG+QvnCovwPoyAWA==}
@@ -4202,10 +4193,6 @@ snapshots:
 
   mkdirp-classic@0.5.3: {}
 
-  mnemonist@0.40.4:
-    dependencies:
-      obliterator: 2.0.5
-
   mobile-drag-drop@3.0.0-rc.0: {}
 
   mri@1.2.0: {}
@@ -4269,8 +4256,6 @@ snapshots:
   object-inspect@1.13.4: {}
 
   object-keys@1.1.1: {}
-
-  obliterator@2.0.5: {}
 
   obug@2.1.4: {}
 

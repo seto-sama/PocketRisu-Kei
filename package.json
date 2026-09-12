@@ -69,7 +69,6 @@
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "markdown-it": "^14.3.0",
-    "mnemonist": "^0.40.4",
     "mobile-drag-drop": "3.0.0-rc.0",
     "msgpackr": "2.0.4",
     "node-html-parser": "^9.0.0",

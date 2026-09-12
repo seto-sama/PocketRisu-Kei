@@ -6,12 +6,31 @@ import { supportsInlayImage } from "./process/files/inlays";
 import { risuChatParser } from "./parser/parser.svelte";
 import { getGenerationModelPreset, getModelPresetTokenizer } from "./process/models/modelString";
 import type { RegistryTokenizer } from "./preset/types";
-import { LRUMap } from 'mnemonist';
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
 
 const MAX_CACHE_SIZE = 1500;
+type EncodedTokens = number[] | Uint32Array | Int32Array;
 
-const encodeCache = new LRUMap<string, number[] | Uint32Array | Int32Array>(MAX_CACHE_SIZE);
+const encodeCache = new Map<string, EncodedTokens>();
+
+function getCachedEncoding(key: string): EncodedTokens | undefined {
+    const value = encodeCache.get(key);
+    if (value === undefined) return undefined;
+
+    encodeCache.delete(key);
+    encodeCache.set(key, value);
+    return value;
+}
+
+function setCachedEncoding(key: string, value: EncodedTokens): void {
+    encodeCache.delete(key);
+    encodeCache.set(key, value);
+
+    if (encodeCache.size > MAX_CACHE_SIZE) {
+        const oldestKey = encodeCache.keys().next().value;
+        if (oldestKey !== undefined) encodeCache.delete(oldestKey);
+    }
+}
 
 function getHash(
     data: string,
@@ -33,7 +52,7 @@ function getEffectiveRevenantTokenizer(): RegistryTokenizer {
     return getModelPresetTokenizer(getGenerationModelPreset('model'))
 }
 
-export async function encodeWithTokenizer(data: string, tokenizerType: string): Promise<(number[] | Uint32Array | Int32Array)> {
+export async function encodeWithTokenizer(data: string, tokenizerType: string): Promise<EncodedTokens> {
     switch (tokenizerType) {
         case 'tik':
             return await tikJS(data, 'cl100k_base');
@@ -57,16 +76,16 @@ export async function encodeWithTokenizer(data: string, tokenizerType: string): 
     }
 }
 
-export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Array)>{
+export async function encode(data:string):Promise<EncodedTokens>{
     const tokenizer = getEffectiveRevenantTokenizer()
     const cacheKey = getHash(data, tokenizer)
-    const cachedResult = encodeCache.get(cacheKey);
+    const cachedResult = getCachedEncoding(cacheKey);
     if (cachedResult !== undefined) {
         return cachedResult;
     }
 
     const result = await encodeWithTokenizer(data, tokenizer)
-    encodeCache.set(cacheKey, result);
+    setCachedEncoding(cacheKey, result);
 
     return result;
 }
