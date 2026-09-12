@@ -367,12 +367,20 @@ export function setDatabase(data:Database){
     if(checkNullish(data.autoTranslateLastOutputOnly)){
         data.autoTranslateLastOutputOnly = false
     }
-    if(checkNullish(data.playMessage)){
-        data.playMessage = false
+    const legacyNotificationData = data as Database & {
+        playMessage?: boolean
+        playMessageOnTranslateEnd?: boolean
     }
+    const legacyPlayMessage = legacyNotificationData.playMessage
     if(checkNullish(data.messageSound)){
         data.messageSound = ''
     }
+    if (legacyPlayMessage !== undefined) {
+        data.messageSound = legacyPlayMessage ? (data.messageSound || 'default') : 'silent'
+    } else if (!data.messageSound) {
+        data.messageSound = 'silent'
+    }
+    delete legacyNotificationData.playMessage
     if(checkNullish(data.messageSoundVolume)){
         data.messageSoundVolume = 100
     }
@@ -382,9 +390,13 @@ export function setDatabase(data:Database){
     if(checkNullish(data.translateSoundVolume)){
         data.translateSoundVolume = 100
     }
-    if(checkNullish(data.playMessageOnTranslateEnd)){
-        data.playMessageOnTranslateEnd = false
+    const legacyPlayMessageOnTranslateEnd = legacyNotificationData.playMessageOnTranslateEnd
+    if (legacyPlayMessageOnTranslateEnd !== undefined) {
+        data.translateSound = legacyPlayMessageOnTranslateEnd ? (data.translateSound || 'default') : 'silent'
+    } else if (!data.translateSound) {
+        data.translateSound = 'silent'
     }
+    delete legacyNotificationData.playMessageOnTranslateEnd
     if(checkNullish(data.customSounds)){
         data.customSounds = []
     }
@@ -771,6 +783,7 @@ export function setDatabase(data:Database){
     data.unformatQuotes ??= false
     data.ttsEnabled ??= false
     data.ttsAutoSpeech ??= false
+    data.ttsVolume ??= 100
     data.ttsApiKeyRefs ??= {}
     data.imageApiKeyRefs ??= {}
     normalizeImageGenerationPresetState(data, {
@@ -1210,15 +1223,14 @@ export interface Database{
     textgenWebUIStreamURL:string
     textgenWebUIBlockingURL:string
     autoTranslate: boolean
-    playMessage:boolean
     /** Sound for the message-complete notification. Holds either a bundled
      * preset id (e.g. "bell") or an uploaded asset path ("assets/<hash>.mp3").
-     * Empty => the default sound. Not theme-scoped. */
+     * Empty => silent. Not theme-scoped. */
     messageSound:string
     /** Playback volume (0-100) for the message-complete notification. */
     messageSoundVolume:number
     /** Sound for the translation-complete notification. Same format as
-     * {@link messageSound}. Empty => the default sound. */
+     * {@link messageSound}. Empty => silent. */
     translateSound:string
     /** Playback volume (0-100) for the translation-complete notification. */
     translateSoundVolume:number
@@ -1260,6 +1272,7 @@ export interface Database{
     NAIImgConfig:NAIImgConfig
     ttsEnabled?:boolean
     ttsAutoSpeech?:boolean
+    ttsVolume?:number
     ttsApiKeyRefs?:Partial<Record<TTSApiKeyProvider, string>>
     imageApiKeyRefs?:Partial<Record<'openai'|'novelai'|'openai-compatible'|'google', string>>
     imageGenerationPresets: ImageGenerationPreset[]
@@ -1538,7 +1551,6 @@ export interface Database{
     showRequestStatus: boolean
     chatCompression: boolean
     outputImageModal: boolean
-    playMessageOnTranslateEnd:boolean
     seperateModelsForAxModels:boolean
     seperateModels:{
         memory: string

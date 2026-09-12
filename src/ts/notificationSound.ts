@@ -1,8 +1,8 @@
 // Notification sound registry + playback.
 //
 // A stored sound value is either a bundled preset id (a key of `bundledSounds`)
-// or an uploaded asset path ("assets/<hash>.mp3"). An empty value falls back to
-// the default sound. Resolution and playback are centralized here so the chat
+// or an uploaded asset path ("assets/<hash>.mp3"). An empty value is silent.
+// Resolution and playback are centralized here so the chat
 // and translator call sites stay one-liners.
 
 import { getFileSrc } from './globalApi.svelte'
@@ -23,8 +23,13 @@ import pop from '../etc/sounds/pop.mp3'
 import positive from '../etc/sounds/positive.mp3'
 import reveal from '../etc/sounds/reveal.mp3'
 
-/** Bundled preset id -> built (hashed) asset URL. `default` is the legacy sound. */
+// A valid zero-frame WAV keeps "disabled" inside the same playback path as
+// every other notification sound, without conditionals at each call site.
+const silentSound = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+
+/** Bundled preset id -> playable URL. Object order is the picker display order. */
 export const bundledSounds: Record<string, string> = {
+    silent: silentSound,
     default: sendSound,
     bell,
     bells,
@@ -42,13 +47,13 @@ export const bundledSounds: Record<string, string> = {
     announce,
 }
 
-/** Preset ids in display order (default first). */
+/** Preset ids in display order (silent, then default and named sounds). */
 export const bundledSoundIds = Object.keys(bundledSounds)
 
 /** Resolve a stored sound value to a URL playable by `new Audio()`. */
 export async function resolveSoundUrl(value: string | undefined): Promise<string> {
     if (!value) {
-        return bundledSounds.default
+        return bundledSounds.silent
     }
     if (value.startsWith('assets/')) {
         const url = await getFileSrc(value)
@@ -62,12 +67,18 @@ function resolveVolume(volume?: number): number {
     return Math.min(1, Math.max(0, raw / 100))
 }
 
+const activeNotificationAudio = new Set<HTMLAudioElement>()
+
 /** Fire-and-forget notification sound (message/translation complete). */
 export async function playNotificationSound(value: string | undefined, volume?: number) {
     try {
         const audio = new Audio(await resolveSoundUrl(value))
         audio.volume = resolveVolume(volume)
-        audio.play().catch(() => {})
+        const release = () => activeNotificationAudio.delete(audio)
+        audio.onended = release
+        audio.onerror = release
+        activeNotificationAudio.add(audio)
+        audio.play().catch(release)
     } catch {
         // ignore playback failures (autoplay policy, missing asset, etc.)
     }
@@ -87,7 +98,12 @@ export async function playSoundPreview(value: string | undefined, volume?: numbe
         const audio = new Audio(url)
         audio.volume = resolveVolume(volume)
         previewAudio = audio
-        audio.play().catch(() => {})
+        const release = () => {
+            if (previewAudio === audio) previewAudio = null
+        }
+        audio.onended = release
+        audio.onerror = release
+        audio.play().catch(release)
     } catch {
         // ignore
     }

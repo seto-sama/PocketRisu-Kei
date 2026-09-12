@@ -20,7 +20,9 @@
     let { open = $bindable(false), value = $bindable(''), volume = 100 }: Props = $props();
 
     function presetLabel(id: string) {
-        return id === 'default' ? language.soundDefault : id;
+        if (id === 'silent') return language.soundSilent;
+        if (id === 'default') return language.soundDefault;
+        return id;
     }
 
     function select(v: string) {
@@ -56,7 +58,7 @@
 
     <div class="flex flex-col gap-1 pr-1">
         {#each bundledSoundIds as id}
-            {@const selected = value === id || (!value && id === 'default')}
+            {@const selected = value === id || (!value && id === 'silent')}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />

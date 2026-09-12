@@ -681,7 +681,7 @@ import { isMobile } from 'src/ts/platform'
                         : Promise.resolve(0),
                     recoverRevenantGenerationsForChat(char, chat, {
                         onDeferredRecovered: recovered => {
-                            if (recovered > 0 && DBState.db.playMessage) {
+                            if (recovered > 0) {
                                 playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
                             }
                         },
@@ -689,10 +689,10 @@ import { isMobile } from 'src/ts/platform'
                 ])
                 if (recoveredTranslations + recoveredOther === 0) return
 
-                if (recoveredOther > 0 && DBState.db.playMessage) {
+                if (recoveredOther > 0) {
                     playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
                 }
-                else if (recoveredTranslations > 0 && DBState.db.playMessageOnTranslateEnd) {
+                else if (recoveredTranslations > 0) {
                     playNotificationSound(DBState.db.translateSound, DBState.db.translateSoundVolume)
                 }
             }).catch(error => {
@@ -1310,7 +1310,7 @@ import { isMobile } from 'src/ts/platform'
         }
         if(!detached) $doingChat = false
         releaseForegroundGeneration(foregroundContext)
-        if(!detached && DBState.db.playMessage){
+        if(!detached){
             playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
         }
         // A detached generation is still owned by its Revenant workflow. Treat
