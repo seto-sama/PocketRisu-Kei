@@ -150,7 +150,7 @@
                 </SettingsList>
             {/each}
         {:else}
-            <div class="p-2 text-center text-subtext">No variables</div>
+            <EmptyState title={language.chatVariablesEmpty} description="" layout="inline" />
         {/if}
     </SettingsList>
 </Accordion>
@@ -180,12 +180,12 @@
             {/await}
         {/if}
     </SettingsList>
-    <span class="mt-2 block text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
+    <span class="mt-2 block pl-1 text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
 <Accordion class="mt-2" name={language.autopilot} bind:open={autopilotOpen}>
     {#if $devToolAutopilotStore.length === 0}
-        <EmptyState title={language.noData} description="" layout="section" density="compact" />
+        <EmptyState title={language.autopilotScheduleEmpty} description="" layout="inline" />
     {/if}
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">

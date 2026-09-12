@@ -1756,17 +1756,17 @@ export function checkCharOrder() {
                 i--;
                 continue
             }
-            if (data.data.length === 0) {
-                db.characterOrder.splice(i, 1)
-                i--;
-                continue
-            }
             for (let i2 = 0; i2 < data.data.length; i2++) {
                 const data2 = data.data[i2]
                 if (!charIdList.includes(data2)) {
                     data.data.splice(i2, 1)
                     i2--;
                 }
+            }
+            if (data.data.length === 0) {
+                db.characterOrder.splice(i, 1)
+                i--;
+                continue
             }
             db.characterOrder[i] = data
         }

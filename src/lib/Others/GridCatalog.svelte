@@ -325,7 +325,7 @@
                             {#if search.trim()}
                                 <EmptyState />
                             {:else}
-                                <EmptyState title={language.noData} description="" />
+                                <EmptyState title={language.trashEmpty} description="" />
                             {/if}
                         </div>
                     {/each}
@@ -348,7 +348,7 @@
                         {#if search.trim()}
                             <EmptyState />
                         {:else}
-                            <EmptyState title={language.noData} description="" />
+                            <EmptyState title={language.noCharacters} description="" />
                         {/if}
                     </div>
                 {/if}
@@ -388,8 +388,6 @@
                                         options={orderSortableOptions} onReorder={syncCharacterOrder} onDragEnd={finishOrderDrag}>
                                         {#each entry.characters as char (char.chaId)}
                                             {@render characterRow(char)}
-                                        {:else}
-                                            <div class="py-2 text-xs text-subtext">{language.noData}</div>
                                         {/each}
                                     </SortableList>
                                 {/if}
@@ -402,7 +400,7 @@
                             {#if search.trim()}
                                 <EmptyState />
                             {:else}
-                                <EmptyState title={language.noData} description="" />
+                                <EmptyState title={language.noCharacters} description="" />
                             {/if}
                         </div>
                     {/each}

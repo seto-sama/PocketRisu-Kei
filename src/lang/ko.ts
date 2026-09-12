@@ -2,6 +2,7 @@ import { helpKo } from "./help.ko";
 import { appendKoreanJosa } from "./koreanJosa";
 
 const missingItem = (item: string) => `${appendKoreanJosa(item, "이/가")} 없습니다.`;
+const emptyItem = (item: string) => `${appendKoreanJosa(item, "이/가")} 비어 있습니다.`;
 
 export const languageKorean = {
   formating: {
@@ -595,6 +596,7 @@ export const languageKorean = {
   globalNote: "글로벌 노트",
   autopilot: "자동주행",
   chatVariables: "채팅 변수",
+  chatVariablesEmpty: emptyItem("채팅 변수 목록"),
   tokens: "토큰",
   devToolTokens: {
     characterProfile: "캐릭터 설명",
@@ -930,6 +932,9 @@ export const languageKorean = {
   noRegexScripts: missingItem("정규식 스크립트"),
   noTriggerScripts: missingItem("트리거 스크립트"),
   noLorebook: missingItem("로어북"),
+  noAssets: missingItem("에셋"),
+  noCharacters: missingItem("등록된 캐릭터"),
+  autopilotScheduleEmpty: emptyItem("자동주행 예약 목록"),
   noMCP: missingItem("설치된 MCP"),
   currentImageGeneration: "현재 이미지 생성 데이터",
   SwipeRegenerate: "스와이프 리롤 사용",
@@ -1368,6 +1373,7 @@ export const languageKorean = {
   trashRetentionDaysSuffix: "일 후",
   restore: "복구",
   deletePermanently: "영구 삭제",
+  trashEmpty: emptyItem("휴지통"),
   emptyTrash: "휴지통 비우기",
   emptyTrashConfirm:
     "휴지통의 캐릭터 {count}개를 모두 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",

@@ -263,9 +263,7 @@
 
 <div class="mt-2 w-full max-w-full overflow-x-hidden">
     {#if assets.length === 0}
-        <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-subtext">
-            <EmptyState title={language.noData} description="" />
-        </div>
+        <EmptyState title={language.noAssets} description="" layout="inline" />
     {:else}
         {#each displayedAssets as asset, i}
             {@const extension = extensionOf(asset)}
