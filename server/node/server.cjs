@@ -2863,7 +2863,6 @@ function createPreReplacementSnapshot() {
 }
 
 const {
-    migrationMarkerPath,
     normalizeColdStorageStorageKey,
     parseColdStorageJsonBuffer,
     encodeColdStorageCanonicalBuffer,
@@ -2871,23 +2870,12 @@ const {
     listColdStorageBackupEntries,
     restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
     restoreColdStorageChat: restoreColdChat,
-    scanHexFilesInDir,
-    importHexFilesFromDir,
-    importHexEntries,
 } = createLegacyRestoreService({
-    savePath,
     sqliteDb,
     kvGet,
     kvSet,
     kvDel,
-    kvDelPrefix,
-    clearEntities,
-    flushPendingDb,
-    createBackupAndRotate: createPreReplacementSnapshot,
-    invalidateDbCache,
-    prepareDatabaseProjection: prepareImportedDatabaseProjection,
     logger,
-    setDbEtag: (value) => { dbEtag = value; },
 });
 restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
 restoreColdStorageChat = restoreColdChat;
@@ -5721,167 +5709,6 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 ...(error.code ? { code: error.code } : {}),
             });
         }
-        next(error);
-    }
-});
-
-// ── Save-folder migration endpoints ──────────────────────────────────────────
-// Save-folder import engines are provided by dataRestore/legacyRestore.cjs.
-
-app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const folderPath = req.body?.path || savePath;
-        const resolved = path.resolve(folderPath);
-        try {
-            const stat = require('fs').statSync(resolved);
-            if (!stat.isDirectory()) {
-                res.status(400).json({ error: 'Path is not a directory' });
-                return;
-            }
-        } catch {
-            res.status(400).json({ error: 'Cannot access directory' });
-            return;
-        }
-        const { count, totalSize, hasDatabase } = scanHexFilesInDir(resolved);
-        res.json({ count, totalSize, hasDatabase });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    if (importInProgress) {
-        res.status(409).json({ error: 'Another import is already in progress' });
-        return;
-    }
-    importInProgress = true;
-    try {
-        const folderPath = req.body?.path || savePath;
-        const resolved = path.resolve(folderPath);
-        try {
-            const stat = require('fs').statSync(resolved);
-            if (!stat.isDirectory()) {
-                res.status(400).json({ error: 'Path is not a directory' });
-                return;
-            }
-        } catch {
-            res.status(400).json({ error: 'Cannot access directory' });
-            return;
-        }
-        const result = await queueStorageOperation(() => importHexFilesFromDir(resolved));
-        res.json({ ok: true, imported: result.imported });
-    } catch (error) {
-        res.status(400).json({ error: error.message || 'Import failed' });
-    } finally {
-        importInProgress = false;
-    }
-});
-
-app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    if (importInProgress) {
-        res.status(409).json({ error: 'Another import is already in progress' });
-        return;
-    }
-    importInProgress = true;
-
-    req.socket.setTimeout(0);
-    req.socket.setKeepAlive(true);
-    const prevRequestTimeout = req.socket.server?.requestTimeout;
-    if (req.socket.server) req.socket.server.requestTimeout = 0;
-
-    try {
-        const chunks = [];
-        let totalSize = 0;
-        for await (const chunk of req) {
-            totalSize += chunk.length;
-            if (BACKUP_IMPORT_MAX_BYTES > 0 && totalSize > BACKUP_IMPORT_MAX_BYTES) {
-                res.status(413).json({ error: 'Zip file exceeds max allowed size' });
-                return;
-            }
-            chunks.push(chunk);
-        }
-        const zipBuffer = Buffer.concat(chunks);
-
-        const fflate = require('fflate');
-        let unzipped;
-        try {
-            unzipped = fflate.unzipSync(new Uint8Array(zipBuffer));
-        } catch {
-            res.status(400).json({ error: 'Invalid or corrupted zip file' });
-            return;
-        }
-
-        const entries = [];
-        for (const [entryPath, data] of Object.entries(unzipped)) {
-            if (data.length === 0) continue;
-            const basename = path.basename(entryPath);
-            if (!hexRegex.test(basename)) continue;
-            try {
-                const key = Buffer.from(basename, 'hex').toString('utf-8');
-                entries.push({ key, value: Buffer.from(data) });
-            } catch { /* invalid hex filename */ }
-        }
-
-        if (entries.length === 0) {
-            res.status(400).json({ error: 'No compatible hex files found in zip' });
-            return;
-        }
-
-        const result = await queueStorageOperation(() => importHexEntries(entries));
-        res.json({ ok: true, imported: result.imported });
-    } catch (error) {
-        res.status(400).json({ error: error.message || 'Import failed' });
-    } finally {
-        importInProgress = false;
-        if (req.socket.server && prevRequestTimeout !== undefined) {
-            req.socket.server.requestTimeout = prevRequestTimeout;
-        }
-    }
-});
-
-app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (!existsSync(migrationMarkerPath)) {
-            res.status(400).json({ error: 'Migration has not been completed yet' });
-            return;
-        }
-        const { count, totalSize } = scanHexFilesInDir(savePath);
-        res.json({ count, totalSize });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (!existsSync(migrationMarkerPath)) {
-            res.status(400).json({ error: 'Migration has not been completed yet' });
-            return;
-        }
-        const { hexFiles } = scanHexFilesInDir(savePath);
-        let removed = 0;
-        let freedBytes = 0;
-        for (const f of hexFiles) {
-            try {
-                const filePath = path.join(savePath, f);
-                const stat = require('fs').statSync(filePath);
-                unlinkSync(filePath);
-                freedBytes += stat.size;
-                removed++;
-            } catch { /* skip unremovable files */ }
-        }
-        res.json({ ok: true, removed, freedBytes });
-    } catch (error) {
         next(error);
     }
 });

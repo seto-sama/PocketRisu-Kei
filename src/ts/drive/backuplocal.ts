@@ -1,5 +1,5 @@
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
-import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess, notifyInfo, notifyError } from "../alert";
+import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess } from "../alert";
 import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
@@ -246,7 +246,7 @@ export async function SavePartialLocalBackup(){
 
     // Reassemble full chats from server for placeholders (runtime lazy load)
     alertWait(`Saving partial local backup... (Assembling chat data)`)
-    const dbCopy = structuredClone({ ...db, account: undefined })
+    const dbCopy = structuredClone(db)
     for (const char of dbCopy.characters) {
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
@@ -317,72 +317,6 @@ export function LoadLocalBackup(){
     } catch (error) {
         console.error(error);
         alertError('Failed, Is file corrupted?')
-    }
-}
-
-export async function ImportFromSaveZip() {
-    try {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = '.zip'
-        input.onchange = async () => {
-            if (!input.files || input.files.length === 0) {
-                input.remove()
-                return
-            }
-            const file = input.files[0]
-            input.remove()
-
-            if (!(await alertConfirm(language.importSaveFolderConfirmZip(file.name, formatBytes(file.size))))) return
-            if (!(await alertConfirm(language.backupLoadConfirm2))) return
-
-            alertWait(`Uploading ${file.name}...`)
-            const result = await forageStorage.uploadSaveFolderZip(file, (loaded, total) => {
-                const progress = total > 0 ? ((loaded / total) * 100).toFixed(2) : '0.00'
-                alertWait(`Uploading ${file.name}... (${progress}%)`)
-            })
-
-            alertStore.set({
-                type: "wait",
-                msg: `${language.importSaveFolderSuccess} (${result.imported} files). Refreshing...`
-            })
-            location.search = ''
-            location.reload()
-        }
-
-        input.click()
-    } catch (error) {
-        console.error(error)
-        alertError(error instanceof Error ? error.message : 'Import failed')
-    }
-}
-
-export async function CleanupMigratedFiles() {
-    try {
-        alertWait(language.importSaveFolderScanning)
-        let scan: { count: number, totalSize: number }
-        try {
-            scan = await forageStorage.scanCleanup()
-        } catch (error) {
-            notifyError(error instanceof Error ? error.message : language.cleanupMigratedNotReady)
-            return
-        }
-
-        if (scan.count === 0) {
-            notifyInfo(language.cleanupMigratedNoFiles)
-            return
-        }
-
-        const sizeStr = formatBytes(scan.totalSize)
-        if (!(await alertConfirm(language.cleanupMigratedConfirm(scan.count, sizeStr)))) return
-
-        alertWait(language.cleanupMigratedCleaning)
-        const result = await forageStorage.executeCleanup()
-
-        notifySuccess(language.cleanupMigratedSuccess(result.removed, formatBytes(result.freedBytes)))
-    } catch (error) {
-        console.error(error)
-        notifyError(error instanceof Error ? error.message : 'Cleanup failed')
     }
 }
 
