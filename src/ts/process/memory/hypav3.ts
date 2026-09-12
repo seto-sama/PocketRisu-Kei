@@ -34,7 +34,7 @@ import {
     isRevenantHypaV3SummaryOperation,
     type RecoverableAuxiliaryJob,
 } from "../revenant";
-import { v4 as uuidv4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import type { PresetTagFields } from "src/ts/preset/tags";
 import {
     getRevenantHypaExecution,
@@ -207,9 +207,9 @@ function planServerHypaSelection(input: {
     if (!canPlanServerHypaSelection(options, room, tokenizer)) return undefined;
     const binding = resolveChatModelBinding(room, 'memory');
     if (binding.kind !== 'modelPreset') return undefined;
-    const batchId = uuidv4();
+    const batchId = createEntityId();
     const summaryRequests = batches.map(batch => ({
-        operationId: uuidv4(),
+        operationId: createEntityId(),
         chatMemos: batch.map(chat => chat.memo).filter((memo): memo is string => !!memo),
         prompt: buildHypaSummaryPrompt(batch, settings),
         purpose: 'memory',
@@ -219,7 +219,7 @@ function planServerHypaSelection(input: {
         && settings.similarMemoryRatio > 0 && recentChats.length > 1
         && (data.summaries.length > 0 || batches.length > 0)) {
         summaryRequests.push({
-            operationId: uuidv4(), chatMemos: [], purpose: 'query',
+            operationId: createEntityId(), chatMemos: [], purpose: 'query',
             prompt: buildHypaSummaryPrompt(recentChats, settings),
         });
     }
@@ -837,10 +837,10 @@ async function hypaMemoryV3MainExp(
             });
         };
 
-        const batchId = uuidv4();
+        const batchId = createEntityId();
         const useDurableDispatch = settings.summarizationModel === "subModel"
             && canUseDurableHypaDispatch(room);
-        const operationIds = toSummarizeArray.map(() => uuidv4());
+        const operationIds = toSummarizeArray.map(() => createEntityId());
         const summarizationTasks = toSummarizeArray.map(
             (item, index) => (onRegistered?: () => void) => summarize(item, false, {
                 revenantTarget: {
@@ -950,7 +950,7 @@ async function hypaMemoryV3MainExp(
     }
 
     if (toSummarizeArray.length === 0 && data.summaries.length > 0) {
-        await prepareRemoteSelection(uuidv4(), []);
+        await prepareRemoteSelection(createEntityId(), []);
         if (remoteExecutionPrepared) {
             if (options?.deferredMemoryPrompt) return deferredRemoteSelection();
             return consumeRemoteSelection();
@@ -1652,7 +1652,7 @@ async function hypaMemoryV3Main(
                     revenantTarget: {
                         characterId: char.chaId,
                         roomId: room.id,
-                        batchId: uuidv4(),
+                        batchId: createEntityId(),
                         chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
                     },
                 });

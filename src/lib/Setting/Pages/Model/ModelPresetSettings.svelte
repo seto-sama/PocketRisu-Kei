@@ -37,7 +37,7 @@
     import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
     import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
     import { onMount } from "svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
 
     let editingId = $state<string | null>(null);
     let submenu = $state(0);
@@ -316,7 +316,7 @@
         const src = DBState.db.modelPresets[index];
         if (!src) return;
         const copy = safeStructuredClone(src);
-        copy.id = uuidv4();
+        copy.id = createEntityId();
         copy.name = `${src.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();

@@ -53,7 +53,7 @@
     import SortableList from "../UI/components/SortableList.svelte";
     import type { SortableEvent } from "sortablejs";
     import { getCharacterIndexObject, makeAgoText } from "src/ts/util";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { checkCharOrder } from "src/ts/globalApi.svelte";
     import SideChatList from "./SideChatList.svelte";
     import { openSidebarFolderMenu } from "./sidebarFolderMenu";
@@ -270,7 +270,7 @@
   function addSidebarMenuDivider() {
     DBState.db.sidebarMenuOrder = [
       ...sidebarMenuOrder,
-      dividerSidebarMenuKey(v4()),
+      dividerSidebarMenuKey(createEntityId()),
     ]
   }
 
@@ -337,7 +337,7 @@
   function finishSidebarDrag(sourceId: string, event: SortableEvent) {
     const target = sidebarDragController.end(event)
     const nextOrder = applySidebarDrop(DBState.db.characterOrder, sourceId, target, () => ({
-      id: v4(),
+      id: createEntityId(),
       name: SIDEBAR_DEFAULT_FOLDER_NAME,
       color: '',
     }))

@@ -4,7 +4,7 @@
     import { CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PackageIcon, PencilIcon, SearchIcon, SettingsIcon, TagIcon, TagsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertInput } from "src/ts/alert";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import Help from "../Others/Help.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
@@ -200,7 +200,7 @@
             if (id) selectedFolder = id;
             return;
         }
-        const id = uuidv4();
+        const id = createEntityId();
         onFoldersChange([...folders, { id, name }]);
         selectedFolder = id;
     }

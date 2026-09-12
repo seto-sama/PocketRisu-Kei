@@ -19,7 +19,7 @@
     import ListActionBar from "../../../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
     import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
 
     let submenu = $state('basic')
     interface Props {
@@ -47,7 +47,7 @@
 
     function addLorebookFolder(){
         if(Array.isArray(currentModule.lorebook)){
-            const id = v4()
+            const id = createEntityId()
             currentModule.lorebook.push({
                 key: '\uf000folder:' + id,
                 comment: `New Folder`,

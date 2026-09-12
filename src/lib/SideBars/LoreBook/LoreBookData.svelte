@@ -1,6 +1,6 @@
 <script lang="ts">
     import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon, PencilIcon } from "@lucide/svelte";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
     import { alertConfirm, alertMd } from "../../../ts/alert";
@@ -61,7 +61,7 @@
     }
     function activateLocally(book: loreBook){
         if(!book.id){
-            book.id = v4()
+            book.id = createEntityId()
         }
         
         const childLore: loreBook = {

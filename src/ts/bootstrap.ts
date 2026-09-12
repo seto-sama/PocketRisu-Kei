@@ -1,6 +1,6 @@
 import { isTrashExpired } from './trashRetention';
 import { checkNullish } from "./util"
-import { v4 as uuidv4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { get } from "svelte/store";
 import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
@@ -433,7 +433,7 @@ async function checkNewFormat(): Promise<void> {
         if (!v) {
             return null;
         }
-        v.chaId ??= uuidv4();
+        v.chaId ??= createEntityId();
         v.type ??= 'character';
         v.chatPage ??= 0;
         v.chats ??= [];
@@ -522,7 +522,7 @@ async function checkNewFormat(): Promise<void> {
     });
 
     db.personas = (db.personas ?? []).map((v) => {
-        v.id ??= uuidv4()
+        v.id ??= createEntityId()
         return v
     }).filter((v) => {
         return v !== null && v !== undefined;
@@ -627,21 +627,21 @@ function assignIds() {
     for (let i = 0; i < DBState.db.characters.length; i++) {
         const cha = DBState.db.characters[i]
         if (!cha.chaId) {
-            cha.chaId = uuidv4()
+            cha.chaId = createEntityId()
         }
         if (assignedIds.has(cha.chaId)) {
             console.warn(`Duplicate chaId found: ${cha.chaId}. Assigning new ID.`);
-            cha.chaId = uuidv4();
+            cha.chaId = createEntityId();
         }
         assignedIds.add(cha.chaId)
         for (let i2 = 0; i2 < cha.chats.length; i2++) {
             const chat = cha.chats[i2]
             if (!chat.id) {
-                chat.id = uuidv4()
+                chat.id = createEntityId()
             }
             if (assignedIds.has(chat.id)) {
                 console.warn(`Duplicate chat ID found: ${chat.id}. Assigning new ID.`);
-                chat.id = uuidv4();
+                chat.id = createEntityId();
             }
             assignedIds.add(chat.id)
         }

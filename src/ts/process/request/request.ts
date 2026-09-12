@@ -5,7 +5,7 @@ import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
-import { v4 as uuidv4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { simplifySchema, sleep } from "../../util";
 import type { OpenAIChat } from "../index.svelte";
 import { setInlayAsset } from "../files/inlays";
@@ -885,7 +885,7 @@ async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<strin
     if (!media || media.length === 0) return ''
     const markers: string[] = []
     for (const item of media) {
-        const id = uuidv4()
+        const id = createEntityId()
         const ext = item.mime.split('/')[1]?.split(';')[0] || (item.kind === 'image' ? 'png' : 'mp3')
         await setInlayAsset(id, {
             name: `generated-${item.kind}.${ext}`,

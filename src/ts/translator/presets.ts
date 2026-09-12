@@ -2,7 +2,7 @@ import { decode as decodeMsgpack, encode as encodeMsgpack } from "msgpackr/index
 import * as fflate from "fflate";
 import { decryptBuffer, encryptBuffer } from "src/ts/util";
 import { decodeRPack, encodeRPack } from "src/ts/rpack/rpack_js.js";
-import { v4 as uuidv4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { normalizePresetTagFields, type PresetTagFields } from "src/ts/preset/tags";
 
 export interface TranslatorPreset extends PresetTagFields {
@@ -108,7 +108,7 @@ export function createTranslatorPreset(
     existing: Partial<TranslatorPreset> & { folderId?: unknown } = {}
 ): TranslatorPreset {
     return normalizePresetTagFields({
-        id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : uuidv4(),
+        id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : createEntityId(),
         name,
         prompt: typeof existing.prompt === "string" ? existing.prompt : "",
         maxResponse:

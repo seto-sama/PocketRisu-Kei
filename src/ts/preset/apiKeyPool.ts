@@ -1,6 +1,6 @@
 import { getDatabase } from 'src/ts/storage/database.svelte'
 import type { ApiKeyPoolEntry, BaseProviderDefinition } from './types'
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 
 const API_KEY_PROVIDER_ALIASES: Readonly<Record<string, string>> = {
     'cloudflare-workers-ai': 'cloudflare',
@@ -92,7 +92,7 @@ export function addApiKey(input: { name: string; key: string; provider?: string 
             : max
     }, -1)
     const entry: ApiKeyPoolEntry = {
-        id: uuidv4(),
+        id: createEntityId(),
         name: input.name,
         provider: normalizeApiKeyProvider(input.provider),
         key: input.key,

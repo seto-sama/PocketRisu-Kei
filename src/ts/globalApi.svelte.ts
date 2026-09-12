@@ -1,5 +1,5 @@
 import { checkNullish, sleep } from "./util"
-import { v4 as uuidv4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
@@ -225,7 +225,7 @@ export async function saveAsset(data: Uint8Array, customId: string = '', fileNam
         try {
             id = await hasher(data)
         } catch (error) {
-            id = uuidv4()
+            id = createEntityId()
         }
     }
     let fileExtension: string = 'png'
@@ -2559,7 +2559,7 @@ export async function createPersistedChatCopy(
     const sourceMessageIds = source.message.map(message => message.chatId)
     const copy = normalizeChat(cloneChatValue(source))
     copy.name = createChatCopyName(copy.name, type, character.chats)
-    copy.id = uuidv4()
+    copy.id = createEntityId()
     prepare?.(copy)
     reissueMessageIds(copy, sourceMessageIds)
 

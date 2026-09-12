@@ -7,7 +7,7 @@
     import { selectedCharID } from "src/ts/stores.svelte";
     import Sortable from 'sortablejs/modular/sortable.core.esm.js';
     import { sortableOptions } from "src/ts/util";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import { restoreSortableDragOrigin, type SortableDragOrigin } from "../../UI/components/SortableList.svelte";
     import { reorderLoreBooks } from "./lorebookDrag";
@@ -29,7 +29,7 @@
     }: Props = $props();
     let ele: HTMLDivElement = $state()
     let sorted = $state(0)
-    let idgroup = 'a' + v4() //make should it starts with alphabetic character
+    let idgroup = 'a' + createEntityId() //make should it starts with alphabetic character
     
     $effect(() => {
         if (!ele) return;

@@ -1,5 +1,5 @@
 import * as fflate from 'fflate'
-import { v4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
 import { AppendableBuffer, checkCharOrder, LocalWriter, requestImmediateSave, saveAsset, VirtualWriter } from './globalApi.svelte'
@@ -235,7 +235,7 @@ async function importPersonas(
             continue
         }
 
-        const newId = v4()
+        const newId = createEntityId()
         db.personas.push({
             name: card.name,
             icon: await saveImage(await reencodeImage(pngBytes)),
@@ -274,7 +274,7 @@ async function importChatsToCharacter(
             chat.bindedPersona = personaIdMap[chat.bindedPersona]
         }
         remapBookmarkTags(chat, bookmarkTagIdMap)
-        chat.id = v4()
+        chat.id = createEntityId()
     }
 
     if (mode === 'append') {
@@ -285,7 +285,7 @@ async function importChatsToCharacter(
             const folderIdMap: Record<string, string> = {}
             for (const folder of importedFolders) {
                 if (existingFolders.some(f => f.id === folder.id)) {
-                    const newId = v4()
+                    const newId = createEntityId()
                     folderIdMap[folder.id] = newId
                     folder.id = newId
                 } else {

@@ -3,7 +3,7 @@ import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, a
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
 import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleFile, sleep } from "../util"
-import { v4 } from "uuid"
+import { createEntityId } from "../id"
 import { convertExternalLorebook } from "./lorebook.svelte"
 import { compressImage } from '../media'
 import { decodeRPack, encodeRPack } from "../rpack/rpack_js"
@@ -249,7 +249,7 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
         alertClear()
     }
 
-    module.id = v4()
+    module.id = createEntityId()
     return normalizePresetTagFields(module)
 }
 
@@ -303,7 +303,7 @@ export async function importModule(){
                 alertError(language.errors.noData)
                 return
             }
-            importData.id = v4()
+            importData.id = createEntityId()
 
             if(importData.lowLevelAccess){
                 const conf = await alertConfirm(language.lowLevelAccessConfirm)
@@ -323,7 +323,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Lorebook',
                 description: importData.description || 'Converted from risu lorebook',
                 lorebook: lores,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
@@ -335,7 +335,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Lorebook',
                 description: importData.description || 'Converted from external lorebook',
                 lorebook: lores,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
@@ -347,7 +347,7 @@ export async function importModule(){
                 name: importData.name || 'Imported Regex',
                 description: importData.description || 'Converted from risu regex',
                 regex: regexs,
-                id: v4()
+                id: createEntityId()
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)

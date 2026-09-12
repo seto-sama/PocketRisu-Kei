@@ -6,7 +6,7 @@
     import PresetPickerLayout from "./PresetPickerLayout.svelte";
     import PresetPickerActions from "./PresetPickerActions.svelte";
     import InlineEditableName from "./components/InlineEditableName.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
@@ -92,7 +92,7 @@
         const source = presets[index];
         if (!source) return;
         const copy = structuredClone($state.snapshot(source));
-        copy.id = uuidv4();
+        copy.id = createEntityId();
         copy.name = `${source.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();

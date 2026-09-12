@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import type { RequestDataArgumentExtended } from './request'
 import type { OpenAIChat } from '../index.svelte'
 import {
@@ -32,7 +32,7 @@ export function removeEmptyChatMessages(messages: OpenAIChat[]): OpenAIChat[] {
 export function ensureRequestGenerationId(
     arg: Pick<RequestDataArgumentExtended, 'chatId' | 'revenantRequestId'>,
 ): string {
-    return arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+    return arg.chatId ?? (arg.revenantRequestId ??= `aux-${createEntityId()}`)
 }
 
 export function getRequestStatusNavigationId(
@@ -107,7 +107,7 @@ export function buildGenerationRequest(
         } : workflowId ? {
             workflowId,
             stepKey: getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId),
-            executionId: arg.revenantStepExecutionId ??= uuidv4(),
+            executionId: arg.revenantStepExecutionId ??= createEntityId(),
             dependency: arg.revenantWorkflowDependency,
         } : undefined,
         lifecycle: {

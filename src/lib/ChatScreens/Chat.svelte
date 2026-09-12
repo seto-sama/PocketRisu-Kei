@@ -57,7 +57,7 @@
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
-    import { v4 as uuidv4, v4 } from 'uuid'
+    import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
@@ -866,7 +866,7 @@
 
         const assignedMessageId = !messageId;
         if (assignedMessageId) {
-            messageId = uuidv4();
+            messageId = createEntityId();
             chat.message[idx].chatId = messageId;
         }
 
@@ -1548,7 +1548,7 @@
         const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
-            const folderId = v4()
+            const folderId = createEntityId()
             DBState.db.characters[selIdState.selId].chatFolders ??= []
             DBState.db.characters[selIdState.selId].chatFolders.unshift({
                 id: folderId,
@@ -1571,7 +1571,7 @@
                         data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
                         isComment: true,
                         disabled: true,
-                        chatId: v4(),
+                        chatId: createEntityId(),
                     })
                 },
             )

@@ -1,4 +1,4 @@
-import { v4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { language } from 'src/lang'
 import { notifySuccess } from './alert'
 import { getCurrentChat, getDatabase } from './storage/database.svelte'
@@ -14,7 +14,7 @@ export function bindPromptPresetToCurrentChat(presetIndex: number): boolean {
     const preset = getDatabase().botPresets[presetIndex]
     if (!preset) return false
 
-    preset.id ||= v4()
+    preset.id ||= createEntityId()
     chat.bindedBotPreset = preset.id
     notifySuccess(language.promptBindedSuccess)
     return true
@@ -31,7 +31,7 @@ export function bindPersonaToCurrentChat(personaIndex: number): boolean {
     const persona = getDatabase().personas[personaIndex]
     if (!persona) return false
 
-    persona.id ||= v4()
+    persona.id ||= createEntityId()
     chat.bindedPersona = persona.id
     notifySuccess(language.personaBindedSuccess)
     return true

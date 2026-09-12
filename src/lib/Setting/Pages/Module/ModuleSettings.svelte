@@ -11,7 +11,7 @@
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
     import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import Input from "../../../UI/components/Input.svelte";
     import { onDestroy } from "svelte";
@@ -34,7 +34,7 @@
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
-        id: v4(),
+        id: createEntityId(),
     })
     let mode = $state(0)
     let moduleSearch = $state('')
@@ -90,7 +90,7 @@
 
     function ensurePersonaIds() {
         for (const persona of DBState.db.personas) {
-            persona.id ??= v4()
+            persona.id ??= createEntityId()
         }
     }
 
@@ -212,7 +212,7 @@
         tempModule = {
             name: '',
             description: '',
-            id: v4(),
+            id: createEntityId(),
         }
         moduleFolderManagementOpen = false
         mode = 1
@@ -222,7 +222,7 @@
         const source = DBState.db.modules[index]
         if (!source || source.mcp) return
         const duplicate = safeStructuredClone(source)
-        duplicate.id = v4()
+        duplicate.id = createEntityId()
         duplicate.name = `${source.name} ${language.copy}`
         DBState.db.modules.splice(index + 1, 0, duplicate)
         DBState.db.modules = [...DBState.db.modules]

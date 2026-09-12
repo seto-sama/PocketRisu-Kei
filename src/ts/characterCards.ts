@@ -3,7 +3,7 @@ import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, aler
 import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
-import { v4 as uuidv4, v4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { characterFormatUpdate } from "./characters"
 import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
@@ -415,7 +415,7 @@ export async function characterURLImport() {
     if(hash.startsWith('#import_module=')){
         const data = hash.replace('#import_module=', '')
         const importData = JSON.parse(Buffer.from(decodeURIComponent(data), 'base64').toString('utf-8'))
-        importData.id = v4()
+        importData.id = createEntityId()
 
         const db = getDatabase()
         if(importData.lowLevelAccess){
@@ -457,7 +457,7 @@ export async function characterURLImport() {
         }
         const module = new Uint8Array(await data.arrayBuffer())
         const md = await readModule(Buffer.from(module))
-        md.id = v4()
+        md.id = createEntityId()
         const db = getDatabase()
         db.modules.push(md)
         notifySuccess(language.successImport)
@@ -511,7 +511,7 @@ export async function characterURLImport() {
         }
         if(name.endsWith('risum')){
             const md = await readModule(Buffer.from(data))
-            md.id = v4()
+            md.id = createEntityId()
             const db = getDatabase()
             db.modules.push(md)
             notifySuccess(language.successImport)
@@ -578,7 +578,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
             note: '',
             name: 'Chat 1',
             localLore: [],
-            id: uuidv4(),
+            id: createEntityId(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -587,7 +587,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
         bias: [],
         globalLore: lorebook,
         viewScreen: 'none',
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         utilityBot: false,
         lowLevelAccess: false,
         hideChatIcon: false,
@@ -738,7 +738,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                 vits = {
                     name: "Imported VITS",
                     files: risuext.vits,
-                    id: uuidv4().replace(/-/g, '')
+                    id: createEntityId().replace(/-/g, '')
                 }
             }
 
@@ -874,7 +874,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             note: '',
             name: 'Chat 1',
             localLore: [],
-            id: uuidv4(),
+            id: createEntityId(),
             ...newChatModelDefaults()
         }],
         chatPage: 0,
@@ -883,7 +883,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         bias: bias,
         globalLore: lorebook, //lorebook
         viewScreen: viewScreen,
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
         escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
@@ -1393,7 +1393,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                 const md:RisuModule = {
                     name: `${char.name} Module`,
                     description: "Module for " + char.name,
-                    id: v4(),
+                    id: createEntityId(),
                     trigger: card.data.extensions.risuai.triggerscript ?? [],
                     regex: card.data.extensions.risuai.customScripts ?? [],
                     lorebook: char.globalLore ?? [],

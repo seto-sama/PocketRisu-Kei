@@ -21,7 +21,7 @@ import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../p
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
 import { isSupportedTranslatorType, type TranslatorType } from '../translator/types'
 import { safeStructuredClone } from '../polyfill';
-import { v4 as uuidv4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
 import { emptyModelBinding } from '../preset/types';
@@ -416,7 +416,7 @@ export function setDatabase(data:Database){
         for (const preset of data.botPresets) {
             preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
             if (preset && !preset.id) {
-                preset.id = uuidv4()
+                preset.id = createEntityId()
             }
         }
     }
@@ -2524,7 +2524,7 @@ export const themePresetTemplate: themePreset = {
 
 export function createBotPresetTemplate(): botPreset {
     const preset = safeStructuredClone(presetTemplate)
-    preset.id = uuidv4()
+    preset.id = createEntityId()
     return preset
 }
 
@@ -2593,7 +2593,7 @@ export function saveCurrentPreset(){
         // Preserve fields unknown to this version so imported presets can be
         // round-tripped by both database backups and individual preset exports.
         ...currentPreset,
-        id: pres[db.botPresetsId]?.id || uuidv4(),
+        id: pres[db.botPresetsId]?.id || createEntityId(),
         name: pres[db.botPresetsId].name,
         tagIds: safeStructuredClone(pres[db.botPresetsId]?.tagIds),
         apiType: db.apiType,
@@ -2684,7 +2684,7 @@ export function copyPreset(id:number){
     let db = getDatabase()
     let pres = db.botPresets
     const newPres = safeStructuredClone(pres[id])
-    newPres.id = uuidv4()
+    newPres.id = createEntityId()
     newPres.name += " Copy"
     db.botPresets.push(newPres)
 }
@@ -3061,7 +3061,7 @@ function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
     normalizePresetTagFields(pre)
     pre.promptTemplate = normalizePromptTemplate(hasImportedPromptTemplate ? pre.promptTemplate : undefined, pre)
     pre.name ||= "Imported"
-    pre.id = uuidv4()
+    pre.id = createEntityId()
     const db = getDatabase()
     if(!Array.isArray(db.botPresets)){
         db.botPresets = []

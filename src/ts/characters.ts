@@ -5,7 +5,7 @@ import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, a
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
-import { v4 as uuidv4, v4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
 import { OpenRealmStore, selectedCharID } from "./stores.svelte";
 import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
@@ -432,7 +432,7 @@ export async function importChat(){
                 name: "Imported Chat",
                 localLore: [],
                 fmIndex: -1,
-                id: v4(),
+                id: createEntityId(),
                 ...newChatModelDefaults()
             }
 
@@ -476,7 +476,7 @@ export async function importChat(){
                 let folderIdMap = {}
                 folders.forEach(folder => {
                     if(db.characters[selectedID].chatFolders?.some(f => f.id === folder.id)){
-                        const newId = uuidv4()
+                        const newId = createEntityId()
                         folderIdMap[folder.id] = newId
                         folder.id = newId
                     } else {
@@ -493,7 +493,7 @@ export async function importChat(){
                         chat.folderId = folderIdMap[chat.folderId]
                     }
                     remapBookmarkTags(chat, bookmarkTagIdMap)
-                    chat.id = v4()
+                    chat.id = createEntityId()
                 })
                 const importedChats = chats.map(c => normalizeChat(c))
                 db.characters[selectedID].chats.unshift(...importedChats)
@@ -513,7 +513,7 @@ export async function importChat(){
                 if(Array.isArray(chats) && chats.length > 0){
                     db.characters[selectedID].chats.unshift(...(chats.map((v) => {
                         if(!v.id){
-                            v.id = uuidv4()
+                            v.id = createEntityId()
                         }
                         if(!v.localLore){
                             v.localLore = []
@@ -532,7 +532,7 @@ export async function importChat(){
                 const das:Chat = json.data
                 if(!(checkNullish(das.message) || checkNullish(das.note) || checkNullish(das.name) || checkNullish(das.localLore))){
                     das.fmIndex ??= -1
-                    das.id = v4()
+                    das.id = createEntityId()
                     db.characters[selectedID].chats.unshift(normalizeChat(das))
                     notifySuccess(language.successImport)
                     return
@@ -557,7 +557,7 @@ export async function importChat(){
             )
             if(!(checkNullish(json.message) || checkNullish(json.note) || checkNullish(json.name) || checkNullish(json.localLore))){
                 remapBookmarkTags(json, bookmarkTagIdMap)
-                json.id = v4()
+                json.id = createEntityId()
                 const importedChat = normalizeChat(json)
                 db.characters[selectedID].chats.unshift(importedChat)
                 await requestImmediateSave({
@@ -639,7 +639,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         cha.type = 'character'
     }
     if(!cha.chaId){
-        cha.chaId = uuidv4()
+        cha.chaId = createEntityId()
     }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
@@ -704,7 +704,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         const chat = cha.chats[i]
         chat.fmIndex ??= cha.firstMsgIndex ?? -1
         if(!chat.id){
-            chat.id = uuidv4()
+            chat.id = createEntityId()
         }
         if(!chat.localLore){
             chat.localLore = []
@@ -752,7 +752,7 @@ export function createBlankChar():character{
         bias: [],
         viewScreen: 'none',
         globalLore: [],
-        chaId: uuidv4(),
+        chaId: createEntityId(),
         type: 'character',
         utilityBot: false,
         lowLevelAccess: false,

@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { safeStructuredClone } from '../polyfill'
 import type { Database, NAIImgConfig } from '../storage/database.svelte'
 import { normalizePresetTagFields, normalizeTagIds, type PresetTagFields } from '../preset/tags'
@@ -191,7 +191,7 @@ export function createImageGenerationPreset(
     settings: ImageGenerationPresetSettings,
 ): ImageGenerationPreset {
     return {
-        id: uuidv4(),
+        id: createEntityId(),
         name,
         settings: removeEmbeddedReferenceImages(safeStructuredClone(settings)),
     }
@@ -259,7 +259,7 @@ export function normalizeImageGenerationPresetState(
     } else {
         db.imageGenerationPresets = db.imageGenerationPresets.map((preset, index) => normalizePresetTagFields({
             ...preset,
-            id: typeof preset?.id === 'string' && preset.id ? preset.id : uuidv4(),
+            id: typeof preset?.id === 'string' && preset.id ? preset.id : createEntityId(),
             name: typeof preset?.name === 'string' && preset.name
                 ? preset.name
                 : labels.fallbackName(index),

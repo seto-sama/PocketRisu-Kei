@@ -14,7 +14,7 @@ import { shouldSuppressGenerationErrorModal } from './generationErrorPresentatio
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { runTrigger, type additonalSysPrompt } from "./triggers";
 import { HypaProcesser } from "./memory/hypamemory";
 import { additionalInformations } from "./embedding/addinfo";
@@ -485,13 +485,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return false
     }
     targetChat.message = targetChat.message.map((v) => {
-        v.chatId = v.chatId ?? v4()
+        v.chatId = v.chatId ?? createEntityId()
         return v
     })
 
     const messageChatId = arg.revenantResume?.context.messageChatId
         ?? arg.messageChatId
-        ?? v4()
+        ?? createEntityId()
     const outgoingChat = nowChatroom.chats[selectedChat]
     workflowSession = createChatGenerationSession(
         { characterId: nowChatroom.chaId, roomId: outgoingChat.id },
@@ -674,7 +674,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
     const deferredHypaMemoryPrompt = (workflowSession.workflowId || compiledMainPreset)
         && !arg.preview && !arg.previewPrompt && !hasEditRequestLua
-        ? `__RISU_REVENANT_HYPA_${v4()}__`
+        ? `__RISU_REVENANT_HYPA_${createEntityId()}__`
         : undefined
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
@@ -1305,7 +1305,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             name = `${getUserName()}`
         }
         if(!msg.chatId){
-            msg.chatId = v4()
+            msg.chatId = createEntityId()
         }
         let inlays:string[] = []
         if(msg.role === 'char'){

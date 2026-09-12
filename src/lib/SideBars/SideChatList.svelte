@@ -1,6 +1,6 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { DownloadIcon, UploadIcon, TrashIcon, FolderPlusIcon, FolderIcon, FolderOpenIcon, PackageIcon, CopyIcon, PencilIcon, SettingsIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
@@ -111,7 +111,7 @@
     function createNewFolder() {
         const folders = chara.chatFolders ?? []
         chara.chatFolders = [{
-            id: v4(),
+            id: createEntityId(),
             name: `New Folder ${folders.length + 1}`,
             folded: false,
         }, ...folders]
@@ -125,7 +125,7 @@
             name: `${language.newChat} ${chara.chats.length + 1}`,
             localLore: [],
             fmIndex: -1,
-            id: v4(),
+            id: createEntityId(),
             ...newChatModelDefaults(),
         }
         try {

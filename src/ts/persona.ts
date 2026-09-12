@@ -5,7 +5,7 @@ import { AppendableBuffer, downloadFile, requestImmediateSave } from "./globalAp
 import { language } from "src/lang"
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
-import { v4 } from "uuid"
+import { createEntityId } from 'src/ts/id';
 import { readAvatarImageOrDefault } from "./avatarImage"
 
 export async function selectUserImg() {
@@ -23,7 +23,7 @@ export async function selectUserImg() {
         icon: db.userIcon,
         personaPrompt: db.personaPrompt,
         note: db.userNote,
-        id: db.personas[db.selectedPersona].id ?? v4()
+        id: db.personas[db.selectedPersona].id ?? createEntityId()
     }
 }
 
@@ -51,7 +51,7 @@ export function changeUserPersona(id: number, save: 'save' | 'noSave' = 'save') 
 export function createUserPersona() {
     const db = getDatabase()
     db.personas = [...db.personas, {
-        id: v4(),
+        id: createEntityId(),
         name: language.newPersona,
         icon: '',
         personaPrompt: '',
@@ -186,7 +186,7 @@ export async function importUserPersona() {
                 icon: await saveImage(await reencodeImage(v.data)),
                 personaPrompt: data.personaPrompt,
                 note: data.note,
-                id: v4()
+                id: createEntityId()
             })
             notifySuccess(language.successImport)
         } else {

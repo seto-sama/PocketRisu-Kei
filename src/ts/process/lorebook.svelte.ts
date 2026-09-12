@@ -11,7 +11,7 @@ import { ensureChatHydrated, getChatServerEtag } from '../storage/chatStorage';
 import { markChatWorkingCopyDirty } from '../storage/chatWorkingCopy';
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
-import { v4 } from "uuid";
+import { createEntityId } from 'src/ts/id';
 import { selectLorebookPromptsWithinBudget } from "./lorebookPrompt";
 
 export function addLorebook(type:number) {
@@ -45,7 +45,7 @@ export function addLorebook(type:number) {
 
 export function addLorebookFolder(type:number) {
     const selectedID = get(selectedCharID)
-    const id = v4()
+    const id = createEntityId()
     if(type === 0){
         DBState.db.characters[selectedID].globalLore.push({
             key: '\uf000folder:' + id,

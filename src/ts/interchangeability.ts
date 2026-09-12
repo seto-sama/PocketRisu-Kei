@@ -1,4 +1,4 @@
-import { v4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 import type { RisuModule} from './process/modules.ts'
 import type { character, RisuPersona } from './storage/database.svelte.js';
 import { createBlankChar } from "src/ts/characters";
@@ -66,7 +66,7 @@ export function convertCharacterToModule(c: character): RisuModule {
         assets: c.additionalAssets,
         namespace: c.moduleNamespace,
         customModuleToggle: c.customModuleToggle,
-        id: v4(),
+        id: createEntityId(),
         icon: c.image
     }
     // deep-clone so the @@indicator entries pushed below don't mutate the source character's globalLore (upstream 8e6d3761)
@@ -150,7 +150,7 @@ export function convertPersonaToModule(p: RisuPersona): RisuModule {
     let baseModule: RisuModule = {
         name: "",
         description: "",
-        id: v4()
+        id: createEntityId()
     }
     
     if(p.embeddedModule){

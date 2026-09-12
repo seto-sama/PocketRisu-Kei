@@ -2,7 +2,7 @@ import type { TextToAudioPipeline } from '@huggingface/transformers';
 import { unzip } from 'fflate';
 import { loadAsset, saveAsset } from 'src/ts/globalApi.svelte';
 import { selectSingleFile, asBuffer  } from 'src/ts/util';
-import { v4 } from 'uuid';
+import { createEntityId } from 'src/ts/id';
 let tfCache: Cache = null
 let tfLoaded = false
 let tfMap: { [key: string]: string } = {}
@@ -84,7 +84,7 @@ export const runVITS = async (text: string, modelData: string | OnnxModelFiles =
 }
 
 export const registerOnnxModel = async (): Promise<OnnxModelFiles> => {
-    const id = v4().replace(/-/g, '')
+    const id = createEntityId().replace(/-/g, '')
 
     const modelFile = await selectSingleFile(['zip'])
 

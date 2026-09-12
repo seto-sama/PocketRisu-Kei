@@ -24,7 +24,7 @@
     import Textarea from './components/Textarea.svelte'
     import Input from './components/Input.svelte'
     import InlineEditableName from './components/InlineEditableName.svelte'
-    import { v4 as uuidv4 } from 'uuid'
+    import { createEntityId } from 'src/ts/id';
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
     import {
         appendImageGenerationPreset,
@@ -301,7 +301,7 @@
 
     function createFolder(name: string): string | void {
         if (viewMode === 'tag') {
-            const id = uuidv4()
+            const id = createEntityId()
             DBState.db.imageStylePresetTags = [...presetTags, { id, name }]
             return id
         }

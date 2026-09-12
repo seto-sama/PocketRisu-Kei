@@ -8,7 +8,7 @@ import random from "lodash/random"
 import { getApiKey } from "../preset/apiKeyPool"
 import { setInlayMetaFields, writeInlayImage } from "./files/inlays"
 import { getCurrentImageGenerationPreset } from "../imageGeneration/presets"
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import { createRevenantGenerationAuth } from './revenant/transport/client'
 import { serviceComfyBridgeJob } from './revenant/workflow/comfyBridge'
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId'
@@ -378,7 +378,7 @@ export async function generateAIImage(
         }
         try {
             const job = await runNodeImageGenerationJob({
-                jobId: `image:${uuidv4()}`,
+                jobId: `image:${createEntityId()}`,
                 provider: 'novelai',
                 spec: {
                     apiKey: getImageApiKey('novelai', imageSettings.NAIApiKey),
@@ -503,7 +503,7 @@ export async function generateAIImage(
     if(imageSettings.sdProvider === 'comfyui'){
         try {
             const job = await runNodeImageGenerationJob({
-                jobId: `image:${uuidv4()}`,
+                jobId: `image:${createEntityId()}`,
                 provider: 'comfyui',
                 spec: {
                     prompt: genPrompt,

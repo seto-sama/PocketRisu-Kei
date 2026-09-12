@@ -43,7 +43,7 @@
     } from "src/ts/preset/pluginModels";
     import Input from "../UI/components/Input.svelte";
     import Badge from "../UI/components/Badge.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { onMount } from "svelte";
 
     interface Props {
@@ -197,7 +197,7 @@
             profileId: profile.id,
             transient: entry.transientPlugin,
         }, {
-            id: uuidv4(),
+            id: createEntityId(),
             apiKeyRef: getDefaultApiKeyRef(profile.providerBaseId),
             abilityDefaults: entry.transientPlugin
                 ? pluginPresetAbilityDefaults(profile.modelId, customV3ProviderMetaStore)

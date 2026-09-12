@@ -16,7 +16,7 @@
     import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
     import Button from "../../../UI/components/Button.svelte";
     import Badge from "../../../UI/components/Badge.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
 
     interface Props {
         preset: ModelPreset;
@@ -67,7 +67,7 @@
         const idx = DBState.db.modelPresets.findIndex(p => p.id === src.id);
         if (idx < 0) return;
         const copy = safeStructuredClone(src);
-        copy.id = uuidv4();
+        copy.id = createEntityId();
         copy.name = `${src.name} Copy`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();

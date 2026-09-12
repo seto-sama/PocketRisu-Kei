@@ -11,7 +11,7 @@
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     interface Props {
@@ -50,7 +50,7 @@
         const source = DBState.db.personas[index];
         if (!source) return;
         const copy = safeStructuredClone(source);
-        copy.id = uuidv4();
+        copy.id = createEntityId();
         copy.name = `${source.name} ${language.copy}`;
         DBState.db.personas = [...DBState.db.personas, copy];
         void requestImmediateSave();

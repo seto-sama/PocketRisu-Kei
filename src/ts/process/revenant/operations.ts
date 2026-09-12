@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from 'src/ts/id';
 import type { ModelModeExtended } from './types'
 
 export interface RevenantTranslationOperation {
@@ -63,7 +63,7 @@ export function createRevenantOperation(
         ...operation,
         operationId: typeof (operation as { operationId?: unknown }).operationId === 'string'
             ? (operation as { operationId: string }).operationId
-            : uuidv4(),
+            : createEntityId(),
     } as RevenantOperationContext
 }
 

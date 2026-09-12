@@ -6,7 +6,7 @@
     import { saveAsset } from 'src/ts/globalApi.svelte';
     import { selectSingleFile } from 'src/ts/util';
     import { DBState } from 'src/ts/stores.svelte';
-    import { v4 as uuidv4 } from 'uuid';
+    import { createEntityId } from 'src/ts/id';
     import { PlayIcon, UploadIcon, CheckIcon, Trash2Icon } from '@lucide/svelte';
 
     interface Props {
@@ -36,7 +36,7 @@
         // the existing one — but new content gets its own uuid-keyed entry.
         const path = await saveAsset(f.data, '', f.name);
         if (!(DBState.db.customSounds ?? []).some((s) => s.path === path)) {
-            DBState.db.customSounds = [...(DBState.db.customSounds ?? []), { id: uuidv4(), name: f.name, path }];
+            DBState.db.customSounds = [...(DBState.db.customSounds ?? []), { id: createEntityId(), name: f.name, path }];
         }
         select(path);
     }

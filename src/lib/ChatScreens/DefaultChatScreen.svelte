@@ -38,7 +38,7 @@ import { isMobile } from 'src/ts/platform'
         type PreparedChatReroll,
     } from 'src/ts/process/revenant/chatGeneration';
     import { runTrigger } from 'src/ts/process/triggers';
-    import { v4 } from 'uuid';
+    import { createEntityId } from 'src/ts/id';
     import { processMultiCommand } from 'src/ts/process/command';
     import { runAutomaticRerolls, type AutomaticRerollResult } from 'src/ts/process/automaticReroll';
     import { postChatFile } from 'src/ts/process/files/multisend';
@@ -412,7 +412,7 @@ import { isMobile } from 'src/ts/platform'
 
         const character = currentCharacter
         const chat = currentChatSlot
-        const messageId = message.chatId ?? v4()
+        const messageId = message.chatId ?? createEntityId()
         message.chatId = messageId
         imageRerollingTarget = { roomId: chat.id, messageId }
         try {
@@ -1141,7 +1141,7 @@ import { isMobile } from 'src/ts/platform'
         }
         const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
         if (!prepared) return failedGenerationAttempt()
-        const messageChatId = v4()
+        const messageChatId = createEntityId()
         openMenu = false
         const foregroundContext = beginForegroundGeneration(generationTarget)
         foregroundContext.rerollSession = prepared.session
@@ -1555,7 +1555,7 @@ import { isMobile } from 'src/ts/platform'
             }
 
             if(mergedCanvas){
-                await downloadFile(`chat-${v4()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
+                await downloadFile(`chat-${createEntityId()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
                 mergedCanvas.remove();
             }
             notifySuccess(language.screenshotSaved)

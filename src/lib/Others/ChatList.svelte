@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { v4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { language } from "src/lang";
     import { alertConfirm, notifyError } from "src/ts/alert";
     import { exportChat, importChat } from "src/ts/characters";
@@ -109,7 +109,7 @@
             name: `${language.newChat} ${character.chats.length + 1}`,
             localLore: [],
             fmIndex: -1,
-            id: v4(),
+            id: createEntityId(),
             ...newChatModelDefaults(),
         };
         try {

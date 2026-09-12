@@ -3,7 +3,7 @@
     import { alertConfirm, notifyError, notifySuccess } from "../../ts/alert";
     import { language } from "../../lang";
     import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset, withStableActivePreset } from "../../ts/storage/database.svelte";
-    import { v4 as uuidv4 } from "uuid";
+    import { createEntityId } from 'src/ts/id';
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
@@ -201,7 +201,7 @@
             onCreate={() => {
                 let botPresets = DBState.db.botPresets
                 let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
-                newPreset.id = uuidv4()
+                newPreset.id = createEntityId()
                 newPreset.name = `New Preset`
                 newPreset.tagIds = undefined
                 botPresets.push(newPreset)
