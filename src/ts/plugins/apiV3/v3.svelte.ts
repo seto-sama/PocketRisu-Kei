@@ -704,13 +704,13 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
         () => isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm()),
         async (pluginHash): Promise<boolean> => {
             let alertTitle =
-                permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
-                : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
-                : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
-                : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
-                : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
-                : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
-                : permissionDesc === 'inlay' ? language.inlayPermissionConsent.replace("{}", pluginName)
+                permissionDesc === 'fetchLogs' ? language.fetchLogConsent(pluginName)
+                : permissionDesc === 'db' ? language.getFullDatabaseConsent(pluginName)
+                : permissionDesc === 'mainDom' ? language.mainDomAccessConsent(pluginName)
+                : permissionDesc === 'replacer' ? language.replacerPermissionConsent(pluginName)
+                : permissionDesc === 'provider' ? language.providerPermissionConsent(pluginName)
+                : permissionDesc === 'sendChat' ? language.sendChatConsent(pluginName)
+                : permissionDesc === 'inlay' ? language.inlayPermissionConsent(pluginName)
                 : `Error`
             if(alertTitle === 'Error'){
                 return false;
@@ -1433,9 +1433,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return {
                 apiVersion: "3.0",
                 platform: 'node',
-                saveMethod:
-                    forageStorage.isAccount ? 'account' :
-                    'local',
+                saveMethod: 'local',
             }
         },
         getLocalPluginStorage: () => {

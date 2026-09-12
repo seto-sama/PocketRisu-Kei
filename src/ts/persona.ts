@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 import { getDatabase, saveImage, setDatabase } from "./storage/database.svelte"
-import { selectSingleFile, sleep } from "./util"
+import { selectSingleImageFile, selectSingleImportFile, sleep } from "./util"
 import { alertConfirm, alertError, alertStore, notifySuccess, notifyError } from "./alert"
 import { AppendableBuffer, downloadFile, requestImmediateSave } from "./globalApi.svelte"
 import { language } from "src/lang"
@@ -11,7 +11,7 @@ import { appendPresetItem, movePresetItem, removePresetItem, reorderPresetSubset
 import { createEntityId } from './id'
 
 export async function selectUserImg() {
-    const selected = await selectSingleFile(['png'])
+    const selected = await selectSingleImageFile()
     if (!selected) {
         return
     }
@@ -163,7 +163,7 @@ export async function exportUserPersona(personaIndex?: number) {
 
 export async function importUserPersona() {
     try {
-        const v = await selectSingleFile(['png'])
+        const v = await selectSingleImportFile()
         if (!v) {
             return
         }

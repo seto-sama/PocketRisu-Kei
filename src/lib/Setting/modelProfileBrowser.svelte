@@ -6,7 +6,7 @@
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import {
         getOfficialRegistryId,
         getOfficialRegistry,
@@ -277,7 +277,7 @@
     }
 
     async function importProfile() {
-        const file = await selectSingleFile(['json']);
+        const file = await selectSingleImportFile();
         if (!file) return;
         let parsed: unknown;
         try {

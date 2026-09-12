@@ -3,7 +3,7 @@ import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
 import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
-import { checkPersonaBinded, selectSingleFile, sleep } from "../util"
+import { checkPersonaBinded, selectSingleImportFile, sleep } from "../util"
 import { createEntityId } from "../id"
 import { convertExternalLorebook } from "./lorebook.svelte"
 import { compressImage } from '../media'
@@ -255,7 +255,7 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
 }
 
 export async function importModule(){
-    const f = await selectSingleFile(['json', 'lorebook', 'risum', 'charx'])
+    const f = await selectSingleImportFile()
     if(!f){
         return
     }

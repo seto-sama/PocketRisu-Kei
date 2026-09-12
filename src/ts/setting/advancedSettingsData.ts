@@ -84,19 +84,12 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.promptInfo', type: 'check', labelKey: 'promptInfoInsideChat', bindKey: 'promptInfoInsideChat',
         helpKey: 'promptInfoInsideChatDesc'
     },
-    { id: 'adv.allowExt', type: 'check', labelKey: 'allowAllExtentionFiles', bindKey: 'allowAllExtentionFiles', helpKey: 'allowAllExtentionFiles' },
     // Remote saving removed — incompatible with NodeOnly server
 
     // Dynamic Assets & Others
     { id: 'adv.cssErr', type: 'check', labelKey: 'returnCSSError', bindKey: 'returnCSSError', helpKey: 'returnCSSError' },
     { id: 'adv.toolUsage', type: 'check', labelKey: 'rememberToolUsage', bindKey: 'rememberToolUsage', helpKey: 'rememberToolUsage' },
     { id: 'adv.simpleTool', type: 'check', labelKey: 'simplifiedToolUse', bindKey: 'simplifiedToolUse', helpKey: 'simplifiedToolUse' },
-
-    // Sync (Condition: db.account.useSync)
-    {
-        id: 'adv.sync.realm', type: 'check', fallbackLabel: 'Lightning Realm Import', bindKey: 'lightningRealmImport',
-        condition: (ctx) => !!ctx.db.account?.useSync, helpKey: 'lightningRealmImport', showExperimental: true
-    },
 
     // Dynamic Assets Edit (Condition: dynamicAssets)
     {

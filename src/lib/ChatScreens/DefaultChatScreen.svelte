@@ -17,7 +17,7 @@
     import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
-    import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
+    import { recoverAuxiliaryTranslationJobs } from "../../ts/translator/translator";
     import { alertConfirm, alertError, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
 import { isMobile } from 'src/ts/platform'
@@ -104,13 +104,11 @@ import { isMobile } from 'src/ts/platform'
     }
 
     let messageInput:string = $state('')
-    let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
     let translationOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
-    let doingChatInputTranslate = false
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let showScrollNav = $state(false)
@@ -563,7 +561,7 @@ import { isMobile } from 'src/ts/platform'
     let draftLoading = $state(false)
 
     function persistDraftNow() {
-        flushChatDraft(draftChaId, draftChatId, { m: messageInput, t: messageInputTranslate })
+        flushChatDraft(draftChaId, draftChatId, { m: messageInput })
     }
 
     // Load on chat enter (keyed by id, so no wait for hydration); flush the
@@ -572,16 +570,15 @@ import { isMobile } from 'src/ts/platform'
         const chaId = draftChaId
         const chatId = draftChatId
         if (!chaId || !chatId) return
-        untrack(() => { messageInput = ''; messageInputTranslate = ''; draftLoading = true })
+        untrack(() => { messageInput = ''; draftLoading = true })
         let active = true
         ;(async () => {
             const draft = await loadChatDraft(chaId, chatId)
             if (!active) return
             untrack(() => {
                 // Don't clobber text the user began typing during the load.
-                if (draft && messageInput === '' && messageInputTranslate === '') {
+                if (draft && messageInput === '') {
                     messageInput = draft.m
-                    messageInputTranslate = draft.t
                 }
                 draftLoading = false
             })
@@ -594,7 +591,6 @@ import { isMobile } from 'src/ts/platform'
             active = false
             flushChatDraft(chaId, chatId, {
                 m: untrack(() => messageInput),
-                t: untrack(() => messageInputTranslate),
             })
         }
     })
@@ -605,9 +601,8 @@ import { isMobile } from 'src/ts/platform'
         const chaId = draftChaId
         const chatId = draftChatId
         const m = messageInput
-        const t = messageInputTranslate
         if (!chaId || !chatId || draftLoading) return
-        scheduleSaveChatDraft(chaId, chatId, { m, t })
+        scheduleSaveChatDraft(chaId, chatId, { m })
     })
 
     // Best-effort persist on tab hide / unload (refresh, app switch): the
@@ -953,7 +948,6 @@ import { isMobile } from 'src/ts/platform'
         let submittedMessageInput = messageInput
         const submittedFiles = [...fileInput]
         messageInput = ''
-        messageInputTranslate = ''
         fileInput = []
         removeChatDraft(generationTarget.characterId, generationTarget.roomId)
         const foregroundContext = beginForegroundGeneration(generationTarget)
@@ -1058,7 +1052,6 @@ import { isMobile } from 'src/ts/platform'
                 messageInput = nextValue
                 await tick()
                 updateInputSizeAll()
-                updateInputTransateMessage(false)
             },
             onSubmit: (nextValue) => {
                 messageInput = nextValue
@@ -1377,8 +1370,6 @@ import { isMobile } from 'src/ts/platform'
     let inputHeight = $state("44px")
     let inputOverflow = $state(false)
     let inputEle:HTMLTextAreaElement = $state()
-    let inputTranslateHeight = $state("44px")
-    let inputTranslateEle:HTMLTextAreaElement = $state()
 
     // Standard theme: composer width follows the configured chat width (matches message cards).
     // Other themes: no width limit (original full-width behavior).
@@ -1396,7 +1387,6 @@ import { isMobile } from 'src/ts/platform'
 
     function updateInputSizeAll() {
         updateInputSize()
-        updateInputTranslateSize()
     }
 
     async function appendTranslationToMessageInput(translation: string) {
@@ -1414,13 +1404,6 @@ import { isMobile } from 'src/ts/platform'
         updateInputSizeAll()
     }
 
-    function updateInputTranslateSize() {
-        if(inputTranslateEle) {
-            inputTranslateEle.style.height = "0";
-            inputTranslateHeight = (inputTranslateEle.scrollHeight) + "px";
-            inputTranslateEle.style.height = inputTranslateHeight
-        }
-    }
     // Measure the textarea's content height at a given css width (empty = current
     // flex width), restoring the override afterwards.
     function measureHeightAt(cssWidth:string):number {
@@ -1465,52 +1448,6 @@ import { isMobile } from 'src/ts/platform'
     $effect.pre(() => {
         updateInputSizeAll()
     });
-
-    async function updateInputTransateMessage(reverse: boolean) {
-        if(!DBState.db.useAutoTranslateInput){
-            return
-        }
-        if(isExpTranslator()){
-            if(!reverse){
-                messageInputTranslate = ''
-                return
-            }
-            if(messageInputTranslate === '') {
-                messageInput = ''
-                return
-            }
-            const lastMessageInputTranslate = messageInputTranslate
-            await sleep(1500)
-            if(lastMessageInputTranslate === messageInputTranslate){
-                translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-                    if(translatedMessage){
-                        if(reverse)
-                            messageInput = translatedMessage
-                        else
-                            messageInputTranslate = translatedMessage
-                    }
-                })
-            }
-            return
-
-        }
-        if(reverse && messageInputTranslate === '') {
-            messageInput = ''
-            return
-        }
-        if(!reverse && messageInput === '') {
-            messageInputTranslate = ''
-            return
-        }
-        translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-            if(translatedMessage){
-                if(reverse)
-                    messageInput = translatedMessage
-                else
-                    messageInputTranslate = translatedMessage
-            }
-        })
-    }
 
 </script>
 
@@ -1774,12 +1711,12 @@ import { isMobile } from 'src/ts/platform'
                             }
                         }
                     }}
-                          oninput={()=>{updateInputSizeAll();updateInputTransateMessage(false)}}
+                          oninput={updateInputSizeAll}
                           onblur={persistDraftNow}
                           style:height={inputHeight}
                 ></textarea>
 
-                {#if currentRoomHasMainGeneration || doingChatInputTranslate}
+                {#if currentRoomHasMainGeneration}
                     <button
                             aria-labelledby="cancel"
                             disabled={workflowCancelInFlight}
@@ -1803,33 +1740,6 @@ import { isMobile } from 'src/ts/platform'
                 </IconButtonGroup>
               </div>
             </div>
-            {#if DBState.db.useAutoTranslateInput}
-                <div class="flex items-center mt-2 mb-2">
-                    <label for='messageInputTranslate' class="text-maintext ml-4">
-                        <LanguagesIcon size={20} />
-                    </label>
-                    <textarea id = 'messageInputTranslate' class="risu-field-border text-maintext rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
-                              bind:value={messageInputTranslate}
-                              bind:this={inputTranslateEle}
-                              onkeydown={(e) => {
-                            if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
-                                if(shouldSendOnEnter(e)){
-                                    send()
-                                    e.preventDefault()
-                                }
-                            }
-                            if(e.key.toLocaleLowerCase() === "m" && (e.ctrlKey)){
-                                reroll()
-                                e.preventDefault()
-                            }
-                        }}
-                              oninput={()=>{updateInputSizeAll();updateInputTransateMessage(true)}}
-                              placeholder={language.enterMessageForTranslateToEnglish}
-                              style:height={inputTranslateHeight}
-                    ></textarea>
-                </div>
-            {/if}
-
             {#if fileInput.length > 0}
                 <div class="flex items-center ml-4 flex-wrap p-2 m-2 border-darkborderc border rounded-md">
                     {#each fileInput as file, i}

@@ -2,7 +2,7 @@ import { writable } from 'svelte/store'
 import { saveAsset } from 'src/ts/globalApi.svelte'
 import { DBState } from 'src/ts/stores.svelte'
 import type { ChatFolder, folder } from 'src/ts/storage/database.svelte'
-import { selectSingleFile } from 'src/ts/util'
+import { selectSingleImageFile } from 'src/ts/util'
 
 export const folderSettingsTarget = writable<string | null>(null)
 export interface ChatFolderSettingsTarget {
@@ -67,7 +67,7 @@ export function deleteChatFolder(characterId: string, folderId: string) {
 }
 
 export async function pickSidebarFolderImage(id: string) {
-    const file = await selectSingleFile(['png', 'jpg', 'webp'])
+    const file = await selectSingleImageFile()
     if (!file || !findSidebarFolder(id)) return
     const imgFile = await saveAsset(file.data)
     // Resolve again after the upload: a projection or folder deletion may have occurred.

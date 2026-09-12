@@ -122,34 +122,6 @@ async function fullRestoreHarness(
     return { db, get, inlayDir, savePath, service }
 }
 
-function legacyRestoreDependencies(
-    db: Database.Database,
-    savePath: string,
-    overrides: Record<string, any> = {},
-) {
-    const get = db.prepare('SELECT value FROM kv WHERE key = ?')
-    const set = db.prepare(
-        'INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-    )
-    const del = db.prepare('DELETE FROM kv WHERE key = ?')
-    return {
-        savePath,
-        sqliteDb: db,
-        kvGet: (key: string) => get.get(key)?.value ?? null,
-        kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
-        kvDel: (key: string) => del.run(key),
-        kvDelPrefix: (prefix: string) =>
-            db.prepare('DELETE FROM kv WHERE key LIKE ?').run(`${prefix}%`),
-        clearEntities: () => {},
-        flushPendingDb: async () => {},
-        createBackupAndRotate: () => {},
-        invalidateDbCache: () => {},
-        prepareDatabaseProjection: async () => ({ install: () => {} }),
-        logger: { info: () => {}, warn: () => {}, error: () => {} },
-        ...overrides,
-    }
-}
-
 describe('restoreMissingAssetsFromBackupFile', () => {
     it('returns immediately when the current database has no missing assets', async () => {
         const db = freshDb()
@@ -387,17 +359,10 @@ describe('createLegacyRestoreService', () => {
         )
         const get = db.prepare('SELECT value FROM kv WHERE key = ?')
         const service = createLegacyRestoreService({
-            savePath: '/tmp',
             sqliteDb: db,
             kvGet: (key: string) => get.get(key)?.value ?? null,
             kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
             kvDel: (key: string) => db.prepare('DELETE FROM kv WHERE key = ?').run(key),
-            kvDelPrefix: () => {},
-            clearEntities: () => {},
-            flushPendingDb: async () => {},
-            createBackupAndRotate: () => {},
-            invalidateDbCache: () => {},
-            prepareDatabaseProjection: async () => ({ install: () => {} }),
             logger: { info: () => {}, warn: () => {}, error: () => {} },
         })
         const id = '12345678-1234-1234-1234-123456789abc'
@@ -433,185 +398,6 @@ describe('createLegacyRestoreService', () => {
         })
         expect(database.characters[0].name).toBe('Restored')
         expect(database.characters[0].coldstorage).toBeUndefined()
-    })
-
-    it('stages a save folder and exposes its REMOTE entries to projection preparation', async () => {
-        const root = await makeTemporaryDirectory('pocketrisu-legacy-folder-')
-        const sourceDirectory = join(root, 'source')
-        await mkdir(sourceDirectory)
-        const db = freshDb()
-        db.exec('CREATE TABLE canonical_projection (payload BLOB NOT NULL)')
-        const database = Buffer.from('folder database')
-        const remote = Buffer.from('folder remote')
-        await writeFile(
-            join(sourceDirectory, Buffer.from('database/database.bin').toString('hex')),
-            database,
-        )
-        await writeFile(
-            join(sourceDirectory, Buffer.from('remotes/block.local.bin').toString('hex')),
-            remote,
-        )
-        let preparedSource: any
-
-        const service = createLegacyRestoreService(legacyRestoreDependencies(db, root, {
-            prepareDatabaseProjection: async (raw: Buffer, { source }: any) => {
-                expect(raw).toEqual(database)
-                expect(source.getEntry('remotes/block.local.bin')).toEqual(remote)
-                preparedSource = source
-                return {
-                    install: () => db.prepare(
-                        'INSERT INTO canonical_projection (payload) VALUES (?)',
-                    ).run(raw),
-                }
-            },
-        }))
-
-        await expect(service.importHexFilesFromDir(sourceDirectory))
-            .resolves.toEqual({ imported: 2 })
-        expect(preparedSource.kind).toBe('save-folder')
-        expect(preparedSource.location).toBe(sourceDirectory)
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('remotes/block.local.bin').value).toEqual(remote)
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('database/database.bin')).toBeUndefined()
-        expect(db.prepare('SELECT payload FROM canonical_projection').get().payload)
-            .toEqual(database)
-    })
-
-    it('imports a staged hex-entry set and clears incompatible old data', async () => {
-        const root = await makeTemporaryDirectory('pocketrisu-legacy-restore-')
-        const db = freshDb()
-        const set = db.prepare(
-            'INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-        )
-        const get = db.prepare('SELECT value FROM kv WHERE key = ?')
-        const del = db.prepare('DELETE FROM kv WHERE key = ?')
-        db.exec('CREATE TABLE canonical_projection (payload BLOB NOT NULL)')
-        set.run('assets/old.png', Buffer.from('old'), 1)
-        set.run('coldstorage/old', Buffer.from('old cold data'), 1)
-
-        let preparedSource: any
-
-        const service = createLegacyRestoreService({
-            savePath: root,
-            sqliteDb: db,
-            kvGet: (key: string) => get.get(key)?.value ?? null,
-            kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
-            kvDel: (key: string) => del.run(key),
-            kvDelPrefix: (prefix: string) =>
-                db.prepare('DELETE FROM kv WHERE key LIKE ?').run(`${prefix}%`),
-            clearEntities: () => {},
-            flushPendingDb: async () => {},
-            createBackupAndRotate: () => {},
-            invalidateDbCache: () => {},
-            prepareDatabaseProjection: async (raw: Buffer, { source }: any) => {
-                // Preparation/decoding happens while the current KV data is
-                // still intact and can resolve only explicitly staged entries.
-                expect(get.get('assets/old.png').value).toEqual(Buffer.from('old'))
-                expect(raw).toEqual(Buffer.from('database'))
-                expect(source.getEntry('remotes/block.local.bin'))
-                    .toEqual(Buffer.from('remote block'))
-                expect(source.getEntry('assets/not-staged.png')).toBeNull()
-                preparedSource = source
-                return {
-                    install: () => db.prepare(
-                        'INSERT INTO canonical_projection (payload) VALUES (?)',
-                    ).run(raw),
-                }
-            },
-            logger: { info: () => {}, warn: () => {}, error: () => {} },
-        })
-
-        await expect(service.importHexEntries([
-            { key: 'assets/new.png', value: Buffer.from('new') },
-            { key: 'remotes/block.local.bin', value: Buffer.from('remote block') },
-            { key: 'database/database.bin', value: Buffer.from('database') },
-        ])).resolves.toEqual({ imported: 3 })
-
-        expect(preparedSource.kind).toBe('hex-entries')
-        expect(get.get('assets/old.png')).toBeUndefined()
-        expect(get.get('coldstorage/old')).toBeUndefined()
-        expect(get.get('assets/new.png').value).toEqual(Buffer.from('new'))
-        expect(get.get('remotes/block.local.bin').value).toEqual(Buffer.from('remote block'))
-        expect(get.get('database/database.bin')).toBeUndefined()
-        expect(db.prepare('SELECT payload FROM canonical_projection').get().payload)
-            .toEqual(Buffer.from('database'))
-        await expect(access(service.migrationMarkerPath)).resolves.toBeUndefined()
-    })
-
-    it('leaves current KV and relational data untouched when projection preparation fails', async () => {
-        const root = await makeTemporaryDirectory('pocketrisu-legacy-invalid-')
-        const db = freshDb()
-        db.exec('CREATE TABLE canonical_projection (payload TEXT NOT NULL)')
-        db.prepare('INSERT INTO canonical_projection (payload) VALUES (?)').run('current')
-        const set = db.prepare(
-            'INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-        )
-        set.run('assets/current.png', Buffer.from('current asset'), 1)
-        set.run('database/database.bin', Buffer.from('stale legacy blob'), 1)
-        let backups = 0
-        let invalidations = 0
-
-        const service = createLegacyRestoreService(legacyRestoreDependencies(db, root, {
-            createBackupAndRotate: () => { backups++ },
-            invalidateDbCache: () => { invalidations++ },
-            prepareDatabaseProjection: async () => {
-                expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-                    .get('assets/current.png').value).toEqual(Buffer.from('current asset'))
-                throw new Error('invalid database projection')
-            },
-        }))
-
-        await expect(service.importHexEntries([
-            { key: 'assets/new.png', value: Buffer.from('new asset') },
-            { key: 'database/database.bin', value: Buffer.from('invalid') },
-        ])).rejects.toThrow('invalid database projection')
-
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('assets/current.png').value).toEqual(Buffer.from('current asset'))
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('database/database.bin').value).toEqual(Buffer.from('stale legacy blob'))
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?').get('assets/new.png'))
-            .toBeUndefined()
-        expect(db.prepare('SELECT payload FROM canonical_projection').get().payload)
-            .toBe('current')
-        expect(backups).toBe(0)
-        expect(invalidations).toBe(0)
-    })
-
-    it('rolls back asset replacement and the projection together when install fails', async () => {
-        const root = await makeTemporaryDirectory('pocketrisu-legacy-atomic-')
-        const db = freshDb()
-        db.exec('CREATE TABLE canonical_projection (payload TEXT NOT NULL)')
-        db.prepare('INSERT INTO canonical_projection (payload) VALUES (?)').run('current')
-        const set = db.prepare(
-            'INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-        )
-        set.run('assets/current.png', Buffer.from('current asset'), 1)
-        set.run('database/database.bin', Buffer.from('stale legacy blob'), 1)
-
-        const service = createLegacyRestoreService(legacyRestoreDependencies(db, root, {
-            prepareDatabaseProjection: async () => ({
-                install: () => {
-                    db.prepare('UPDATE canonical_projection SET payload = ?').run('incoming')
-                    throw new Error('projection install failed')
-                },
-            }),
-        }))
-
-        await expect(service.importHexEntries([
-            { key: 'assets/new.png', value: Buffer.from('new asset') },
-            { key: 'database/database.bin', value: Buffer.from('incoming') },
-        ])).rejects.toThrow('projection install failed')
-
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('assets/current.png').value).toEqual(Buffer.from('current asset'))
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('database/database.bin').value).toEqual(Buffer.from('stale legacy blob'))
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?').get('assets/new.png'))
-            .toBeUndefined()
-        expect(db.prepare('SELECT payload FROM canonical_projection').get().payload)
-            .toBe('current')
     })
 
 })

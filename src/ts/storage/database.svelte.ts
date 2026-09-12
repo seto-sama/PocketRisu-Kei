@@ -4,7 +4,7 @@ import { getChatBoundPersona } from '../chatBindingState';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleFile, selectSingleFile } from '../util';
+import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
@@ -356,12 +356,6 @@ export function setDatabase(data:Database){
     }
     data.textScreenColor ??= DEFAULT_TEXT_SCREEN_COLOR
     data.globalCustomCSS ??= ''
-    if(checkNullish(data.textgenWebUIStreamURL)){
-        data.textgenWebUIStreamURL = 'wss://localhost/api/'
-    }
-    if(checkNullish(data.textgenWebUIBlockingURL)){
-        data.textgenWebUIBlockingURL = 'https://localhost/api/'
-    }
     if(checkNullish(data.autoTranslate)){
         data.autoTranslate = false
     }
@@ -446,17 +440,8 @@ export function setDatabase(data:Database){
     if(checkNullish(data.themePresetsId)){
         data.themePresetsId = 0
     }
-    if(checkNullish(data.sdProvider)){
+    if(data.sdProvider !== 'novelai' && data.sdProvider !== 'comfyui'){
         data.sdProvider = ''
-    }
-    if(checkNullish(data.webUiUrl)){
-        data.webUiUrl = 'http://127.0.0.1:7860/'
-    }
-    if(checkNullish(data.sdSteps)){
-        data.sdSteps = 30
-    }
-    if(checkNullish(data.sdCFG)){
-        data.sdCFG = 7
     }
     if(checkNullish(data.NAIApiKey)){
         data.NAIApiKey = ''
@@ -507,18 +492,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.showPreviousChatSwipeButtons)){
         data.showPreviousChatSwipeButtons = false
     }
-    if(checkNullish(data.sdConfig)){
-        data.sdConfig = {
-            width:512,
-            height:512,
-            sampler_name:"Euler a",
-            script_name:"",
-            denoising_strength:0.7,
-            enable_hr:false,
-            hr_scale:1.25,
-            hr_upscaler:"Latent"
-        }
-    }
     if(checkNullish(data.NAIImgConfig)){
         data.NAIImgConfig = {
             width:1024,
@@ -528,8 +501,6 @@ export function setDatabase(data:Database){
             steps:28,
             scale:5,
             cfg_rescale: 0,
-            sm:true,
-            sm_dyn:false,
             noise:0.0,
             strength:0.6,
             image:"",
@@ -555,7 +526,6 @@ export function setDatabase(data:Database){
                 legacy_uc:false,
             },
             variety_plus: false,
-            decrisp: false,
             reference_mode: '',
             character_image: '',
             character_base64image: '',
@@ -759,14 +729,11 @@ export function setDatabase(data:Database){
     data.customPromptTemplateToggle ??= ''
     data.globalChatVariables ??= {}
     data.templateDefaultVariables ??= ''
-    data.dallEQuality ??= 'standard'
     data.customTextTheme.FontColorQuote1 ??= '#8BE9FD'
     data.customTextTheme.FontColorQuote2 ??= '#FFB86C'
     data.font ??= 'default'
     data.customFont ??= ''
     data.lineHeight ??= 1.25
-    data.stabilityModel ??= 'sd3-large'
-    data.stabllityStyle ??= ''
     data.comfyUiUrl ??= 'http://localhost:8188'
     data.comfyConfig = {
         workflow: data.comfyConfig?.workflow ?? '',
@@ -793,8 +760,6 @@ export function setDatabase(data:Database){
     data.imageStylePresetTagBindings ??= {}
     data.imageStylePresetOrder ??= []
     data.translatorInputLanguage ??= 'auto'
-    data.falModel ??= 'fal-ai/flux/dev'
-    data.falLoraScale ??= 1
     data.customCSS ??= ''
     data.strictJsonSchema ??= true
     data.statics ??= {
@@ -908,25 +873,6 @@ export function setDatabase(data:Database){
     data.hideAllImages ??= false
     data.preloadChatImages ??= true
     data.hideMessagePageCount ??= false
-    data.ImagenModel ??= 'imagen-4.0-generate-001'
-    data.ImagenImageSize ??= '1K'
-    data.ImagenAspectRatio ??= '1:1'
-    data.ImagenPersonGeneration ??= 'allow_all'
-    data.openaiCompatImage ??= {
-        url: '',
-        key: '',
-        model: '',
-        size: '1024x1024',
-        quality: 'auto'
-    }
-    data.wavespeedImage ??= {
-        key: '',
-        model: '',
-        loras: [],
-        reference_mode: '',
-        reference_image: '',
-        reference_base64image: ''
-    }
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
@@ -1163,16 +1109,6 @@ export function loadTogglesFromChat(chat:Chat):void{
 
 // ─────────────────────────────────────────────────────────────────────
 
-export interface DynamicOutput {
-    autoAdjustSchema: boolean
-    dynamicMessages: boolean
-    dynamicMemory: boolean
-    dynamicResponseTiming: boolean
-    dynamicOutputPrompt: boolean
-    showTypingEffect: boolean
-    dynamicRequest: boolean
-}
-
 export interface RisuPersona extends PresetTagFields {
     personaPrompt:string
     name:string
@@ -1218,8 +1154,6 @@ export interface Database{
     customBackground:string
     /** Custom CSS that is applied independently of the selected theme preset. */
     globalCustomCSS:string
-    textgenWebUIStreamURL:string
-    textgenWebUIBlockingURL:string
     autoTranslate: boolean
     /** Sound for the message-complete notification. Holds either a bundled
      * preset id (e.g. "bell") or an uploaded asset path ("assets/<hash>.mp3").
@@ -1259,10 +1193,6 @@ export interface Database{
     themePresetsId:number
     togglePresets?:TogglePreset[]
     sdProvider: string
-    webUiUrl:string
-    sdSteps:number
-    sdCFG:number
-    sdConfig:sdConfig
     NAIApiKey:string
     NAIImgModel:string
     NAII2I:boolean
@@ -1274,7 +1204,7 @@ export interface Database{
     ttsVolume?:number
     ttsPresets: TTSPreset[]
     ttsPresetId: number
-    imageApiKeyRefs?:Partial<Record<'openai'|'novelai'|'openai-compatible'|'google', string>>
+    imageApiKeyRefs?:Partial<Record<'novelai', string>>
     imageGenerationPresets: ImageGenerationPreset[]
     imageGenerationPresetTags?: PresetTag[]
     imageGenerationPresetId: number
@@ -1299,7 +1229,6 @@ export interface Database{
     outputRepetitionLimit:number
     emotionPrompt2:string
     useSayNothing:boolean
-    didFirstSetup: boolean
     allowV2Plugin:boolean
     roundIcons:boolean
     useStreaming:boolean
@@ -1330,29 +1259,16 @@ export interface Database{
     enableDragPartialEdit: boolean
     koboldURL:string
     claudeAPIKey:string,
-    useChatCopy:boolean,
     novellistAPI:string,
-    useAutoTranslateInput:boolean
     imageCompression:boolean
     inlayImageCompression:boolean
     inlayImageSize:'1k' | '2k' | '4k' | 'original'
     inlayImageFormat:'webp' | 'png'
     inlayImageLossy:boolean
     inlayImageQuality:number
-    account?:{
-        token:string
-        id:string,
-        data: {
-            refresh_token?:string,
-            access_token?:string
-            expires_in?: number
-        }
-        useSync?:boolean
-    },
     classicMaxWidth: boolean,
     useAdditionalAssetsPreview:boolean,
     memoryAlgorithmType:string // To enable new memory module/algorithms
-    proxyRequestModel:string
     ooba:OobaSettings
     ainconfig: AINsettings
     personaPrompt:string
@@ -1393,7 +1309,6 @@ export interface Database{
     generationSeed:number
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
-    allowAllExtentionFiles?:boolean
     translatorPrompt:string
     translatorMaxResponse:number
     translatorPresets: TranslatorPreset[]
@@ -1446,24 +1361,15 @@ export interface Database{
     globalChatVariables:{[key:string]:string}
     templateDefaultVariables:string
     goCharacterOnImport:boolean
-    dallEQuality:string
     font: string
     customFont: string
     lineHeight: number
-    stabilityModel: string
-    stabilityKey: string
-    stabllityStyle: string
     comfyConfig: ComfyConfig
     comfyUiUrl: string
     useLegacyGUI: boolean
     claudeCachingExperimental: boolean
     hideApiKey: boolean
     unformatQuotes: boolean
-    falToken: string
-    falModel: string
-    falLora: string
-    falLoraName: string
-    falLoraScale: number
     moduleIntergration: string
     customCSS: string
     jsonSchemaEnabled:boolean
@@ -1499,7 +1405,6 @@ export interface Database{
     translateBeforeHTMLFormatting:boolean
     autoTranslateLastOutputOnly:boolean
     autoTranslateCachedOnly:boolean
-    lightningRealmImport:boolean
     notification: boolean
     customFlags: LLMFlags[]
     enableCustomFlags: boolean
@@ -1620,7 +1525,6 @@ export interface Database{
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean
     verbosity:number
-    dynamicOutput?:DynamicOutput
     hubServerType?:string
     pluginCustomStorage:{[key:string]:any}
     // Best-effort "which plugin last wrote this key" sidecar for the save-file
@@ -1632,25 +1536,6 @@ export interface Database{
     showInputActionBar?: boolean
     chatLoadInitialPages?: number
     chatLoadAdditionalPages?: number
-    ImagenModel:string
-    ImagenImageSize:string
-    ImagenAspectRatio:string
-    ImagenPersonGeneration:string,
-    openaiCompatImage: {
-        url: string
-        key: string
-        model: string
-        size: string
-        quality: string
-    }
-    wavespeedImage: {
-        key: string
-        model: string
-        loras: Array<{path: string, scale: number}>,
-        reference_mode: string
-        reference_image: string
-        reference_base64image: string
-    }
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
     legacyMediaFindings?: boolean
@@ -1868,12 +1753,9 @@ export interface botPreset extends PresetTagFields {
     PresensePenalty: number
     formatingOrder: FormatingOrderItem[]
     currentPluginProvider?:string
-    textgenWebUIStreamURL?:string
-    textgenWebUIBlockingURL?:string
     forceReplaceUrl?:string
     forceReplaceUrl2?:string
     bias: [string, number][]
-    proxyRequestModel?:string
     openrouterRequestModel?:string
     proxyKey?:string
     ooba: OobaSettings
@@ -1943,7 +1825,6 @@ export interface botPreset extends PresetTagFields {
     }
     fallbackWhenBlankResponse?: boolean
     verbosity?:number
-    dynamicOutput?:DynamicOutput
     modelBinding?: ModelBindingFields['modelBinding']
     subModelBinding?: ModelBindingFields['subModelBinding']
     taskModelBindings?: ModelBindingFields['taskModelBindings']
@@ -2005,7 +1886,6 @@ export interface themePreset extends PresetTagFields {
     textBorderColor?: string
     showSavingIcon: boolean
     showPromptComparison: boolean
-    useChatCopy: boolean
     useAdditionalAssetsPreview: boolean
     useLegacyGUI: boolean
     hideApiKey: boolean
@@ -2037,17 +1917,6 @@ export interface folder{
 }
 
 
-interface sdConfig{
-    width:number
-    height:number
-    sampler_name:string
-    script_name:string
-    denoising_strength:number
-    enable_hr:boolean
-    hr_scale: number
-    hr_upscaler:string
-}
-
 export interface NAIImgConfig{
     width:number,
     height:number,
@@ -2056,8 +1925,6 @@ export interface NAIImgConfig{
     steps:number,
     scale:number,
     cfg_rescale:number,
-    sm:boolean,
-    sm_dyn:boolean,
     noise:number,
     strength:number,
     image:string,
@@ -2074,9 +1941,8 @@ export interface NAIImgConfig{
     reference_strength_multiple?:number[],
     vibe_data?:NAIVibeData,
     vibe_model_selection?:string
-    //add variety+ and decrisp options
+    //add variety+ option
     variety_plus:boolean,
-    decrisp:boolean,
     //add character reference
     reference_mode:string,
     character_image:string,
@@ -2390,8 +2256,6 @@ export const presetTemplate:botPreset = {
     formatingOrder: [...DEFAULT_PROMPT_FORMAT_ORDER],
     promptTemplate: createPromptTemplateFromLegacy(),
     currentPluginProvider: "",
-    textgenWebUIStreamURL: '',
-    textgenWebUIBlockingURL: '',
     forceReplaceUrl: '',
     forceReplaceUrl2: '',
     proxyKey: '',
@@ -2449,7 +2313,6 @@ export const themePresetTemplate: themePreset = {
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
     showSavingIcon: false,
     showPromptComparison: false,
-    useChatCopy: false,
     useAdditionalAssetsPreview: false,
     useLegacyGUI: false,
     hideApiKey: true,
@@ -2552,15 +2415,12 @@ export function saveCurrentPreset(){
         PresensePenalty: db.PresensePenalty,
         formatingOrder: db.formatingOrder,
         currentPluginProvider: db.currentPluginProvider,
-        textgenWebUIStreamURL: db.textgenWebUIStreamURL,
-        textgenWebUIBlockingURL: db.textgenWebUIBlockingURL,
         forceReplaceUrl: db.forceReplaceUrl,
         bias: db.bias,
         koboldURL: db.koboldURL,
         proxyKey: db.proxyKey,
         ooba: structuredClone(db.ooba),
         ainconfig: structuredClone(db.ainconfig),
-        proxyRequestModel: db.proxyRequestModel,
         openrouterRequestModel: db.openrouterRequestModel,
         NAISettings: structuredClone(db.NAIsettings),
         promptTemplate: normalizePromptTemplate(db.promptTemplate, db),
@@ -2606,8 +2466,7 @@ export function saveCurrentPreset(){
         modelTools: structuredClone(db.modelTools),
         fallbackModels: structuredClone(db.fallbackModels),
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
-        verbosity: db.verbosity ?? 1,
-        dynamicOutput: db.dynamicOutput ?? null
+        verbosity: db.verbosity ?? 1
     }
     
     if(!Array.isArray(pres)){
@@ -2661,8 +2520,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.PresensePenalty = newPres.PresensePenalty ?? db.PresensePenalty
     db.formatingOrder = newPres.formatingOrder ?? db.formatingOrder
     db.currentPluginProvider = newPres.currentPluginProvider ?? db.currentPluginProvider
-    db.textgenWebUIStreamURL = newPres.textgenWebUIStreamURL ?? db.textgenWebUIStreamURL
-    db.textgenWebUIBlockingURL = newPres.textgenWebUIBlockingURL ?? db.textgenWebUIBlockingURL
     db.forceReplaceUrl = newPres.forceReplaceUrl ?? db.forceReplaceUrl
     db.bias = newPres.bias ?? db.bias
     db.koboldURL = newPres.koboldURL ?? db.koboldURL
@@ -2670,7 +2527,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.ooba = structuredClone(newPres.ooba ?? db.ooba)
     db.ainconfig = structuredClone(newPres.ainconfig ?? db.ainconfig)
     db.openrouterRequestModel = newPres.openrouterRequestModel ?? db.openrouterRequestModel
-    db.proxyRequestModel = newPres.proxyRequestModel ?? db.proxyRequestModel
     db.NAIsettings = newPres.NAISettings ?? db.NAIsettings
     db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate, newPres)
     db.NAIadventure = newPres.NAIadventure
@@ -2734,7 +2590,6 @@ export function setPreset(db:Database, newPres: botPreset){
     }
     db.modelTools = structuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
-    db.dynamicOutput = newPres.dynamicOutput
 
     return db
 }
@@ -2781,7 +2636,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         textBorderColor: db.textBorderColor,
         showSavingIcon: db.showSavingIcon,
         showPromptComparison: db.showPromptComparison,
-        useChatCopy: db.useChatCopy,
         useAdditionalAssetsPreview: db.useAdditionalAssetsPreview,
         useLegacyGUI: db.useLegacyGUI,
         hideApiKey: db.hideApiKey,
@@ -2845,7 +2699,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
     db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
-    db.useChatCopy = p.useChatCopy ?? db.useChatCopy
     db.useAdditionalAssetsPreview = p.useAdditionalAssetsPreview ?? db.useAdditionalAssetsPreview
     db.useLegacyGUI = p.useLegacyGUI ?? db.useLegacyGUI
     db.hideApiKey = p.hideApiKey ?? db.hideApiKey
@@ -2897,7 +2750,7 @@ export async function importThemePreset(f: {
     data: Uint8Array
 } | null = null){
     if(!f){
-        f = await selectSingleFile(["json", "risutheme"])
+        f = await selectSingleImportFile()
     }
     if(!f) return
 
@@ -2948,8 +2801,6 @@ export async function downloadPreset(id:number, type:'json'|'risupreset'|'return
     pres.forceReplaceUrl = ''
     pres.forceReplaceUrl2 = ''
     pres.proxyKey = ''
-    pres.textgenWebUIStreamURL=  ''
-    pres.textgenWebUIBlockingURL=  ''
 
     if(type === 'json'){
         downloadFile(pres.name + "_preset.json", Buffer.from(JSON.stringify(pres, null, 2)))
@@ -3022,7 +2873,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
     try{
         const files = input
             ? (Array.isArray(input) ? input : [input])
-            : await selectMultipleFile(["json", "preset", "risupreset", "risup"])
+            : await selectMultipleImportFiles()
         if(files.length === 0){
             return
         }

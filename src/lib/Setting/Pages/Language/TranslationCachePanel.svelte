@@ -185,8 +185,8 @@
 
     async function importCache() {
         try {
-            const files = await selectFileByDom(["json"]);
-            if (!files?.length || !files[0].name.endsWith(".json")) return;
+            const files = await selectFileByDom(["*"]);
+            if (!files?.length) return;
             const data = JSON.parse(await files[0].text());
             if (typeof data !== "object" || data === null || Array.isArray(data)
                 || Object.entries(data).some(([key, value]) => typeof key !== "string" || typeof value !== "string")) {

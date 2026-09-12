@@ -108,9 +108,7 @@ export async function loadData() {
                     }
                 }
 
-                if (getDatabase().didFirstSetup) {
-                    characterURLImport()
-                }
+                characterURLImport()
             }
             if (createdFreshDatabase) {
                 // Brand-new instance (no save file existed): apply the default
@@ -209,10 +207,6 @@ export async function loadData() {
             updateGuisize()
             initHotkey()
             syncMobileBackNavigationGuard(db.disableMobileBackNavigation)
-            if (!db.didFirstSetup) {
-                // Node-only build skips the onboarding screen and lands on the main UI directly.
-                db.didFirstSetup = true
-            }
             if (db.botSettingAtStart) {
                 botMakerMode.set(true)
             }

@@ -5,6 +5,11 @@ import { createEntityId } from '../id'
 
 export type NAIImageSizePreset = 'small' | 'normal' | 'large' | 'custom'
 export type NAIImageOrientation = 'landscape' | 'portrait' | 'square'
+export type ImageGenerationProvider = '' | 'novelai' | 'comfyui'
+
+function normalizeImageGenerationProvider(value: unknown): ImageGenerationProvider {
+    return value === 'novelai' || value === 'comfyui' ? value : ''
+}
 
 function normalizeNAIImageSizePreset(value: unknown): NAIImageSizePreset {
     return value === 'small' || value === 'normal' || value === 'large' || value === 'custom'
@@ -34,7 +39,7 @@ export function getNAIImageDimensions(
 }
 
 export interface ImageGenerationPresetSettings {
-    sdProvider: string
+    sdProvider: ImageGenerationProvider
     NAIApiKey: string
     imageApiKeyRefs: Database['imageApiKeyRefs']
     NAIImgModel: string
@@ -168,7 +173,7 @@ export function captureImageGenerationPresetSettings(
     db: ImageGenerationDatabase,
 ): ImageGenerationPresetSettings {
     return removeEmbeddedReferenceImages({
-        sdProvider: db.sdProvider,
+        sdProvider: normalizeImageGenerationProvider(db.sdProvider),
         NAIApiKey: db.NAIApiKey,
         imageApiKeyRefs: structuredClone(db.imageApiKeyRefs ?? {}),
         NAIImgModel: db.NAIImgModel,
@@ -224,6 +229,7 @@ export function normalizeImageGenerationPresetSettings(
     const normalized = {
         ...structuredClone(fallback),
         ...structuredClone(value ?? {}),
+        sdProvider: normalizeImageGenerationProvider(value?.sdProvider),
         imageApiKeyRefs: structuredClone(value?.imageApiKeyRefs ?? fallback.imageApiKeyRefs),
         NAIImgConfig: {
             ...structuredClone(fallback.NAIImgConfig),

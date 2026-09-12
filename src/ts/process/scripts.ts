@@ -5,7 +5,7 @@ import { type character, type customscript, getDatabase, getCurrentCharacter, ge
 import { downloadFile } from "../globalApi.svelte";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "src/lang";
-import { selectSingleFile } from "../util";
+import { selectSingleImportFile } from "../util";
 import { assetRegex, type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
 import { getModuleAssets, getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { HypaProcesser } from "./memory/hypamemory";
@@ -38,7 +38,7 @@ export function exportRegex(script:customscript[]){
 }
 
 export async function importRegex(o:customscript[]):Promise<customscript[]>{
-    const filedata = (await selectSingleFile(['json']))?.data
+    const filedata = (await selectSingleImportFile())?.data
     if(!filedata){
         return o
     }

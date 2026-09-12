@@ -90,7 +90,7 @@ function migrateFromSaveDir() {
 
     fs.writeFileSync(migrationMarker, new Date().toISOString(), 'utf-8');
     console.log(`[DB] Migration complete. ${hexFiles.length} files preserved in /save/.`);
-    console.log(`[DB] To free disk space, remove migrated files via Settings > Clean Up Save Folder.`);
+    console.log('[DB] After verifying the migration, archive or remove the original hex-named files manually if desired.');
 }
 
 // Chunk-aware store for the full DB blob. The blob is split into

@@ -20,7 +20,7 @@
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
     import { createHypaV3Preset } from "src/ts/process/memory/hypav3";
     import { DBState } from "src/ts/stores.svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { normalizeTagIds, removePresetTag, togglePresetTag } from "src/ts/preset/tags";
     import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
 
@@ -137,7 +137,7 @@
 
     async function importPreset() {
         try {
-            const file = await selectSingleFile(["json"]);
+            const file = await selectSingleImportFile();
             if (!file?.data) return;
             const obj = JSON.parse(Buffer.from(file.data).toString("utf-8"));
             if (obj.type !== "risu" || !obj.data) throw new Error(language.hypaV3Settings.invalidPresetError);

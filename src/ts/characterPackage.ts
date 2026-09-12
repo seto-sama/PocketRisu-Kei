@@ -8,7 +8,7 @@ import { language } from 'src/lang'
 import { type character, getDatabase, setDatabase, saveImage, normalizeChat } from './storage/database.svelte'
 import type { Chat, ChatFolder } from './storage/database.svelte'
 import { fetchChatFromServer } from './storage/chatStorage'
-import { selectSingleFile } from './util'
+import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
 import { getInlayAsset, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
@@ -613,7 +613,7 @@ export async function exportCharacterPackage(
 
 export async function importCharacterPackage(selectedFile?: { name: string, data: Uint8Array }): Promise<void> {
     try {
-        const file = selectedFile ?? await selectSingleFile(['zip'])
+        const file = selectedFile ?? await selectSingleImportFile()
         if (!file) return
 
         const parsed = await parseAndValidatePackage(file)
@@ -711,7 +711,7 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
 
 export async function importPackageToCharacter(charIndex: number): Promise<void> {
     try {
-        const file = await selectSingleFile(['zip'])
+        const file = await selectSingleImportFile()
         if (!file) return
 
         const parsed = await parseAndValidatePackage(file)

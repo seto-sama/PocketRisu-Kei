@@ -85,6 +85,7 @@
 
 <PresetPickerLayout
     title={language.themePresets}
+    titleHelpKey="themePresets"
     folders={tags}
     itemFolderIds={DBState.db.themePresets.map(preset => preset.tagIds)}
     organizationKind="tag"

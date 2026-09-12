@@ -8,7 +8,7 @@ import { getCharacter } from './utils'
 
 export class CharacterHandler extends MCPToolHandler {
   private promptAccess(tool: string, action: string) {
-    return alertConfirm(language.mcpAccessPrompt.replace('{{tool}}', tool).replace('{{action}}', action))
+    return alertConfirm(language.mcpAccessPrompt(tool, action))
   }
 
   getTools(): MCPTool[] {

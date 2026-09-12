@@ -4,7 +4,7 @@ import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
 import type { Message, loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
-import { findCharacterbyId, pickHashRand, selectSingleFile } from "../util";
+import { findCharacterbyId, pickHashRand, selectSingleImportFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "../../lang";
 import { downloadFile, requestImmediateSave } from "../globalApi.svelte";
@@ -660,7 +660,7 @@ export async function importLoreBook(mode:'global'|'local'){
     if (mode === 'local' && !chatId) return
     const getTargetCharacter = () => DBState.db.characters.find(character =>
         character.chaId === characterId && !character.trashTime)
-    const lorebook = (await selectSingleFile(['json', 'lorebook']))?.data
+    const lorebook = (await selectSingleImportFile())?.data
     if(!lorebook){
         return
     }

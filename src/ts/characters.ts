@@ -5,7 +5,7 @@ import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
-import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
+import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
 import { OpenRealmStore, selectedCharID } from "./stores.svelte";
@@ -37,7 +37,7 @@ export function createNewCharacter() {
 }
 
 async function importCharactersAndPackages() {
-    const files = await selectFileByDom(['png', 'jpg', 'jpeg', 'json', 'charx', 'zip'], 'multiple')
+    const files = await selectFileByDom(['*'], 'multiple')
     if (!files) return
 
     for (const file of files) {
@@ -89,7 +89,7 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
 }
 
 export async function selectCharImg(charIndex:number) {
-    const selected = await selectSingleFile(['png', 'webp', 'gif', 'jpg', 'jpeg'])
+    const selected = await selectSingleImageFile()
     if(!selected){
         return
     }
@@ -417,7 +417,7 @@ export async function exportChat(page:number){
 }
 
 export async function importChat(){
-    const dat =await selectSingleFile(['json','jsonl','txt','html'])
+    const dat = await selectSingleImportFile()
     if(!dat){
         return
     }
