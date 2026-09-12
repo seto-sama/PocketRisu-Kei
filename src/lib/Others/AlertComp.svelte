@@ -28,7 +28,7 @@
     import Help from "./Help.svelte";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
     import { PRODUCT_NAME } from "src/ts/branding";
@@ -811,7 +811,7 @@
                     onclick={async () => {
                         let f: {name: string, data: Uint8Array} | undefined
                         try {
-                            f = await selectSingleFile(['json'])
+                            f = await selectSingleImportFile()
                         } catch { return }
                         if (!f) return
                         try {

@@ -4,7 +4,7 @@ import { getChatBoundPersona } from '../chatBindingState';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleFile, selectSingleFile } from '../util';
+import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
@@ -2897,7 +2897,7 @@ export async function importThemePreset(f: {
     data: Uint8Array
 } | null = null){
     if(!f){
-        f = await selectSingleFile(["json", "risutheme"])
+        f = await selectSingleImportFile()
     }
     if(!f) return
 
@@ -3022,7 +3022,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
     try{
         const files = input
             ? (Array.isArray(input) ? input : [input])
-            : await selectMultipleFile(["json", "preset", "risupreset", "risup"])
+            : await selectMultipleImportFiles()
         if(files.length === 0){
             return
         }

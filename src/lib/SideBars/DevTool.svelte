@@ -18,7 +18,7 @@
     import SettingsList from "../UI/components/SettingsList.svelte";
     import Textarea from "../UI/components/Textarea.svelte";
     import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, FileSearchIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
-    import { selectSingleFile } from "src/ts/util";
+    import { selectSingleImportFile } from "src/ts/util";
     import { doingChat, sendChat } from "src/ts/process/index.svelte";
     import { loadLoreBookV3Prompt } from "src/ts/process/lorebook.svelte";
     import { risuChatParser } from "src/ts/process/scripts";
@@ -59,7 +59,7 @@
     }
 
     async function importAutopilot() {
-        const selected = await selectSingleFile(['txt', 'csv', 'json'])
+        const selected = await selectSingleImportFile()
         if (!selected) return
 
         const file = new TextDecoder().decode(selected.data)

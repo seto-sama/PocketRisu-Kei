@@ -30,7 +30,6 @@ interface EncryptedTranslatorPresetFile {
 export const defaultTranslatorPrompt =
     "You are a translator. translate the following html or text into {{slot}}. do not output anything other than the translation.";
 export const translatorPresetFileExtension = "risutl";
-export const translatorPresetImportExtensions = [translatorPresetFileExtension];
 const translatorPresetEncryptionKey = "risutl";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

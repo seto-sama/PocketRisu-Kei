@@ -15,7 +15,7 @@
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { alertError, notifySuccess } from "src/ts/alert";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import { selectMultipleFile } from "src/ts/util";
+    import { selectMultipleImportFiles } from "src/ts/util";
     import IconButton from "../../../UI/components/IconButton.svelte";
     import ListActionBar from "../../../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
@@ -83,7 +83,7 @@
 
     async function importLoreBook(){
         let lore = currentModule.lorebook
-        const lorebook = (await selectMultipleFile(['json', 'lorebook']))
+        const lorebook = await selectMultipleImportFiles()
         if(!lorebook){
             return
         }

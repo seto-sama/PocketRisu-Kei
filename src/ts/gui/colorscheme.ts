@@ -2,7 +2,7 @@ import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases,
 import { get, writable } from "svelte/store";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
-import { BufferToText, selectSingleFile } from "../util";
+import { BufferToText, selectSingleImportFile } from "../util";
 import { notifyError } from "../alert";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
 import { normalizeTextTheme } from "./textTheme";
@@ -397,7 +397,7 @@ export function exportColorScheme(){
 }
 
 export async function importColorScheme(){
-    const uarray = await selectSingleFile(['json'])
+    const uarray = await selectSingleImportFile()
     if(uarray == null){
         return
     }

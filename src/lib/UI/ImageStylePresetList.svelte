@@ -34,7 +34,7 @@
         moveImageGenerationPreset,
         removeImageGenerationPreset,
     } from 'src/ts/imageGeneration/presets'
-    import { selectSingleFile } from 'src/ts/util'
+    import { selectSingleImportFile } from 'src/ts/util'
     import { appendPresetItem, movePresetItem, removePresetItem } from 'src/ts/preset/collection'
 
     interface Props {
@@ -258,7 +258,7 @@
 
     async function importImageGenerationPreset() {
         try {
-            const file = await selectSingleFile(['json'])
+            const file = await selectSingleImportFile()
             const source = imageGenerationPresets[DBState.db.imageGenerationPresetId] ?? imageGenerationPresets[0]
             if (!file?.data || !source) return
             const preset = decodeImageGenerationPresetFile(

@@ -18,9 +18,8 @@
         getTranslatorPresetDownloadName,
         moveTranslatorPreset,
         removeTranslatorPreset,
-        translatorPresetImportExtensions,
     } from 'src/ts/translator/presets'
-    import { selectSingleFile } from 'src/ts/util'
+    import { selectSingleImportFile } from 'src/ts/util'
 
     interface Props {
         value?: string
@@ -98,7 +97,7 @@
 
     async function importPreset() {
         try {
-            const file = await selectSingleFile(translatorPresetImportExtensions)
+            const file = await selectSingleImportFile()
             if (!file) return
             const decoded = await decodeTranslatorPresetFile(file.data)
             const preset = createTranslatorPreset(decoded.name, { ...decoded, id: undefined })
