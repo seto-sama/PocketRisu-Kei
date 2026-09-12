@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { createEntityId } from 'src/ts/id';
 import { fetchNative, openURL } from "../../globalApi.svelte"
 import { alertInput } from "../../alert";

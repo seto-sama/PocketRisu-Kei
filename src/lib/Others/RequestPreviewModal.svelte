@@ -1,7 +1,6 @@
 <script lang="ts">
     import { XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import { safeStructuredClone } from 'src/ts/polyfill'
     import {
         doingChat,
         previewBody,
@@ -75,7 +74,7 @@
                 return
             }
 
-            messages = safeStructuredClone(previewFormated)
+            messages = structuredClone(previewFormated)
             chatml = formatChatML(messages)
             displayedMode = mode
         } catch (cause) {

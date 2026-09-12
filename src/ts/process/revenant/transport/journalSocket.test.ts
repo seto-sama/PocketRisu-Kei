@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openRevenantJournalSocket } from './journalSocket'
 

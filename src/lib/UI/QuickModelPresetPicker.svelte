@@ -1,6 +1,5 @@
 <script lang="ts">
     import { DBState, selectedCharID } from 'src/ts/stores.svelte';
-    import { safeStructuredClone } from 'src/ts/polyfill';
     import { emptyModelBinding } from 'src/ts/preset/types';
     import { getEffectiveModelBinding } from 'src/ts/chatBindingState';
     import ModelPresetList from './ModelPresetList.svelte';
@@ -26,7 +25,7 @@
         }
         if (!currentChat) return;
         currentChat.modelBinding ??= DBState.db.defaultModelBinding
-            ? safeStructuredClone(DBState.db.defaultModelBinding)
+            ? structuredClone(DBState.db.defaultModelBinding)
             : emptyModelBinding();
         currentChat.modelBinding.main = id;
     }

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 export async function doLossyCompression(imageData: Uint8Array): Promise<Buffer> {
     return new Promise((resolve) => {
         const base64Image = 'data:image/png;base64,' + Buffer.from(imageData).toString('base64')

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "src/ts/media";

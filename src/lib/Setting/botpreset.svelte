@@ -193,7 +193,7 @@
         <PresetPickerActions
             onCreate={() => {
                 let botPresets = DBState.db.botPresets
-                let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
+                let newPreset = structuredClone(prebuiltPresets.OAI2)
                 newPreset.id = createEntityId()
                 newPreset.name = `New Preset`
                 newPreset.tagIds = undefined

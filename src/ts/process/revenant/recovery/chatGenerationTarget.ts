@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../../../polyfill'
 import type {
     Chat,
     Message,
@@ -22,10 +21,10 @@ function metadataFromMessage(message: Message): MessageSwipeMetadata {
         chatId: message.chatId,
         time: message.time,
         generationInfo: message.generationInfo
-            ? safeStructuredClone(message.generationInfo)
+            ? structuredClone(message.generationInfo)
             : undefined,
         promptInfo: message.promptInfo
-            ? safeStructuredClone(message.promptInfo)
+            ? structuredClone(message.promptInfo)
             : undefined,
     }
 }
@@ -42,7 +41,7 @@ export function buildRerollSwipeMetadata(
 ): MessageSwipeMetadata[] {
     const swipeCount = Array.isArray(message.swipes) ? message.swipes.length : 1
     const existing = Array.isArray(message.swipeMetadata)
-        ? safeStructuredClone(message.swipeMetadata.slice(0, swipeCount))
+        ? structuredClone(message.swipeMetadata.slice(0, swipeCount))
         : []
 
     while (existing.length < swipeCount) existing.push({})
@@ -51,7 +50,7 @@ export function buildRerollSwipeMetadata(
         existing[swipeCount - 1] = metadataFromMessage(message)
     }
 
-    existing.push(safeStructuredClone(next))
+    existing.push(structuredClone(next))
     return existing
 }
 
@@ -103,8 +102,8 @@ export function setGenerationMessageInfo(
     if(promptInfo !== undefined) message.promptInfo = promptInfo
     const metadata = getActiveSwipeMetadata(message)
     if(metadata){
-        metadata.generationInfo = safeStructuredClone(generationInfo)
-        if(promptInfo !== undefined) metadata.promptInfo = safeStructuredClone(promptInfo)
+        metadata.generationInfo = structuredClone(generationInfo)
+        if(promptInfo !== undefined) metadata.promptInfo = structuredClone(promptInfo)
     }
 }
 
@@ -149,7 +148,7 @@ export function ensureGenerationMessageTarget(
             ? [...target.swipes]
             : [target.data]
         placeholder = {
-            ...safeStructuredClone(target),
+            ...structuredClone(target),
             role: 'char',
             data: '',
             saying: options.characterId,

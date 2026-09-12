@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
@@ -83,7 +84,7 @@ export async function loadLoreBookV3Prompt(options: {
     const characterLore = char.globalLore ?? []
     const chatLore = char.chats[page].localLore ?? []
     const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
-    const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
+    const fullLore = structuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
     const currentChat = char.chats[page].message.filter(message => message.kind !== 'imageGeneration')
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken

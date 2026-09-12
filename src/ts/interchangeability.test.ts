@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import './polyfill' // registers globalThis.safeStructuredClone used by the converters
 
 // Mock the reactive stores module so its top-level $effect (moduleUpdate -> DB access)
 // doesn't run during import — same pattern as modules.test.ts. The converters under

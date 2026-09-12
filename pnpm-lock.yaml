@@ -250,9 +250,6 @@ importers:
       compression:
         specifier: ^1.8.1
         version: 1.8.1
-      compression-streams-polyfill:
-        specifier: ^0.1.7
-        version: 0.1.7
       core-js:
         specifier: ^3.49.0
         version: 3.49.0
@@ -289,9 +286,6 @@ importers:
       markdown-it:
         specifier: ^14.3.0
         version: 14.3.0
-      mobile-drag-drop:
-        specifier: 3.0.0-rc.0
-        version: 3.0.0-rc.0
       msgpackr:
         specifier: 2.0.4
         version: 2.0.4
@@ -307,9 +301,6 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
-      rfdc:
-        specifier: ^1.4.1
-        version: 1.4.1
       sortablejs:
         specifier: ^1.15.7
         version: 1.15.7
@@ -346,9 +337,6 @@ importers:
       wavefile:
         specifier: ^11.0.0
         version: 11.0.0
-      web-streams-polyfill:
-        specifier: ^4.3.0
-        version: 4.3.0
       ws:
         specifier: ^8.21.1
         version: 8.21.1
@@ -1513,9 +1501,6 @@ packages:
     resolution: {integrity: sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg==}
     engines: {node: '>= 0.6'}
 
-  compression-streams-polyfill@0.1.7:
-    resolution: {integrity: sha512-Y6VkJzi9JkvmcgDuJ2jJZ5DGljNhUrFBGxx5+gQ2RNg+uPesuRDDL5zN1NTk5NTuynyVkQ4MNip5z37MmtbdpQ==}
-
   compression@1.8.1:
     resolution: {integrity: sha512-9mAqGPHLakhCLeNyxPkK4xVo746zQ/czLH1Ky+vkitMnWfWZps8r0qXuwhwizagCRttsL4lfG4pIOvaWLpAP0w==}
     engines: {node: '>= 0.8.0'}
@@ -2089,9 +2074,6 @@ packages:
   mkdirp-classic@0.5.3:
     resolution: {integrity: sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==}
 
-  mobile-drag-drop@3.0.0-rc.0:
-    resolution: {integrity: sha512-f8wIDTbBYLBW/+5sei1cqUE+StyDpf/LP+FRZELlVX6tmOOmELk84r3wh1z3woxCB9G5octhF06K5COvFjGgqg==}
-
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -2321,9 +2303,6 @@ packages:
 
   restructure@3.0.2:
     resolution: {integrity: sha512-gSfoiOEA0VPE6Tukkrr7I0RBdE0s7H1eFCDBk05l1KIQT1UIKNc5JZy6jdyW6eYH3aR3g5b3PuL77rq0hvwtAw==}
-
-  rfdc@1.4.1:
-    resolution: {integrity: sha512-q1b3N5QkRUWUl7iyylaaj3kOpIT0N2i9MqIEQXP73GVsN9cw3fdx8X63cEmWhJGi2PPCF23Ijp7ktmd39rawIA==}
 
   roarr@2.15.4:
     resolution: {integrity: sha512-CHhPh+UNHD2GTXNYhPWLnU8ONHdI+5DI+4EYIAOaiD63rHeYlZvyh8P+in5999TTSFgUYuKUAjzRI4mdh/p+2A==}
@@ -2740,10 +2719,6 @@ packages:
     resolution: {integrity: sha512-/OBiAALgWU24IG7sC84cDO/KfFuvajWc5Uec0oV2zrpOOZZDgGdOwHwgEzOrwh8jkubBk7PtZfQBIcI1OaE5Ng==}
     engines: {node: '>=8'}
     hasBin: true
-
-  web-streams-polyfill@4.3.0:
-    resolution: {integrity: sha512-/Gnggvj9oSrEvJbDyyPtAnxBt5fGQM2iWOKQNu7ie1OxDgK40iZpyV3TKaRiEzVj1oA1UxKnEy9XPXh6PW3eVw==}
-    engines: {node: '>= 8'}
 
   whatwg-mimetype@3.0.0:
     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
@@ -3681,10 +3656,6 @@ snapshots:
     dependencies:
       mime-db: 1.54.0
 
-  compression-streams-polyfill@0.1.7:
-    dependencies:
-      fflate: 0.8.3
-
   compression@1.8.1:
     dependencies:
       bytes: 3.1.2
@@ -4193,8 +4164,6 @@ snapshots:
 
   mkdirp-classic@0.5.3: {}
 
-  mobile-drag-drop@3.0.0-rc.0: {}
-
   mri@1.2.0: {}
 
   ms@2.0.0: {}
@@ -4427,8 +4396,6 @@ snapshots:
   require-main-filename@2.0.0: {}
 
   restructure@3.0.2: {}
-
-  rfdc@1.4.1: {}
 
   roarr@2.15.4:
     dependencies:
@@ -4894,8 +4861,6 @@ snapshots:
       '@types/emscripten': 1.39.10
 
   wavefile@11.0.0: {}
-
-  web-streams-polyfill@4.3.0: {}
 
   whatwg-mimetype@3.0.0: {}
 

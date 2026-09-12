@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { type character, type customscript, getDatabase, getCurrentCharacter, getCurrentChat } from "../storage/database.svelte";
@@ -302,7 +303,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
     for (const script of scripts){
         if(script.ableFlag && script.flag?.includes('<')){
             const rregex = /<(.+?)>/g
-            const scriptData = safeStructuredClone(script)
+            const scriptData = structuredClone(script)
             let order = 0
             const actions:string[] = []
             scriptData.flag = scriptData.flag?.replace(rregex, (v:string, p1:string) => {

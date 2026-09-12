@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import type { Database, character, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
 import type { RisuModule } from './process/modules';
@@ -11,7 +12,7 @@ export const defaultCBSRegisterArg: CBSRegisterArg = {
     getPersonaPrompt: () => 'placeholder_persona',
     risuChatParser: (text: string) => text,
     makeArray: (arr: string[]) => JSON.stringify(arr),
-    safeStructuredClone: <T>(obj: T) => JSON.parse(JSON.stringify(obj)),
+    structuredClone: globalThis.structuredClone,
     parseArray: (str: string) => {
         try { return JSON.parse(str) } 
         catch { return [] }
@@ -106,7 +107,7 @@ export type CBSRegisterArg = {
     getPersonaPrompt: () => string,
     risuChatParser: (text: string, arg: matcherArg) => string,
     makeArray: (arr: unknown[]) => string,
-    safeStructuredClone: <T>(obj: T) => T,
+    structuredClone: <T>(obj: T) => T,
     parseArray: (str: string) => unknown[],
     parseDict: (str: string) => {[key: string]: unknown},
     getChatVar: (key: string) => string,
@@ -135,7 +136,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         getPersonaPrompt, 
         risuChatParser, 
         makeArray, 
-        safeStructuredClone, 
+        structuredClone,
         parseArray, 
         parseDict, 
         getChatVar, 
@@ -357,7 +358,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return makeArray(chat.message.filter((v) => {
                 return v.role === 'user'
             }).map((v) => {
-                v = safeStructuredClone(v)
+                v = structuredClone(v)
                 v.data = risuChatParser(v.data, matcherArg)
                 return JSON.stringify(v)
             }))
@@ -375,7 +376,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return makeArray(chat.message.filter((v) => {
                 return v.role === 'char'
             }).map((v) => {
-                v = safeStructuredClone(v)
+                v = structuredClone(v)
                 v.data = risuChatParser(v.data, matcherArg)
                 return JSON.stringify(v)
             }))
@@ -1523,7 +1524,7 @@ export function registerCBS(arg:CBSRegisterArg) {
                     role: 'char',
                     data: chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
                 }].concat(chat.message).map((v) => {
-                    v = safeStructuredClone(v)
+                    v = structuredClone(v)
                     v.data = risuChatParser(v.data, matcherArg)
                     return JSON.stringify(v)
                 }))

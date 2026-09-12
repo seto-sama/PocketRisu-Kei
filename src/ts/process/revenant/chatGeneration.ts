@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../../polyfill'
 import type { character, Chat, Message } from '../../storage/database.svelte'
 import { createChatCommitSnapshot } from '../../storage/chatStorage'
 import {
@@ -124,8 +123,8 @@ export function prepareChatReroll(
     chat: Chat,
 ): PreparedChatReroll | null {
     const durableInputCommit = createChatCommitSnapshot(characterId, chat)
-    const originalMessages = safeStructuredClone(chat.message)
-    const generationMessages = safeStructuredClone(chat.message)
+    const originalMessages = structuredClone(chat.message)
+    const generationMessages = structuredClone(chat.message)
     if (generationMessages.length === 0) return null
 
     const trailingMessages: Message[] = []
@@ -155,9 +154,9 @@ export function prepareChatReroll(
         ? [...targetMessage.swipes]
         : [targetMessage.data]
     const rerollSnapshot: RevenantRerollSnapshot = {
-        targetMessage: safeStructuredClone(targetMessage),
+        targetMessage: structuredClone(targetMessage),
         targetIndex: generatedMessageIndex,
-        trailingMessages: safeStructuredClone(trailingMessages),
+        trailingMessages: structuredClone(trailingMessages),
     }
     return {
         durableInputCommit,
@@ -168,7 +167,7 @@ export function prepareChatReroll(
             originalTargetChatId: targetMessage.chatId,
             savedSwipes,
             generatedMessageIndex,
-            trailingMessages: safeStructuredClone(trailingMessages),
+            trailingMessages: structuredClone(trailingMessages),
         },
     }
 }
@@ -196,7 +195,7 @@ export function applyCancelledRerollSession(
     generatedMessage.data = generatedData
     chat.message.splice(session.generatedMessageIndex + 1)
     if (session.trailingMessages.length > 0) {
-        chat.message.push(...safeStructuredClone(session.trailingMessages))
+        chat.message.push(...structuredClone(session.trailingMessages))
     }
     chat.isStreaming = false
     character.reloadKeys += 1

@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../polyfill'
 import type { Database, NAIImgConfig } from '../storage/database.svelte'
 import { normalizePresetTagFields, normalizeTagIds, type PresetTagFields } from '../preset/tags'
 import { appendPresetItem, duplicatePresetItem, movePresetItem, removePresetItem } from '../preset/collection'
@@ -110,7 +109,7 @@ export function duplicateImageGenerationPreset(
 ): ImageGenerationPreset | undefined {
     const result = duplicatePresetItem(db.imageGenerationPresets, index, source => {
         const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
-        preset.tagIds = safeStructuredClone(source.tagIds)
+        preset.tagIds = structuredClone(source.tagIds)
         return preset
     })
     if (!result.changed) return undefined
@@ -171,14 +170,14 @@ export function captureImageGenerationPresetSettings(
     return removeEmbeddedReferenceImages({
         sdProvider: db.sdProvider,
         NAIApiKey: db.NAIApiKey,
-        imageApiKeyRefs: safeStructuredClone(db.imageApiKeyRefs ?? {}),
+        imageApiKeyRefs: structuredClone(db.imageApiKeyRefs ?? {}),
         NAIImgModel: db.NAIImgModel,
-        NAIImgConfig: safeStructuredClone(db.NAIImgConfig),
+        NAIImgConfig: structuredClone(db.NAIImgConfig),
         NAIImgSizePreset: 'custom',
         NAIImgOrientation: 'landscape',
         NAII2I: db.NAII2I,
         comfyUiUrl: db.comfyUiUrl,
-        comfyConfig: safeStructuredClone(db.comfyConfig),
+        comfyConfig: structuredClone(db.comfyConfig),
     })
 }
 
@@ -189,7 +188,7 @@ export function createImageGenerationPreset(
     return {
         id: createEntityId(),
         name,
-        settings: removeEmbeddedReferenceImages(safeStructuredClone(settings)),
+        settings: removeEmbeddedReferenceImages(structuredClone(settings)),
     }
 }
 
@@ -223,12 +222,12 @@ export function normalizeImageGenerationPresetSettings(
     fallback: ImageGenerationPresetSettings,
 ): ImageGenerationPresetSettings {
     const normalized = {
-        ...safeStructuredClone(fallback),
-        ...safeStructuredClone(value ?? {}),
-        imageApiKeyRefs: safeStructuredClone(value?.imageApiKeyRefs ?? fallback.imageApiKeyRefs),
+        ...structuredClone(fallback),
+        ...structuredClone(value ?? {}),
+        imageApiKeyRefs: structuredClone(value?.imageApiKeyRefs ?? fallback.imageApiKeyRefs),
         NAIImgConfig: {
-            ...safeStructuredClone(fallback.NAIImgConfig),
-            ...safeStructuredClone(value?.NAIImgConfig ?? {}),
+            ...structuredClone(fallback.NAIImgConfig),
+            ...structuredClone(value?.NAIImgConfig ?? {}),
         },
         NAIImgSizePreset: normalizeNAIImageSizePreset(value?.NAIImgSizePreset),
         NAIImgOrientation: normalizeNAIImageOrientation(value?.NAIImgOrientation),

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import fc from 'fast-check'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { InlayAsset } from '../inlays'

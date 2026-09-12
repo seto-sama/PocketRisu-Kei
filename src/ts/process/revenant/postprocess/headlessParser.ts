@@ -372,7 +372,7 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
         getPersonaPrompt: () => persona()?.personaPrompt ?? recipe.database.personaPrompt ?? '',
         risuChatParser: text => renderTemplate(text, state),
         makeArray,
-        safeStructuredClone: value => structuredClone(value),
+        structuredClone: value => structuredClone(value),
         parseArray,
         parseDict,
         getChatVar: key => chatVariable(state, key),

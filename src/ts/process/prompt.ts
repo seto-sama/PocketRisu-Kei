@@ -1,7 +1,6 @@
 import { tokenizeAccurate } from "../tokenizer";
 import type { botPreset } from "../storage/database.svelte";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
-import { safeStructuredClone } from "../polyfill";
 
 export type PromptItem = PromptItemPlain|PromptItemTyped|PromptItemChat|PromptItemAuthorNote|PromptItemChatML|PromptItemCache
 export type PromptType = PromptItem['type'];
@@ -264,7 +263,7 @@ export type PromptConversionFile = {
 }
 
 export function convertPromptFiles(files:PromptConversionFile[], presetTemplate:botPreset):botPreset{
-    let preset = safeStructuredClone(presetTemplate)
+    let preset = structuredClone(presetTemplate)
     preset.name = ''
 
     let type = ''

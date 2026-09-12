@@ -132,20 +132,6 @@ const presetTemplate = {
 };
 
 /**
- * Check compression streams availability and polyfill if needed
- */
-async function checkCompressionStreams() {
-    if (!globalThis.CompressionStream) {
-        const { makeCompressionStream } = await import('compression-streams-polyfill/ponyfill');
-        globalThis.CompressionStream = makeCompressionStream(TransformStream);
-    }
-    if (!globalThis.DecompressionStream) {
-        const { makeDecompressionStream } = await import('compression-streams-polyfill/ponyfill');
-        globalThis.DecompressionStream = makeDecompressionStream(TransformStream);
-    }
-}
-
-/**
  * Check the header type of saved data
  * @param {Uint8Array} data - The data to check
  * @returns {string|false} - The header type
@@ -230,7 +216,6 @@ class RisuSaveDecoder {
                 offset += length;
 
                 if (compression) {
-                    await checkCompressionStreams();
                     const cs = new DecompressionStream('gzip');
                     const writer = cs.writable.getWriter();
                     writer.write(blockData);
@@ -355,7 +340,6 @@ async function _decodeRisuSaveInternal(data) {
                 data = data.slice(magicHeader.length);
                 return unpackr.decode(data);
             case "stream": {
-                await checkCompressionStreams();
                 data = data.slice(magicStreamCompressedHeader.length);
                 const cs = new DecompressionStream('gzip');
                 const writer = cs.writable.getWriter();
@@ -519,7 +503,6 @@ module.exports = {
     calculateHash,
     normalizeJSON,
     checkHeader,
-    checkCompressionStreams,
 
     // Constants
     RisuSaveType,

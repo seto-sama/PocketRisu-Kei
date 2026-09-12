@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
 import { pocketKeiVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
@@ -1679,7 +1680,7 @@ function initMatcher(){
         getPersonaPrompt: getPersonaPrompt,
         risuChatParser: risuChatParser,
         makeArray: makeArray,
-        safeStructuredClone: safeStructuredClone,
+        structuredClone: structuredClone,
         parseArray: parseArray,
         parseDict: parseDict,
         getChatVar: getChatVar,

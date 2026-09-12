@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
 import { language } from "../../lang";
 import { getCurrentCharacter, getDatabase, setDatabase, setDatabaseLite } from "../storage/database.svelte";
@@ -481,7 +482,7 @@ export async function loadPlugins() {
     // plugins cannot leave duplicate or stale models in either model picker.
     customProviderStore.set([])
 
-    const enabledPlugins = safeStructuredClone((db.plugins ?? []).filter((p: RisuPlugin) => (
+    const enabledPlugins = structuredClone((db.plugins ?? []).filter((p: RisuPlugin) => (
         p.enabled && !pluginDisabledForMemorySession(p)
     )))
     const pluginV2 = enabledPlugins.filter(isLegacyV2Plugin)

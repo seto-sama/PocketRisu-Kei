@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
 import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults } from "./storage/database.svelte"
@@ -615,7 +616,7 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
 
 export async function exportChar(charaID:number):Promise<string> {
     const db = getDatabase({snapshot: true})
-    let char = safeStructuredClone(db.characters[charaID])
+    let char = structuredClone(db.characters[charaID])
 
     if(!char.image){
         char.image = await saveAsset(await readDefaultAvatarImage())
@@ -646,7 +647,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     let im = img ? await saveAsset(img) : undefined
     let db = getDatabase()
 
-    const risuext = safeStructuredClone(data.extensions.risuai)
+    const risuext = structuredClone(data.extensions.risuai)
     let emotions:[string, string][] = []
     let bias:[string, number][] = []
     let viewScreen: "none" | "emotion" = 'none'
@@ -817,7 +818,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         loreExt = a.loreExt
     }
 
-    let ext = safeStructuredClone(data?.extensions ?? {})
+    let ext = structuredClone(data?.extensions ?? {})
 
     for(const key in ext){
         if(key === 'risuai'){
@@ -1034,7 +1035,7 @@ function createBaseV2(char:character) {
                 key:string
                 data:string[]
             }
-        } = safeStructuredClone(lore.extentions ?? {})
+        } = structuredClone(lore.extentions ?? {})
 
         let caseSensitive = ext.risu_case_sensitive ?? false
         ext.risu_activationPercent = lore.activationPercent
@@ -1387,7 +1388,7 @@ export function createBaseV3(char:character){
         uri: string
         name: string
         ext: string
-    }> = safeStructuredClone(char.ccAssets ?? [])
+    }> = structuredClone(char.ccAssets ?? [])
 
     if(char.additionalAssets){
         for(const asset of char.additionalAssets){
@@ -1426,7 +1427,7 @@ export function createBaseV3(char:character){
                 key:string
                 data:string[]
             }
-        } = safeStructuredClone(lore.extentions ?? {})
+        } = structuredClone(lore.extentions ?? {})
 
         let caseSensitive = ext.risu_case_sensitive ?? false
         ext.risu_activationPercent = lore.activationPercent

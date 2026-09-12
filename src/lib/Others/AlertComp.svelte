@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { Buffer } from 'buffer'
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { alertGenerationInfoStore } from "../../ts/alert";
     

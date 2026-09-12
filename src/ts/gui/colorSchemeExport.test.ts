@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { webcrypto } from 'node:crypto'

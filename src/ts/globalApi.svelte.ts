@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { checkNullish, sleep } from "./util"
 import { createEntityId } from 'src/ts/id';
 import { tick } from "svelte";
@@ -379,7 +380,7 @@ export function requestImmediateSave(options?: ImmediateSaveOptions) {
 }
 
 export function setPatchSyncBaseline(data: Database | null) {
-    patchSyncBaseline = data ? safeStructuredClone(data) as Database : null
+    patchSyncBaseline = data ? structuredClone(data) as Database : null
 }
 
 export async function saveDb() {
@@ -441,7 +442,7 @@ export async function saveDb() {
     }
 
     function takeTrackedChanges() {
-        const toSave = safeStructuredClone(changeTracker)
+        const toSave = structuredClone(changeTracker)
         changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
         changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
         changeTracker.root = false
@@ -853,7 +854,7 @@ export async function saveDb() {
             )
             const mergedDb = preparedRebase.mergedValue as Database
             const serverBaseline = preparedRebase.serverBaseline as Database
-            const localDb = safeStructuredClone(db) as Database
+            const localDb = structuredClone(db) as Database
 
             if (!exactPatch) {
                 // Full-write conflicts do not have a JSON Patch to replay.
@@ -865,19 +866,19 @@ export async function saveDb() {
                             key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
                             key !== 'plugins' && key !== 'pluginCustomStorage'
                         ) {
-                            mergedDb[key] = safeStructuredClone(localDb[key])
+                            mergedDb[key] = structuredClone(localDb[key])
                         }
                     }
                 }
 
                 if (toSave.botPreset) {
-                    mergedDb.botPresets = safeStructuredClone(localDb.botPresets)
+                    mergedDb.botPresets = structuredClone(localDb.botPresets)
                     mergedDb.botPresetsId = localDb.botPresetsId
                 }
-                if (toSave.modules) mergedDb.modules = safeStructuredClone(localDb.modules)
-                if (toSave.plugins) mergedDb.plugins = safeStructuredClone(localDb.plugins)
+                if (toSave.modules) mergedDb.modules = structuredClone(localDb.modules)
+                if (toSave.plugins) mergedDb.plugins = structuredClone(localDb.plugins)
                 if (toSave.pluginCustomStorage) {
-                    mergedDb.pluginCustomStorage = safeStructuredClone(localDb.pluginCustomStorage)
+                    mergedDb.pluginCustomStorage = structuredClone(localDb.pluginCustomStorage)
                 }
 
                 const trackedCharIds = new Set<string>(toSave.character.filter(Boolean))
@@ -891,7 +892,7 @@ export async function saveDb() {
                     const localChar = localCharacters.find((char) => char?.chaId === charId)
                     const mergedIndex = mergedCharacters.findIndex((char) => char?.chaId === charId)
                     if (localChar) {
-                        const clonedLocalChar = safeStructuredClone(localChar)
+                        const clonedLocalChar = structuredClone(localChar)
                         if (mergedIndex >= 0) mergedCharacters[mergedIndex] = clonedLocalChar
                         else mergedCharacters.push(clonedLocalChar)
                     }
@@ -1041,7 +1042,7 @@ export async function saveDb() {
         let dbData: Uint8Array | null = null
         if (!isNodeServer) {
             if (!encoder) throw new Error('Database encoder is unavailable')
-            await encoder.set(db, safeStructuredClone(toSave))
+            await encoder.set(db, structuredClone(toSave))
             const encoded = encoder.encode()
             if (!encoded) {
                 await sleep(1000)
@@ -1055,7 +1056,7 @@ export async function saveDb() {
 
         const useProjectionPatch = isNodeServer || (supportsPatchSync && !options?.forceFullWrite)
         if (useProjectionPatch) {
-            const patchData = await patcher.set(db, safeStructuredClone(toSave))
+            const patchData = await patcher.set(db, structuredClone(toSave))
             // Refuse to send patches that would corrupt server-side lazy chats.
             // chatToStub strips chats to metadata before diffing, so the only
             // way these ops appear is a baseline desync. Node mode refreshes
