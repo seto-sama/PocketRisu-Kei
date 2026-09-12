@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
 import type { Database } from "./storage/database.svelte"

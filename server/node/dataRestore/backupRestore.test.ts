@@ -2,7 +2,7 @@ import { createHash, createCipheriv } from 'node:crypto'
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import Database from 'better-sqlite3'
+import Database from '../sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import pkg from './index.cjs'
 

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
@@ -78,7 +79,7 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
     }
 
     const assets = module.assets ?? []
-    module = safeStructuredClone(module)
+    module = structuredClone(module)
     module.assets ??= []
     module.assets = module.assets.map((asset) => {
         return [asset[0], '', asset[2]] as [string,string,string]
@@ -525,7 +526,7 @@ export async function applyModule() {
         return
     }
 
-    const module = safeStructuredClone(getModuleById(sel))
+    const module = structuredClone(getModuleById(sel))
     if (!module) {
         return
     }

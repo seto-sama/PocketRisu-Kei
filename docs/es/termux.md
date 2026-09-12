@@ -25,7 +25,7 @@ Esta guía explica cómo compilar y ejecutar PocketRisu directamente en un telé
 | **RAM**               | 2 GB          | 4 GB o más                             |
 | **Espacio libre**     | 2 GB          | 4 GB o más (incluida la compilación)   |
 
-PocketRisu no proporciona binarios precompilados para Termux, por lo que el teléfono compila todo por sí mismo. Incluyendo módulos nativos como `better-sqlite3`, la compilación tarda aproximadamente **de 10 a 40 minutos**, dependiendo del rendimiento del teléfono.
+PocketRisu compila la aplicación localmente en el teléfono, por lo que el tiempo de compilación depende de su rendimiento.
 
 
 ---
@@ -35,7 +35,7 @@ PocketRisu no proporciona binarios precompilados para Termux, por lo que el tel�
 ### Utilice la versión de Termux de F-Droid o GitHub Releases
 
 > ⚠️ **La versión de Termux de Play Store no se puede utilizar.**
-> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que PocketRisu necesita (Node.js 22+).
+> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que PocketRisu necesita (Node.js 24.15+).
 
 Instale Termux desde una de las siguientes fuentes:
 
@@ -63,7 +63,7 @@ El comando se encarga de:
 1. Instalar `git`
 2. Clonar el repositorio de PocketRisu
 3. Instalar las dependencias de compilación (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, etc.)
-4. `pnpm install` — dependencias de JavaScript y compilación de módulos nativos
+4. `pnpm install` — dependencias de JavaScript y aceleración nativa opcional
 5. `pnpm build` — empaquetado del frontend
 
 Cuando termine la compilación, verá:

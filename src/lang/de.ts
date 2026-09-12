@@ -653,8 +653,6 @@ export const languageGerman = {
     "able": "Aktiv",
     "assetWidth": "Maximale Breite der Asset-Bilder",
     "animationSpeed": "Animationsgeschwindigkeit",
-    "screenshot": "Screenshot",
-    "screenshotSaved": "Screenshot gespeichert",
     "createBotwithAI": "Bot mit KI erstellen",
     "changeFolderName": "Geben Sie den neuen Ordnernamen ein (leer lassen zum Abbrechen)",
     "cancel": "Abbrechen",

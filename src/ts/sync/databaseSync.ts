@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../polyfill'
 import {
     getDatabase,
     type character as Character,
@@ -65,7 +64,7 @@ export async function reconcileServerDatabase(
     if (!projection.database) return
 
     const remote = projection.database
-    const local = safeStructuredClone(getDatabase()) as Database
+    const local = structuredClone(getDatabase()) as Database
     const localCharacters = new Map<string, Character>(
         (local.characters ?? []).map(character => [character.chaId, character] as const),
     )

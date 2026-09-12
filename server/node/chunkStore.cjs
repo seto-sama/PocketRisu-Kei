@@ -47,7 +47,7 @@ function cdcSplit(buf) {
 const CHUNK_MARKER = Buffer.from('\x00RISUCHUNKED\x00', 'binary');
 const DEFAULT_THRESHOLD = 16 * 1024 * 1024; // values larger than this get chunked
 
-// Bind chunk-aware get/put to a specific better-sqlite3 instance. db.cjs wires
+// Bind chunk-aware get/put to a specific synchronous SQLite connection. db.cjs wires
 // the real DB; tests wire a :memory: DB. The kv table must already exist (it is
 // db.cjs's schema); this creates only the chunk/manifest tables.
 function createChunkStore(db, opts = {}) {

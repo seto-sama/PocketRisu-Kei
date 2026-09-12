@@ -1,7 +1,7 @@
 'use strict';
 
 const { isMainThread, parentPort, workerData } = require('worker_threads');
-const Database = require('better-sqlite3');
+const Database = require('./sqlite.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const { createChunkStore, CHUNK_MARKER } = require('./chunkStore.cjs');

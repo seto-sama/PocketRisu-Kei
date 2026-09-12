@@ -193,7 +193,7 @@
             const defaultEffect = createTriggerV2Effect(effect.type)
             if (defaultEffect) {
                 for (const [field, defaultValue] of Object.entries(defaultEffect)) {
-                    if (!(field in effect)) effect[field] = safeStructuredClone(defaultValue)
+                    if (!(field in effect)) effect[field] = structuredClone(defaultValue)
                 }
             }
             openedEffects.add(effect)

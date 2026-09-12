@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { normalizeTrashRetentionDays } from '../trashRetention';
 import { getChatBoundPersona } from '../chatBindingState';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
@@ -20,7 +21,6 @@ import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
 import { isSupportedTranslatorType, type TranslatorType } from '../translator/types'
-import { safeStructuredClone } from '../polyfill';
 import { createEntityId } from 'src/ts/id';
 import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
@@ -218,7 +218,7 @@ function normalizePromptTemplate(
     if(!Array.isArray(template)){
         return createPromptTemplateFromLegacy(legacySource)
     }
-    const normalized = safeStructuredClone(template) as any[]
+    const normalized = structuredClone(template) as any[]
     for(const item of normalized){
         if(!item || typeof item !== 'object'){
             continue
@@ -438,7 +438,7 @@ export function setDatabase(data:Database){
         data.botPresetsId = 0
     }
     if(checkNullish(data.themePresets)){
-        let defaultTheme = safeStructuredClone(themePresetTemplate)
+        let defaultTheme = structuredClone(themePresetTemplate)
         defaultTheme.name = "Default"
         data.themePresets = [defaultTheme]
     }
@@ -653,8 +653,8 @@ export function setDatabase(data:Database){
     normalizePersonaSelection(data)
     data.personaTags ??= []
     data.classicMaxWidth ??= false
-    data.ooba ??= safeStructuredClone(defaultOoba)
-    data.ainconfig ??= safeStructuredClone(defaultAIN)
+    data.ooba ??= structuredClone(defaultOoba)
+    data.ainconfig ??= structuredClone(defaultAIN)
     data.openrouterKey ??= ''
     data.openrouterRequestModel ??= 'openai/gpt-3.5-turbo'
     data.nanogptKey ??= ''
@@ -663,10 +663,10 @@ export function setDatabase(data:Database){
     data.nanogptProvider ??= ''
     data.nanogptSubscriptionState ??= ''
     data.nanogptUseSubscriptionEndpoint ??= false
-    data.NAIsettings ??= safeStructuredClone(prebuiltNAIpresets)
+    data.NAIsettings ??= structuredClone(prebuiltNAIpresets)
     data.assetWidth ??= -1
     data.animationSpeed ??= 0.4
-    data.colorScheme = normalizeColorScheme(data.colorScheme) ?? safeStructuredClone(defaultColorScheme)
+    data.colorScheme = normalizeColorScheme(data.colorScheme) ?? structuredClone(defaultColorScheme)
     data.colorSchemeName ??= 'default'
     data.NAIsettings.starter ??= ""
     if (!(remoteHypaModels as readonly string[]).includes(data.hypaModel)) {
@@ -868,13 +868,13 @@ export function setDatabase(data:Database){
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
     data.modelTools ??= []
     if (!Array.isArray(data.hotkeys)) {
-        data.hotkeys = safeStructuredClone(defaultHotkeys)
+        data.hotkeys = structuredClone(defaultHotkeys)
     }
     else {
         const existingActions = new Set(data.hotkeys.map((hotkey) => hotkey.action))
         const missingHotkeys = defaultHotkeys.filter((hotkey) => !existingActions.has(hotkey.action))
         if (missingHotkeys.length > 0) {
-            data.hotkeys.push(...safeStructuredClone(missingHotkeys))
+            data.hotkeys.push(...structuredClone(missingHotkeys))
         }
     }
     
@@ -2396,8 +2396,8 @@ export const presetTemplate:botPreset = {
     forceReplaceUrl2: '',
     proxyKey: '',
     bias: [],
-    ooba: safeStructuredClone(defaultOoba),
-    ainconfig: safeStructuredClone(defaultAIN),
+    ooba: structuredClone(defaultOoba),
+    ainconfig: structuredClone(defaultAIN),
     reverseProxyOobaArgs: {
         mode: 'instruct'
     },
@@ -2415,7 +2415,7 @@ export const themePresetTemplate: themePreset = {
     waifuWidth: 100,
     waifuWidth2: 100,
     colorSchemeName: 'default',
-    colorScheme: safeStructuredClone(defaultColorScheme),
+    colorScheme: structuredClone(defaultColorScheme),
     textTheme: 'standard',
     customTextTheme: {
         FontColorStandard: "#f8f8f2",
@@ -2539,7 +2539,7 @@ export function saveCurrentPreset(){
         ...currentPreset,
         id: pres[db.botPresetsId]?.id || createEntityId(),
         name: pres[db.botPresetsId].name,
-        tagIds: safeStructuredClone(pres[db.botPresetsId]?.tagIds),
+        tagIds: structuredClone(pres[db.botPresetsId]?.tagIds),
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         mainPrompt:db.mainPrompt,
@@ -2558,19 +2558,19 @@ export function saveCurrentPreset(){
         bias: db.bias,
         koboldURL: db.koboldURL,
         proxyKey: db.proxyKey,
-        ooba: safeStructuredClone(db.ooba),
-        ainconfig: safeStructuredClone(db.ainconfig),
+        ooba: structuredClone(db.ooba),
+        ainconfig: structuredClone(db.ainconfig),
         proxyRequestModel: db.proxyRequestModel,
         openrouterRequestModel: db.openrouterRequestModel,
-        NAISettings: safeStructuredClone(db.NAIsettings),
+        NAISettings: structuredClone(db.NAIsettings),
         promptTemplate: normalizePromptTemplate(db.promptTemplate, db),
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
         customProxyRequestModel: db.customProxyRequestModel,
-        reverseProxyOobaArgs: safeStructuredClone(db.reverseProxyOobaArgs) ?? null,
+        reverseProxyOobaArgs: structuredClone(db.reverseProxyOobaArgs) ?? null,
         top_p: db.top_p ?? 1,
-        promptSettings: safeStructuredClone(db.promptSettings) ?? null,
+        promptSettings: structuredClone(db.promptSettings) ?? null,
         repetition_penalty: db.repetition_penalty,
         min_p: db.min_p,
         top_a: db.top_a,
@@ -2588,11 +2588,11 @@ export function saveCurrentPreset(){
         // Kept in serialized prompt presets for backward compatibility only.
         // setPreset intentionally does not restore these auxiliary parameters.
         seperateParametersEnabled: db.seperateParametersEnabled ?? false,
-        seperateParameters: safeStructuredClone(db.seperateParameters),
-        customAPIFormat: safeStructuredClone(db.customAPIFormat),
+        seperateParameters: structuredClone(db.seperateParameters),
+        customAPIFormat: structuredClone(db.customAPIFormat),
         systemContentReplacement: db.systemContentReplacement,
         systemRoleReplacement: db.systemRoleReplacement,
-        customFlags: safeStructuredClone(db.customFlags),
+        customFlags: structuredClone(db.customFlags),
         enableCustomFlags: db.enableCustomFlags,
         regex: db.presetRegex,
         image: pres?.[db.botPresetsId]?.image ?? '',
@@ -2603,8 +2603,8 @@ export function saveCurrentPreset(){
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
-        modelTools: safeStructuredClone(db.modelTools),
-        fallbackModels: safeStructuredClone(db.fallbackModels),
+        modelTools: structuredClone(db.modelTools),
+        fallbackModels: structuredClone(db.fallbackModels),
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1,
         dynamicOutput: db.dynamicOutput ?? null
@@ -2667,8 +2667,8 @@ export function setPreset(db:Database, newPres: botPreset){
     db.bias = newPres.bias ?? db.bias
     db.koboldURL = newPres.koboldURL ?? db.koboldURL
     db.proxyKey = newPres.proxyKey ?? db.proxyKey
-    db.ooba = safeStructuredClone(newPres.ooba ?? db.ooba)
-    db.ainconfig = safeStructuredClone(newPres.ainconfig ?? db.ainconfig)
+    db.ooba = structuredClone(newPres.ooba ?? db.ooba)
+    db.ainconfig = structuredClone(newPres.ainconfig ?? db.ainconfig)
     db.openrouterRequestModel = newPres.openrouterRequestModel ?? db.openrouterRequestModel
     db.proxyRequestModel = newPres.proxyRequestModel ?? db.proxyRequestModel
     db.NAIsettings = newPres.NAISettings ?? db.NAIsettings
@@ -2680,11 +2680,11 @@ export function setPreset(db:Database, newPres: botPreset){
     db.NAIsettings.mirostat_lr ??= 1
     db.localStopStrings = newPres.localStopStrings
     db.customProxyRequestModel = newPres.customProxyRequestModel ?? ''
-    db.reverseProxyOobaArgs = safeStructuredClone(newPres.reverseProxyOobaArgs) ?? {
+    db.reverseProxyOobaArgs = structuredClone(newPres.reverseProxyOobaArgs) ?? {
         mode: 'instruct'
     }
     db.top_p = newPres.top_p ?? 1
-    db.promptSettings = safeStructuredClone(newPres.promptSettings) ?? {
+    db.promptSettings = structuredClone(newPres.promptSettings) ?? {
         assistantPrefill: '',
         postEndInnerFormat: '',
         sendChatAsSystem: false,
@@ -2706,10 +2706,10 @@ export function setPreset(db:Database, newPres: botPreset){
     db.extractJson = newPres.extractJson ?? ''
     db.groupOtherBotRole = newPres.groupOtherBotRole ?? 'user'
     db.groupTemplate = newPres.groupTemplate ?? ''
-    db.customAPIFormat = safeStructuredClone(newPres.customAPIFormat) ?? LLMFormat.OpenAICompatible
+    db.customAPIFormat = structuredClone(newPres.customAPIFormat) ?? LLMFormat.OpenAICompatible
     db.systemContentReplacement = newPres.systemContentReplacement ?? ''
     db.systemRoleReplacement = newPres.systemRoleReplacement ?? 'user'
-    db.customFlags = safeStructuredClone(newPres.customFlags) ?? []
+    db.customFlags = structuredClone(newPres.customFlags) ?? []
     db.enableCustomFlags = newPres.enableCustomFlags ?? false
     db.presetRegex = newPres.regex ?? []
     db.reasoningEffort = newPres.reasonEffort ?? 0
@@ -2723,7 +2723,7 @@ export function setPreset(db:Database, newPres: botPreset){
     // database values remain the single source of truth; preset copies are retained
     // only so older exports and clients can still round-trip them.
     if(!db.doNotChangeFallbackModels){
-        db.fallbackModels = safeStructuredClone(newPres.fallbackModels) ?? {
+        db.fallbackModels = structuredClone(newPres.fallbackModels) ?? {
             memory: [],
             emotion: [],
             translate: [],
@@ -2732,7 +2732,7 @@ export function setPreset(db:Database, newPres: botPreset){
         }
         db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
     }
-    db.modelTools = safeStructuredClone(newPres.modelTools ?? [])
+    db.modelTools = structuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
     db.dynamicOutput = newPres.dynamicOutput
 
@@ -2746,7 +2746,7 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
     const saved: themePreset = {
         id: pres[db.themePresetsId]?.id ?? createEntityId(),
         name: pres[db.themePresetsId]?.name ?? "Default",
-        tagIds: safeStructuredClone(pres[db.themePresetsId]?.tagIds),
+        tagIds: structuredClone(pres[db.themePresetsId]?.tagIds),
         theme: normalizeTheme(db.theme),
         nodeOnlyStandardChatWidth: db.nodeOnlyStandardChatWidth,
         guiHTML: db.guiHTML,
@@ -2754,9 +2754,9 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         waifuWidth: db.waifuWidth,
         waifuWidth2: db.waifuWidth2,
         colorSchemeName: db.colorSchemeName,
-        colorScheme: safeStructuredClone(db.colorScheme),
+        colorScheme: structuredClone(db.colorScheme),
         textTheme: normalizeTextTheme(db.textTheme),
-        customTextTheme: safeStructuredClone(db.customTextTheme),
+        customTextTheme: structuredClone(db.customTextTheme),
         font: db.font,
         customFont: db.customFont,
         zoomsize: db.zoomsize,
@@ -2820,7 +2820,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
     db.colorScheme = normalizeColorScheme(p.colorScheme ?? db.colorScheme) ?? db.colorScheme
     db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)
-    db.customTextTheme = safeStructuredClone(p.customTextTheme ?? db.customTextTheme)
+    db.customTextTheme = structuredClone(p.customTextTheme ?? db.customTextTheme)
     db.font = p.font ?? db.font
     db.customFont = p.customFont ?? db.customFont
     db.zoomsize = p.zoomsize ?? db.zoomsize
@@ -2871,7 +2871,7 @@ export async function downloadThemePreset(id: number, type: 'json'|'risutheme' =
     const current = getDatabase()
     const db = { ...current, themePresets: [...current.themePresets] }
     saveCurrentThemePreset(db)
-    let pres = withExportColorSchemes(safeStructuredClone(db.themePresets[id]))
+    let pres = withExportColorSchemes(structuredClone(db.themePresets[id]))
     pres.customBackground = ''
 
     if(type === 'json'){
@@ -2907,13 +2907,13 @@ export async function importThemePreset(f: {
         const decoded = await decodeMsgpack(fflate.decompressSync(data))
         if(decoded.presetVersion === 1 && decoded.type === 'theme'){
             pre = {
-                ...safeStructuredClone(themePresetTemplate),
+                ...structuredClone(themePresetTemplate),
                 ...decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset, 'risutheme')))
             }
         }
     } else {
         pre = {
-            ...safeStructuredClone(themePresetTemplate),
+            ...structuredClone(themePresetTemplate),
             ...(JSON.parse(Buffer.from(f.data).toString('utf-8')))
         }
     }
@@ -2942,7 +2942,7 @@ import type { OpenAIChat } from '../process/index.svelte';
 export async function downloadPreset(id:number, type:'json'|'risupreset'|'return' = 'json'){
     saveCurrentPreset()
     let db = getDatabase()
-    let pres = safeStructuredClone(db.botPresets[id])
+    let pres = structuredClone(db.botPresets[id])
     console.log(pres)
     pres.openAIKey = ''
     pres.forceReplaceUrl = ''
@@ -3081,7 +3081,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
         if(importedPreset?.presetVersion >= 3){
             // NovelAI preset
             const pre = {...presetTemplate, ...importedPreset}
-            const pr = safeStructuredClone(prebuiltPresets.NAI)
+            const pr = structuredClone(prebuiltPresets.NAI)
             pr.temperature = pre.parameters.temperature * 100
             pr.maxResponse = pre.parameters.max_length
             pr.NAISettings.topK = pre.parameters.top_k

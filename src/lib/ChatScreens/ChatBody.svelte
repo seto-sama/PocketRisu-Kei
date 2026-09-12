@@ -1,5 +1,5 @@
 <script lang="ts">
-    import isEqual from "lodash/isEqual"
+    import isEqual from "fast-deep-equal"
     import { DBState } from 'src/ts/stores.svelte'
     import { alertError } from "../../ts/alert"
     import { onDestroy, tick } from 'svelte'

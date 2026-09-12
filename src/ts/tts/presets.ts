@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../polyfill'
 import { appendPresetItem, duplicatePresetItem, movePresetItem, removePresetItem } from '../preset/collection'
 import { createEntityId } from '../id'
 
@@ -61,21 +60,21 @@ function normalizeSettings(value: Partial<TTSPresetSettings> | undefined, legacy
     const defaults = createDefaultTTSSettings(normalizeProvider(value?.provider ?? legacyProvider))
     return {
         ...defaults,
-        ...safeStructuredClone(value ?? {}),
+        ...structuredClone(value ?? {}),
         provider: normalizeProvider(value?.provider ?? legacyProvider),
-        apiKeyRefs: safeStructuredClone(value?.apiKeyRefs ?? {}),
-        voicevox: { ...defaults.voicevox, ...safeStructuredClone(value?.voicevox ?? {}) },
-        gptSoVits: { ...defaults.gptSoVits, ...safeStructuredClone(value?.gptSoVits ?? {}) },
+        apiKeyRefs: structuredClone(value?.apiKeyRefs ?? {}),
+        voicevox: { ...defaults.voicevox, ...structuredClone(value?.voicevox ?? {}) },
+        gptSoVits: { ...defaults.gptSoVits, ...structuredClone(value?.gptSoVits ?? {}) },
         fishAudio: {
             ...defaults.fishAudio,
-            ...safeStructuredClone(value?.fishAudio ?? {}),
-            model: { ...defaults.fishAudio.model, ...safeStructuredClone(value?.fishAudio?.model ?? {}) },
+            ...structuredClone(value?.fishAudio ?? {}),
+            model: { ...defaults.fishAudio.model, ...structuredClone(value?.fishAudio?.model ?? {}) },
         },
     }
 }
 
 export function createTTSPreset(name: string, settings: TTSPresetSettings): TTSPreset {
-    return { id: createEntityId(), name, settings: safeStructuredClone(settings) }
+    return { id: createEntityId(), name, settings: structuredClone(settings) }
 }
 
 export function normalizeTTSPresetState(state: TTSPresetState, labels: { defaultName: string; fallbackName: (index: number) => string }): void {

@@ -72,7 +72,7 @@ export async function loadData() {
                         // clients cannot overwrite whichever initialization wins.
                         setDatabase({} as Database)
                     } else {
-                        setPatchSyncBaseline(safeStructuredClone(projection.database))
+                        setPatchSyncBaseline(structuredClone(projection.database))
                         setDatabase(projection.database)
                     }
                 } else {
@@ -84,7 +84,7 @@ export async function loadData() {
                     } else {
                         try {
                             const decoded = await decodeRisuSave(gotStorage)
-                            setPatchSyncBaseline(safeStructuredClone(decoded))
+                            setPatchSyncBaseline(structuredClone(decoded))
                             setDatabase(decoded)
                         } catch (error) {
                             console.error(error)
@@ -95,7 +95,7 @@ export async function loadData() {
                                     LoadingStatusState.text = `Reading Backup File ${backup}...`
                                     const backupData = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
                                     const backupDecoded = await decodeRisuSave(backupData)
-                                    setPatchSyncBaseline(safeStructuredClone(backupDecoded))
+                                    setPatchSyncBaseline(structuredClone(backupDecoded))
                                     setDatabase(backupDecoded)
                                     backupLoaded = true
                                     break
@@ -149,7 +149,7 @@ export async function loadData() {
                     if (persisted.database === null) {
                         throw new Error('Initial database projection was not persisted')
                     }
-                    setPatchSyncBaseline(safeStructuredClone(persisted.database))
+                    setPatchSyncBaseline(structuredClone(persisted.database))
                     setDatabase(persisted.database)
                 } else {
                     const initializedStorage = encodeRisuSaveLegacy(getDatabase())
@@ -170,7 +170,7 @@ export async function loadData() {
                         throw new Error('Initial database write did not persist database.bin')
                     }
                     const persistedDatabase = await decodeRisuSave(persistedStorage)
-                    setPatchSyncBaseline(safeStructuredClone(persistedDatabase))
+                    setPatchSyncBaseline(structuredClone(persistedDatabase))
                     setDatabase(persistedDatabase)
                 }
             }

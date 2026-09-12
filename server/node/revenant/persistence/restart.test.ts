@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from '../../sqlite.cjs'
 import { describe, expect, it } from 'vitest'
 import restartPkg from './restart.cjs'
 

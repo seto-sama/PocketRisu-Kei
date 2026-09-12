@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { getDatabase, saveImage, setDatabase } from "./storage/database.svelte"
 import { selectSingleFile, sleep } from "./util"
 import { alertConfirm, alertError, alertStore, notifySuccess, notifyError } from "./alert"
@@ -132,7 +133,7 @@ export async function exportUserPersona(personaIndex?: number) {
 
     let img = await readAvatarImageOrDefault(persona.icon)
 
-    let card: PersonaCard = safeStructuredClone({
+    let card: PersonaCard = structuredClone({
         name: persona.name,
         personaPrompt: persona.personaPrompt,
         note: persona.note,

@@ -1,4 +1,3 @@
-import "./ts/polyfill";
 import "core-js/actual"
 import "virtual:pocketrisu-local-fonts.css"
 import "./ts/log-capture"

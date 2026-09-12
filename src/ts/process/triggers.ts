@@ -1051,7 +1051,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     tempVars?: Record<string, string>
 }){
     arg.recursiveCount ??= 0
-    char = arg.displayMode ? char : safeStructuredClone(char)
+    char = arg.displayMode ? char : structuredClone(char)
     let varChanged = false
     let stopSending = arg.stopSending ?? false
     const CharacterlowLevelAccess = char.lowLevelAccess ?? false
@@ -1072,7 +1072,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     ])
     const db = getDatabase()
     const defaultVariables = parseKeyValue(char.defaultVariables).concat(parseKeyValue(db.templateDefaultVariables))
-    let chat = arg.displayMode ? arg.chat : safeStructuredClone(arg.chat ?? char.chats[char.chatPage])
+    let chat = arg.displayMode ? arg.chat : structuredClone(arg.chat ?? char.chats[char.chatPage])
     
     const previousTriggerId = get(CurrentTriggerIdStore)
     const shouldSetTriggerId = !arg.displayMode && mode !== 'display'
@@ -1246,7 +1246,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         // every rendered message pay that cost independently (and dominated
         // long translated-chat loading), so keep the defensive draft only for
         // mutation-capable trigger runs.
-        const databaseDraft = arg.displayMode ? db : safeStructuredClone(db)
+        const databaseDraft = arg.displayMode ? db : structuredClone(db)
         let abortRun = false
         await runRevenantTriggerProgram({
             effects: trigger.effect as unknown as TriggerV2Effect[],
@@ -1272,11 +1272,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                 if(arg.displayMode) return
                 const selectedCharacter = get(selectedCharID)
                 if(mutations.character && db.characters[selectedCharacter]){
-                    Object.assign(db.characters[selectedCharacter], safeStructuredClone(mutations.character))
+                    Object.assign(db.characters[selectedCharacter], structuredClone(mutations.character))
                     setCurrentCharacter(char)
                 }
                 if(mutations.database){
-                    Object.assign(db, safeStructuredClone(mutations.database))
+                    Object.assign(db, structuredClone(mutations.database))
                 }
             },
             onLoopYield: async () => { await sleep(1) },

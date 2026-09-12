@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../../../polyfill'
 import type { Chat, Message } from '../../../storage/database.svelte'
 import type { RevenantRerollSnapshot } from '../types'
 import { buildRerollSwipeMetadata } from './chatGenerationTarget'
@@ -35,8 +34,8 @@ export function applyCancelledGenerationProjection(
             chat.message.splice(
                 snapshot.targetIndex,
                 Math.max(0, chat.message.length - snapshot.targetIndex),
-                safeStructuredClone(snapshot.targetMessage),
-                ...safeStructuredClone(snapshot.trailingMessages),
+                structuredClone(snapshot.targetMessage),
+                ...structuredClone(snapshot.trailingMessages),
             )
         }
         else if (!projection.isContinuation) {
@@ -53,7 +52,7 @@ export function applyCancelledGenerationProjection(
             ? [...snapshot.targetMessage.swipes]
             : [snapshot.targetMessage.data]
         const committed: Message = {
-            ...safeStructuredClone(snapshot.targetMessage),
+            ...structuredClone(snapshot.targetMessage),
             ...(target ? {
                 saying: target.saying,
                 time: target.time,
@@ -66,7 +65,7 @@ export function applyCancelledGenerationProjection(
             swipes: [...previousSwipes, content],
             swipeId: previousSwipes.length,
             swipeMetadata: target?.swipeMetadata
-                ? safeStructuredClone(target.swipeMetadata)
+                ? structuredClone(target.swipeMetadata)
                 : buildRerollSwipeMetadata(snapshot.targetMessage, {
                     chatId: projection.messageChatId,
                     time: target?.time,
@@ -79,7 +78,7 @@ export function applyCancelledGenerationProjection(
             snapshot.targetIndex,
             Math.max(0, chat.message.length - snapshot.targetIndex),
             committed,
-            ...safeStructuredClone(snapshot.trailingMessages),
+            ...structuredClone(snapshot.trailingMessages),
         )
     }
     else if (target) {

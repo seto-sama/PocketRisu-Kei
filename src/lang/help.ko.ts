@@ -2,7 +2,7 @@
  * PocketRisu Kei NodeOnly — Korean help texts (`language.help`).
  *
  * Extracted from `src/lang/ko.ts` for maintainability. Entries override the
- * English defaults in `help.en.ts` via `lodash/merge` (see `src/lang/index.ts`).
+ * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).
  * Missing keys fall back to English automatically — add a key here to translate.
  */
 
@@ -30,7 +30,7 @@ export const helpKo = {
         "charFirstMessage": "캐릭터의 첫 대사입니다.",
         "charNote": "모델에 강력한 영향을 주는 프롬프트입니다. 이 채팅에서만 적용되며, 메모리라고도 알려져 있습니다.",
         "toggleNsfw": "jailbreak 프롬프트를 끄거나 켭니다.",
-        "lorebook": " AI를 위해 사용자가 만든 사전입니다. AI는 컨텍스트에서 활성화 키가 어디에 있을 때만 이를 인식합니다.",
+        "lorebook": " AI를 위해 사용자가 만든 사전입니다. AI는 컨텍스트에 활성화 키가 있을 때만 이를 인식합니다.",
         "loreName": "로어의 이름입니다. AI에 영향을 주지 않습니다.",
         "loreActivationMode": "사슬 아이콘은 활성화 키를 사용하는 일반 모드입니다. 좌클릭하면 태양 아이콘으로 바뀌며 이 로어가 항상 활성화됩니다. 우클릭하면 달 아이콘으로 바뀌며 활성화 키와 보조 키가 각각 하나 이상 컨텍스트에 있어야 활성화됩니다. 활성화된 아이콘을 다시 클릭하면 일반 모드로 돌아갑니다.",
         "loreActivationKey": "활성화 키 중 하나가 컨텍스트에 존재하면 해당 로어가 활성화됩니다. 쉼표를 이용해 활성화 키를 구분할 수 있습니다.",
@@ -47,7 +47,7 @@ export const helpKo = {
         "chatNote": "현재 채팅에 포함되는 메모리 또는 UJB라고도 알려진 프롬프트입니다.",
         "personality": "캐릭터의 성격에 대한 간단한 설명입니다. **이 옵션을 사용하는 것은 권장되지 않습니다. 대신 캐릭터 설명에 설명하십시오.**",
         "scenario": "캐릭터의 시나리오에 대한 간단한 설명입니다. **이 옵션을 사용하는 것은 권장되지 않습니다. 대신 캐릭터 설명에 설명하십시오.**",
-        "utilityBot": "활성화되면 메인 프롬프트, jailbreak 및 기타 프롬프트를 무시합니다. 역할극이 아닌 유틸리티용 봇에 사용됩니다.",
+        "utilityBot": "활성화되면 프롬프트 프리셋 및 페르소나 데이터를 무시합니다.",
         "loreSelective": "멀티플 키 모드에서는 컨텍스트에 활성화 키 중 하나와 두번째 키 중 하나가 각각 존재해야 로어가 활성화됩니다. 각 칸에서 여러 키는 쉼표로 구분할 수 있습니다.",
         "loreRandomActivation": "확률 조건 사용이 활성화된 경우, 로어의 다른 조건이 모두 충족되면 로어가 활성화되며, 각 채팅을 보낼 때마다 설정된 확률에 따라 활성화됩니다.",
         "additionalAssets": "채팅에 표시할 추가 에셋입니다.\n\n- 경로로 사용하려면 `{{raw::<에셋 이름>}}`을\n- 이미지로 사용하려면 `{{image::<에셋 이름>}}`을\n- 비디오로 사용하려면 `{{video::<에셋 이름>}}`을\n- 오디오로 사용하려면 `{{audio::<에셋 이름>}}`을 사용하세요.\n",
@@ -99,7 +99,7 @@ export const helpKo = {
         "nickname": "닉네임이 설정되면 채팅에서 캐릭터 이름 대신 `{{char}}` 또는 `<char>`에 사용됩니다.",
         "useRegexLorebook": "활성화되면 로어북 검색에 문자열 일치 대신 정규식을 사용합니다.\n/regex/flags 형식을 입력할 수 있습니다.",
         "customChainOfThought": "경고: 생각의 사슬 토글 사용은 더 이상 권장되지 않습니다. 대신 다른 프롬프트 항목에 생각의 사슬 프롬프트를 입력하세요.",
-        "customPromptTemplateToggle": "여기서 고유한 프롬프트 토글을 정의할 수 있습니다. 개행으로 구분하여 `<토글 변수>=<토글 이름>` 형식을 사용하세요. 예: `cot=COT 토글`. 프롬프트에서 `{{getglobalvar::toggle_<토글 변수>}}`를 사용하여 이 토글을 사용할 수 있습니다. 예: `{{getglobalvar::toggle_cot}}`.",
+        "customPromptTemplateToggle": "여기서 전용 토글을 정의할 수 있습니다. `<토글 변수>=<토글 이름>` 형식을 사용하며, 입력 방식을 추가할 수 있고, 각 토글은 개행으로 구분합니다. 예: `ooc=OOC 토글, cot=select=COT 끔,COT 켬`.",
         "defaultVariables": "여기에서는 기본 변수를 정의할 수 있습니다. `<변수 이름>=<변수 값>` 형식으로 작성하고 개행으로 구분합니다. 예를 들어, `name=PocketRisu Kei`는 트리거 스크립트 및 변수 CBS와 함께 `{{getvar::A}}`, `{{setvar::A::B}}` 또는 `{{? $A + 1}}`과 같이 사용할 수 있습니다. 프롬프트 템플릿의 기본 변수와 캐릭터의 기본 변수가 동일한 이름을 가진 경우 캐릭터의 기본 변수가 사용됩니다.",
         "lowLevelAccess": "활성화되면 높은 컴퓨팅 파워가 필요한 기능과 캐릭터 트리거를 통한 AI 모델 실행에 대한 접근이 허용됩니다. 꼭 필요한 경우가 아니면 활성화하지 마세요.",
         "triggerLLMPrompt": "모델에 전송될 프롬프트입니다. `@@role user`, `@@role system`, `@@role assistant`를 사용하여 멀티 턴과 역할을 사용할 수 있습니다. 예:\n```\n@@role system\nrespond as hello\n@@role assistant\nhello\n@@role user\nhi\n```",
@@ -119,7 +119,7 @@ export const helpKo = {
         "jsonSchema": "AI 모델이 JSON 스키마를 지원하는 경우 AI 모델로 전송될 JSON 스키마입니다.\n\n하지만 JSON 스키마는 배우기 어렵기 때문에, PocketRisu Kei에서는 JSON 스키마 대신 TypeScript 인터페이스의 하위 집합을 사용할 수 있습니다. 자세한 내용은 TypeScript 문서를 참조하세요. (https://www.typescriptlang.org/docs/handbook/interfaces.html)",
         "strictJsonSchema": "활성화되면 일부 모델에서 제공된 JSON 스키마를 엄격하게 따릅니다. 비활성화되면 JSON 스키마를 무시할 수도 있습니다.",
         "extractJson": "비워두지 않으면 응답에서 특정 JSON 데이터를 추출합니다. 예를 들어 `{\"response\": {\"text\": [\"hello\"]}}` 응답에서 `response.text[0]`을 추출하려면 `response.text.0`을 입력하세요.",
-        "translatorNote": "여기에서 캐릭터마다 별도의 번역 프롬프트를 넣을 수 있습니다. 해당 옵션은  Ax. model 번역을 사용할 때만 적용됩니다. 언어 설정에서 `{{slot::tnote}}`를 넣으세요. 그룹챗에서는 작동하지 않습니다.",
+        "translatorNote": "여기에서 캐릭터마다 별도의 번역 프롬프트를 넣을 수 있습니다. 해당 옵션은 보조 모델 번역을 사용할 때만 적용됩니다. 언어 설정에서 `{{slot::tnote}}`를 넣으세요. 그룹챗에서는 작동하지 않습니다.",
         "groupInnerFormat": "화자가 아닌 캐릭터를 위해 그룹 채팅에서 사용되는 포맷을 정의합니다. 비워두지 않으면 기본 포맷 대신 이 포맷을 사용합니다. `그룹 내 기타 봇 역할`이 `assistant`인 경우 화자에게도 적용됩니다.",
         "chatHTML": "각 채팅으로 삽입될 HTML입니다.",
         "systemContentReplacement": "모델이 시스템 프롬프트를 지원하지 않는 경우 시스템 프롬프트를 대체하는 프롬프트 포맷입니다.",

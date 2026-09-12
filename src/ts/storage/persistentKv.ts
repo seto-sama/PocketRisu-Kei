@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { hasher } from "../parser/parser.svelte";
 import { forageStorage } from "./autoStorage";
 

@@ -40,7 +40,7 @@ export class FileSystemClient extends MCPClientLike {
         return [
             {
                 name: "fs_read_file",
-                description: "Read contents of a file (supports text files, pdf, images)",
+                description: "Read contents of a file (supports text files and images)",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -311,10 +311,6 @@ export class FileSystemClient extends MCPClientLike {
         const maxTextLimit = 100000; // 100KB for text/code files
         const maxImageLimit = 5 * 1024 * 1024; // 5MB for images
 
-        if(file.name.endsWith('.pdf')) {
-            return await this.readFileAsPDF(file, maxTextLimit);
-        }
-
         // Auto-detect encoding
         const encoding = this.detectFileEncoding(file);
 
@@ -330,27 +326,6 @@ export class FileSystemClient extends MCPClientLike {
                 text: `Error reading file: ${error.message}. Only text/code files and images are supported.`
             }];
         }
-    }
-
-    private async readFileAsPDF(file: File, limit: number): Promise<RPCToolCallContent[]> {
-        const {convertPdfToImages} = await import ('src/ts/process/dynamicutils/pdf.js');
-        const pdfBuffer = await file.arrayBuffer();
-        const images = await convertPdfToImages(pdfBuffer, { scale: 1.5, format: 'jpeg', quality: 0.8 });
-        if (images.length === 0) {
-            return [{
-                type: 'text',
-                text: 'No images extracted from PDF'
-            }];
-        }
-        const result: RPCToolCallContent[] = [];
-        for (const image of images) {
-            result.push({
-                type: 'image',
-                data: image,
-                mimeType: 'image/jpeg'
-            });
-        }
-        return result;
     }
 
     private detectFileEncoding(file: File): string {

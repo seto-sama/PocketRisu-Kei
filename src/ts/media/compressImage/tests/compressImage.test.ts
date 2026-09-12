@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { DBState } from '../../../stores.svelte'
 import { compressImage } from '../compressImage'

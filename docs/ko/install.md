@@ -19,7 +19,7 @@ PocketRisu를 설치하는 방법은 네 가지가 있습니다.
 | **CPU**     | 1코어        | 2코어 이상            |
 | **RAM**     | 1GB (실행만) | 4GB 이상 (빌드 포함)  |
 | **디스크**  | 1GB          | 2GB 이상              |
-| **Node.js** | 22.12 이상   | (포터블/Docker는 불필요) |
+| **Node.js** | 24.15 이상   | (포터블/Docker는 불필요) |
 
 포터블 패키지와 Docker는 빌드 과정이 없어 RAM 1GB로 동작합니다. 직접 빌드(Git Clone, 설치 스크립트)할 경우 빌드 중 메모리 사용량이 높아 4GB 이상을 권장합니다.
 
@@ -148,11 +148,11 @@ docker compose pull && docker compose up -d
 
 ### 사전 준비
 
-Node.js 22.12 이상이 필요합니다:
+Node.js 24.15 이상이 필요합니다:
 
 ```bash
 node --version
-# v22.12.0 이상
+# v24.15.0 이상
 ```
 
 Node.js가 없다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설치합니다.

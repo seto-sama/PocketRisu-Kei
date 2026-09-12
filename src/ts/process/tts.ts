@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { notifyError } from "../alert";
 import { getCurrentCharacter, getDatabase, type character, type TTSApiKeyProvider } from "../storage/database.svelte";
 import { translateVox } from "../translator/translator";

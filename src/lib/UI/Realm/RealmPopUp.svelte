@@ -7,12 +7,12 @@
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
     import MultiLangDisplay from "../components/MultiLangDisplay.svelte";
-    import { tooltip } from "src/ts/gui/tooltip";
     import Dialog from "../components/Dialog.svelte";
     import Button from "../components/Button.svelte";
     import IconButton from "../components/IconButton.svelte";
     import IconButtonGroup from "../components/IconButtonGroup.svelte";
     import RealmTagList from "./RealmTagList.svelte";
+    import Tooltip from "../components/Tooltip.svelte";
 
     interface Props {
         openedData: hubType;
@@ -89,9 +89,14 @@
                         }} aria-label="Lorebook"><BookIcon /></IconButton>
                     {/if}
                 </IconButtonGroup>
-                <span class="whitespace-nowrap text-subtext" use:tooltip={language.popularityLevelDesc}>
-                    {language.popularityLevel.replace('{}', openedData.download.toString())}
-                </span>
+                <Tooltip>
+                    {#snippet trigger(props)}
+                        <span {...props} class="whitespace-nowrap text-subtext">
+                            {language.popularityLevel.replace('{}', openedData.download.toString())}
+                        </span>
+                    {/snippet}
+                    {language.popularityLevelDesc}
+                </Tooltip>
             </div>
         </div>
     </div>

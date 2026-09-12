@@ -21,7 +21,7 @@ PocketRisu có thể được cài đặt theo bốn cách.
 | **CPU**      | 1 nhân                   | 2+ nhân                                  |
 | **RAM**      | 1 GB (chỉ chạy)          | 4+ GB (bao gồm build)                    |
 | **Đĩa**      | 1 GB                     | 2+ GB                                    |
-| **Node.js**  | 22.12+                   | (không cần cho portable/Docker)          |
+| **Node.js**  | 24.15+                   | (không cần cho portable/Docker)          |
 
 Gói portable và Docker không cần bước build và có thể chạy với 1 GB RAM. Build trực tiếp (Git Clone, script cài đặt) tiêu tốn nhiều bộ nhớ khi build, vì vậy khuyến nghị 4 GB trở lên.
 
@@ -150,11 +150,11 @@ Lấy mã nguồn và build tự động với Node.js. Chạy trên máy chủ 
 
 ### Điều kiện tiên quyết
 
-Cần Node.js 22.12 trở lên:
+Cần Node.js 24.15 trở lên:
 
 ```bash
 node --version
-# v22.12.0 trở lên
+# v24.15.0 trở lên
 ```
 
 Cài đặt từ [trang chính thức của Node.js](https://nodejs.org/) nếu chưa có.

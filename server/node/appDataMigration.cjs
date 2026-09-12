@@ -116,7 +116,7 @@ function createAppDataMigration(options) {
     } = options ?? {};
 
     if (!db || typeof db.prepare !== 'function' || typeof db.transaction !== 'function') {
-        throw new TypeError('createAppDataMigration requires a better-sqlite3 database');
+        throw new TypeError('createAppDataMigration requires a SQLite database');
     }
     if (!appDataStore
         || typeof appDataStore.getState !== 'function'

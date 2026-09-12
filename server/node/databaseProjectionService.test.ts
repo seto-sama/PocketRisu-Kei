@@ -1,5 +1,5 @@
 // @vitest-environment node
-import Database from 'better-sqlite3'
+import Database from './sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'

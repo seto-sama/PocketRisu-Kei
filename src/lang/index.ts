@@ -1,4 +1,3 @@
-import merge from "lodash/merge";
 import { languageChinese } from "./cn";
 import { languageGerman } from "./de";
 import { languageEnglish } from "./en";
@@ -9,25 +8,53 @@ import { languageSpanish } from "./es";
 
 export let language:typeof languageEnglish = languageEnglish
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+
+/** Fill missing translation entries from English while replacing leaf values whole. */
+export function mergeLanguage<T extends Record<string, unknown>>(
+    fallback: T,
+    translation: DeepPartial<T>,
+): T {
+    const mergeObject = (
+        base: Record<string, unknown>,
+        override: Record<string, unknown>,
+    ): Record<string, unknown> => {
+        const result = { ...base }
+        for (const [key, value] of Object.entries(override)) {
+            if (value === undefined) continue
+            result[key] = isPlainObject(base[key]) && isPlainObject(value)
+                ? mergeObject(base[key], value)
+                : value
+        }
+        return result
+    }
+
+    return mergeObject(
+        fallback,
+        translation as Record<string, unknown>,
+    ) as T
+}
+
 
 export function changeLanguage(lang:string){
     if(lang === 'cn'){
-        language = merge(safeStructuredClone(languageEnglish), languageChinese)
+        language = mergeLanguage(languageEnglish, languageChinese)
     }
     else if(lang === 'de'){
-        language = merge(safeStructuredClone(languageEnglish), languageGerman)
+        language = mergeLanguage(languageEnglish, languageGerman)
     }
     else if(lang === 'ko'){
-        language = merge(safeStructuredClone(languageEnglish), languageKorean)
+        language = mergeLanguage(languageEnglish, languageKorean)
     }
     else if(lang === 'vi'){
-        language = merge(safeStructuredClone(languageEnglish), languageVietnamese)
+        language = mergeLanguage(languageEnglish, languageVietnamese)
     }
     else if(lang === 'zh-Hant'){
-        language = merge(safeStructuredClone(languageEnglish), languageChineseTraditional)
+        language = mergeLanguage(languageEnglish, languageChineseTraditional)
     }
     else if(lang === 'es'){
-        language = merge(safeStructuredClone(languageEnglish), languageSpanish)
+        language = mergeLanguage(languageEnglish, languageSpanish)
     }
     else{
         language = languageEnglish

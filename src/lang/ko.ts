@@ -1200,8 +1200,6 @@ export const languageKorean = {
   able: "활성화됨",
   assetWidth: "에셋 넓이",
   animationSpeed: "에니메이션 속도",
-  screenshot: "스크린샷",
-  screenshotSaved: "스크린샷 저장됨",
   createBotwithAI: "AI로 캐릭터 생성하기",
   changeFolderName: "변경할 폴더 이름을 입력해주세요.",
   cancel: "취소",

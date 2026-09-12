@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { writable } from 'svelte/store'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { character, Chat, loreBook } from '../storage/database.svelte'

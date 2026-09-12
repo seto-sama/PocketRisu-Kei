@@ -23,7 +23,7 @@
 | **RAM**      | 2GB            | 4GB 이상                      |
 | **여유 공간**  | 2GB            | 4GB 이상 (빌드 결과물 포함)   |
 
-PocketRisu는 Termux에서 미리 컴파일된 바이너리를 제공하지 않으며, 폰에서 직접 빌드합니다. `better-sqlite3` 같은 네이티브 모듈을 포함해 빌드 시간은 폰 성능에 따라 **약 10~40분** 소요됩니다.
+PocketRisu는 폰에서 애플리케이션을 직접 빌드하므로, 빌드 시간은 폰 성능에 따라 달라집니다.
 
 
 ---
@@ -33,7 +33,7 @@ PocketRisu는 Termux에서 미리 컴파일된 바이너리를 제공하지 않�
 ### Termux는 F-Droid 또는 GitHub Releases 버전을 사용
 
 > ⚠️ **Play Store의 Termux는 사용할 수 없습니다.**
-> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 22 이상 등)가 설치되지 않습니다.
+> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 24.15 이상 등)가 설치되지 않습니다.
 
 다음 두 곳 중 하나에서 Termux를 받습니다.
 
@@ -61,7 +61,7 @@ pkg install -y git && \
 1. `git` 설치
 2. PocketRisu 소스 다운로드
 3. 빌드 의존성 설치 (`nodejs-lts`, `python`, `make`, `clang`, `pnpm` 등)
-4. `pnpm install` — JavaScript 의존성 다운로드 및 네이티브 모듈 컴파일
+4. `pnpm install` — JavaScript 의존성 및 선택적 네이티브 가속 모듈 설치
 5. `pnpm build` — 프론트엔드 번들링
 
 빌드가 완료되면 다음 메시지가 표시됩니다.

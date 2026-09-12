@@ -1,5 +1,4 @@
 import { tick } from 'svelte'
-import { safeStructuredClone } from '../../../polyfill'
 import {
     type Chat,
     type Message,
@@ -430,7 +429,7 @@ export async function recoverRevenantGenerationsForChat(
                 && typeof hypaMemoryCheckpoint === 'object'
                 && Array.isArray((hypaMemoryCheckpoint as { summaries?: unknown }).summaries)
             ) {
-                target.hypaV3Data = safeStructuredClone(hypaMemoryCheckpoint) as Chat['hypaV3Data']
+                target.hypaV3Data = structuredClone(hypaMemoryCheckpoint) as Chat['hypaV3Data']
             }
         }
         applyHypaMemoryCheckpoint(chat)
@@ -586,12 +585,12 @@ export async function recoverRevenantGenerationsForChat(
                     : chat.message[rerollSnapshot.targetIndex]
                 snapshotTarget ??= chat.message[rerollSnapshot.targetIndex]
                 if (!snapshotTarget) {
-                    snapshotTarget = safeStructuredClone(rerollSnapshot.targetMessage)
+                    snapshotTarget = structuredClone(rerollSnapshot.targetMessage)
                     chat.message.splice(
                         rerollSnapshot.targetIndex,
                         Math.max(0, chat.message.length - rerollSnapshot.targetIndex),
                         snapshotTarget,
-                        ...safeStructuredClone(rerollSnapshot.trailingMessages),
+                        ...structuredClone(rerollSnapshot.trailingMessages),
                     )
                 }
             }

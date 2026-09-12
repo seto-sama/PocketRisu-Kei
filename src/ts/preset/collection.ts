@@ -1,4 +1,3 @@
-import { safeStructuredClone } from '../polyfill'
 import { createEntityId } from '../id'
 
 export interface PresetCollectionResult<T> {
@@ -25,7 +24,7 @@ function presetId<T>(item: T): string | undefined {
 }
 
 export function clonePresetWithNewId<T extends object>(source: T): T & { id: string } {
-    return { ...safeStructuredClone(source), id: createEntityId() }
+    return { ...structuredClone(source), id: createEntityId() }
 }
 
 export function ensurePresetIds<T extends { id?: string }>(

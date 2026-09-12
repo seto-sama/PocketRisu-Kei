@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { Buffer } from 'buffer'
     import { language } from "src/lang";
     import Input from "../../../UI/components/Input.svelte";
     import type { loreBook } from "src/ts/storage/database.svelte";

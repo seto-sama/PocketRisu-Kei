@@ -1,6 +1,6 @@
 'use strict';
 
-const Database = require('better-sqlite3');
+const Database = require('../sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -339,7 +339,7 @@ function installProcessHandlers() {
         } catch {}
         console.error('[uncaughtException]', err);
         // Preserve Node's default: terminate after uncaught exception.
-        // better-sqlite3 writes synchronously, so the log entry above is already on disk.
+        // node:sqlite writes synchronously, so the log entry above is already on disk.
         process.exit(1);
     });
 

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import * as fflate from 'fflate'
 import { createEntityId } from 'src/ts/id';
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
@@ -397,7 +398,7 @@ export async function exportCharacterPackage(
 ): Promise<void> {
     try {
         const db = getDatabase({ snapshot: true })
-        const char = safeStructuredClone(db.characters[charIndex]) as character
+        const char = structuredClone(db.characters[charIndex]) as character
         if (!char) {
             alertError('Character not found')
             return
@@ -474,7 +475,7 @@ export async function exportCharacterPackage(
         if (options.includeCharacter) {
             progress(language.characterPackageProgressCharacter)
             const virtualWriter = new VirtualWriter()
-            const charClone = safeStructuredClone(char) as character
+            const charClone = structuredClone(char) as character
             charClone.image = charClone.image || ''
             if (!charClone.image) {
                 charClone.image = await saveAsset(await readDefaultAvatarImage())

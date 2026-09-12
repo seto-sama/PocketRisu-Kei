@@ -1,5 +1,4 @@
 import type { Chat, Database } from '../storage/database.svelte'
-import { safeStructuredClone } from '../polyfill'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityData,
@@ -41,7 +40,7 @@ export function applyBookmarkCompatibility(
     chat: Chat,
     data?: BookmarkCompatibilityData,
 ): Chat {
-    const compatible = safeStructuredClone(chat)
+    const compatible = structuredClone(chat)
     compatible.bookmarks = [...(data?.bookmarks ?? [])]
     if (data?.bookmarkNames && Object.keys(data.bookmarkNames).length > 0) {
         compatible.bookmarkNames = { ...data.bookmarkNames }

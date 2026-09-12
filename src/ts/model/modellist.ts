@@ -485,7 +485,7 @@ export function getModelInfo(id?: string | null): LLMModel{
             tokenizer: LLMTokenizer.Unknown
         }
     }
-    const found:LLMModel = safeStructuredClone(LLMModels.find(model => model.id === id))
+    const found:LLMModel = structuredClone(LLMModels.find(model => model.id === id))
     
     if(found){
         if(db.enableCustomFlags){

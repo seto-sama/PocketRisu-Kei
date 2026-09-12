@@ -46,7 +46,7 @@
   } from "../../ts/characters";
     import CharConfig from "./CharConfig.svelte";
     import { language } from "../../lang";
-    import isEqual from "lodash/isEqual";
+    import isEqual from "fast-deep-equal";
     import SidebarAvatar from "./SidebarAvatar.svelte";
     import Switch from "../UI/components/Switch.svelte";
     import Button from "../UI/components/Button.svelte";

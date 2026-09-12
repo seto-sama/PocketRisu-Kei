@@ -154,7 +154,7 @@ function hashProjection(projection) {
 
 function createAppDataStore(db) {
     if (!db || typeof db.prepare !== 'function' || typeof db.transaction !== 'function') {
-        throw new TypeError('createAppDataStore requires a better-sqlite3 database');
+        throw new TypeError('createAppDataStore requires a SQLite database');
     }
 
     db.pragma('foreign_keys = ON');

@@ -331,7 +331,7 @@ export function changeColorScheme(colorScheme: string){
     try {
         let db = getDatabase()
         if(colorScheme !== 'custom'){
-            db.colorScheme = safeStructuredClone(colorSchemes[colorScheme].colors)
+            db.colorScheme = structuredClone(colorSchemes[colorScheme].colors)
         }
         db.colorSchemeName = colorScheme
         updateColorScheme()   
@@ -345,7 +345,7 @@ export function updateColorScheme(){
         let colorScheme = db.colorScheme
 
         if(colorScheme == null){
-            colorScheme = safeStructuredClone(defaultColorScheme)
+            colorScheme = structuredClone(defaultColorScheme)
             db.colorScheme = colorScheme
         }
 
