@@ -18,6 +18,12 @@ function recipe(backend = 'http') {
 }
 
 describe('revenant headless Lua executor', () => {
+    it('propagates Lua errors when no client action was requested', async () => {
+        await expect(executeRevenantLua({
+            code: "function onOutput(id) error('ordinary Lua failure') end",
+            mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
+        })).rejects.toThrow('ordinary Lua failure')
+    })
     it('uses the shared mode dispatcher for input, start, and button callbacks', async () => {
         const code = `
             function onInput(id) setChatVar(id, 'mode', 'input') end
