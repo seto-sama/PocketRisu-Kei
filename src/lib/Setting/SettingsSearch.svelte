@@ -30,7 +30,7 @@
     }
 </script>
 
-<Dialog bind:open size="default" closeOnEscape closable={false} ariaLabel={language.searchSettingsPlaceholder}>
+<Dialog bind:open size="default" closable={false} ariaLabel={language.searchSettingsPlaceholder}>
     <div class="risu-field-border flex items-center gap-2 rounded-md px-2.5 py-2">
         <SearchIcon size={18} class="text-subtext shrink-0" />
         <!-- svelte-ignore a11y_autofocus -->

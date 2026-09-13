@@ -10,16 +10,16 @@
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
 
-    interface Props {
-        close?: () => void;
-    }
-
     interface ChatPickerFolder {
         id: string;
         name: string;
     }
 
-    let { close = () => {} }: Props = $props();
+    let { open = $bindable(true) }: { open?: boolean } = $props();
+
+    function close() {
+        open = false
+    }
     let selectedFolder = $state('all');
     let searchQuery = $state('');
 
@@ -136,7 +136,7 @@
         folderEmptySize="sm"
         selectedItemIndex={character.chatPage}
         allowFolderAssignmentDrag
-        {close}
+        bind:open
         onFoldersChange={updateFolders}
         onAssignItem={assignChatToFolder}
         onDeleteFolder={deleteFolder}

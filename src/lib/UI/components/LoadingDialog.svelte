@@ -36,8 +36,7 @@
 <Dialog
     bind:open
     closable={false}
-    closeOnEscape={false}
-    closeOnOutsideClick={false}
+    dismissible={false}
     ariaLabel={message || 'Loading in progress. Please wait.'}
     contentClass={cn('p-6', contentClass)}
     bodyClass="w-full flex flex-col gap-4 items-center"

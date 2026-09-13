@@ -15,6 +15,28 @@ afterEach(async () => {
 })
 
 describe('Dialog close requests', () => {
+    it('consumes Escape without closing a non-dismissible dialog', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, dismissible: false },
+        })
+        mounted.push(component)
+        await tick()
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'Escape',
+            code: 'Escape',
+            bubbles: true,
+            cancelable: true,
+        })
+        document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(event)
+        await tick()
+        expect(event.defaultPrevented).toBe(true)
+        expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    })
+
     it('focuses the dialog content when it has no interactive controls', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -143,7 +165,6 @@ describe('Dialog close requests', () => {
             target,
             props: {
                 open: true,
-                closeOnEscape: true,
                 onRequestClose,
             },
         })

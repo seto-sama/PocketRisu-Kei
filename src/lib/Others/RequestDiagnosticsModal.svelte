@@ -148,8 +148,6 @@
 <Dialog
     bind:open
     size="xl"
-    closeOnEscape={true}
-    closeOnOutsideClick={true}
     bodyClass="min-h-0"
     {onOpenChange}
 >

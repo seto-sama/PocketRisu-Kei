@@ -116,7 +116,6 @@
 <Dialog
     bind:open
     size="xl"
-    closeOnEscape
     onRequestClose={closeRealm}
     contentClass="h-[calc(100dvh-1rem)] bg-lightbg sm:h-[calc(100dvh-2rem)]"
     bodyClass="flex min-h-0 flex-1 flex-col"
@@ -215,7 +214,7 @@
 {/if}
 
 {#if muteManagerOpen}
-    <RealmMuteManager onClose={() => { muteManagerOpen = false }} />
+    <RealmMuteManager bind:open={muteManagerOpen} />
 {/if}
 
 <style>

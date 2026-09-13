@@ -460,7 +460,7 @@
         bind:searchQuery={presetSearchQuery}
         bind:visibleItemIndexes={visiblePresetIndexes}
         bind:emptyMessage={presetEmptyMessage}
-        close={() => presetPickerOpen = false}
+        bind:open={presetPickerOpen}
         onFoldersChange={(tags) => DBState.db.imageGenerationPresetTags = tags}
         onAssignItem={(index, tagId) => {
             const preset = DBState.db.imageGenerationPresets[index];

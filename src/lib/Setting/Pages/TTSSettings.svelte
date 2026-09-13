@@ -227,7 +227,7 @@
     <PresetPickerLayout title={language.ttsPreset} folders={[]} itemFolderIds={ttsPresets.map(() => undefined)}
         itemNames={ttsPresets.map(preset => preset.name)} itemDragDataKey="ttsPresetIndex"
         showCreateFolder={false} showUncategorized={false} bind:visibleItemIndexes={visiblePresetIndexes}
-        close={() => presetPickerOpen = false} onFoldersChange={() => {}} onAssignItem={() => {}} onDeleteFolder={() => {}}
+        bind:open={presetPickerOpen} onFoldersChange={() => {}} onAssignItem={() => {}} onDeleteFolder={() => {}}
         selectedItemIndex={DBState.db.ttsPresetId} onMoveItem={(fromIndex, toIndex) => moveTTSPreset(DBState.db, fromIndex, toIndex)}
         onSelectItem={selectTTSPreset} onDuplicateItem={duplicatePreset} onDeleteItem={deletePreset} itemRenameable>
         {#snippet itemContent(index, renameController)}

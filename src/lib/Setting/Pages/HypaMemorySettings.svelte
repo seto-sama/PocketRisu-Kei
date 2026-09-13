@@ -276,7 +276,7 @@
         itemNames={DBState.db.hypaV3Presets.map(item => item.name)}
         itemDragDataKey="hypaPresetIndex"
         bind:selectedFolder bind:searchQuery bind:visibleItemIndexes bind:emptyMessage
-        close={() => pickerOpen = false}
+        bind:open={pickerOpen}
         onFoldersChange={(next) => DBState.db.hypaV3PresetTags = next}
         onAssignItem={(index, tagId) => {
             const preset = DBState.db.hypaV3Presets[index];

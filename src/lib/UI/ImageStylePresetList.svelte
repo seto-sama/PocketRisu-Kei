@@ -464,7 +464,7 @@
         itemDragDataKey="imageStylePresetIndex"
         bind:visibleItemIndexes
         bind:selectedFolder={selectedGroup}
-        close={() => { open = false }}
+        bind:open
         folderReadOnly={viewMode === 'module'}
         folderReorderable
         folderEditable={viewMode === 'tag'}
@@ -528,8 +528,6 @@
 <Dialog
     bind:open={editorOpen}
     size="default"
-    closeOnEscape={!bindingPickerOpen}
-    closeOnOutsideClick={!bindingPickerOpen}
     closable
 >
     {#snippet title()}{editingPresetId ? `${language.imageStylePreset} ${language.edit}` : language.imageStylePresetNew}{/snippet}
@@ -576,7 +574,7 @@
         itemDragDataKey="imageStyleGenerationBindingIndex"
         bind:selectedFolder={bindingSelectedFolder}
         bind:visibleItemIndexes={bindingVisibleItemIndexes}
-        close={() => { bindingPickerOpen = false }}
+        bind:open={bindingPickerOpen}
         onFoldersChange={(folders) => { DBState.db.imageGenerationPresetTags = folders }}
         onAssignItem={(index, tagId) => {
             const preset = imageGenerationPresets[index]

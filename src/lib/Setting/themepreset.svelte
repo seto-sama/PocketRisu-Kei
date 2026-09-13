@@ -22,10 +22,11 @@
 
     const tags = $derived(DBState.db.themePresetTags ?? []);
 
-    interface Props {
-        close?: () => void;
+    let { open = $bindable(true) }: { open?: boolean } = $props();
+
+    function close() {
+        open = false
     }
-    let { close = () => {} }: Props = $props();
 
     function movePreset(fromIndex: number, toIndex: number) {
         const result = movePresetItem(DBState.db.themePresets, DBState.db.themePresetsId, fromIndex, toIndex);
@@ -92,7 +93,7 @@
     itemNames={DBState.db.themePresets.map(preset => preset.name ?? '')}
     bind:selectedFolder
     itemDragDataKey="presetIndex"
-    {close}
+    bind:open
     onFoldersChange={(next) => { DBState.db.themePresetTags = next }}
     onAssignItem={assignPresetToTag}
     onDeleteFolder={(tagId) => {

@@ -119,7 +119,7 @@
         itemDragDataKey="translatorPresetIndex"
         bind:selectedFolder
         bind:visibleItemIndexes
-        close={() => { open = false }}
+        bind:open
         configure={showConfigure ? configure : undefined}
         onFoldersChange={(nextTags) => { DBState.db.translatorPresetTags = nextTags }}
         onAssignItem={(index, tagId) => {

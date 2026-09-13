@@ -32,8 +32,7 @@
         open={true}
         onOpenChange={(open) => { if (!open) rejectPlugin(); }}
         closable={false}
-        closeOnEscape={false}
-        closeOnOutsideClick={false}
+        dismissible={false}
         size="default"
         footer={footerActions}
     >

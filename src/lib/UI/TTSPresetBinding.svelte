@@ -45,7 +45,7 @@
         folderReadOnly
         allowItemReorder={false}
         bind:visibleItemIndexes
-        close={() => open = false}
+        bind:open
         configure={configure}
         onFoldersChange={() => {}}
         onAssignItem={() => {}}

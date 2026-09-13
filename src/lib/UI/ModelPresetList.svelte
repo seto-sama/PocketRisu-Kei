@@ -122,7 +122,7 @@
         bind:visibleItemIndexes
         bind:selectedFolder
         itemDragDataKey="presetIndex"
-        close={() => { open = false }}
+        bind:open
         configure={showConfigure ? goToPresetSettings : undefined}
         onFoldersChange={(next) => { DBState.db.modelPresetTags = next }}
         onAssignItem={assignPresetToTag}

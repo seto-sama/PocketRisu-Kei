@@ -32,7 +32,6 @@
 <Dialog
     bind:open
     size="lg"
-    closeOnEscape
     onRequestClose={close}
     bodyClass="flex min-h-0 flex-1 flex-col gap-4"
 >

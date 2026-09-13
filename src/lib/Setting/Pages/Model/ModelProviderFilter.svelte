@@ -98,7 +98,7 @@
     </Button>
 </div>
 
-<Dialog bind:open size="lg" closeOnEscape={true}>
+<Dialog bind:open size="lg">
     {#snippet title()}{language.modelProviderFilterDialogTitle}{/snippet}
     {#snippet description()}{language.modelProviderFilterDialogDescription}{/snippet}
 

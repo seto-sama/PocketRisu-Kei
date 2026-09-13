@@ -40,8 +40,7 @@
     <Dialog
         open={true}
         onOpenChange={(v) => { if (!v) decide('skip'); }}
-        closeOnEscape={false}
-        closeOnOutsideClick={false}
+        dismissible={false}
         size="default"
         footer={footerActions}
     >

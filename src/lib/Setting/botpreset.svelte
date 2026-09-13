@@ -29,11 +29,11 @@
         DBState.db.botPresets = [...DBState.db.botPresets]
     }
 
-    interface Props {
-        close?: () => void;
-    }
+    let { open = $bindable(true) }: { open?: boolean } = $props();
 
-    let { close = () => {} }: Props = $props();
+    function close() {
+        open = false
+    }
 
     // Clear any pending preset-select callback when the modal unmounts,
     // so a stale callback can't fire on a later open.
@@ -140,7 +140,7 @@
         itemNames={DBState.db.botPresets.map(preset => preset.name ?? '')}
         bind:selectedFolder
         itemDragDataKey="presetIndex"
-        {close}
+        bind:open
         configure={!$settingsOpen ? () => {
                 close()
                 openSettings(SettingsRoute.PromptPreset)

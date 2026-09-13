@@ -150,7 +150,7 @@
     }
 </script>
 
-<Dialog bind:open size="default" closeOnEscape={!presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!presetPickerOpen && !stylePresetPickerOpen} closable>
+<Dialog bind:open size="default" closable>
     {#snippet title()}
         <span class="inline-flex items-center">
             {language.imageGeneration}<Help key="imageGenerationPresetQuickEdit" name={language.imageGeneration} />

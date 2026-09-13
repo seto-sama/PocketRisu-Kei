@@ -2,6 +2,7 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
     import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
+    import OverlayBackdrop from "../UI/components/overlay/OverlayBackdrop.svelte";
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
@@ -47,11 +48,11 @@
     import Badge from "../UI/components/Badge.svelte";
     import { onMount } from "svelte";
 
-    interface Props {
-        close?: any;
-    }
+    let { open = $bindable(true) }: { open?: boolean } = $props();
 
-    let { close = () => {} }: Props = $props();
+    function close() {
+        open = false
+    }
 
     // Developer profiles exist synchronously; the models.dev catalog is
     // hydrated from its separate cache/network at runtime. Plugins merge below.
@@ -314,7 +315,7 @@
 </script>
 
 <OverlayPortal>
-<div class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
+<OverlayBackdrop bind:open class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-hidden">
         <div class="flex items-center text-maintext mb-4 shrink-0">
             <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
@@ -428,7 +429,7 @@
             {/if}
         </div>
     </div>
-</div>
+</OverlayBackdrop>
 </OverlayPortal>
 
 <style>

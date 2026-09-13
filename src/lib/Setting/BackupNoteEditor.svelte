@@ -59,8 +59,7 @@
 <Dialog
     bind:open
     size="sm"
-    closeOnOutsideClick={!saving}
-    closeOnEscape={!saving}
+    dismissible={!saving}
     closable={!saving}
     onOpenAutoFocus={focusNoteInput}
 >

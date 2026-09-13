@@ -164,7 +164,7 @@
         itemDragDataKey="imageGenerationPresetIndex"
         bind:selectedFolder
         bind:visibleItemIndexes
-        close={() => { open = false }}
+        bind:open
         configure={showConfigure ? configure : undefined}
         onFoldersChange={(nextTags) => { DBState.db.imageGenerationPresetTags = nextTags }}
         onAssignItem={(index, tagId) => {
@@ -207,7 +207,7 @@
     state={selectedPreset ? 'selected' : 'warning'}
 />
 
-<Dialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
+<Dialog bind:open={editorOpen} size="default" closable>
     {#snippet title()}{language.imageGenerationPreset} {language.edit}{/snippet}
     {#if editorSettings}
         <label class="flex items-center justify-between gap-3 pb-3 text-sm text-maintext">

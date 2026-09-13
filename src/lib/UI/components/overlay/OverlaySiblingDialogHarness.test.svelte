@@ -5,7 +5,7 @@
     let dialogOpen = $state(false)
 </script>
 
-<Dialog bind:open={dialogOpen} closeOnOutsideClick={false} closable={false}>
+<Dialog bind:open={dialogOpen} dismissible={false} closable={false}>
     <div><input aria-label="Folder name" /></div>
     {#snippet footer()}<button>Confirm</button>{/snippet}
 </Dialog>

@@ -3,16 +3,17 @@
     import { language } from "../../lang";
     import { DBState } from 'src/ts/stores.svelte';
     import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
+    import OverlayBackdrop from "../UI/components/overlay/OverlayBackdrop.svelte";
 
-    interface Props {
-        close?: () => void;
+    let { open = $bindable(true) }: { open?: boolean } = $props();
+
+    function close() {
+        open = false
     }
-
-    let { close = () => {} }: Props = $props();
 </script>
 
 <OverlayPortal>
-<div class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
+<OverlayBackdrop bind:open class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-96 max-h-full overflow-y-auto">
         <div class="flex items-center text-maintext mb-4">
             <h2 class="mt-0 mb-0 font-bold">{language.longTermMemory} {language.presets}</h2>
@@ -33,7 +34,7 @@
             </button>
         {/each}
     </div>
-</div>
+</OverlayBackdrop>
 </OverlayPortal>
 
 <style>

@@ -127,7 +127,7 @@
         itemNames={DBState.db.translatorPresets.map(preset => preset.name)}
         itemDragDataKey="translatorPresetIndex"
         bind:selectedFolder bind:searchQuery bind:visibleItemIndexes bind:emptyMessage
-        close={() => pickerOpen = false}
+        bind:open={pickerOpen}
         onFoldersChange={(next) => DBState.db.translatorPresetTags = next}
         onAssignItem={(index, tagId) => {
             const preset = DBState.db.translatorPresets[index];
