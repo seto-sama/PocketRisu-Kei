@@ -27,8 +27,8 @@ const {
 } = require('../generation.cjs');
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
-const { decodeGenerationRequest } = require('../protocol.cjs');
-const { decodeBinaryRequest } = require('../../binaryHttp.cjs');
+const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../protocol.cjs');
+const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
     createGenerationJobCancellationService,
@@ -86,7 +86,7 @@ function installRevenantJobRoutes(app, deps) {
         res.send(bytes);
     });
 
-    app.post('/api/generation/jobs', async (req, res, next) => {
+    app.post('/api/generation/jobs', binaryBodyParser(MAX_GENERATION_REQUEST_BYTES), async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
 

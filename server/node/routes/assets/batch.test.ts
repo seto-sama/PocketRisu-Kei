@@ -2,17 +2,16 @@ import express from 'express'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import assetRoutes from './assetRoutes.cjs'
-import { encodeAssetBatch, decodeAssetBatch } from '../../src/ts/storage/assetTransport'
-import { encodeBinaryMessage, BINARY_MESSAGE_CONTENT_TYPE } from '../../src/ts/network/binaryMessage'
+import assetRoutes from './batch.cjs'
+import { encodeAssetBatch, decodeAssetBatch } from '../../../../src/ts/storage/assetTransport'
+import { encodeBinaryMessage, BINARY_MESSAGE_CONTENT_TYPE } from '../../../../src/ts/network/binaryMessage'
 
 describe('binary asset API', () => {
     const values = new Map<string, Uint8Array>()
     const write = vi.fn((key: string, value: Uint8Array) => values.set(key, Uint8Array.from(value)))
     const app = express()
-    assetRoutes.installAssetBinaryParser(app)
     app.use(express.json())
-    assetRoutes.installAssetRoutes(app, {
+    assetRoutes.installAssetBatchRoutes(app, {
         checkAuth: async () => true, requireSyncClientId: () => true,
         kvGet: key => values.get(key) ?? null, kvSet: write,
         readInlayInfoPayload: async id => id === 'canonical' ? Buffer.from('{"name":"image"}') : null,

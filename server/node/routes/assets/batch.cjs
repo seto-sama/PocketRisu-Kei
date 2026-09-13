@@ -1,14 +1,10 @@
 'use strict';
 
-const { binaryBodyParser, decodeBinaryRequest } = require('./binaryHttp.cjs');
-const { encodeAssetBatch, decodeAssetBatch, MAX_ASSET_BATCH_BYTES } = require('../../src/ts/storage/assetTransport.ts');
-const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../src/ts/network/binaryMessage.ts');
+const { binaryBodyParser, decodeBinaryRequest } = require('../../binaryHttp.cjs');
+const { encodeAssetBatch, decodeAssetBatch, MAX_ASSET_BATCH_BYTES } = require('../../../../src/ts/storage/assetTransport.ts');
+const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../../../src/ts/network/binaryMessage.ts');
 
-function installAssetBinaryParser(app) {
-    app.post('/api/assets/bulk-write', binaryBodyParser(MAX_ASSET_BATCH_BYTES));
-}
-
-function installAssetRoutes(app, {
+function installAssetBatchRoutes(app, {
     checkAuth, requireSyncClientId, readInlayInfoPayload, kvGet, kvSet, transaction,
 }) {
     app.post('/api/assets/bulk-read', async (req, res, next) => {
@@ -30,7 +26,7 @@ function installAssetRoutes(app, {
         } catch (error) { next(error); }
     });
 
-    app.post('/api/assets/bulk-write', async (req, res, next) => {
+    app.post('/api/assets/bulk-write', binaryBodyParser(MAX_ASSET_BATCH_BYTES), async (req, res, next) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const entries = decodeBinaryRequest(req, res, decodeAssetBatch);
@@ -51,4 +47,4 @@ function installAssetRoutes(app, {
     });
 }
 
-module.exports = { installAssetBinaryParser, installAssetRoutes };
+module.exports = { installAssetBatchRoutes };

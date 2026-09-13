@@ -1,7 +1,14 @@
-import { encodeBinaryMessage, decodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
+import { encodeBinaryMessage, decodeBinaryMessage } from '../../../../src/ts/network/binaryMessage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { zipSync } from 'fflate'
-import { installImageGenerationJobRoutes as createImageJobs } from './imageGenerationJobService.cjs'
+import { createImageGenerationJobService } from '../imageGenerationJobService.cjs'
+import { installImageGenerationJobRoutes } from './imageRoutes.cjs'
+
+function createImageJobs(app: any, deps: any) {
+    const service = createImageGenerationJobService({ logger: deps.logger })
+    installImageGenerationJobRoutes(app, { ...deps, service })
+    return service
+}
 
 function responseRecorder() {
     return {

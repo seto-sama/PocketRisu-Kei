@@ -550,72 +550,6 @@ function deleteUsage(jobId) {
     return stmtDelete.run(String(jobId).slice(0, 128)).changes === 1;
 }
 
-function installUsageRoutes(app, { checkAuth, requireSyncClientId }) {
-    app.get('/api/usage', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        try {
-            const range = { start: req.query.start, end: req.query.end };
-            res.send({
-                success: true,
-                content: listUsage({
-                    limit: req.query.limit,
-                    beforeId: req.query.before_id,
-                    ...range,
-                }),
-                total: countUsage(range),
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-    app.get('/api/usage/summary', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        try {
-            res.send({
-                success: true,
-                content: summarizeUsage({
-                    start: req.query.start,
-                    end: req.query.end,
-                }),
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-    app.delete('/api/usage', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            clearUsage();
-            res.send({ success: true });
-        } catch (error) {
-            next(error);
-        }
-    });
-    app.delete('/api/usage/:jobId', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            res.send({ success: true, deleted: deleteUsage(req.params.jobId) });
-        } catch (error) {
-            next(error);
-        }
-    });
-    app.post('/api/usage/:jobId', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            res.send({
-                success: recordReportedUsage({
-                    ...req.body,
-                    jobId: req.params.jobId,
-                }),
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-}
 
 module.exports = {
     recordGenerationUsage,
@@ -627,5 +561,4 @@ module.exports = {
     getUsageTotals,
     clearUsage,
     deleteUsage,
-    installUsageRoutes,
 };
