@@ -8,11 +8,11 @@ module.exports = {
     ...require('./generationConfig.cjs'),
     ...require('./generationJournal.cjs'),
     ...require('./generationProjection.cjs'),
-    ...require('./generationRoutes.cjs'),
+    ...require('./routes/index.cjs'),
+    ...require('./imageGenerationJobService.cjs'),
     ...require('./generationStream.cjs'),
     ...require('./generationWorkers.cjs'),
     ...require('./generationWorkflowService.cjs'),
-    ...require('./imageGenerationJobService.cjs'),
     ...require('./materializer.cjs'),
     ...require('./postprocessWorker.cjs'),
 };

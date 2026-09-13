@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer'
+import { encodeInlayAsset, decodeInlayAsset } from '../../storage/inlayTransport'
 import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "src/ts/media";
@@ -17,24 +18,12 @@ import {
 } from "./inlayMeta";
 
 export type InlayAsset = {
-    data: string | Blob
     /** File extension */
     ext: string
     height?: number
     name: string
-    type: 'image' | 'video' | 'audio' | 'signature'
     width?: number
-}
-
-/** Serialized form for server storage (Blob → base64 string) */
-type SerializedInlayAsset = {
-    data: string
-    ext: string
-    height?: number
-    name: string
-    type: 'image' | 'video' | 'audio' | 'signature'
-    width?: number
-}
+} & ({ type: 'image' | 'video' | 'audio'; data: Blob } | { type: 'signature'; data: string })
 
 export type InlayExplorerInfo = {
     ext: string
@@ -228,39 +217,18 @@ class NodeInlayStorage {
     }
 
     private async serializeAsset(asset: InlayAsset): Promise<Uint8Array> {
-        let dataStr: string
-        if (asset.data instanceof Blob) {
-            dataStr = await blobToBase64(asset.data)
-        } else {
-            dataStr = asset.data as string
-        }
-        const serialized: SerializedInlayAsset = {
-            data: dataStr,
-            ext: asset.ext,
-            height: asset.height,
-            name: asset.name,
-            type: asset.type,
-            width: asset.width,
-        }
-        return new TextEncoder().encode(JSON.stringify(serialized))
+        const { data, ...metadata } = asset
+        const bytes = data instanceof Blob
+            ? new Uint8Array(await data.arrayBuffer())
+            : new TextEncoder().encode(data)
+        return encodeInlayAsset({ ...metadata, mime: data instanceof Blob ? data.type : 'application/json' }, bytes)
     }
 
-    private deserializeAsset(buf: Buffer): InlayAsset {
-        const json: SerializedInlayAsset = JSON.parse(new TextDecoder().decode(buf))
-        let data: string | Blob
-        if (json.type !== 'signature' && json.data.startsWith('data:')) {
-            data = base64ToBlob(json.data)
-        } else {
-            data = json.data
-        }
-        return {
-            data,
-            ext: json.ext,
-            height: json.height,
-            name: json.name,
-            type: json.type,
-            width: json.width,
-        }
+    private deserializeAsset(buf: Uint8Array): InlayAsset {
+        const { metadata: { mime, ...metadata }, bytes } = decodeInlayAsset(buf)
+        return metadata.type === 'signature'
+            ? { ...metadata, type: 'signature', data: new TextDecoder().decode(bytes) }
+            : { ...metadata, type: metadata.type, data: new Blob([asBuffer(bytes)], { type: mime }) }
     }
 
     async setItem(id: string, asset: InlayAsset): Promise<void> {
@@ -402,18 +370,6 @@ function getInlayInfoStorage(): NodeInlayInfoStorage {
 export { getInlayMeta } from "./inlayMeta";
 
 // ── Helpers ──
-
-function base64ToBlob(b64: string): Blob {
-    const splitDataURI = b64.split(',');
-    const byteString = atob(splitDataURI[1]);
-    const mimeString = splitDataURI[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    return new Blob([ab], { type: mimeString });
-}
 
 function blobToBase64(blob: Blob): Promise<string> {
     const reader = new FileReader();
@@ -567,16 +523,12 @@ export async function getInlayAsset(id: string) {
 export async function getInlayAssetBlob(id: string) {
     const img = await getInlayStorage().getItem<InlayAsset | null>(id)
     if (img === null) return null
-    let data: Blob
-    if (typeof img.data === 'string') {
-        data = base64ToBlob(img.data)
-        await setInlayAsset(id, { ...toCoreInlayAsset(img), data })
-    } else {
-        data = img.data
-        const existingInfo = await getInlayInfoStorage().getItem<InlayExplorerInfo>(id)
-        if (!existingInfo) {
-            await getInlayInfoStorage().setItem(id, buildInlayExplorerInfo(toCoreInlayAsset(img)))
-        }
+    const data = img.type === 'signature'
+        ? new Blob([img.data], { type: 'application/json' })
+        : img.data
+    const existingInfo = await getInlayInfoStorage().getItem<InlayExplorerInfo>(id)
+    if (!existingInfo) {
+        await getInlayInfoStorage().setItem(id, buildInlayExplorerInfo(toCoreInlayAsset(img)))
     }
     return { ...toCoreInlayAsset(img), data }
 }

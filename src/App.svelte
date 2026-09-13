@@ -208,7 +208,7 @@
         <RealmPopUp bind:openedData={$showRealmInfoStore} />
     {/if}
     {#if $openPresetList}
-        <Botpreset close={() => {$openPresetList = false}} />
+        <Botpreset bind:open={$openPresetList} />
     {/if}
     {#if $openModelPresetList}
         <QuickModelPresetPicker bind:open={$openModelPresetList} />
@@ -217,16 +217,20 @@
         <RequestPreviewModal bind:open={$requestPreviewOpen} />
     {/if}
     {#if $openModelProfileBrowser}
-        <ModelProfileBrowser close={() => {$openModelProfileBrowser = false}} />
+        <ModelProfileBrowser bind:open={$openModelProfileBrowser} />
     {/if}
     {#if $openThemePresetList}
-        <Themepreset close={() => {$openThemePresetList = false}} />
+        <Themepreset bind:open={$openThemePresetList} />
     {/if}
     {#if $openPersonaList}
-        <ListedPersona close={() => {$openPersonaList = false; $personaSelectCallback = null}} onSelect={$personaSelectCallback} />
+        <ListedPersona
+            bind:open={$openPersonaList}
+            onOpenChange={(open) => { if (!open) $personaSelectCallback = null }}
+            onSelect={$personaSelectCallback}
+        />
     {/if}
     {#if $openHypaV3PresetList}
-        <ListedHypaV3Preset close={() => {$openHypaV3PresetList = false}} />
+        <ListedHypaV3Preset bind:open={$openHypaV3PresetList} />
     {/if}
     {#if $bookmarkListOpen}
         <BookmarkList />

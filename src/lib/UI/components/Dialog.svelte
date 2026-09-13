@@ -16,8 +16,8 @@
         onOpenChange?: (open: boolean) => void;
         size?: DialogSize;
         closable?: boolean;
-        closeOnEscape?: boolean;
-        closeOnOutsideClick?: boolean;
+        /** Escape and backdrop dismissal; disable only for blocking workflows. */
+        dismissible?: boolean;
         /** Intercepts user-initiated close actions (Escape, backdrop, close
          * button) so callers can confirm before actually changing `open`. */
         onRequestClose?: () => void;
@@ -44,8 +44,7 @@
         onOpenChange,
         size = 'default',
         closable = true,
-        closeOnEscape,
-        closeOnOutsideClick = true,
+        dismissible = true,
         onRequestClose,
         contentClass = '',
         bodyClass = '',
@@ -63,7 +62,6 @@
 
     const overlayLayer = provideOverlayLayer(() => open);
     const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
-    const escapeEnabled = $derived(closeOnEscape ?? closeOnOutsideClick);
 
     const focusableSelector = [
         'a[href]',
@@ -151,7 +149,7 @@
             event.preventDefault()
             return
         }
-        if (onRequestClose && closeOnOutsideClick) {
+        if (onRequestClose && dismissible) {
             event.preventDefault()
             onRequestClose()
         }
@@ -163,7 +161,7 @@
             event.preventDefault()
             return
         }
-        if (!onRequestClose || !escapeEnabled) return
+        if (!onRequestClose || !dismissible) return
         event.preventDefault()
         onRequestClose()
     }
@@ -180,8 +178,8 @@
             data-risu-overlay-layer={overlayLayer.allocatedZIndex}
             class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
             style={overlayStyle}
-            escapeKeydownBehavior={escapeEnabled ? 'close' : 'ignore'}
-            interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            escapeKeydownBehavior={dismissible ? 'close' : 'ignore'}
+            interactOutsideBehavior={dismissible ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
             onOpenAutoFocus={handleOpenAutoFocus}

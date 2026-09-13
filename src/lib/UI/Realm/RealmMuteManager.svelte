@@ -15,10 +15,10 @@
     import ListActionBar from '../components/ListActionBar.svelte';
 
     interface Props {
-        onClose: () => void;
+        open?: boolean;
     }
 
-    let { onClose }: Props = $props();
+    let { open = $bindable(true) }: Props = $props();
     let selectedFolder = $state('all');
 
     const folders = $derived([
@@ -60,7 +60,7 @@
     itemSearchTexts={entries.map(entry => `${entry.name} ${entry.note} ${entry.id}`)}
     bind:selectedFolder
     itemDragDataKey="realmMuteIndex"
-    close={onClose}
+    bind:open
     onFoldersChange={() => {}}
     onAssignItem={() => {}}
     onDeleteFolder={() => {}}

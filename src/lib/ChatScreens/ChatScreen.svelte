@@ -81,9 +81,9 @@
     </div>
 {/if}
 {#if openChatList}
-    <ChatList close={() => {openChatList = false}}/>
+    <ChatList bind:open={openChatList}/>
 {:else if openModuleList}
-    <ModuleChatMenu close={() => {openModuleList = false}}/>
+    <ModuleChatMenu bind:open={openModuleList}/>
 {/if}
 
 <style>

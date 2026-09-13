@@ -12,7 +12,8 @@
     import { movePresetItem } from "src/ts/preset/collection";
 
     interface Props {
-        close?: (id: string) => void;
+        open?: boolean;
+        onSelect?: (id: string) => void;
         alertMode?: boolean;
         folderManagement?: boolean;
         onCreateModule?: () => void;
@@ -23,7 +24,8 @@
     }
 
     let {
-        close = () => {},
+        open = $bindable(true),
+        onSelect,
         alertMode = false,
         folderManagement = false,
         onCreateModule,
@@ -118,16 +120,17 @@
         const rmodule = DBState.db.modules[index];
         if (!rmodule) return;
         if (folderManagement) return;
-        if (alertMode) close(rmodule.id);
+        if (alertMode) onSelect?.(rmodule.id);
     }
 
     function openModuleSettings() {
         openAddonSettings(AddonSettingsTab.Module);
-        close('');
+        closePicker();
     }
 
     function closePicker() {
-        close('');
+        open = false;
+        onSelect?.('');
     }
 </script>
 
@@ -153,7 +156,8 @@
     itemDeleteLabel={language.moduleDeleteAction}
     showDuplicateItem={(index) => !DBState.db.modules[index]?.mcp}
     showExportItem={(index) => !DBState.db.modules[index]?.mcp}
-    close={closePicker}
+    bind:open
+    onRequestClose={onSelect ? closePicker : undefined}
     onFoldersChange={(next) => {
         DBState.db.moduleTags = next;
         void requestImmediateSave();

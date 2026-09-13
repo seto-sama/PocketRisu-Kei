@@ -1,7 +1,9 @@
 import { parseSseEventBlock } from './preset/adapter/sse'
 import type { FetchLog } from './requestLogStore'
 
-const COLLAPSIBLE_RESPONSE_EVENTS = new Set([
+const DEFAULT_OPEN_RESPONSE_EVENT = 'response.completed'
+
+const DETAIL_RESPONSE_EVENTS = new Set([
     'response.created',
     'response.in_progress',
     'response.content_part.added',
@@ -10,6 +12,7 @@ const COLLAPSIBLE_RESPONSE_EVENTS = new Set([
     'response.content_part.done',
     'response.output_item.added',
     'response.output_item.done',
+    DEFAULT_OPEN_RESPONSE_EVENT,
 ])
 
 export interface ResponseBodyDetails {
@@ -18,9 +21,16 @@ export interface ResponseBodyDetails {
         summary: string
         readable: string
         raw: string
+        defaultOpen: boolean
     }>
     remainder: string
     rawRemainder: string
+}
+
+interface ParsedSseBlock {
+    event: string | undefined
+    data: any
+    raw: string
 }
 
 export function formatResponseBody(log: Pick<FetchLog, 'response' | 'url' | 'body'>): string {
@@ -44,32 +54,25 @@ export function formatRequestBody(body: string): string {
 export function getResponseBodyDetails(
     log: Pick<FetchLog, 'response' | 'url' | 'body'>,
 ): ResponseBodyDetails | null {
-    const formatted = formatResponseBody(log)
-    if (formatted !== log.response) return null
-
-    const detailBlocks = new Map<string, string[]>()
-    const remainderBlocks: string[] = []
+    const detailBlocks = new Map<string, ParsedSseBlock[]>()
+    const remainderBlocks: ParsedSseBlock[] = []
     for (const block of log.response.split(/\r\n\r\n|\n\n|\r\r/)) {
         const trimmed = block.trim()
         if (!trimmed) continue
-        const event = parseSseEventBlock(trimmed)
-        let dataType: string | undefined
-        try {
-            const data = event?.data ? JSON.parse(event.data) : null
-            if (typeof data?.type === 'string') dataType = data.type
-        } catch {}
+        const parsed = parseReadableSseBlock(trimmed)
+        const dataType = typeof parsed.data?.type === 'string' ? parsed.data.type : undefined
 
-        const eventType = event?.event && COLLAPSIBLE_RESPONSE_EVENTS.has(event.event)
-            ? event.event
-            : dataType && COLLAPSIBLE_RESPONSE_EVENTS.has(dataType)
+        const eventType = parsed.event && DETAIL_RESPONSE_EVENTS.has(parsed.event)
+            ? parsed.event
+            : dataType && DETAIL_RESPONSE_EVENTS.has(dataType)
                 ? dataType
                 : null
         if (eventType) {
             const blocks = detailBlocks.get(eventType) ?? []
-            blocks.push(trimmed)
+            blocks.push(parsed)
             detailBlocks.set(eventType, blocks)
         } else {
-            remainderBlocks.push(trimmed)
+            remainderBlocks.push(parsed)
         }
     }
 
@@ -79,38 +82,39 @@ export function getResponseBodyDetails(
             event,
             summary: `${event} × ${blocks.length}`,
             readable: formatReadableSseBlocks(blocks, false),
-            raw: blocks.join('\n\n'),
+            raw: blocks.map(block => block.raw).join('\n\n'),
+            defaultOpen: event === DEFAULT_OPEN_RESPONSE_EVENT,
         })),
         remainder: formatReadableSseBlocks(remainderBlocks, true),
-        rawRemainder: remainderBlocks.join('\n\n'),
+        rawRemainder: remainderBlocks.map(block => block.raw).join('\n\n'),
     }
 }
 
-function formatReadableSseBlocks(blocks: string[], showEventName: boolean): string {
-    const parsedBlocks = blocks.map(block => {
-        const event = parseSseEventBlock(block)
-        if (!event) return { event: undefined, data: undefined, raw: block }
-        try {
-            return {
-                event: event.event,
-                data: event.data ? JSON.parse(event.data) : null,
-                raw: block,
-            }
-        } catch {
-            return { event: event.event, data: undefined, raw: block }
+function parseReadableSseBlock(raw: string): ParsedSseBlock {
+    const event = parseSseEventBlock(raw)
+    if (!event) return { event: undefined, data: undefined, raw }
+    try {
+        return {
+            event: event.event,
+            data: event.data ? JSON.parse(event.data) : null,
+            raw,
         }
-    })
+    } catch {
+        return { event: event.event, data: undefined, raw }
+    }
+}
 
+function formatReadableSseBlocks(blocks: ParsedSseBlock[], showEventName: boolean): string {
     // Delta fragments are most useful as the reconstructed text they produced.
     if (
         !showEventName
-        && parsedBlocks.length > 0
-        && parsedBlocks.every(block => typeof block.data?.delta === 'string')
+        && blocks.length > 0
+        && blocks.every(block => typeof block.data?.delta === 'string')
     ) {
-        return parsedBlocks.map(block => block.data.delta).join('')
+        return blocks.map(block => block.data.delta).join('')
     }
 
-    return parsedBlocks.map(block => {
+    return blocks.map(block => {
         const content = block.data === undefined
             ? block.raw
             : formatReadableEventData(block.data)

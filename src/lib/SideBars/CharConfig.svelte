@@ -357,8 +357,8 @@
         <span class="block text-maintext">{language.backgroundHTML}<Help key="backgroundHTML" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></Textarea>
 
-        <div class="relative">
-            <span class="mt-2 text-maintext">{language.regexScript}<Help key="regexScript"/></span>
+        <div class="mt-2 text-maintext">
+            <span>{language.regexScript}<Help key="regexScript"/></span>
             <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
             <ListActionBar mode="footer">
                 <IconButton onclick={() => {

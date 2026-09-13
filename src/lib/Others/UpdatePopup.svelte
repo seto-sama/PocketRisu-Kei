@@ -45,7 +45,7 @@
 
 <!--
     Nested alerts are placed above this popup by the shared overlay stack.
-    closeOnOutsideClick stays false because
+    dismissible stays false because
     showUpdatePopupOnce() persists the dismiss before render — accidental
     backdrop clicks would silently drop the version forever. ESC stays
     blocked per branch convention.
@@ -55,8 +55,7 @@
         open={true}
         onOpenChange={(v) => { if (!v) handleClose() }}
         closable={canClose}
-        closeOnEscape={false}
-        closeOnOutsideClick={false}
+        dismissible={false}
         size="sm"
         footer={canClose ? footerActions : undefined}
     >

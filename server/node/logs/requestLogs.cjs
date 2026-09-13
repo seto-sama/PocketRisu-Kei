@@ -244,69 +244,9 @@ function enrichRequestLogs(logs, getUsageByJobIds) {
     });
 }
 
-function installRequestLogRoutes(app, { checkAuth, requireSyncClientId, getUsageByJobIds }) {
-    app.get('/api/request-logs', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        try {
-            res.send({
-                success: true,
-                content: enrichRequestLogs(queryRequestLogs({
-                    limit: req.query.limit,
-                    beforeId: req.query.before_id,
-                }), getUsageByJobIds),
-                total: countRequestLogs(),
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.get('/api/request-logs/chat/:chatId', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        try {
-            res.send({
-                success: true,
-                content: queryRequestLogByChatId(req.params.chatId),
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.get('/api/request-logs/:id', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        try {
-            const log = queryRequestLogById(req.params.id);
-            if (!log) return res.status(404).send({ error: 'request log not found' });
-            res.send({ success: true, content: log });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.delete('/api/request-logs', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            clearRequestLogs();
-            res.send({ success: true });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.delete('/api/request-logs/:id', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            res.send({ success: true, deleted: deleteRequestLog(req.params.id) });
-        } catch (error) {
-            next(error);
-        }
-    });
-}
 
 module.exports = {
+    enrichRequestLogs,
     addRequestLog,
     queryRequestLogs,
     queryRequestLogById,
@@ -315,5 +255,4 @@ module.exports = {
     clearRequestLogs,
     deleteRequestLog,
     updateRequestLogResponseById,
-    installRequestLogRoutes,
 };

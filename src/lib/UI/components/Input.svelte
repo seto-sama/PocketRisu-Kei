@@ -125,6 +125,7 @@
     function handleKeydown(event: KeyboardEvent) {
         if (!composing && event.key === 'Enter' && commitMode !== 'input') commit();
         if (!composing && event.key === 'Escape' && dirty) {
+            event.preventDefault();
             writer.cancel();
             draftValue = value ?? '';
             dirty = false;

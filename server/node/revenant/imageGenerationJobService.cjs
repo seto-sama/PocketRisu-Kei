@@ -2,21 +2,19 @@
 
 const { unzipSync } = require('fflate');
 
-const MAX_RESULT_BYTES = 64 * 1024 * 1024;
+const {
+    MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES,
+} = require('./protocol.cjs');
 const MAX_RETAINED_RESULT_BYTES = 512 * 1024 * 1024;
 const MAX_ACTIVE_JOBS = 32;
 const RETENTION_MS = 10 * 60 * 1000;
 const COMFY_RECONNECT_GRACE_MS = 30_000;
 const NOVELAI_TIMEOUT_MS = 5 * 60 * 1000;
 
-function installImageGenerationJobRoutes(app, {
-    checkProxyAuth,
-    requireSyncClientId = () => true,
-    logger = console,
-}) {
+function createImageGenerationJobService({ logger = console } = {}) {
     const jobs = new Map();
 
-    const publicJob = (job, { includeResult = false } = {}) => ({
+    const publicJob = job => ({
         jobId: job.jobId,
         provider: job.provider,
         status: job.status,
@@ -28,9 +26,6 @@ function installImageGenerationJobRoutes(app, {
             bridgeRequest: job.bridgeRequest,
             providerHandle: job.providerHandle,
         } : {}),
-        ...(includeResult && job.status === 'completed'
-            ? { resultBase64: job.result?.toString('base64') }
-            : {}),
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
     });
@@ -301,166 +296,17 @@ function installImageGenerationJobRoutes(app, {
         return { job, image };
     }
 
-    app.post('/api/image-generation/jobs', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : '';
-        const provider = req.body?.provider;
-        if (!/^[a-zA-Z0-9._:/-]{1,256}$/.test(jobId) || !['novelai', 'comfyui'].includes(provider)) {
-            res.status(400).send({ error: 'Invalid image generation job' });
-            return;
-        }
-        const existing = jobs.get(jobId);
-        if (existing) {
-            res.send(publicJob(existing, { includeResult: req.query?.includeResult === '1' }));
-            return;
-        }
-        const spec = req.body?.spec;
-        if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
-            res.status(400).send({ error: 'Image generation spec is required' });
-            return;
-        }
-        if (provider === 'novelai' && (typeof spec.apiKey !== 'string' || !spec.apiKey || !spec.body)) {
-            res.status(400).send({ error: 'Invalid NovelAI image generation spec' });
-            return;
-        }
-        if (provider === 'comfyui' && (
-            typeof spec.prompt !== 'string'
-            || typeof spec.negativePrompt !== 'string'
-            || !Number.isFinite(spec.seed)
-            || typeof spec.bridgeId !== 'string'
-            || !/^[a-zA-Z0-9._:-]{1,128}$/.test(spec.bridgeId)
-            || (spec.timeoutSeconds !== undefined && (
-                !Number.isFinite(spec.timeoutSeconds)
-                || spec.timeoutSeconds < 1
-                || spec.timeoutSeconds > 600
-            ))
-        )) {
-            res.status(400).send({ error: 'Invalid ComfyUI image generation spec' });
-            return;
-        }
-        try {
-            const job = createJob({ jobId, provider, spec });
-            res.send(publicJob(job, { includeResult: req.query?.includeResult === '1' }));
-        } catch (error) {
-            if (error?.code === 'IMAGE_JOB_LIMIT') {
-                res.status(429).send({ error: error.message });
-                return;
-            }
-            throw error;
-        }
-    });
-
-    app.get('/api/image-generation/jobs/:jobId', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        const job = jobs.get(req.params.jobId);
-        if (!job) {
-            res.status(404).send({ error: 'Image generation job not found' });
-            return;
-        }
-        res.send(publicJob(job, { includeResult: req.query?.includeResult === '1' }));
-    });
-
-    const getBridgeJob = (req, res) => {
-        const job = jobs.get(req.params.jobId);
-        const bridgeId = typeof req.body?.bridgeId === 'string' ? req.body.bridgeId : '';
-        if (!job || job.provider !== 'comfyui') {
-            res.status(404).send({ error: 'ComfyUI bridge job not found' });
-            return undefined;
-        }
-        if (!bridgeId || bridgeId !== job.bridgeId) {
-            res.status(403).send({ error: 'ComfyUI bridge device does not own this job' });
-            return undefined;
-        }
-        return job;
-    };
-
-    app.post('/api/image-generation/jobs/:jobId/comfy/submitted', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        const job = getBridgeJob(req, res);
-        if (!job) return;
-        const promptId = typeof req.body?.promptId === 'string' ? req.body.promptId : '';
-        const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId : '';
-        if (!promptId || promptId.length > 256 || !clientId || clientId.length > 256) {
-            res.status(400).send({ error: 'Invalid ComfyUI provider handle' });
-            return;
-        }
-        if (job.providerHandle?.promptId && job.providerHandle.promptId !== promptId) {
-            res.status(409).send({ error: 'A different ComfyUI prompt is already attached' });
-            return;
-        }
-        if (!['waiting_client', 'generating'].includes(job.status)) {
-            res.send(publicJob(job, { includeResult: false }));
-            return;
-        }
-        job.providerHandle = { promptId, clientId };
-        job.status = 'generating';
-        job.updatedAt = Date.now();
-        res.send(publicJob(job, { includeResult: false }));
-    });
-
-    app.post('/api/image-generation/jobs/:jobId/comfy/progress', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        const job = getBridgeJob(req, res);
-        if (!job) return;
-        if (req.body?.promptId !== job.providerHandle?.promptId) {
-            res.status(409).send({ error: 'ComfyUI prompt does not match this job' });
-            return;
-        }
-        setProgress(job, Number(req.body?.value), Number(req.body?.max), req.body?.node);
-        res.send(publicJob(job, { includeResult: false }));
-    });
-
-    app.post('/api/image-generation/jobs/:jobId/comfy/complete', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        const job = getBridgeJob(req, res);
-        if (!job) return;
-        if (req.body?.promptId !== job.providerHandle?.promptId) {
-            res.status(409).send({ error: 'ComfyUI prompt does not match this job' });
-            return;
-        }
-        if (job.status === 'completed') {
-            res.send(publicJob(job, { includeResult: false }));
-            return;
-        }
-        if (!['generating', 'waiting_client'].includes(job.status)) {
-            res.status(409).send({ error: `ComfyUI job is ${job.status}` });
-            return;
-        }
-        const result = Buffer.from(String(req.body?.resultBase64 || ''), 'base64');
-        if (!result.length || result.length > MAX_RESULT_BYTES) {
-            res.status(400).send({ error: 'Invalid ComfyUI image result' });
-            return;
-        }
-        job.result = result;
-        job.resultFormat = ['png', 'jpeg', 'webp'].includes(req.body?.resultFormat)
-            ? req.body.resultFormat : 'png';
+    function completeBridgeJob(job, result, resultFormat) {
+        // Retained results must not keep the upload metadata buffer alive.
+        job.result = Buffer.from(result);
+        job.resultFormat = ['png', 'jpeg', 'webp'].includes(resultFormat)
+            ? resultFormat : 'png';
         job.status = 'completed';
         job.updatedAt = Date.now();
         clearJobTimer(job);
         job.resolveRun?.();
         pruneTerminalJobs(job.jobId);
-        res.send(publicJob(job, { includeResult: false }));
-    });
-
-    app.post('/api/image-generation/jobs/:jobId/comfy/fail', async (req, res) => {
-        if (!await checkProxyAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        const job = getBridgeJob(req, res);
-        if (!job) return;
-        if (job.status === 'completed') {
-            res.send(publicJob(job, { includeResult: false }));
-            return;
-        }
-        finishBridgeJob(
-            job,
-            job.abortController.signal.aborted ? 'interrupted' : 'failed',
-            String(req.body?.error || 'ComfyUI bridge failed').slice(0, 4000),
-        );
-        res.send(publicJob(job, { includeResult: false }));
-    });
+    }
 
     const pruneTimer = setInterval(() => {
         pruneTerminalJobs();
@@ -492,6 +338,9 @@ function installImageGenerationJobRoutes(app, {
             }
         },
         createJob,
+        setProgress,
+        finishBridgeJob,
+        completeBridgeJob,
         executeImageGeneration,
         publicJob,
         releaseResult: jobId => {
@@ -505,4 +354,4 @@ function installImageGenerationJobRoutes(app, {
     };
 }
 
-module.exports = { installImageGenerationJobRoutes };
+module.exports = { createImageGenerationJobService };

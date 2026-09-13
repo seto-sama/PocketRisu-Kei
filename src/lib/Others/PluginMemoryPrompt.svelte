@@ -79,8 +79,7 @@
 {#if data}
     <Dialog
         open={true}
-        closeOnEscape={false}
-        closeOnOutsideClick={false}
+        dismissible={false}
         closable={false}
         size="lg"
         contentClass="max-h-[min(48rem,calc(100dvh-2rem))] overflow-hidden"

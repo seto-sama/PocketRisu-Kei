@@ -1,3 +1,4 @@
+import { decodeBinaryMessage } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store"
 import { getDatabase, type character } from "../storage/database.svelte"
@@ -24,8 +25,17 @@ interface NodeImageGenerationJob {
     status: 'queued' | 'waiting_client' | 'generating' | 'completed' | 'failed' | 'interrupted'
     progress?: { value: number, max: number, node?: string }
     error?: string
-    resultBase64?: string
+    result?: Uint8Array
     resultFormat?: string
+}
+
+async function readNodeImageJob(response: Response): Promise<NodeImageGenerationJob> {
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.error || `Image generation request failed: ${response.status}`)
+    }
+    const { metadata, bytes } = decodeBinaryMessage(new Uint8Array(await response.arrayBuffer()))
+    return { ...metadata, result: bytes } as unknown as NodeImageGenerationJob
 }
 
 async function runNodeImageGenerationJob(arg: {
@@ -42,8 +52,7 @@ async function runNodeImageGenerationJob(arg: {
         headers,
         body: JSON.stringify(arg),
     })
-    let job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
-    if (!response.ok) throw new Error(job.error || `Failed to start image generation: ${response.status}`)
+    let job = await readNodeImageJob(response)
     if (arg.provider === 'comfyui') void serviceComfyBridgeJob(arg.jobId, job).catch(() => {})
     while (job.status === 'queued' || job.status === 'waiting_client' || job.status === 'generating') {
         await new Promise(resolve => setTimeout(resolve, 500))
@@ -51,10 +60,9 @@ async function runNodeImageGenerationJob(arg: {
             `/api/image-generation/jobs/${encodeURIComponent(arg.jobId)}?includeResult=1`,
             { headers },
         )
-        job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
-        if (!response.ok) throw new Error(job.error || `Failed to read image generation: ${response.status}`)
+        job = await readNodeImageJob(response)
     }
-    if (job.status !== 'completed' || !job.resultBase64) {
+    if (job.status !== 'completed' || !job.result?.length) {
         throw new Error(job.error || `Image generation ended with status ${job.status}`)
     }
     return job
@@ -325,7 +333,7 @@ export async function generateAIImage(
                     body: reqlist.body,
                 },
             })
-            const result = Buffer.from(job.resultBase64!, 'base64')
+            const result = Buffer.from(job.result!)
 
             if(returnSdData === 'inlay'){
                 return await processZip(result)
@@ -360,7 +368,7 @@ export async function generateAIImage(
                     timeoutSeconds: imageSettings.comfyConfig.timeout,
                 },
             })
-            const img64 = job.resultBase64!
+            const img64 = Buffer.from(job.result!).toString('base64')
 
             if(returnSdData === 'inlay'){
                 return `data:image/png;base64,${img64}`

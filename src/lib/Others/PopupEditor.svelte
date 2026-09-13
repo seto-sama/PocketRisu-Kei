@@ -56,7 +56,6 @@
     let previewText = $state('')
     let previewError = $state('')
     let searchRequest = $state(0)
-    let editorSearchOpen = $state(false)
     let previewSearchOpen = $state(false)
     let previewSearchQuery = $state('')
     let previewSearchIndex = $state(0)
@@ -131,7 +130,6 @@
         previewText = ''
         previewError = ''
         searchRequest = 0
-        editorSearchOpen = false
         closePreviewSearch()
         documentationOpen = false
     }
@@ -405,7 +403,6 @@
 <Dialog
     open={popUpEditorStore.open}
     size="xl"
-    closeOnEscape={!previewSearchOpen && !editorSearchOpen}
     onRequestClose={() => void requestClose()}
     contentClass="h-[calc(100dvh-2rem)] gap-3 p-3 sm:p-4"
     bodyClass="flex min-h-0 flex-1 flex-col"
@@ -594,7 +591,6 @@
                     {searchRequest}
                     onValueChange={updateEditorValue}
                     onSearchOpened={() => (searchRequest = 0)}
-                    onSearchOpenChange={(open) => (editorSearchOpen = open)}
                     onSave={() => void requestSubmit()}
                 />
             </div>

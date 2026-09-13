@@ -55,7 +55,7 @@
 </script>
 
 {#if popupStore.children}
-    <OverlayPortal>
+    <OverlayPortal onEscape={closePopup}>
     <div class="risu-layer-overlay fixed flex flex-col items-start gap-2 overflow-y-auto rounded-md border border-darkborderc bg-darkbg p-4" style={styleString}>
         {@render popupStore.children()}
     </div>

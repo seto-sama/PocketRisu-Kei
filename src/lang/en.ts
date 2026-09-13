@@ -1981,6 +1981,7 @@ export const languageEnglish = {
     seperateParametersByModel: "Separate Parameters by Model",
     keepSessionAlive: "Keep Session Alive",
     disableMobileBackNavigation: "Disable Back Navigation on Mobile",
+    confirmLeavePage: "Leave this page?",
     toggleBindingLabel: "Toggle Binding",
     togglePinToChat: "Bind toggles to chat",
     togglePinLabel: "Bind",

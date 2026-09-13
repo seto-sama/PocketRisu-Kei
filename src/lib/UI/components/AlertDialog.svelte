@@ -15,10 +15,10 @@
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         size?: AlertDialogSize;
-        closeOnEscape?: boolean;
-        closeOnOutsideClick?: boolean;
+        /** Escape and backdrop dismissal; disable only for blocking workflows. */
+        dismissible?: boolean;
         /** Keyboard actions for binary confirmation dialogs. Enter confirms;
-         *  Escape cancels when `closeOnEscape` is enabled. */
+         *  Escape cancels when `dismissible` is enabled. */
         onConfirm?: () => void;
         onCancel?: () => void;
         contentClass?: string;
@@ -37,8 +37,7 @@
         open = $bindable(false),
         onOpenChange,
         size = 'default',
-        closeOnEscape = false,
-        closeOnOutsideClick = false,
+        dismissible = true,
         onConfirm,
         onCancel,
         contentClass = '',
@@ -68,8 +67,8 @@
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
 
-    function handleEscapeKeydown(event: KeyboardEvent) {
-        if (!closeOnEscape || !onCancel) return
+    function handleDismiss(event: Event) {
+        if (!dismissible || !onCancel) return
         event.preventDefault()
         onCancel()
     }
@@ -96,9 +95,10 @@
             data-risu-overlay-layer={overlayLayer.allocatedZIndex}
             class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
             style={overlayStyle}
-            escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
-            interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
-            onEscapeKeydown={handleEscapeKeydown}
+            escapeKeydownBehavior={dismissible ? 'close' : 'ignore'}
+            interactOutsideBehavior={dismissible ? 'close' : 'ignore'}
+            onEscapeKeydown={handleDismiss}
+            onInteractOutside={handleDismiss}
             onkeydown={handleKeydown}
         >
             {#if title || description}

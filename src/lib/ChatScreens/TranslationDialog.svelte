@@ -88,8 +88,6 @@
 <Dialog
     bind:open
     size="default"
-    closeOnEscape={!promptPickerOpen && !modelPickerOpen}
-    closeOnOutsideClick={!promptPickerOpen && !modelPickerOpen}
     closable
 >
     {#snippet title()}

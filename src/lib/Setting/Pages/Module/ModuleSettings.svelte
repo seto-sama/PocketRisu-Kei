@@ -447,7 +447,7 @@
             bind:searchQuery={personaSearch}
             bind:visibleItemIndexes={visiblePersonaIndexes}
             bind:emptyMessage={emptyPersonaMessage}
-            close={closePersonaModuleModal}
+            onRequestClose={closePersonaModuleModal}
             onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
                 DBState.db.personaTags = next
@@ -494,7 +494,7 @@
     {#if moduleFolderManagementOpen}
         <ModuleChatMenu
             folderManagement
-            close={() => (moduleFolderManagementOpen = false)}
+            bind:open={moduleFolderManagementOpen}
             onCreateModule={startCreateModule}
             onImportModule={importModule}
             onDuplicateModule={duplicateModule}
@@ -548,7 +548,7 @@
     </SettingPage>
 {/if}
 
-<Dialog bind:open={mcpImportOpen} size="default" closeOnEscape={!mcpImporting} closeOnOutsideClick={!mcpImporting} closable={!mcpImporting}>
+<Dialog bind:open={mcpImportOpen} size="default" dismissible={!mcpImporting} closable={!mcpImporting}>
     {#snippet title()}{language.mcpImport.title}{/snippet}
     {#snippet description()}{language.mcpImport.description}{/snippet}
 

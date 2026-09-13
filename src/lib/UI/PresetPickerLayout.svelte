@@ -12,6 +12,7 @@
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
     import ListActionBar from "./components/ListActionBar.svelte";
     import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
+    import OverlayBackdrop from "./components/overlay/OverlayBackdrop.svelte";
     import InlineRenameAction from "./components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "./components/InlineEditableNameController.svelte";
     import { isEventFromInteractiveChild } from "src/lib/utils";
@@ -32,7 +33,9 @@
         itemDragDataKey: string;
         selectedFolder?: string;
         searchQuery?: string;
-        close: () => void;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
+        onRequestClose?: () => void;
         configure?: () => void;
         onFoldersChange: (folders: PresetFolder[]) => void;
         onMoveFolder?: (orderedIds: string[], draggedId: string) => void;
@@ -82,6 +85,9 @@
     }
 
     let {
+        open = $bindable(true),
+        onOpenChange,
+        onRequestClose,
         title,
         titleHelpKey,
         folders,
@@ -89,7 +95,6 @@
         itemDragDataKey,
         selectedFolder = $bindable('all'),
         searchQuery = $bindable(''),
-        close,
         configure,
         onFoldersChange,
         onMoveFolder,
@@ -137,6 +142,14 @@
         noneLabel = language.bindingNone,
         children,
     }: Props = $props();
+
+    function close() {
+        if (onRequestClose) onRequestClose()
+        else {
+            open = false
+            onOpenChange?.(false)
+        }
+    }
 
     let draggingFolderId = $state<string | null>(null);
     let itemDropTarget = $state<string | null>(null);
@@ -293,13 +306,15 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<OverlayPortal onEscape={close}>
-<div class="risu-modal-backdrop risu-layer-overlay pointer-events-auto flex justify-center items-center" role="button" tabindex="0" onclick={close}>
+<OverlayPortal>
+<OverlayBackdrop
+    class="risu-modal-backdrop risu-layer-overlay pointer-events-auto flex justify-center items-center"
+    bind:open
+    {onOpenChange}
+    {onRequestClose}
+>
 <div
     class="bg-darkbg break-any rounded-md flex flex-col w-[min(56rem,calc(100%-1rem))] h-[min(44rem,calc(100%-1rem))] overflow-hidden border border-darkborderc"
-    role="button"
-    tabindex="0"
-    onclick={(e) => e.stopPropagation()}
 >
     <div class="p-4 pb-0">
         <div class="flex items-center text-maintext mb-4">
@@ -514,7 +529,7 @@
         </section>
     </div>
 </div>
-</div>
+</OverlayBackdrop>
 </OverlayPortal>
 
 <style>

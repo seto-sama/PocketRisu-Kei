@@ -1,15 +1,15 @@
 const express = require('express');
-const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
+
 const app = express();
 const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
-const htmlparser = require('node-html-parser');
-const { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
+
+const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
-const rateLimit = require('express-rate-limit')
+
 const { WebSocketServer } = require('ws')
 const { Worker } = require('worker_threads')
 const Vips = require('wasm-vips')
@@ -23,61 +23,25 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount,
-        kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, clearEntities, checkpointWal,
-        estimateVacuumRequiredBytes, vacuumDatabase, gcChunks, reclaimableChunkBytes,
-        chunkStorageStats, isDbBlobChunked, snapshotFootprint, snapshotSetFootprint,
-        db: sqliteDb } = require('./db.cjs');
-const {
-    AppDataConflictError,
-    createAppDataStore,
-} = require('./appDataStore.cjs');
+const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvListWithSizes, checkpointWal, snapshotSetFootprint, db: sqliteDb } = require('./db.cjs');
+const { createAppDataStore } = require('./appDataStore.cjs');
 const {
     AppDataMigrationCleanupError,
     createAppDataMigration,
 } = require('./appDataMigration.cjs');
 const appDataStore = createAppDataStore(sqliteDb);
-const {
-    DatabaseProjectionServiceError,
-    createDatabaseProjectionService,
-} = require('./databaseProjectionService.cjs');
-const {
-    createBookmarkStore,
-    normalizePreview,
-    readChatCompatibility,
-    stripChatCompatibility,
-} = require('./bookmarkStore.cjs');
+
+const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const bookmarkStore = createBookmarkStore(sqliteDb);
-const BOOKMARKS_API_PATH = '/api/bookmarks';
-const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags';
-const {
-    STORED_ASSET_PREFIX,
-    assetBasename: statsBasename,
-    collectDatabaseAssetBasenames,
-    collectPersistentPluginAssetBasenames,
-    collectProtectedAssetBasenames,
-    findOrphanAssets,
-} = require('./assetReferences.cjs');
-const { buildSettingsBackupPlan } = require('./settingsBackup.cjs');
-const {
-    deleteBackupNote,
-    getBackupNote,
-    normalizeBackupNote,
-    readBackupNotes,
-    setBackupNote,
-} = require('./backupNotes.cjs');
-const assetReferenceStorage = { listKeys: kvList, getValue: kvGet };
-const {
-    addLogBatch, queryLogs, clearLogs, deleteLog, countLogs,
-    logger, installProcessHandlers, expressErrorMiddleware,
-} = require('./logs/logs.cjs');
-const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
-const { installUsageRoutes, recordGenerationUsage, getUsageByJobIds } = require('./logs/usageDb.cjs');
+
+const { logger, installProcessHandlers, expressErrorMiddleware } = require('./logs/logs.cjs');
+const { addRequestLog, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
+const { recordGenerationUsage } = require('./logs/usageDb.cjs');
 const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
 } = require('./upstreamRequest.cjs');
-const { requestIdleTimeoutMs } = require('../../shared/requestTimeout.mjs');
+
 const {
     generationDb,
     getGenerationJob,
@@ -100,6 +64,7 @@ const {
     projectGenerationJournal,
     installRevenantGenerationRoutes,
     installImageGenerationJobRoutes,
+    createImageGenerationJobService,
     createGenerationWorkers,
     createRevenantMaterializer,
     createRevenantPostprocessWorker,
@@ -110,37 +75,12 @@ const {
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
 } = require('./revenant/index.cjs');
-const {
-    computeChatEtag,
-    createFullChatStore,
-    commitChatContent,
-    stripChatsFromDb,
-    mergeChatStubWithFullChat,
-    reassembleFullDb: reassembleFullDbFromStore,
-    findStubFlagLossChats,
-    CanonicalChatCommitError,
-    createCanonicalChatService,
-} = require('./chatStore.cjs');
-const {
-    applyGenerationInputMetadata,
-    restoreGenerationOwnedMetadata,
-} = require('./revenant/generationInputMetadata.cjs');
-const {
-    filterRemoteOnlyFolders,
-    isChatHiddenFromRemote,
-    isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl,
-    mergeRemoteFilteredDatabase,
-} = require('./remoteDatabaseFilter.cjs');
-const { applyPatch } = require('fast-json-patch');
-const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
-const {
-    createBackupRestoreService,
-    createLegacyRestoreService,
-    restoreMissingAssetsFromBackupFile,
-} = require('./dataRestore/index.cjs');
-const { spawn, execSync } = require('child_process');
-const os = require('os');
-const { Readable, Transform } = require('stream');
+const { computeChatEtag, commitChatContent, mergeChatStubWithFullChat, reassembleFullDb: reassembleFullDbFromStore, createCanonicalChatService } = require('./chatStore.cjs');
+const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
+const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
+
+const { decodeRisuSave, encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
+const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
 // Install process-level error handlers before any other init so early crashes get logged.
 installProcessHandlers();
@@ -157,13 +97,14 @@ const enablePatchSync = true;
 // In-memory database cache for patch-based sync
 // dbCache stores the STRIPPED (stubs-only) version matching what the client sees.
 // fullChatStore keeps the actual chat data keyed by chaId→chatId.
-let dbCache = {};
-let saveTimers = {};
-const SAVE_INTERVAL = 5000;
-let fullChatStore = null; // Map<chaId, Map<chatId, chatObject>> — lazy-initialized
+const storageState = {
+    dbCache: {},
+    fullChatStore: null,
+    dbEtag: null,
+    lastPersistFailure: null,
+};
+const saveTimers = {};
 
-// ETag for database.bin
-let dbEtag = null;
 const MISSING_DATABASE_ETAG = '__missing_database__';
 let restoreColdStorageCharactersInDb;
 let restoreColdStorageChat;
@@ -192,17 +133,6 @@ function queueStorageOperation(operation) {
  * canonical commit. Remove the timer token before queueing: a later debounce
  * must not be deleted by the older queued operation's cleanup.
  */
-function scheduleStorageOperation(key, operation) {
-    if (saveTimers[key]) clearTimeout(saveTimers[key]);
-    const timer = setTimeout(() => {
-        if (saveTimers[key] !== timer) return;
-        delete saveTimers[key];
-        void queueStorageOperation(operation).catch(error => {
-            logger.error(`[Storage] Scheduled operation failed for ${key}:`, error);
-        });
-    }, SAVE_INTERVAL);
-    saveTimers[key] = timer;
-}
 
 const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
 
@@ -210,34 +140,13 @@ const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex')
 // Debounced persist runs in setTimeout, so failures cannot be returned in the
 // triggering response. Record the latest failure here and surface it on the
 // next /api/patch response. Cleared on next successful persist.
-let lastPersistFailure = null;
-
-function recordPersistFailure(error, source) {
-    const message = String(error?.message || error || 'unknown error');
-    const attemptedSize = typeof error?.attemptedSize === 'number' ? error.attemptedSize : null;
-    // Preserve timestamp when the failure is identical to the last one — every
-    // debounce cycle re-records the same failure, and clients dedupe by ts.
-    // Without this guard a fresh ts every 5s would re-fire the toast.
-    if (lastPersistFailure
-        && lastPersistFailure.source === source
-        && lastPersistFailure.message === message
-        && lastPersistFailure.attemptedSize === attemptedSize) {
-        return;
-    }
-    lastPersistFailure = {
-        timestamp: Date.now(),
-        message,
-        attemptedSize,
-        source,
-    };
-}
 
 function clearPersistFailure() {
-    lastPersistFailure = null;
+    storageState.lastPersistFailure = null;
 }
 
 function currentPersistWarning() {
-    return lastPersistFailure;
+    return storageState.lastPersistFailure;
 }
 
 // ─── Server-side database backup (DB-only snapshots) ────────────────────────
@@ -289,8 +198,6 @@ function deleteSnapshotStateRows(key) {
     bookmarkStore.deleteSnapshot(key);
 }
 
-const deleteSnapshotState = sqliteDb.transaction(deleteSnapshotStateRows);
-
 const deleteSnapshotStates = sqliteDb.transaction((keys) => {
     for (const key of keys) deleteSnapshotStateRows(key);
 });
@@ -333,15 +240,6 @@ function trimSnapshotsToLimits() {
 //   logicalBytes — sum of each snapshot's full logical size (kvSize), i.e. what
 //                  the snapshots would cost WITHOUT dedup. Drives the "saved by
 //                  deduplication" figure; never used for trimming.
-function snapshotUsage() {
-    const keys = kvList(DB_BACKUP_PREFIX);
-    const bytes = snapshotSetFootprint(keys);
-    let logicalBytes = 0;
-    for (const k of keys) {
-        logicalBytes += (kvSize(k) || 0);
-    }
-    return { count: keys.length, bytes, logicalBytes };
-}
 
 function makeSnapshotKey(now = Date.now()) {
     let tick = Math.round(now / 100);
@@ -433,16 +331,6 @@ async function flushPendingDb() {
     }
 }
 
-function invalidateDbCache() {
-    delete dbCache[DB_HEX_KEY];
-    fullChatStore = null;
-    if (saveTimers[DB_HEX_KEY]) {
-        clearTimeout(saveTimers[DB_HEX_KEY]);
-        delete saveTimers[DB_HEX_KEY];
-    }
-    dbEtag = null;
-}
-
 // ─── Chat runtime lazy load helpers ─────────────────────────────────────────
 
 function assignMissingPersistentIds(dbObj) {
@@ -523,51 +411,28 @@ function normalizeLegacyDatabaseProjection(dbObj) {
     return { database: normalized, coldRestoreResult };
 }
 
-function pruneBookmarksToFullChatStore() {
-    if (!fullChatStore) return 0;
-    return bookmarkStore.pruneInvalid((entry) => fullChatStore
-        .get(entry.characterId)
-        ?.get(entry.chatId)
-        ?.message
-        ?.some(message => message?.chatId === entry.messageId));
-}
-
-function initChatStore(dbObj) {
-    const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(dbObj);
-    fullChatStore = createFullChatStore(dbObj);
-    if (bookmarkMigration.migrated) pruneBookmarksToFullChatStore();
-    return bookmarkMigration;
-}
-
 function reassembleFullDb(strippedDb) {
-    return reassembleFullDbFromStore(strippedDb, fullChatStore);
+    return reassembleFullDbFromStore(strippedDb, storageState.fullChatStore);
 }
 
 function isCloudflareTunnelRequest(req) {
-    return isCloudflareTunnelRequestForUrl(req, tunnelUrl);
+    return isCloudflareTunnelRequestForUrl(req, tunnelState.tunnelUrl);
 }
-
-const databaseProjectionService = createDatabaseProjectionService({
-    appDataStore,
-    filterRemoteOnlyFolders,
-    mergeRemoteFilteredDatabase,
-    restoreGenerationOwnedMetadata,
-});
 
 // Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
 
 /** Ensure the requested chat is present in the process-local hot cache. */
 async function ensureChatStore(characterId, chatId) {
     await ensureCanonicalStorage();
-    if (!fullChatStore) fullChatStore = new Map();
+    if (!storageState.fullChatStore) storageState.fullChatStore = new Map();
     if (!appDataStore.getState().initialized || !characterId || !chatId) return;
-    let chats = fullChatStore.get(characterId);
+    let chats = storageState.fullChatStore.get(characterId);
     if (chats?.has(chatId)) return;
     const chat = appDataStore.getChat(characterId, chatId);
     if (!chat) return;
     if (!chats) {
         chats = new Map();
-        fullChatStore.set(characterId, chats);
+        storageState.fullChatStore.set(characterId, chats);
     }
     chats.set(chatId, chat);
 }
@@ -657,62 +522,19 @@ function findChatInternalFieldOps(patch) {
 /**
  * Persist dbCache to disk with full chats merged back in.
  */
-async function persistDbCacheWithChats(filePath, decodedKey) {
-    const strippedDb = dbCache[filePath];
-    if (!strippedDb) return;
-    if (decodedKey !== 'database/database.bin') {
-        const data = Buffer.from(encodeRisuSaveLegacy(strippedDb));
-        kvSet(decodedKey, data);
-        return;
-    }
-    await ensureChatStore();
-    const fullDb = reassembleFullDb(strippedDb);
-
-    // Disk protection guard: abort persist when reassemble produced metadata-only
-    // chats. Writing them would lock the loss in (next /api/read returns the
-    // stripped chat with no `_stub`, so hydration never re-merges fullChatStore).
-    // Invalidate dbCache so the next request re-reads from disk and rebuilds a
-    // consistent stub view; client receives 409 on next /api/patch via hash mismatch.
-    if (decodedKey === 'database/database.bin') {
-        const losses = findStubFlagLossChats(fullDb);
-        if (losses.length > 0) {
-            const sample = losses.slice(0, 3).map(l => `${l.chaId}/${l.chatId ?? l.chatIndex}`).join(', ');
-            const err = new Error(
-                `persist aborted: ${losses.length} chat(s) lost _stub flag without upgrade — `
-                + `would silently strip messages on disk. sample=[${sample}]`
-            );
-            recordPersistFailure(err, 'persistDbCacheWithChats:stub-flag-loss');
-            delete dbCache[filePath];
-            throw err;
-        }
-    }
-
-    try {
-        appDataStore.syncStartupProjection(strippedDb);
-    } catch (err) {
-        throw err;
-    }
-    // Refresh fullChatStore from the persisted snapshot so subsequent
-    // /api/chat-content GETs return the same metadata (folderId, modules)
-    // that just hit disk. Without this, PATCH-only clears of stub fields
-    // leave fullChatStore holding stale fullChat objects, and hydration
-    // would resurrect the cleared values until the next /api/read.
-    initChatStore(appDataStore.exportProjection({ includeMessages: true }));
-    dbCache[filePath] = appDataStore.exportProjection({ includeMessages: false });
-}
 
 /** Persist the canonical full-chat store immediately, preserving pending stub edits. */
 async function persistFullChatStoreNow() {
     await ensureChatStore();
-    if (dbCache[DB_HEX_KEY]) {
-        const fullDb = reassembleFullDb(dbCache[DB_HEX_KEY]);
+    if (storageState.dbCache[DB_HEX_KEY]) {
+        const fullDb = reassembleFullDb(storageState.dbCache[DB_HEX_KEY]);
         appDataStore.replaceFromProjection(fullDb, {
             expectedRevision: appDataStore.getState().revision,
         });
         refreshCanonicalDatabaseCache();
         return;
     }
-    if (!fullChatStore || fullChatStore.size === 0) return;
+    if (!storageState.fullChatStore || storageState.fullChatStore.size === 0) return;
     const stripped = appDataStore.exportProjection({ includeMessages: false });
     const fullDb = reassembleFullDb(stripped);
     appDataStore.replaceFromProjection(fullDb, {
@@ -738,7 +560,7 @@ async function persistCanonicalChatState({
     if (!appDataStore.getState().initialized) {
         throw new Error('Canonical relational database is missing');
     }
-    const previousCachedDb = dbCache[DB_HEX_KEY]
+    const previousCachedDb = storageState.dbCache[DB_HEX_KEY]
         ?? appDataStore.exportProjection({ includeMessages: false });
     const nextDb = structuredClone(previousCachedDb);
 
@@ -766,8 +588,8 @@ async function persistCanonicalChatState({
             );
             appDataStore.syncStartupProjection(nextDb);
         })();
-        dbCache[DB_HEX_KEY] = appDataStore.exportProjection({ includeMessages: false });
-        dbEtag = computeDatabaseEtagFromObject(dbCache[DB_HEX_KEY]);
+        storageState.dbCache[DB_HEX_KEY] = appDataStore.exportProjection({ includeMessages: false });
+        storageState.dbEtag = computeDatabaseEtagFromObject(storageState.dbCache[DB_HEX_KEY]);
         clearPersistFailure();
         try {
             scheduleBackupAndRotate();
@@ -776,7 +598,7 @@ async function persistCanonicalChatState({
         }
         return { ...committed, metadata };
     } catch (error) {
-        dbCache[DB_HEX_KEY] = previousCachedDb;
+        storageState.dbCache[DB_HEX_KEY] = previousCachedDb;
         throw error;
     }
 }
@@ -845,18 +667,15 @@ app.use('/assets', express.static(path.join(process.cwd(), 'dist/assets'), {
     immutable: true,
 }));
 app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
-app.use(express.json({ limit: '100mb' }));
-app.use((req, res, next) => {
-    // Skip express.raw() for backup import — it must stream, not buffer into memory
-    if (req.path === '/api/backup/import') return next();
-    return express.raw({ type: 'application/octet-stream', limit: '2gb' })(req, res, next);
-});
-app.use(express.text({ limit: '100mb' }));
-const {pipeline} = require('stream/promises')
-const sslPath = path.join(process.cwd(), 'server/node/ssl/certificate');
-const hubURL = 'https://sv.risuai.xyz';
 
-let password = ''
+app.use(express.json({ limit: '100mb' }));
+app.use(express.text({ limit: '100mb' }));
+
+const sslPath = path.join(process.cwd(), 'server/node/ssl/certificate');
+
+const authState = {
+    password: '',
+};
 
 // Ensure /save/ exists for password file and migration source
 const savePath = path.join(process.cwd(), "save")
@@ -870,7 +689,7 @@ if(!existsSync(savePath)){
 // stay where they were); only future backups land at the new path.
 const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
 const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
-const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
+
 // Plaintext marker the updater reads to preserve a custom in-tree backup dir
 // during in-place updates. KV lives inside the SQLite DB so the updater (which
 // runs without npm deps) can't read it; this marker bridges that gap.
@@ -894,95 +713,19 @@ function writeBackupPathMarker(absPath) {
     }
 }
 
-function isManagedBackupPath(absPath) {
-    const rel = path.relative(process.cwd(), absPath);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
-    if (!rel) return true;
-    return MANAGED_BACKUP_PATH_ROOTS.has(rel.split(path.sep)[0]);
+const backupState = {
+    backupsDir: readBackupsDirConfig(),
+};
+if(!existsSync(backupState.backupsDir)){
+    try { mkdirSync(backupState.backupsDir, { recursive: true }); }
+    catch { backupState.backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupState.backupsDir, { recursive: true }); }
 }
-
-let backupsDir = readBackupsDirConfig();
-if(!existsSync(backupsDir)){
-    try { mkdirSync(backupsDir, { recursive: true }); }
-    catch { backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupsDir, { recursive: true }); }
-}
-writeBackupPathMarker(backupsDir);
+writeBackupPathMarker(backupState.backupsDir);
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
-const MANUAL_SNAPSHOT_FILENAME_REGEX = /^dbbackup-\d+\.bin$/;
-const BACKUP_SCHEDULE_KEY = 'config/backup-schedule';
-const DEFAULT_BACKUP_SCHEDULE = Object.freeze({
-    enabled: false,
-    serverDays: 0,
-    snapshotDays: 0,
-});
-
-function getManualSnapshotsDir() {
-    return path.join(backupsDir, 'snapshot');
-}
-
-function getBackupNotesDir() {
-    // File-backed backup notes travel with the configured backup directory and
-    // are never part of a database restore.
-    return backupsDir;
-}
-
-function isValidBackupNoteTarget(kind, id) {
-    if (kind === 'server') return BACKUP_FILENAME_REGEX.test(id);
-    if (kind === 'manual') return MANUAL_SNAPSHOT_FILENAME_REGEX.test(id);
-    return false;
-}
-
-async function backupNoteTargetExists(kind, id) {
-    const directory = kind === 'manual' ? getManualSnapshotsDir() : backupsDir;
-    try {
-        await fs.access(path.join(directory, id));
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function makeManualSnapshotFilename(now = Date.now()) {
-    let tick = Math.round(now / 100);
-    let filename = `dbbackup-${tick}.bin`;
-    while (existsSync(path.join(getManualSnapshotsDir(), filename))) {
-        tick += 1;
-        filename = `dbbackup-${tick}.bin`;
-    }
-    return filename;
-}
-
-function clampBackupScheduleDays(value, fallback) {
-    const days = Math.floor(Number(value));
-    if (!Number.isFinite(days)) return fallback;
-    return Math.min(365, Math.max(0, days));
-}
-
-function normalizeBackupSchedule(raw = {}) {
-    const serverDays = clampBackupScheduleDays(raw.serverDays, DEFAULT_BACKUP_SCHEDULE.serverDays);
-    const snapshotDays = clampBackupScheduleDays(raw.snapshotDays, DEFAULT_BACKUP_SCHEDULE.snapshotDays);
-    return {
-        enabled: !!raw.enabled,
-        serverDays,
-        snapshotDays,
-        serverEnabled: serverDays > 0,
-        snapshotEnabled: snapshotDays > 0,
-    };
-}
-
-function readBackupSchedule() {
-    try {
-        const raw = kvGet(BACKUP_SCHEDULE_KEY);
-        if (!raw) return { ...DEFAULT_BACKUP_SCHEDULE };
-        return normalizeBackupSchedule(JSON.parse(Buffer.from(raw).toString('utf-8')));
-    } catch {
-        return { ...DEFAULT_BACKUP_SCHEDULE };
-    }
-}
 
 const passwordPath = path.join(process.cwd(), 'save', '__password')
 if(existsSync(passwordPath)){
-    password = readFileSync(passwordPath, 'utf-8')
+    authState.password = readFileSync(passwordPath, 'utf-8')
 }
 
 // ── NodeOnly: server-side JWT (HMAC-SHA256) ─────────────────────────────────
@@ -1010,169 +753,47 @@ if (existsSync(instanceIdPath)) {
     writeFileSync(instanceIdPath, instanceId, 'utf-8')
 }
 
-const authCodePath = path.join(process.cwd(), 'save', '__authcode')
 const inlayDir = path.join(savePath, 'inlays')
 const inlayVideoThumbnailDir = path.join(inlayDir, '.video-thumbnails')
 const inlayMigrationMarker = path.join(inlayDir, '.migrated_to_fs')
-const hexRegex = /^[0-9a-fA-F]+$/;
-const BACKUP_IMPORT_MAX_BYTES = Number(process.env.RISU_BACKUP_IMPORT_MAX_BYTES ?? '0');
-const BACKUP_ENTRY_NAME_MAX_BYTES = 1024;
+
 // Minimum free disk space headroom multiplier: require 2× the backup size to be free
-const BACKUP_DISK_HEADROOM = 2;
+
 // Heartbeat interval for NDJSON import progress stream. 5 s by default —
 // shorter than every common reverse-proxy response timeout (nginx 60 s, Cloudflare
 // 100 s). Operators behind more aggressive proxies can tighten this. Clamped to
 // 100 ms so a misconfiguration can't spam the socket.
-const BACKUP_NDJSON_HEARTBEAT_MS = Math.max(
-    100,
-    Number(process.env.BACKUP_NDJSON_HEARTBEAT_MS ?? '5000') || 5000,
-);
-
-let importInProgress = false;
 
 // ── Cloudflare Quick Tunnel ─────────────────────────────────────────────────
-const TUNNEL_DISABLED = process.env.RISU_TUNNEL_DISABLED === 'true';
-let tunnelProcess = null;
-let tunnelUrl = null;
-let tunnelStatus = 'off';   // 'off' | 'downloading' | 'starting' | 'running' | 'error'
-let tunnelError = null;
-let tunnelStartTimeout = null;
-let serverIsHttps = false;
 
-const CLOUDFLARED_ASSETS = {
-    'darwin-arm64':  { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz', type: 'tgz' },
-    'darwin-x64':    { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz', type: 'tgz' },
-    'linux-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64', type: 'bin' },
-    'linux-arm64':   { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
-    // Termux reports process.platform === 'android' but the linux-arm64
-    // cloudflared binary (statically linked Go) runs cleanly on Bionic.
-    'android-arm64': { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
-    'win32-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe', type: 'bin' },
+const tunnelState = {
+    tunnelProcess: null,
+    tunnelUrl: null,
+    tunnelStatus: 'off',
+    tunnelError: null,
+    tunnelStartTimeout: null,
+    serverIsHttps: false,
 };
 
-function findCloudflaredBinary() {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const bundled = path.join(process.cwd(), 'bin', 'cloudflared' + ext);
-    if (existsSync(bundled)) return bundled;
-    try {
-        execSync(process.platform === 'win32' ? 'where cloudflared' : 'which cloudflared', { stdio: 'pipe' });
-        return 'cloudflared';
-    } catch {
-        return null;
-    }
-}
-
-function followRedirects(url) {
-    return new Promise((resolve, reject) => {
-        const mod = url.startsWith('https') ? require('https') : require('http');
-        mod.get(url, { headers: { 'User-Agent': 'pocketrisu' } }, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                followRedirects(res.headers.location).then(resolve, reject);
-            } else if (res.statusCode === 200) {
-                resolve(res);
-            } else {
-                reject(new Error(`HTTP ${res.statusCode}`));
-            }
-        }).on('error', reject);
-    });
-}
-
-async function downloadCloudflared() {
-    const key = `${process.platform}-${process.arch}`;
-    const asset = CLOUDFLARED_ASSETS[key];
-    if (!asset) throw new Error(`Unsupported platform: ${key}`);
-
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const binDir = path.join(process.cwd(), 'bin');
-    const dest = path.join(binDir, 'cloudflared' + ext);
-
-    if (!existsSync(binDir)) require('fs').mkdirSync(binDir, { recursive: true });
-
-    console.log(`[Tunnel] Downloading cloudflared for ${key}...`);
-    const res = await followRedirects(asset.url);
-
-    if (asset.type === 'tgz') {
-        const tmpPath = path.join(binDir, '_cloudflared.tgz');
-        await new Promise((resolve, reject) => {
-            const ws = require('fs').createWriteStream(tmpPath);
-            res.pipe(ws);
-            ws.on('finish', () => { ws.close(); resolve(); });
-            ws.on('error', reject);
-        });
-        execSync(`tar -xzf "${tmpPath}" -C "${binDir}"`, { stdio: 'pipe' });
-        require('fs').unlinkSync(tmpPath);
-    } else {
-        await new Promise((resolve, reject) => {
-            const ws = require('fs').createWriteStream(dest);
-            res.pipe(ws);
-            ws.on('finish', () => { ws.close(); resolve(); });
-            ws.on('error', reject);
-        });
-    }
-
-    if (process.platform !== 'win32') require('fs').chmodSync(dest, 0o755);
-    console.log('[Tunnel] cloudflared downloaded successfully.');
-    return dest;
-}
+   // 'off' | 'downloading' | 'starting' | 'running' | 'error'
 
 function stopTunnel() {
-    if (tunnelStartTimeout) { clearTimeout(tunnelStartTimeout); tunnelStartTimeout = null; }
-    if (tunnelProcess) {
-        try { tunnelProcess.kill('SIGTERM'); } catch {}
-        tunnelProcess = null;
+    if (tunnelState.tunnelStartTimeout) { clearTimeout(tunnelState.tunnelStartTimeout); tunnelState.tunnelStartTimeout = null; }
+    if (tunnelState.tunnelProcess) {
+        try { tunnelState.tunnelProcess.kill('SIGTERM'); } catch {}
+        tunnelState.tunnelProcess = null;
     }
-    tunnelUrl = null;
-    tunnelStatus = 'off';
-    tunnelError = null;
+    tunnelState.tunnelUrl = null;
+    tunnelState.tunnelStatus = 'off';
+    tunnelState.tunnelError = null;
 }
 
 // ── Update check ─────────────────────────────────────────────────────────────
-const GITHUB_REPO = 'seto-sama/PocketRisu-Kei';
-const UPDATE_CHECK_DISABLED = process.env.RISU_UPDATE_CHECK === 'false';
-const CUSTOM_UPDATE_CHECK_URL = process.env.RISU_UPDATE_URL || '';
-const UPDATE_CHECK_URL = CUSTOM_UPDATE_CHECK_URL || `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-const PUBLIC_STATS_URL = UPDATE_CHECK_DISABLED
-    ? ''
-    : (CUSTOM_UPDATE_CHECK_URL || 'https://risu-update-worker.nodridan.workers.dev/check')
-        .replace(/\/check$/, '/api/public-stats');
 
 // Re-read on each call so non-portable updates (docker/git pull) without a
 // process restart don't keep reporting the old version to the update worker.
-function getCurrentVersion() {
-    try {
-        const pkg = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'));
-        return pkg.version || '0.0.0';
-    } catch { return '0.0.0'; }
-}
 
 // ── Deployment type & self-update helpers ─────────────────────────────────────
-const deploymentType = (() => {
-    // Only portable builds have the .portable marker (created by CI release workflow).
-    // Self-update is gated on this — all other types are inferred for analytics only.
-    // Wrapped in try/catch so unexpected filesystem errors can't crash server boot.
-    try {
-        if (existsSync(path.join(process.cwd(), '.portable'))) return 'portable';
-        if (existsSync(path.join(process.cwd(), '.git'))) return 'git';
-        if (existsSync('/.dockerenv')) return 'docker';
-        try {
-            const cgroup = readFileSync('/proc/1/cgroup', 'utf-8');
-            if (cgroup.includes('docker') || cgroup.includes('containerd')) return 'docker';
-        } catch {}
-        if (process.platform === 'android') return 'termux';
-    } catch {}
-    return 'unknown';
-})();
-
-function getSelfUpdateAssetInfo(version) {
-    const platformMap = { win32: 'win', linux: 'linux', darwin: 'macos' };
-    const platformName = platformMap[process.platform];
-    if (!platformName) return null;
-    const arch = process.arch; // x64, arm64
-    const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
-    const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/kei-v${version}/${filename}`;
-    return { platformName, arch, ext, filename, url };
-}
 
 function isSafeInlayId(id) {
     return typeof id === 'string' &&
@@ -1258,10 +879,6 @@ function decodeDataUri(dataUri) {
         buffer: Buffer.from(dataUri.substring(commaIdx + 1), 'base64'),
         mime: meta.split(';')[0] || 'application/octet-stream',
     };
-}
-
-function encodeDataUri(buffer, mime) {
-    return `data:${mime || 'application/octet-stream'};base64,${Buffer.from(buffer).toString('base64')}`;
 }
 
 async function readInlaySidecar(id) {
@@ -1412,12 +1029,6 @@ function deleteInlayRawFileSync(id) {
     }
 }
 
-async function deleteInlayFile(id) {
-    await deleteInlayRawFile(id);
-    await deleteInlayVideoThumbnail(id);
-    await fs.unlink(getInlaySidecarPath(id)).catch(() => {});
-}
-
 function deleteInlayFileSync(id) {
     deleteInlayRawFileSync(id);
     deleteInlayVideoThumbnailSync(id);
@@ -1470,26 +1081,6 @@ async function readInlayInfoPayload(id) {
     return kvGet(`inlay_info/${id}`);
 }
 
-async function readInlayAssetPayload(id) {
-    const file = await readInlayFile(id);
-    if (!file) return null;
-    const sidecar = (await readInlaySidecar(id)) || (await readInlayLegacyInfo(id));
-    const info = {
-        ext: sidecar?.ext || file.ext,
-        name: sidecar?.name || id,
-        type: sidecar?.type || 'image',
-        height: sidecar?.height,
-        width: sidecar?.width,
-    };
-    const data = info.type === 'signature'
-        ? file.buffer.toString('utf-8')
-        : encodeDataUri(file.buffer, file.mime);
-    return Buffer.from(JSON.stringify({
-        ...info,
-        data,
-    }));
-}
-
 async function migrateInlaysToFilesystem() {
     await ensureInlayDir();
     if (existsSync(inlayMigrationMarker)) return;
@@ -1536,85 +1127,6 @@ async function migrateInlaysToFilesystem() {
     await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 }
 
-async function fetchLatestRelease(lang) {
-    if (UPDATE_CHECK_DISABLED) return null;
-    try {
-        const currentVersion = getCurrentVersion();
-        let url = UPDATE_CHECK_URL;
-        const headers = { 'User-Agent': 'PocketRisu-Kei-Updater', Accept: 'application/vnd.github+json' };
-
-        if (CUSTOM_UPDATE_CHECK_URL) {
-            const params = new URLSearchParams({
-                v: currentVersion,
-                d: deploymentType,
-                os: `${process.platform}-${process.arch}`,
-                id: instanceId,
-            });
-            if (lang) params.set('l', String(lang).slice(0, 16));
-            url = `${UPDATE_CHECK_URL}?${params}`;
-        }
-
-        const res = await fetch(url, { headers });
-        if (!res.ok) return null;
-        const data = await res.json();
-
-        const updateInfo = CUSTOM_UPDATE_CHECK_URL
-            ? data
-            : normalizeGitHubRelease(data, currentVersion);
-
-        if (updateInfo.hasUpdate) {
-            console.log(`[Update] New version available: v${updateInfo.latestVersion} (current: v${currentVersion}, ${updateInfo.severity})`);
-        }
-        return updateInfo;
-    } catch (e) {
-        logger.error('[Update] Failed to check for updates:', e.message);
-        return null;
-    }
-}
-
-function compareReleaseVersions(left, right) {
-    const parse = (value) => {
-        const normalized = normalizeReleaseVersion(value);
-        const [core, prerelease = ''] = normalized.split('-', 2);
-        return {
-            core: core.split('.').map((part) => Number.parseInt(part, 10) || 0),
-            prerelease,
-        };
-    };
-    const a = parse(left);
-    const b = parse(right);
-    const length = Math.max(a.core.length, b.core.length, 3);
-
-    for (let i = 0; i < length; i++) {
-        const difference = (a.core[i] || 0) - (b.core[i] || 0);
-        if (difference !== 0) return Math.sign(difference);
-    }
-    if (a.prerelease === b.prerelease) return 0;
-    if (!a.prerelease) return 1;
-    if (!b.prerelease) return -1;
-    return a.prerelease.localeCompare(b.prerelease, undefined, { numeric: true });
-}
-
-function normalizeReleaseVersion(value) {
-    return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
-}
-
-function normalizeGitHubRelease(release, currentVersion) {
-    const latestVersion = normalizeReleaseVersion(release?.tag_name);
-    const hasUpdate = !!latestVersion && compareReleaseVersions(latestVersion, currentVersion) > 0;
-    return {
-        currentVersion,
-        latestVersion: latestVersion || currentVersion,
-        hasUpdate,
-        severity: hasUpdate ? 'optional' : 'none',
-        releaseUrl: release?.html_url || `https://github.com/${GITHUB_REPO}/releases`,
-        releaseName: release?.name || release?.tag_name || '',
-        publishedAt: release?.published_at || '',
-        popupMessage: release?.body || '',
-        manualOnly: false,
-    };
-}
-
 // ── Session store for direct asset URL auth (F-0) ──────────────────────────
 // <img src="/api/asset/..."> cannot send custom headers, so we use a session
 // cookie issued after initial JWT auth. Single-user environment: Map is fine.
@@ -1644,11 +1156,6 @@ function loadSessions() {
             if (expiresAt > now) sessions.set(token, expiresAt)
         }
     } catch { /* file missing or corrupt – start fresh */ }
-}
-
-function saveSessions() {
-    try { writeFileSync(SESSION_FILE, JSON.stringify([...sessions])) }
-    catch { /* non-critical */ }
 }
 
 loadSessions()
@@ -1689,18 +1196,6 @@ const ASSET_EXT_MIME = {
     mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
 }
 
-async function checkDiskSpace(requiredBytes) {
-    try {
-        const saveDir = path.join(process.cwd(), 'save');
-        const stats = await fs.statfs(saveDir);
-        const availableBytes = stats.bavail * stats.bsize;
-        return { ok: availableBytes >= requiredBytes, available: availableBytes };
-    } catch {
-        // statfs unavailable on this platform — skip check
-        return { ok: true, available: -1 };
-    }
-}
-
 // Each page has an opaque client id. It is not a write lock: this is a
 // single-user server, so every authenticated page may submit mutations. The id
 // is retained to suppress self-echoes on the sync WebSocket.
@@ -1737,7 +1232,7 @@ function broadcastSync(type, payload = {}, excludeClientId = null) {
 function broadcastDatabaseInvalidated(req, payload = {}) {
     broadcastSync(
         'database-invalidated',
-        { ...payload, timestamp: Date.now(), etag: dbEtag ?? undefined },
+        { ...payload, timestamp: Date.now(), etag: storageState.dbEtag ?? undefined },
         String(getSyncClientIdFromRequest(req)),
     );
 }
@@ -1753,7 +1248,7 @@ function broadcastBookmarksInvalidated(req) {
 function publishChatCommitted(event, originClientId) {
     broadcastSync('database-invalidated', {
         chats: [{ characterId: event.characterId, chatId: event.chatId }],
-        etag: dbEtag ?? undefined,
+        etag: storageState.dbEtag ?? undefined,
         chatEtag: event.etag,
         reason: event.reason,
         timestamp: Date.now(),
@@ -1779,7 +1274,6 @@ const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
 const GENERATION_JOB_GC_INTERVAL_MS = 60000;
 const GENERATION_JOB_DONE_GRACE_MS = 30000;
 const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
-const GENERATION_JOB_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
 const generationRuntimeJobs = new Map();
 
 function countActiveGenerationJobs() {
@@ -1789,8 +1283,7 @@ function countActiveGenerationJobs() {
 }
 
 const LOGIN_FAILURE_WINDOW_MS = 5 * 60 * 1000;
-const LOGIN_FAILURE_LIMIT = 10;
-const LOGIN_LOCK_MS = 30 * 60 * 1000;
+
 const loginBlockedUntil = new Map();
 
 const loginBlockCleanupTimer = setInterval(() => {
@@ -1801,50 +1294,6 @@ const loginBlockCleanupTimer = setInterval(() => {
 }, LOGIN_FAILURE_WINDOW_MS);
 loginBlockCleanupTimer.unref?.();
 
-function loginClientKey(req) {
-    return rateLimit.ipKeyGenerator(req.ip);
-}
-
-function sendLoginBlocked(res, blockedUntil) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000));
-    res.set('Retry-After', String(retryAfterSeconds));
-    return res.status(429).send({
-        error: 'Too many failed attempts. Please wait and try again later.'
-    });
-}
-
-function startLoginBlock(req, res) {
-    const blockedUntil = Date.now() + LOGIN_LOCK_MS;
-    loginBlockedUntil.set(loginClientKey(req), blockedUntil);
-    return sendLoginBlocked(res, blockedUntil);
-}
-
-function rejectBlockedLogin(req, res, next) {
-    const key = loginClientKey(req);
-    const blockedUntil = loginBlockedUntil.get(key) || 0;
-    if (blockedUntil > Date.now()) {
-        sendLoginBlocked(res, blockedUntil);
-        return;
-    }
-    if (blockedUntil) loginBlockedUntil.delete(key);
-    next();
-}
-
-const loginRouteLimiter = rateLimit({
-    windowMs: LOGIN_FAILURE_WINDOW_MS,
-    max: LOGIN_FAILURE_LIMIT,
-    skipSuccessfulRequests: true,
-    requestWasSuccessful: (_req, res) => res.statusCode !== 401,
-    standardHeaders: false,
-    legacyHeaders: false,
-    handler: startLoginBlock,
-    validate: { xForwardedForHeader: false }
-});
-
-function isHex(str) {
-    return hexRegex.test(str.toUpperCase().trim()) || str === '__password';
-}
-
 async function hashJSON(json){
     const hash = nodeCrypto.createHash('sha256');
     hash.update(JSON.stringify(json));
@@ -1852,46 +1301,6 @@ async function hashJSON(json){
 }
 
 // NodeOnly: server-issued JWT (see jwt_secret comment above)
-function createServerJwt() {
-    const now = Math.floor(Date.now() / 1000)
-    const header = { alg: 'HS256', typ: 'JWT' }
-    const payload = { iat: now, exp: now + 5 * 60 }
-    const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url')
-    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
-    const sig = nodeCrypto.createHmac('sha256', jwtSecret)
-        .update(`${headerB64}.${payloadB64}`)
-        .digest('base64url')
-    return `${headerB64}.${payloadB64}.${sig}`
-}
-
-function getRequestTimeoutMs(timeoutHeader) {
-    const raw = Array.isArray(timeoutHeader) ? timeoutHeader[0] : timeoutHeader;
-    if (!raw) {
-        return null;
-    }
-    const timeoutMs = Number.parseInt(raw, 10);
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-        return null;
-    }
-    return timeoutMs;
-}
-
-function createTimeoutController(timeoutMs) {
-    if (!timeoutMs) {
-        return {
-            signal: undefined,
-            cleanup: () => {}
-        };
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    return {
-        signal: controller.signal,
-        cleanup: () => clearTimeout(timer)
-    };
-}
 
 // --- Generation: auth helpers ---
 
@@ -2102,22 +1511,22 @@ const {
 const canonicalChatService = createCanonicalChatService({
     queueStorageOperation,
     ensureChatStore,
-    getChat: (characterId, chatId) => fullChatStore.get(characterId)?.get(chatId),
+    getChat: (characterId, chatId) => storageState.fullChatStore.get(characterId)?.get(chatId),
     replaceChat: (characterId, chatId, chat) => {
-        let chats = fullChatStore.get(characterId);
+        let chats = storageState.fullChatStore.get(characterId);
         if (!chats && chat) {
             chats = new Map();
-            fullChatStore.set(characterId, chats);
+            storageState.fullChatStore.set(characterId, chats);
         }
         if (!chats) return;
         if (chat) chats.set(chatId, chat);
         else {
             chats.delete(chatId);
-            if (chats.size === 0) fullChatStore.delete(characterId);
+            if (chats.size === 0) storageState.fullChatStore.delete(characterId);
         }
     },
     commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
-        commitChatContent(fullChatStore, characterId, chatId, chat, expectedEtag, options),
+        commitChatContent(storageState.fullChatStore, characterId, chatId, chat, expectedEtag, options),
     computeChatEtag,
     getActiveGenerationWorkflow,
     getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
@@ -2125,11 +1534,7 @@ const canonicalChatService = createCanonicalChatService({
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
 });
-const imageGenerationJobService = installImageGenerationJobRoutes(app, {
-    checkProxyAuth,
-    requireSyncClientId,
-    logger,
-});
+const imageGenerationJobService = createImageGenerationJobService({ logger });
 
 function currentServerImageGenerationSettings() {
     const database = appDataStore.exportProjection({ includeMessages: false });
@@ -2432,7 +1837,9 @@ async function runGenerationProviderJob(job, arg) {
     }
 
     const headers = normalizeForwardHeaders(arg.headers);
-    const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
+    const bodyBuffer = arg.body?.length
+        ? Buffer.from(arg.body.buffer, arg.body.byteOffset, arg.body.byteLength)
+        : undefined;
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
     const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
@@ -2597,7 +2004,7 @@ async function runGenerationProviderJob(job, arg) {
             timestamp: persisted?.createdAt,
             chatId: persisted?.chatId,
             targetUrl,
-            bodyBase64: arg.bodyBase64,
+            body: arg.body,
             rawResponse,
             outputText: projection?.content,
             usageProviderId: arg.usageProviderId,
@@ -2670,7 +2077,7 @@ async function runGenerationProviderJob(job, arg) {
             timestamp: persistedWithRaw?.createdAt,
             chatId: persistedWithRaw?.chatId,
             targetUrl,
-            bodyBase64: arg.bodyBase64,
+            body: arg.body,
             rawResponse,
             outputText: persistedWithRaw?.projection?.content,
             usageProviderId: arg.usageProviderId,
@@ -2820,15 +2227,6 @@ function setupGenerationWebSocket(server) {
     });
 }
 
-function encodeBackupEntry(name, data) {
-    const encodedName = Buffer.from(name, 'utf-8');
-    const nameLength = Buffer.allocUnsafe(4);
-    nameLength.writeUInt32LE(encodedName.length, 0);
-    const dataLength = Buffer.allocUnsafe(4);
-    dataLength.writeUInt32LE(data.length, 0);
-    return Buffer.concat([nameLength, encodedName, dataLength, data]);
-}
-
 // Legacy storage codecs and migrations are provided by dataRestore/legacyRestore.cjs.
 
 /**
@@ -2836,32 +2234,6 @@ function encodeBackupEntry(name, data) {
  * installer for the caller's outer SQLite transaction. Cold-storage references
  * are resolved during install, after staged coldstorage/ rows join it.
  */
-async function prepareImportedDatabaseProjection(raw) {
-    const decoded = await decodeRisuSave(Buffer.from(raw));
-    const prepared = normalizeJSON(decoded);
-    if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
-        throw new TypeError('Imported database projection must be an object');
-    }
-
-    return {
-        install() {
-            const { database, coldRestoreResult } =
-                normalizeLegacyDatabaseProjection(prepared);
-            bookmarkStore.replaceDatabaseCompatibility(database);
-            const installed = appDataStore.replaceFromProjection(database, {
-                expectedRevision: appDataStore.getState().revision,
-            });
-            return {
-                ...installed,
-                coldStorageFailed: coldRestoreResult.failed,
-            };
-        },
-    };
-}
-
-function createPreReplacementSnapshot() {
-    if (appDataStore.getState().initialized) createBackupAndRotate();
-}
 
 const {
     normalizeColdStorageStorageKey,
@@ -2896,14 +2268,14 @@ appDataMigration = createAppDataMigration({
 });
 
 function reconcileCachedChats(startup) {
-    if (!fullChatStore) return;
+    if (!storageState.fullChatStore) return;
     const characters = new Map(
         (startup.characters ?? []).map(character => [character?.chaId, character]),
     );
-    for (const [characterId, chats] of fullChatStore) {
+    for (const [characterId, chats] of storageState.fullChatStore) {
         const character = characters.get(characterId);
         if (!character) {
-            fullChatStore.delete(characterId);
+            storageState.fullChatStore.delete(characterId);
             continue;
         }
         const stubs = new Map(
@@ -2914,23 +2286,23 @@ function reconcileCachedChats(startup) {
             if (stub) chats.set(chatId, mergeChatStubWithFullChat(stub, chat));
             else chats.delete(chatId);
         }
-        if (chats.size === 0) fullChatStore.delete(characterId);
+        if (chats.size === 0) storageState.fullChatStore.delete(characterId);
     }
 }
 
 function refreshCanonicalDatabaseCache(options = {}) {
     const state = appDataStore.getState();
     if (!state.initialized) {
-        delete dbCache[DB_HEX_KEY];
-        fullChatStore = null;
-        dbEtag = MISSING_DATABASE_ETAG;
+        delete storageState.dbCache[DB_HEX_KEY];
+        storageState.fullChatStore = null;
+        storageState.dbEtag = MISSING_DATABASE_ETAG;
         return;
     }
     const startup = appDataStore.exportProjection({ includeMessages: false });
-    dbCache[DB_HEX_KEY] = startup;
-    if (options.invalidateChats) fullChatStore = null;
+    storageState.dbCache[DB_HEX_KEY] = startup;
+    if (options.invalidateChats) storageState.fullChatStore = null;
     else reconcileCachedChats(startup);
-    dbEtag = computeDatabaseEtagFromObject(startup);
+    storageState.dbEtag = computeDatabaseEtagFromObject(startup);
 }
 
 async function ensureCanonicalStorage() {
@@ -2979,53 +2351,6 @@ async function ensureCanonicalStorage() {
     return appDataReadyPromise;
 }
 
-const {
-    importBackupFromSource,
-} = createBackupRestoreService({
-    savePath,
-    inlayDir,
-    inlayMigrationMarker,
-    sqliteDb,
-    kvGet,
-    kvSet,
-    kvDel,
-    kvDelPrefix,
-    clearEntities,
-    checkpointWal,
-    flushPendingDb,
-    createBackupAndRotate: createPreReplacementSnapshot,
-    invalidateDbCache,
-    prepareDatabaseProjection: prepareImportedDatabaseProjection,
-    normalizeInlayExt,
-    isSafeInlayId,
-    decodeDataUri,
-    ensureInlayDir,
-    normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
-    logger,
-    maxEntryNameBytes: BACKUP_ENTRY_NAME_MAX_BYTES,
-});
-
-app.get('/', async (req, res, next) => {
-
-    const clientIP = req.ip || 'Unknown IP';
-    const timestamp = new Date().toISOString();
-    console.log(`[Server] ${timestamp} | Connection from: ${clientIP}`);
-    
-    try {
-        const mainIndex = await fs.readFile(path.join(process.cwd(), 'dist', 'index.html'))
-        const root = htmlparser.parse(mainIndex)
-        const head = root.querySelector('head')
-        head.innerHTML = `<script>globalThis.__NODE__ = true; globalThis.__PATCH_SYNC__ = ${enablePatchSync}</script>` + head.innerHTML
-        
-        res.send(root.toString())
-    } catch (error) {
-        console.log(error)
-        next(error)
-    }
-})
-
 async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = false} = {}){
     try {
         const authHeader = req.headers['risu-auth'];
@@ -3043,7 +2368,6 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
             return false
         }
 
-
         //jwt token
         const [
             jsonHeaderB64,
@@ -3057,7 +2381,6 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         //iat, exp
         const jsonPayload = JSON.parse(Buffer.from(jsonPayloadB64, 'base64url').toString('utf-8'));
 
-        
         //check expiration
         if(!allowExpired){
             const now = Math.floor(Date.now() / 1000);
@@ -3113,265 +2436,6 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
     }
 }
 
-const reverseProxyFunc = async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    
-    const urlParam = req.headers['risu-url'] ? decodeURIComponent(req.headers['risu-url']) : req.query.url;
-
-    if (!urlParam) {
-        res.status(400).send({
-            error:'URL has no param'
-        });
-        return;
-    }
-    const timeoutMs = getRequestTimeoutMs(req.headers['risu-timeout-ms']);
-    const timeout = createTimeoutController(timeoutMs);
-    let originalResponse;
-    try {
-    const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
-    if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
-        header['x-risu-tk'] = req.headers['x-risu-tk'];
-    }
-    if (req.headers['risu-location'] && !header['risu-location']) {
-        header['risu-location'] = req.headers['risu-location'];
-    }
-    if(!header['x-forwarded-for']){
-        header['x-forwarded-for'] = req.ip
-    }
-
-    if(req.headers['authorization']?.startsWith('X-SERVER-REGISTER')){
-        if(!existsSync(authCodePath)){
-            delete header['authorization']
-        }
-        else{
-            const authCode = await fs.readFile(authCodePath, {
-                encoding: 'utf-8'
-            })
-            header['authorization'] = `Bearer ${authCode}`
-        }
-    }
-        let requestBody = undefined;
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-            if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
-                requestBody = req.body;
-            }
-            else if (req.body !== undefined) {
-                requestBody = JSON.stringify(req.body);
-            }
-        }
-        originalResponse = await executeUpstreamRequest({
-            url: urlParam,
-            method: req.method,
-            headers: header,
-            body: requestBody,
-            signal: timeout.signal,
-            idleTimeoutMs: requestIdleTimeoutMs(timeoutMs),
-        });
-        res.header(originalResponse.headers);
-        res.status(originalResponse.status);
-        await pipeline(originalResponse.body, res);
-
-
-    }
-    catch (err) {
-        if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
-            if (!res.headersSent) {
-                res.status(504).send({
-                    error: err.name === 'TimeoutError' ? err.message : timeoutMs
-                        ? `Proxy request timed out after ${timeoutMs}ms`
-                        : 'Proxy request aborted'
-                });
-            } else {
-                res.destroy(err);
-            }
-            return;
-        }
-        // Pass the actual `err` (not err.cause) so logger.* can tag it and the
-        // Express error middleware knows to skip. The cause chain is preserved
-        // via formatErrorWithCause in normalizeArgs.
-        logger.error(`[Proxy] ${req.method} ${urlParam}`, err);
-        next(err);
-        return;
-    } finally {
-        timeout.cleanup();
-    }
-}
-
-let accessTokenCache = {
-    token: null,
-    expiry: 0
-}
-async function getSionywAccessToken() {
-    if(accessTokenCache.token && Date.now() < accessTokenCache.expiry){
-        return accessTokenCache.token;
-    }
-    //Schema of the client data file
-    // {
-    //     refresh_token: string;
-    //     client_id: string;
-    //     client_secret: string;
-    // }
-    
-    const clientDataPath = path.join(process.cwd(), 'save', '__sionyw_client_data.json');
-    let refreshToken = ''
-    let clientId = ''
-    let clientSecret = ''
-    if(!existsSync(clientDataPath)){
-        throw new Error('No Sionyw client data found');
-    }
-    const clientDataRaw = readFileSync(clientDataPath, 'utf-8');
-    const clientData = JSON.parse(clientDataRaw);
-    refreshToken = clientData.refresh_token;
-    clientId = clientData.client_id;
-    clientSecret = clientData.client_secret;
-
-    //Oauth Refresh Token Flow
-    
-    const tokenResponse = await fetch('account.sionyw.com/account/api/oauth/token', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-            client_id: clientId,
-            client_secret: clientSecret
-        })
-    })
-
-    if(!tokenResponse.ok){
-        throw new Error('Failed to refresh Sionyw access token');
-    }
-
-    const tokenData = await tokenResponse.json();
-
-    //Update the refresh token in the client data file
-    if(tokenData.refresh_token && tokenData.refresh_token !== refreshToken){
-        clientData.refresh_token = tokenData.refresh_token;
-        writeFileSync(clientDataPath, JSON.stringify(clientData), 'utf-8');
-    }
-
-    accessTokenCache.token = tokenData.access_token;
-    accessTokenCache.expiry = Date.now() + (tokenData.expires_in * 1000) - (5 * 60 * 1000); //5 minutes early
-
-    return tokenData.access_token;
-}
-
-
-async function hubProxyFunc(req, res) {
-    const excludedHeaders = [
-        'content-encoding',
-        'content-length',
-        'transfer-encoding'
-    ];
-
-    try {
-        let externalURL = '';
-
-        const pathHeader = req.headers['x-risu-node-path'];
-        if (pathHeader) {
-            if (isCloudflareTunnelRequest(req)) {
-                res.status(403).send({ error: 'x-risu-node-path is not allowed through tunnel requests' });
-                return;
-            }
-            const decodedPath = decodeURIComponent(pathHeader);
-            externalURL = decodedPath;
-        } else {
-            const pathAndQuery = req.originalUrl.replace(/^\/hub-proxy/, '');
-            externalURL = hubURL + pathAndQuery;
-        }
-        
-        const headersToSend = { ...req.headers };
-        delete headersToSend.host;
-        delete headersToSend.connection;
-        delete headersToSend['content-length'];
-        delete headersToSend['x-risu-node-path'];
-
-        const hubOrigin = new URL(hubURL).origin;
-        headersToSend.origin = hubOrigin;
-
-        //if Authorization header is "Server-Auth, set the token to be Server-Auth
-        if(headersToSend['Authorization'] === 'X-Node-Server-Auth'){
-            //this requires password auth
-            if(!await checkAuth(req, res)){
-                return;
-            }
-
-            headersToSend['Authorization'] = "Bearer " + await getSionywAccessToken();
-            delete headersToSend['risu-auth'];
-        }
-        
-        
-        const response = await fetch(externalURL, {
-            method: req.method,
-            headers: headersToSend,
-            body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-            redirect: 'manual',
-            duplex: 'half'
-        });
-        
-        for (const [key, value] of response.headers.entries()) {
-            // Skip encoding-related headers to prevent double decoding
-            if (excludedHeaders.includes(key.toLowerCase())) {
-                continue;
-            }
-            res.setHeader(key, value);
-        }
-        res.status(response.status);
-
-        if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
-            const redirectUrl = response.headers.get('location');
-            const newHeaders = { ...headersToSend };
-            const redirectResponse = await fetch(redirectUrl, {
-                method: req.method,
-                headers: newHeaders,
-                body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-                redirect: 'manual',
-                duplex: 'half'
-            });
-            for (const [key, value] of redirectResponse.headers.entries()) {
-                if (excludedHeaders.includes(key.toLowerCase())) {
-                    continue;
-                }
-                res.setHeader(key, value);
-            }
-            res.status(redirectResponse.status);
-            if (redirectResponse.body) {
-                await pipeline(redirectResponse.body, res);
-            } else {
-                res.end();
-            }
-            return;
-        }
-        
-        if (response.body) {
-            await pipeline(response.body, res);
-        } else {
-            res.end();
-        }
-        
-    } catch (error) {
-        logger.error("[Hub Proxy] Error:", error);
-        if (!res.headersSent) {
-            res.status(502).send({ error: 'Proxy request failed: ' + error.message });
-        } else {
-            res.end();
-        }
-    }
-}
-
-app.get('/proxy2', reverseProxyFunc);
-app.get('/hub-proxy/*splat', hubProxyFunc);
-
-app.post('/proxy2', reverseProxyFunc);
-app.put('/proxy2', reverseProxyFunc);
-app.patch('/proxy2', reverseProxyFunc);
-app.delete('/proxy2', reverseProxyFunc);
-app.post('/hub-proxy/*splat', hubProxyFunc);
-
 // --- Revenant generation jobs -------------------------------------------------
 async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     return canonicalChatService.commitGenerationInput({
@@ -3382,134 +2446,7 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     });
 }
 
-installRevenantGenerationRoutes(app, {
-    checkProxyAuth,
-    requireSyncClientId,
-    isSyncClientConnected,
-    sanitizeGenerationTargetUrl,
-    normalizeForwardHeaders,
-    createGenerationRuntimeJob,
-    runGenerationProviderJob,
-    scheduleGenerationDispatch,
-    scheduleHypaWorkflowExecution,
-    scheduleRevenantPostprocess,
-    scheduleImageGenerationWorkflow,
-    notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
-    terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
-    commitWorkflowInput: generationWorkflowService.commitInput,
-    cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
-    generationRuntimeJobs,
-    countActiveGenerationJobs,
-    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
-    maxBodyBase64Bytes: GENERATION_JOB_MAX_BODY_BASE64_BYTES,
-    randomUUID: () => nodeCrypto.randomUUID(),
-    addRequestLog,
-    materializeGeneration: revenantMaterializer.materialize,
-});
-// app.get('/api/password', async(req, res)=> {
-//     if(password === ''){
-//         res.send({status: 'unset'})
-//     }
-//     else if(req.body.password && req.body.password.trim() === password.trim()){
-//         res.send({status:'correct'})
-//     }
-//     else{
-//         res.send({status:'incorrect'})
-//     }
-// })
 
-app.get('/api/test_auth', async(req, res) => {
-
-    if(!password){
-        res.send({status: 'unset'})
-    }
-    else if(!await checkAuth(req, res, true)){
-        // JWT missing/invalid – fall back to session cookie (survives page refresh)
-        const sessionToken = parseSessionCookie(req)
-        if (sessionToken && sessionExpiresAt(sessions.get(sessionToken)) > Date.now()) {
-            res.send({status: 'success', token: createServerJwt()})
-        } else {
-            res.send({status: 'incorrect'})
-        }
-    }
-    else{
-        res.send({status: 'success', token: createServerJwt()})
-    }
-})
-
-app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, async (req, res) => {
-    if(password === ''){
-        res.status(400).send({error: 'Password not set'})
-        return;
-    }
-    if(req.body.password && req.body.password.trim() === password.trim()){
-        res.send({status:'success', token: createServerJwt()})
-    }
-    else{
-        if ((req.rateLimit?.used ?? 0) >= LOGIN_FAILURE_LIMIT) {
-            startLoginBlock(req, res)
-            return
-        }
-        res.status(401).send({error: 'Password incorrect'})
-    }
-})
-
-// NodeOnly: token refresh endpoint (pairs with server-side JWT)
-app.post('/api/token/refresh', async (req, res) => {
-    if (!await checkAuth(req, res, false, {allowExpired: true})) return
-    res.json({ token: createServerJwt() })
-})
-
-// ── Session cookie issuance (F-0) ──────────────────────────────────────────
-// Called after JWT auth succeeds. Reuses and refreshes a valid session cookie,
-// or issues a new one, so <img src="/api/asset/..."> requests can be
-// authenticated without JS.
-app.post('/api/session', async (req, res) => {
-    if (!await checkAuth(req, res)) return
-    const clientSessionId = getSyncClientIdFromRequest(req)
-    if (clientSessionId) {
-        console.log('[Session] Sync client session registered')
-    }
-    const now = Date.now()
-    const existingToken = parseSessionCookie(req)
-    const token = existingToken && sessionExpiresAt(sessions.get(existingToken)) > now
-        ? existingToken
-        : nodeCrypto.randomBytes(32).toString('hex')
-    const maxAge = 7 * 24 * 60 * 60 // seconds
-    const expiresAt = now + maxAge * 1000
-    sessions.set(token, expiresAt)
-    // Prune stale sessions (bounded by single-user usage, safe to do inline)
-    for (const [t, session] of sessions) {
-        if (sessionExpiresAt(session) <= now) sessions.delete(t)
-    }
-    saveSessions()
-    res.setHeader('Set-Cookie', `risu-session=${token}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/`)
-    res.json({
-        ok: true,
-    })
-})
-
-app.get('/api/active-devices', async (req, res) => {
-    if (!await checkAuth(req, res)) return
-    const currentClientId = String(getSyncClientIdFromRequest(req))
-    res.json({
-        devices: [...syncClientDevices].map(([clientId, entry]) => ({
-            id: nodeCrypto.createHash('sha256').update(clientId).digest('hex'),
-            device: entry.device,
-            connectedAt: entry.connectedAt,
-            current: clientId === currentClientId,
-        })).sort((a, b) => Number(b.current) - Number(a.current) || b.connectedAt - a.connectedAt),
-    })
-})
-
-// ── Direct asset serving (F-1) ─────────────────────────────────────────────
-// Serves KV-stored assets as proper HTTP responses with long-term caching.
-// Key is hex-encoded to safely pass through URL. Auth via session cookie.
-//
-// Storage formats differ by key prefix:
-//   assets/*        → raw binary (Uint8Array)
-//   inlay/*         → JSON { data: "data:<mime>;base64,...", ext, type, ... }
-//   inlay_thumb/*   → JSON { data: "data:<mime>;base64,...", ext, type, ... }
 
 /**
  * Extract raw binary and content-type from a KV value.
@@ -3544,2201 +2481,7 @@ function resolveAssetPayload(key, rawValue) {
     return { binary: rawValue, contentType }
 }
 
-const THUMB_SHORT_SIDE = 320;
-const THUMB_LONG_SIDE = 640;
-const THUMB_QUALITY = 75;
-const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
-const videoThumbnailJobs = new Map();
-
-async function generateThumbnail(buffer) {
-    const vips = await getVips()
-    const source = vips.Image.newFromBuffer(buffer)
-    let rotated = null
-    let img = null
-    try {
-        rotated = source.autorot()
-        const landscape = rotated.width >= rotated.height
-        const targetWidth = landscape ? THUMB_LONG_SIDE : THUMB_SHORT_SIDE
-        const targetHeight = landscape ? THUMB_SHORT_SIDE : THUMB_LONG_SIDE
-        const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height, 1)
-        img = scale < 1
-            ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
-            : rotated
-        const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
-        return Buffer.from(out);
-    } finally {
-        if (img && img !== rotated) img.delete()
-        if (rotated) rotated.delete()
-        source.delete()
-    }
-}
-
-function extractVideoThumbnailFrame(inputPath, outputPath) {
-    const bundledExecutable = path.join(
-        process.cwd(),
-        'bin',
-        process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
-    )
-    const executable = process.env.RISU_FFMPEG_PATH || (
-        existsSync(bundledExecutable) ? bundledExecutable : 'ffmpeg'
-    )
-
-    return new Promise((resolve) => {
-        const child = spawn(executable, [
-            '-hide_banner',
-            '-loglevel', 'error',
-            '-ss', '0.1',
-            '-i', inputPath,
-            '-map', '0:v:0',
-            '-frames:v', '1',
-            '-an',
-            '-sn',
-            '-c:v', 'png',
-            '-y',
-            outputPath,
-        ], {
-            stdio: 'ignore',
-            windowsHide: true,
-        })
-        let settled = false
-        const finish = (success) => {
-            if (settled) return
-            settled = true
-            clearTimeout(timeout)
-            resolve(success)
-        }
-        const timeout = setTimeout(() => {
-            child.kill('SIGKILL')
-            finish(false)
-        }, 30_000)
-        child.once('error', () => finish(false))
-        child.once('close', (code) => finish(code === 0))
-    })
-}
-
-async function ensureInlayVideoThumbnail(id) {
-    const existingJob = videoThumbnailJobs.get(id)
-    if (existingJob) return await existingJob
-
-    const job = (async () => {
-        const [source, sidecar] = await Promise.all([
-            getInlayFileInfo(id),
-            readInlaySidecar(id),
-        ])
-        if (!source || sidecar?.type !== 'video') return null
-
-        const thumbnailPath = getInlayVideoThumbnailPath(id)
-        try {
-            const thumbnailStat = await fs.stat(thumbnailPath)
-            if (thumbnailStat.mtimeMs >= source.mtimeMs) {
-                return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
-            }
-        } catch {
-            // Generate a missing or stale thumbnail below.
-        }
-
-        await fs.mkdir(inlayVideoThumbnailDir, { recursive: true })
-        const temporaryBase = `${id}.${process.pid}.${nodeCrypto.randomBytes(6).toString('hex')}`
-        const framePath = path.join(
-            inlayVideoThumbnailDir,
-            `${temporaryBase}.frame.png`,
-        )
-        const temporaryThumbnailPath = path.join(
-            inlayVideoThumbnailDir,
-            `${temporaryBase}.tmp.webp`,
-        )
-        const extracted = await extractVideoThumbnailFrame(source.filePath, framePath)
-        if (!extracted) {
-            await fs.unlink(framePath).catch(() => {})
-            return null
-        }
-
-        try {
-            const frame = await fs.readFile(framePath)
-            const thumbnail = await generateThumbnail(frame)
-            await fs.writeFile(temporaryThumbnailPath, thumbnail)
-            await fs.rename(temporaryThumbnailPath, thumbnailPath)
-            const thumbnailStat = await fs.stat(thumbnailPath)
-            return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
-        } catch {
-            return null
-        } finally {
-            await Promise.allSettled([
-                fs.unlink(framePath),
-                fs.unlink(temporaryThumbnailPath),
-            ])
-        }
-    })().finally(() => {
-        videoThumbnailJobs.delete(id)
-    })
-
-    videoThumbnailJobs.set(id, job)
-    return await job
-}
-
-function parseSingleByteRange(rangeHeader, size) {
-    if (typeof rangeHeader !== 'string' || !rangeHeader.startsWith('bytes=')) return null
-    if (!Number.isSafeInteger(size) || size <= 0) return false
-
-    const spec = rangeHeader.slice('bytes='.length).trim()
-    if (!spec || spec.includes(',')) return false
-
-    const separator = spec.indexOf('-')
-    if (separator === -1) return false
-
-    const startText = spec.slice(0, separator).trim()
-    const endText = spec.slice(separator + 1).trim()
-    if (!startText && !endText) return false
-
-    if (!startText) {
-        const suffixLength = Number(endText)
-        if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return false
-        return {
-            start: Math.max(size - suffixLength, 0),
-            end: size - 1,
-        }
-    }
-
-    const start = Number(startText)
-    const requestedEnd = endText ? Number(endText) : size - 1
-    if (
-        !Number.isSafeInteger(start) ||
-        !Number.isSafeInteger(requestedEnd) ||
-        start < 0 ||
-        start >= size ||
-        requestedEnd < start
-    ) return false
-
-    return {
-        start,
-        end: Math.min(requestedEnd, size - 1),
-    }
-}
-
-function pipeFileResponse(res, filePath, options) {
-    const stream = createReadStream(filePath, options)
-    stream.on('error', (error) => {
-        if (res.headersSent) res.destroy(error)
-        else {
-            res.removeHeader('Content-Length')
-            res.removeHeader('Content-Range')
-            res.status(500).end()
-        }
-    })
-    return stream.pipe(res)
-}
-
-app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
-    try {
-        const key = Buffer.from(req.params.hexKey, 'hex').toString('utf-8')
-
-        if (key.startsWith('inlay/')) {
-            const id = key.slice('inlay/'.length)
-            const file = await getInlayFileInfo(id)
-            if (file) {
-                const etag = `"${Math.floor(file.mtimeMs)}"`
-                const cacheHeaders = {
-                    'Content-Type': getMimeFromExt(file.ext),
-                    'Cache-Control': 'public, max-age=31536000, immutable',
-                    'ETag': etag,
-                    'Accept-Ranges': 'bytes',
-                }
-                const rangeHeader = req.headers.range
-                if (!rangeHeader && req.headers['if-none-match'] === etag) {
-                    return res.status(304).set(cacheHeaders).end()
-                }
-
-                const shouldUseRange = rangeHeader && (
-                    !req.headers['if-range'] || req.headers['if-range'] === etag
-                )
-                const range = shouldUseRange
-                    ? parseSingleByteRange(rangeHeader, file.size)
-                    : null
-                if (range === false) {
-                    return res.status(416).set({
-                        ...cacheHeaders,
-                        'Content-Range': `bytes */${file.size}`,
-                    }).end()
-                }
-                if (range) {
-                    res.status(206).set({
-                        ...cacheHeaders,
-                        'Content-Range': `bytes ${range.start}-${range.end}/${file.size}`,
-                        'Content-Length': String(range.end - range.start + 1),
-                    })
-                    if (req.method === 'HEAD') return res.end()
-                    return pipeFileResponse(res, file.filePath, {
-                        start: range.start,
-                        end: range.end,
-                    })
-                }
-
-                res.set({
-                    ...cacheHeaders,
-                    'Content-Length': String(file.size),
-                })
-                if (req.method === 'HEAD') return res.end()
-                return pipeFileResponse(res, file.filePath)
-            }
-            return res.status(404).set('Cache-Control', 'no-store').end()
-        }
-
-        if (key.startsWith('inlay_thumb/')) {
-            const id = key.slice('inlay_thumb/'.length)
-            const sidecar = await readInlaySidecar(id);
-            if (!sidecar || sidecar.type !== 'image' || !THUMB_IMAGE_EXTS.has(sidecar.ext)) {
-                return res.status(404).end()
-            }
-            const file = await readInlayFile(id)
-            if (!file) return res.status(404).set('Cache-Control', 'no-store').end()
-            const etag = `"thumb-${Math.floor(file.mtimeMs)}"`
-            if (req.headers['if-none-match'] === etag) {
-                return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
-            }
-            const thumb = await generateThumbnail(file.buffer)
-            res.set({
-                'Content-Type': 'image/webp',
-                'Cache-Control': 'public, max-age=31536000, immutable',
-                'ETag': etag,
-            })
-            return res.send(thumb)
-        }
-
-        if (key.startsWith('inlay_video_thumb/')) {
-            const id = key.slice('inlay_video_thumb/'.length)
-            const thumbnail = await ensureInlayVideoThumbnail(id)
-            if (!thumbnail) return res.status(404).set('Cache-Control', 'no-store').end()
-
-            const stat = await fs.stat(thumbnail.filePath)
-            const etag = `"video-thumb-${Math.floor(thumbnail.mtimeMs)}"`
-            const cacheHeaders = {
-                'Content-Type': 'image/webp',
-                'Cache-Control': 'public, max-age=86400',
-                'ETag': etag,
-                'Content-Length': String(stat.size),
-            }
-            if (req.headers['if-none-match'] === etag) {
-                return res.status(304).set(cacheHeaders).end()
-            }
-            res.set(cacheHeaders)
-            if (req.method === 'HEAD') return res.end()
-            return pipeFileResponse(res, thumbnail.filePath)
-        }
-
-        // Fast-path 304: check updated_at BEFORE loading the blob.
-        const updatedAt = kvGetUpdatedAt(key)
-        if (updatedAt === null) return res.status(404).set('Cache-Control', 'no-store').end()
-
-        const etag = `"${updatedAt}"`
-        if (req.headers['if-none-match'] === etag) {
-            return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
-        }
-
-        const data = kvGet(key)
-        if (!data) return res.status(404).set('Cache-Control', 'no-store').end()
-
-        const { binary, contentType } = resolveAssetPayload(key, data)
-        res.set({
-            'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=31536000, immutable',
-            'ETag': etag,
-        })
-        res.send(binary)
-    } catch (error) {
-        logger.error('[Asset] Failed to serve asset:', error);
-        res.status(500).end()
-    }
-})
-
-app.post('/api/crypto', async (req, res) => {
-    try {
-        const hash = nodeCrypto.createHash('sha256')
-        hash.update(Buffer.from(req.body.data, 'utf-8'))
-        res.send(hash.digest('hex'))
-    } catch (error) {
-        res.status(500).send({ error: 'Crypto operation failed' });
-    }
-})
-
-app.post('/api/set_password', async (req, res) => {
-    if(password === ''){
-        password = req.body.password
-        writeFileSync(passwordPath, password, 'utf-8')
-        res.send({status: 'success'})
-    }
-    else{
-        res.status(400).send("already set")
-    }
-})
-
-function sendDatabaseProjectionError(res, error) {
-    if (!(error instanceof DatabaseProjectionServiceError)) return false;
-    res.status(error.statusCode).json({
-        error: error.message,
-        code: error.code,
-        ...(error.currentEtag ? { currentEtag: error.currentEtag } : {}),
-        ...(Number.isSafeInteger(error.currentRevision)
-            ? { currentRevision: error.currentRevision }
-            : {}),
-        ...(error.currentHash ? { currentHash: error.currentHash } : {}),
-        ...(error.hashDiagnostics ? { hashDiagnostics: error.hashDiagnostics } : {}),
-    });
-    return true;
-}
-
-const PLUGIN_STORAGE_EXCLUSION_HEADER = 'x-risu-plugin-storage-exclusion';
-
-function pluginStorageProjectionOptions(req) {
-    const raw = req.get(PLUGIN_STORAGE_EXCLUSION_HEADER);
-    if (!raw) return {};
-    if (raw === 'all') return { excludeAllPluginStorage: true };
-    try {
-        const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
-        const excludedPluginNames = Array.isArray(parsed.plugins)
-            ? [...new Set(parsed.plugins.filter(name => typeof name === 'string'))]
-            : [];
-        return {
-            excludedPluginNames,
-            excludeUnclassifiedPluginStorage: parsed.unclassified === true,
-        };
-    } catch {
-        throw new DatabaseProjectionServiceError('Invalid plugin storage exclusion header', {
-            code: 'INVALID_PLUGIN_STORAGE_EXCLUSION',
-            statusCode: 400,
-        });
-    }
-}
-
-app.get('/api/plugin-storage/startup-stats', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        res.json(appDataStore.pluginStorageFootprint());
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post('/api/database/content-references', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    const { kind, candidates } = req.body ?? {};
-    try { validateReferenceCandidates(kind, candidates); }
-    catch (error) { return res.status(400).json({ error: error.message }); }
-    try {
-        const result = await queueStorageOperation(async () => {
-            await ensureCanonicalStorage();
-            return appDataStore.scanContentReferences(kind, candidates);
-        });
-        res.set('Cache-Control', 'no-store').json(result);
-    } catch (error) {
-        next(error);
-    }
-});
-
-// The browser-facing startup shell and metadata commit boundary. This API is
-// JSON by design: database.bin is reserved for explicit compatibility
-// import/export and never participates in ordinary autosave.
-app.get('/api/database', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        res.json(databaseProjectionService.getStartupProjection({
-            remote: isCloudflareTunnelRequest(req),
-            ...pluginStorageProjectionOptions(req),
-        }));
-    } catch (error) {
-        if (!sendDatabaseProjectionError(res, error)) next(error);
-    }
-});
-
-app.put('/api/database', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const result = await queueStorageOperation(async () => {
-            await ensureCanonicalStorage();
-            const initialized = databaseProjectionService.initializeDatabase(
-                req.body?.database,
-                {
-                    expectedRevision: req.body?.expectedRevision,
-                    remote: isCloudflareTunnelRequest(req),
-                },
-            );
-            refreshCanonicalDatabaseCache({ invalidateChats: true });
-            scheduleBackupAndRotate();
-            broadcastDatabaseInvalidated(req);
-            return initialized;
-        });
-        res.json(result);
-    } catch (error) {
-        if (!sendDatabaseProjectionError(res, error)) next(error);
-    }
-});
-
-app.patch('/api/database', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const projectionOptions = {
-            remote: isCloudflareTunnelRequest(req),
-            ...pluginStorageProjectionOptions(req),
-        };
-        const result = await queueStorageOperation(async () => {
-            await ensureCanonicalStorage();
-            const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
-            if (chatInternalOps.length > 0) {
-                const current = databaseProjectionService.getStartupProjection({
-                    ...projectionOptions,
-                });
-                const error = new DatabaseProjectionServiceError(
-                    'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
-                    { code: 'CHAT_GUARD_REJECTED', statusCode: 409 },
-                );
-                error.currentEtag = current.etag;
-                error.currentRevision = current.revision;
-                error.chatGuardRejected = true;
-                throw error;
-            }
-            const patched = databaseProjectionService.patchDatabase(req.body, {
-                ...projectionOptions,
-            });
-            refreshCanonicalDatabaseCache();
-            if (patched.changed) {
-                scheduleBackupAndRotate();
-                broadcastDatabaseInvalidated(req);
-            }
-            const persistWarning = currentPersistWarning();
-            return persistWarning ? { ...patched, persistWarning } : patched;
-        });
-        res.json(result);
-    } catch (error) {
-        if (error?.code === 'CHAT_GUARD_REJECTED') {
-            return res.status(409).json({
-                error: error.message,
-                code: error.code,
-                chatGuardRejected: true,
-                currentEtag: error.currentEtag,
-                currentRevision: error.currentRevision,
-            });
-        }
-        if (!sendDatabaseProjectionError(res, error)) next(error);
-    }
-});
-
-app.get('/api/read', async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    const filePath = req.headers['file-path'];
-    if (!filePath) {
-        console.log('no path')
-        res.status(400).send({ error:'File path required' });
-        return;
-    }
-    if(!isHex(filePath)){
-        res.status(400).send({ error:'Invaild Path' });
-        return;
-    }
-    try {
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
-        // database.bin is a virtual compatibility export. No live blob exists
-        // in KV after migration, and the browser hot path uses /api/database.
-        if (key === 'database/database.bin') {
-            await ensureCanonicalStorage();
-            if (!appDataStore.getState().initialized) {
-                dbEtag = MISSING_DATABASE_ETAG;
-                res.setHeader('x-db-etag', dbEtag);
-                return res.send();
-            }
-            let projection = appDataStore.exportProjection({ includeMessages: true });
-            bookmarkStore.projectDatabaseCompatibility(projection);
-            if (isCloudflareTunnelRequest(req)) {
-                projection = normalizeJSON(filterRemoteOnlyFolders(projection));
-            }
-            const value = Buffer.from(encodeRisuSaveLegacy(projection));
-            dbEtag = computeBufferEtag(value);
-            if (req.headers['if-none-match'] === dbEtag) {
-                return res.status(304).end();
-            }
-            res.setHeader('x-db-etag', dbEtag);
-            res.setHeader('Content-Type', 'application/octet-stream');
-            return res.send(value);
-        }
-        let value = null;
-        if (key.startsWith('inlay/')) {
-            value = await readInlayAssetPayload(key.slice('inlay/'.length));
-        } else if (key.startsWith('inlay_info/')) {
-            value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-        }
-        if (value === null) {
-            value = kvGet(key);
-        }
-        if (value === null) return res.send();
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.send(value);
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.get('/api/remove', async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    const filePath = req.headers['file-path'];
-    if (!filePath) {
-        res.status(400).send({ error:'File path required' });
-        return;
-    }
-    if(!isHex(filePath)){
-        res.status(400).send({ error:'Invaild Path' });
-        return;
-    }
-    try {
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
-        if (key === 'database/database.bin') {
-            return res.status(410).json({
-                error: 'database.bin is a virtual import/export projection and cannot be removed',
-                code: 'DATABASE_BIN_PROJECTION_ONLY',
-            });
-        }
-        if (key.startsWith('inlay/')) {
-            const id = key.slice('inlay/'.length)
-            await deleteInlayFile(id)
-            kvDel(key);
-            kvDel(`inlay_thumb/${id}`);
-            kvDel(`inlay_info/${id}`);
-            return res.send({ success: true });
-        }
-        if (key.startsWith('inlay_info/')) {
-            await fs.unlink(getInlaySidecarPath(key.slice('inlay_info/'.length))).catch(() => {});
-        }
-        kvDel(key);
-        res.send({ success: true });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.get('/api/list', async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    try {
-        const keyPrefix = req.headers['key-prefix'] || '';
-        const requestedLimit = Number(req.headers['key-limit']);
-        const requestedOffset = Number(req.headers['key-offset']);
-        const listOptions = req.headers['key-order'] === 'updated-desc'
-            && Number.isSafeInteger(requestedLimit)
-            && requestedLimit > 0
-            ? {
-                order: 'updated-desc',
-                limit: Math.min(requestedLimit, 5000),
-                offset: Number.isSafeInteger(requestedOffset) && requestedOffset > 0
-                    ? requestedOffset
-                    : 0,
-            }
-            : undefined;
-        let data;
-        if (keyPrefix === 'inlay/') {
-            const fileKeys = (await listInlayFiles()).map((entry) => `inlay/${entry.id}`);
-            data = [...new Set([
-                ...fileKeys,
-                ...kvList('inlay/'),
-            ])];
-        } else {
-            data = kvList(keyPrefix || undefined, listOptions);
-        }
-        res.send({
-            success: true,
-            content: data,
-            total: keyPrefix === 'inlay/' ? data.length : kvCount(keyPrefix || undefined),
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-// ─── /api/logs — client-side error/warning/info log persistence ───────────────
-const LOGS_POST_MAX_ENTRIES = 1000;
-app.post('/api/logs', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        const body = req.body;
-        const entries = Array.isArray(body) ? body : [body];
-        if (entries.length === 0) {
-            return res.send({ success: true, written: 0 });
-        }
-        if (entries.length > LOGS_POST_MAX_ENTRIES) {
-            return res.status(413).send({ error: `too many entries (max ${LOGS_POST_MAX_ENTRIES})` });
-        }
-        const prepared = entries
-            .filter(e => e && typeof e === 'object' && typeof e.message === 'string')
-            .map(e => ({
-                timestamp: typeof e.timestamp === 'number' ? e.timestamp : Date.now(),
-                level: e.level,
-                origin: 'client',
-                message: e.message,
-                description: e.description,
-                source: e.source,
-                count: e.count,
-                platform: e.platform,
-                clientId: e.clientId,
-                userAgent: e.userAgent,
-            }));
-        const written = addLogBatch(prepared);
-        res.send({ success: true, written });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.get('/api/logs', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        const parseCsv = (v) => typeof v === 'string' && v.length ? v.split(',').filter(Boolean) : undefined;
-        const filterArgs = {
-            level: typeof req.query.level === 'string' ? req.query.level : undefined,
-            origin: typeof req.query.origin === 'string' ? req.query.origin : undefined,
-            since: req.query.since ? Number(req.query.since) : undefined,
-            excludeLevels: parseCsv(req.query.exclude_levels),
-            excludeOrigins: parseCsv(req.query.exclude_origins),
-            excludeBackground: req.query.exclude_background === '1',
-        };
-        const rows = queryLogs({
-            ...filterArgs,
-            beforeId: req.query.before_id ? Number(req.query.before_id) : undefined,
-            limit: req.query.limit ? Number(req.query.limit) : undefined,
-        });
-        // total reflects rows matching the same filter — pagination math depends on it.
-        res.send({ success: true, content: rows, total: countLogs(filterArgs) });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.delete('/api/logs', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        clearLogs();
-        res.send({ success: true });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.delete('/api/logs/:id', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const id = Number(req.params.id);
-        if (!Number.isSafeInteger(id) || id <= 0) {
-            return res.status(400).send({ error: 'invalid log id' });
-        }
-        res.send({ success: true, deleted: deleteLog(id) });
-    } catch (error) {
-        next(error);
-    }
-});
-
-installRequestLogRoutes(app, {
-    checkAuth,
-    requireSyncClientId,
-    getUsageByJobIds,
-});
-installUsageRoutes(app, { checkAuth, requireSyncClientId });
-
-app.post('/api/write', async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    if (!requireSyncClientId(req, res)) return;
-    const filePath = req.headers['file-path'];
-    const fileContent = req.body;
-    if (!filePath || !fileContent) {
-        res.status(400).send({ error:'File path required' });
-        return;
-    }
-    if(!isHex(filePath)){
-        res.status(400).send({ error:'Invaild Path' });
-        return;
-    }
-    try {
-        await queueStorageOperation(async () => {
-            const key = Buffer.from(filePath, 'hex').toString('utf-8');
-            let databaseForEtag = null;
-
-            // ETag conflict detection for database.bin
-            if (key === 'database/database.bin') {
-                const ifMatch = req.headers['x-if-match'];
-                await ensureCanonicalStorage();
-                let currentEtag = MISSING_DATABASE_ETAG;
-                if (appDataStore.getState().initialized) {
-                    let currentDb = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(currentDb);
-                    if (isCloudflareTunnelRequest(req)) {
-                        currentDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
-                    }
-                    currentEtag = computeDatabaseEtagFromObject(currentDb);
-                }
-                if (appDataStore.getState().initialized && !ifMatch) {
-                    res.status(428).send({
-                        error: 'x-if-match is required for compatibility database import',
-                        code: 'DATABASE_IMPORT_PRECONDITION_REQUIRED',
-                        currentEtag,
-                    });
-                    return;
-                }
-                if (ifMatch && ifMatch !== currentEtag) {
-                    res.status(409).send({
-                        error: 'ETag mismatch - concurrent modification detected',
-                        currentEtag
-                    });
-                    return;
-                }
-            }
-
-            if (key.startsWith('inlay/')) {
-                const id = key.slice('inlay/'.length)
-                const parsed = JSON.parse(Buffer.from(fileContent).toString('utf-8'));
-                const type = typeof parsed?.type === 'string' ? parsed.type : 'image';
-                const ext = normalizeInlayExt(parsed?.ext);
-                const buffer = type === 'signature'
-                    ? Buffer.from(typeof parsed?.data === 'string' ? parsed.data : '', 'utf-8')
-                    : decodeDataUri(parsed?.data).buffer;
-                await writeInlayFile(id, ext, buffer, {
-                    ext,
-                    name: typeof parsed?.name === 'string' ? parsed.name : id,
-                    type,
-                    height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-                    width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-                });
-                kvDel(key);
-                kvDel(`inlay_thumb/${id}`);
-                kvDel(`inlay_info/${id}`);
-            } else if (key.startsWith('inlay_info/')) {
-                const id = key.slice('inlay_info/'.length)
-                const parsed = JSON.parse(Buffer.from(fileContent).toString('utf-8'));
-                await writeInlaySidecar(id, parsed);
-                kvDel(key);
-            } else if (key === 'database/database.bin') {
-                // Explicit compatibility import. Ordinary browser saves use
-                // PATCH /api/database and never pass through this codec.
-                try {
-                    let incomingDb = normalizeLegacyDatabaseProjection(
-                        await decodeRisuSave(fileContent),
-                    ).database;
-                    const currentDb = appDataStore.getState().initialized
-                        ? appDataStore.exportProjection({ includeMessages: true })
-                        : { characters: [] };
-                    if (isCloudflareTunnelRequest(req)) {
-                        incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
-                        restoreGenerationOwnedMetadata(incomingDb, currentDb);
-                    }
-                    const stubOnly = [];
-                    for (const character of incomingDb.characters ?? []) {
-                        for (const chat of character?.chats ?? []) {
-                            if (chat?._stub === true && !Array.isArray(chat.message)) {
-                                stubOnly.push(`${character.chaId}/${chat.id}`);
-                            }
-                        }
-                    }
-                    if (stubOnly.length > 0) {
-                        return res.status(400).json({
-                            error: 'Compatibility import requires full chat content',
-                            chats: stubOnly.slice(0, 5),
-                        });
-                    }
-                    sqliteDb.transaction(() => {
-                        if (!isCloudflareTunnelRequest(req)) {
-                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
-                        } else {
-                            // A remote compatibility import cannot alter the
-                            // server-owned bookmark catalog, and compatibility
-                            // fields must never leak into canonical chat bodies.
-                            bookmarkStore.stripDatabaseCompatibility(incomingDb);
-                        }
-                        appDataStore.replaceFromProjection(incomingDb, {
-                            expectedRevision: appDataStore.getState().revision,
-                        });
-                    })();
-                    databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
-                } catch (e) {
-                    logger.error('[Write] Compatibility database import failed:', e);
-                    if (e?.code === 'UNSUPPORTED_REMOTE_SAVE') {
-                        res.status(400).json({ error: e.message, code: e.code });
-                    } else {
-                        res.status(500).json({ error: 'Database import failed' });
-                    }
-                    return;
-                }
-            } else {
-                kvSet(key, fileContent);
-            }
-
-            // Update ETag, backup, and invalidate cache after database.bin write
-            if (key === 'database/database.bin') {
-                refreshCanonicalDatabaseCache({ invalidateChats: true });
-                // ETag based on the stripped version visible to this client.
-                const visibleForEtag = isCloudflareTunnelRequest(req)
-                    ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
-                    : databaseForEtag;
-                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
-                createBackupAndRotate();
-                broadcastDatabaseInvalidated(req);
-            }
-
-            res.send({
-                success: true,
-                etag: key === 'database/database.bin' ? dbEtag : undefined
-            });
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        await queueStorageOperation(async () => {
-            await flushPendingDb();
-            res.send({
-                success: true,
-                etag: dbEtag ?? undefined
-            });
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-// ─── Patch sync endpoint ──────────────────────────────────────────────────────
-app.post('/api/patch', async (req, res, next) => {
-    if (!enablePatchSync) {
-        res.status(404).send({ error: 'Patch sync is not enabled' });
-        return;
-    }
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    if (!requireSyncClientId(req, res)) return;
-    const filePath = req.headers['file-path'];
-    const patch = req.body.patch;
-    const expectedHash = req.body.expectedHash;
-
-    if (!filePath || !patch || !expectedHash) {
-        res.status(400).send({ error: 'File path, patch, and expected hash required' });
-        return;
-    }
-    if (!isHex(filePath)) {
-        res.status(400).send({ error: 'Invaild Path' });
-        return;
-    }
-
-    let patchStage = 'load';
-    try {
-        await queueStorageOperation(async () => {
-            const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
-            if (decodedKey === 'database/database.bin') {
-                res.status(410).json({
-                    error: 'database.bin patch sync was replaced by PATCH /api/database',
-                    code: 'DATABASE_BIN_PROJECTION_ONLY',
-                });
-                return;
-            }
-
-            // Load database into memory if not already cached
-            // For database.bin, cache holds the STRIPPED version (stubs only)
-            if (!dbCache[filePath]) {
-                const fileContent = kvGet(decodedKey);
-                if (fileContent) {
-                    dbCache[filePath] = normalizeJSON(await decodeRisuSave(fileContent));
-                } else {
-                    dbCache[filePath] = {};
-                }
-            }
-
-            // Reject patch ops that touch chat-internal fields. Lazy loading
-            // strips chats to stubs in dbCache; the only legitimate chat ops
-            // are allowlisted stub metadata (see STUB_METADATA_FIELDS)
-            // or whole-chat add/replace/remove. Field-level ops on chats —
-            // particularly remove of message/hypaV3Data/scriptstate/etc —
-            // strip the `_stub` flag and cause silent on-disk data loss when
-            // reassembleFullDb later sees the metadata-only chat. Reject as
-            // 409 so the client falls through to a full write and rebases its
-            // patcher baseline. See findStubFlagLossChats for the disk-side
-            // partner guard.
-            const chatInternalOps = decodedKey === 'database/database.bin'
-                ? findChatInternalFieldOps(patch)
-                : [];
-            if (chatInternalOps.length > 0) {
-                const sample = chatInternalOps.slice(0, 5).map(v => `${v.op} ${v.path}`).join(', ');
-                logger.warn(
-                    `[Patch] Rejected ${chatInternalOps.length} chat-internal field op(s) `
-                    + `(would corrupt lazy-loaded chats): ${sample}`
-                );
-                let currentEtag;
-                try {
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
-                    dbEtag = currentEtag;
-                } catch {}
-                res.status(409).send({
-                    error: 'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
-                    code: 'CHAT_GUARD_REJECTED',
-                    chatGuardRejected: true,
-                    currentEtag,
-                });
-                return;
-            }
-
-            const remoteFilteredDb = decodedKey === 'database/database.bin' && isCloudflareTunnelRequest(req)
-                ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
-                : null;
-            const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
-            patchStage = 'hash';
-            const serverHash = calculateHash(patchBaseline).toString(16);
-
-            // JSON Patch identity: no operation means no compare-and-swap and
-            // no write. Older open clients may still submit these while a
-            // server-owned generation commit advances the database, so return
-            // the current view without manufacturing a hash conflict.
-            if (Array.isArray(patch) && patch.length === 0) {
-                let currentEtag;
-                if (decodedKey === 'database/database.bin') {
-                    currentEtag = computeBufferEtag(Buffer.from(
-                        encodeRisuSaveLegacy(patchBaseline)
-                    ));
-                    dbEtag = currentEtag;
-                }
-                const responsePayload = {
-                    success: true,
-                    appliedOperations: 0,
-                    etag: currentEtag,
-                };
-                const persistWarning = currentPersistWarning();
-                if (persistWarning) responsePayload.persistWarning = persistWarning;
-                res.send(responsePayload);
-                return;
-            }
-
-            if (expectedHash !== serverHash) {
-                const patchPaths = Array.isArray(patch)
-                    ? patch.slice(0, 8).map(operation =>
-                        `${String(operation?.op || '?')} ${String(operation?.path || '?')}`)
-                    : [];
-                logger.warn(
-                    `[Patch] Hash mismatch for ${decodedKey}: `
-                    + `expected=${expectedHash}, server=${serverHash}, `
-                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}, `
-                    + `ops=[${patchPaths.join(', ')}]`
-                );
-                let currentEtag = undefined;
-                if (decodedKey === 'database/database.bin') {
-                    const visibleDb = remoteFilteredDb ?? dbCache[filePath];
-                    // Keep a hash mismatch as a recoverable 409 even if the
-                    // best-effort current ETag cannot be encoded.
-                    try {
-                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                        dbEtag = currentEtag;
-                    } catch {}
-                }
-                res.status(409).send({
-                    error: 'Hash mismatch - data out of sync',
-                    currentEtag
-                });
-                return;
-            }
-
-            // A JSON round-trip builds one giant string and reaches V8's string
-            // size ceiling on large databases. The cached value is already a
-            // normalized plain-data graph, so structuredClone preserves the
-            // rollback boundary without that intermediate allocation.
-            patchStage = 'clone';
-            const snapshot = structuredClone(patchBaseline);
-            patchStage = 'apply';
-            let result;
-            try {
-                result = applyPatch(snapshot, patch, true);
-            } catch (patchErr) {
-                // Invalidate corrupted cache entry to force reload on next request
-                delete dbCache[filePath];
-                throw patchErr;
-            }
-            dbCache[filePath] = remoteFilteredDb
-                ? normalizeJSON(mergeRemoteFilteredDatabase(dbCache[filePath], snapshot))
-                : snapshot;
-
-            // Schedule save to KV (debounced) — merge full chats back for database.bin
-            scheduleStorageOperation(filePath, async () => {
-                try {
-                    if (decodedKey === 'database/database.bin') {
-                        await persistDbCacheWithChats(filePath, decodedKey);
-                    } else {
-                        const data = Buffer.from(encodeRisuSaveLegacy(dbCache[filePath]));
-                        try {
-                            kvSet(decodedKey, data);
-                        } catch (err) {
-                            if (err && typeof err === 'object') {
-                                try { err.attemptedSize = data.length; } catch {}
-                            }
-                            throw err;
-                        }
-                    }
-                    // Persist succeeded — clear before backup so a backup-only
-                    // failure isn't attributed to data loss.
-                    clearPersistFailure();
-                    if (decodedKey === 'database/database.bin') {
-                        try {
-                            createBackupAndRotate();
-                        } catch (backupErr) {
-                            logger.warn(`[Patch] Backup rotation failed for ${decodedKey}:`, backupErr);
-                        }
-                    }
-                } catch (error) {
-                    logger.error(`[Patch] Error saving ${decodedKey}:`, error);
-                    recordPersistFailure(error, `patch:${decodedKey}`);
-                }
-            });
-
-            // Update ETag after successful patch (based on stripped version)
-            patchStage = 'etag';
-            if (decodedKey === 'database/database.bin') {
-                const visibleDb = remoteFilteredDb
-                    ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
-                    : dbCache[filePath];
-                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-            }
-
-            const responsePayload = {
-                success: true,
-                appliedOperations: result.length,
-                etag: decodedKey === 'database/database.bin' ? dbEtag : undefined,
-            };
-            const persistWarning = currentPersistWarning();
-            if (persistWarning) {
-                responsePayload.persistWarning = persistWarning;
-            }
-            if (decodedKey === 'database/database.bin') {
-                broadcastDatabaseInvalidated(req);
-            }
-            res.send(responsePayload);
-        });
-    } catch (error) {
-        const decodedKeyForLog = isHex(filePath) ? Buffer.from(filePath, 'hex').toString('utf-8') : filePath;
-        logger.error(
-            `[Patch] Error applying patch to ${decodedKeyForLog} `
-            + `(stage=${patchStage}, ops=${Array.isArray(patch) ? patch.length : '?'}): `
-            + `${error?.name}: ${error?.message}`,
-            error?.stack
-        );
-        res.status(500).send({
-            error: 'Patch application failed: ' + (error && error.message ? error.message : error)
-        });
-    }
-});
-
-// ─── Bulk asset endpoints (3-2-B) ─────────────────────────────────────────────
-const BULK_BATCH = 50;
-
-app.post('/api/assets/bulk-read', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    try {
-        const keys = req.body; // string[] — decoded key strings
-        if(!Array.isArray(keys)){
-            res.status(400).send({ error: 'Body must be a JSON array of keys' });
-            return;
-        }
-
-        const acceptsBinary = (req.headers['accept'] || '').includes('application/octet-stream');
-
-        if (acceptsBinary) {
-            // Binary protocol: [count(4)] then per entry: [keyLen(4)][key][valLen(4)][value]
-            // Eliminates ~33% base64 overhead
-            const entries = [];
-            let totalSize = 4; // count header
-            for (let i = 0; i < keys.length; i += BULK_BATCH) {
-                const batch = keys.slice(i, i + BULK_BATCH);
-                for (const key of batch) {
-                    let value = null;
-                    if (typeof key === 'string' && key.startsWith('inlay_info/')) {
-                        value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-                    }
-                    if (value === null) {
-                        value = kvGet(key);
-                    }
-                    if (value !== null) {
-                        const keyBuf = Buffer.from(key, 'utf-8');
-                        const valBuf = Buffer.from(value);
-                        entries.push({ keyBuf, valBuf });
-                        totalSize += 4 + keyBuf.length + 4 + valBuf.length;
-                    }
-                }
-            }
-            const out = Buffer.allocUnsafe(totalSize);
-            let offset = 0;
-            out.writeUInt32BE(entries.length, offset); offset += 4;
-            for (const { keyBuf, valBuf } of entries) {
-                out.writeUInt32BE(keyBuf.length, offset); offset += 4;
-                keyBuf.copy(out, offset); offset += keyBuf.length;
-                out.writeUInt32BE(valBuf.length, offset); offset += 4;
-                valBuf.copy(out, offset); offset += valBuf.length;
-            }
-            res.set('Content-Type', 'application/octet-stream');
-            res.send(out);
-        } else {
-            // Legacy JSON+base64 fallback
-            const results = [];
-            for (let i = 0; i < keys.length; i += BULK_BATCH) {
-                const batch = keys.slice(i, i + BULK_BATCH);
-                for (const key of batch) {
-                    let value = null;
-                    if (typeof key === 'string' && key.startsWith('inlay_info/')) {
-                        value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-                    }
-                    if (value === null) {
-                        value = kvGet(key);
-                    }
-                    if (value !== null) {
-                        results.push({ key, value: Buffer.from(value).toString('base64') });
-                    }
-                }
-            }
-            res.json(results);
-        }
-    } catch(error){ next(error); }
-});
-
-app.post('/api/assets/bulk-write', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const entries = req.body; // {key: string, value: base64}[]
-        if(!Array.isArray(entries)){
-            res.status(400).send({ error: 'Body must be a JSON array of {key, value}' });
-            return;
-        }
-        if (entries.some(entry => entry?.key === 'database/database.bin')) {
-            return res.status(400).json({
-                error: 'database.bin cannot be written through the asset API',
-                code: 'DATABASE_BIN_PROJECTION_ONLY',
-            });
-        }
-        for(let i = 0; i < entries.length; i += BULK_BATCH){
-            const batch = entries.slice(i, i + BULK_BATCH);
-            const writeBatch = sqliteDb.transaction(() => {
-                for(const { key, value } of batch){
-                    kvSet(key, Buffer.from(value, 'base64'));
-                }
-            });
-            writeBatch();
-        }
-        res.json({ success: true, count: entries.length });
-    } catch(error){ next(error); }
-});
-
-async function createSettingsBackupPlan(includeModuleAssets = true) {
-    const { withExportColorSchemes } = await import('../shared/colorScheme.js');
-    await ensureCanonicalStorage();
-    const databaseValue = appDataStore.getState().initialized
-        ? Buffer.from(encodeRisuSaveLegacy(
-            appDataStore.exportProjection({ includeMessages: true }),
-        ))
-        : null;
-    return buildSettingsBackupPlan({
-        databaseValue,
-        assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
-        decodeDatabase: decodeRisuSave,
-        encodeDatabase: (database) => encodeRisuSaveLegacy(withExportColorSchemes(database), 'compression'),
-        includeModuleAssets,
-    });
-}
-
-async function createCompatibleDatabaseValue({ exportColors = false } = {}) {
-    await ensureCanonicalStorage();
-    if (!appDataStore.getState().initialized) return null;
-    const database = appDataStore.exportProjection({ includeMessages: true });
-    bookmarkStore.projectDatabaseCompatibility(database);
-    // Internal snapshots retain canonical fields; only portable backups get aliases.
-    const output = exportColors
-        ? (await import('../shared/colorScheme.js')).withExportColorSchemes(database)
-        : database;
-    return Buffer.from(encodeRisuSaveLegacy(output, 'compression'));
-}
-
-app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await flushPendingDb();
-        const plan = await createSettingsBackupPlan();
-        if (!plan) return res.status(500).json({ error: 'database.bin missing' });
-        res.json(plan.breakdown);
-    } catch (error) { next(error); }
-});
-
-app.get('/api/backup/export', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    try {
-        // ?target=upstream excludes NodeOnly-only inlay namespaces (inlay/,
-        // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
-        // which upstream RisuAI's import treats as a path under assets/ and
-        // fails with ENOENT. The export becomes lossy on inlay images but
-        // imports cleanly into upstream.
-        const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
-        const settingsOnly = req.query.mode === 'settings';
-        const includeModuleAssets = req.query.moduleAssets !== '0';
-        // Flush any pending patches to ensure export includes latest data
-        await flushPendingDb();
-
-        const settingsPlan = settingsOnly
-            ? await createSettingsBackupPlan(includeModuleAssets)
-            : null;
-        if (settingsOnly && !settingsPlan) {
-            return res.status(500).json({ error: 'database.bin missing' });
-        }
-
-        const skipInlay = settingsOnly || target === 'upstream';
-        const inlayFiles = skipInlay ? [] : await listInlayFiles();
-        const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
-            const stat = await fs.stat(entry.filePath);
-            return {
-                kind: 'file',
-                sourcePath: entry.filePath,
-                backupName: `inlay/${entry.id}.${entry.ext}`,
-                sortKey: `inlay/${entry.id}`,
-                size: stat.size,
-            };
-        }));
-        const sidecarEntries = await Promise.all(inlayFiles.map(async (entry) => {
-            const sidecarPath = getInlaySidecarPath(entry.id);
-            try {
-                const stat = await fs.stat(sidecarPath);
-                return {
-                    kind: 'sidecar',
-                    sourcePath: sidecarPath,
-                    backupName: `inlay_sidecar/${entry.id}`,
-                    sortKey: `inlay_sidecar/${entry.id}`,
-                    size: stat.size,
-                };
-            } catch {
-                return null;
-            }
-        }));
-        const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
-            kind: 'kv',
-            key: entry.key,
-            backupName: entry.key,
-            sortKey: entry.key,
-            size: entry.size,
-        }));
-        const namespacedEntries = [
-            ...(settingsPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
-                .map((entry) => ({
-                    kind: 'kv',
-                    key: entry.key,
-                    backupName: path.basename(entry.key),
-                    sortKey: entry.key,
-                    size: entry.size,
-                })),
-            ...(settingsOnly ? [] : listColdStorageBackupEntries()),
-            ...inlayMetaEntries,
-            ...inlayEntries,
-            ...sidecarEntries.filter(Boolean),
-        ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-        const exportedDatabase = settingsPlan?.encodedDatabase
-            ?? await createCompatibleDatabaseValue({ exportColors: true });
-        const dbSize = exportedDatabase?.length ?? 0;
-        const totalBytes = namespacedEntries.reduce((sum, entry) => {
-            return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
-        }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
-
-        const filenameBase = settingsOnly ? 'risu-settings' : 'risu-backup';
-        const filenameSuffix = settingsOnly ? '' : target === 'upstream' ? '-upstream' : '';
-        res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="${filenameBase}-${Date.now()}${filenameSuffix}.bin"`);
-        res.setHeader('content-length', totalBytes);
-        res.setHeader('x-risu-backup-assets', namespacedEntries.length);
-
-        let closed = false;
-        res.once('close', () => { closed = true; });
-
-        function waitForDrain() {
-            if (closed) return Promise.resolve();
-            return new Promise(resolve => {
-                function done() {
-                    res.removeListener('drain', done);
-                    res.removeListener('close', done);
-                    resolve();
-                }
-                res.once('drain', done);
-                res.once('close', done);
-            });
-        }
-
-        for (const entry of namespacedEntries) {
-            if (closed) break;
-            const value = entry.kind === 'kv'
-                ? kvGet(entry.key)
-                : entry.kind === 'buffer'
-                    ? entry.buffer
-                    : await fs.readFile(entry.sourcePath);
-            if (closed) break;
-            if (value) {
-                const ok = res.write(encodeBackupEntry(entry.backupName, value));
-                if (!ok) {
-                    await waitForDrain();
-                    if (closed) break;
-                }
-            }
-        }
-
-        if (!closed && dbSize) {
-            const ok = res.write(encodeBackupEntry('database.risudat', exportedDatabase));
-            if (!ok) {
-                await waitForDrain();
-            }
-        }
-        if (!closed) res.end();
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Pre-flight check: auth + size + disk space before client starts uploading
-app.post('/api/backup/import/prepare', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (importInProgress) {
-            res.status(409).json({ error: 'Another import is already in progress' });
-            return;
-        }
-
-        const size = Number(req.body?.size ?? 0);
-        if (BACKUP_IMPORT_MAX_BYTES > 0 && size > BACKUP_IMPORT_MAX_BYTES) {
-            res.status(413).json({ error: `Backup exceeds max allowed size (${BACKUP_IMPORT_MAX_BYTES} bytes)` });
-            return;
-        }
-
-        if (size > 0) {
-            const disk = await checkDiskSpace(size * BACKUP_DISK_HEADROOM);
-            if (!disk.ok) {
-                res.status(507).json({
-                    error: 'Insufficient disk space',
-                    available: disk.available,
-                    required: size * BACKUP_DISK_HEADROOM,
-                });
-                return;
-            }
-        }
-
-        res.json({ ok: true });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post('/api/backup/import', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    if (!requireSyncClientId(req, res)) return;
-
-    if (importInProgress) {
-        res.status(409).json({ error: 'Another import is already in progress' });
-        return;
-    }
-    importInProgress = true;
-
-    // Disable timeouts for large backup uploads
-    const prevRequestTimeout = req.socket.server?.requestTimeout;
-    req.socket.setTimeout(0);
-    req.socket.setKeepAlive(true);
-    if (req.socket.server) req.socket.server.requestTimeout = 0;
-
-    // NDJSON streaming keeps the response socket alive during long
-    // post-upload work (WAL checkpoint, cold-storage migration). Without it
-    // a reverse proxy in front of the server can hit its response timeout
-    // and bounce the request back to the client as 502 Bad Gateway.
-    const wantsNdjson = String(req.headers['accept'] ?? '').includes('application/x-ndjson');
-    let heartbeatTimer = null;
-
-    try {
-        const contentType = String(req.headers['content-type'] ?? '');
-        if (contentType && !contentType.includes('application/x-risu-backup') && !contentType.includes('application/octet-stream')) {
-            res.status(415).json({ error: 'Unsupported backup content-type' });
-            return;
-        }
-
-        const contentLength = Number(req.headers['content-length'] ?? '0');
-        if (BACKUP_IMPORT_MAX_BYTES > 0 && Number.isFinite(contentLength) && contentLength > BACKUP_IMPORT_MAX_BYTES) {
-            res.status(413).json({ error: `Backup exceeds max allowed size (${BACKUP_IMPORT_MAX_BYTES} bytes)` });
-            return;
-        }
-
-        if (wantsNdjson) {
-            res.setHeader('content-type', 'application/x-ndjson');
-            res.setHeader('cache-control', 'no-cache, no-transform');
-            // Disable nginx response buffering so progress events flush immediately.
-            res.setHeader('x-accel-buffering', 'no');
-            res.flushHeaders();
-
-            // Periodic keepalive — covers the post-stream phase (commit,
-            // inlay dir swap, cold storage migration) where onProgress is silent.
-            heartbeatTimer = setInterval(() => {
-                if (!res.writableEnded) res.write('{"type":"heartbeat"}\n');
-            }, BACKUP_NDJSON_HEARTBEAT_MS);
-
-            let lastProgressWrite = 0;
-            const totalBytes = Number.isFinite(contentLength) ? contentLength : 0;
-            const result = await queueStorageOperation(() => importBackupFromSource(req, {
-                maxBytes: BACKUP_IMPORT_MAX_BYTES,
-                totalBytes,
-                onProgress: (received, total) => {
-                    const now = Date.now();
-                    if (now - lastProgressWrite < 200) return;
-                    lastProgressWrite = now;
-                    res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
-                },
-            }));
-            broadcastDatabaseInvalidated(req, { allChats: true });
-            broadcastBookmarksInvalidated(req);
-            res.write(JSON.stringify({
-                type: 'done',
-                ok: true,
-                assetsRestored: result.assetsRestored,
-                coldStorageFailed: result.coldStorageFailed,
-            }) + '\n');
-            res.end();
-        } else {
-            const result = await queueStorageOperation(() => importBackupFromSource(req, {
-                maxBytes: BACKUP_IMPORT_MAX_BYTES,
-            }));
-            broadcastDatabaseInvalidated(req, { allChats: true });
-            broadcastBookmarksInvalidated(req);
-            res.json({
-                ok: true,
-                assetsRestored: result.assetsRestored,
-                coldStorageFailed: result.coldStorageFailed,
-            });
-        }
-    } catch (error) {
-        if (wantsNdjson && res.headersSent) {
-            try {
-                res.write(JSON.stringify({
-                    type: 'error',
-                    message: error?.message || 'backup import failed',
-                    ...(error?.code ? { code: error.code } : {}),
-                }) + '\n');
-                res.end();
-            } catch (_) {}
-        } else {
-            next(error);
-        }
-    } finally {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        importInProgress = false;
-        if (req.socket.server && prevRequestTimeout !== undefined) {
-            req.socket.server.requestTimeout = prevRequestTimeout;
-        }
-    }
-});
-
-// ── Server-side backup endpoints ────────────────────────────────────────────
-
-// Save current data as a .bin backup file on the server
-app.post('/api/backup/server/save', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        await flushPendingDb();
-        const dbBackupValue = await createCompatibleDatabaseValue({ exportColors: true });
-
-        // Pre-flight disk check — bail before streaming if the target dir
-        // can't fit the backup. Avoids wasted minutes + half-written tmp files.
-        try {
-            const estimate = await estimateServerBackupSize(dbBackupValue?.length);
-            const required = Math.ceil(estimate * 1.05); // 5% safety margin
-            const sf = await fs.statfs(backupsDir);
-            const free = sf.bsize * sf.bavail;
-            if (estimate > 0 && free < required) {
-                return res.status(400).json({
-                    error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB)`,
-                    code: 'insufficient_space',
-                    required,
-                    free,
-                });
-            }
-        } catch (e) {
-            // Non-fatal: log and proceed. statfs may be unavailable, in which
-            // case the streaming fallback path below still fails gracefully.
-            console.warn('[Backup] pre-flight disk check failed:', e?.message || e);
-        }
-
-        const inlayFiles = await listInlayFiles();
-        const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
-            const stat = await fs.stat(entry.filePath);
-            return { kind: 'file', sourcePath: entry.filePath, backupName: `inlay/${entry.id}.${entry.ext}`, size: stat.size };
-        }));
-        const sidecarEntries = (await Promise.all(inlayFiles.map(async (entry) => {
-            const sidecarPath = getInlaySidecarPath(entry.id);
-            try {
-                const stat = await fs.stat(sidecarPath);
-                return { kind: 'sidecar', sourcePath: sidecarPath, backupName: `inlay_sidecar/${entry.id}`, size: stat.size };
-            } catch { return null; }
-        }))).filter(Boolean);
-
-        const namespacedEntries = [
-            ...kvListWithSizes('assets/').map((e) => ({ kind: 'kv', key: e.key, backupName: path.basename(e.key), size: e.size })),
-            ...listColdStorageBackupEntries(),
-            ...kvListWithSizes('inlay_meta/').map((e) => ({ kind: 'kv', key: e.key, backupName: e.key, size: e.size })),
-            ...inlayEntries,
-            ...sidecarEntries,
-        ];
-
-        const totalEntries = namespacedEntries.length + 1; // +1 for database
-        const totalBytes = namespacedEntries.reduce((sum, e) => sum + e.size, 0) + (dbBackupValue?.length || 0);
-
-        // Stream progress as NDJSON
-        res.setHeader('content-type', 'application/x-ndjson');
-        res.flushHeaders();
-
-        const filename = `risu-backup-${Date.now()}.bin`;
-        const finalPath = path.join(backupsDir, filename);
-        const tmpPath = finalPath + '.tmp';
-        const { createWriteStream: createFsWriteStream } = require('fs');
-        const writeStream = createFsWriteStream(tmpPath);
-
-        let closed = false;
-        let writeComplete = false;
-        res.once('close', () => { closed = true; });
-
-        try {
-            await new Promise((resolve, reject) => {
-                writeStream.on('error', reject);
-
-                (async () => {
-                    let written = 0;
-                    let bytesWritten = 0;
-                    for (const entry of namespacedEntries) {
-                        if (closed) break;
-                        const value = entry.kind === 'kv'
-                            ? kvGet(entry.key)
-                            : entry.kind === 'buffer'
-                                ? entry.buffer
-                                : await fs.readFile(entry.sourcePath);
-                        if (value) {
-                            const ok = writeStream.write(encodeBackupEntry(entry.backupName, value));
-                            if (!ok) await new Promise(r => writeStream.once('drain', r));
-                            bytesWritten += value.length;
-                        }
-                        written++;
-                        if (written % 50 === 0 || written === namespacedEntries.length) {
-                            res.write(JSON.stringify({ type: 'progress', current: written, total: totalEntries, bytes: bytesWritten, totalBytes }) + '\n');
-                        }
-                    }
-                    if (closed) throw new Error('Client disconnected during backup save');
-                    if (dbBackupValue) {
-                        const ok = writeStream.write(encodeBackupEntry('database.risudat', dbBackupValue));
-                        if (!ok) await new Promise(r => writeStream.once('drain', r));
-                        bytesWritten += dbBackupValue.length;
-                    }
-                    res.write(JSON.stringify({ type: 'progress', current: totalEntries, total: totalEntries, bytes: bytesWritten, totalBytes }) + '\n');
-                    writeStream.end(resolve);
-                })().catch(reject);
-            });
-
-            // Atomic rename: only expose the file after successful write
-            await fs.rename(tmpPath, finalPath);
-            writeComplete = true;
-
-            const stat = await fs.stat(finalPath);
-            const note = normalizeBackupNote(req.body?.note);
-            if (note) setBackupNote(getBackupNotesDir(), 'server', filename, note);
-            console.log(`[Server Backup] Saved: ${filename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
-            res.write(JSON.stringify({ type: 'done', ok: true, filename, size: stat.size, note }) + '\n');
-            res.end();
-        } catch (innerError) {
-            // Clean up incomplete temp file
-            if (!writeComplete) {
-                await fs.unlink(tmpPath).catch(() => {});
-            }
-            throw innerError;
-        }
-    } catch (error) {
-        if (!res.headersSent) {
-            next(error);
-        } else {
-            res.write(JSON.stringify({
-                type: 'error',
-                message: error.message,
-                ...(error?.code ? { code: error.code } : {}),
-            }) + '\n');
-            res.end();
-        }
-    }
-});
-
-// List backup files on the server
-app.get('/api/backup/server/list', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    try {
-        const notes = readBackupNotes(getBackupNotesDir());
-        let entries;
-        try {
-            entries = await fs.readdir(backupsDir, { withFileTypes: true });
-        } catch {
-            res.json({ backups: [] });
-            return;
-        }
-        const backups = [];
-        for (const entry of entries) {
-            if (!entry.isFile() || !BACKUP_FILENAME_REGEX.test(entry.name)) continue;
-            const stat = await fs.stat(path.join(backupsDir, entry.name));
-            const tsMatch = entry.name.match(/^risu-backup-(\d+)\.bin$/);
-            backups.push({
-                filename: entry.name,
-                size: stat.size,
-                createdAt: tsMatch ? Number(tsMatch[1]) : stat.mtimeMs,
-                note: getBackupNote(notes, 'server', entry.name),
-            });
-        }
-        backups.sort((a, b) => b.createdAt - a.createdAt);
-        res.json({ backups });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.put('/api/backup/notes', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
-        const id = typeof req.body?.id === 'string' ? req.body.id : '';
-        if (!isValidBackupNoteTarget(kind, id)) {
-            return res.status(400).json({ error: 'Invalid backup note target' });
-        }
-        if (!await backupNoteTargetExists(kind, id)) {
-            return res.status(404).json({ error: 'Backup not found' });
-        }
-        const note = setBackupNote(getBackupNotesDir(), kind, id, req.body?.note);
-        res.json({ ok: true, note });
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Restore from a server backup file
-app.post('/api/backup/server/restore', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-
-    if (importInProgress) {
-        res.status(409).json({ error: 'Another import is already in progress' });
-        return;
-    }
-    importInProgress = true;
-
-    try {
-        const filename = req.body?.filename;
-        if (!filename || !BACKUP_FILENAME_REGEX.test(filename)) {
-            res.status(400).json({ error: 'Invalid backup filename' });
-            return;
-        }
-        const filePath = path.join(backupsDir, filename);
-        let fileStat;
-        try {
-            fileStat = await fs.stat(filePath);
-        } catch {
-            res.status(404).json({ error: 'Backup file not found' });
-            return;
-        }
-
-        const disk = await checkDiskSpace(fileStat.size * BACKUP_DISK_HEADROOM);
-        if (!disk.ok) {
-            res.status(507).json({
-                error: 'Insufficient disk space',
-                available: disk.available,
-                required: fileStat.size * BACKUP_DISK_HEADROOM,
-            });
-            return;
-        }
-
-        res.setHeader('content-type', 'application/x-ndjson');
-        res.flushHeaders();
-
-        let lastProgressWrite = 0;
-        const { createReadStream } = require('fs');
-        const stream = createReadStream(filePath, { highWaterMark: 256 * 1024 });
-        const result = await queueStorageOperation(() => importBackupFromSource(stream, {
-            totalBytes: fileStat.size,
-            onProgress: (received, total) => {
-                const now = Date.now();
-                if (now - lastProgressWrite < 200) return;
-                lastProgressWrite = now;
-                res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
-            },
-        }));
-        broadcastDatabaseInvalidated(req, { allChats: true });
-        broadcastBookmarksInvalidated(req);
-        res.write(JSON.stringify({
-            type: 'done',
-            ok: true,
-            assetsRestored: result.assetsRestored,
-            coldStorageFailed: result.coldStorageFailed,
-        }) + '\n');
-        res.end();
-    } catch (error) {
-        if (!res.headersSent) {
-            next(error);
-        } else {
-            res.write(JSON.stringify({
-                type: 'error', message: error.message,
-                ...(error?.code ? { code: error.code } : {}),
-            }) + '\n');
-            res.end();
-        }
-    } finally {
-        importInProgress = false;
-    }
-});
-
-// Fill only assets referenced by the current database but absent from the
-// current KV store. Unlike a full restore this never changes database.bin,
-// chats, settings, existing assets, inlays, or cold storage.
-app.post('/api/backup/server/restore-assets', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-
-    if (importInProgress) {
-        res.status(409).json({ error: 'Another import is already in progress' });
-        return;
-    }
-    importInProgress = true;
-
-    try {
-        const filename = req.body?.filename;
-        if (!filename || !BACKUP_FILENAME_REGEX.test(filename)) {
-            res.status(400).json({ error: 'Invalid backup filename' });
-            return;
-        }
-        const filePath = path.join(backupsDir, filename);
-        try {
-            await fs.access(filePath);
-        } catch {
-            res.status(404).json({ error: 'Backup file not found' });
-            return;
-        }
-
-        // Include any debounced DB changes before deciding which assets the
-        // current save references. Asset restoration itself is additive.
-        await flushPendingDb();
-        if (!appDataStore.getState().initialized) {
-            res.status(409).json({ error: 'Current database is missing' });
-            return;
-        }
-        const dbObj = appDataStore.exportProjection({ includeMessages: true });
-        const referencedBasenames = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
-        const currentBasenames = new Set(
-            kvList('assets/').map((key) => statsBasename(key)),
-        );
-        const missingBasenames = new Set(
-            Array.from(referencedBasenames).filter((name) => !currentBasenames.has(name)),
-        );
-
-        res.setHeader('content-type', 'application/x-ndjson');
-        res.flushHeaders();
-
-        let lastProgressWrite = 0;
-        const result = await restoreMissingAssetsFromBackupFile({
-            db: sqliteDb,
-            filePath,
-            missingBasenames,
-            maxEntryNameBytes: BACKUP_ENTRY_NAME_MAX_BYTES,
-            onProgress: (bytes, totalBytes) => {
-                const now = Date.now();
-                if (now - lastProgressWrite < 200 && bytes < totalBytes) return;
-                lastProgressWrite = now;
-                res.write(JSON.stringify({ type: 'progress', bytes, totalBytes }) + '\n');
-            },
-            beforeRestore: async (restoreBytes) => {
-                const required = restoreBytes * BACKUP_DISK_HEADROOM;
-                const disk = await checkDiskSpace(required);
-                if (!disk.ok) {
-                    throw new Error(
-                        `Insufficient disk space (available=${disk.available}, required=${required})`,
-                    );
-                }
-            },
-        });
-
-        res.write(JSON.stringify({
-            type: 'done',
-            ok: true,
-            referencedAssets: referencedBasenames.size,
-            missingAssets: missingBasenames.size,
-            ...result,
-        }) + '\n');
-        res.end();
-    } catch (error) {
-        if (!res.headersSent) {
-            next(error);
-        } else {
-            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
-            res.end();
-        }
-    } finally {
-        importInProgress = false;
-    }
-});
-
-// Delete a server backup file
-app.delete('/api/backup/server/:filename', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const filename = req.params.filename;
-        if (!BACKUP_FILENAME_REGEX.test(filename)) {
-            res.status(400).json({ error: 'Invalid backup filename' });
-            return;
-        }
-        const filePath = path.join(backupsDir, filename);
-        try {
-            await fs.unlink(filePath);
-        } catch (err) {
-            if (err.code === 'ENOENT') {
-                res.status(404).json({ error: 'Backup file not found' });
-                return;
-            }
-            throw err;
-        }
-        deleteBackupNote(getBackupNotesDir(), 'server', filename);
-        res.json({ ok: true });
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Download a server backup file
-app.get('/api/backup/server/download/:filename', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    try {
-        const filename = req.params.filename;
-        if (!BACKUP_FILENAME_REGEX.test(filename)) {
-            res.status(400).json({ error: 'Invalid backup filename' });
-            return;
-        }
-        const filePath = path.join(backupsDir, filename);
-        let stat;
-        try {
-            stat = await fs.stat(filePath);
-        } catch {
-            res.status(404).json({ error: 'Backup file not found' });
-            return;
-        }
-        res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="${filename}"`);
-        res.setHeader('content-length', stat.size);
-        const { createReadStream } = require('fs');
-        createReadStream(filePath).pipe(res);
-    } catch (error) {
-        next(error);
-    }
-});
-
-// ── Chat content endpoints (runtime lazy load) ─────────────────────────────
-
-// Cold-storage compatibility is provided by dataRestore/legacyRestore.cjs.
-
-// Server-owned global bookmarks. Chat JSON compatibility fields are projected
-// only by /api/bookmarks/compatibility and are not part of the canonical chat.
-async function visibleBookmarkChatKeys(req) {
-    if (!isCloudflareTunnelRequest(req)) return null;
-    await ensureCanonicalStorage();
-    if (!appDataStore.getState().initialized) return new Set();
-    const database = appDataStore.exportProjection({ includeMessages: false });
-    const visibleDatabase = filterRemoteOnlyFolders(database);
-    const visible = new Set();
-    for (const character of visibleDatabase?.characters ?? []) {
-        for (const chat of character?.chats ?? []) {
-            if (character?.chaId && chat?.id) visible.add(`${character.chaId}\u0000${chat.id}`);
-        }
-    }
-    return visible;
-}
-
-function isVisibleBookmarkTarget(visible, characterId, chatId) {
-    return !visible || visible.has(`${characterId}\u0000${chatId}`);
-}
-
-function filterBookmarkCatalogForVisibleChats(catalog, visible) {
-    if (!visible) return catalog;
-    const entries = catalog.entries.filter(entry =>
-        isVisibleBookmarkTarget(visible, entry.characterId, entry.chatId));
-    const tagIds = new Set(entries.flatMap(entry => entry.tagIds));
-    return {
-        ...catalog,
-        entries,
-        tags: catalog.tags.filter(tag => tagIds.has(tag.id)),
-    };
-}
-
-app.get(BOOKMARKS_API_PATH, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        bookmarkStore.pruneInvalid((entry) =>
-            appDataStore.hasChat(entry.characterId, entry.chatId));
-        const visible = await visibleBookmarkChatKeys(req);
-        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
-    } catch (error) { next(error); }
-});
-
-app.put(BOOKMARKS_API_PATH, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const { characterId, chatId, messageId } = req.body ?? {};
-        await ensureChatStore(characterId, chatId);
-        const visible = await visibleBookmarkChatKeys(req);
-        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-            return res.status(404).json({ error: 'Bookmark target not found' });
-        }
-        const chat = fullChatStore.get(characterId)?.get(chatId);
-        const message = chat?.message?.find(value => value?.chatId === messageId);
-        if (!chat || !message) return res.status(404).json({ error: 'Bookmark target not found' });
-        bookmarkStore.upsertBookmarkEntry({
-            characterId,
-            chatId,
-            messageId,
-            name: typeof req.body?.name === 'string' ? req.body.name.trim() : '',
-            preview: normalizePreview(message.data, messageId),
-            tagIds: Array.isArray(req.body?.tagIds) ? req.body.tagIds : [],
-        });
-        broadcastBookmarksInvalidated(req);
-        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
-    } catch (error) { next(error); }
-});
-
-app.patch(BOOKMARKS_API_PATH, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        const { characterId, chatId, messageId } = req.body ?? {};
-        const visible = await visibleBookmarkChatKeys(req);
-        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-            return res.status(404).json({ error: 'Bookmark not found' });
-        }
-        const patch = {};
-        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'name')) {
-            patch.name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-        }
-        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'tagIds')) {
-            patch.tagIds = Array.isArray(req.body.tagIds) ? req.body.tagIds : [];
-        }
-        if (!bookmarkStore.patchBookmarkEntry({ characterId, chatId, messageId }, patch)) {
-            return res.status(404).json({ error: 'Bookmark not found' });
-        }
-        broadcastBookmarksInvalidated(req);
-        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
-    } catch (error) { next(error); }
-});
-
-app.delete(BOOKMARKS_API_PATH, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        const { characterId, chatId, messageId } = req.body ?? {};
-        const visible = await visibleBookmarkChatKeys(req);
-        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-            return res.status(404).json({ error: 'Bookmark not found' });
-        }
-        if (!bookmarkStore.removeBookmarkEntry({ characterId, chatId, messageId })) {
-            return res.status(404).json({ error: 'Bookmark not found' });
-        }
-        broadcastBookmarksInvalidated(req);
-        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
-    } catch (error) { next(error); }
-});
-
-app.put(BOOKMARK_TAGS_API_PATH, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (isCloudflareTunnelRequest(req)) {
-            return res.status(403).json({ error: 'Bookmark tags are local-only' });
-        }
-        await ensureCanonicalStorage();
-        bookmarkStore.replaceTags(req.body?.tags);
-        broadcastBookmarksInvalidated(req);
-        res.json(bookmarkStore.catalog());
-    } catch (error) { next(error); }
-});
-
-app.post(`${BOOKMARK_TAGS_API_PATH}/merge`, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (isCloudflareTunnelRequest(req)) {
-            return res.status(403).json({ error: 'Bookmark tags are local-only' });
-        }
-        await ensureCanonicalStorage();
-        const idMap = bookmarkStore.mergeTags(req.body?.tags);
-        broadcastBookmarksInvalidated(req);
-        res.json({ idMap, catalog: bookmarkStore.catalog() });
-    } catch (error) { next(error); }
-});
-
-app.post(`${BOOKMARKS_API_PATH}/compatibility`, async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        const targets = Array.isArray(req.body?.targets) ? req.body.targets : null;
-        if (!targets) return res.status(400).json({ error: 'Invalid bookmark targets' });
-        const visible = await visibleBookmarkChatKeys(req);
-        res.json(bookmarkStore.compatibilityForTargets(targets.filter(target =>
-            isVisibleBookmarkTarget(visible, target?.characterId, target?.chatId))));
-    } catch (error) { next(error); }
-});
-
-// GET /api/chat-content/:chaId/:chatIndex — retrieve full chat from server
-app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    try {
-        const chaId = req.params.chaId;
-        const chatIndex = parseInt(req.params.chatIndex, 10);
-        const expectedChatId = req.headers['x-chat-id'];
-
-        await ensureCanonicalStorage();
-        if (isCloudflareTunnelRequest(req)) {
-            const dbObj = appDataStore.exportProjection({ includeMessages: false });
-            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                return res.status(404).json({ error: 'Chat not found' });
-            }
-        }
-        const indexedStub = appDataStore.getChatStubAt(chaId, chatIndex);
-        const resolvedChatId = expectedChatId || indexedStub?.id;
-        if (!indexedStub || !resolvedChatId) {
-            return res.status(404).json({ error: 'Chat not found' });
-        }
-        // Verify chatId matches if provided
-        if (expectedChatId && indexedStub.id !== expectedChatId) {
-            return res.status(409).json({ error: 'Chat ID mismatch — index may have shifted' });
-        }
-        await ensureChatStore(chaId, resolvedChatId);
-        const chat = fullChatStore.get(chaId)?.get(resolvedChatId);
-        if (!chat) return res.status(404).json({ error: 'Chat not found' });
-        if (!restoreColdStorageChat(chat)) {
-            return res.status(500).json({ error: 'Cold storage restore failed' });
-        }
-        const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('x-chat-etag', computeChatEtag(chat));
-        res.send(encoded);
-    } catch (error) {
-        next(error);
-    }
-});
-
-// POST /api/chat-content/:chaId/:chatIndex — save chat content to server
-app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const chaId = req.params.chaId;
-        const chatIndex = parseInt(req.params.chatIndex, 10);
-        const expectedChatId = req.headers['x-chat-id'];
-        let chatData;
-        if (Buffer.isBuffer(req.body)) {
-            try {
-                chatData = await decodeRisuSave(req.body);
-            } catch {
-                return res.status(400).json({ error: 'Invalid binary chat data' });
-            }
-        } else {
-            chatData = req.body;
-        }
-
-        if (!chatData || !expectedChatId) {
-            return res.status(400).json({ error: 'Chat data and x-chat-id required' });
-        }
-
-        // Original-compatible imports may carry bookmark fields inside the
-        // chat. Absorb them once into the server table, while keeping the
-        // canonical full-chat payload free of a second bookmark source.
-        const importedBookmarks = readChatCompatibility(chatData);
-        stripChatCompatibility(chatData);
-
-        if (isCloudflareTunnelRequest(req)) {
-            const dbObj = appDataStore.exportProjection({ includeMessages: false });
-            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                return res.status(404).json({ error: 'Chat not found' });
-            }
-        }
-
-        const commit = await canonicalChatService.commitUserEdit({
-            characterId: chaId,
-            chatId: expectedChatId,
-            chat: chatData,
-            expectedEtag: req.headers['x-chat-if-match'],
-            originClientId: getSyncClientIdFromRequest(req),
-        });
-        if (importedBookmarks) {
-            if (bookmarkStore.replaceChatCompatibility(chaId, expectedChatId, importedBookmarks)) {
-                broadcastBookmarksInvalidated(req);
-            }
-        }
-        else {
-            const validMessageIds = new Set(
-                (chatData.message ?? []).map(message => message?.chatId).filter(Boolean),
-            );
-            if (bookmarkStore.pruneChatMessages(chaId, expectedChatId, validMessageIds) > 0) {
-                broadcastBookmarksInvalidated(req);
-            }
-        }
-        res.json({ success: true, etag: commit.etag });
-    } catch (error) {
-        if (error instanceof CanonicalChatCommitError) {
-            return res.status(error.httpStatus).json({
-                error: error.message,
-                ...(error.currentEtag ? { currentEtag: error.currentEtag } : {}),
-                ...(error.conflicts ? { conflicts: error.conflicts } : {}),
-                ...(error.code ? { code: error.code } : {}),
-            });
-        }
-        next(error);
-    }
-});
-
-// ── Storage dashboard endpoints ──────────────────────────────────────────────
-
-const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
-const ASSET_PREFIXES = [
-    STORED_ASSET_PREFIX,
-    'inlay/',
-    'inlay_thumb/',
-    'inlay_meta/',
-    'inlay_info/',
-    'coldstorage/',
-    'cache/hypa-vector/',
-    'cache/llm-translate/',
-];
-
-function statSafe(p) {
-    try { return require('fs').statSync(p); } catch { return null; }
-}
-
-async function diskFreeStat(dirPath) {
-    try {
-        const sf = await fs.statfs(dirPath);
-        return { free: sf.bsize * sf.bavail, total: sf.bsize * sf.blocks };
-    } catch { return { free: null, total: null }; }
-}
 
 // Sum the on-disk inlay payload (image files + sidecar JSONs in save/inlays).
 // Returns 0 if the directory is missing. Used by both the backup-size
@@ -5784,842 +2527,6 @@ async function estimateServerBackupSize(dbBytesOverride = null, inlayBytesOverri
     return total;
 }
 
-app.get('/api/db/stats', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        const saveDir = path.join(process.cwd(), 'save');
-        const dbFilePath = path.join(saveDir, 'risuai.db');
-        const walPath = dbFilePath + '-wal';
-        const shmPath = dbFilePath + '-shm';
-
-        const files = {
-            db: statSafe(dbFilePath)?.size ?? 0,
-            wal: statSafe(walPath)?.size ?? 0,
-            shm: statSafe(shmPath)?.size ?? 0,
-        };
-
-        const disk = await diskFreeStat(saveDir);
-        // Backup destination disk — same as save/ in the default config but
-        // can diverge when the user points backupsDir at a different mount.
-        // Surfaced separately so backup-side warnings target the right disk.
-        // `sameAsSaveDir` is true when both paths land on the same filesystem
-        // (compared by Stat.dev). Dashboard uses this to decide whether to
-        // count file backups against the save/ disk in the storage chart.
-        let backupDisk;
-        if (backupsDir === DEFAULT_BACKUPS_DIR) {
-            backupDisk = { ...disk, path: backupsDir, sameAsSaveDir: true };
-        } else {
-            const bDisk = await diskFreeStat(backupsDir);
-            let sameAsSaveDir = false;
-            try {
-                const saveStat = require('fs').statSync(saveDir);
-                const bStat = require('fs').statSync(backupsDir);
-                sameAsSaveDir = saveStat.dev === bStat.dev;
-            } catch { /* non-fatal */ }
-            backupDisk = { ...bDisk, path: backupsDir, sameAsSaveDir };
-        }
-
-        // The backup page only needs capacity and a conservative next-backup
-        // estimate. Do not make that tab wait for chunk reachability, orphan
-        // asset discovery, or snapshot accounting used exclusively by the
-        // storage dashboard.
-        if (req.query?.scope === 'backup') {
-            const inlayFsBytes = await sumInlayFsBytes();
-            const estimatedBackupSize = await estimateServerBackupSize(
-                appDataStore.getState().initialized
-                    ? appDataStore.estimateProjectionBytes()
-                    : 0,
-                inlayFsBytes,
-            );
-            return res.json({
-                files,
-                disk,
-                backupDisk,
-                estimatedBackupSize,
-                inlayFsBytes,
-                etag: dbEtag,
-            });
-        }
-
-        const pageSize = sqliteDb.pragma('page_size', { simple: true });
-        const pageCount = sqliteDb.pragma('page_count', { simple: true });
-        const freelistCount = sqliteDb.pragma('freelist_count', { simple: true });
-        const journalMode = sqliteDb.pragma('journal_mode', { simple: true });
-        const autoVacuum = sqliteDb.pragma('auto_vacuum', { simple: true });
-        const reclaimable = freelistCount * pageSize;
-
-        const dbBlobSize = kvSize(DB_BLOB_KEY) || 0;
-
-        // Physical storage of the chunked DB blob (and all snapshots, which share
-        // chunks). This is where the blob bytes actually live post-chunking — kv
-        // holds only a tiny marker, so the chart must count this table separately.
-        const chunkStat = chunkStorageStats();
-        // Bytes the next gc() would reclaim (true orphans + chunks pinned only by
-        // stale/raw-overwritten manifests) — drives the Optimize button.
-        const orphanChunkBytes = reclaimableChunkBytes();
-        const liveChunked = isDbBlobChunked();
-
-        // Prefix breakdown — split database/ into the live blob vs rotated backups.
-        const prefixes = {};
-        prefixes[DB_BLOB_KEY] = { totalSize: dbBlobSize, count: dbBlobSize > 0 ? 1 : 0 };
-        const backupKeys = kvList(DB_BACKUP_PREFIX);
-        let backupTotal = 0;
-        let backupOldest = null, backupNewest = null;
-        for (const k of backupKeys) {
-            const sz = kvSize(k) || 0;
-            backupTotal += sz;
-            const tsRaw = parseInt(k.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            if (Number.isFinite(tsRaw)) {
-                const ts = tsRaw * 100;
-                if (!backupOldest || ts < backupOldest) backupOldest = ts;
-                if (!backupNewest || ts > backupNewest) backupNewest = ts;
-            }
-        }
-        prefixes[DB_BACKUP_PREFIX] = { totalSize: backupTotal, count: backupKeys.length };
-        let storedAssets = [];
-        for (const p of ASSET_PREFIXES) {
-            const items = kvListWithSizes(p);
-            if (p === STORED_ASSET_PREFIX) storedAssets = items;
-            let total = 0;
-            for (const it of items) total += it.size;
-            prefixes[p] = { totalSize: total, count: items.length };
-        }
-
-        const kvRows = sqliteDb.prepare('SELECT COUNT(*) AS c FROM kv').get().c;
-        const kvTotalBytes = sqliteDb.prepare('SELECT COALESCE(SUM(LENGTH(value)), 0) AS s FROM kv').get().s;
-
-        let fileBackups = { count: 0, totalSize: 0, oldest: null, newest: null };
-        try {
-            const entries = await fs.readdir(backupsDir, { withFileTypes: true });
-            for (const e of entries) {
-                if (!e.isFile() || !BACKUP_FILENAME_REGEX.test(e.name)) continue;
-                const st = await fs.stat(path.join(backupsDir, e.name));
-                fileBackups.count++;
-                fileBackups.totalSize += st.size;
-                const ts = st.mtimeMs;
-                if (!fileBackups.oldest || ts < fileBackups.oldest) fileBackups.oldest = ts;
-                if (!fileBackups.newest || ts > fileBackups.newest) fileBackups.newest = ts;
-            }
-        } catch { /* backups dir may not exist */ }
-
-        // Quick estimates from in-memory cache only — never decode the BLOB just for stats.
-        let orphan = { count: 0, totalSize: 0, available: false };
-        const stripped = dbCache[DB_HEX_KEY];
-        if (stripped && Array.isArray(stripped.characters)) {
-            const victims = findOrphanAssets(
-                storedAssets,
-                collectProtectedAssetBasenames(stripped, assetReferenceStorage),
-            );
-            orphan.count = victims.length;
-            orphan.totalSize = victims.reduce((sum, asset) => sum + asset.size, 0);
-            orphan.available = true;
-        }
-
-        // Inlay payload now lives on the filesystem (post-migration) rather
-        // than in kv `inlay/*` prefixes. Surface explicitly so the dashboard
-        // chart can include it in the inlay slice instead of underreporting.
-        const inlayFsBytes = await sumInlayFsBytes();
-        const estimatedBackupSize = await estimateServerBackupSize(
-            appDataStore.getState().initialized
-                ? appDataStore.estimateProjectionBytes()
-                : 0,
-            inlayFsBytes,
-        );
-
-        res.json({
-            files,
-            disk,
-            backupDisk,
-            sqlite: { pageSize, pageCount, freelistCount, reclaimable, journalMode, autoVacuum },
-            chunks: { count: chunkStat.count, bytes: chunkStat.bytes, orphanBytes: orphanChunkBytes, liveChunked },
-            prefixes,
-            kvRows,
-            kvTotalBytes,
-            estimatedBackupSize,
-            inlayFsBytes,
-            backups: {
-                kv: { count: backupKeys.length, totalSize: backupTotal, oldest: backupOldest, newest: backupNewest },
-                file: fileBackups,
-            },
-            orphan,
-            etag: dbEtag,
-        });
-    } catch (err) { next(err); }
-});
-
-app.get('/api/db/stats/characters', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        if (!appDataStore.getState().initialized) {
-            res.json({ characters: [], orphan: { count: 0, totalSize: 0 }, chatBytesNote: 'estimate' });
-            return;
-        }
-        const dbObj = dbCache[DB_HEX_KEY] ?? { characters: [] };
-
-        const assetSize = new Map();
-        for (const it of kvListWithSizes('assets/')) {
-            assetSize.set(statsBasename(it.key), it.size);
-        }
-        const claimed = new Set();
-        const characters = [];
-        const list = appDataStore.listCharacterStorage();
-        for (const stored of list) {
-            const cha = stored.character;
-            if (!cha) continue;
-            const refs = [];
-            const collect = (v) => { if (v) refs.push(statsBasename(v)); };
-            collect(cha.image);
-            if (Array.isArray(cha.emotionImages)) for (const em of cha.emotionImages) collect(em?.[1]);
-            if (Array.isArray(cha.additionalAssets)) for (const em of cha.additionalAssets) collect(em?.[1]);
-            if (cha.vits?.files) for (const k of Object.keys(cha.vits.files)) collect(cha.vits.files[k]);
-            if (Array.isArray(cha.ccAssets)) for (const a of cha.ccAssets) collect(a?.uri);
-
-            // Same asset shared across characters is attributed to the first one we see — avoids double-counting.
-            let imgBytes = 0;
-            for (const bn of refs) {
-                if (!bn || claimed.has(bn)) continue;
-                const sz = assetSize.get(bn);
-                if (sz != null) {
-                    imgBytes += sz;
-                    claimed.add(bn);
-                }
-            }
-            const chatBytes = stored.chatBytes;
-            const cardBytes = stored.cardBytes;
-
-            characters.push({
-                chaId: cha.chaId || '',
-                name: cha.name || '',
-                image: cha.image || '',
-                trashed: !!cha.trashTime,
-                cardBytes,
-                imgBytes,
-                chatBytes,
-                totalBytes: cardBytes + imgBytes + chatBytes,
-            });
-        }
-
-        const orphanAssets = findOrphanAssets(
-            kvListWithSizes(STORED_ASSET_PREFIX),
-            collectProtectedAssetBasenames(dbObj, assetReferenceStorage),
-        );
-
-        characters.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({
-            characters,
-            orphan: {
-                count: orphanAssets.length,
-                totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
-            },
-            chatBytesNote: 'relational msgpack payload bytes',
-            etag: dbEtag,
-        });
-    } catch (err) { next(err); }
-});
-
-// Per-module breakdown — modules live inside database.bin (no separate kv keys
-// for module bodies), so size = JSON.stringify of the module + sum of its
-// referenced assets. Assets attribution is independent from /characters; an
-// asset shared between a character and a module would be counted in both.
-app.get('/api/db/stats/modules', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        await ensureCanonicalStorage();
-        if (!appDataStore.getState().initialized) {
-            res.json({ modules: [] });
-            return;
-        }
-        const list = appDataStore.listModuleStorage();
-
-        const assetSize = new Map();
-        for (const it of kvListWithSizes('assets/')) {
-            assetSize.set(statsBasename(it.key), it.size);
-        }
-
-        const modules = [];
-        for (const stored of list) {
-            const m = stored.module;
-            if (!m) continue;
-            const bodyBytes = stored.bodyBytes;
-
-            let assetBytes = 0;
-            const seen = new Set();
-            if (Array.isArray(m.assets)) {
-                for (const a of m.assets) {
-                    const bn = statsBasename(a?.[1]);
-                    if (!bn || seen.has(bn)) continue;
-                    seen.add(bn);
-                    const sz = assetSize.get(bn);
-                    if (sz != null) assetBytes += sz;
-                }
-            }
-
-            modules.push({
-                id: m.id || m.namespace || m.name || '',
-                name: m.name || m.namespace || '',
-                bodyBytes,
-                assetBytes,
-                totalBytes: bodyBytes + assetBytes,
-            });
-        }
-
-        modules.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({ modules, etag: dbEtag });
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/assets/purge-orphans', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const result = await queueStorageOperation(async () => {
-            // Decide from persisted bytes after pending client writes land; the
-            // dashboard's in-memory estimate is informational only.
-            await flushPendingDb();
-            if (!appDataStore.getState().initialized) {
-                return { error: 'No relational database' };
-            }
-            const dbObj = appDataStore.exportProjection({ includeMessages: true });
-            if (!dbObj || !Array.isArray(dbObj.characters)) {
-                return { error: 'Database decode failed' };
-            }
-
-            const storedAssets = kvListWithSizes(STORED_ASSET_PREFIX);
-            const explicitAssetReferences = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
-            if (explicitAssetReferences.size === 0 && storedAssets.length > 0) {
-                return { error: 'Reference scan produced no references — refusing to purge' };
-            }
-            const databaseReferences = collectDatabaseAssetBasenames(dbObj);
-            for (const basename of collectPersistentPluginAssetBasenames(assetReferenceStorage)) {
-                databaseReferences.add(basename);
-            }
-
-            const victims = findOrphanAssets(storedAssets, databaseReferences);
-            sqliteDb.transaction(() => {
-                for (const asset of victims) kvDel(asset.key);
-            })();
-
-            const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
-            if (victims.length > 0) {
-                try { checkpointWal('TRUNCATE'); }
-                catch (error) { logger.warn('[PurgeOrphans] checkpoint failed:', error?.message || error); }
-            }
-            return { ok: true, deleted: victims.length, bytes, scanned: storedAssets.length };
-        });
-
-        if (result.error) return res.status(400).json(result);
-        logger.info(`[PurgeOrphans] removed ${result.deleted}/${result.scanned} assets (${result.bytes} bytes)`);
-        res.json(result);
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/optimize', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const saveDir = path.join(process.cwd(), 'save');
-        const dbFilePath = path.join(saveDir, 'risuai.db');
-        const preDbSize = statSafe(dbFilePath)?.size ?? 0;
-        const requiredFreeBytes = estimateVacuumRequiredBytes(preDbSize);
-
-        const { free } = await diskFreeStat(saveDir);
-        if (requiredFreeBytes > 0 && free != null && free < requiredFreeBytes) {
-            return res.status(400).json({
-                error: 'Insufficient disk space for VACUUM',
-                required: requiredFreeBytes,
-                free,
-            });
-        }
-
-        const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
-            const t0 = Date.now();
-            // Reclaim chunks orphaned by edits/snapshot rotation before VACUUM, so
-            // their pages get compacted in the same pass. Serialized with saves by
-            // the surrounding queueStorageOperation.
-            let gcDeleted = 0;
-            try { gcDeleted = gcChunks(); } catch (e) { logger.warn('[Optimize] chunk gc failed:', e?.message || e); }
-            try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] checkpoint failed:', e?.message || e); }
-            vacuumDatabase();
-            // VACUUM streams the whole DB through the WAL; without this checkpoint the
-            // -wal file stays inflated until the next 5-min background TRUNCATE.
-            try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] post-VACUUM checkpoint failed:', e?.message || e); }
-            const elapsed = Date.now() - t0;
-            const postDbSize = statSafe(dbFilePath)?.size ?? 0;
-            return {
-                ok: true,
-                elapsedMs: elapsed,
-                preDbSize,
-                postDbSize,
-                reclaimed: Math.max(0, preDbSize - postDbSize),
-                chunksReclaimed: gcDeleted,
-            };
-        });
-        res.json(result);
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/wal-checkpoint', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const saveDir = path.join(process.cwd(), 'save');
-        const walFilePath = path.join(saveDir, 'risuai.db-wal');
-        const preWalSize = statSafe(walFilePath)?.size ?? 0;
-
-        const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
-            const t0 = Date.now();
-            checkpointWal('TRUNCATE');
-            const elapsed = Date.now() - t0;
-            const postWalSize = statSafe(walFilePath)?.size ?? 0;
-            return {
-                ok: true,
-                elapsedMs: elapsed,
-                preWalSize,
-                postWalSize,
-                reclaimed: Math.max(0, preWalSize - postWalSize),
-            };
-        });
-        res.json(result);
-    } catch (err) { next(err); }
-});
-
-// ── Snapshot list (database/dbbackup-* keys) ─────────────────────────────────
-
-app.get('/api/db/snapshots/limits', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        const { maxCount, maxBytes } = getSnapshotLimits();
-        const usage = snapshotUsage();
-        res.json({
-            maxCount,
-            maxBytes,
-            currentCount: usage.count,
-            currentBytes: usage.bytes,
-            logicalBytes: usage.logicalBytes,
-            bounds: {
-                minCount: SNAPSHOT_LIMIT_MIN_COUNT,
-                maxCount: SNAPSHOT_LIMIT_MAX_COUNT,
-                minBytes: SNAPSHOT_LIMIT_MIN_BYTES,
-                maxBytes: SNAPSHOT_LIMIT_MAX_BYTES,
-            },
-            defaults: {
-                count: SNAPSHOT_LIMIT_DEFAULT_COUNT,
-                bytes: SNAPSHOT_LIMIT_DEFAULT_BYTES,
-            },
-        });
-    } catch (err) { next(err); }
-});
-
-app.put('/api/db/snapshots/limits', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const rawCount = Number(req.body?.maxCount);
-        const rawBytes = Number(req.body?.maxBytes);
-        if (!Number.isFinite(rawCount) || rawCount < SNAPSHOT_LIMIT_MIN_COUNT || rawCount > SNAPSHOT_LIMIT_MAX_COUNT) {
-            return res.status(400).json({ error: `maxCount out of range (${SNAPSHOT_LIMIT_MIN_COUNT}-${SNAPSHOT_LIMIT_MAX_COUNT})` });
-        }
-        if (!Number.isFinite(rawBytes) || rawBytes < SNAPSHOT_LIMIT_MIN_BYTES || rawBytes > SNAPSHOT_LIMIT_MAX_BYTES) {
-            return res.status(400).json({ error: `maxBytes out of range` });
-        }
-        const maxCount = Math.floor(rawCount);
-        const maxBytes = Math.floor(rawBytes);
-        kvSet(SNAPSHOT_LIMIT_COUNT_KEY, Buffer.from(String(maxCount), 'utf-8'));
-        kvSet(SNAPSHOT_LIMIT_BYTES_KEY, Buffer.from(String(maxBytes), 'utf-8'));
-        const trim = trimSnapshotsToLimits();
-        const usage = snapshotUsage();
-        res.json({
-            maxCount, maxBytes,
-            currentCount: usage.count,
-            currentBytes: usage.bytes,
-            logicalBytes: usage.logicalBytes,
-            removed: trim.removed,
-        });
-    } catch (err) { next(err); }
-});
-
-app.get('/api/db/snapshots', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        const out = kvList(DB_BACKUP_PREFIX).map((key) => {
-            const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
-            // Logical size — the full data this snapshot represents (the whole DB),
-            // not its marginal on-disk cost. Users expect "this backup = my 53 MB
-            // DB"; the dedup win is shown once, as the section's savings figure.
-            // (kvSize reassembles via the manifest; the marker's 13 bytes are not
-            // what a user wants to see for a full backup.) Trimming still sizes by
-            // snapshotFootprint in db.cjs, so this display change can't over-trim.
-            return { key, size: kvSize(key) || 0, timestamp: ts };
-        }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-        res.json({ snapshots: out });
-    } catch (err) { next(err); }
-});
-
-app.delete('/api/db/snapshots', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const key = typeof req.query?.key === 'string' ? req.query.key : '';
-        // Restrict to snapshot prefix — never let this endpoint touch other kv keys.
-        if (!key.startsWith(DB_BACKUP_PREFIX)) {
-            return res.status(400).json({ error: 'Invalid snapshot key' });
-        }
-        deleteSnapshotState(key);
-        res.json({ ok: true });
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/snapshots/promote', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const key = typeof req.body?.key === 'string' ? req.body.key : '';
-        const note = normalizeBackupNote(req.body?.note);
-        if (!key.startsWith(DB_BACKUP_PREFIX)) {
-            return res.status(400).json({ error: 'Invalid snapshot key' });
-        }
-        if (!note) {
-            return res.status(400).json({ error: 'A note is required to preserve this snapshot' });
-        }
-        const raw = kvGet(key);
-        if (!raw) return res.status(404).json({ error: 'Snapshot not found' });
-
-        const database = normalizeJSON(await decodeRisuSave(raw));
-        // New snapshots keep bookmarks in a dedicated snapshot table. Project
-        // that historical catalog into the portable file; legacy snapshots
-        // already carry their bookmark compatibility fields in the blob.
-        bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
-        const blob = Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
-
-        const dir = getManualSnapshotsDir();
-        await fs.mkdir(dir, { recursive: true });
-        try {
-            const stat = await fs.statfs(dir);
-            const required = Math.ceil(blob.length * 1.05);
-            if (stat.bsize * stat.bavail < required) {
-                return res.status(400).json({
-                    error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB)`,
-                    code: 'insufficient_space',
-                    required,
-                    free: stat.bsize * stat.bavail,
-                });
-            }
-        } catch (error) {
-            if (error?.code === 'insufficient_space') throw error;
-            logger.warn('[Snapshot promotion] pre-flight disk check failed:', error?.message || error);
-        }
-
-        const tick = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-        const timestamp = Number.isFinite(tick) ? tick * 100 : Date.now();
-        const filename = makeManualSnapshotFilename(timestamp);
-        const finalPath = path.join(dir, filename);
-        const temporaryPath = finalPath + '.tmp';
-        let fileCreated = false;
-        try {
-            await fs.writeFile(temporaryPath, blob);
-            await fs.rename(temporaryPath, finalPath);
-            fileCreated = true;
-            setBackupNote(getBackupNotesDir(), 'manual', filename, note);
-            deleteSnapshotState(key);
-        } catch (error) {
-            await fs.unlink(temporaryPath).catch(() => {});
-            if (fileCreated) await fs.unlink(finalPath).catch(() => {});
-            deleteBackupNote(getBackupNotesDir(), 'manual', filename);
-            throw error;
-        }
-
-        res.json({
-            ok: true,
-            snapshot: { filename, size: blob.length, timestamp, note },
-        });
-    } catch (err) { next(err); }
-});
-
-async function restoreDatabaseBlob(blob, options = {}) {
-    await queueStorageOperation(async () => {
-        // Drain any pending debounced persist first — same pattern as
-        // /api/db/optimize. Without this, an in-flight save could land
-        // after the restore and overwrite the restored snapshot.
-        await flushPendingDb();
-        const decoded = await decodeRisuSave(Buffer.from(blob));
-        const { database } = normalizeLegacyDatabaseProjection(decoded);
-        sqliteDb.transaction(() => {
-            const restoredBookmarkSnapshot = options.bookmarkSnapshotKey
-                ? bookmarkStore.restoreSnapshot(options.bookmarkSnapshotKey)
-                : false;
-            if (options.importBookmarkCompatibility
-                || (options.bookmarkSnapshotKey && !restoredBookmarkSnapshot)) {
-                bookmarkStore.replaceDatabaseCompatibility(database);
-            } else {
-                bookmarkStore.migrateLegacyDatabase(database);
-            }
-            // Snapshot blobs contain compatibility fields by design. A restored
-            // bookmark side-table does not mutate that decoded object, so strip
-            // them unconditionally before installing canonical chat rows.
-            bookmarkStore.stripDatabaseCompatibility(database);
-            appDataStore.replaceFromProjection(database, {
-                expectedRevision: appDataStore.getState().revision,
-            });
-        })();
-        refreshCanonicalDatabaseCache({ invalidateChats: true });
-    });
-}
-
-// Restore a snapshot atomically server-side: copy snapshot blob → live blob,
-// invalidate caches, rebuild chat store. Client-side setDatabase + reload is
-// racy because the patch-sync save loop is debounced and the reload can fire
-// before the snapshot data lands on disk.
-app.post('/api/db/snapshots/restore', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const key = typeof req.body?.key === 'string' ? req.body.key : '';
-        if (!key.startsWith(DB_BACKUP_PREFIX)) {
-            return res.status(400).json({ error: 'Invalid snapshot key' });
-        }
-        const blob = kvGet(key);
-        if (!blob) {
-            return res.status(404).json({ error: 'Snapshot not found' });
-        }
-        await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
-        broadcastDatabaseInvalidated(req, { allChats: true });
-        broadcastBookmarksInvalidated(req);
-        res.json({ ok: true });
-    } catch (err) { next(err); }
-});
-
-app.get('/api/db/manual-snapshots', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        const dir = getManualSnapshotsDir();
-        const notes = readBackupNotes(getBackupNotesDir());
-        let entries;
-        try {
-            entries = await fs.readdir(dir, { withFileTypes: true });
-        } catch {
-            return res.json({ snapshots: [], path: dir });
-        }
-        const snapshots = [];
-        for (const entry of entries) {
-            if (!entry.isFile() || !MANUAL_SNAPSHOT_FILENAME_REGEX.test(entry.name)) continue;
-            const stat = await fs.stat(path.join(dir, entry.name));
-            const tsMatch = entry.name.match(/^dbbackup-(\d+)\.bin$/);
-            snapshots.push({
-                filename: entry.name,
-                size: stat.size,
-                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
-                note: getBackupNote(notes, 'manual', entry.name),
-            });
-        }
-        snapshots.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-        res.json({ snapshots, path: dir });
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/manual-snapshots', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        await flushPendingDb();
-        const blob = await createCompatibleDatabaseValue();
-        if (!blob) {
-            return res.status(404).json({ error: 'Database not found' });
-        }
-        const dir = getManualSnapshotsDir();
-        await fs.mkdir(dir, { recursive: true });
-
-        try {
-            const sf = await fs.statfs(dir);
-            const free = sf.bsize * sf.bavail;
-            const required = Math.ceil(blob.length * 1.05);
-            if (free < required) {
-                return res.status(400).json({
-                    error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB)`,
-                    code: 'insufficient_space',
-                    required,
-                    free,
-                });
-            }
-        } catch (e) {
-            console.warn('[Manual Snapshot] pre-flight disk check failed:', e?.message || e);
-        }
-
-        const filename = makeManualSnapshotFilename();
-        const finalPath = path.join(dir, filename);
-        const tmpPath = finalPath + '.tmp';
-        await fs.writeFile(tmpPath, Buffer.from(blob));
-        await fs.rename(tmpPath, finalPath);
-        const stat = await fs.stat(finalPath);
-        const tsMatch = filename.match(/^dbbackup-(\d+)\.bin$/);
-        const note = normalizeBackupNote(req.body?.note);
-        if (note) setBackupNote(getBackupNotesDir(), 'manual', filename, note);
-        res.json({
-            ok: true,
-            snapshot: {
-                filename,
-                size: stat.size,
-                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
-                note,
-            },
-            path: dir,
-        });
-    } catch (err) { next(err); }
-});
-
-app.delete('/api/db/manual-snapshots', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const filename = typeof req.query?.filename === 'string' ? req.query.filename : '';
-        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-            return res.status(400).json({ error: 'Invalid snapshot filename' });
-        }
-        const filePath = path.join(getManualSnapshotsDir(), filename);
-        try {
-            await fs.unlink(filePath);
-        } catch (err) {
-            if (err.code === 'ENOENT') {
-                return res.status(404).json({ error: 'Snapshot not found' });
-            }
-            throw err;
-        }
-        deleteBackupNote(getBackupNotesDir(), 'manual', filename);
-        res.json({ ok: true });
-    } catch (err) { next(err); }
-});
-
-app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
-        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-            return res.status(400).json({ error: 'Invalid snapshot filename' });
-        }
-        const filePath = path.join(getManualSnapshotsDir(), filename);
-        let blob;
-        try {
-            blob = await fs.readFile(filePath);
-        } catch (err) {
-            if (err.code === 'ENOENT') {
-                return res.status(404).json({ error: 'Snapshot not found' });
-            }
-            throw err;
-        }
-        await restoreDatabaseBlob(blob, { importBookmarkCompatibility: true });
-        broadcastDatabaseInvalidated(req, { allChats: true });
-        broadcastBookmarksInvalidated(req);
-        res.json({ ok: true });
-    } catch (err) { next(err); }
-});
-
-// ── Boot-time backup reminder ───────────────────────────────────────────────
-
-const BOOT_REMINDER_KEY = 'config/boot-backup-reminder';
-
-function readBootReminder() {
-    try {
-        const raw = kvGet(BOOT_REMINDER_KEY);
-        if (!raw) return false;
-        return Buffer.from(raw).toString('utf-8').trim() === '1';
-    } catch { return false; }
-}
-
-app.get('/api/backup/boot-reminder', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        res.json({ enabled: readBootReminder() });
-    } catch (err) { next(err); }
-});
-
-app.put('/api/backup/boot-reminder', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const enabled = !!req.body?.enabled;
-        kvSet(BOOT_REMINDER_KEY, Buffer.from(enabled ? '1' : '0', 'utf-8'));
-        res.json({ enabled });
-    } catch (err) { next(err); }
-});
-
-// ── Boot-time automatic backup schedule ─────────────────────────────────────
-
-app.get('/api/backup/schedule', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        res.json(readBackupSchedule());
-    } catch (err) { next(err); }
-});
-
-app.put('/api/backup/schedule', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const schedule = normalizeBackupSchedule(req.body ?? {});
-        kvSet(BACKUP_SCHEDULE_KEY, Buffer.from(JSON.stringify(schedule), 'utf-8'));
-        res.json(schedule);
-    } catch (err) { next(err); }
-});
-
-// ── Backup directory configuration ──────────────────────────────────────────
-
-app.get('/api/backup/server/path', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    try {
-        res.json({
-            path: backupsDir,
-            default: DEFAULT_BACKUPS_DIR,
-            isDefault: backupsDir === DEFAULT_BACKUPS_DIR,
-        });
-    } catch (err) { next(err); }
-});
-
-app.put('/api/backup/server/path', async (req, res, next) => {
-    if (!await checkAuth(req, res)) return;
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const next = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
-        if (!next) {
-            return res.status(400).json({ error: 'Path required' });
-        }
-        const resolved = path.resolve(next);
-        if (isManagedBackupPath(resolved)) {
-            return res.status(400).json({
-                error: 'Backup path cannot be inside PocketRisu Kei app files. Choose a separate folder such as data/backups.',
-            });
-        }
-        // Ensure parent exists / target is writable. Create the dir if missing.
-        try {
-            if (!existsSync(resolved)) {
-                mkdirSync(resolved, { recursive: true });
-            }
-            // Probe writability with a tmpfile.
-            const probe = path.join(resolved, `.risu-write-probe-${Date.now()}`);
-            require('fs').writeFileSync(probe, '');
-            require('fs').unlinkSync(probe);
-        } catch (e) {
-            return res.status(400).json({ error: 'Path is not writable: ' + (e?.message || String(e)) });
-        }
-        const previous = backupsDir;
-        backupsDir = resolved;
-        kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
-        writeBackupPathMarker(resolved);
-        res.json({
-            path: backupsDir,
-            previous,
-            default: DEFAULT_BACKUPS_DIR,
-            isDefault: backupsDir === DEFAULT_BACKUPS_DIR,
-        });
-    } catch (err) { next(err); }
-});
-
-// ── Inlay bulk compression endpoint ──────────────────────────────────────────
-const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'avif']);
 const INLAY_IMAGE_SIZE_PIXELS = Object.freeze({
     '1k': 1024 * 1024,
     '2k': 2048 * 2048,
@@ -6672,615 +2579,238 @@ async function encodeInlayImageBuffer(buffer, settings) {
     }
 }
 
-app.post('/api/inlays/encode-webp', sessionAuthMiddleware, async (req, res) => {
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-            return res.status(400).json({ error: 'Image body required' });
-        }
-        const settings = normalizeInlayImageSettings({
-            size: 'original',
-            format: 'webp',
-            lossy: req.headers['x-inlay-lossy'] !== '0',
-            quality: req.headers['x-inlay-quality'],
-        });
-        const encoded = await encodeInlayImageBuffer(req.body, settings);
-        res.setHeader('Content-Type', 'image/webp');
-        res.setHeader('Content-Length', encoded.buffer.length);
-        return res.send(encoded.buffer);
-    } catch (err) {
-        return res.status(400).json({ error: err?.message || 'Image encoding failed' });
-    }
+installImageGenerationJobRoutes(app, {
+    checkProxyAuth, requireSyncClientId, service: imageGenerationJobService,
 });
 
-app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
-    if (!requireSyncClientId(req, res)) return;
-    const settings = normalizeInlayImageSettings(req.body);
-
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-    });
-
-    const send = (data) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    try {
-        const files = await listInlayFiles();
-        const imageFiles = [];
-
-        for (const entry of files) {
-            if (!COMPRESS_IMAGE_EXTS.has(entry.ext)) continue;
-            const sidecar = await readInlaySidecar(entry.id);
-            if (sidecar && sidecar.type !== 'image') continue;
-            imageFiles.push({ ...entry, sidecar });
-        }
-
-        const total = imageFiles.length;
-        let compressed = 0;
-        let skipped = 0;
-        let totalSaved = 0;
-
-        for (let i = 0; i < imageFiles.length; i++) {
-            const entry = imageFiles[i];
-            try {
-                const original = await fs.readFile(entry.filePath);
-                const encoded = await encodeInlayImageBuffer(original, settings);
-                const info = entry.sidecar || {};
-                await writeInlayFile(entry.id, encoded.ext, encoded.buffer, {
-                    ...info,
-                    ext: encoded.ext,
-                    width: encoded.width,
-                    height: encoded.height,
-                });
-                kvDel(`inlay_thumb/${entry.id}`);
-                totalSaved += original.length - encoded.buffer.length;
-                compressed++;
-            } catch {
-                skipped++;
-            }
-
-            send({ type: 'progress', current: i + 1, total, compressed, skipped, totalSaved });
-        }
-
-        send({ type: 'done', total, compressed, skipped, totalSaved });
-    } catch (err) {
-        send({ type: 'error', message: err?.message || 'Unknown error' });
-    }
-
-    res.end();
+installRevenantGenerationRoutes(app, {
+    checkProxyAuth,
+    requireSyncClientId,
+    isSyncClientConnected,
+    sanitizeGenerationTargetUrl,
+    normalizeForwardHeaders,
+    createGenerationRuntimeJob,
+    runGenerationProviderJob,
+    scheduleGenerationDispatch,
+    scheduleHypaWorkflowExecution,
+    scheduleRevenantPostprocess,
+    scheduleImageGenerationWorkflow,
+    notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+    terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
+    commitWorkflowInput: generationWorkflowService.commitInput,
+    cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
+    generationRuntimeJobs,
+    countActiveGenerationJobs,
+    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    randomUUID: () => nodeCrypto.randomUUID(),
+    addRequestLog,
+    materializeGeneration: revenantMaterializer.materialize,
 });
 
-// ── Public stats proxy ───────────────────────────────────────────────────────
-app.get('/api/public-stats', async (req, res) => {
-    if (!PUBLIC_STATS_URL) {
-        res.status(204).end();
-        return;
-    }
-    try {
-        const r = await fetch(PUBLIC_STATS_URL);
-        if (!r.ok) { res.status(r.status).json({ error: 'upstream error' }); return; }
-        const data = await r.json();
-        res.json(data);
-    } catch {
-        res.status(502).json({ error: 'fetch failed' });
-    }
+require('./routes/web.cjs').installWebRoutes(app, {
+    enablePatchSync,
 });
 
-// ── Update check endpoint ────────────────────────────────────────────────────
-app.get('/api/update-check', async (req, res) => {
-    const currentVersion = getCurrentVersion();
-    if (UPDATE_CHECK_DISABLED) {
-        res.json({ currentVersion, hasUpdate: false, severity: 'none', disabled: true, deploymentType, canSelfUpdate: false });
-        return;
-    }
-    const result = await fetchLatestRelease(req.query.lang);
-    const response = result || { currentVersion, hasUpdate: false, severity: 'none' };
-    response.deploymentType = deploymentType;
-    response.canSelfUpdate = deploymentType === 'portable'
-        && !!response.hasUpdate
-        && !response.manualOnly
-        && !!getSelfUpdateAssetInfo(response.latestVersion);
-    res.json(response);
+require('./routes/proxy.cjs').installProxyRoutes(app, {
+    checkAuth,
+    isCloudflareTunnelRequest,
 });
 
-// ── Self-update endpoint (portable only) ─────────────────────────────────────
-let selfUpdateInProgress = false;
-
-app.post('/api/self-update', async (req, res) => {
-    if (!await checkAuth(req, res)) return;
-
-    if (deploymentType !== 'portable') {
-        res.status(400).json({ error: 'Self-update is only available for portable deployments' });
-        return;
-    }
-    if (selfUpdateInProgress) {
-        res.status(409).json({ error: 'Update already in progress' });
-        return;
-    }
-    selfUpdateInProgress = true;
-
-    // Track client disconnect — used to abort download, but NOT to release the lock.
-    // The lock stays held until the update fully completes or fails, preventing
-    // a second request from touching the same install directory concurrently.
-    let clientDisconnected = false;
-    res.on('close', () => {
-        clientDisconnected = true;
-        console.log('[Update] Client disconnected (update continues if past download stage).');
-    });
-
-    // NDJSON streaming response
-    res.writeHead(200, {
-        'Content-Type': 'application/x-ndjson',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-    });
-    const send = (step, progress, message) => {
-        try { res.write(JSON.stringify({ step, progress, message }) + '\n'); } catch {}
-    };
-
-    let tmpDir = null;
-    try {
-        // 1. Check update
-        send('checking', 0, 'Checking for updates...');
-        const updateInfo = await fetchLatestRelease();
-        if (!updateInfo?.hasUpdate) {
-            send('done', 100, 'Already up to date.');
-            res.end();
-            selfUpdateInProgress = false;
-            return;
-        }
-
-        const targetVersion = updateInfo.latestVersion;
-        const assetInfo = getSelfUpdateAssetInfo(targetVersion);
-        if (!assetInfo) {
-            throw new Error(`No release asset for ${process.platform}-${process.arch}`);
-        }
-
-        // 2. Download
-        tmpDir = path.join(os.tmpdir(), `risu-update-${Date.now()}`);
-        await fs.mkdir(tmpDir, { recursive: true });
-        const archivePath = path.join(tmpDir, assetInfo.filename);
-
-        send('downloading', 0, 'Starting download...');
-        const dlRes = await fetch(assetInfo.url, { redirect: 'follow' });
-        if (!dlRes.ok) throw new Error(`Download failed: ${dlRes.status} ${dlRes.statusText}`);
-
-        const totalSize = parseInt(dlRes.headers.get('content-length'), 10) || 0;
-        const fileStream = require('fs').createWriteStream(archivePath);
-        let downloaded = 0;
-        let lastPct = -1;
-
-        const progress = new Transform({
-            transform(chunk, _enc, cb) {
-                if (clientDisconnected) { cb(new Error('Client disconnected')); return; }
-                downloaded += chunk.length;
-                if (totalSize > 0) {
-                    const pct = Math.round((downloaded / totalSize) * 100);
-                    if (pct >= lastPct + 5) {
-                        lastPct = pct;
-                        const dlMB = (downloaded / 1048576).toFixed(0);
-                        const totalMB = (totalSize / 1048576).toFixed(0);
-                        send('downloading', pct, `Downloading... ${pct}% (${dlMB}/${totalMB} MB)`);
-                    }
-                }
-                cb(null, chunk);
-            },
-        });
-        await pipeline(Readable.fromWeb(dlRes.body), progress, fileStream);
-        send('downloading', 100, 'Download complete.');
-
-        // 3. Extract
-        send('extracting', null, 'Extracting...');
-        const extractDir = path.join(tmpDir, 'extracted');
-        await fs.mkdir(extractDir, { recursive: true });
-
-        if (process.platform === 'win32') {
-            try {
-                // Windows 10 1803+ has tar.exe built-in, handles zip, much faster than PowerShell
-                execSync(`tar -xf "${archivePath}" -C "${extractDir}"`, { timeout: 300000 });
-            } catch {
-                execSync(
-                    `powershell -NoProfile -Command "Expand-Archive -Force -Path '${archivePath}' -DestinationPath '${extractDir}'"`,
-                    { timeout: 300000 },
-                );
-            }
-        } else {
-            execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { timeout: 300000 });
-        }
-
-        // Resolve possibly nested root directory (same as updater.cjs resolveExtractedRoot)
-        const entries = await fs.readdir(extractDir);
-        let sourceDir = extractDir;
-        if (entries.length === 1) {
-            const candidate = path.join(extractDir, entries[0]);
-            if ((await fs.stat(candidate)).isDirectory()) sourceDir = candidate;
-        }
-
-        // 4. Validate extracted package (mirrors updater.cjs validateExtractedRoot)
-        const REQUIRED_ENTRIES = ['dist', 'server', 'package.json'];
-        const REQUIRED_DIST_FILES = ['index.html'];
-        for (const entry of REQUIRED_ENTRIES) {
-            try { await fs.access(path.join(sourceDir, entry)); }
-            catch { throw new Error(`Downloaded package is missing required entry: ${entry}`); }
-        }
-        for (const file of REQUIRED_DIST_FILES) {
-            try { await fs.access(path.join(sourceDir, 'dist', file)); }
-            catch { throw new Error(`Downloaded package is missing dist/${file}`); }
-        }
-        if (process.platform === 'win32') {
-            try { await fs.access(path.join(sourceDir, 'bin')); }
-            catch { throw new Error('Downloaded Windows package is missing bin/'); }
-        }
-
-        // 5. Replace files (follows updater.cjs Phase 1-4 pattern)
-        // Stop tunnel before replacing files to avoid file lock issues
-        stopTunnel();
-        send('replacing', null, 'Replacing files...');
-        const appDir = process.cwd();
-        const isWin = process.platform === 'win32';
-        const updateTmp = path.join(appDir, '.update-tmp');
-
-        // Restore from a previous interrupted update only when its in-progress
-        // marker is still there. A leftover backup/ alone is not proof of an
-        // interrupted update: on Windows the running launcher exe keeps
-        // backup/PocketRisu.exe locked, so the restart script's rmdir leaves
-        // the folder behind after a SUCCESSFUL update — restoring from it
-        // would roll the app back to the previous version.
-        const prevBackup = path.join(updateTmp, 'backup');
-        const inProgressMarker = path.join(updateTmp, 'in-progress');
-        if (existsSync(inProgressMarker) && existsSync(prevBackup)) {
-            console.log('[Update] Restoring files from previous interrupted update...');
-            await restoreBackup(prevBackup, appDir);
-        }
-        await fs.rm(updateTmp, { recursive: true, force: true }).catch(() => {});
-        await fs.mkdir(updateTmp, { recursive: true });
-
-        // Carry over SSL certificates into new package before swap
-        const sslSrc = path.join(appDir, 'server', 'node', 'ssl', 'certificate');
-        try {
-            await fs.access(sslSrc);
-            const sslDst = path.join(sourceDir, 'server', 'node', 'ssl', 'certificate');
-            await fs.mkdir(path.dirname(sslDst), { recursive: true });
-            await fs.cp(sslSrc, sslDst, { recursive: true });
-        } catch { /* no user certs */ }
-
-        // Keep set — matches updater.cjs + user data/config that must survive updates
-        const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
-        if (isWin) keep.add('bin');
-
-        // Phase 1: move old files to backup — rollback immediately on any failure
-        const backupDir = path.join(updateTmp, 'backup');
-        await fs.mkdir(backupDir, { recursive: true });
-        // Present only while app files are being replaced. A leftover backup
-        // after a successful update must never roll back the installed release.
-        await fs.writeFile(inProgressMarker, `v${targetVersion}`);
-
-
-        const oldEntries = await fs.readdir(appDir);
-        for (const e of oldEntries) {
-            if (keep.has(e)) continue;
-            try {
-                await fs.rename(path.join(appDir, e), path.join(backupDir, e));
-            } catch (backupErr) {
-                logger.error(`[Update] Failed to back up ${e}: ${backupErr.message}`);
-                console.log('[Update] Restoring files already moved to backup...');
-                await restoreBackup(backupDir, appDir);
-                throw new Error(isWin
-                    ? 'Update failed: some files are in use. Close RisuAI first, then try again.'
-                    : 'Update failed: some files are in use. Stop the server first, then try again.');
-            }
-        }
-
-        // Phase 2: move new files from extracted to app root
-        const skipMove = new Set(['save', 'scripts']);
-        if (isWin) skipMove.add('bin');
-        const moved = [];
-        try {
-            const newEntries = await fs.readdir(sourceDir);
-            for (const e of newEntries) {
-                if (skipMove.has(e)) continue;
-                const dest = path.join(appDir, e);
-                await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
-                await moveAcrossVolumes(path.join(sourceDir, e), dest);
-                moved.push(e);
-            }
-            // Post-move validation
-            for (const entry of REQUIRED_ENTRIES) {
-                if (!moved.includes(entry) && !existsSync(path.join(appDir, entry))) {
-                    throw new Error(`Required entry was not installed: ${entry}`);
-                }
-            }
-            for (const file of REQUIRED_DIST_FILES) {
-                if (!existsSync(path.join(appDir, 'dist', file))) {
-                    throw new Error(`Required file was not installed: dist/${file}`);
-                }
-            }
-        } catch (moveErr) {
-            logger.error(`[Update] Move failed: ${moveErr.message}`);
-            console.log('[Update] Restoring from backup...');
-            await restoreBackup(backupDir, appDir);
-            throw new Error('Update failed, previous version restored. Please try again.');
-        }
-
-        // Phase 3: update scripts/ from new release
-        const newScripts = path.join(sourceDir, 'scripts');
-        try {
-            await fs.access(newScripts);
-            await fs.mkdir(path.join(appDir, 'scripts'), { recursive: true });
-            for (const f of await fs.readdir(newScripts)) {
-                await fs.copyFile(path.join(newScripts, f), path.join(appDir, 'scripts', f));
-            }
-        } catch { /* no scripts in release */ }
-
-        // The app files are complete and verified; keep successful-update
-        // leftovers from being mistaken for an interrupted replacement.
-        await fs.rm(inProgressMarker, { force: true }).catch(() => {});
-
-        // Phase 4 (Windows): stage bin/ for restart script to apply after exit
-        if (isWin) {
-            const newBin = path.join(sourceDir, 'bin');
-            const stagedBin = path.join(updateTmp, 'new-bin');
-            await fs.rm(stagedBin, { recursive: true, force: true }).catch(() => {});
-            await fs.cp(newBin, stagedBin, { recursive: true });
-            // Version marker — finalized after bin/ is applied
-            await fs.writeFile(path.join(updateTmp, 'latest-version'), `v${targetVersion}`);
-        } else {
-            await fs.writeFile(path.join(appDir, '.installed-version'), `v${targetVersion}`);
-        }
-
-        // Cleanup temp download (not .update-tmp — that stays on Windows for bin/ post-step)
-        fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-        tmpDir = null;
-        if (!isWin) {
-            fs.rm(updateTmp, { recursive: true, force: true }).catch(() => {});
-        }
-
-        send('restarting', 100, 'Update complete. Restarting...');
-        res.end();
-
-        // 6. Flush DB and restart
-        setTimeout(async () => {
-            try {
-            console.log(`[Update] Self-update to v${targetVersion} complete. Restarting...`);
-            try { await flushPendingDb(); } catch {}
-            try { checkpointWal('TRUNCATE'); } catch {}
-
-            const port = process.env.PORT || 6001;
-
-            if (isWin) {
-                // Windows: use a .bat script to apply bin/, finalize version, and restart.
-                // A bat script can replace bin/node.exe after the Node process exits,
-                // avoiding file-lock issues that a Node child process would hit.
-                //
-                // cmd.exe parses .bat files in the OEM code page (e.g. CP949 on Korean
-                // Windows), not UTF-8, so any non-ASCII path (Korean user name, "바탕 화면")
-                // written literally into the script would be mangled and every command
-                // would fail. Keep the script pure ASCII and pass paths through environment
-                // variables, which reach cmd.exe as UTF-16 via CreateProcessW.
-                const batScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.bat`);
-                const utmp = path.join(appDir, '.update-tmp');
-                const batLines = [
-                    '@echo off',
-                    // Wait ~3s for the Node process to exit before touching
-                    // bin/. Not `timeout`: with stdio ignored, stdin is NUL
-                    // and timeout exits at once ("input redirection is not
-                    // supported"); ping does not read stdin.
-                    'ping -n 4 127.0.0.1 >nul',
-                    // Apply staged bin/: backup current → copy new → on failure restore backup
-                    'if exist "%RISU_UTMP%\\new-bin\\" (',
-                    '  if exist "%RISU_APP_DIR%\\bin\\" (',
-                    '    xcopy /E /I /Y "%RISU_APP_DIR%\\bin\\*" "%RISU_UTMP%\\old-bin\\" >nul',
-                    '  )',
-                    '  xcopy /E /I /Y "%RISU_UTMP%\\new-bin\\*" "%RISU_APP_DIR%\\bin\\" >nul',
-                    '  if errorlevel 1 (',
-                    '    echo [Update] bin/ copy failed, restoring backup...',
-                    '    if exist "%RISU_UTMP%\\old-bin\\" (',
-                    '      xcopy /E /I /Y "%RISU_UTMP%\\old-bin\\*" "%RISU_APP_DIR%\\bin\\" >nul',
-                    '    )',
-                    '    echo [Update] bin/ restored. Staged files kept for retry.',
-                    '    goto start',
-                    '  )',
-                    ')',
-                    // Finalize version marker only after successful bin/ copy
-                    'if exist "%RISU_UTMP%\\latest-version" (',
-                    '  copy /Y "%RISU_UTMP%\\latest-version" "%RISU_APP_DIR%\\.installed-version" >nul',
-                    ')',
-                    // Cleanup .update-tmp (includes old-bin backup)
-                    'rmdir /s /q "%RISU_UTMP%" 2>nul',
-                    ':start',
-                    // Start server with correct working directory
-                    'cd /d "%RISU_APP_DIR%"',
-                    'start "" "%RISU_APP_DIR%\\bin\\node.exe" "%RISU_APP_DIR%\\server\\node\\server.cjs"',
-                    'exit /b 0',
-                ];
-                writeFileSync(batScript, batLines.join('\r\n'), 'ascii');
-                spawn('cmd.exe', ['/c', batScript], {
-                    detached: true,
-                    stdio: 'ignore',
-                    env: Object.assign({}, process.env, { RISU_APP_DIR: appDir, RISU_UTMP: utmp }),
-                }).unref();
-            } else {
-                // Unix: Node restart helper with port-check to avoid clashing with process managers
-                const restartScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.cjs`);
-                writeFileSync(restartScript, [
-                    `const net = require('net');`,
-                    `const { spawn } = require('child_process');`,
-                    `setTimeout(() => {`,
-                    `  const s = net.createServer();`,
-                    `  s.once('error', () => process.exit(0));`,
-                    `  s.once('listening', () => {`,
-                    `    s.close();`,
-                    `    spawn(${JSON.stringify(process.execPath)}, ['server/node/server.cjs'], {`,
-                    `      cwd: ${JSON.stringify(appDir)},`,
-                    `      detached: true,`,
-                    `      stdio: 'inherit',`,
-                    `      env: Object.assign({}, process.env),`,
-                    `    }).unref();`,
-                    `    setTimeout(() => process.exit(0), 500);`,
-                    `  });`,
-                    `  s.listen(${Number(port)});`,
-                    `}, 3000);`,
-                ].join('\n'));
-                spawn(process.execPath, [restartScript], { detached: true, stdio: 'ignore' }).unref();
-            }
-            process.exit(0);
-            } catch (restartErr) {
-                logger.error('[Update] Restart failed:', restartErr);
-                selfUpdateInProgress = false;
-            }
-        }, 500);
-
-    } catch (e) {
-        logger.error('[Update] Self-update failed:', e);
-        send('error', null, `Update failed: ${e.message}`);
-        res.end();
-        selfUpdateInProgress = false;
-        if (tmpDir) fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    }
+require('./routes/auth.cjs').installAuthRoutes(app, {
+    SESSION_FILE,
+    sessions,
+    loginBlockedUntil,
+    LOGIN_FAILURE_WINDOW_MS,
+    jwtSecret,
+    authState,
+    checkAuth,
+    parseSessionCookie,
+    sessionExpiresAt,
+    getSyncClientIdFromRequest,
+    syncClientDevices,
+    passwordPath,
 });
 
-// Helper: rename, falling back to copy+remove when src and dest are on
-// different volumes (Windows EXDEV — e.g. app on D:, os.tmpdir() on C:)
-async function moveAcrossVolumes(src, dest) {
-    try {
-        await fs.rename(src, dest);
-    } catch (err) {
-        if (err && err.code === 'EXDEV') {
-            await fs.cp(src, dest, { recursive: true, force: true });
-            await fs.rm(src, { recursive: true, force: true });
-            return;
-        }
-        throw err;
-    }
-}
-
-// Helper: restore files from backup directory into app root (mirrors updater.cjs restoreBackupIntoRoot)
-async function restoreBackup(backupDir, rootDir) {
-    try { await fs.access(backupDir); } catch { return; }
-    for (const entry of await fs.readdir(backupDir)) {
-        const src = path.join(backupDir, entry);
-        const dest = path.join(rootDir, entry);
-        try {
-            await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
-            await moveAcrossVolumes(src, dest);
-        } catch { /* best effort */ }
-    }
-}
-
-// ── Cloudflare Quick Tunnel API ──────────────────────────────────────────────
-
-app.get('/api/tunnel/status', async (req, res) => {
-    if (!await checkAuth(req, res)) return;
-    res.json({
-        disabled: TUNNEL_DISABLED,
-        status: tunnelStatus,
-        url: tunnelUrl,
-        error: tunnelError,
-        platform: process.platform,
-    });
+require('./routes/assets/index.cjs').installAssetRoutes(app, {
+    saveTimers,
+    queueStorageOperation,
+    storageState,
+    bookmarkStore,
+    ensureChatStore,
+    reassembleFullDb,
+    appDataStore,
+    deleteInlayRawFile,
+    deleteInlayVideoThumbnail,
+    getInlaySidecarPath,
+    readInlayFile,
+    readInlaySidecar,
+    readInlayLegacyInfo,
+    getVips,
+    getInlayFileInfo,
+    getInlayVideoThumbnailPath,
+    inlayVideoThumbnailDir,
+    sessionAuthMiddleware,
+    getMimeFromExt,
+    resolveAssetPayload,
+    checkAuth,
+    ensureCanonicalStorage,
+    MISSING_DATABASE_ETAG,
+    isCloudflareTunnelRequest,
+    computeBufferEtag,
+    readInlayInfoPayload,
+    listInlayFiles,
+    requireSyncClientId,
+    computeDatabaseEtagFromObject,
+    normalizeInlayExt,
+    writeInlayFile,
+    writeInlaySidecar,
+    normalizeLegacyDatabaseProjection,
+    refreshCanonicalDatabaseCache,
+    createBackupAndRotate,
+    broadcastDatabaseInvalidated,
+    enablePatchSync,
+    findChatInternalFieldOps,
+    currentPersistWarning,
+    getSyncClientIdFromRequest,
+    clearPersistFailure,
 });
 
-app.post('/api/tunnel/start', async (req, res) => {
-    if (!await checkAuth(req, res)) return;
-    if (TUNNEL_DISABLED) return res.status(403).json({ error: 'Tunnel is disabled via RISU_TUNNEL_DISABLED' });
-    if (tunnelStatus === 'running' || tunnelStatus === 'starting' || tunnelStatus === 'downloading') {
-        return res.status(409).json({ error: 'Tunnel is already ' + tunnelStatus });
-    }
-
-    let cfPath = findCloudflaredBinary();
-
-    // Auto-download if not found
-    if (!cfPath) {
-        tunnelStatus = 'downloading';
-        tunnelError = null;
-        res.json({ status: 'downloading' });
-
-        try {
-            cfPath = await downloadCloudflared();
-        } catch (e) {
-            logger.error('[Tunnel] Download failed:', e.message);
-            tunnelStatus = 'error';
-            tunnelError = `Failed to download cloudflared: ${e.message}`;
-            return;
-        }
-        // After download, start the tunnel (response already sent)
-        startTunnelProcess(cfPath);
-        return;
-    }
-
-    tunnelStatus = 'starting';
-    tunnelError = null;
-    tunnelUrl = null;
-    startTunnelProcess(cfPath);
-    res.json({ status: 'starting' });
+require('./routes/database.cjs').installDatabaseRoutes(app, {
+    appDataStore,
+    checkAuth,
+    queueStorageOperation,
+    ensureCanonicalStorage,
+    isCloudflareTunnelRequest,
+    requireSyncClientId,
+    refreshCanonicalDatabaseCache,
+    scheduleBackupAndRotate,
+    broadcastDatabaseInvalidated,
+    findChatInternalFieldOps,
+    currentPersistWarning,
+    sessionAuthMiddleware,
+    flushPendingDb,
+    storageState,
 });
 
-function startTunnelProcess(cfPath) {
-    const port = process.env.PORT || 6001;
-    tunnelStatus = 'starting';
-    tunnelError = null;
-    tunnelUrl = null;
+require('./routes/logs.cjs').installLogsRoutes(app, {
+    checkAuth,
+    requireSyncClientId,
+});
 
-    try {
-        const originScheme = serverIsHttps ? 'https' : 'http';
-        const args = ['tunnel', '--url', `${originScheme}://localhost:${port}`];
-        if (serverIsHttps) args.push('--no-tls-verify');
-        tunnelProcess = spawn(cfPath, args, {
-            stdio: ['ignore', 'pipe', 'pipe']
-        });
+require('./routes/backup.cjs').installBackupRoutes(app, {
+    deleteSnapshotStateRows,
+    DB_BACKUP_PREFIX,
+    storageState,
+    DB_HEX_KEY,
+    saveTimers,
+    backupState,
+    BACKUP_FILENAME_REGEX,
+    normalizeLegacyDatabaseProjection,
+    bookmarkStore,
+    appDataStore,
+    createBackupAndRotate,
+    savePath,
+    inlayDir,
+    inlayMigrationMarker,
+    flushPendingDb,
+    normalizeInlayExt,
+    isSafeInlayId,
+    decodeDataUri,
+    ensureInlayDir,
+    normalizeColdStorageStorageKey,
+    parseColdStorageJsonBuffer,
+    encodeColdStorageCanonicalBuffer,
+    ensureCanonicalStorage,
+    checkAuth,
+    listInlayFiles,
+    getInlaySidecarPath,
+    listColdStorageBackupEntries,
+    requireSyncClientId,
+    queueStorageOperation,
+    broadcastDatabaseInvalidated,
+    broadcastBookmarksInvalidated,
+    estimateServerBackupSize,
+    getSnapshotLimits,
+    SNAPSHOT_LIMIT_MIN_COUNT,
+    SNAPSHOT_LIMIT_MAX_COUNT,
+    SNAPSHOT_LIMIT_MIN_BYTES,
+    SNAPSHOT_LIMIT_MAX_BYTES,
+    SNAPSHOT_LIMIT_DEFAULT_COUNT,
+    SNAPSHOT_LIMIT_DEFAULT_BYTES,
+    SNAPSHOT_LIMIT_COUNT_KEY,
+    SNAPSHOT_LIMIT_BYTES_KEY,
+    trimSnapshotsToLimits,
+    refreshCanonicalDatabaseCache,
+    DEFAULT_BACKUPS_DIR,
+    BACKUP_PATH_CONFIG_KEY,
+    writeBackupPathMarker,
+});
 
-        tunnelProcess.stderr.on('data', (chunk) => {
-            const text = chunk.toString();
-            const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-            if (match && tunnelStatus === 'starting') {
-                tunnelUrl = match[0];
-                tunnelStatus = 'running';
-                if (tunnelStartTimeout) { clearTimeout(tunnelStartTimeout); tunnelStartTimeout = null; }
-                console.log(`[Tunnel] Quick tunnel URL: ${tunnelUrl}`);
-            }
-        });
+require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {
+    isCloudflareTunnelRequest,
+    ensureCanonicalStorage,
+    appDataStore,
+    checkAuth,
+    bookmarkStore,
+    requireSyncClientId,
+    ensureChatStore,
+    storageState,
+    broadcastBookmarksInvalidated,
+});
 
-        tunnelProcess.on('error', (err) => {
-            logger.error('[Tunnel] Process error:', err.message);
-            tunnelStatus = 'error';
-            tunnelError = err.message;
-            tunnelProcess = null;
-            if (tunnelStartTimeout) { clearTimeout(tunnelStartTimeout); tunnelStartTimeout = null; }
-        });
+require('./routes/chats.cjs').installChatsRoutes(app, {
+    checkAuth,
+    ensureCanonicalStorage,
+    isCloudflareTunnelRequest,
+    appDataStore,
+    ensureChatStore,
+    storageState,
+    restoreColdStorageChat,
+    requireSyncClientId,
+    canonicalChatService,
+    getSyncClientIdFromRequest,
+    bookmarkStore,
+    broadcastBookmarksInvalidated,
+});
 
-        tunnelProcess.on('exit', (code) => {
-            if (tunnelStatus === 'running' || tunnelStatus === 'starting') {
-                console.log(`[Tunnel] Process exited with code ${code}`);
-                tunnelStatus = 'error';
-                tunnelError = `cloudflared exited unexpectedly (code ${code})`;
-            }
-            tunnelProcess = null;
-            tunnelUrl = null;
-            if (tunnelStartTimeout) { clearTimeout(tunnelStartTimeout); tunnelStartTimeout = null; }
-        });
+require('./routes/maintenance.cjs').installMaintenanceRoutes(app, {
+    checkAuth,
+    ensureCanonicalStorage,
+    backupState,
+    DEFAULT_BACKUPS_DIR,
+    sumInlayFsBytes,
+    estimateServerBackupSize,
+    appDataStore,
+    storageState,
+    DB_BACKUP_PREFIX,
+    BACKUP_FILENAME_REGEX,
+    DB_HEX_KEY,
+    requireSyncClientId,
+    queueStorageOperation,
+    flushPendingDb,
+});
 
-        tunnelStartTimeout = setTimeout(() => {
-            if (tunnelStatus === 'starting') {
-                tunnelStatus = 'error';
-                tunnelError = 'Tunnel failed to start within 30 seconds';
-                if (tunnelProcess) { try { tunnelProcess.kill('SIGTERM'); } catch {} tunnelProcess = null; }
-            }
-            tunnelStartTimeout = null;
-        }, 30000);
-    } catch (e) {
-        tunnelStatus = 'error';
-        tunnelError = e.message;
-        tunnelProcess = null;
-    }
-}
+require('./routes/inlays.cjs').installInlaysRoutes(app, {
+    sessionAuthMiddleware,
+    requireSyncClientId,
+    normalizeInlayImageSettings,
+    encodeInlayImageBuffer,
+    listInlayFiles,
+    readInlaySidecar,
+    writeInlayFile,
+});
 
-app.post('/api/tunnel/stop', async (req, res) => {
-    if (!await checkAuth(req, res)) return;
-    stopTunnel();
-    res.json({ status: 'off' });
+require('./routes/system.cjs').installSystemRoutes(app, {
+    instanceId,
+    checkAuth,
+    stopTunnel,
+    flushPendingDb,
+});
+
+require('./routes/tunnel.cjs').installTunnelRoutes(app, {
+    checkAuth,
+    tunnelState,
+    stopTunnel,
 });
 
 // ─── Express error middleware — must be registered after all routes ─────────
@@ -7333,7 +2863,7 @@ async function startServer() {
 
         if (httpsOptions) {
             // HTTPS
-            serverIsHttps = true;
+            tunnelState.serverIsHttps = true;
             server = https.createServer(httpsOptions, app);
             setupGenerationWebSocket(server);
             server.listen(port, () => {

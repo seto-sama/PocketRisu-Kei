@@ -23,7 +23,6 @@
     itemFolderIds={names.map(() => undefined)}
     itemNames={names}
     itemDragDataKey="testPresetIndex"
-    close={() => {}}
     onSelectItem={onSelect}
     {onSelectNone}
     noneLabel="바인딩 안 함"

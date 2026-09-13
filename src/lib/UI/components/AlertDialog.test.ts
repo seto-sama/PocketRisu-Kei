@@ -21,7 +21,6 @@ describe('AlertDialog keyboard actions', () => {
             target,
             props: {
                 open: true,
-                closeOnEscape: true,
                 onConfirm,
                 onCancel,
             },

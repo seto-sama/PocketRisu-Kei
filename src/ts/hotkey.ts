@@ -33,6 +33,7 @@ export function initHotkey() {
     hotkeyInitialized = true
 
     document.addEventListener('keydown', async (event) => {
+        if (event.defaultPrevented) return
         const activeElement = document.activeElement as HTMLElement | null
         if (
             !event.ctrlKey &&
@@ -172,8 +173,10 @@ export function initHotkey() {
                 event.preventDefault()
                 return
             }
-            if (get(settingsOpen)) settingsOpen.set(false)
-            event.preventDefault()
+            if (get(settingsOpen)) {
+                event.preventDefault()
+                settingsOpen.set(false)
+            }
         }
         if (event.key === 'Enter') {
             const alertType = get(alertStore).type

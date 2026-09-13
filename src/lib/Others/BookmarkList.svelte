@@ -23,7 +23,6 @@
     import InlineEditableName from '../UI/components/InlineEditableName.svelte'
     import PresetPickerLayout from '../UI/PresetPickerLayout.svelte'
 
-    const close = () => $bookmarkListOpen = false
     let selectedFolder = $state('all')
     let searchQuery = $state('')
     let busyKey = $state('')
@@ -115,7 +114,7 @@
     folderDeleteConfirm={language.bookmarkTagDeleteConfirm}
     folderEmptyMessage={language.noBookmarks}
     allowFolderAssignmentDrag
-    {close}
+    bind:open={$bookmarkListOpen}
     onFoldersChange={(next) => {
         void replaceBookmarkTags(next).catch(error => {
             console.error('[bookmarks] Tag update failed', error)

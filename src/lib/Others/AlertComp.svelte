@@ -276,7 +276,7 @@
     </div>
 
 {:else if $alertStore.type === 'selectModule'}
-    <ModuleChatMenu alertMode close={(d) => {
+    <ModuleChatMenu alertMode onSelect={(d) => {
         alertStore.set({
             type: 'none',
             msg: d
@@ -287,7 +287,6 @@
 <Dialog
     open={$alertStore.type === 'addchar'}
     size="lg"
-    closeOnEscape={true}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'addchar') {
             alertStore.set({ type: 'none', msg: 'cancel' })
@@ -430,8 +429,6 @@
 
 <AlertDialog
     open={$alertStore.type === 'ask'}
-    closeOnEscape={true}
-    closeOnOutsideClick={true}
     onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
     onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {
@@ -454,8 +451,6 @@
 
 <AlertDialog
     open={$alertStore.type === 'pluginconfirm'}
-    closeOnEscape={true}
-    closeOnOutsideClick={true}
     onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
     onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {
@@ -494,7 +489,7 @@
 <Dialog
     open={$alertStore.type === 'select'}
     closable={false}
-    closeOnOutsideClick={$alertStore.closeOnOutsideClick ?? true}
+    dismissible={$alertStore.closeOnOutsideClick ?? true}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'select') {
             alertStore.set({ type: 'none', msg: '-1' })
@@ -528,8 +523,6 @@
 
 <AlertDialog
     open={$alertStore.type === 'confirmMulti'}
-    closeOnEscape={true}
-    closeOnOutsideClick={true}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'confirmMulti') {
             alertStore.set({ type: 'none', msg: 'cancel' })
@@ -566,7 +559,7 @@
 <Dialog
     open={$alertStore.type === 'input'}
     closable={false}
-    closeOnOutsideClick={false}
+    dismissible={false}
     onCloseAutoFocus={(event) => {
         if (suppressInputFocusRestore) event.preventDefault()
         suppressInputFocusRestore = false
@@ -623,7 +616,6 @@
 
 <AlertDialog
     open={$alertStore.type === 'tos'}
-    closeOnEscape={true}
     onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
     onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {

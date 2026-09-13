@@ -15,11 +15,17 @@
     import { clonePresetWithNewId, duplicatePresetItem } from "src/ts/preset/collection";
 
     interface Props {
-        close?: () => void;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
         onSelect?: ((index: number) => void) | null;
     }
 
-    let { close = () => {}, onSelect = null }: Props = $props();
+    let { open = $bindable(true), onOpenChange, onSelect = null }: Props = $props();
+
+    function close() {
+        open = false
+        onOpenChange?.(false)
+    }
     let selectedFolder = $state('all');
     let searchQuery = $state('');
     let visibleItemIndexes = $state<number[]>([]);
@@ -89,7 +95,8 @@
     onExportItem={exportUserPersona}
     onDeleteItem={deleteUserPersona}
     itemDeleteLabel={language.personaDeleteAction}
-    {close}
+    bind:open
+    {onOpenChange}
     onFoldersChange={(next) => {
         DBState.db.personaTags = next;
         void requestImmediateSave();

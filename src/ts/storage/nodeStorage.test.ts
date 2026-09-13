@@ -112,7 +112,8 @@ describe('NodeStorage patch transport', () => {
         const readHeader = authFetch.mock.calls[0][1].headers['x-risu-plugin-storage-exclusion']
         const patchHeader = authFetch.mock.calls[1][1].headers['x-risu-plugin-storage-exclusion']
         expect(patchHeader).toBe(readHeader)
-        expect(JSON.parse(Buffer.from(readHeader, 'base64').toString('utf8'))).toEqual({
+        expect(readHeader).toMatch(/^[\x20-\x7e]+$/)
+        expect(JSON.parse(readHeader)).toEqual({
             plugins: ['메모리 플러그인'],
             unclassified: true,
         })

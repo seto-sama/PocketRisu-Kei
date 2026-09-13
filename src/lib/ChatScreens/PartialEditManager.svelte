@@ -567,7 +567,10 @@
     }
 
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === 'Escape') handleCancel();
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            handleCancel();
+        }
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSave();
     }
 
@@ -719,8 +722,6 @@
         open={true}
         size="lg"
         closable={false}
-        closeOnEscape={true}
-        closeOnOutsideClick={true}
         onRequestClose={cancelMatchSelection}
         contentClass="overflow-hidden"
         bodyClass="min-h-0 overflow-y-auto"
@@ -831,7 +832,6 @@
         bind:open={isEditing}
         size="default"
         closable={false}
-        closeOnEscape={true}
         onOpenChange={(open) => { if (!open) handleCancel(); }}
         contentClass="gap-3"
     >

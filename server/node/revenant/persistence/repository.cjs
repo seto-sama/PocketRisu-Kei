@@ -1,5 +1,6 @@
 'use strict';
 
+const { encodeGenerationRequest, decodeGenerationRequest } = require('../protocol.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
 const { createGenerationStatements } = require('./statements.cjs');
@@ -703,7 +704,7 @@ function createGenerationJob(input) {
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
                 dispatchRequestsPerMinute: input.dispatchRequestsPerMinute || null,
-                requestSpec: input.requestSpec ? JSON.stringify(input.requestSpec) : null,
+                requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
                 now,
             });
             linkGenerationJobToWorkflow(input);
@@ -745,7 +746,7 @@ function listQueuedGenerationDispatches(limit = 500) {
         dispatchGroup: row.dispatch_group,
         maxConcurrent: Math.max(1, Number(row.dispatch_max_concurrent) || 1),
         requestsPerMinute: Math.max(1, Number(row.dispatch_requests_per_minute) || 1),
-        requestSpec: JSON.parse(row.request_spec),
+        requestSpec: decodeGenerationRequest(row.request_spec),
     }));
 }
 
@@ -761,7 +762,7 @@ function getGenerationDispatchState(dispatchGroup, since) {
 function claimQueuedGenerationDispatch(jobId) {
     const row = stmtGet.get(jobId);
     if (!row?.request_spec || row.status !== 'queued') return undefined;
-    const requestSpec = JSON.parse(row.request_spec);
+    const requestSpec = decodeGenerationRequest(row.request_spec);
     const now = Date.now();
     const result = stmtClaimDispatch.run(now, now, jobId);
     if (result.changes !== 1) return undefined;

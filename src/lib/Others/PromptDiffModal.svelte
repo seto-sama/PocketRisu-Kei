@@ -1455,8 +1455,7 @@
   open={true}
   size="xl"
   closable={false}
-  closeOnEscape={false}
-  closeOnOutsideClick={false}
+  dismissible={false}
   contentClass="gap-0 p-0"
   bodyClass="min-h-0 flex flex-col"
   ariaLabel={language.promptDiff.title}

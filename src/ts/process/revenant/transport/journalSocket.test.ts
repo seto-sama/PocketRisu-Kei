@@ -1,11 +1,12 @@
-import { Buffer } from 'buffer'
+import { encodeJournalChunk } from './protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openRevenantJournalSocket } from './journalSocket'
 
 class FakeWebSocket {
     static instances: FakeWebSocket[] = []
+    binaryType = 'blob'
     readonly url: string
-    onmessage: ((event: { data: string }) => void) | null = null
+    onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null
     onerror: (() => void) | null = null
     onclose: (() => void) | null = null
     closed = false
@@ -17,6 +18,10 @@ class FakeWebSocket {
 
     emit(event: object): void {
         this.onmessage?.({ data: JSON.stringify(event) })
+    }
+
+    emitChunk(offset: number, text: string): void {
+        this.onmessage?.({ data: encodeJournalChunk(offset, new TextEncoder().encode(text)).buffer })
     }
 
     close(): void {
@@ -47,11 +52,8 @@ describe('openRevenantJournalSocket', () => {
         const reader = stream.getReader()
         const first = FakeWebSocket.instances[0]
         expect(first.url).toContain('/api/generation/jobs/job-1/journal/ws')
-        first.emit({
-            type: 'chunk',
-            offset: 0,
-            dataBase64: Buffer.from('abc').toString('base64'),
-        })
+        expect(first.binaryType).toBe('arraybuffer')
+        first.emitChunk(0, 'abc')
         expect(new TextDecoder().decode((await reader.read()).value)).toBe('abc')
 
         first.close()
@@ -59,11 +61,7 @@ describe('openRevenantJournalSocket', () => {
         const second = FakeWebSocket.instances[1]
         expect(second.url).toContain('offset=3')
 
-        second.emit({
-            type: 'chunk',
-            offset: 1,
-            dataBase64: Buffer.from('bcde').toString('base64'),
-        })
+        second.emitChunk(1, 'bcde')
         expect(new TextDecoder().decode((await reader.read()).value)).toBe('de')
 
         second.emit({ type: 'done' })
@@ -75,11 +73,51 @@ describe('openRevenantJournalSocket', () => {
         expect(FakeWebSocket.instances[0].url).toContain('recovery=1&offset=0')
     })
 
+    it('reattaches without advancing the offset after malformed data or a journal gap', async () => {
+        const stream = openRevenantJournalSocket({ jobId: 'gap', auth: 'auth', reconnectBaseMs: 1 })
+        const reader = stream.getReader()
+        const first = FakeWebSocket.instances[0]
+        first.emitChunk(0, '한글')
+        expect(new TextDecoder().decode((await reader.read()).value)).toBe('한글')
+        first.emitChunk(9, 'gap')
+        await vi.advanceTimersByTimeAsync(1)
+        const second = FakeWebSocket.instances[1]
+        expect(second.url).toContain('offset=6')
+        second.onmessage?.({ data: Uint8Array.of(0, 1).buffer })
+        await vi.advanceTimersByTimeAsync(2)
+        const third = FakeWebSocket.instances[2]
+        expect(third.url).toContain('offset=6')
+        third.emitChunk(6, '끝')
+        expect(new TextDecoder().decode((await reader.read()).value)).toBe('끝')
+        third.emit({ type: 'done' })
+        expect((await reader.read()).done).toBe(true)
+    })
+
     it('starts a live tail at the supplied snapshot offset', () => {
         openRevenantJournalSocket({
             jobId: 'job-caught-up', auth: 'auth', recovery: true, initialOffset: 42,
         })
         expect(FakeWebSocket.instances[0].url).toContain('offset=42')
+    })
+
+    it('pauses an unread replay and resumes from the queued offset without losing bytes', async () => {
+        const stream = openRevenantJournalSocket({ jobId: 'slow-reader', auth: 'auth' })
+        const first = FakeWebSocket.instances[0]
+        const prefix = 'a'.repeat(256 * 1024)
+        first.emitChunk(0, prefix)
+        expect(first.closed).toBe(true)
+        first.emitChunk(prefix.length, 'ignored after detach')
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(FakeWebSocket.instances).toHaveLength(1)
+
+        const reader = stream.getReader()
+        expect((await reader.read()).value?.length).toBe(prefix.length)
+        const second = FakeWebSocket.instances[1]
+        expect(second.url).toContain(`offset=${prefix.length}`)
+        second.emitChunk(prefix.length, 'tail')
+        second.emit({ type: 'done' })
+        expect(new TextDecoder().decode((await reader.read()).value)).toBe('tail')
+        expect((await reader.read()).done).toBe(true)
     })
 
     it('detaches a cancelled reader without cancelling the server job', async () => {
@@ -146,7 +184,7 @@ describe('openRevenantJournalSocket', () => {
         })
     })
 
-    it('preserves a provider error body from older servers for adapter parsing', async () => {
+    it('preserves a complete provider error body for adapter parsing', async () => {
         const onFatal = vi.fn()
         let responseStatus = 0
         const stream = openRevenantJournalSocket({
@@ -168,12 +206,8 @@ describe('openRevenantJournalSocket', () => {
         })
 
         socket.emit({ type: 'upstream_headers', status: 400, headers: {} })
-        socket.emit({
-            type: 'chunk',
-            offset: 0,
-            dataBase64: Buffer.from(body).toString('base64'),
-        })
-        socket.emit({ type: 'error', status: 502, message: 'Provider request failed with HTTP 400' })
+        socket.emitChunk(0, body)
+        socket.emit({ type: 'done', status: 'failed', finishReason: 'upstream_http_error' })
 
         expect(responseStatus).toBe(400)
         expect(await bodyPromise).toBe(body)
@@ -193,7 +227,7 @@ describe('openRevenantJournalSocket', () => {
         socket.emit({ type: 'upstream_headers', status: 400, headers: {} })
         socket.emit({ type: 'error', status: 504, message: 'provider body interrupted' })
 
-        await expect(bodyPromise).rejects.toThrow('Cloudflare/origin timeout')
+        await expect(bodyPromise).rejects.toThrow('provider body interrupted')
         expect(onFatal).toHaveBeenCalledOnce()
     })
 })

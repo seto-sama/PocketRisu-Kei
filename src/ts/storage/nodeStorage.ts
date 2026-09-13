@@ -1,3 +1,5 @@
+import { encodeAssetBatch, decodeAssetBatch } from './assetTransport'
+import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 // ── NodeOnly: server-side JWT ────────────────────────────────────────────────
@@ -489,10 +491,11 @@ export class NodeStorage{
             this.pluginStorageExclusionHeader = ''
             return
         }
-        this.pluginStorageExclusionHeader = Buffer.from(JSON.stringify({
+        // HTTP headers are ASCII; JSON Unicode escapes preserve plugin names.
+        this.pluginStorageExclusionHeader = JSON.stringify({
             plugins: pluginNames,
             unclassified: exclusion.unclassified === true,
-        }), 'utf8').toString('base64')
+        }).replace(/[^\x20-\x7e]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`)
     }
 
     async getPluginStorageStartupStats(): Promise<PluginStorageStartupStats> {
@@ -667,46 +670,23 @@ export class NodeStorage{
             body: JSON.stringify(keys),
             headers: {
                 'content-type': 'application/json',
-                'accept': 'application/octet-stream'
+                'accept': BINARY_MESSAGE_CONTENT_TYPE
             }
         })
         if (da.status < 200 || da.status >= 300) throw await storageRequestError('getItems', da)
 
-        const ct = da.headers.get('content-type') || ''
-        if (ct.includes('application/octet-stream')) {
-            // Binary protocol: [count(4)] then per entry: [keyLen(4)][key][valLen(4)][value]
-            const buf = Buffer.from(await da.arrayBuffer())
-            let offset = 0
-            const count = buf.readUInt32BE(offset); offset += 4
-            const results: {key: string, value: Buffer}[] = []
-            for (let i = 0; i < count; i++) {
-                const keyLen = buf.readUInt32BE(offset); offset += 4
-                const key = buf.subarray(offset, offset + keyLen).toString('utf-8'); offset += keyLen
-                const valLen = buf.readUInt32BE(offset); offset += 4
-                const value = buf.subarray(offset, offset + valLen) as Buffer; offset += valLen
-                results.push({ key, value })
-            }
-            return results
-        }
-
-        // Fallback: JSON+base64
-        const results: {key: string, value: string}[] = await da.json()
-        return results.map(r => ({ key: r.key, value: Buffer.from(r.value, 'base64') }))
+        const entries = decodeAssetBatch(new Uint8Array(await da.arrayBuffer()))
+        // Each cached asset owns its bytes instead of retaining the entire batch.
+        return entries.map(({ key, value }) => ({ key, value: Buffer.from(value) }))
     }
 
     async setItems(entries: {key: string, value: Uint8Array}[]) {
         for (let i = 0; i < entries.length; i += NodeStorage.BULK_WRITE_CLIENT_BATCH) {
             const batch = entries.slice(i, i + NodeStorage.BULK_WRITE_CLIENT_BATCH)
-            const body = batch.map(e => ({
-                key: e.key,
-                value: Buffer.from(e.value).toString('base64')
-            }))
             const da = await this.authFetch('/api/assets/bulk-write', {
                 method: 'POST',
-                body: JSON.stringify(body),
-                headers: {
-                    'content-type': 'application/json'
-                }
+                body: encodeAssetBatch(batch),
+                headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
             })
             if (da.status < 200 || da.status >= 300) throw await storageRequestError('setItems', da)
         }
