@@ -5,10 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { LuaFactory } = require('wasmoon');
 const {
-    WAITING_CLIENT_PREFIX,
-    parseWaitingClientError,
     resolveReplayAction,
-    waitingClientError,
 } = require('./replayAction.cjs');
 
 require('sucrase/register/ts');
@@ -69,7 +66,7 @@ async function executeRevenantLua(options) {
         const result = resolveReplayAction(responses, rawActionId, kind, payload);
         if (result.available) return result.value;
         pendingClientAction ||= result.action;
-        throw waitingClientError(result.action);
+        throw new Error('Revenant action requires client execution');
     };
     const chatVar = key => String(chat.scriptstate?.[`$${key}`] ?? 'null');
     const setChatVar = (key, value) => {
@@ -205,35 +202,21 @@ async function executeRevenantLua(options) {
         const invoked = await invokeLuaMode(engine.global, mode, accessKey, data, meta);
         data = invoked.data;
         if (invoked.result === false) stopped = true;
-        if (pendingClientAction) {
-            return {
-                status: 'waiting_client', action: pendingClientAction,
-                data, chat, stopped, foregroundEffects,
-                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
-            };
-        }
-        return {
-            status: 'completed', data, chat, stopped, foregroundEffects,
-            ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
-        };
     }
     catch (error) {
-        const pendingAction = parseWaitingClientError(error);
-        if (pendingAction) {
-            return {
-                status: 'waiting_client', action: pendingAction, data, chat, stopped, foregroundEffects,
-                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
-            };
-        }
-        throw error;
+        if (!pendingClientAction) throw error;
     }
     finally {
         engine.global.close();
     }
+    return {
+        status: pendingClientAction ? 'waiting_client' : 'completed',
+        ...(pendingClientAction ? { action: pendingClientAction } : {}),
+        data, chat, stopped, foregroundEffects,
+        ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+    };
 }
 
 module.exports = {
     executeRevenantLua,
-    parseWaitingClientError,
-    WAITING_CLIENT_PREFIX,
 };

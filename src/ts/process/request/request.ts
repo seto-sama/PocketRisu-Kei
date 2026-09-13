@@ -1,3 +1,5 @@
+import { Buffer } from 'buffer'
+import { asBuffer } from '../../util'
 import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
@@ -890,7 +892,7 @@ async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<strin
         await setInlayAsset(id, {
             name: `generated-${item.kind}.${ext}`,
             type: item.kind,
-            data: `data:${item.mime};base64,${item.base64}`,
+            data: new Blob([asBuffer(Buffer.from(item.base64, 'base64'))], { type: item.mime }),
             ext,
         })
         markers.push(`{{inlayeddata::${id}}}`)

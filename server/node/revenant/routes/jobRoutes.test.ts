@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { encodeGenerationRequest } from '../../../../src/ts/process/revenant/transport/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const repository = vi.hoisted(() => ({
@@ -28,7 +29,7 @@ describe('generation job creation route', () => {
         const routes = new Map<string, Function>()
         const app = {
             get: vi.fn(),
-            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            post: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
             put: vi.fn(),
             delete: vi.fn(),
         }
@@ -50,7 +51,6 @@ describe('generation job creation route', () => {
             generationRuntimeJobs: new Map(),
             countActiveGenerationJobs: vi.fn(() => 0),
             maxActiveJobs: 10,
-            maxBodyBase64Bytes: 1024,
             randomUUID: vi.fn(() => 'job-1'),
             terminateGenerationWorkflow: vi.fn(),
             createGenerationJob: repository.createGenerationJob,
@@ -60,13 +60,17 @@ describe('generation job creation route', () => {
 
         await routes.get('/api/generation/jobs')?.(
             {
-                body: { url: 'https://provider.example/v1/chat' },
+                body: Buffer.from(encodeGenerationRequest({
+                    url: 'https://provider.example/v1/chat',
+                    body: Uint8Array.of(0, 255, 128, 10),
+                })),
                 headers: {},
             },
             { send, status: vi.fn() },
             vi.fn(),
         )
 
+        expect([...runGenerationProviderJob.mock.calls[0][1].body]).toEqual([0, 255, 128, 10])
         expect(send).toHaveBeenCalledWith({
             jobId: 'job-1',
             createdAt: 1234,
@@ -81,7 +85,7 @@ describe('generation journal snapshot route', () => {
     it('returns one immutable journal snapshot with its live-tail offset', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            get: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            get: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
             post: vi.fn(), put: vi.fn(), delete: vi.fn(),
         }
         const bytes = Buffer.from('already received')
@@ -120,7 +124,7 @@ describe('generation job cancellation route', () => {
             get: vi.fn(),
             post: vi.fn(),
             put: vi.fn(),
-            delete: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            delete: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
         }
         repository.getGenerationJob.mockReturnValue({
             jobId: 'job-1',
@@ -175,7 +179,7 @@ describe('generation job cancellation route', () => {
             get: vi.fn(),
             post: vi.fn(),
             put: vi.fn(),
-            delete: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            delete: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
         }
         repository.getGenerationJob.mockReturnValue({
             jobId: 'job-1',
@@ -222,7 +226,7 @@ describe('generation job cancellation route', () => {
         const routes = new Map<string, Function>()
         const app = {
             get: vi.fn(),
-            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            post: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
             put: vi.fn(),
             delete: vi.fn(),
         }
@@ -256,7 +260,7 @@ describe('generation job cancellation route', () => {
         const routes = new Map<string, Function>()
         const app = {
             get: vi.fn(),
-            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            post: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
             put: vi.fn(),
             delete: vi.fn(),
         }
@@ -295,7 +299,7 @@ describe('generation job cancellation route', () => {
         const routes = new Map<string, Function>()
         const app = {
             get: vi.fn(),
-            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            post: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
             put: vi.fn(),
             delete: vi.fn(),
         }

@@ -125,7 +125,7 @@ function createServerProviderActionExecutor(options) {
                     requestSpec: {
                         targetUrl, method: init.method || 'POST',
                         headers: Object.fromEntries(new Headers(init.headers).entries()),
-                        bodyBase64: Buffer.from(String(init.body || '')).toString('base64'),
+                        body: Buffer.from(String(init.body || '')),
                         timeoutMs: GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
                         requestLog: { chatId: jobId, platform: 'Server' },
                         ...modelsDevUsageIdentity(preset),

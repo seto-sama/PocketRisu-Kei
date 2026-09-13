@@ -1,3 +1,4 @@
+import { decodeBinaryMessage } from '../../../network/binaryMessage'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../storage/database.svelte', () => ({
@@ -81,10 +82,11 @@ describe('restricted local ComfyUI bridge', () => {
             sampler: { inputs: { seed: 42, cfg: 7 } },
         })
         const completeCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/comfy/complete'))
-        const completeBody = JSON.parse(String(completeCall?.[1]?.body))
+        const { metadata: completeBody, bytes } = decodeBinaryMessage(completeCall?.[1]?.body as Uint8Array)
+        expect([...bytes]).toEqual([9, 8, 7])
+        expect(completeCall?.[1]?.headers['content-type']).toBe('application/octet-stream')
         expect(completeBody).toMatchObject({
             promptId: 'prompt-1',
-            resultBase64: 'CQgH',
             resultFormat: 'png',
         })
         expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/proxy2'))).toBe(false)

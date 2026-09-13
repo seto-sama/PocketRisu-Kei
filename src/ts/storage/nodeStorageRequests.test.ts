@@ -7,6 +7,7 @@ vi.mock('./risuSave', () => ({
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 
 import { ConflictError, NodeStorage } from './nodeStorage'
+import { decodeAssetBatch, encodeAssetBatch } from './assetTransport'
 
 const bytes = new Uint8Array([1, 2, 3])
 const patch = { patch: [{ op: 'replace', path: '/language', value: 'ko' }], expectedHash: 'base' }
@@ -26,6 +27,19 @@ afterEach(() => {
 })
 
 describe('storage request integration', () => {
+    it('uses the binary asset protocol for reads and writes', async () => {
+        const entries = [{ key: 'assets/한글.png', value: Uint8Array.of(0, 128, 255) }]
+        fetchMock.mockResolvedValueOnce(new Response('{}'))
+        await storage.setItems(entries)
+        const upload = fetchMock.mock.calls[0][1] as RequestInit
+        expect(new Headers(upload.headers).get('content-type')).toBe('application/octet-stream')
+        expect(decodeAssetBatch(upload.body as Uint8Array)).toEqual(entries)
+
+        fetchMock.mockResolvedValueOnce(new Response(encodeAssetBatch(entries)))
+        const downloaded = await storage.getItems(entries.map(entry => entry.key))
+        expect(downloaded.map(entry => ({ key: entry.key, value: [...entry.value] })))
+            .toEqual([{ key: 'assets/한글.png', value: [0, 128, 255] }])
+    })
     it.each([
         ['asset', () => storage.setItem('assets/a.png', bytes)],
         ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],

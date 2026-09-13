@@ -49,7 +49,7 @@ db.exec(`
         dispatch_max_concurrent INTEGER,
         dispatch_requests_per_minute INTEGER,
         dispatched_at INTEGER,
-        request_spec TEXT,
+        request_spec BLOB,
         status TEXT NOT NULL,
         response_status INTEGER,
         response_headers TEXT,

@@ -1,4 +1,4 @@
-import { Buffer } from 'buffer'
+import { BINARY_MESSAGE_CONTENT_TYPE, encodeGenerationRequest } from './protocol'
 import {
     createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
@@ -141,7 +141,7 @@ async function openRecoverableJournalStream(
     if (!snapshotResponse.ok) {
         throw new Error(`Failed to read generation journal snapshot: ${snapshotResponse.status}`)
     }
-    const snapshot = new Uint8Array(await snapshotResponse.arrayBuffer())
+    let snapshot: Uint8Array | undefined = new Uint8Array(await snapshotResponse.arrayBuffer())
     const snapshotOffset = Number(snapshotResponse.headers.get('x-risu-journal-offset'))
     if (!Number.isSafeInteger(snapshotOffset) || snapshotOffset < 0
         || snapshotOffset !== snapshot.length) {
@@ -161,7 +161,6 @@ async function openRecoverableJournalStream(
         },
     })
     const liveReader = liveStream.getReader()
-    let snapshotDelivered = false
     let snapshotConsumed = false
     // With no prefetch, the second pull cannot run until the decoder has fully
     // processed the snapshot chunk (including every SSE/AWS event it contains).
@@ -169,10 +168,11 @@ async function openRecoverableJournalStream(
     // decoder retains any incomplete trailing frame for the live bytes.
     return new ReadableStream<Uint8Array>({
         async pull(controller) {
-            if (!snapshotDelivered) {
-                snapshotDelivered = true
-                if (snapshot.length > 0) {
-                    controller.enqueue(snapshot)
+            if (snapshot) {
+                const bytes = snapshot
+                snapshot = undefined
+                if (bytes.length > 0) {
+                    controller.enqueue(bytes)
                     return
                 }
             }
@@ -203,21 +203,20 @@ export async function fetchViaGenerationJob(url: string, arg: {
     generationRequest: RevenantGenerationRequest
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
-    const bodyBase64 = arg.body ? Buffer.from(arg.body).toString('base64') : ''
 
     const jobRes = await fetch('/api/generation/jobs', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': BINARY_MESSAGE_CONTENT_TYPE,
             'risu-auth': auth,
             'x-sync-client-id': getRevenantGenerationSyncClientId(),
         },
-        body: JSON.stringify({
+        body: encodeGenerationRequest({
             url,
             method: arg.method,
             headers: arg.headers,
             serverProviderAuth: arg.serverProviderAuth,
-            bodyBase64,
+            body: arg.body,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,
             ...arg.generationRequest.job,

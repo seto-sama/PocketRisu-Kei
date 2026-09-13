@@ -93,8 +93,8 @@ function createGenerationWorkers(options) {
                     try {
                         preparedRequest = {
                             ...preparedRequest,
-                            bodyBase64: resolveWorkflowRequestBody(
-                                preparedRequest.bodyBase64,
+                            body: resolveWorkflowRequestBody(
+                                preparedRequest.body,
                                 workflowDependency,
                                 execution,
                             ),
@@ -152,7 +152,7 @@ function createGenerationWorkers(options) {
                     targetUrl: request.targetUrl,
                     headers: request.headers,
                     method: request.method,
-                    bodyBase64: request.bodyBase64,
+                    body: request.body,
                     adapterKind: claimed.job.adapterKind,
                     usageProviderId: request.usageProviderId,
                     usageModelId: request.usageModelId,

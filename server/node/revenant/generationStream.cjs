@@ -1,11 +1,12 @@
 'use strict';
 
+const { encodeJournalChunk } = require('./protocol.cjs');
 const { generationJournalStore } = require('./generationJournal.cjs');
 
 const JOURNAL_TAIL_FALLBACK_MS = 1000;
 
 function isSocketOpen(socket) {
-    return socket.readyState === undefined || socket.readyState === socket.OPEN;
+    return socket.readyState === socket.OPEN;
 }
 
 function notifyRevenantJournalWaiters(job) {
@@ -90,11 +91,12 @@ async function streamRevenantJournal(
 
         const replay = await journalStore.readChunk(job.workflowId, job.id, offset);
         if (replay.bytes.length > 0) {
-            ws.send(JSON.stringify({
-                type: 'chunk',
-                offset: replay.offset,
-                dataBase64: replay.bytes.toString('base64'),
-            }));
+            await new Promise((resolve, reject) => {
+                ws.send(encodeJournalChunk(replay.offset, replay.bytes), error => {
+                    if (error) reject(error);
+                    else resolve();
+                });
+            });
             offset += replay.bytes.length;
             continue;
         }

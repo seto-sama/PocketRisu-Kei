@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { decodeJournalChunk } from '../../../src/ts/process/revenant/transport/protocol'
 import streamPkg from './generationStream.cjs'
 import generationPkg from './generation.cjs'
 
@@ -50,10 +51,10 @@ const {
         workflowId?: string,
     ) => unknown
     resolveRevenantWorkflowRequestBody: (
-        bodyBase64: string,
+        body: Uint8Array,
         dependency: unknown,
         execution: unknown,
-    ) => string
+    ) => Uint8Array
 }
 
 describe('revenant delegated provider job validation', () => {
@@ -232,7 +233,7 @@ describe('revenant workflow-dependent main dispatch', () => {
                 { role: 'system', content: `prefix ${placeholder} suffix` },
                 { role: 'user', content: 'hello' },
             ],
-        })).toString('base64')
+        }))
         const resolved = resolveRevenantWorkflowRequestBody(body, dependency, {
             kind: 'hypav3-selection',
             status: 'completed',
@@ -246,7 +247,7 @@ describe('revenant workflow-dependent main dispatch', () => {
                 }],
             },
         })
-        expect(JSON.parse(Buffer.from(resolved, 'base64').toString('utf8'))).toEqual({
+        expect(JSON.parse(Buffer.from(resolved).toString('utf8'))).toEqual({
             messages: [
                 { role: 'system', content: 'prefix selected memory suffix' },
                 { role: 'user', content: 'hello' },
@@ -255,7 +256,7 @@ describe('revenant workflow-dependent main dispatch', () => {
     })
 
     it('rejects dispatch before completion or without the exact placeholder', () => {
-        const body = Buffer.from(JSON.stringify({ messages: [] })).toString('base64')
+        const body = Buffer.from(JSON.stringify({ messages: [] }))
         expect(() => resolveRevenantWorkflowRequestBody(body, dependency, {
             kind: 'hypav3-selection',
             status: 'running',
@@ -273,10 +274,15 @@ describe('revenant workflow-dependent main dispatch', () => {
 })
 
 class FakeSocket {
+    readonly OPEN = 1
+    readyState = 1
     journalRecoverySubscriber = false
     messages: any[] = []
-    send(value: string): void {
-        this.messages.push(JSON.parse(value))
+    send(value: string | Uint8Array, callback?: (error?: Error) => void): void {
+        this.messages.push(typeof value === 'string' ? JSON.parse(value) : {
+            type: 'chunk', ...decodeJournalChunk(value),
+        })
+        callback?.()
     }
 }
 
@@ -304,7 +310,7 @@ describe('revenant journal stream', () => {
             'chunk',
             'done',
         ])
-        expect(Buffer.from(socket.messages[1].dataBase64, 'base64').toString()).toBe('def')
+        expect(Buffer.from(socket.messages[1].bytes).toString()).toBe('def')
     })
 
     it('turns an errored partial journal into a clean recovery tail', () => {
@@ -361,7 +367,7 @@ describe('revenant journal stream', () => {
         await streaming
 
         const chunk = socket.messages.find(message => message.type === 'chunk')
-        expect(Buffer.from(chunk.dataBase64, 'base64').toString()).toBe('later')
+        expect(Buffer.from(chunk.bytes).toString()).toBe('later')
         expect(socket.messages.at(-1)?.type).toBe('done')
     })
 })
