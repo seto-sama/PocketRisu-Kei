@@ -112,7 +112,10 @@
 
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter') commit();
-        else if (event.key === 'Escape' && dirty) revert();
+        else if (event.key === 'Escape' && dirty) {
+            event.preventDefault();
+            revert();
+        }
     }
 
     $effect(() => {

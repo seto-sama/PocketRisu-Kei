@@ -79,6 +79,7 @@
             }}
             onkeydown={(e) => {
                 if(!composing && e.key === 'Escape' && dirty){
+                    e.preventDefault()
                     revertDraft()
                     return
                 }

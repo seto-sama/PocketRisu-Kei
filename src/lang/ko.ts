@@ -1715,6 +1715,7 @@ export const languageKorean = {
   gptVisionQuality: "이미지 읽기 품질",
   keepSessionAlive: "세션 유지",
   disableMobileBackNavigation: "뒤로 가기 방지",
+  confirmLeavePage: "페이지를 떠나시겠습니까?",
   loadingChatData: "채팅 데이터 로딩 중",
   selectChatToView: "채팅을 선택해주세요",
   outputImageModal: "출력 이미지 모달",

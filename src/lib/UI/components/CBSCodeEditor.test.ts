@@ -116,47 +116,16 @@ describe('CBSCodeEditor', () => {
         expect(target.querySelector<HTMLDivElement>('.risu-search-replace-row')!.hidden).toBe(true)
         replaceToggle.click()
 
-        content.dispatchEvent(new KeyboardEvent('keydown', {
+        const escapeEvent = new KeyboardEvent('keydown', {
             key: 'Escape',
             code: 'Escape',
             bubbles: true,
             cancelable: true,
-        }))
-        await tick()
-
-        expect(target.querySelector('input[name="search"]')).toBeNull()
-    })
-
-    it('reports search state so the parent dialog can reserve Escape for search', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const onSearchOpenChange = vi.fn()
-        const component = mount(CBSCodeEditor, {
-            target,
-            props: { value: '{{char}}', wordWrap: true, onSearchOpenChange },
         })
-        mounted.push(component)
+        content.dispatchEvent(escapeEvent)
         await tick()
 
-        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
-        content.focus()
-        content.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'h',
-            code: 'KeyH',
-            ctrlKey: true,
-            bubbles: true,
-            cancelable: true,
-        }))
-        await tick()
-        expect(onSearchOpenChange).toHaveBeenLastCalledWith(true)
-
-        content.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Escape',
-            code: 'Escape',
-            bubbles: true,
-            cancelable: true,
-        }))
-        await tick()
-        expect(onSearchOpenChange).toHaveBeenLastCalledWith(false)
+        expect(escapeEvent.defaultPrevented).toBe(true)
+        expect(target.querySelector('input[name="search"]')).toBeNull()
     })
 })

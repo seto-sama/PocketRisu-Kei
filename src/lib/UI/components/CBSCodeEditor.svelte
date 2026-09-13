@@ -44,7 +44,6 @@
         onValueChange?: (value: string) => void
         searchRequest?: number
         onSearchOpened?: () => void
-        onSearchOpenChange?: (open: boolean) => void
     }
 
     let {
@@ -54,12 +53,10 @@
         onValueChange = () => {},
         searchRequest = 0,
         onSearchOpened = () => {},
-        onSearchOpenChange = () => {},
     }: Props = $props()
 
     let editorRoot: HTMLDivElement
     let editor: EditorView | undefined
-    let wasSearchOpen = false
     const wrapCompartment = new Compartment()
 
     function handleSearchRequest() {
@@ -586,11 +583,6 @@
                             const nextValue = update.state.doc.toString()
                             onValueChange(nextValue)
                         }
-                        const isSearchOpen = searchPanelOpen(update.state)
-                        if (isSearchOpen !== wasSearchOpen) {
-                            wasSearchOpen = isSearchOpen
-                            onSearchOpenChange(isSearchOpen)
-                        }
                     }),
                 ],
             }),
@@ -623,6 +615,5 @@
 
     onDestroy(() => {
         editor?.destroy()
-        if (wasSearchOpen) onSearchOpenChange(false)
     })
 </script>

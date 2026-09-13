@@ -4,13 +4,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
 vi.mock('./alert', async () => {
-    const { writable } = await import('svelte/store')
     return {
         alertRequestData: vi.fn(),
         alertMd: vi.fn(),
         alertSelect: vi.fn(),
         alertWait: vi.fn(),
-        doingAlert: writable(false),
+        doingAlert: vi.fn(() => false),
     }
 })
 vi.mock('./storage/database.svelte', () => ({
@@ -44,6 +43,7 @@ vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
 
 import { hotkeyMatches, isSupportedHotkey } from './defaulthotkeys'
 import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey } from './hotkey'
+import { requestEscapeAction } from './gui/escapeKey'
 import {
     botMakerMode,
     QuickSettings,
@@ -98,7 +98,7 @@ describe('isSupportedHotkey', () => {
     })
 })
 
-describe('sidebar hotkeys', () => {
+describe('application hotkeys', () => {
     beforeAll(() => {
         initHotkey()
     })
@@ -123,6 +123,25 @@ describe('sidebar hotkeys', () => {
         QuickSettings.open = false
         QuickSettings.index = 1
     }
+
+    it('closes settings through the shared Escape request', () => {
+        settingsOpen.set(true)
+        expect(requestEscapeAction()).toBe(true)
+        expect(get(settingsOpen)).toBe(false)
+        expect(requestEscapeAction()).toBe(false)
+    })
+
+    it('leaves settings open while a modal handles Escape', () => {
+        const modal = document.createElement('div')
+        modal.setAttribute('aria-modal', 'true')
+        modal.dataset.state = 'open'
+        document.body.appendChild(modal)
+        settingsOpen.set(true)
+
+        expect(press('Escape').defaultPrevented).toBe(true)
+        expect(get(settingsOpen)).toBe(true)
+        settingsOpen.set(false)
+    })
 
     it('opens quick settings only from the character sidebar', () => {
         resetSidebarState()
