@@ -18,6 +18,7 @@
   import ManualSummaryPanel from "./HypaV3Modal/manual-summary-panel.svelte";
   import ModalSearch from "./HypaV3Modal/modal-search.svelte";
   import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
+  import OverlayBackdrop from "../UI/components/overlay/OverlayBackdrop.svelte";
   
   import type {
     SummaryItemState,
@@ -80,17 +81,6 @@
     summaryAbortController.abort();
     $hypaV3ModalOpen = false;
   });
-
-  function closeModal() {
-    $hypaV3ModalOpen = false;
-  }
-
-  function handleBackdropClick(event: MouseEvent) {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.closest("[data-hypav3-modal-window]")) return;
-    closeModal();
-  }
 
   function collapseAllSummaries() {
     collapsedSummaries = new Set(
@@ -598,18 +588,12 @@
   />
 {/snippet}
 
-<OverlayPortal>
+<OverlayPortal active={$hypaV3ModalOpen}>
 <!-- Modal Backdrop -->
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div
-  class="risu-modal-backdrop risu-layer-overlay p-1 sm:p-2"
-  class:hidden={!$hypaV3ModalOpen}
-  aria-hidden={!$hypaV3ModalOpen}
-  inert={!$hypaV3ModalOpen}
-  onclick={handleBackdropClick}
+<OverlayBackdrop
+  bind:open={$hypaV3ModalOpen}
+  class="risu-modal-backdrop risu-layer-overlay flex justify-center p-1 sm:p-2"
 >
-  <!-- Modal Wrapper -->
-  <div class="flex justify-center w-full h-full">
     <!-- Modal Window -->
     <div
       data-hypav3-modal-window
@@ -710,8 +694,7 @@
 
       {/if}
     </div>
-  </div>
-</div>
+</OverlayBackdrop>
 
 <!-- Component Modals -->
 <CategoryManagerModal

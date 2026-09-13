@@ -1959,7 +1959,7 @@ import { isMobile } from 'src/ts/platform'
 {/if}
 
 <FullscreenImageViewer
-    open={inlayViewerOpen}
+    bind:open={inlayViewerOpen}
     src={inlayViewerSrc}
     alt={inlayViewerId}
     title={currentInlayViewerItem?.name ?? inlayViewerId}
@@ -1970,7 +1970,7 @@ import { isMobile } from 'src/ts/platform'
     canGoNext={inlayViewerIndex >= 0 && inlayViewerIndex < inlayViewerEntries.length - 1}
     metadataLabel={language.inlayGallery.inlayInfo}
     closeLabel={language.goback}
-    onClose={closeInlayViewer}
+    onOpenChange={(open) => { if (!open) closeInlayViewer() }}
     onPrev={() => moveInlayViewer(-1)}
     onNext={() => moveInlayViewer(1)}
     onDelete={(currentInlayViewerEntry?.messageIndex ?? -1) >= 0 ? deleteCurrentInlayReference : undefined}

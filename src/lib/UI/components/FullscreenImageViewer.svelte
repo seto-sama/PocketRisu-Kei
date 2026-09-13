@@ -2,6 +2,7 @@
     import type { Snippet } from 'svelte';
     import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, LoaderCircleIcon, XIcon } from '@lucide/svelte';
     import OverlayPortal from './overlay/OverlayPortal.svelte';
+    import OverlayBackdrop from './overlay/OverlayBackdrop.svelte';
     import IconButton from './IconButton.svelte';
     import IconButtonGroup from './IconButtonGroup.svelte';
     import { createSingleFlightRunner } from 'src/ts/util/singleFlight';
@@ -23,7 +24,7 @@
         closeLabel?: string;
         previousLabel?: string;
         nextLabel?: string;
-        onClose: () => void;
+        onOpenChange?: (open: boolean) => void;
         onPrev?: () => void;
         onNext?: () => void;
         onDelete?: () => void | Promise<void>;
@@ -34,7 +35,7 @@
     }
 
     let {
-        open = false,
+        open = $bindable(false),
         src = '',
         alt = '',
         title = '',
@@ -50,7 +51,7 @@
         closeLabel = 'Close',
         previousLabel = 'Previous image',
         nextLabel = 'Next image',
-        onClose,
+        onOpenChange,
         onPrev,
         onNext,
         onDelete,
@@ -61,6 +62,11 @@
     }: Props = $props();
     let metadataOpen = $state(true);
     const runShortcutAction = createSingleFlightRunner('ImageViewerShortcut');
+
+    function close() {
+        open = false
+        onOpenChange?.(false)
+    }
 
     function handleKeydown(event: KeyboardEvent) {
         if(!open){
@@ -84,17 +90,12 @@
         }
     }
 
-    function handleBackdropClick(event: MouseEvent) {
-        if(event.target === event.currentTarget){
-            onClose()
-        }
-    }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-    <OverlayPortal onEscape={onClose}>
+    <OverlayPortal>
     <!-- Base tier keeps blocking alerts such as delete confirmation above the viewer. -->
     <div class="risu-layer-overlay fixed inset-0 flex h-dvh overflow-hidden bg-lightbg text-maintext">
         <div class="relative flex flex-1 min-w-0 items-center justify-center overflow-hidden">
@@ -126,7 +127,7 @@
                         {@render actions()}
                     {/if}
                     <IconButton
-                        onclick={onClose}
+                        onclick={close}
                         title={closeLabel}
                         aria-label={closeLabel}
                         className="text-maintext"
@@ -147,10 +148,10 @@
                 </button>
             {/if}
 
-            <div
+            <OverlayBackdrop
                 class="w-full h-full flex items-center justify-center px-16 py-14"
-                role="presentation"
-                onclick={handleBackdropClick}
+                bind:open
+                {onOpenChange}
             >
                 {#if loading}
                     <div class="flex flex-col items-center gap-4">
@@ -168,7 +169,7 @@
                         class="max-w-full max-h-full object-contain rounded shadow-2xl"
                     />
                 {/if}
-            </div>
+            </OverlayBackdrop>
 
             {#if canGoNext}
                 <button

@@ -1032,7 +1032,7 @@ export const languageKorean = {
   sendKeyPC: "메시지 보내기 키 (PC)",
   sendKeyMobile: "메시지 보내기 키 (모바일)",
   chatInputExpandTitle: "메시지 입력",
-  chatInputPopupEditor: "팝업 에디터로 편집",
+  chatInputPopupEditor: "팝업 에디터 열기",
   resendLastMessage: "마지막 메시지를 재전송하기",
   enterMessagePlaceholder: "메시지를 입력하세요...",
   enterMessageToPersona: (name: string) =>
@@ -1890,7 +1890,7 @@ export const languageKorean = {
   fallbackWhenBlankResponse: "빈 응답 시 대체",
   doNotChangeFallbackModels: "프리셋 변경 시 대체 모델 변경 안 함",
   igpPrompt: "IGP 프롬프트",
-  hypaMemoryV3Modal: "하이파 V3 모달",
+  hypaMemoryV3Modal: "하이파 V3",
   showMenuHypaMemoryModal: "메뉴에서 하이파 모달 보이기",
   promptInfoInsideChat: "채팅에 프롬프트 정보 추가하기",
   promptInfoEmptyMessage: "이 메시지에 대한 프롬프트 정보가 없습니다.",

@@ -34,7 +34,7 @@ describe('formatResponseBody', () => {
 })
 
 describe('getResponseBodyDetails', () => {
-    it('groups verbose output-text delta events and keeps other events visible', () => {
+    it('groups response events and marks the completed event as open by default', () => {
         const response = [
             'event: response.created\ndata: {"type":"response.created"}',
             'event: response.in_progress\ndata: {"type":"response.in_progress"}',
@@ -64,21 +64,25 @@ describe('getResponseBodyDetails', () => {
             'response.output_text.done',
             'response.content_part.done',
             'response.output_item.done',
+            'response.completed',
         ]))
 
         const outputItemGroup = details!.groups.find(group => group.event === 'response.output_item.added')
         const deltaGroup = details!.groups.find(group => group.event === 'response.output_text.delta')
+        const completedGroup = details!.groups.find(group => group.event === 'response.completed')
         expect(outputItemGroup?.readable).toContain('"id": "item-1"')
         expect(deltaGroup?.readable).toBe('A\nB')
         expect(deltaGroup?.raw).toContain('"delta":"A\\n"')
         expect(deltaGroup?.raw).toContain('"delta":"B"')
-        expect(details?.remainder).toContain('response.completed')
-        expect(details?.remainder).toContain('"text": |')
-        expect(details?.remainder).toContain('First line\n')
-        expect(details?.remainder).toContain('Second line')
-        expect(details?.remainder).not.toContain('First line\\n\\nSecond line')
-        expect(details?.rawRemainder).toContain('event: response.completed')
-        expect(details?.rawRemainder).toContain('First line\\n\\nSecond line')
+        expect(completedGroup?.defaultOpen).toBe(true)
+        expect(completedGroup?.readable).toContain('"text": |')
+        expect(completedGroup?.readable).toContain('First line\n')
+        expect(completedGroup?.readable).toContain('Second line')
+        expect(completedGroup?.readable).not.toContain('First line\\n\\nSecond line')
+        expect(completedGroup?.raw).toContain('event: response.completed')
+        expect(completedGroup?.raw).toContain('First line\\n\\nSecond line')
+        expect(details?.remainder).toBe('')
+        expect(details?.rawRemainder).toBe('')
         expect(details?.remainder).not.toContain('response.created')
         expect(details?.remainder).not.toContain('response.in_progress')
         expect(details?.remainder).not.toContain('response.content_part.added')
@@ -89,11 +93,17 @@ describe('getResponseBodyDetails', () => {
         expect(details?.remainder).not.toContain('response.output_item.done')
     })
 
-    it('does not add details when the target event is absent', () => {
-        expect(getResponseBodyDetails({
+    it('shows a standalone completed event as an open detail', () => {
+        const details = getResponseBodyDetails({
             response: 'event: response.completed\ndata: {"type":"response.completed"}',
             url: 'https://api.openai.com/v1/responses',
             body: '{}',
-        })).toBeNull()
+        })
+
+        expect(details?.groups).toHaveLength(1)
+        expect(details?.groups[0]).toMatchObject({
+            event: 'response.completed',
+            defaultOpen: true,
+        })
     })
 })

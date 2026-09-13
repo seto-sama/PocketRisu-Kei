@@ -20,6 +20,7 @@ import type {
     RevenantGenerationTerminal,
     RevenantJobCreatedHandler,
 } from '../types'
+import { observeRevenantWorkflowRequests } from '../workflow/requestStatus'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
@@ -252,9 +253,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     setRevenantGenerationLocallyObserved(jobId, true)
     trackRevenantGenerationWorkflow(jobId, workflowId ?? arg.generationRequest.workflow?.workflowId)
     if (workflowId) {
-        void import('../workflow/requestStatus').then(({ observeRevenantWorkflowRequests }) => {
-            observeRevenantWorkflowRequests(workflowId, arg.signal)
-        })
+        observeRevenantWorkflowRequests(workflowId, arg.signal)
     }
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {
         trackRevenantGenerationJob(arg.generationRequest.job.chatId, jobId)

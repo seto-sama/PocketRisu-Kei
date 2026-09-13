@@ -638,7 +638,7 @@
             <FolderAvatar folder={char.settings} expanded={openFolders.includes(char.id)} size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
               mergeTarget={folderDropTargetId === char.id}
-              oncontextmenu={(e) => {
+              oncontextmenu={isTouchDevice ? undefined : (e) => {
                 e.preventDefault()
                 void openSidebarFolderMenu(char.id)
               }}

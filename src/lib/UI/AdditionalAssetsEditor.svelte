@@ -358,7 +358,7 @@
     loadingLabel={language.inlayGallery.inlayLoadingOriginal}
     metadataLabel={language.inlayGallery.inlayInfo}
     closeLabel={language.goback}
-    onClose={() => (previewIndex = -1)}
+    onOpenChange={(open) => { if (!open) previewIndex = -1 }}
     onPrev={() => goToPreviewNeighbor(-1)}
     onNext={() => goToPreviewNeighbor(1)}
     onDelete={() => deleteAsset(previewIndex, true)}

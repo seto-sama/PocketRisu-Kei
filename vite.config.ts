@@ -62,12 +62,7 @@ export default defineConfig(({command}) => {
           // branches. Rolldown sees their built-in imports statically even
           // though those branches are unreachable in the browser.
           if (isExpectedBrowserExternalization(warning)) return
-          // util.ts intentionally defers alert UI to avoid making file-selection
-          // helpers depend eagerly on the alert/database cycle.
-          if (
-            warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT'
-            && warning.message.includes('src/ts/alert.ts')
-          ) return
+          if (warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT') return
           handler(warning)
         },
       },

@@ -574,7 +574,7 @@
 
 <!-- Fullscreen viewer -->
 <FullscreenImageViewer
-  open={viewerOpen}
+  bind:open={viewerOpen}
   src={viewerUrl}
   alt={currentViewerItem?.name ?? viewerId}
   title={currentViewerItem?.name ?? viewerId}
@@ -588,7 +588,7 @@
   {canGoNext}
   metadataLabel={language.inlayGallery.inlayInfo}
   closeLabel={language.goback}
-  onClose={closeViewer}
+  onOpenChange={(open) => { if (!open) closeViewer() }}
   onPrev={() => goToNeighbor(-1)}
   onNext={() => goToNeighbor(1)}
   onDelete={() => {

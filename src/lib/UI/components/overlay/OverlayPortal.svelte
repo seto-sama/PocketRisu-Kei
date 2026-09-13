@@ -7,15 +7,16 @@
 
     interface Props {
         target?: HTMLElement
+        active?: boolean
         onEscape?: () => void
         children: Snippet
     }
 
-    const { target, onEscape, children }: Props = $props()
-    const overlayLayer = provideOverlayLayer()
+    const { target, active = true, onEscape, children }: Props = $props()
+    const overlayLayer = provideOverlayLayer(() => active)
 
     $effect(() => {
-        if (!onEscape) return
+        if (!active || !onEscape) return
         return listenForOverlayEscape(onEscape, () => overlayLayer.allocatedZIndex)
     })
 </script>

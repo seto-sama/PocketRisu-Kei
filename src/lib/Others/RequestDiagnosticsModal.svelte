@@ -148,16 +148,17 @@
 <Dialog
     bind:open
     size="xl"
-    bodyClass="min-h-0"
+    contentClass="overflow-hidden"
+    bodyClass="flex min-h-0 flex-col"
     {onOpenChange}
 >
     {#snippet title()}
         {language.requestDiagnostics.title}
     {/snippet}
 
-    <SettingTabs tabs={tabs} bind:selected={selectedTab} className="mb-3" />
+    <SettingTabs tabs={tabs} bind:selected={selectedTab} className="mb-3 shrink-0" />
 
-    <div class="pr-1" class:min-h-80={selectedTab !== requestDiagnosticsTabs.requestLog || !!requestLog}>
+    <div class="min-h-0 overflow-y-auto pb-1 pr-1">
         {#if selectedTab === requestDiagnosticsTabs.overview}
             <div class="flex flex-col gap-4">
                 <section>
