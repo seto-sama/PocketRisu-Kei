@@ -27,6 +27,8 @@ const {
 } = require('../generation.cjs');
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
+const { decodeGenerationRequest } = require('../protocol.cjs');
+const { decodeBinaryRequest } = require('../../binaryHttp.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
     createGenerationJobCancellationService,
@@ -45,7 +47,6 @@ function installRevenantJobRoutes(app, deps) {
         generationRuntimeJobs,
         countActiveGenerationJobs,
         maxActiveJobs,
-        maxBodyBase64Bytes,
         randomUUID,
         terminateGenerationWorkflow,
         notifyRevenantWorkflowUpdated = () => {},
@@ -89,6 +90,9 @@ function installRevenantJobRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
 
+        const request = decodeBinaryRequest(req, res, decodeGenerationRequest);
+        if (!request) return;
+        req.body = request;
         const url = sanitizeGenerationTargetUrl(req.body?.url);
         if (!url) {
             res.status(400).send({ error: 'Invalid target URL' });
@@ -99,11 +103,8 @@ function installRevenantJobRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid method' });
             return;
         }
-        const bodyBase64 = typeof req.body?.bodyBase64 === 'string' ? req.body.bodyBase64 : '';
-        if (bodyBase64.length > maxBodyBase64Bytes) {
-            res.status(413).send({ error: 'Request body too large' });
-            return;
-        }
+        // Own only provider bytes; do not retain the metadata envelope during generation.
+        const body = Buffer.from(req.body.body);
         const jobId = randomUUID();
         const jobType = normalizeRevenantJobType(req.body?.jobType);
         const operationContext = normalizeRevenantOperationContext(
@@ -229,7 +230,7 @@ function installRevenantJobRoutes(app, deps) {
             targetUrl: url,
             headers: forwardHeaders,
             method,
-            bodyBase64,
+            body,
             timeoutMs: req.body?.timeoutMs,
             heartbeatSec: req.body?.heartbeatSec,
             usageProviderId,
@@ -338,7 +339,7 @@ function installRevenantJobRoutes(app, deps) {
                 targetUrl: url,
                 headers: forwardHeaders,
                 method,
-                bodyBase64,
+                body,
                 adapterKind: req.body?.adapterKind,
                 usageProviderId,
                 usageModelId,

@@ -845,6 +845,10 @@ app.use('/assets', express.static(path.join(process.cwd(), 'dist/assets'), {
     immutable: true,
 }));
 app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
+const { binaryBodyParser } = require('./binaryHttp.cjs');
+const { MAX_GENERATION_REQUEST_BYTES, MAX_IMAGE_RESULT_MESSAGE_BYTES } = require('./revenant/protocol.cjs');
+app.post('/api/generation/jobs', binaryBodyParser(MAX_GENERATION_REQUEST_BYTES));
+app.post('/api/image-generation/jobs/:jobId/comfy/complete', binaryBodyParser(MAX_IMAGE_RESULT_MESSAGE_BYTES));
 app.use(express.json({ limit: '100mb' }));
 app.use((req, res, next) => {
     // Skip express.raw() for backup import — it must stream, not buffer into memory
@@ -1779,7 +1783,6 @@ const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
 const GENERATION_JOB_GC_INTERVAL_MS = 60000;
 const GENERATION_JOB_DONE_GRACE_MS = 30000;
 const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
-const GENERATION_JOB_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
 const generationRuntimeJobs = new Map();
 
 function countActiveGenerationJobs() {
@@ -2432,7 +2435,9 @@ async function runGenerationProviderJob(job, arg) {
     }
 
     const headers = normalizeForwardHeaders(arg.headers);
-    const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
+    const bodyBuffer = arg.body?.length
+        ? Buffer.from(arg.body.buffer, arg.body.byteOffset, arg.body.byteLength)
+        : undefined;
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
     const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
@@ -2597,7 +2602,7 @@ async function runGenerationProviderJob(job, arg) {
             timestamp: persisted?.createdAt,
             chatId: persisted?.chatId,
             targetUrl,
-            bodyBase64: arg.bodyBase64,
+            body: arg.body,
             rawResponse,
             outputText: projection?.content,
             usageProviderId: arg.usageProviderId,
@@ -2670,7 +2675,7 @@ async function runGenerationProviderJob(job, arg) {
             timestamp: persistedWithRaw?.createdAt,
             chatId: persistedWithRaw?.chatId,
             targetUrl,
-            bodyBase64: arg.bodyBase64,
+            body: arg.body,
             rawResponse,
             outputText: persistedWithRaw?.projection?.content,
             usageProviderId: arg.usageProviderId,
@@ -3401,7 +3406,6 @@ installRevenantGenerationRoutes(app, {
     generationRuntimeJobs,
     countActiveGenerationJobs,
     maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
-    maxBodyBase64Bytes: GENERATION_JOB_MAX_BODY_BASE64_BYTES,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,

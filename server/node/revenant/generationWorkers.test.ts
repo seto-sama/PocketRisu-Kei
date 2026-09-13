@@ -53,7 +53,7 @@ describe('generation workers', () => {
         }))
         const requestSpec = {
             workflowDependency: { kind: 'hypav3-selection', placeholder: '__memory__' },
-            bodyBase64: Buffer.from(JSON.stringify({ messages: [{ content: '__memory__' }] })).toString('base64'),
+            body: Buffer.from(JSON.stringify({ messages: [{ content: '__memory__' }] })),
         }
         const runGenerationProviderJob = vi.fn(async () => { main.status = 'generated' })
         const selectMemory = vi.fn(async (_recipe, summaries) => ({
@@ -103,7 +103,7 @@ describe('generation workers', () => {
         }
         expect(selectMemory).toHaveBeenCalledTimes(1)
         expect(runGenerationProviderJob).toHaveBeenCalledTimes(1)
-        const body = JSON.parse(Buffer.from(runGenerationProviderJob.mock.calls[0][1].bodyBase64, 'base64').toString())
+        const body = JSON.parse(Buffer.from(runGenerationProviderJob.mock.calls[0][1].body).toString())
         expect(body.messages[0].content).toBe('summary-one\nsummary-two')
     })
 

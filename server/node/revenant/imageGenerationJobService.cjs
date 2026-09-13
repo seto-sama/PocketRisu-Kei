@@ -2,7 +2,8 @@
 
 const { unzipSync } = require('fflate');
 
-const MAX_RESULT_BYTES = 64 * 1024 * 1024;
+const { BINARY_MESSAGE_CONTENT_TYPE, encodeBinaryMessage, MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES } = require('./protocol.cjs');
+const { decodeBinaryRequest } = require('../binaryHttp.cjs');
 const MAX_RETAINED_RESULT_BYTES = 512 * 1024 * 1024;
 const MAX_ACTIVE_JOBS = 32;
 const RETENTION_MS = 10 * 60 * 1000;
@@ -16,7 +17,7 @@ function installImageGenerationJobRoutes(app, {
 }) {
     const jobs = new Map();
 
-    const publicJob = (job, { includeResult = false } = {}) => ({
+    const publicJob = job => ({
         jobId: job.jobId,
         provider: job.provider,
         status: job.status,
@@ -28,12 +29,19 @@ function installImageGenerationJobRoutes(app, {
             bridgeRequest: job.bridgeRequest,
             providerHandle: job.providerHandle,
         } : {}),
-        ...(includeResult && job.status === 'completed'
-            ? { resultBase64: job.result?.toString('base64') }
-            : {}),
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
     });
+
+    const sendJob = (req, res, job) => {
+        if (req.query?.includeResult === '1') {
+            res.set('content-type', BINARY_MESSAGE_CONTENT_TYPE);
+            res.send(Buffer.from(encodeBinaryMessage(publicJob(job),
+                job.status === 'completed' ? job.result : undefined).buffer));
+        } else {
+            res.send(publicJob(job));
+        }
+    };
 
     const setProgress = (job, value, max, node) => {
         if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return;
@@ -311,7 +319,7 @@ function installImageGenerationJobRoutes(app, {
         }
         const existing = jobs.get(jobId);
         if (existing) {
-            res.send(publicJob(existing, { includeResult: req.query?.includeResult === '1' }));
+            sendJob(req, res, existing);
             return;
         }
         const spec = req.body?.spec;
@@ -340,7 +348,7 @@ function installImageGenerationJobRoutes(app, {
         }
         try {
             const job = createJob({ jobId, provider, spec });
-            res.send(publicJob(job, { includeResult: req.query?.includeResult === '1' }));
+            sendJob(req, res, job);
         } catch (error) {
             if (error?.code === 'IMAGE_JOB_LIMIT') {
                 res.status(429).send({ error: error.message });
@@ -357,7 +365,7 @@ function installImageGenerationJobRoutes(app, {
             res.status(404).send({ error: 'Image generation job not found' });
             return;
         }
-        res.send(publicJob(job, { includeResult: req.query?.includeResult === '1' }));
+        sendJob(req, res, job);
     });
 
     const getBridgeJob = (req, res) => {
@@ -390,13 +398,13 @@ function installImageGenerationJobRoutes(app, {
             return;
         }
         if (!['waiting_client', 'generating'].includes(job.status)) {
-            res.send(publicJob(job, { includeResult: false }));
+            res.send(publicJob(job));
             return;
         }
         job.providerHandle = { promptId, clientId };
         job.status = 'generating';
         job.updatedAt = Date.now();
-        res.send(publicJob(job, { includeResult: false }));
+        res.send(publicJob(job));
     });
 
     app.post('/api/image-generation/jobs/:jobId/comfy/progress', async (req, res) => {
@@ -409,12 +417,15 @@ function installImageGenerationJobRoutes(app, {
             return;
         }
         setProgress(job, Number(req.body?.value), Number(req.body?.max), req.body?.node);
-        res.send(publicJob(job, { includeResult: false }));
+        res.send(publicJob(job));
     });
 
     app.post('/api/image-generation/jobs/:jobId/comfy/complete', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const message = decodeBinaryRequest(req, res);
+        if (!message) return;
+        req.body = message.metadata;
         const job = getBridgeJob(req, res);
         if (!job) return;
         if (req.body?.promptId !== job.providerHandle?.promptId) {
@@ -422,19 +433,20 @@ function installImageGenerationJobRoutes(app, {
             return;
         }
         if (job.status === 'completed') {
-            res.send(publicJob(job, { includeResult: false }));
+            res.send(publicJob(job));
             return;
         }
         if (!['generating', 'waiting_client'].includes(job.status)) {
             res.status(409).send({ error: `ComfyUI job is ${job.status}` });
             return;
         }
-        const result = Buffer.from(String(req.body?.resultBase64 || ''), 'base64');
+        const result = message.bytes;
         if (!result.length || result.length > MAX_RESULT_BYTES) {
             res.status(400).send({ error: 'Invalid ComfyUI image result' });
             return;
         }
-        job.result = result;
+        // Retained results must not keep the upload metadata buffer alive.
+        job.result = Buffer.from(result);
         job.resultFormat = ['png', 'jpeg', 'webp'].includes(req.body?.resultFormat)
             ? req.body.resultFormat : 'png';
         job.status = 'completed';
@@ -442,7 +454,7 @@ function installImageGenerationJobRoutes(app, {
         clearJobTimer(job);
         job.resolveRun?.();
         pruneTerminalJobs(job.jobId);
-        res.send(publicJob(job, { includeResult: false }));
+        res.send(publicJob(job));
     });
 
     app.post('/api/image-generation/jobs/:jobId/comfy/fail', async (req, res) => {
@@ -451,7 +463,7 @@ function installImageGenerationJobRoutes(app, {
         const job = getBridgeJob(req, res);
         if (!job) return;
         if (job.status === 'completed') {
-            res.send(publicJob(job, { includeResult: false }));
+            res.send(publicJob(job));
             return;
         }
         finishBridgeJob(
@@ -459,7 +471,7 @@ function installImageGenerationJobRoutes(app, {
             job.abortController.signal.aborted ? 'interrupted' : 'failed',
             String(req.body?.error || 'ComfyUI bridge failed').slice(0, 4000),
         );
-        res.send(publicJob(job, { includeResult: false }));
+        res.send(publicJob(job));
     });
 
     const pruneTimer = setInterval(() => {

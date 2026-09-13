@@ -1,19 +1,12 @@
+import { encodeBinaryMessage, decodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { zipSync } from 'fflate'
-import imageJobsPackage from './imageGenerationJobService.cjs'
-
-const { installImageGenerationJobRoutes } = imageJobsPackage as {
-    installImageGenerationJobRoutes: (app: any, deps: any) => {
-        jobs: Map<string, any>
-        abortWorkflow: (workflowId: string) => Promise<void>
-        abortAll: () => void
-        executeImageGeneration: (arg: any) => Promise<{ image: Buffer }>
-    }
-}
+import { installImageGenerationJobRoutes as createImageJobs } from './imageGenerationJobService.cjs'
 
 function responseRecorder() {
     return {
         statusCode: 200,
+        set: vi.fn(),
         body: undefined as any,
         status(code: number) { this.statusCode = code; return this },
         send(body: any) { this.body = body; return this },
@@ -26,12 +19,12 @@ describe('Node image generation jobs', () => {
     it('keeps one NovelAI request for repeated deterministic job IDs', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            post: (path: string, handler: Function) => routes.set(`POST ${path}`, handler),
+            post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
         const upstream = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
         vi.stubGlobal('fetch', upstream)
-        const service = installImageGenerationJobRoutes(app, {
+        const service = createImageJobs(app, {
             checkProxyAuth: async () => true,
             logger: { warn: vi.fn() },
         })
@@ -51,10 +44,12 @@ describe('Node image generation jobs', () => {
         await routes.get('POST /api/image-generation/jobs')!(request, second)
 
         expect(upstream).toHaveBeenCalledTimes(1)
-        expect(second.body).toMatchObject({
+        const decoded = decodeBinaryMessage(second.body)
+        expect([...decoded.bytes]).toEqual([1, 2, 3])
+        expect(second.set).toHaveBeenCalledWith('content-type', 'application/octet-stream')
+        expect(decoded.metadata).toMatchObject({
             jobId: request.body.jobId,
             status: 'completed',
-            resultBase64: 'AQID',
             resultFormat: 'novelai-zip',
         })
     })
@@ -62,13 +57,13 @@ describe('Node image generation jobs', () => {
     it('builds and unwraps a server-owned NovelAI image request', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            post: (path: string, handler: Function) => routes.set(`POST ${path}`, handler),
+            post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
         const zipped = zipSync({ 'image.png': new Uint8Array([9, 8, 7]) })
         const upstream = vi.fn(async () => new Response(zipped, { status: 200 }))
         vi.stubGlobal('fetch', upstream)
-        const service = installImageGenerationJobRoutes(app, {
+        const service = createImageJobs(app, {
             checkProxyAuth: async () => true,
             logger: { warn: vi.fn() },
         })
@@ -99,10 +94,10 @@ describe('Node image generation jobs', () => {
     it('keeps ComfyUI local and accepts only the bound browser bridge result', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            post: (path: string, handler: Function) => routes.set(`POST ${path}`, handler),
+            post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
-        const service = installImageGenerationJobRoutes(app, {
+        const service = createImageJobs(app, {
             checkProxyAuth: async () => true,
             requireSyncClientId: () => true,
             logger: { warn: vi.fn() },
@@ -144,12 +139,11 @@ describe('Node image generation jobs', () => {
         }, responseRecorder())
         await completeRoute({
             params: { jobId: 'workflow:comfy' },
-            body: {
+            body: Buffer.from(encodeBinaryMessage({
                 bridgeId: 'comfy-device-1',
                 promptId: 'prompt-1',
-                resultBase64: Buffer.from([9, 8, 7]).toString('base64'),
                 resultFormat: 'png',
-            },
+            }, Uint8Array.of(9, 8, 7))),
         }, responseRecorder())
 
         expect([...((await result).image)]).toEqual([9, 8, 7])
@@ -159,13 +153,13 @@ describe('Node image generation jobs', () => {
     it('aborts active jobs at the Node process boundary', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            post: (path: string, handler: Function) => routes.set(`POST ${path}`, handler),
+            post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
         vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
             init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
         })))
-        const service = installImageGenerationJobRoutes(app, {
+        const service = createImageJobs(app, {
             checkProxyAuth: async () => true,
             logger: { warn: vi.fn() },
         })
@@ -186,10 +180,10 @@ describe('Node image generation jobs', () => {
     it('aborts a pending ComfyUI bridge when its workflow is cancelled', async () => {
         const routes = new Map<string, Function>()
         const app = {
-            post: (path: string, handler: Function) => routes.set(`POST ${path}`, handler),
+            post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
-        const service = installImageGenerationJobRoutes(app, {
+        const service = createImageJobs(app, {
             checkProxyAuth: async () => true,
             logger: { warn: vi.fn() },
         })

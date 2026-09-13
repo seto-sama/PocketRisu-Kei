@@ -1,3 +1,4 @@
+import { BINARY_MESSAGE_CONTENT_TYPE, encodeBinaryMessage, MAX_IMAGE_RESULT_BYTES } from '../transport/protocol'
 import { getCurrentImageGenerationPreset } from '../../../imageGeneration/presets'
 import { getDatabase } from '../../../storage/database.svelte'
 import {
@@ -8,7 +9,6 @@ import { getComfyBridgeId } from './comfyBridgeId'
 
 const HANDLE_KEY = 'risu-comfy-bridge-handles'
 const MAX_STORED_HANDLES = 32
-const MAX_RESULT_BYTES = 64 * 1024 * 1024
 
 export interface ComfyBridgeJobStatus {
     provider?: string
@@ -98,17 +98,20 @@ async function nodeMutation(
     jobId: string,
     operation: 'submitted' | 'progress' | 'complete' | 'fail',
     body: Record<string, unknown>,
+    bytes?: Uint8Array,
 ) {
     const response = await fetch(
         `/api/image-generation/jobs/${encodeURIComponent(jobId)}/comfy/${operation}`,
         {
             method: 'POST',
             headers: {
-                'content-type': 'application/json',
+                'content-type': bytes ? BINARY_MESSAGE_CONTENT_TYPE : 'application/json',
                 'risu-auth': await createRevenantGenerationAuth(),
                 'x-sync-client-id': getRevenantGenerationSyncClientId(),
             },
-            body: JSON.stringify({ bridgeId: getComfyBridgeId(), ...body }),
+            body: bytes
+                ? encodeBinaryMessage({ bridgeId: getComfyBridgeId(), ...body }, bytes)
+                : JSON.stringify({ bridgeId: getComfyBridgeId(), ...body }),
         },
     )
     const result = await response.json().catch(() => ({})) as { error?: string }
@@ -201,21 +204,16 @@ async function execute(jobId: string, initial: ComfyBridgeJobStatus): Promise<vo
         }), { method: 'GET', requestTimeoutMs: Math.min(timeoutMs, 30_000) })
         if (!response.ok) throw new Error(`ComfyUI image download failed: ${response.status}`)
         const bytes = new Uint8Array(await response.arrayBuffer())
-        if (!bytes.length || bytes.length > MAX_RESULT_BYTES) {
+        if (!bytes.length || bytes.length > MAX_IMAGE_RESULT_BYTES) {
             throw new Error('ComfyUI image result is too large')
-        }
-        let binary = ''
-        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-            binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
         }
         const contentType = response.headers.get('content-type') || ''
         const resultFormat = contentType.includes('webp') ? 'webp'
             : contentType.includes('jpeg') ? 'jpeg' : 'png'
         await nodeMutation(jobId, 'complete', {
             promptId: handle.promptId,
-            resultBase64: btoa(binary),
             resultFormat,
-        })
+        }, bytes)
         writeHandle(jobId)
     } finally {
         socket?.close()

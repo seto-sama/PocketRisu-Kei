@@ -287,7 +287,7 @@ function normalizeRevenantWorkflowDependency(value, jobType, workflowId) {
     };
 }
 
-function resolveRevenantWorkflowRequestBody(bodyBase64, dependency, execution) {
+function resolveRevenantWorkflowRequestBody(body, dependency, execution) {
     if (
         dependency?.kind !== 'hypav3-selection'
         || execution?.kind !== 'hypav3-selection'
@@ -302,7 +302,7 @@ function resolveRevenantWorkflowRequestBody(bodyBase64, dependency, execution) {
     }
     let requestBody;
     try {
-        requestBody = JSON.parse(Buffer.from(bodyBase64, 'base64').toString('utf8'));
+        requestBody = JSON.parse(Buffer.from(body).toString('utf8'));
     } catch {
         throw new Error('Dependent generation request body is not valid JSON');
     }
@@ -326,7 +326,7 @@ function resolveRevenantWorkflowRequestBody(bodyBase64, dependency, execution) {
     if (replacements === 0) {
         throw new Error('Dependent generation request has no HypaV3 placeholder');
     }
-    return Buffer.from(JSON.stringify(resolved), 'utf8').toString('base64');
+    return Buffer.from(JSON.stringify(resolved), 'utf8');
 }
 
 function normalizeRevenantHypaExecutionRecipe(value) {

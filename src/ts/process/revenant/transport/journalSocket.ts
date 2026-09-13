@@ -1,10 +1,11 @@
 import {
-    decodeProxyJobWsChunk,
-    formatProxyStreamErrorMessage,
-    parseProxyJobWsEvent,
-    trimProxyJobWsReplay,
-    type ProxyJobWsDoneEvent,
-} from '../../../network/proxyJobWs'
+    decodeJournalChunk,
+    parseRevenantControlEvent,
+    trimJournalReplay,
+    type RevenantDoneEvent,
+} from './protocol'
+
+const JOURNAL_QUEUE_BYTES = 256 * 1024
 
 export interface RevenantJournalSocketOptions {
     jobId: string
@@ -14,7 +15,7 @@ export interface RevenantJournalSocketOptions {
     initialOffset?: number
     onProviderStarted?: (startedAt: number) => void
     onHeaders?: (status: number, headers: Record<string, string>) => void
-    onDone?: (terminal: ProxyJobWsDoneEvent) => void
+    onDone?: (terminal: RevenantDoneEvent) => void
     onFatal?: (error: Error) => void
     signalAction?: 'detach' | 'cancel_job'
     onDetached?: () => void
@@ -36,6 +37,7 @@ export function openRevenantJournalSocket(
     const maxReconnectAttempts = options.maxReconnectAttempts ?? 5
     const reconnectBaseMs = options.reconnectBaseMs ?? 1000
     let detachLocal = () => options.onDetached?.()
+    let resumeLocal = () => {}
 
     return new ReadableStream<Uint8Array>({
         start(controller) {
@@ -45,10 +47,9 @@ export function openRevenantJournalSocket(
                 ? options.initialOffset ?? 0
                 : 0
             let disposed = false
-            let terminal = false
+            let paused = false
             let reconnectAttempts = 0
             let providerStartedReported = false
-            let upstreamStatus: number | undefined
             let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
             const closeSocket = () => {
@@ -64,10 +65,9 @@ export function openRevenantJournalSocket(
                 options.onFatal?.(error)
                 try { controller.error(error) } catch { /* already closed */ }
             }
-            const finish = (terminalEvent: ProxyJobWsDoneEvent = { type: 'done' }) => {
+            const finish = (terminalEvent: RevenantDoneEvent) => {
                 if (disposed) return
                 disposed = true
-                terminal = true
                 closeSocket()
                 options.onDone?.(terminalEvent)
                 try { controller.close() } catch { /* already closed */ }
@@ -85,7 +85,7 @@ export function openRevenantJournalSocket(
                 options.onDetached?.()
             }
             const scheduleReconnect = () => {
-                if (disposed || terminal || options.signal?.aborted) return
+                if (disposed || options.signal?.aborted) return
                 if (reconnectAttempts >= maxReconnectAttempts) {
                     fail(new Error('Generation journal WebSocket reconnect limit exceeded'))
                     return
@@ -95,16 +95,37 @@ export function openRevenantJournalSocket(
                 reconnectTimer = setTimeout(connect, delay)
             }
             const connect = () => {
-                if (disposed || terminal || options.signal?.aborted) return
+                if (disposed || options.signal?.aborted) return
                 const recovery = options.recovery ? '&recovery=1' : ''
                 const socket = new WebSocket(
                     `${wsBaseUrl}${recovery}&offset=${receivedBytes}`,
                 )
                 ws = socket
+                socket.binaryType = 'arraybuffer'
                 socket.onmessage = event => {
-                    const parsed = parseProxyJobWsEvent(
-                        typeof event.data === 'string' ? event.data : '',
-                    )
+                    if (disposed || ws !== socket) return
+                    if (event.data instanceof ArrayBuffer) {
+                        try {
+                            const { bytes, offset } = decodeJournalChunk(new Uint8Array(event.data))
+                            const chunk = trimJournalReplay(bytes, offset, receivedBytes)
+                            if (!chunk) return
+                            receivedBytes += chunk.length
+                            reconnectAttempts = 0
+                            controller.enqueue(chunk)
+                            if ((controller.desiredSize ?? 0) <= 0) {
+                                // WS cannot pause incoming bytes. Detach at the accepted
+                                // offset and replay the tail when the decoder needs more.
+                                paused = true
+                                ws = undefined
+                                socket.close()
+                            }
+                        } catch {
+                            // Resume from the last valid byte after a malformed frame or gap.
+                            socket.close()
+                        }
+                        return
+                    }
+                    const parsed = parseRevenantControlEvent(event.data)
                     if (!parsed) return
                     switch (parsed.type) {
                         case 'job_accepted':
@@ -117,58 +138,30 @@ export function openRevenantJournalSocket(
                             }
                             return
                         case 'upstream_headers':
-                            upstreamStatus = parsed.status
                             options.onHeaders?.(parsed.status, parsed.headers)
                             return
-                        case 'chunk': {
-                            let chunk = decodeProxyJobWsChunk(parsed.dataBase64)
-                            try {
-                                const trimmed = trimProxyJobWsReplay(
-                                    chunk,
-                                    parsed.offset,
-                                    receivedBytes,
-                                )
-                                if (!trimmed) return
-                                chunk = trimmed
-                            }
-                            catch {
-                                socket.close()
-                                return
-                            }
-                            receivedBytes += chunk.length
-                            reconnectAttempts = 0
-                            controller.enqueue(chunk)
-                            return
-                        }
                         case 'done':
                             finish(parsed)
                             return
                         case 'error':
-                            // Older Revenant servers terminate every non-2xx
-                            // provider response as a socket error after sending
-                            // its complete body. Preserve that body as a normal
-                            // Response so the provider adapter can extract the
-                            // actual error message and classify retryability.
-                            if (parsed.status === 502
-                                && upstreamStatus !== undefined
-                                && (upstreamStatus < 200 || upstreamStatus >= 300)) {
-                                finish()
-                                return
-                            }
-                            fail(new Error(formatProxyStreamErrorMessage(
-                                parsed.status,
-                                parsed.message,
-                            )))
+                            fail(new Error(parsed.message || `Generation stream failed (${parsed.status ?? 'unknown'})`))
                     }
                 }
                 socket.onerror = () => {
                     try { socket.close() } catch { /* close handler reconnects */ }
                 }
                 socket.onclose = () => {
-                    if (ws === socket) ws = undefined
-                    if (!disposed && !terminal && !options.signal?.aborted) {
+                    if (ws !== socket) return
+                    ws = undefined
+                    if (!disposed && !options.signal?.aborted) {
                         scheduleReconnect()
                     }
+                }
+            }
+            resumeLocal = () => {
+                if (paused && !disposed && (controller.desiredSize ?? 0) > 0) {
+                    paused = false
+                    connect()
                 }
             }
 
@@ -179,8 +172,11 @@ export function openRevenantJournalSocket(
             options.signal?.addEventListener('abort', abortLocal, { once: true })
             connect()
         },
+        pull() {
+            resumeLocal()
+        },
         cancel() {
             detachLocal()
         },
-    })
+    }, { highWaterMark: JOURNAL_QUEUE_BYTES, size: chunk => chunk.byteLength })
 }

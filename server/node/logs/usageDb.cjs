@@ -393,10 +393,10 @@ function inferProvider(targetUrl) {
     }
 }
 
-function extractModel(bodyBase64, targetUrl) {
+function extractModel(body, targetUrl) {
     try {
-        const body = JSON.parse(Buffer.from(bodyBase64 || '', 'base64').toString('utf-8'));
-        if (typeof body?.model === 'string') return body.model.slice(0, 256);
+        const parsed = JSON.parse(Buffer.from(body || '').toString('utf-8'));
+        if (typeof parsed?.model === 'string') return parsed.model.slice(0, 256);
     } catch {
         // Some providers, notably Gemini, carry the model in the URL.
     }
@@ -408,10 +408,10 @@ function extractModel(bodyBase64, targetUrl) {
     }
 }
 
-function extractServiceTier(bodyBase64) {
+function extractServiceTier(body) {
     try {
-        const body = JSON.parse(Buffer.from(bodyBase64 || '', 'base64').toString('utf-8'));
-        return typeof body?.service_tier === 'string' ? body.service_tier.slice(0, 32) : null;
+        const parsed = JSON.parse(Buffer.from(body || '').toString('utf-8'));
+        return typeof parsed?.service_tier === 'string' ? parsed.service_tier.slice(0, 32) : null;
     } catch {
         return null;
     }
@@ -420,7 +420,7 @@ function extractServiceTier(bodyBase64) {
 function recordGenerationUsage(arg) {
     try {
         const provider = arg.usageProviderId || inferProvider(arg.targetUrl);
-        const model = arg.usageModelId || extractModel(arg.bodyBase64, arg.targetUrl);
+        const model = arg.usageModelId || extractModel(arg.body, arg.targetUrl);
         const usage = extractUsage(arg.rawResponse) ?? { rawUsage: [] };
         if (usage.completionTokens === undefined
             && usage.promptTokens !== undefined
@@ -461,7 +461,7 @@ function recordGenerationUsage(arg) {
             reasoningTokens: usage.reasoningTokens ?? null,
             serviceTier: arg.usageServiceTier
                 ?? usage.serviceTier
-                ?? extractServiceTier(arg.bodyBase64),
+                ?? extractServiceTier(arg.body),
             gatewayCost: usage.gatewayCost ?? null,
             usageJson: JSON.stringify(usage.rawUsage),
         });

@@ -172,7 +172,7 @@ describe('server postprocess provider actions', () => {
         await worker.pump()
         await vi.waitFor(() => expect(h.workflow.status).toBe('completed'))
         expect(h.jobs).toHaveLength(3)
-        const bodies = h.jobs.map(job => JSON.parse(Buffer.from(job.requestSpec.bodyBase64, 'base64').toString()))
+        const bodies = h.jobs.map(job => JSON.parse(Buffer.from(job.requestSpec.body).toString()))
         expect(bodies.map(body => body.messages[0].content)).toEqual(['first', 'answer-1', 'finish'])
         expect(h.steps['trigger.output'].metadata.chat.scriptstate.$auxResult).toBe('answer-2')
         expect(h.transitions).not.toContain('waiting_client')

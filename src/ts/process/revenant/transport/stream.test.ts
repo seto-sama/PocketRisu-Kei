@@ -28,7 +28,8 @@ vi.mock('./journalDecoder', () => ({
     decodeRevenantGenerationJournal: mocks.decode,
 }))
 
-import { subscribeRecoverableGeneration } from './stream'
+import { subscribeRecoverableGeneration, fetchViaGenerationJob } from './stream'
+import { decodeGenerationRequest, BINARY_MESSAGE_CONTENT_TYPE } from './protocol'
 import { openRevenantJournalSocket } from './journalSocket'
 import type { RecoverableGenerationJob } from '../types'
 
@@ -40,6 +41,33 @@ const job: RecoverableGenerationJob = {
     updatedAt: 2,
     streaming: true,
 }
+
+describe('generation job registration', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('posts metadata and exact binary body, then observes the created job', async () => {
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify({ jobId: 'created', createdAt: 123 })))
+        vi.stubGlobal('fetch', fetchMock)
+        vi.mocked(openRevenantJournalSocket).mockImplementationOnce(options => {
+            queueMicrotask(() => options.onHeaders?.(200, { 'content-type': 'application/json' }))
+            return new ReadableStream({ start(controller) { controller.close() } })
+        })
+        const body = Uint8Array.of(0, 128, 255, 0xea, 0xb0)
+        const response = await fetchViaGenerationJob('https://provider.example', {
+            method: 'POST', headers: { authorization: 'test-key' }, body,
+            generationRequest: { job: { jobType: 'otherAx', chatId: 'request', isContinuation: false } },
+        })
+        expect(response.status).toBe(200)
+        const [url, init] = vi.mocked(fetch).mock.calls[0]
+        expect(url).toBe('/api/generation/jobs')
+        expect(init?.headers['Content-Type']).toBe(BINARY_MESSAGE_CONTENT_TYPE)
+        expect(decodeGenerationRequest(init?.body as Uint8Array)).toMatchObject({
+            url: 'https://provider.example', method: 'POST',
+            headers: { authorization: 'test-key' }, body, jobType: 'otherAx',
+        })
+        expect(vi.mocked(openRevenantJournalSocket).mock.calls.at(-1)?.[0].jobId).toBe('created')
+    })
+})
 
 describe('subscribeRecoverableGeneration', () => {
     const snapshot = new TextEncoder().encode('snapshot')
