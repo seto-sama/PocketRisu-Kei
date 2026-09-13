@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer'
 import fc from 'fast-check'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { encodeInlayAsset, decodeInlayAsset } from '../../../storage/inlayTransport'
 import type { InlayAsset } from '../inlays'
 import {
     scanInlayReferences,
@@ -239,59 +240,32 @@ describe('getInlayAsset', () => {
         expect(result!.name).toBe('blob-asset.png')
     })
 
-    test('returns asset with string data as-is when stored as string', async () => {
-        const b64 = 'data:image/png;base64,aGVsbG8='
-        const asset: InlayAsset = {
-            data: b64,
-            ext: 'png',
-            height: 50,
-            width: 50,
-            name: 'string-asset.png',
-            type: 'image',
-        }
-        await setInlayAsset('str-id', asset)
-
-        const result = await getInlayAsset('str-id')
-        expect(result!.data).toBe(b64)
+    test('preserves signature JSON through server storage', async () => {
+        const data = JSON.stringify({ text: '서명' })
+        await setInlayAsset('signature-id', { data, ext: 'json', name: 'signature', type: 'signature' })
+        __resetInlayStorageForTest()
+        expect((await getInlayAsset('signature-id'))!.data).toBe(data)
+        expect(await (await getInlayAssetBlob('signature-id'))!.data.text()).toBe(data)
     })
+
 })
 
 describe('getInlayAssetBlob', () => {
-    test('returns Blob data when stored as Blob', async () => {
-        const blob = new Blob(['binary-data'], { type: 'image/png' })
-        const asset: InlayAsset = {
-            data: blob,
-            ext: 'png',
-            height: 64,
-            width: 64,
-            name: 'blob.png',
-            type: 'image',
-        }
-        await setInlayAsset('blob-id', asset)
-
+    test('roundtrips binary media through storage without a cached Blob', async () => {
+        const bytes = new Uint8Array([0, 255, 128, 1])
+        await setInlayAsset('blob-id', {
+            data: new Blob([bytes], { type: 'image/png' }),
+            ext: 'png', height: 64, width: 64, name: 'blob.png', type: 'image',
+        })
+        const wire = decodeInlayAsset(nodeStorageMap.get('inlay/blob-id')!)
+        expect(wire.bytes).toEqual(bytes)
+        expect(wire.metadata).toMatchObject({ mime: 'image/png', name: 'blob.png' })
+        __resetInlayStorageForTest()
         const result = await getInlayAssetBlob('blob-id')
-        expect(result!.data).toBeInstanceOf(Blob)
+        expect(result!.data.type).toBe('image/png')
+        expect(new Uint8Array(await result!.data.arrayBuffer())).toEqual(bytes)
     })
 
-    test('migrates string data to Blob', async () => {
-        const b64 = 'data:image/png;base64,aGVsbG8='
-        const asset: InlayAsset = {
-            data: b64,
-            ext: 'png',
-            height: 32,
-            width: 32,
-            name: 'legacy.png',
-            type: 'image',
-        }
-        await setInlayAsset('legacy-id', asset)
-
-        const result = await getInlayAssetBlob('legacy-id')
-        expect(result!.data).toBeInstanceOf(Blob)
-
-        // After migration, subsequent blob fetch also returns Blob
-        const result2 = await getInlayAssetBlob('legacy-id')
-        expect(result2!.data).toBeInstanceOf(Blob)
-    })
 })
 
 describe('getCharacterChatIndex', () => {
@@ -360,12 +334,12 @@ describe('listInlayExplorerItems', () => {
             name: 'audio-file.mp3',
             type: 'audio',
         }))
-        nodeStorageMap.set('inlay/audio-1', new TextEncoder().encode(JSON.stringify({
-            data: 'data:audio/mp3;base64,YQ==',
+        nodeStorageMap.set('inlay/audio-1', encodeInlayAsset({
+            mime: 'audio/mp3',
             ext: 'mp3',
             name: 'audio-file.mp3',
             type: 'audio',
-        })))
+        }, new Uint8Array([97])))
         nodeStorageMap.set('inlay_info/audio-1', infoOnlyValue)
 
         const result = await listInlayExplorerItems()

@@ -849,6 +849,9 @@ const { binaryBodyParser } = require('./binaryHttp.cjs');
 const { MAX_GENERATION_REQUEST_BYTES, MAX_IMAGE_RESULT_MESSAGE_BYTES } = require('./revenant/protocol.cjs');
 app.post('/api/generation/jobs', binaryBodyParser(MAX_GENERATION_REQUEST_BYTES));
 app.post('/api/image-generation/jobs/:jobId/comfy/complete', binaryBodyParser(MAX_IMAGE_RESULT_MESSAGE_BYTES));
+const { installAssetBinaryParser, installAssetRoutes } = require('./assetRoutes.cjs');
+const { encodeInlayAsset, decodeInlayAsset } = require('../../src/ts/storage/inlayTransport.ts');
+installAssetBinaryParser(app);
 app.use(express.json({ limit: '100mb' }));
 app.use((req, res, next) => {
     // Skip express.raw() for backup import — it must stream, not buffer into memory
@@ -1264,10 +1267,6 @@ function decodeDataUri(dataUri) {
     };
 }
 
-function encodeDataUri(buffer, mime) {
-    return `data:${mime || 'application/octet-stream'};base64,${Buffer.from(buffer).toString('base64')}`;
-}
-
 async function readInlaySidecar(id) {
     try {
         const raw = await fs.readFile(getInlaySidecarPath(id), 'utf-8');
@@ -1485,13 +1484,7 @@ async function readInlayAssetPayload(id) {
         height: sidecar?.height,
         width: sidecar?.width,
     };
-    const data = info.type === 'signature'
-        ? file.buffer.toString('utf-8')
-        : encodeDataUri(file.buffer, file.mime);
-    return Buffer.from(JSON.stringify({
-        ...info,
-        data,
-    }));
+    return Buffer.from(encodeInlayAsset({ ...info, mime: file.mime }, file.buffer).buffer);
 }
 
 async function migrateInlaysToFilesystem() {
@@ -3897,7 +3890,7 @@ function pluginStorageProjectionOptions(req) {
     if (!raw) return {};
     if (raw === 'all') return { excludeAllPluginStorage: true };
     try {
-        const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+        const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
         const excludedPluginNames = Array.isArray(parsed.plugins)
             ? [...new Set(parsed.plugins.filter(name => typeof name === 'string'))]
@@ -4306,12 +4299,15 @@ app.post('/api/write', async (req, res, next) => {
 
             if (key.startsWith('inlay/')) {
                 const id = key.slice('inlay/'.length)
-                const parsed = JSON.parse(Buffer.from(fileContent).toString('utf-8'));
-                const type = typeof parsed?.type === 'string' ? parsed.type : 'image';
-                const ext = normalizeInlayExt(parsed?.ext);
-                const buffer = type === 'signature'
-                    ? Buffer.from(typeof parsed?.data === 'string' ? parsed.data : '', 'utf-8')
-                    : decodeDataUri(parsed?.data).buffer;
+                let decoded;
+                try {
+                    decoded = decodeInlayAsset(fileContent);
+                } catch (error) {
+                    return res.status(400).send({ error: error.message });
+                }
+                const { metadata: parsed, bytes: buffer } = decoded;
+                const type = parsed.type;
+                const ext = normalizeInlayExt(parsed.ext);
                 await writeInlayFile(id, ext, buffer, {
                     ext,
                     name: typeof parsed?.name === 'string' ? parsed.name : id,
@@ -4645,103 +4641,9 @@ app.post('/api/patch', async (req, res, next) => {
     }
 });
 
-// ─── Bulk asset endpoints (3-2-B) ─────────────────────────────────────────────
-const BULK_BATCH = 50;
-
-app.post('/api/assets/bulk-read', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    try {
-        const keys = req.body; // string[] — decoded key strings
-        if(!Array.isArray(keys)){
-            res.status(400).send({ error: 'Body must be a JSON array of keys' });
-            return;
-        }
-
-        const acceptsBinary = (req.headers['accept'] || '').includes('application/octet-stream');
-
-        if (acceptsBinary) {
-            // Binary protocol: [count(4)] then per entry: [keyLen(4)][key][valLen(4)][value]
-            // Eliminates ~33% base64 overhead
-            const entries = [];
-            let totalSize = 4; // count header
-            for (let i = 0; i < keys.length; i += BULK_BATCH) {
-                const batch = keys.slice(i, i + BULK_BATCH);
-                for (const key of batch) {
-                    let value = null;
-                    if (typeof key === 'string' && key.startsWith('inlay_info/')) {
-                        value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-                    }
-                    if (value === null) {
-                        value = kvGet(key);
-                    }
-                    if (value !== null) {
-                        const keyBuf = Buffer.from(key, 'utf-8');
-                        const valBuf = Buffer.from(value);
-                        entries.push({ keyBuf, valBuf });
-                        totalSize += 4 + keyBuf.length + 4 + valBuf.length;
-                    }
-                }
-            }
-            const out = Buffer.allocUnsafe(totalSize);
-            let offset = 0;
-            out.writeUInt32BE(entries.length, offset); offset += 4;
-            for (const { keyBuf, valBuf } of entries) {
-                out.writeUInt32BE(keyBuf.length, offset); offset += 4;
-                keyBuf.copy(out, offset); offset += keyBuf.length;
-                out.writeUInt32BE(valBuf.length, offset); offset += 4;
-                valBuf.copy(out, offset); offset += valBuf.length;
-            }
-            res.set('Content-Type', 'application/octet-stream');
-            res.send(out);
-        } else {
-            // Legacy JSON+base64 fallback
-            const results = [];
-            for (let i = 0; i < keys.length; i += BULK_BATCH) {
-                const batch = keys.slice(i, i + BULK_BATCH);
-                for (const key of batch) {
-                    let value = null;
-                    if (typeof key === 'string' && key.startsWith('inlay_info/')) {
-                        value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-                    }
-                    if (value === null) {
-                        value = kvGet(key);
-                    }
-                    if (value !== null) {
-                        results.push({ key, value: Buffer.from(value).toString('base64') });
-                    }
-                }
-            }
-            res.json(results);
-        }
-    } catch(error){ next(error); }
-});
-
-app.post('/api/assets/bulk-write', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
-    if (!requireSyncClientId(req, res)) return;
-    try {
-        const entries = req.body; // {key: string, value: base64}[]
-        if(!Array.isArray(entries)){
-            res.status(400).send({ error: 'Body must be a JSON array of {key, value}' });
-            return;
-        }
-        if (entries.some(entry => entry?.key === 'database/database.bin')) {
-            return res.status(400).json({
-                error: 'database.bin cannot be written through the asset API',
-                code: 'DATABASE_BIN_PROJECTION_ONLY',
-            });
-        }
-        for(let i = 0; i < entries.length; i += BULK_BATCH){
-            const batch = entries.slice(i, i + BULK_BATCH);
-            const writeBatch = sqliteDb.transaction(() => {
-                for(const { key, value } of batch){
-                    kvSet(key, Buffer.from(value, 'base64'));
-                }
-            });
-            writeBatch();
-        }
-        res.json({ success: true, count: entries.length });
-    } catch(error){ next(error); }
+installAssetRoutes(app, {
+    checkAuth, requireSyncClientId, readInlayInfoPayload, kvGet, kvSet,
+    transaction: callback => sqliteDb.transaction(callback),
 });
 
 async function createSettingsBackupPlan(includeModuleAssets = true) {

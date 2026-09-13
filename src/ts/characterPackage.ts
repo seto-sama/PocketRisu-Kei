@@ -11,7 +11,7 @@ import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
-import { getInlayAsset, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
+import { getInlayAssetBlob, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
 import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
@@ -125,11 +125,6 @@ async function buildPersonaPng(persona: { name: string, personaPrompt: string, i
     })) as Uint8Array
 
     return img
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-    const raw = base64.includes(',') ? base64.split(',')[1] : base64
-    return new Uint8Array(Buffer.from(raw, 'base64'))
 }
 
 // ── Shared import logic ──
@@ -362,13 +357,14 @@ async function importInlays(
         })
 
         const meta = metaMap[id]
-        const blob = new Blob([fileBytes.buffer as ArrayBuffer], { type: `image/${ext}` })
+        const blob = new Blob([new Uint8Array(fileBytes)], { type: `image/${ext}` })
 
         await setInlayAsset(id, {
-            data: blob,
             ext: meta?.ext || ext,
             name: meta?.name || id,
-            type: (meta?.type as InlayAsset['type']) || 'image',
+            ...(meta?.type === 'signature'
+                ? { type: 'signature' as const, data: new TextDecoder().decode(fileBytes) }
+                : { type: (meta?.type as Exclude<InlayAsset['type'], 'signature'>) || 'image', data: blob }),
             width: meta?.width,
             height: meta?.height,
         })
@@ -562,7 +558,7 @@ export async function exportCharacterPackage(
                     submsg: String(((currentStep + processed / ids.length) / totalSteps * 100).toFixed(0))
                 })
 
-                const asset = await getInlayAsset(id)
+                const asset = await getInlayAssetBlob(id)
                 if (!asset) {
                     console.warn(`[characterPackage] Inlay ${id} not found, skipping`)
                     continue
@@ -570,7 +566,7 @@ export async function exportCharacterPackage(
 
                 const ext = asset.ext || 'png'
                 const filePath = `inlays/${id}.${ext}`
-                const imageData = base64ToUint8Array(asset.data as string)
+                const imageData = new Uint8Array(await asset.data.arrayBuffer())
                 await zipWriter.write(filePath, imageData)
                 inlayFiles.push(filePath)
 
