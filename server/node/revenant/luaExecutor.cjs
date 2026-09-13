@@ -35,7 +35,7 @@ async function getFactory() {
             const factory = new LuaFactory();
             await factory.mountFile(
                 'json.lua',
-                fs.readFileSync(path.join(process.cwd(), 'public', 'lua', 'json.lua'), 'utf8'),
+                fs.readFileSync(path.join(process.cwd(), 'dist', 'lua', 'json.lua'), 'utf8'),
             );
             return factory;
         })();

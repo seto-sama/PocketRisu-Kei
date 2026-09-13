@@ -9,10 +9,10 @@ const REMOTE_HYPA_MODELS = new Set([
     'voyage4large', 'voyageContext3', 'voyageContext4',
 ]);
 const TOKENIZER_FILES = Object.freeze({
-    claude: 'public/token/claude/claude.json',
-    llama3: 'public/token/llama/llama3.json',
-    gemma: 'public/token/gemma/tokenizer.json',
-    deepseek: 'public/token/deepseek/tokenizer.json',
+    claude: 'token/claude/claude.json',
+    llama3: 'token/llama/llama3.json',
+    gemma: 'token/gemma/tokenizer.json',
+    deepseek: 'token/deepseek/tokenizer.json',
 });
 const LEGACY_TOKENIZERS = new Set(['mistral', 'novelai', 'llama', 'novellist']);
 
@@ -31,7 +31,7 @@ async function getRegistryTokenizer(type) {
         pending = (async () => {
             const { Tokenizer } = await import('@huggingface/tokenizers');
             const config = JSON.parse(await fs.promises.readFile(
-                path.join(process.cwd(), definition),
+                path.join(process.cwd(), 'dist', definition),
                 'utf8',
             ));
             return new Tokenizer(config, {});
