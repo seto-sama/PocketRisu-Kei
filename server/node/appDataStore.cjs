@@ -821,18 +821,81 @@ function createAppDataStore(db) {
         }
     }
 
-    function replaceSpecialRows(special, value, revision) {
-        clearSpecialRows(special);
-        if (special.kind === 'plugin-storage') {
-            insertPluginStorageRows(value, revision);
-        } else {
-            insertCollectionRows(
-                special.kind,
-                special.collection ?? null,
-                value,
-                revision,
-            );
-        }
+    // Shared reconciliation for payload-backed collections and chat messages.
+    // SQL identifiers come only from the fixed adapters below, never requests.
+    // Call inside the owning transaction so temporary positions cannot escape.
+    function createPayloadRowSync(table, keyColumn, scopeColumns = [], ordered = true) {
+        const scopeWhere = scopeColumns.map(column => `${column} = ?`).join(' AND ');
+        const where = scopeWhere ? `${scopeWhere} AND ` : '';
+        const select = db.prepare(`SELECT ${keyColumn} AS item_key, payload${ordered ? ', position' : ''}
+            FROM ${table}${scopeWhere ? ` WHERE ${scopeWhere}` : ''}`);
+        const remove = db.prepare(`DELETE FROM ${table} WHERE ${where}${keyColumn} = ?`);
+        const move = ordered ? db.prepare(`UPDATE ${table} SET position = ?
+            WHERE ${where}${keyColumn} = ?`) : null;
+        const updatePosition = ordered ? db.prepare(`UPDATE ${table} SET position = ?, revision = ?
+            WHERE ${where}${keyColumn} = ?`) : null;
+        const update = db.prepare(`UPDATE ${table} SET payload = ?, revision = ?${ordered ? ', position = ?' : ''}
+            WHERE ${where}${keyColumn} = ?`);
+        const columns = [...scopeColumns, keyColumn, 'payload', 'revision', ...(ordered ? ['position'] : [])];
+        const insert = db.prepare(`INSERT INTO ${table} (${columns.join(', ')})
+            VALUES (${columns.map(() => '?').join(', ')})`);
+
+        return (scope, items, revision) => {
+            const currentRows = select.all(...scope);
+            const currentById = new Map(currentRows.map(row => [row.item_key, row]));
+            const desiredIds = new Set(items.map(item => item.key));
+            for (const row of currentRows) {
+                if (!desiredIds.has(row.item_key)) remove.run(...scope, row.item_key);
+            }
+            // Vacate only moved rows before assigning final positions. This
+            // handles swaps and insertions under UNIQUE(scope, position), while
+            // untouched rows receive no UPDATE at all.
+            if (ordered) {
+                for (let position = 0; position < items.length; position++) {
+                    const row = currentById.get(items[position].key);
+                    if (row && row.position !== position) {
+                        move.run(-row.position - 1, ...scope, row.item_key);
+                    }
+                }
+            }
+            for (let position = 0; position < items.length; position++) {
+                const item = items[position];
+                const row = currentById.get(item.key);
+                const payload = encodeValue(item.value);
+                const order = ordered ? [position] : [];
+                if (!row) {
+                    insert.run(...scope, item.key, payload, revision, ...order);
+                } else if (!row.payload.equals(payload)) {
+                    update.run(payload, revision, ...order, ...scope, item.key);
+                } else if (ordered && row.position !== position) {
+                    updatePosition.run(position, revision, ...scope, item.key);
+                }
+            }
+        };
+    }
+
+    const payloadRowSync = {
+        presets: createPayloadRowSync('app_presets', 'item_key', ['collection']),
+        modules: createPayloadRowSync('app_modules', 'item_key'),
+        plugins: createPayloadRowSync('app_plugins', 'item_key', ['collection']),
+        personas: createPayloadRowSync('app_personas', 'item_key'),
+        'plugin-storage': createPayloadRowSync('app_plugin_storage', 'storage_key', [], false),
+        messages: createPayloadRowSync('app_messages', 'message_key', ['character_id', 'chat_id']),
+    };
+
+    function keyedItems(value, itemKey) {
+        const used = new Set();
+        return (Array.isArray(value) ? value : []).map((item, position) => ({
+            key: itemKey(item, position, used), value: item,
+        }));
+    }
+
+    function syncSpecialRows(special, value, revision) {
+        const items = special.kind === 'plugin-storage'
+            ? Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {})
+                .map(([key, value]) => ({ key, value }))
+            : keyedItems(value, collectionItemKey);
+        payloadRowSync[special.kind](special.collection ? [special.collection] : [], items, revision);
     }
 
     function sameOrderedIds(currentRows, desiredItems, currentKey, desiredKey) {
@@ -1006,7 +1069,7 @@ function createAppDataStore(db) {
             } else if (special.kind === 'characters') {
                 syncCharacterRows(desired.characters, revision);
             } else {
-                replaceSpecialRows(special, desired[field], revision);
+                syncSpecialRows(special, desired[field], revision);
             }
         }
 
@@ -1094,9 +1157,6 @@ function createAppDataStore(db) {
       SET content_payload = ?, content_etag = ?, revision = ?
       WHERE character_id = ? AND chat_id = ?
     `);
-    const deleteMessages = db.prepare(`
-      DELETE FROM app_messages WHERE character_id = ? AND chat_id = ?
-    `);
 
     function getChat(characterId, chatId) {
         const row = selectChat.get(characterId, chatId);
@@ -1171,18 +1231,11 @@ function createAppDataStore(db) {
                 revision,
             );
         }
-        deleteMessages.run(characterId, chatId);
-        const usedMessages = new Set();
-        for (let position = 0; position < messages.length; position++) {
-            insertMessage.run(
-                characterId,
-                chatId,
-                messageItemKey(messages[position], position, usedMessages),
-                position,
-                encodeValue(messages[position]),
-                revision,
-            );
-        }
+        payloadRowSync.messages(
+            [characterId, chatId],
+            keyedItems(messages, messageItemKey),
+            revision,
+        );
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
         return {

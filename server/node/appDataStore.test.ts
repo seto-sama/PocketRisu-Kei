@@ -66,6 +66,133 @@ afterEach(() => {
 })
 
 describe('relational app data projection', () => {
+    function auditWrites(sqlite: any, table: string, key: string) {
+        sqlite.exec(`CREATE TEMP TABLE writes (operation TEXT, item_key TEXT)`)
+        for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+            sqlite.exec(`CREATE TEMP TRIGGER audit_${operation} AFTER ${operation} ON ${table}
+                BEGIN INSERT INTO writes VALUES ('${operation}', ${operation === 'DELETE' ? 'OLD' : 'NEW'}.${key}); END`)
+        }
+        return () => sqlite.prepare('SELECT operation, item_key FROM writes').all()
+    }
+
+    it('writes only added, edited, moved or removed messages, including metadata-only saves', () => {
+        const { sqlite, store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        const writes = auditWrites(sqlite, 'app_messages', 'message_key')
+        const save = (edit: (chat: any) => void) => {
+            const chat = store.getChat('character-1', 'chat-1')
+            const etag = computeChatEtag(chat)
+            edit(chat)
+            const result = store.commitChat('character-1', 'chat-1', chat, etag)
+            expect(store.getChat('character-1', 'chat-1')).toEqual(result.chat)
+            return result
+        }
+        save(chat => { chat.message.push({ chatId: 'message-3', role: 'user', data: 'new' }) })
+        expect(writes()).toEqual([{ operation: 'INSERT', item_key: 'message-3' }])
+        sqlite.exec('DELETE FROM writes')
+        save(chat => { chat.message[1].swipes.push('edited swipe') })
+        expect(writes()).toEqual([{ operation: 'UPDATE', item_key: 'message-2' }])
+        sqlite.exec('DELETE FROM writes')
+        save(chat => { chat.note = 'only content metadata changed' })
+        expect(writes()).toEqual([])
+        save(chat => { chat.message.reverse() })
+        expect(writes().every((row: any) => row.operation === 'UPDATE' && row.item_key !== 'message-2')).toBe(true)
+        expect(store.getChat('character-1', 'chat-1').message.map((m: any) => m.chatId))
+            .toEqual(['message-3', 'message-2', 'message-1'])
+        sqlite.exec('DELETE FROM writes')
+        save(chat => { chat.message.pop() })
+        expect(writes()).toEqual([{ operation: 'DELETE', item_key: 'message-1' }])
+        const rows = sqlite.prepare('SELECT message_key, revision FROM app_messages ORDER BY position').all()
+        expect(rows).toEqual([
+            { message_key: 'message-3', revision: 5 },
+            { message_key: 'message-2', revision: 3 },
+        ])
+        sqlite.exec('DELETE FROM writes')
+        save(chat => { chat.message = [] })
+        expect(writes()).toHaveLength(2)
+        expect(writes().every((row: any) => row.operation === 'DELETE')).toBe(true)
+    })
+
+    it('preserves duplicate and missing message IDs across insertion and reordering', () => {
+        const { store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        for (const message of [
+            [{ chatId: 'same', data: 'a' }, { chatId: 'same', data: 'b' }, { data: 'c' }],
+            [{ data: 'new' }, { data: 'c' }, { chatId: 'same', data: 'b' }, { chatId: 'same', data: 'a' }],
+        ]) {
+            const chat = store.getChat('character-1', 'chat-1')
+            store.commitChat('character-1', 'chat-1', { ...chat, message }, computeChatEtag(chat))
+            expect(store.getChat('character-1', 'chat-1').message).toEqual(message)
+        }
+    })
+
+    it.each([
+        ['botPresets', 'app_presets', 'item_key'],
+        ['modules', 'app_modules', 'item_key'],
+        ['plugins', 'app_plugins', 'item_key'],
+        ['personas', 'app_personas', 'item_key'],
+        ['pluginCustomStorage', 'app_plugin_storage', 'storage_key'],
+    ])('reconciles %s through the same incremental payload writer', (field, table, key) => {
+        const { sqlite, store } = createStore()
+        const source: any = sampleDatabase()
+        source[field] = field === 'pluginCustomStorage'
+            ? { a: { name: 'a' }, b: { name: 'b' } }
+            : [{ id: 'a', name: 'a' }, { id: 'b', name: 'b' }]
+        store.replaceFromProjection(source)
+        const writes = auditWrites(sqlite, table, key)
+        const projection = store.exportProjection({ includeMessages: false })
+        if (field === 'pluginCustomStorage') projection[field].b.name = 'changed'
+        else projection[field][1].name = 'changed'
+        store.syncStartupProjection(projection)
+        expect(writes()).toEqual([{ operation: 'UPDATE', item_key: 'b' }])
+        sqlite.exec('DELETE FROM writes')
+        if (field === 'pluginCustomStorage') {
+            delete projection[field].a
+            projection[field].c = 'new'
+        } else {
+            projection[field] = [projection[field][1], { id: 'c', name: 'new' }, projection[field][0]]
+        }
+        store.syncStartupProjection(projection)
+        expect(store.exportProjection({ includeMessages: false })).toEqual(projection)
+        expect(writes().filter((row: any) => row.operation === 'INSERT'))
+            .toEqual([{ operation: 'INSERT', item_key: 'c' }])
+    })
+
+    it('keeps incremental writes scoped and avoids assigning payloads for order-only changes', () => {
+        const { sqlite, store } = createStore()
+        const source = sampleDatabase()
+        source.characters[0].chats.push({ ...structuredClone(source.characters[0].chats[0]), id: 'chat-2' })
+        store.replaceFromProjection(source)
+        const untouched = store.getChat('character-1', 'chat-2')
+        sqlite.exec(`CREATE TEMP TRIGGER reject_payload_update BEFORE UPDATE OF payload ON app_messages
+            BEGIN SELECT RAISE(ABORT, 'unexpected payload update'); END`)
+        const chat = store.getChat('character-1', 'chat-1')
+        const etag = computeChatEtag(chat)
+        chat.message.reverse()
+        store.commitChat('character-1', 'chat-1', chat, etag)
+        expect(store.getChat('character-1', 'chat-1').message).toEqual(chat.message)
+        expect(store.getChat('character-1', 'chat-2')).toEqual(untouched)
+        expect(sqlite.prepare("SELECT revision FROM app_messages WHERE chat_id = 'chat-2'").all())
+            .toEqual([{ revision: 1 }, { revision: 1 }])
+    })
+
+    it('rolls back row moves, deletes and revisions if incremental writing fails', () => {
+        const { sqlite, store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        const before = store.exportProjection()
+        const state = store.getState()
+        sqlite.exec(`CREATE TEMP TRIGGER reject_message BEFORE INSERT ON app_messages
+            WHEN NEW.message_key = 'reject' BEGIN SELECT RAISE(ABORT, 'test failure'); END`)
+        const chat = store.getChat('character-1', 'chat-1')
+        expect(() => store.commitChat('character-1', 'chat-1', {
+            ...chat, message: [chat.message[1], { chatId: 'reject', data: 'new' }],
+        }, computeChatEtag(chat))).toThrow('test failure')
+        expect(store.exportProjection()).toEqual(before)
+        expect(store.getState()).toEqual(state)
+        expect(sqlite.prepare('SELECT position, revision FROM app_messages ORDER BY position').all())
+            .toEqual([{ position: 0, revision: 1 }, { position: 1, revision: 1 }])
+    })
+
     it('round-trips a full compatibility projection without losing unknown fields or order', () => {
         const { store } = createStore()
         const source = sampleDatabase()
