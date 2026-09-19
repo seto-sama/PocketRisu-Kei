@@ -36,6 +36,7 @@ vi.mock('../../lang', () => ({
 const databaseModule = await import('./database.svelte')
 const storesModule = await import('../stores.svelte')
 const {
+    applyHypaPresetIntegration,
     createBotPresetTemplate,
     getActiveBotPresetId,
     getBotPresetIndexById,
@@ -48,7 +49,7 @@ const {
 const { DBState } = storesModule as any
 
 function makePreset(id: string, name: string) {
-    return { id, name, mainPrompt: '', jailbreak: '', globalNote: '', temperature: 0, maxContext: 0, maxResponse: 0, frequencyPenalty: 0, PresensePenalty: 0, formatingOrder: [], bias: [] }
+    return { ...createBotPresetTemplate(), id, name }
 }
 
 beforeEach(() => {
@@ -233,5 +234,50 @@ describe('id migration safety', () => {
         expect(getActiveBotPresetId()).toBeUndefined()
         // Lookup by id still works for the indexed entry.
         expect(getBotPresetIndexById('id-x')).toBe(1)
+    })
+})
+
+describe('prompt preset Hypa integration', () => {
+    function setup() {
+        const db: any = {}
+        setDatabase(db)
+        db.hypaV3Presets = [
+            { name: 'Default' }, { name: 'Story memory' }, { name: 'Story memory' },
+        ]
+        db.hypaV3PresetId = 0
+        return db
+    }
+
+    test('persists the link and selects the first matching memory preset when switching back', () => {
+        const db = setup()
+        db.hypaPresetIntegration = 'Story memory'
+        saveCurrentPreset()
+        const saved = structuredClone(db.botPresets[db.botPresetsId])
+        expect(saved.hypaPresetIntegration).toBe('Story memory')
+
+        setPreset(db, { ...makePreset('other', 'Other'), hypaPresetIntegration: 'Default' })
+        expect(db.hypaV3PresetId).toBe(0)
+        setPreset(db, saved)
+        expect(db.hypaV3PresetId).toBe(1)
+    })
+
+    test.each(['', 'Missing', 'story memory', ' Story memory', 'Story memory ', 'Story  memory', undefined])(
+        'keeps the selected memory preset for an empty or unmatched link (%s)', (name) => {
+            const db = setup()
+            db.hypaV3PresetId = 1
+            db.hypaPresetIntegration = 'Default'
+            setPreset(db, { ...makePreset('other', 'Other'), hypaPresetIntegration: name })
+            expect(db.hypaV3PresetId).toBe(1)
+            expect(db.hypaPresetIntegration).toBe(name ?? '')
+        },
+    )
+
+    test('applies an edited name without enabling memory', () => {
+        const db = setup()
+        db.hypaV3 = false
+        db.hypaPresetIntegration = 'Story memory'
+        applyHypaPresetIntegration(db)
+        expect(db.hypaV3PresetId).toBe(1)
+        expect(db.hypaV3).toBe(false)
     })
 })

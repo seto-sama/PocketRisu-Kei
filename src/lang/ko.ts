@@ -1459,6 +1459,7 @@ export const languageKorean = {
   selectFile: "파일 선택",
   namespace: "네임스페이스",
   moduleIntergration: "모듈 통합",
+  hypaPresetIntegration: "하이파 통합",
   previewInfo: "미리보기는 모델 특화 처리 전에 프롬프트를 보여줍니다.",
   miscTools: "기타 도구",
   customCSS: "커스텀 CSS",

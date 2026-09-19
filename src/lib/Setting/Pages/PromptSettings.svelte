@@ -5,6 +5,7 @@
     import { tokenizePreset, type PromptItem } from "src/ts/process/prompt";
     import { templateCheck, type TemplateWarning } from "src/ts/process/templates/templateCheck";
     
+    import { applyHypaPresetIntegration } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
@@ -38,6 +39,14 @@
     ]
     const promptCustomItems: SettingItem[] = [
         { id: 'prompt.moduleIntegration', type: 'text', labelKey: 'moduleIntergration', helpKey: 'moduleIntergration', bindKey: 'moduleIntergration' },
+        {
+            id: 'prompt.hypaIntegration', type: 'text', labelKey: 'hypaPresetIntegration', helpKey: 'hypaPresetIntegration',
+            getValue: (db) => db.hypaPresetIntegration ?? '',
+            setValue: (db, value: string) => {
+                db.hypaPresetIntegration = value
+                applyHypaPresetIntegration(db)
+            },
+        },
         { id: 'prompt.customToggle', type: 'textarea', labelKey: 'customPromptTemplateToggle', helpKey: 'customPromptTemplateToggle', bindKey: 'customPromptTemplateToggle' },
         { id: 'prompt.defaultVariables', type: 'textarea', labelKey: 'defaultVariables', helpKey: 'defaultVariables', bindKey: 'templateDefaultVariables' },
         { id: 'prompt.jsonEnabled', type: 'check', labelKey: 'presetEnableJsonSchema', bindKey: 'jsonSchemaEnabled' },

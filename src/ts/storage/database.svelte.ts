@@ -812,6 +812,7 @@ export function setDatabase(data:Database){
     }
     data.hypaV3PresetTags ??= []
     data.hypaV3PresetId ??= 0
+    data.hypaPresetIntegration ??= ""
     normalizeTranslatorPresetState(data)
     data.translationDialogPromptPresetId ??=
         data.translatorPresets[data.translatorPresetId]?.id ?? ''
@@ -1371,6 +1372,7 @@ export interface Database{
     hideApiKey: boolean
     unformatQuotes: boolean
     moduleIntergration: string
+    hypaPresetIntegration?: string
     customCSS: string
     jsonSchemaEnabled:boolean
     jsonSchema:string
@@ -1781,6 +1783,7 @@ export interface botPreset extends PresetTagFields {
     customPromptTemplateToggle?:string
     templateDefaultVariables?:string
     moduleIntergration?:string
+    hypaPresetIntegration?: string
     top_k?:number
     jsonSchemaEnabled?:boolean
     jsonSchema?:string
@@ -2438,6 +2441,7 @@ export function saveCurrentPreset(){
         customPromptTemplateToggle: db.customPromptTemplateToggle ?? "",
         templateDefaultVariables: db.templateDefaultVariables ?? "",
         moduleIntergration: db.moduleIntergration ?? "",
+        hypaPresetIntegration: db.hypaPresetIntegration ?? "",
         top_k: db.top_k,
         jsonSchemaEnabled:db.jsonSchemaEnabled??false,
         jsonSchema:db.jsonSchema ?? '',
@@ -2508,6 +2512,14 @@ export function changeToPreset(id =0, savecurrent = true){
     }
 }
 
+/** Select the named memory preset without changing the user's memory enable switches. */
+export function applyHypaPresetIntegration(db: Database) {
+    const name = db.hypaPresetIntegration
+    if (!name) return
+    const index = db.hypaV3Presets.findIndex(preset => preset.name === name)
+    if (index >= 0) db.hypaV3PresetId = index
+}
+
 export function setPreset(db:Database, newPres: botPreset){
     db.apiType = newPres.apiType ?? db.apiType
     db.mainPrompt = newPres.mainPrompt ?? db.mainPrompt
@@ -2555,6 +2567,8 @@ export function setPreset(db:Database, newPres: botPreset){
     db.customPromptTemplateToggle = newPres.customPromptTemplateToggle ?? ''
     db.templateDefaultVariables = newPres.templateDefaultVariables ?? ''
     db.moduleIntergration = newPres.moduleIntergration ?? ''
+    db.hypaPresetIntegration = newPres.hypaPresetIntegration ?? ''
+    applyHypaPresetIntegration(db)
     db.top_k = newPres.top_k ?? db.top_k
     db.jsonSchemaEnabled = newPres.jsonSchemaEnabled ?? false
     db.jsonSchema = newPres.jsonSchema ?? ''

@@ -145,7 +145,8 @@ export const helpEn = {
         namespace:
             "Namespace is a unique identifier for the module. it is used to prevent conflicts between modules, and for interaction of presets, other modules and etc. if you are not sure what to put, leave it blank.",
         moduleIntergration:
-            "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
+            "Enter module namespaces to link modules to this prompt preset. To enable multiple modules, separate them with commas, for example, `module1,module2,module3`.",
+        hypaPresetIntegration: "Enter a HypaMemory preset name to link this prompt preset to its summarization settings. Names are case-sensitive and whitespace-sensitive. If multiple HypaMemory presets have the same name, the first preset in the list is selected.",
         personaModuleBinding:
             "Only personas selected here will have this module enabled in chats where they are active.",
         chatModulesInfo:
