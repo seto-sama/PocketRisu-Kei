@@ -23,7 +23,5 @@
         <span>{language.presetLegacySettings}</span>
     {/snippet}
 
-    <div class="[&>*:first-child]:border-t-0">
-        <SettingRenderer items={promptPresetLegacyItems} layout="row" />
-    </div>
+    <SettingRenderer items={promptPresetLegacyItems} layout="row" />
 </Accordion>

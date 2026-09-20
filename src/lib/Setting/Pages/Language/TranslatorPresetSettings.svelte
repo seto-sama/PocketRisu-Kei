@@ -109,7 +109,7 @@
 </div>
 
 {#if activePreset}
-    <SettingRenderer items={activePresetItems} target={activePreset} layout="row" />
+    <SettingRenderer items={activePresetItems} target={activePreset} layout="row" hideFirstDivider={false} />
 {/if}
 
 {#if pickerOpen}
