@@ -332,15 +332,13 @@ export const helpEn = {
         animationSpeed: "UI animation speed multiplier.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
-        showFolderNameInIcon:
-            "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
+        hidePublicStats:
+            "Hide usage statistics on the home screen and do not contact the external public-statistics service.",
         showRequestStatus:
             "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
         customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
-        roundIcons:
-            "Display character and persona icons as circles. When disabled, regular images use rounded squares and portrait images use tall rounded rectangles.",
         textScreenColor:
             "Set the message text-area background color used by the Waifulike and Mobile Chat themes.",
         textBorder:

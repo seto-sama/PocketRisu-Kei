@@ -80,14 +80,13 @@ describe('sidebar folder settings', () => {
         expect(mocks.DBState.db.characterOrder).toEqual([makeFolder('b')])
     })
 
-    it('preserves legacy display precedence until a folder explicitly chooses its mode', () => {
+    it('uses the folder image by default until a folder explicitly chooses its mode', () => {
         const target = makeFolder('a')
-        expect(folderDisplayMode(target, false)).toBe('icon')
-        expect(folderDisplayMode(target, true)).toBe('name')
+        expect(folderDisplayMode(target)).toBe('icon')
         target.imgFile = 'assets/old.png'
-        expect(folderDisplayMode(target, true)).toBe('image')
+        expect(folderDisplayMode(target)).toBe('image')
         target.nodeOnlyDisplay = 'name'
-        expect(folderDisplayMode(target, false)).toBe('name')
+        expect(folderDisplayMode(target)).toBe('name')
     })
 
     it('updates and deletes chat folders by character and folder ID', () => {

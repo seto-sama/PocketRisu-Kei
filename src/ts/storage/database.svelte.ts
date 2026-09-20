@@ -874,7 +874,6 @@ export function setDatabase(data:Database){
     data.disableToggleBinding ??= false
     data.hideAllImages ??= false
     data.preloadChatImages ??= true
-    data.hideMessagePageCount ??= false
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
@@ -1232,7 +1231,6 @@ export interface Database{
     emotionPrompt2:string
     useSayNothing:boolean
     allowV2Plugin:boolean
-    roundIcons:boolean
     useStreaming:boolean
     voyageApiKey:string
     supaMemoryKey:string
@@ -1449,7 +1447,6 @@ export interface Database{
         model: string,       
     },
     localActivationInGlobalLorebook: boolean
-    showFolderName: boolean
     automaticCachePoint: boolean
     // Show the floating request-status toast (phase / thinking+response tokens /
     // tok/s / stall) for model-preset requests. Memory-only UI feature; default on.
@@ -1545,7 +1542,6 @@ export interface Database{
     legacyMediaFindings?: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
-    hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
     newMessageButtonStyle?: string
@@ -1882,10 +1878,7 @@ export interface themePreset extends PresetTagFields {
     hideRealm: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
-    hideMessagePageCount?: boolean
-    showFolderName: boolean
     customBackground: string
-    roundIcons: boolean
     textScreenColor?: string
     textBorder?: boolean
     textBorderColor?: string
@@ -2309,10 +2302,7 @@ export const themePresetTemplate: themePreset = {
     hideRealm: false,
     hideAllImages: false,
     preloadChatImages: true,
-    hideMessagePageCount: false,
-    showFolderName: false,
     customBackground: '',
-    roundIcons: false,
     textScreenColor: DEFAULT_TEXT_SCREEN_COLOR,
     textBorder: false,
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
@@ -2643,10 +2633,7 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         hideRealm: db.hideRealm,
         hideAllImages: db.hideAllImages,
         preloadChatImages: db.preloadChatImages,
-        hideMessagePageCount: db.hideMessagePageCount,
-        showFolderName: db.showFolderName,
         customBackground: db.customBackground,
-        roundIcons: db.roundIcons,
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
         textBorderColor: db.textBorderColor,
@@ -2703,13 +2690,10 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.animationSpeed = p.animationSpeed ?? db.animationSpeed
     db.settingsCloseButtonSize = p.settingsCloseButtonSize ?? db.settingsCloseButtonSize
     db.showFirstMessagePages = p.showFirstMessagePages ?? db.showFirstMessagePages
-    db.hideMessagePageCount = p.hideMessagePageCount ?? db.hideMessagePageCount
     db.hideRealm = p.hideRealm ?? db.hideRealm
     db.hideAllImages = p.hideAllImages ?? db.hideAllImages
     db.preloadChatImages = p.preloadChatImages ?? db.preloadChatImages
-    db.showFolderName = p.showFolderName ?? db.showFolderName
     db.customBackground = p.customBackground ?? db.customBackground
-    db.roundIcons = p.roundIcons ?? db.roundIcons
     db.textScreenColor = p.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR
     db.textBorder = p.textBorder
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR

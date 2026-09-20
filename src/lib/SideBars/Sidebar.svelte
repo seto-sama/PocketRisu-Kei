@@ -146,7 +146,6 @@
     recentSearchQuery;
     recentChatsIncrementalList.reset();
   });
-  let IconRounded = $state(false)
   let sidebarMenuOrder = $derived(DBState.db.sidebarMenuOrder ?? DEFAULT_SIDEBAR_MENU_ORDER)
   let sidebarMenuHidden = $derived(DBState.db.sidebarMenuHidden ?? [])
   let sidebarMenuHiddenSet = $derived(new Set(sidebarMenuHidden))
@@ -245,9 +244,6 @@
     }
     if (!isEqual(charImages, newCharImages)) {
       charImages = newCharImages;
-    }
-    if(IconRounded !== DBState.db.roundIcons){
-      IconRounded = DBState.db.roundIcons
     }
   })
 
@@ -626,7 +622,6 @@
             <SidebarAvatar 
               src={char.img ? getCharImage(char.img, "plain") : ""}
               size={String(SIDEBAR_ROOT_ITEM_SIZE)}
-              rounded={IconRounded} 
               name={char.name}
               chaId={DBState.db.characters[char.index]?.chaId}
               selected={$selectedCharID === char.index && sideBarMode !== 1}
@@ -702,7 +697,6 @@
                 <SidebarAvatar 
                   src={char2.img ? getCharImage(char2.img, "plain") : ""}
                   size={String(SIDEBAR_FOLDER_ITEM_SIZE)}
-                  rounded={IconRounded} 
                   name={char2.name}
                   chaId={DBState.db.characters[char2.index]?.chaId}
                   selected={$selectedCharID === char2.index && sideBarMode !== 1}
@@ -721,7 +715,7 @@
       <Button
         variant="outline"
         size="icon-lg"
-        className="size-14 border-dashed text-subtext opacity-75 {IconRounded ? 'rounded-full' : ''}"
+        className="size-14 border-dashed text-subtext opacity-75"
         onclick={() => addCharacter({reseter})}
       >
         <PlusIcon size={20} />

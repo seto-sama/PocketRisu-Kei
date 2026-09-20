@@ -36,7 +36,7 @@
         : undefined);
     const target = $derived(characterFolder ?? chatFolder);
     const isChatFolder = $derived(!!chatFolder && !characterFolder);
-    const mode = $derived(characterFolder ? folderDisplayMode(characterFolder, DBState.db.showFolderName) : 'icon');
+    const mode = $derived(characterFolder ? folderDisplayMode(characterFolder) : 'icon');
     let uploading = $state(false);
     const previewSize = 176;
     const folderIconSize = iconButtonSizeValues.default.icon;

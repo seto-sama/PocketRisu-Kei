@@ -5,7 +5,6 @@
   import Tooltip from "../UI/components/Tooltip.svelte";
 
   interface Props {
-    rounded: boolean;
     src: string|Promise<string>;
     name: string;
     size?: string;
@@ -25,7 +24,6 @@
   }
 
   let {
-    rounded,
     src,
     name,
     size = "22",
@@ -58,10 +56,8 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex: role and tabindex are both omitted for noninteractive avatar reuse -->
 <Tooltip side="right" variant="glass" disabled={!showTooltip || !name.trim()}>
   {#snippet trigger(props)}
-  <span {...props} class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target"
+  <span {...props} class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target rounded-md"
       style:--risu-folder-color={folderColorStyle.accent}
-      class:rounded-md={!rounded}
-      class:rounded-full={rounded}
       oncontextmenu={interactive ? handleContextMenu : undefined}
       onclick={interactive ? onClick : undefined}
       role={interactive ? "button" : undefined}
@@ -78,7 +74,6 @@
         style:width={size + "px"}
         style:height={size + "px"}
         style:min-width={size + "px"}
-        class:rounded-md={!rounded} class:rounded-full={rounded}
       ></div>
       {:then resolvedBgImg}
       <div
@@ -89,7 +84,6 @@
         style:background-image={resolvedBgImg ? `url('${resolvedBgImg}')` : undefined}
         style:background-size={resolvedBgImg ? "cover" : undefined}
         style:background-position={resolvedBgImg ? "center" : undefined}
-        class:rounded-md={!rounded} class:rounded-full={rounded}
       >
       {#if !resolvedBgImg}
         {@render children?.()}
@@ -103,7 +97,6 @@
           style:width={size + "px"}
           style:height={size + "px"}
           style:min-width={size + "px"}
-          class:rounded-md={!rounded} class:rounded-full={rounded} 
 ></div>
       {:then img}
         <img
@@ -112,7 +105,6 @@
           style:width={size + "px"}
           style:height={size + "px"}
           style:min-width={size + "px"}
-          class:rounded-md={!rounded} class:rounded-full={rounded} 
           alt="avatar"
         />
       {/await}
@@ -123,10 +115,9 @@
       style:width={size + "px"}
       style:height={size + "px"}
       style:min-width={size + "px"}
-      class:rounded-md={!rounded} class:rounded-full={rounded} 
     >
       <AvatarFallback
-        className="h-full w-full {rounded ? 'rounded-full' : 'rounded-md'}"
+        className="h-full w-full rounded-md"
         iconSize={Number(size) * 0.55}
       />
     </div>

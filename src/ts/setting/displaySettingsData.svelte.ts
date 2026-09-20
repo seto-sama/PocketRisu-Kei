@@ -12,6 +12,7 @@ import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/tex
 import { PRODUCT_BASE_NAME } from '../branding';
 import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
 import { supportsCustomChatBackdrop } from '../storage/database.svelte';
+import { syncPublicStatsVisibility } from '../publicStats';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -310,9 +311,15 @@ export const displaySizeSettingsItems: SettingItem[] = [
 
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
-    { id: 'display.showFolderName', type: 'check', labelKey: 'showFolderNameInIcon', helpKey: 'showFolderNameInIcon', bindKey: 'showFolderName', keywords: ['folder', 'name', 'icon'] },
-    { id: 'display.roundIcons', type: 'check', labelKey: 'roundIcons', helpKey: 'roundIcons', bindKey: 'roundIcons', keywords: ['round', 'icons'] },
-    { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
+    {
+        id: 'display.hidePublicStats',
+        type: 'check',
+        labelKey: 'hidePublicStats',
+        helpKey: 'hidePublicStats',
+        bindKey: 'hidePublicStats',
+        onChange: (hidden) => { void syncPublicStatsVisibility(!!hidden); },
+        keywords: ['statistics', 'stats', 'privacy', 'network', 'hide'],
+    },
 ];
 
 const showChatImageSettings = (ctx: SettingContext) => !ctx.db.hideAllImages;
