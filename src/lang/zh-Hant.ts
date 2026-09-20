@@ -692,7 +692,6 @@ export const languageChineseTraditional = {
     "fixedTokens": "估算 Token",
     "inlayViewScreen": "嵌入視窗",
     "translationPrompt": "翻譯提示詞",
-    "translationResponseSize": "翻譯回應長度",
     "saveBackupLocal": "本機儲存備份",
     "loadBackupLocal": "載入本機備份",
     "topP": "Top P",

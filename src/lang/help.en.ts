@@ -371,10 +371,8 @@ export const helpEn = {
             "When using the Firefox/Bergamot translator, translate HTML markup too. Turn this off if markup breaks and you only want plain text translated.",
         autoTranslation:
             "Automatically translate character responses as soon as they arrive. When off, use the per-message translate button. Pairs well with No Wait For Translate if you want the original shown first.",
-        translationResponseSize:
-            "Maximum response tokens to request during LLM translation. Too low can cut long translations; too high increases cost. 1000-4000 is common.",
         translatorPreset:
-            "LLM translation preset to edit and use. Each preset stores its own response-size limit and translation prompt, so switching presets changes the fields below.",
+            "LLM translation preset to edit and use. Each preset stores its own translation prompt.",
         postEndInnerFormat:
             "Format appended to model input when a character response ends in group chat. Leave blank to disable. Helps the model recognize the next speaker turn, for example `\\n[end_of_turn]\\n`.",
         maxThoughtTagDepth:

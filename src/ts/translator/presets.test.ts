@@ -29,7 +29,6 @@ describe("normalizeTranslatorPresetState", () => {
     it("creates a default preset from legacy translator settings", () => {
         const state: TranslatorPresetStateLike = {
             translatorPrompt: "Translate to {{slot}}.",
-            translatorMaxResponse: 321,
         };
 
         normalizeTranslatorPresetState(state);
@@ -39,23 +38,21 @@ describe("normalizeTranslatorPresetState", () => {
                 id: expect.any(String),
                 name: "Default",
                 prompt: "Translate to {{slot}}.",
-                maxResponse: 321,
             }),
         ]);
         expect(state.translatorPresetId).toBe(0);
         expect(state.translatorPrompt).toBe("Translate to {{slot}}.");
-        expect(state.translatorMaxResponse).toBe(321);
     });
 
-    it("clamps invalid preset ids and syncs legacy fields from the selected preset", () => {
+    it("clamps invalid preset ids and syncs the selected prompt", () => {
         const state: TranslatorPresetStateLike = {
             translatorPrompt: "legacy",
-            translatorMaxResponse: 1000,
             translatorPresets: [
-                createTranslatorPreset("Fast", {
+                {
+                    name: "Fast",
                     prompt: "Fast preset",
                     maxResponse: 128,
-                }),
+                },
             ],
             translatorPresetId: 99,
         };
@@ -64,7 +61,7 @@ describe("normalizeTranslatorPresetState", () => {
 
         expect(state.translatorPresetId).toBe(0);
         expect(state.translatorPrompt).toBe("Fast preset");
-        expect(state.translatorMaxResponse).toBe(128);
+        expect(state.translatorPresets?.[0]).toEqual(expect.objectContaining({ maxResponse: 128 }));
     });
 
     it("keeps stable preset ids when presets are edited or reordered", () => {
@@ -107,16 +104,13 @@ describe("getCurrentTranslatorPresetFromState", () => {
         const presets = [
             createTranslatorPreset("Default", {
                 prompt: "Default prompt",
-                maxResponse: 128,
             }),
             createTranslatorPreset("Detailed", {
                 prompt: "Detailed prompt",
-                maxResponse: 256,
             }),
         ];
         const state: TranslatorPresetStateLike = {
             translatorPrompt: "legacy prompt",
-            translatorMaxResponse: 1000,
             translatorPresets: presets,
             translatorPresetId: 1,
         };
@@ -126,7 +120,6 @@ describe("getCurrentTranslatorPresetFromState", () => {
         expect(preset).toBe(presets[1]);
         expect(state.translatorPresets).toBe(presets);
         expect(state.translatorPrompt).toBe("Detailed prompt");
-        expect(state.translatorMaxResponse).toBe(256);
     });
 });
 
@@ -137,7 +130,6 @@ describe("translator preset collection operations", () => {
             translatorPresets: [first],
             translatorPresetId: 0,
             translatorPrompt: "",
-            translatorMaxResponse: 0,
         };
 
         const duplicate = duplicateTranslatorPreset(state, 0, "Copy");
@@ -152,11 +144,11 @@ describe("translator preset collection operations", () => {
 });
 
 describe("translator preset file codec", () => {
-    it("round-trips the new encrypted .risutl file payload", async () => {
-        const preset = createTranslatorPreset("My Preset", {
-            prompt: "Translate into {{slot}}.",
-            maxResponse: 256,
-        });
+    it("round-trips encrypted .risutl payloads without dropping legacy fields", async () => {
+        const preset = Object.assign(
+            createTranslatorPreset("My Preset", { prompt: "Translate into {{slot}}." }),
+            { maxResponse: 256 }
+        );
 
         const encoded = await encodeTranslatorPresetFile(preset);
         const decoded = await decodeTranslatorPresetFile(encoded);

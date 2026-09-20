@@ -621,7 +621,6 @@ export const languageChinese = {
     "fixedTokens": "估算 Tokens",
     "inlayViewScreen": "内嵌窗口",
     "translationPrompt": "翻译提示词",
-    "translationResponseSize": "翻译回应长度",
     "saveBackupLocal": "本地保存备份",
     "loadBackupLocal": "本机读取备份",
     "topP": "Top P",

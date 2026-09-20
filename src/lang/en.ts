@@ -1090,7 +1090,6 @@ export const languageEnglish = {
     imageProviderNotConfigured: "Configure an image generation provider first.",
     imageGenerationPromptNotFound: "The generation prompt is not available for this image.",
     translationPrompt: "Translation Prompt",
-    translationResponseSize: "Translation Response Size",
     saveBackupLocal: "Save Backup Locally",
     saveBackupForUpstream: "Save Backup for Original RisuAI",
     saveBackupForUpstreamConfirm: "This backup is intended for moving your data to the original RisuAI. Inlay images are excluded because their entry names use a layout that the original RisuAI cannot import. Other data (database, character assets, cold storage) is included.\n\nFor moving data between PocketRisu Kei installations, use the regular local backup instead.\n\nProceed?",

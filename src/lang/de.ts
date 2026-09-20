@@ -621,7 +621,6 @@ export const languageGerman = {
     "fixedTokens": "Ungefähre Tokens",
     "inlayViewScreen": "Inlay-Bildschirm",
     "translationPrompt": "Übersetzungsanweisung",
-    "translationResponseSize": "Übersetzungsantwortgröße",
     "saveBackupLocal": "Backup lokal speichern",
     "loadBackupLocal": "Backup lokal laden",
     "topP": "Top P",

@@ -339,9 +339,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.translator)){
         data.translator = ''
     }
-    if(checkNullish(data.translatorMaxResponse)){
-        data.translatorMaxResponse = 1000
-    }
     if(checkNullish(data.currentPluginProvider)){
         data.currentPluginProvider = ''
     }
@@ -1305,7 +1302,6 @@ export interface Database{
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
     translatorPrompt:string
-    translatorMaxResponse:number
     translatorPresets: TranslatorPreset[]
     /** User-defined tags for organizing translator presets. */
     translatorPresetTags?: PresetTag[]

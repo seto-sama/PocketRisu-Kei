@@ -621,7 +621,6 @@ export const languageVietnamese = {
     "fixedTokens": "Token ước tính",
     "inlayViewScreen": "Màn hình Inlay",
     "translationPrompt": "Lời nhắc dịch",
-    "translationResponseSize": "Kích thước phản hồi dịch",
     "saveBackupLocal": "Lưu sao lưu cục bộ",
     "loadBackupLocal": "Tải sao lưu cục bộ",
     "topP": "Top P",

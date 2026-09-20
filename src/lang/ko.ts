@@ -1157,7 +1157,6 @@ export const languageKorean = {
   imageProviderNotConfigured: "먼저 이미지 생성 프로바이더를 설정해주세요.",
   imageGenerationPromptNotFound: "이 이미지의 생성 프롬프트를 찾을 수 없습니다.",
   translationPrompt: "번역 프롬프트",
-  translationResponseSize: "번역 응답 크기",
   saveBackupLocal: "로컬 백업 저장",
   saveBackupForUpstream: "원본 리스용 백업 내보내기",
   saveBackupForUpstreamConfirm:

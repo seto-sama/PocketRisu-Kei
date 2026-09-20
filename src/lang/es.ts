@@ -621,7 +621,6 @@ export const languageSpanish = {
     "fixedTokens": "Tokens Aproximados",
     "inlayViewScreen": "Pantalla de Incrustación",
     "translationPrompt": "Prompt de Traducción",
-    "translationResponseSize": "Tamaño de Respuesta de Traducción",
     "saveBackupLocal": "Guardar Respaldo Localmente",
     "loadBackupLocal": "Cargar Respaldo Localmente",
     "topP": "Top P",

@@ -5,6 +5,22 @@ import type { SettingItem } from './types'
 
 export const modelPresetOtherOptionsItems: SettingItem[] = [
     {
+        id: 'modelPreset.defaultMaxContext',
+        type: 'number',
+        labelKey: 'modelPresetDefaultMaxContext',
+        helpKey: 'modelPresetDefaultMaxContext',
+        bindKey: 'modelPresetDefaultMaxContext',
+        options: { min: 1 },
+    },
+    {
+        id: 'modelPreset.defaultMaxResponse',
+        type: 'number',
+        labelKey: 'modelPresetDefaultMaxResponse',
+        helpKey: 'modelPresetDefaultMaxResponse',
+        bindKey: 'modelPresetDefaultMaxResponse',
+        options: { min: 1 },
+    },
+    {
         id: 'modelPreset.promptPresetFirst',
         type: 'check',
         labelKey: 'modelPresetPromptPresetFirst',
@@ -17,24 +33,6 @@ export const modelPresetOtherOptionsItems: SettingItem[] = [
         labelKey: 'modelPresetPromptParamsFirst',
         helpKey: 'modelPresetPromptParamsFirst',
         bindKey: 'modelPresetPromptParamsFirst',
-    },
-    {
-        id: 'modelPreset.defaultMaxContext',
-        type: 'number',
-        labelKey: 'modelPresetDefaultMaxContext',
-        helpKey: 'modelPresetDefaultMaxContext',
-        bindKey: 'modelPresetDefaultMaxContext',
-        condition: (ctx) => !ctx.db.modelPresetPromptPresetFirst,
-        options: { min: 1 },
-    },
-    {
-        id: 'modelPreset.defaultMaxResponse',
-        type: 'number',
-        labelKey: 'modelPresetDefaultMaxResponse',
-        helpKey: 'modelPresetDefaultMaxResponse',
-        bindKey: 'modelPresetDefaultMaxResponse',
-        condition: (ctx) => !ctx.db.modelPresetPromptPresetFirst,
-        options: { min: 1 },
     },
 ]
 
