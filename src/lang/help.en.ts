@@ -97,7 +97,6 @@ export const helpEn = {
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
-        disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
         disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
@@ -118,9 +117,6 @@ export const helpEn = {
             'Trigger Script is a custom script that runs when a condition is met. it can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. it can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
         combineTranslation:
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
-        dynamicAssets:
-            "If enabled, if the asset name is not found when processing data, it will try to find the closest asset name by using vector search and replace it with the closest asset name.",
-        dynamicAssetsEditDisplay: "If enabled, the dynamic assets will be applied to the Modify Display stage too. however, this can cause performance issues.",
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
         customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
@@ -193,12 +189,10 @@ export const helpEn = {
         settingsCloseButtonSize: "Size of the settings close button.",
         hideAllImagesDesc: "Hides bot icons, bot image assets, and RisuRealm cover images.",
         preloadChatImagesDesc: "Preloads nearby inlays and other chat images to prevent layout shifts while scrolling. Disable it to rely on browser lazy loading.",
-        hideMessagePageCountDesc: "Hides the page counter (e.g. 1/3) for regenerated messages and first message greetings. Navigation arrows and the regenerate button remain visible.",
         embedding:
             "Embedding model is used for similarity search across multiple features:\n\n" +
             "- **Long Term Memory**: HypaV2, HypaV3, Hanurai Memory, and SupaMemory (with HypaMemory enabled)\n" +
             "- **Additional Text**: Matching character additional info based on context\n" +
-            "- **Dynamic Assets**: Finding similar asset names when exact match is not found\n" +
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
@@ -267,7 +261,6 @@ export const helpEn = {
         fixedChatTextarea: "Pin the chat input to the bottom of the screen so it stays in place while scrolling.",
         clickToEdit: "Enter edit mode immediately when clicking a chat message.",
         enableBlockPartialEdit: "Show per-block edit controls when hovering over a paragraph/block in a message.",
-        longPressToPopupEditor: "Open the popup editor when long-pressing a message.",
         showInputActionBar: "Show a bottom toolbar on multiline text fields with copy, reset, and expand-to-editor buttons.",
         enableDragPartialEdit: "Allow editing only the text selected by dragging inside a message.",
         botSettingAtStart: "Open the bot settings page automatically whenever the app starts.",
@@ -293,7 +286,7 @@ export const helpEn = {
         loreBookToken:
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
-            "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
+            "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
         newImageHandlingBeta:
             "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
         returnCSSError:
@@ -345,12 +338,8 @@ export const helpEn = {
             "Draw the text outline behind the glyph fill so it stays outside the letters and remains readable over background images.",
         showSavingIcon:
             "Show a small saving indicator while data is being saved. Helpful on pages where frequent saves happen.",
-        showPromptComparison:
-            "Show the built prompt in the prompt-comparison modal. Useful for debugging prompts or reducing token usage.",
         useAdditionalAssetsPreview:
             "Show thumbnail previews in the character additional-assets list. Large asset collections may load a bit more slowly.",
-        hideApiKeys:
-            "Mask API key input fields in settings. Useful when sharing your screen or taking screenshots.",
         unformatQuotes:
             "Apply formatting such as italics and colors to dialogue enclosed in quotes. Turn off when using custom CSS.",
         blockquoteStyling:

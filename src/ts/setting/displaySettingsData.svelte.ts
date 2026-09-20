@@ -310,6 +310,8 @@ export const displaySizeSettingsItems: SettingItem[] = [
 ];
 
 export const displayOtherHomeItems: SettingItem[] = [
+    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
+    { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
     {
         id: 'display.hidePublicStats',
@@ -325,8 +327,6 @@ export const displayOtherHomeItems: SettingItem[] = [
 const showChatImageSettings = (ctx: SettingContext) => !ctx.db.hideAllImages;
 
 export const displayOtherChatItems: SettingItem[] = [
-    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
-    { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     {
         id: 'display.textBorder',
         type: 'custom',

@@ -256,11 +256,6 @@
                     {#snippet action()}<Button variant="outline" size="sm" onclick={() => loadRequestLog(true)}><RefreshCwIcon />{language.requestDiagnostics.retry}</Button>{/snippet}
                     {requestLogError}
                 </Alert>
-            {:else if !requestKey}
-                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
-                    <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
-                    <EmptyState title={language.requestDiagnostics.unlinkedRequestLog} description={language.requestDiagnostics.unlinkedRequestLogDesc} className="max-w-md" />
-                </div>
             {:else if requestLog}
                 <RequestLogDetail log={requestLog} />
             {:else}

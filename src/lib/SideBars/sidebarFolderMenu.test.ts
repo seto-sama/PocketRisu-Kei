@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     file: vi.fn(), save: vi.fn(),
 }))
 vi.mock(import('src/ts/stores.svelte'), () => ({ DBState: mocks.DBState as { db: Database } }))
-vi.mock(import('src/ts/util'), () => ({ selectSingleFile: mocks.file }))
+vi.mock(import('src/ts/util'), () => ({ selectSingleImageFile: mocks.file }))
 vi.mock(import('src/ts/globalApi.svelte'), () => ({ saveAsset: mocks.save }))
 
 import {
