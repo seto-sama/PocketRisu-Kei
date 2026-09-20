@@ -13,12 +13,10 @@ import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserN
 import { requestChatData } from "./request/request";
 import { shouldSuppressGenerationErrorModal } from './generationErrorPresentation';
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
-import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
 import { createEntityId } from 'src/ts/id';
 import { runTrigger, type additonalSysPrompt } from "./triggers";
 import { HypaProcesser } from "./memory/hypamemory";
-import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
@@ -805,21 +803,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     {
-        let description = risuChatParser(currentChar.desc, {chara: currentChar})
-
-        const additionalInfo = await additionalInformations(currentChar, currentChat)
-
-        if(additionalInfo){
-            description += '\n\n' + risuChatParser(additionalInfo, {chara:currentChar})
-        }
-
-        if(currentChar.personality){
-            description += risuChatParser("\n\nDescription of {{char}}: " + currentChar.personality, {chara: currentChar})
-        }
-
-        if(currentChar.scenario){
-            description += risuChatParser("\n\nCircumstances and context of the dialogue: " + currentChar.scenario, {chara: currentChar})
-        }
+        const description = risuChatParser(currentChar.desc, {chara: currentChar})
 
         baseDescriptionPrompt = {
             role: 'system',
@@ -1178,13 +1162,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
     }
     
-    const examples = exampleMessage(currentChar, getUserName())
-
-    for(const example of examples){
-        currentTokens += await tokenizer.tokenizeChat(example)
-    }
-
-    let chats:OpenAIChat[] = examples
+    let chats:OpenAIChat[] = []
 
     if(!DBState.db?.promptSettings?.trimStartNewChat){
         chats.push({
@@ -1549,7 +1527,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    let biases:[string,number][] = DBState.db.bias.concat(currentChar.bias).map((v) => {
+    const biases:[string,number][] = DBState.db.bias.map((v) => {
         return [risuChatParser(v[0].replaceAll("\\n","\n").replaceAll("\\r","\r").replaceAll("\\\\","\\"), {chara: currentChar}),v[1]]
     })
 
@@ -1824,15 +1802,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         v.content = v.content.trim()
         return v
     })
-
-    if(currentChar.depth_prompt && currentChar.depth_prompt.prompt && currentChar.depth_prompt.prompt.length > 0){
-        //depth_prompt
-        const depthPrompt = currentChar.depth_prompt
-        formated.splice(formated.length - depthPrompt.depth, 0, {
-            role: 'system',
-            content: risuChatParser(depthPrompt.prompt, {chara: currentChar})
-        })
-    }
 
     formated = await runLuaEditTrigger(currentChar, 'editRequest', formated)
 

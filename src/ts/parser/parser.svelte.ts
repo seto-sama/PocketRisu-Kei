@@ -1301,7 +1301,6 @@ export interface simpleCharacterArgument{
     customscript: customscript[]
     chaId: string,
     name?: string,
-    virtualscript?: string
     emotionImages?: [string, string][]
     triggerscript?: triggerscript[]
 }

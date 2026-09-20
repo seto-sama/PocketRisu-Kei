@@ -25,7 +25,7 @@ export const helpZhHant = {
         "regexScript": "正規表達式（Regex Script）是一個自訂工具，用於將符合條件的字串由 IN 替換為 OUT。\n\n有四種類型選項：\n\n- **修改輸入（Modify Input）**：修改使用者的輸入內容\n\n- **修改輸出（Modify Output）**：修改角色的輸出內容\n\n- **修改發送資料（Modify Request Data）**：修改發送給AI的對話資料\n\n- **修改顯示（Modify Display）**：僅修改顯示的文字，不更改發送內容\n\nIN 必須是不含旗標（flags）的正規表達式，且開頭和結尾不包含斜線。\n\nOUT 是一個可以包含替換模式的字串。這些替換模式如下：\n\n- $$\n\n  - 插入符號「$」\n\n- $&\n\n  - 插入匹配到的子字串\n\n- $`\n\n  - 插入匹配子字串前的部分\n\n- $1\n\n  - 插入第一個匹配群組，可以替換為其他數字（例如 2、3...）\n\n- $(name)\n\n  - 插入命名群組\n\n針對旗標（flags），除了原生支援的旗標之外，還可以使用下列專為進階使用者設計的旗標：\n\n- `<inject>`：將結果注入目前字串中\n- `<move_top>`：將結果移到字串的頂部\n- `<move_bottom>`：將結果移到字串的底部\n- `<repeat_back>`：如果找不到匹配，則使用上一個匹配的結果\n- `<order n>`：設定結果的順序，數值越高顯示越靠前。「n」代表一個數字（例如 `<order 1>`）。如果未設定，預設為 0。\n- `<cbs>`：解析 IN 中的大括號語法\n\n若要與原生旗標結合使用，可以像這樣使用：`gi<cbs><move_top>`。",
         "exampleMessage": "示範對話會影響角色的回應，但不會永久佔用 Token。\n\n對話格式示例：\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```\n\n```<START>``` 標記了一段新對話的開始。",
         "creatorQuotes": "說明將顯示在初始訊息之上，用於向使用者提供角色說明。此內容不會進入提示詞中。",
-        "systemPrompt": "此提示詞已不再使用，也不會包含在請求中。",
+        "systemPrompt": "此欄位不為空時，將替換設定中的主要提示詞為此內容。",
         "chatNote": "這是一個強烈影響模型行為的備註，嵌入於目前對話中，也稱為記憶或 UJB。",
         "personality": "對角色性格的簡要描述。\n\n**不建議使用此欄位，請填寫在角色描述中。**",
         "scenario": "對角色情境的簡要描述。\n\n**不建議使用此欄位，請填寫在角色描述中。**",

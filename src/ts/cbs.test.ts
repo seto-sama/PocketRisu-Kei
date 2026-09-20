@@ -52,4 +52,23 @@ describe('metadata CBS', () => {
         expect(metadata).toBeDefined()
         expect(metadata!('', {} as any, ['modelname'], null)).toBe('Bound Preset')
     })
+
+    it.each(['personality', 'scenario', 'exampledialogue'])(
+        'keeps the legacy %s macro inert',
+        name => {
+            let callback: RegisterCallback | undefined
+
+            registerCBS({
+                ...defaultCBSRegisterArg,
+                registerFunction: definition => {
+                    if (definition.name === name && definition.callback !== 'doc_only') {
+                        callback = definition.callback
+                    }
+                },
+            })
+
+            expect(callback).toBeDefined()
+            expect(callback!('', {} as any, [], null)).toBe('')
+        },
+    )
 })

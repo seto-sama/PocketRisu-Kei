@@ -66,7 +66,8 @@ export const helpEn = {
             "\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```" +
             "\n\n```<START>``` Marks the beginning of a new conversation.",
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
-        systemPrompt: "This prompt is no longer used and is not included in requests.",
+        systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
+        legacySettings: "These prompts are no longer used and are not included in requests.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",

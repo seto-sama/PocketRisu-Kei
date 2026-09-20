@@ -365,8 +365,6 @@ export async function getCharToken(char?:character|null){
     }
 
     persistant += await basicTokenize(char.desc)
-    persistant += await basicTokenize(char.personality ?? '')
-    persistant += await basicTokenize(char.scenario ?? '')
     for(const lore of char.globalLore){
         let cont = lore.content.split('\n').filter((line) => {
             if(line.startsWith('@@')){
