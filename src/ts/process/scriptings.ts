@@ -13,7 +13,6 @@ import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
 import { createEntityId } from 'src/ts/id';
 import { getModuleLorebooks, getModuleTriggers } from "./modules";
-import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
 import {
     fetchNative,
@@ -59,9 +58,7 @@ let ScriptingLowLevelIds = new Set<string>()
 let lastRequestResetTime = 0
 let lastRequestsCount = 0
 
-interface BasicScriptingEngineState {
-    code?: string;
-    mutex: Mutex;
+interface ScriptingEngineState {
     chat?: Chat;
     character?: character|simpleCharacterArgument;
     setVar?: (key:string, value:string) => void,
@@ -71,15 +68,10 @@ interface BasicScriptingEngineState {
     luaEffectAdapter?: LuaEffectAdapter,
     luaEffectHandlers?: Partial<Record<LuaEffectApiName, (...args: any[]) => unknown>>,
     moduleId?: string,
-}
-
-interface ScriptingEngineState extends BasicScriptingEngineState {
     engine?: LuaEngine;
 }
 
-let ScriptingEngines = new Map<string, ScriptingEngineState>()
 let luaFactoryPromise: Promise<void> | null = null;
-let pendingEngineCreations = new Map<string, Promise<ScriptingEngineState>>();
 
 type RevenantLuaExecutionContext = {
     executionKey: string;
@@ -150,9 +142,9 @@ export async function runScripted(code:string, arg:{
     }
 
     await ensureLuaFactory()
-    let ScriptingEngineState = await getOrCreateEngineState(mode);
+    const ScriptingEngineState: ScriptingEngineState = {}
     
-    return await ScriptingEngineState.mutex.runExclusive(async () => {
+    try {
         ScriptingEngineState.moduleId = arg.moduleId
         ScriptingEngineState.chat = chat
         ScriptingEngineState.character = char
@@ -180,12 +172,9 @@ export async function runScripted(code:string, arg:{
             canUseLowLevelApi: accessKey => ScriptingLowLevelIds.has(accessKey),
             invoke: (name, args) => ScriptingEngineState.luaEffectHandlers?.[name]?.(...args),
         }
-        if (code !== ScriptingEngineState.code) {
+        {
             let declareAPI:(name: string, func:Function) => void
 
-            console.log('Creating new Lua engine for mode:', mode)
-            ScriptingEngineState.engine?.global.close()
-            ScriptingEngineState.code = code
             ScriptingEngineState.engine = await luaFactory.createEngine({injectObjects: true})
             const luaEngine = ScriptingEngineState.engine
             declareAPI = (name:string, func:Function) => {
@@ -719,9 +708,7 @@ export async function runScripted(code:string, arg:{
                 optionsStr?: string,
             ) => await runLuaLlm('otherAx', promptStr, useMultimodal, optionsStr))
 
-            console.log('Running Lua code:', code)
             await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
-            ScriptingEngineState.code = code
         }
         let accessKey = createEntityId()
         if(mode === 'editDisplay'){
@@ -770,7 +757,9 @@ export async function runScripted(code:string, arg:{
         return {
             stopSending, chat, res
         }
-    })
+    } finally {
+        ScriptingEngineState.engine?.global.close()
+    }
 }
 
 const recoveringRevenantLuaChats = new Map<string, Promise<number>>()
@@ -870,12 +859,8 @@ async function ensureLuaFactory() {
     if (luaFactory) return;
     
     if (luaFactoryPromise) {
-        try {
-            await luaFactoryPromise;
-        } catch (error) {
-            luaFactoryPromise = null;
-        }
-        return;
+        await luaFactoryPromise;
+        return
     }
 
     try {
@@ -884,35 +869,6 @@ async function ensureLuaFactory() {
     } finally {
         luaFactoryPromise = null;
     }
-}
-
-async function getOrCreateEngineState(
-    mode: string,
-): Promise<ScriptingEngineState> {
-    let engineState = ScriptingEngines.get(mode);
-    if (engineState) {
-        return engineState;
-    }
-    
-    let pendingCreation = pendingEngineCreations.get(mode);
-    if (pendingCreation) {
-        return pendingCreation;
-    }
-    
-    const creationPromise = (() => {
-        const engineState: ScriptingEngineState = {
-            mutex: new Mutex(),
-        };
-        ScriptingEngines.set(mode, engineState);
-
-        pendingEngineCreations.delete(mode);
-
-        return Promise.resolve(engineState);
-    })();
-    
-    pendingEngineCreations.set(mode, creationPromise);
-    
-    return creationPromise;
 }
 
 export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|simpleCharacterArgument, mode:string, content:T, meta?:object):Promise<T>{

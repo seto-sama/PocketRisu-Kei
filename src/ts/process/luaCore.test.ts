@@ -113,6 +113,26 @@ describe('Lua core', () => {
         expect(edited.data).toBe('answer-edited')
     })
 
+    it('passes editDisplay strings across the Lua boundary without JSON encoding', async () => {
+        const input = 'quoted "text"\n한글'
+        let received: unknown[] = []
+        const global = {
+            get: (name: string) => name === 'hasEditListener'
+                ? () => true
+                : name === 'callListenMain'
+                    ? (...args: unknown[]) => {
+                        received = args
+                        return `${String(args[2])}-edited`
+                    }
+                    : undefined,
+        }
+
+        const edited = await invokeLuaMode(global, 'editDisplay', 'key', input, { index: 3 })
+
+        expect(received).toEqual(['editDisplay', 'key', input, '{"index":3}'])
+        expect(edited).toEqual({ result: `${input}-edited`, data: `${input}-edited` })
+    })
+
     it('does not serialize edit data when the loaded script has no listener for that mode', async () => {
         let editCalls = 0
         const global = {
