@@ -790,6 +790,7 @@ export function setDatabase(data:Database){
     data.enableCustomFlags ??= false
     data.assetMaxDifference ??= 4
     data.showSavingIcon ??= false
+    data.hidePublicStats ??= false
     data.banCharacterset ??= []
     data.showPromptComparison ??= false
     data.OaiCompAPIKeys ??= {}
@@ -1292,6 +1293,7 @@ export interface Database{
     botSettingAtStart:false
     NAIsettings:NAISettings
     hideRealm:boolean
+    hidePublicStats:boolean
     colorScheme:ColorScheme
     colorSchemeName:string
     promptTemplate:PromptItem[]

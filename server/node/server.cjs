@@ -743,16 +743,6 @@ if (existsSync(jwtSecretPath)) {
     writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
 }
 
-// ── Instance ID for anonymous usage analytics ────────────────────────────────
-const instanceIdPath = path.join(savePath, '__instance_id')
-let instanceId
-if (existsSync(instanceIdPath)) {
-    instanceId = readFileSync(instanceIdPath, 'utf-8').trim()
-} else {
-    instanceId = nodeCrypto.randomUUID()
-    writeFileSync(instanceIdPath, instanceId, 'utf-8')
-}
-
 const inlayDir = path.join(savePath, 'inlays')
 const inlayVideoThumbnailDir = path.join(inlayDir, '.video-thumbnails')
 const inlayMigrationMarker = path.join(inlayDir, '.migrated_to_fs')
@@ -2801,7 +2791,6 @@ require('./routes/inlays.cjs').installInlaysRoutes(app, {
 });
 
 require('./routes/system.cjs').installSystemRoutes(app, {
-    instanceId,
     checkAuth,
     stopTunnel,
     flushPendingDb,
