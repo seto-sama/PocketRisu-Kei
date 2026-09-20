@@ -426,10 +426,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
     },
 ];
 
-export const displayOtherAdvancedItems: SettingItem[] = [
-    { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
-];
-
 export const displaySettingsItems: SettingItem[] = [
     ...displayThemeGeneralSettingsItems,
     ...displayThemePaletteSettingsItems,
@@ -437,5 +433,4 @@ export const displaySettingsItems: SettingItem[] = [
     ...displayOtherHomeItems,
     ...displayOtherChatItems,
     ...displayOtherQuoteItems,
-    ...displayOtherAdvancedItems,
 ];

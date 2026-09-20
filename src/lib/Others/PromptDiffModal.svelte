@@ -12,11 +12,11 @@
     import { language } from "src/lang";
 
     interface Props {
-        firstPresetId: number;
-        secondPresetId: number;
+        firstPresetIndex: number;
+        secondPresetIndex: number;
         onClose?: () => void;
     }
-    let { firstPresetId, secondPresetId, onClose = () => {} }: Props = $props();
+    let { firstPresetIndex, secondPresetIndex, onClose = () => {} }: Props = $props();
 
 
 // Lazy-loaded diff module
@@ -240,8 +240,8 @@
 
 // Inputs
 // -----------------------------------------------------------------------------
-    const firstCards  = $derived.by(() => getPromptCards(firstPresetId))
-    const secondCards = $derived.by(() => getPromptCards(secondPresetId))
+    const firstCards  = $derived.by(() => getPromptCards(firstPresetIndex))
+    const secondCards = $derived.by(() => getPromptCards(secondPresetIndex))
 
 // Effects (state invariants + diff recompute)
 // -----------------------------------------------------------------------------

@@ -1471,6 +1471,7 @@ export const languageEnglish = {
         "This is {{plugin_version}} version of the plugin. which is not compatible with this version of PocketRisu Kei. please update the plugin to {{required_version}} version.",
     banCharacterset: "Auto Regenerate On Characterset",
     showPromptComparison: "Show Prompt Comparison",
+    promptPresetNewName: "New Preset",
     triggerOn: "Trigger On",
     noConfig: "No Config",
     varName: "Variable Name",

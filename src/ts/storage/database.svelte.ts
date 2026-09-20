@@ -791,7 +791,6 @@ export function setDatabase(data:Database){
     data.showSavingIcon ??= false
     data.hidePublicStats ??= false
     data.banCharacterset ??= []
-    data.showPromptComparison ??= false
     data.OaiCompAPIKeys ??= {}
     data.reasoningEffort ??= 0
     data.hypaV3Presets ??= [
@@ -1416,7 +1415,6 @@ export interface Database{
     showSavingIcon:boolean
     presetRegex: customscript[]
     banCharacterset:string[]
-    showPromptComparison:boolean
     hypaV3:boolean
     hypaV3Settings: HypaV3Settings // legacy
     hypaV3Presets: HypaV3Preset[]
@@ -1875,7 +1873,6 @@ export interface themePreset extends PresetTagFields {
     textBorder?: boolean
     textBorderColor?: string
     showSavingIcon: boolean
-    showPromptComparison: boolean
     useAdditionalAssetsPreview: boolean
     useLegacyGUI: boolean
     unformatQuotes: boolean
@@ -2298,7 +2295,6 @@ export const themePresetTemplate: themePreset = {
     textBorder: false,
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
     showSavingIcon: false,
-    showPromptComparison: false,
     useAdditionalAssetsPreview: false,
     useLegacyGUI: false,
     unformatQuotes: false,
@@ -2628,7 +2624,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         textBorder: db.textBorder,
         textBorderColor: db.textBorderColor,
         showSavingIcon: db.showSavingIcon,
-        showPromptComparison: db.showPromptComparison,
         useAdditionalAssetsPreview: db.useAdditionalAssetsPreview,
         useLegacyGUI: db.useLegacyGUI,
         unformatQuotes: db.unformatQuotes,
@@ -2687,7 +2682,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.textBorder = p.textBorder
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
-    db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useAdditionalAssetsPreview = p.useAdditionalAssetsPreview ?? db.useAdditionalAssetsPreview
     db.useLegacyGUI = p.useLegacyGUI ?? db.useLegacyGUI
     db.unformatQuotes = p.unformatQuotes ?? db.unformatQuotes

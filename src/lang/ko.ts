@@ -1567,6 +1567,7 @@ export const languageKorean = {
     "이 플러그인은 {{plugin_version}} 버전으로, PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
   banCharacterset: "문자 집합으로 자동 재생성",
   showPromptComparison: "프롬프트 비교 보기",
+  promptPresetNewName: "새 프리셋",
   triggerOn: "활성화 조건",
   noConfig: "설정 없음",
   varName: "변수 이름",

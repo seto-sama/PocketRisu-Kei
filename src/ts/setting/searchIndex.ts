@@ -19,7 +19,6 @@ import {
 import type { SettingContext, SettingItem } from './types';
 import { checkCondition, getLabel } from './utils';
 import {
-    displayOtherAdvancedItems,
     displayOtherChatItems,
     displayOtherHomeItems,
     displayOtherQuoteItems,
@@ -64,7 +63,6 @@ const declarativeSources: DeclarativeSource[] = [
     { items: displayOtherHomeItems, route: SettingsRoute.Display, subTab: 2, tabLabel: () => language.others, sectionLabel: () => language.sectionHomeList },
     { items: displayOtherChatItems, route: SettingsRoute.Display, subTab: 2, tabLabel: () => language.others, sectionLabel: () => language.sectionChatView },
     { items: displayOtherQuoteItems, route: SettingsRoute.Display, subTab: 2, tabLabel: () => language.others, sectionLabel: () => language.sectionQuotes },
-    { items: displayOtherAdvancedItems, route: SettingsRoute.Display, subTab: 2, tabLabel: () => language.others, sectionLabel: () => language.sectionAdvanced },
     { items: accessibilityEditingItems, route: SettingsRoute.Accessibility, subTab: 0, tabLabel: () => language.accTabEditing },
     { items: accessibilityScrollItems, route: SettingsRoute.Accessibility, subTab: 1, tabLabel: () => language.accTabScroll },
     { items: [...accessibilityChatPanelItems, ...accessibilityInputItems, ...accessibilityMenuBarItems], route: SettingsRoute.Accessibility, subTab: 2, tabLabel: () => language.accTabSidebar },
