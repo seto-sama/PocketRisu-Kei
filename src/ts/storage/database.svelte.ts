@@ -739,7 +739,6 @@ export function setDatabase(data:Database){
         workflow: data.comfyConfig?.workflow ?? '',
         timeout: data.comfyConfig?.timeout ?? 30,
     }
-    data.hideApiKey ??= true
     data.unformatQuotes ??= false
     data.ttsEnabled ??= false
     data.ttsAutoSpeech ??= false
@@ -1356,8 +1355,6 @@ export interface Database{
     sideBarSize:number
     textAreaTextSize:number
     combineTranslation:boolean
-    dynamicAssets:boolean
-    dynamicAssetsEditDisplay:boolean
     customPromptTemplateToggle:string
     globalChatVariables:{[key:string]:string}
     templateDefaultVariables:string
@@ -1369,7 +1366,6 @@ export interface Database{
     comfyUiUrl: string
     useLegacyGUI: boolean
     claudeCachingExperimental: boolean
-    hideApiKey: boolean
     unformatQuotes: boolean
     moduleIntergration: string
     hypaPresetIntegration?: string
@@ -1886,7 +1882,6 @@ export interface themePreset extends PresetTagFields {
     showPromptComparison: boolean
     useAdditionalAssetsPreview: boolean
     useLegacyGUI: boolean
-    hideApiKey: boolean
     unformatQuotes: boolean
     blockquoteStyling?: boolean
     cornerBracketStyling?: boolean
@@ -2310,7 +2305,6 @@ export const themePresetTemplate: themePreset = {
     showPromptComparison: false,
     useAdditionalAssetsPreview: false,
     useLegacyGUI: false,
-    hideApiKey: true,
     unformatQuotes: false,
     blockquoteStyling: false,
     cornerBracketStyling: false,
@@ -2641,7 +2635,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         showPromptComparison: db.showPromptComparison,
         useAdditionalAssetsPreview: db.useAdditionalAssetsPreview,
         useLegacyGUI: db.useLegacyGUI,
-        hideApiKey: db.hideApiKey,
         unformatQuotes: db.unformatQuotes,
         blockquoteStyling: db.blockquoteStyling,
         cornerBracketStyling: db.cornerBracketStyling,
@@ -2701,7 +2694,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useAdditionalAssetsPreview = p.useAdditionalAssetsPreview ?? db.useAdditionalAssetsPreview
     db.useLegacyGUI = p.useLegacyGUI ?? db.useLegacyGUI
-    db.hideApiKey = p.hideApiKey ?? db.hideApiKey
     db.unformatQuotes = p.unformatQuotes ?? db.unformatQuotes
     db.blockquoteStyling = p.blockquoteStyling ?? db.blockquoteStyling
     db.cornerBracketStyling = p.cornerBracketStyling ?? db.cornerBracketStyling

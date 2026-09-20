@@ -354,9 +354,8 @@ export const displayOtherChatItems: SettingItem[] = [
         },
         options: { min: 1, max: 8, step: 1, disableable: true, defaultValue: 4 },
         condition: showChatImageSettings,
-        keywords: ['asset', 'difference', 'dynamic', 'matching'],
+        keywords: ['asset', 'difference', 'matching'],
     },
-    { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', condition: showChatImageSettings, keywords: ['dynamic', 'assets', 'matching'] },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
@@ -428,7 +427,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
 ];
 
 export const displayOtherAdvancedItems: SettingItem[] = [
-    { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
     { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
 ];
 

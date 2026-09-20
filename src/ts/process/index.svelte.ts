@@ -1966,8 +1966,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         selectedPersona: DBState.db.selectedPersona ?? 0,
                         showPersonaInSidebar: DBState.db.showPersonaInSidebar,
                         personas: structuredClone(DBState.db.personas ?? []),
-                        dynamicAssets: DBState.db.dynamicAssets ?? false,
-                        dynamicAssetsEditDisplay: DBState.db.dynamicAssetsEditDisplay ?? false,
                         igpPrompt: DBState.db.igpPrompt ?? '',
                         notification: DBState.db.notification ?? false,
                         ttsEnabled: DBState.db.ttsEnabled ?? false,

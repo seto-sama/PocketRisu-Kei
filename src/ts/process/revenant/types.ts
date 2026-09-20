@@ -139,8 +139,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
     selectedPersona: number
     personas: unknown[]
     showPersonaInSidebar?: boolean
-    dynamicAssets: boolean
-    dynamicAssetsEditDisplay: boolean
     igpPrompt: string
     notification: boolean
     ttsEnabled: boolean
