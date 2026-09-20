@@ -95,7 +95,6 @@
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-    const sidebarSortingDisabled = $derived(isTouchDevice && DBState.db.disableMobileDragDrop);
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -582,7 +581,6 @@
     >
     <SortableList
       bind:element={sidebarSortElement}
-      disabled={sidebarSortingDisabled}
       className="sidebar-character-root flex w-full shrink-0 flex-col items-center gap-4 py-4"
       draggable="[data-sidebar-order-key]"
       dataAttribute="data-sidebar-order-key"
@@ -661,7 +659,6 @@
         <div class="mt-1 flex flex-col items-center">
           <SortableList
             containerKey={char.id}
-            disabled={sidebarSortingDisabled}
             className="sidebar-folder-characters flex flex-col items-center gap-3 py-2"
             draggable="[data-sidebar-order-key]"
             dataAttribute="data-sidebar-order-key"

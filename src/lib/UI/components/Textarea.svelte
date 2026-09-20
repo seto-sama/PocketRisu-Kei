@@ -10,7 +10,7 @@
         <IconButton tone="destructive" title={language.reset} aria-label={language.reset} onclick={resetValue}>
             <EraserIcon />
         </IconButton>
-        <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
+        <IconButton title={language.chatInputPopupEditor} aria-label={language.chatInputPopupEditor} onclick={openPopupEditor}>
             <Maximize2Icon />
         </IconButton>
     {/if}
@@ -92,12 +92,6 @@
                 dirty = draftValue !== value
                 ondraft(draftValue)
                 scheduleCommit()
-            }}
-            oncontextmenu={(e) => {
-                if(!onLongPress && !readonly && DBState.db.longPressToPopupEditor){
-                    e.preventDefault()
-                    openPopupEditor()
-                }
             }}
             use:optionalLongpress
 ></textarea>
