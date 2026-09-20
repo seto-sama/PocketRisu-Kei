@@ -910,7 +910,7 @@ export const languageKorean = {
   personaSearch: "이름 또는 메모로 검색...",
   presetGeneral: "일반",
   presetPromptProcessing: "프롬프트 처리",
-  presetSendPastChatsAsSystem: "과거 채팅을 시스템 롤로 보내기",
+  presetSendPastChatsAsSystem: "과거 채팅을 시스템 역할로 보내기",
   presetToggleAndCustom: "토글 및 커스텀",
   presetEnableJsonSchema: "JSON 스키마 활성화",
   presetRegexSearchPlaceholder: "정규식 스크립트 검색",

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { language } from "src/lang";
     import Accordion from "../../../UI/components/Accordion.svelte";
+    import Help from "../../../Others/Help.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
 
@@ -18,10 +19,10 @@
     ];
 </script>
 
-<Accordion>
-    {#snippet trigger()}
-        <span>{language.presetLegacySettings}</span>
-    {/snippet}
+{#snippet legacySettingsHelp()}
+    <Help key="legacySettings" name={language.presetLegacySettings} />
+{/snippet}
 
+<Accordion name={language.presetLegacySettings} extras={legacySettingsHelp}>
     <SettingRenderer items={promptPresetLegacyItems} layout="row" />
 </Accordion>

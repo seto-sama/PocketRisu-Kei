@@ -826,7 +826,6 @@ export function setDatabase(data:Database){
     data.doNotChangeSeperateModels ??= false
     data.seperateModelsForAxModels ??= false
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
-    data.modelTools ??= []
     if (!Array.isArray(data.hotkeys)) {
         data.hotkeys = structuredClone(defaultHotkeys)
     }
@@ -1444,7 +1443,6 @@ export interface Database{
         otherAx: string
     }
     doNotChangeSeperateModels:boolean
-    modelTools: string[]
     hotkeys: Hotkey[]
     fallbackModels: {
         memory: string[],
@@ -1798,7 +1796,6 @@ export interface botPreset extends PresetTagFields {
         translate: string
         otherAx: string
     }
-    modelTools?:string[]
     fallbackModels?: {
         memory: string[],
         emotion: string[],
@@ -2437,7 +2434,6 @@ export function saveCurrentPreset(){
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
-        modelTools: structuredClone(db.modelTools),
         fallbackModels: structuredClone(db.fallbackModels),
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
@@ -2572,7 +2568,6 @@ export function setPreset(db:Database, newPres: botPreset){
         }
         db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
     }
-    db.modelTools = structuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
 
     return db

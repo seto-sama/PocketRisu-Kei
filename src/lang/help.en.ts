@@ -144,6 +144,8 @@ export const helpEn = {
         moduleIntergration:
             "Enter module namespaces to link modules to this prompt preset. To enable multiple modules, separate them with commas, for example, `module1,module2,module3`.",
         hypaPresetIntegration: "Enter a HypaMemory preset name to link this prompt preset to its summarization settings. Names are case-sensitive and whitespace-sensitive. If multiple HypaMemory presets have the same name, the first preset in the list is selected.",
+        presetSendPastChatsAsSystem: "Sends past user and assistant messages with the system role. Their original roles are preserved as `user:` and `assistant:` prefixes in the message content.",
+        trimStartNewChat: "Omits the `[Start a new chat]` system message that is normally added at the beginning of a request.",
         personaModuleBinding:
             "Only personas selected here will have this module enabled in chats where they are active.",
         chatModulesInfo:
@@ -164,6 +166,7 @@ export const helpEn = {
         Properties must be one in a line. if there is multiple properties in a line, it will throw an error. Properties and name of the interface must be only in latin characters, in ASCII range. name of the properties must not be surrounded by quotes or double quotes. Nesting inside the interface is not supported. it is not allowed to put \`{\` or \`}\` in the line that properties are defined. If you want to use more advanced types, use JSON Schema instead.
         ` +
             "</details>",
+        presetEnableJsonSchema: "Sends the schema below to models that support JSON Schema to constrain their response format.",
         strictJsonSchema: "If enabled, it will strictly follow the Provided Schema for JSON on some models. if it is disabled, it may ignore the JSON Schema.",
         extractJson:
             'If it is not blank, it will extract specific JSON data from the response. for example, if you want to extract `response.text[0]` in response `{"response": {"text": ["hello"]}}`, you can put `response.text.0`.',
@@ -480,8 +483,6 @@ export const helpEn = {
             "Whether the custom flags above actually take effect. When off, the configured flags are stored but not applied.",
         tools:
             "Tools the model is allowed to call mid-response (search, function calls, …). The model itself must support tool use, and only some providers honor it.",
-        searchTool:
-            "Allow the model to call an external search tool while generating its response. This can improve factual accuracy at the cost of extra tokens and latency. Requires a tools-capable model.",
         botRegexScript:
             "Regex scripts that apply only to this bot configuration, in addition to global regex scripts. See the global regex script help for syntax details.",
         botIcon:

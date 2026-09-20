@@ -1,5 +1,10 @@
 import { expect, test, vi } from 'vitest'
-import { convertInterfaceToSchema, getGeneralJSONSchema, getOpenAIJSONSchema } from './jsonSchema'
+import {
+    convertInterfaceToSchema,
+    getGeneralJSONSchema,
+    getOpenAIJSONSchema,
+    resolveRequestedJSONSchema,
+} from './jsonSchema'
 import { convertInterfaceToSchemaCore } from './jsonSchemaCore'
 
 vi.mock('src/ts/parser/parser.svelte', () => ({ risuChatParser: (text: string) => text.replace('{{field}}', 'answer') }))
@@ -21,4 +26,14 @@ test('browser schema wrappers retain database defaults and exclusions', () => {
     })
     expect(getGeneralJSONSchema('{"type":"string","description":"hidden"}', ['description']))
         .toEqual({ type: 'string' })
+})
+
+test('only resolves non-empty explicit or enabled global schemas', () => {
+    expect(resolveRequestedJSONSchema(undefined, true, '')).toBeUndefined()
+    expect(resolveRequestedJSONSchema('   ', true, '   ')).toBeUndefined()
+    expect(resolveRequestedJSONSchema(undefined, false, '{"type":"object"}')).toBeUndefined()
+    expect(resolveRequestedJSONSchema(undefined, true, '{"type":"object"}'))
+        .toBe('{"type":"object"}')
+    expect(resolveRequestedJSONSchema('{"type":"string"}', false, ''))
+        .toBe('{"type":"string"}')
 })

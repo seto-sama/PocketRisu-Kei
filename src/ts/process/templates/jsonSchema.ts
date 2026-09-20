@@ -7,6 +7,16 @@ export function convertInterfaceToSchema(int:string){
     return convertInterfaceToSchemaCore(int, risuChatParser)
 }
 
+export function resolveRequestedJSONSchema(
+    explicitSchema: string | undefined,
+    globalEnabled: boolean,
+    globalSchema: string,
+): string | undefined {
+    if (explicitSchema?.trim()) return explicitSchema
+    if (globalEnabled && globalSchema.trim()) return globalSchema
+    return undefined
+}
+
 export function getOpenAIJSONSchema(schema?:string){
     const db = getDatabase()
     return {
