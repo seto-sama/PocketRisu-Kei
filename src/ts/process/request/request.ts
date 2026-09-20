@@ -13,7 +13,7 @@ import type { OpenAIChat } from "../index.svelte";
 import { setInlayAsset } from "../files/inlays";
 import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
-import { getGeneralJSONSchema } from "../templates/jsonSchema";
+import { getGeneralJSONSchema, resolveRequestedJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
 import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId, removeEmptyChatMessages, type ModelModeExtended } from './shared';
 import {
@@ -901,10 +901,16 @@ async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<strin
 }
 
 async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelPreset, abortSignal:AbortSignal=null, mode:ModelModeExtended='model'):Promise<requestDataResponse> {
+    const database = getDatabase()
+    const requestedJsonSchema = resolveRequestedJSONSchema(
+        arg.schema,
+        database.jsonSchemaEnabled,
+        database.jsonSchema,
+    )
     let compiled: CompiledModelPreset
     try {
         compiled = compileModelPreset(preset, {
-            jsonSchemaRequested: getDatabase().jsonSchemaEnabled || !!arg.schema,
+            jsonSchemaRequested: requestedJsonSchema !== undefined,
         })
     } catch (error) {
         return {
@@ -1101,8 +1107,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     if (compiled.features.jsonSchema) {
         try {
             structuredOutput = {
-                schema: getGeneralJSONSchema(arg.schema),
-                strict: getDatabase().strictJsonSchema,
+                schema: getGeneralJSONSchema(requestedJsonSchema),
+                strict: database.strictJsonSchema,
             }
         } catch (err) {
             return {

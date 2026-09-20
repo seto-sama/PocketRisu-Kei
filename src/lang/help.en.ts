@@ -66,7 +66,8 @@ export const helpEn = {
             "\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```" +
             "\n\n```<START>``` Marks the beginning of a new conversation.",
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
-        systemPrompt: "This prompt is no longer used and is not included in requests.",
+        systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
+        legacySettings: "These prompts are no longer used and are not included in requests.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -97,7 +98,6 @@ export const helpEn = {
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
-        disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
         disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
@@ -118,9 +118,6 @@ export const helpEn = {
             'Trigger Script is a custom script that runs when a condition is met. it can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. it can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
         combineTranslation:
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
-        dynamicAssets:
-            "If enabled, if the asset name is not found when processing data, it will try to find the closest asset name by using vector search and replace it with the closest asset name.",
-        dynamicAssetsEditDisplay: "If enabled, the dynamic assets will be applied to the Modify Display stage too. however, this can cause performance issues.",
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
         customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
@@ -147,6 +144,8 @@ export const helpEn = {
         moduleIntergration:
             "Enter module namespaces to link modules to this prompt preset. To enable multiple modules, separate them with commas, for example, `module1,module2,module3`.",
         hypaPresetIntegration: "Enter a HypaMemory preset name to link this prompt preset to its summarization settings. Names are case-sensitive and whitespace-sensitive. If multiple HypaMemory presets have the same name, the first preset in the list is selected.",
+        presetSendPastChatsAsSystem: "Sends past user and assistant messages with the system role. Their original roles are preserved as `user:` and `assistant:` prefixes in the message content.",
+        trimStartNewChat: "Omits the `[Start a new chat]` system message that is normally added at the beginning of a request.",
         personaModuleBinding:
             "Only personas selected here will have this module enabled in chats where they are active.",
         chatModulesInfo:
@@ -167,6 +166,7 @@ export const helpEn = {
         Properties must be one in a line. if there is multiple properties in a line, it will throw an error. Properties and name of the interface must be only in latin characters, in ASCII range. name of the properties must not be surrounded by quotes or double quotes. Nesting inside the interface is not supported. it is not allowed to put \`{\` or \`}\` in the line that properties are defined. If you want to use more advanced types, use JSON Schema instead.
         ` +
             "</details>",
+        presetEnableJsonSchema: "Sends the schema below to models that support JSON Schema to constrain their response format.",
         strictJsonSchema: "If enabled, it will strictly follow the Provided Schema for JSON on some models. if it is disabled, it may ignore the JSON Schema.",
         extractJson:
             'If it is not blank, it will extract specific JSON data from the response. for example, if you want to extract `response.text[0]` in response `{"response": {"text": ["hello"]}}`, you can put `response.text.0`.',
@@ -193,12 +193,10 @@ export const helpEn = {
         settingsCloseButtonSize: "Size of the settings close button.",
         hideAllImagesDesc: "Hides bot icons, bot image assets, and RisuRealm cover images.",
         preloadChatImagesDesc: "Preloads nearby inlays and other chat images to prevent layout shifts while scrolling. Disable it to rely on browser lazy loading.",
-        hideMessagePageCountDesc: "Hides the page counter (e.g. 1/3) for regenerated messages and first message greetings. Navigation arrows and the regenerate button remain visible.",
         embedding:
             "Embedding model is used for similarity search across multiple features:\n\n" +
             "- **Long Term Memory**: HypaV2, HypaV3, Hanurai Memory, and SupaMemory (with HypaMemory enabled)\n" +
             "- **Additional Text**: Matching character additional info based on context\n" +
-            "- **Dynamic Assets**: Finding similar asset names when exact match is not found\n" +
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
@@ -267,7 +265,6 @@ export const helpEn = {
         fixedChatTextarea: "Pin the chat input to the bottom of the screen so it stays in place while scrolling.",
         clickToEdit: "Enter edit mode immediately when clicking a chat message.",
         enableBlockPartialEdit: "Show per-block edit controls when hovering over a paragraph/block in a message.",
-        longPressToPopupEditor: "Open the popup editor when long-pressing a message.",
         showInputActionBar: "Show a bottom toolbar on multiline text fields with copy, reset, and expand-to-editor buttons.",
         enableDragPartialEdit: "Allow editing only the text selected by dragging inside a message.",
         botSettingAtStart: "Open the bot settings page automatically whenever the app starts.",
@@ -293,7 +290,7 @@ export const helpEn = {
         loreBookToken:
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
-            "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
+            "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
         newImageHandlingBeta:
             "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
         returnCSSError:
@@ -332,27 +329,21 @@ export const helpEn = {
         animationSpeed: "UI animation speed multiplier.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
-        showFolderNameInIcon:
-            "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
+        hidePublicStats:
+            "Hide usage statistics on the home screen and do not contact the external public-statistics service.",
         showRequestStatus:
             "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
         customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
-        roundIcons:
-            "Display character and persona icons as circles. When disabled, regular images use rounded squares and portrait images use tall rounded rectangles.",
         textScreenColor:
             "Set the message text-area background color used by the Waifulike and Mobile Chat themes.",
         textBorder:
             "Draw the text outline behind the glyph fill so it stays outside the letters and remains readable over background images.",
         showSavingIcon:
             "Show a small saving indicator while data is being saved. Helpful on pages where frequent saves happen.",
-        showPromptComparison:
-            "Show the built prompt in the prompt-comparison modal. Useful for debugging prompts or reducing token usage.",
         useAdditionalAssetsPreview:
             "Show thumbnail previews in the character additional-assets list. Large asset collections may load a bit more slowly.",
-        hideApiKeys:
-            "Mask API key input fields in settings. Useful when sharing your screen or taking screenshots.",
         unformatQuotes:
             "Apply formatting such as italics and colors to dialogue enclosed in quotes. Turn off when using custom CSS.",
         blockquoteStyling:
@@ -383,10 +374,8 @@ export const helpEn = {
             "When using the Firefox/Bergamot translator, translate HTML markup too. Turn this off if markup breaks and you only want plain text translated.",
         autoTranslation:
             "Automatically translate character responses as soon as they arrive. When off, use the per-message translate button. Pairs well with No Wait For Translate if you want the original shown first.",
-        translationResponseSize:
-            "Maximum response tokens to request during LLM translation. Too low can cut long translations; too high increases cost. 1000-4000 is common.",
         translatorPreset:
-            "LLM translation preset to edit and use. Each preset stores its own response-size limit and translation prompt, so switching presets changes the fields below.",
+            "LLM translation preset to edit and use. Each preset stores its own translation prompt.",
         postEndInnerFormat:
             "Format appended to model input when a character response ends in group chat. Leave blank to disable. Helps the model recognize the next speaker turn, for example `\\n[end_of_turn]\\n`.",
         maxThoughtTagDepth:
@@ -494,8 +483,6 @@ export const helpEn = {
             "Whether the custom flags above actually take effect. When off, the configured flags are stored but not applied.",
         tools:
             "Tools the model is allowed to call mid-response (search, function calls, …). The model itself must support tool use, and only some providers honor it.",
-        searchTool:
-            "Allow the model to call an external search tool while generating its response. This can improve factual accuracy at the cost of extra tokens and latency. Requires a tools-capable model.",
         botRegexScript:
             "Regex scripts that apply only to this bot configuration, in addition to global regex scripts. See the global regex script help for syntax details.",
         botIcon:

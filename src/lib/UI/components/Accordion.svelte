@@ -54,41 +54,73 @@
     );
 
     const triggerBase =
-        'h-10 px-3 inline-flex items-center justify-between gap-2 border border-transparent text-base font-medium text-left transition-colors ' +
-        'disabled:opacity-50 disabled:pointer-events-none ' +
-        'risu-interactive-surface';
+        'h-10 inline-flex items-center gap-2 border border-transparent text-base font-medium text-left ' +
+        'disabled:opacity-50 disabled:pointer-events-none';
 </script>
 
 <div class={cn(wrapperClass, className)}>
-    <div class="flex items-stretch">
-        <button
-            id={triggerId}
-            type="button"
-            {disabled}
-            aria-expanded={open}
-            aria-controls={contentId}
-            class={cn(triggerBase, 'flex-1 min-w-0')}
-            onclick={() => (open = !open)}
-        >
-            <span class="flex-1 inline-flex items-center gap-2 min-w-0">
+    <div class="flex items-stretch transition-colors risu-interactive-surface has-[:focus-visible]:bg-selected/30">
+        {#if extras}
+            <button
+                id={triggerId}
+                type="button"
+                {disabled}
+                aria-expanded={open}
+                aria-controls={contentId}
+                class={cn(triggerBase, 'min-w-0 pl-3 pr-0')}
+                onclick={() => (open = !open)}
+            >
                 {#if trigger}
                     {@render trigger()}
                 {:else}
                     <span class="truncate">{name}</span>
                 {/if}
-            </span>
-            <ChevronDownIcon
-                size={16}
-                class={cn(
-                    'shrink-0 transition-transform duration-150',
-                    open && 'rotate-180'
-                )}
-            />
-        </button>
-        {#if extras}
-            <div class="px-2 flex items-center shrink-0">
+            </button>
+            <div class="pl-1 flex items-center shrink-0 [&_[data-risu-help]]:ml-0">
                 {@render extras()}
             </div>
+            <button
+                type="button"
+                {disabled}
+                aria-label={name}
+                aria-expanded={open}
+                aria-controls={contentId}
+                class="h-10 min-w-8 flex flex-1 items-center justify-end pl-2 pr-3 disabled:pointer-events-none disabled:opacity-50"
+                onclick={() => (open = !open)}
+            >
+                <ChevronDownIcon
+                    size={16}
+                    class={cn(
+                        'shrink-0 transition-transform duration-150',
+                        open && 'rotate-180'
+                    )}
+                />
+            </button>
+        {:else}
+            <button
+                id={triggerId}
+                type="button"
+                {disabled}
+                aria-expanded={open}
+                aria-controls={contentId}
+                class={cn(triggerBase, 'flex-1 min-w-0 justify-between px-3')}
+                onclick={() => (open = !open)}
+            >
+                <span class="flex-1 inline-flex items-center gap-2 min-w-0">
+                    {#if trigger}
+                        {@render trigger()}
+                    {:else}
+                        <span class="truncate">{name}</span>
+                    {/if}
+                </span>
+                <ChevronDownIcon
+                    size={16}
+                    class={cn(
+                        'shrink-0 transition-transform duration-150',
+                        open && 'rotate-180'
+                    )}
+                />
+            </button>
         {/if}
     </div>
     <div

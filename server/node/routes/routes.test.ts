@@ -29,6 +29,10 @@ describe('server route composition', () => {
         const entry = resolve('server/node/server.cjs')
         child = spawn(process.execPath, ['-e', `
             const http = require('node:http');
+            const nativeFetch = globalThis.fetch;
+            globalThis.fetch = (input, init) => String(input) === 'https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest'
+                ? Promise.resolve(new Response(JSON.stringify({ tag_name: 'kei-v2.1.6' }), { status: 200 }))
+                : nativeFetch(input, init);
             const listen = http.Server.prototype.listen;
             http.Server.prototype.listen = function (...args) {
                 this.once('listening', () => process.send({ port: this.address().port }));
@@ -37,7 +41,7 @@ describe('server route composition', () => {
             require(${JSON.stringify(entry)});
         `], {
             cwd: directory,
-            env: { ...process.env, PORT: '0', RISU_UPDATE_CHECK: 'false', RISU_TUNNEL_DISABLED: 'true', SQLITE_TMPDIR: join(directory, 'save') },
+            env: { ...process.env, PORT: '0', RISU_TUNNEL_DISABLED: 'true', SQLITE_TMPDIR: join(directory, 'save') },
             stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         })
         child.stdout!.on('data', data => { output += data })

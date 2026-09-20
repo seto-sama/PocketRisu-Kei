@@ -217,9 +217,7 @@
         {/if}
 
         {#if streamingAvailable}
-            <div class="border-t border-darkborderc">
-                <SettingRenderer items={responseItems} target={preset} layout="row" />
-            </div>
+            <SettingRenderer items={responseItems} target={preset} layout="row" hideFirstDivider={false} />
         {/if}
     </section>
 

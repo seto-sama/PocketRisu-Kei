@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
-import { fetchPublicStats } from "./publicStats";
+import { syncPublicStatsVisibility } from "./publicStats";
 import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
@@ -243,7 +243,7 @@ export async function loadData() {
                 cleanChunks().catch(console.error)
             }, 5_000)
             checkRisuUpdate()
-            fetchPublicStats()
+            syncPublicStatsVisibility(db.hidePublicStats)
             if (import.meta.env.VITE_RISU_TOS === 'TRUE') {
                 alertTOS().then((a) => {
                     if (a === false) {

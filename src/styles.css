@@ -827,10 +827,6 @@ html {
   overflow-wrap: anywhere;
 }
 
-.chat-message-container .dyna-icon {
-  display: none;
-}
-
 /*
   Custom HTML themes can contain paint-heavy animations on every message.
   Pause distant effects without applying layout containment: custom cards have
@@ -841,11 +837,6 @@ html {
 .risu-chat[data-risu-custom-html-visible="false"] *::before,
 .risu-chat[data-risu-custom-html-visible="false"] *::after {
   animation-play-state: paused !important;
-}
-
-.chat-message-container:last-of-type .dyna-icon,
-.chat-message-container .dyna-icon.force-show {
-  display: block;
 }
 
 .x-risu-tool-call {

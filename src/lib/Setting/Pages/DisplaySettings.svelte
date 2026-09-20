@@ -11,7 +11,6 @@
         displayOtherHomeItems,
         displayOtherChatItems,
         displayOtherQuoteItems,
-        displayOtherAdvancedItems,
         displaySizeSettingsItems,
         displayThemeGeneralSettingsItems,
         displayThemePaletteSettingsItems,
@@ -48,7 +47,6 @@
     <SettingLayout variant="section" title={language.sectionHomeList} first><SettingRenderer items={displayOtherHomeItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionChatView}><SettingRenderer items={displayOtherChatItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionQuotes}><SettingRenderer items={displayOtherQuoteItems} layout="row" /></SettingLayout>
-    <SettingLayout variant="section" title={language.sectionAdvanced}><SettingRenderer items={displayOtherAdvancedItems} layout="row" /></SettingLayout>
 {:else if $DisplaySubmenuIndex === 3}
     <NotificationSoundSettings embedded />
 {/if}

@@ -13,7 +13,7 @@
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets'
     import ImageStylePresetList from 'src/lib/UI/ImageStylePresetList.svelte'
     import NovelAIUsageGauge from 'src/lib/UI/NovelAIUsageGauge.svelte'
-    import { applyImageStylePreset, listImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
+    import { applyImageStylePreset, loadImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
     import NumberInput from '../UI/components/NumberInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
     import {
@@ -123,7 +123,7 @@
         generating = true
         try {
             const trimmedNegativePrompt = negativePrompt.trim()
-            const stylePreset = listImageStylePresets(DBState.db)
+            const stylePreset = loadImageStylePresets(DBState.db)
                 .find(item => item.id === DBState.db.imageStylePresetId)
             const requestPrompt = stylePreset
                 ? applyImageStylePreset(stylePreset.content, trimmedPrompt, trimmedNegativePrompt)

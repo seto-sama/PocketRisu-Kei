@@ -359,7 +359,7 @@
                     {#each listEntries as entry (entry.type === 'folder' ? `folder:${entry.folder.id}` : entry.character.chaId)}
                         {#if entry.type === 'folder'}
                             {@const expanded = !!search.trim() || !collapsedFolders.has(entry.folder.id)}
-                            {@const displayMode = folderDisplayMode(entry.folder, DBState.db.showFolderName)}
+                            {@const displayMode = folderDisplayMode(entry.folder)}
                             {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.nodeOnlyIcon) : undefined}
                             {@const FolderGlyph = CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon)}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
@@ -446,7 +446,7 @@
 {/snippet}
 
 {#snippet characterInfo(char: CatalogCharacter)}
-    <SidebarAvatar src={char.image ? getCharImage(char.image, 'plain') : ''} name={char.name} size="40" rounded={DBState.db.roundIcons} interactive={false} showTooltip={false} />
+    <SidebarAvatar src={char.image ? getCharImage(char.image, 'plain') : ''} name={char.name} size="40" interactive={false} showTooltip={false} />
     <span class="flex min-w-0 grow flex-col">
         <span class="truncate text-sm font-medium">{char.name}</span>
         <span class="flex items-center gap-1 text-xs text-subtext">

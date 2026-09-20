@@ -59,14 +59,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['partial', 'edit', 'block', 'hover']
     },
     {
-        id: 'acc.longPressToPopupEditor',
-        type: 'check',
-        labelKey: 'longPressToPopupEditor',
-        bindKey: 'longPressToPopupEditor',
-        helpKey: 'longPressToPopupEditor',
-        keywords: ['long', 'press', 'popup', 'editor']
-    },
-    {
         id: 'acc.showInputActionBar',
         type: 'check',
         labelKey: 'showInputActionBar',
@@ -239,14 +231,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['sidebar', 'module', 'show', 'select'],
     },
     {
-        id: 'acc.disableMobileDragDrop',
-        type: 'check',
-        labelKey: 'disableMobileDragDrop',
-        bindKey: 'disableMobileDragDrop',
-        helpKey: 'disableMobileDragDrop',
-        keywords: ['mobile', 'drag', 'drop', 'character', 'disable'],
-    },
-    {
         id: 'acc.keepSessionAlive',
         type: 'check',
         labelKey: 'keepSessionAlive',
@@ -294,7 +278,6 @@ export const accessibilityEditingItems = pick([
     'acc.clickToEdit',
     'acc.enableBlockPartialEdit',
     'acc.enableDragPartialEdit',
-    'acc.longPressToPopupEditor',
     'acc.showInputActionBar',
 ]);
 
@@ -332,5 +315,4 @@ export const accessibilityOtherItems = pick([
     'acc.createFolderOnBranch',
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
-    'acc.disableMobileDragDrop',
 ]);

@@ -13,9 +13,11 @@
          * the ModelPreset-editor field grammar (label row + full-width control).
          * Default 'stacked'. */
         layout?: 'stacked' | 'row' | 'block';
+        /** Whether a row/block group starts without a divider. */
+        hideFirstDivider?: boolean;
     }
 
-    let { items, target, layout = 'stacked' }: Props = $props();
+    let { items, target, layout = 'stacked', hideFirstDivider = true }: Props = $props();
 
     // Build context for condition checks
     let ctx: SettingContext = $derived({
@@ -42,13 +44,13 @@
     <!-- Row wrappers carry their own top border; custom items (warnings,
          editors) don't, so they attach to the option above with no divider.
          Drop the very first row's leading border. -->
-    <div class="[&>*:first-child]:border-t-0">
+    <div class={hideFirstDivider ? '[&>*:first-child]:border-t-0' : ''}>
         {@render itemList()}
     </div>
 {:else if layout === 'block'}
     <!-- Block fields share the row layout's divider rhythm (border-t per field,
          first divider dropped) — see AccessibilitySettings for the reference. -->
-    <div class="[&>*:first-child]:border-t-0">
+    <div class={hideFirstDivider ? '[&>*:first-child]:border-t-0' : ''}>
         {@render itemList()}
     </div>
 {:else}

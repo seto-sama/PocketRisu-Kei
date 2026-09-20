@@ -53,7 +53,6 @@ vi.mock('./presets', () => ({
     defaultTranslatorPrompt: 'Translate {{slot::content}} to {{slot}}',
     getCurrentTranslatorPresetFromState: () => ({
         prompt: '',
-        maxResponse: 1024,
     }),
 }))
 vi.mock('../parser/chatML', () => ({ parseChatML: () => null }))
@@ -117,7 +116,6 @@ describe('LLM translation failure lifecycle', () => {
                 id: 'dialog-preset',
                 name: 'Dialog preset',
                 prompt: 'Translate {{slot::content}}',
-                maxResponse: 1024,
             },
             modelPresetId: 'model-preset',
             regenerate: true,
@@ -128,6 +126,7 @@ describe('LLM translation failure lifecycle', () => {
         expect(mocks.completeRevenantTranslation).not.toHaveBeenCalled()
         expect(requestArg?.revenantOperationContext).toBeUndefined()
         expect(requestArg?.revenantAuxiliaryResultPolicy).toBeUndefined()
+        expect(requestArg?.maxTokens).toBeUndefined()
     })
 
     it('falls back to the source when a successful request completes empty', async () => {

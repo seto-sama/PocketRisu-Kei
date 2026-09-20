@@ -52,7 +52,7 @@
           {/if}
         </Button>
     {/if}
-    {#if $publicStatsStore}
+    {#if !DBState.db.hidePublicStats && $publicStatsStore}
       <div class="mt-3 flex gap-2 flex-wrap justify-center">
         <span class="px-3 py-1 rounded-full text-xs bg-darkbg border border-selected text-subtext">
           👥 {language.statsUsersToday.replace('{{count}}', $publicStatsStore.dau.toLocaleString())}

@@ -44,9 +44,9 @@
     });
 
     let showDiffModal = $state(false)
-    let selectedDiffPreset = $state<number | null>(null)
-    let firstPresetId = $state<number | null>(null);
-    let secondPresetId = $state<number | null>(null);
+    let compareMode = $state(false)
+    let firstPresetIndex = $state<number | null>(null);
+    let secondPresetIndex = $state<number | null>(null);
 
     function movePreset(fromIndex: number, toIndex: number) {
         const result = movePresetItem(DBState.db.botPresets, DBState.db.botPresetsId, fromIndex, toIndex);
@@ -102,32 +102,40 @@
     }
 
 
-    async function handleDiffMode(id: number) {
-        if (selectedDiffPreset === id) {
-            selectedDiffPreset = null
-            firstPresetId = null
-            secondPresetId = null
+    function resetDiffSelection() {
+        firstPresetIndex = null;
+        secondPresetIndex = null;
+    }
+
+    function toggleCompareMode() {
+        compareMode = !compareMode;
+        resetDiffSelection();
+    }
+
+    function selectDiffPreset(index: number) {
+        if (firstPresetIndex === index) {
+            firstPresetIndex = null
             return
         }
-        
-        selectedDiffPreset = id
 
-        if (firstPresetId === null) {
-            firstPresetId = id
-            secondPresetId = null
+        if (firstPresetIndex === null) {
+            firstPresetIndex = index
             return
         }
 
-        secondPresetId = id
-        selectedDiffPreset = null
+        secondPresetIndex = index
         showDiffModal = true
+    }
+
+    function handlePresetClick(index: number) {
+        if (compareMode) selectDiffPreset(index)
+        else selectPreset(index)
     }
 
     function closeDiff() {
         showDiffModal = false;
-        firstPresetId = null;
-        secondPresetId = null;
-        selectedDiffPreset = null;
+        compareMode = false;
+        resetDiffSelection();
     }
 
 </script>
@@ -152,11 +160,11 @@
                 ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
             )
         }}
-        selectedItemIndex={selectedPresetIndex}
+        selectedItemIndex={compareMode ? (firstPresetIndex ?? -1) : selectedPresetIndex}
         onSelectNone={$presetSelectCallback ? () => selectPreset(-1) : undefined}
         noneSelected={selectedPresetIndex < 0}
         onMoveItem={movePreset}
-        onSelectItem={selectPreset}
+        onSelectItem={handlePresetClick}
         onDuplicateItem={duplicatePreset}
         onExportItem={exportPreset}
         onDeleteItem={deletePreset}
@@ -173,29 +181,15 @@
                 size="default"
                 editorLeadingInset={preset.image ? 'border' : 'row'}
                 placeholder="string"
-                onActivate={() => selectPreset(index)}
+                onActivate={() => handlePresetClick(index)}
             />
-        {/snippet}
-        {#snippet itemActions(index)}
-            {#if $settingsOpen && DBState.db.showPromptComparison}
-                <IconButton
-                    active={selectedDiffPreset === index}
-                    activeColor="primary"
-                    title={language.showPromptComparison}
-                    aria-label={language.showPromptComparison}
-                    aria-pressed={selectedDiffPreset === index}
-                    onclick={() => handleDiffMode(index)}
-                >
-                    <GitCompareIcon />
-                </IconButton>
-            {/if}
         {/snippet}
         <PresetPickerActions
             onCreate={() => {
                 let botPresets = DBState.db.botPresets
                 let newPreset = structuredClone(prebuiltPresets.OAI2)
                 newPreset.id = createEntityId()
-                newPreset.name = `New Preset`
+                newPreset.name = language.promptPresetNewName
                 newPreset.tagIds = undefined
                 DBState.db.botPresets = appendPresetItem(botPresets, newPreset).items
             }}
@@ -208,13 +202,24 @@
                     notifySuccess(language.presetImported)
                 }
             }}
-        />
+        >
+            <IconButton
+                active={compareMode}
+                activeColor="primary"
+                title={language.showPromptComparison}
+                aria-label={language.showPromptComparison}
+                aria-pressed={compareMode}
+                onclick={toggleCompareMode}
+            >
+                <GitCompareIcon />
+            </IconButton>
+        </PresetPickerActions>
 </PresetPickerLayout>
 
-{#if showDiffModal && firstPresetId !== null && secondPresetId !== null}
+{#if showDiffModal && firstPresetIndex !== null && secondPresetIndex !== null}
   <PromptDiffModal
-    firstPresetId={firstPresetId}
-    secondPresetId={secondPresetId}
+    {firstPresetIndex}
+    {secondPresetIndex}
     onClose={closeDiff}
   />
 {/if}

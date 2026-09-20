@@ -8,6 +8,7 @@ import {
     formatImageStylePresetContent,
     parseImageStylePresetContent,
     listImageStylePresets,
+    loadImageStylePresets,
 } from './stylePresets'
 
 describe('image style presets', () => {
@@ -135,7 +136,7 @@ describe('image style presets', () => {
         })
     })
 
-    it('uses the secondary activation key as a stable ID', () => {
+    it('ensures a missing secondary key before listing and keeps the preset ID stable', () => {
         const lorebook = {
             key: '',
             secondkey: '',
@@ -149,10 +150,10 @@ describe('image style presets', () => {
         const module = { id: 'external', name: 'External', description: '', lorebook: [lorebook] }
         const db = { modules: [module] }
 
-        const preset = listImageStylePresets(db)[0]
+        const preset = loadImageStylePresets(db)[0]
+        expect(lorebook.secondkey).toMatch(/^[0-9a-f-]{36}$/)
         lorebook.comment = '프리셋 Renamed'
 
-        expect(lorebook.secondkey).toMatch(/^[0-9a-f-]{36}$/)
-        expect(listImageStylePresets(db)[0].id).toBe(preset.id)
+        expect(loadImageStylePresets(db)[0].id).toBe(preset.id)
     })
 })

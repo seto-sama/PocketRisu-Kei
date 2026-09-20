@@ -84,18 +84,9 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.promptInfo', type: 'check', labelKey: 'promptInfoInsideChat', bindKey: 'promptInfoInsideChat',
         helpKey: 'promptInfoInsideChatDesc'
     },
-    // Remote saving removed — incompatible with NodeOnly server
-
-    // Dynamic Assets & Others
     { id: 'adv.cssErr', type: 'check', labelKey: 'returnCSSError', bindKey: 'returnCSSError', helpKey: 'returnCSSError' },
     { id: 'adv.toolUsage', type: 'check', labelKey: 'rememberToolUsage', bindKey: 'rememberToolUsage', helpKey: 'rememberToolUsage' },
     { id: 'adv.simpleTool', type: 'check', labelKey: 'simplifiedToolUse', bindKey: 'simplifiedToolUse', helpKey: 'simplifiedToolUse' },
-
-    // Dynamic Assets Edit (Condition: dynamicAssets)
-    {
-        id: 'adv.dynAssetsEdit', type: 'check', labelKey: 'dynamicAssetsEditDisplay', bindKey: 'dynamicAssetsEditDisplay',
-        condition: (ctx) => ctx.db.dynamicAssets, helpKey: 'dynamicAssetsEditDisplay'
-    },
 
     // Custom Components
     { type: 'custom', id: 'adv.banChar', componentId: 'BanCharacterSetSettings' },

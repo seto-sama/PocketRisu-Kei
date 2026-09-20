@@ -435,7 +435,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         alwaysExistChar = {
             type: 'simple',
             customscript: [],
-            virtualscript: null,
             emotionImages: [],
             chaId: 'simple'
         }
@@ -679,7 +678,6 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         currentChar,
         useStreaming: false,
         noMultiGen: true,
-        maxTokens: preset.maxResponse,
         modelPresetOverrideId: arg.modelPresetId,
         onRequestStatusActivate: arg.onRequestStatusActivate,
         revenantOperationContext: shouldCache ? revenantRequest.operationContext : undefined,

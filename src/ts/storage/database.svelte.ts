@@ -339,9 +339,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.translator)){
         data.translator = ''
     }
-    if(checkNullish(data.translatorMaxResponse)){
-        data.translatorMaxResponse = 1000
-    }
     if(checkNullish(data.currentPluginProvider)){
         data.currentPluginProvider = ''
     }
@@ -613,8 +610,6 @@ export function setDatabase(data:Database){
     delete (data as Database & { inlayImageLossless?: boolean }).inlayImageLossless
     data.enableBlockPartialEdit ??= false
     data.enableDragPartialEdit ??= false
-    // Concrete default so the settings toggle (reads !!value) and the runtime
-    // gate (statusEnabled) agree. Default on — see request-status-toast-infra.md.
     data.showRequestStatus ??= true
     if(!data.formatingOrder.includes('personaPrompt')){
         data.formatingOrder.splice(data.formatingOrder.indexOf('main'),0,'personaPrompt')
@@ -739,7 +734,6 @@ export function setDatabase(data:Database){
         workflow: data.comfyConfig?.workflow ?? '',
         timeout: data.comfyConfig?.timeout ?? 30,
     }
-    data.hideApiKey ??= true
     data.unformatQuotes ??= false
     data.ttsEnabled ??= false
     data.ttsAutoSpeech ??= false
@@ -790,8 +784,8 @@ export function setDatabase(data:Database){
     data.enableCustomFlags ??= false
     data.assetMaxDifference ??= 4
     data.showSavingIcon ??= false
+    data.hidePublicStats ??= false
     data.banCharacterset ??= []
-    data.showPromptComparison ??= false
     data.OaiCompAPIKeys ??= {}
     data.reasoningEffort ??= 0
     data.hypaV3Presets ??= [
@@ -832,7 +826,6 @@ export function setDatabase(data:Database){
     data.doNotChangeSeperateModels ??= false
     data.seperateModelsForAxModels ??= false
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
-    data.modelTools ??= []
     if (!Array.isArray(data.hotkeys)) {
         data.hotkeys = structuredClone(defaultHotkeys)
     }
@@ -868,12 +861,10 @@ export function setDatabase(data:Database){
     data.showPersonaInSidebar ??= true
     data.moduleModelBindings ??= {}
     data.showModuleSidebar ??= true
-    data.disableMobileDragDrop ??= false
     data.disableMobileBackNavigation ??= false
     data.disableToggleBinding ??= false
     data.hideAllImages ??= false
     data.preloadChatImages ??= true
-    data.hideMessagePageCount ??= false
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
@@ -896,7 +887,6 @@ export function setDatabase(data:Database){
         || legacyKeepSessionAlive === 'sound'
         || legacyKeepSessionAlive === 'pip'
     data.pluginCustomStorage ??= {}
-    data.longPressToPopupEditor ??= false
     data.showInputActionBar ??= true
     data.chatLoadInitialPages = normalizeChatLoadPages(data.chatLoadInitialPages, DEFAULT_CHAT_LOAD_INITIAL_PAGES)
     data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
@@ -1231,7 +1221,6 @@ export interface Database{
     emotionPrompt2:string
     useSayNothing:boolean
     allowV2Plugin:boolean
-    roundIcons:boolean
     useStreaming:boolean
     voyageApiKey:string
     supaMemoryKey:string
@@ -1292,6 +1281,7 @@ export interface Database{
     botSettingAtStart:false
     NAIsettings:NAISettings
     hideRealm:boolean
+    hidePublicStats:boolean
     colorScheme:ColorScheme
     colorSchemeName:string
     promptTemplate:PromptItem[]
@@ -1311,7 +1301,6 @@ export interface Database{
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
     translatorPrompt:string
-    translatorMaxResponse:number
     translatorPresets: TranslatorPreset[]
     /** User-defined tags for organizing translator presets. */
     translatorPresetTags?: PresetTag[]
@@ -1356,8 +1345,6 @@ export interface Database{
     sideBarSize:number
     textAreaTextSize:number
     combineTranslation:boolean
-    dynamicAssets:boolean
-    dynamicAssetsEditDisplay:boolean
     customPromptTemplateToggle:string
     globalChatVariables:{[key:string]:string}
     templateDefaultVariables:string
@@ -1369,7 +1356,6 @@ export interface Database{
     comfyUiUrl: string
     useLegacyGUI: boolean
     claudeCachingExperimental: boolean
-    hideApiKey: boolean
     unformatQuotes: boolean
     moduleIntergration: string
     hypaPresetIntegration?: string
@@ -1416,14 +1402,12 @@ export interface Database{
     showPresetInSidebar:boolean
     showPersonaInSidebar:boolean
     showModuleSidebar:boolean
-    disableMobileDragDrop:boolean
     disableMobileBackNavigation:boolean
     disableToggleBinding:boolean
     pluginV2: RisuPlugin[]
     showSavingIcon:boolean
     presetRegex: customscript[]
     banCharacterset:string[]
-    showPromptComparison:boolean
     hypaV3:boolean
     hypaV3Settings: HypaV3Settings // legacy
     hypaV3Presets: HypaV3Preset[]
@@ -1447,10 +1431,7 @@ export interface Database{
         model: string,       
     },
     localActivationInGlobalLorebook: boolean
-    showFolderName: boolean
     automaticCachePoint: boolean
-    // Show the floating request-status toast (phase / thinking+response tokens /
-    // tok/s / stall) for model-preset requests. Memory-only UI feature; default on.
     showRequestStatus: boolean
     chatCompression: boolean
     outputImageModal: boolean
@@ -1462,7 +1443,6 @@ export interface Database{
         otherAx: string
     }
     doNotChangeSeperateModels:boolean
-    modelTools: string[]
     hotkeys: Hotkey[]
     fallbackModels: {
         memory: string[],
@@ -1534,7 +1514,6 @@ export interface Database{
     // existing plugins read their keys unchanged. Populated for new V3 writes;
     // legacy/V2 keys stay unrecorded. See pluginStorageMeta.ts.
     pluginStorageMeta?:{[key:string]:{plugin:string,updatedAt:number}}
-    longPressToPopupEditor?: boolean
     showInputActionBar?: boolean
     chatLoadInitialPages?: number
     chatLoadAdditionalPages?: number
@@ -1543,7 +1522,6 @@ export interface Database{
     legacyMediaFindings?: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
-    hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
     newMessageButtonStyle?: string
@@ -1818,7 +1796,6 @@ export interface botPreset extends PresetTagFields {
         translate: string
         otherAx: string
     }
-    modelTools?:string[]
     fallbackModels?: {
         memory: string[],
         emotion: string[],
@@ -1880,18 +1857,13 @@ export interface themePreset extends PresetTagFields {
     hideRealm: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
-    hideMessagePageCount?: boolean
-    showFolderName: boolean
     customBackground: string
-    roundIcons: boolean
     textScreenColor?: string
     textBorder?: boolean
     textBorderColor?: string
     showSavingIcon: boolean
-    showPromptComparison: boolean
     useAdditionalAssetsPreview: boolean
     useLegacyGUI: boolean
-    hideApiKey: boolean
     unformatQuotes: boolean
     blockquoteStyling?: boolean
     cornerBracketStyling?: boolean
@@ -2307,18 +2279,13 @@ export const themePresetTemplate: themePreset = {
     hideRealm: false,
     hideAllImages: false,
     preloadChatImages: true,
-    hideMessagePageCount: false,
-    showFolderName: false,
     customBackground: '',
-    roundIcons: false,
     textScreenColor: DEFAULT_TEXT_SCREEN_COLOR,
     textBorder: false,
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
     showSavingIcon: false,
-    showPromptComparison: false,
     useAdditionalAssetsPreview: false,
     useLegacyGUI: false,
-    hideApiKey: true,
     unformatQuotes: false,
     blockquoteStyling: false,
     cornerBracketStyling: false,
@@ -2467,7 +2434,6 @@ export function saveCurrentPreset(){
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
-        modelTools: structuredClone(db.modelTools),
         fallbackModels: structuredClone(db.fallbackModels),
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
@@ -2602,7 +2568,6 @@ export function setPreset(db:Database, newPres: botPreset){
         }
         db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
     }
-    db.modelTools = structuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
 
     return db
@@ -2641,18 +2606,13 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         hideRealm: db.hideRealm,
         hideAllImages: db.hideAllImages,
         preloadChatImages: db.preloadChatImages,
-        hideMessagePageCount: db.hideMessagePageCount,
-        showFolderName: db.showFolderName,
         customBackground: db.customBackground,
-        roundIcons: db.roundIcons,
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
         textBorderColor: db.textBorderColor,
         showSavingIcon: db.showSavingIcon,
-        showPromptComparison: db.showPromptComparison,
         useAdditionalAssetsPreview: db.useAdditionalAssetsPreview,
         useLegacyGUI: db.useLegacyGUI,
-        hideApiKey: db.hideApiKey,
         unformatQuotes: db.unformatQuotes,
         blockquoteStyling: db.blockquoteStyling,
         cornerBracketStyling: db.cornerBracketStyling,
@@ -2701,21 +2661,16 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.animationSpeed = p.animationSpeed ?? db.animationSpeed
     db.settingsCloseButtonSize = p.settingsCloseButtonSize ?? db.settingsCloseButtonSize
     db.showFirstMessagePages = p.showFirstMessagePages ?? db.showFirstMessagePages
-    db.hideMessagePageCount = p.hideMessagePageCount ?? db.hideMessagePageCount
     db.hideRealm = p.hideRealm ?? db.hideRealm
     db.hideAllImages = p.hideAllImages ?? db.hideAllImages
     db.preloadChatImages = p.preloadChatImages ?? db.preloadChatImages
-    db.showFolderName = p.showFolderName ?? db.showFolderName
     db.customBackground = p.customBackground ?? db.customBackground
-    db.roundIcons = p.roundIcons ?? db.roundIcons
     db.textScreenColor = p.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR
     db.textBorder = p.textBorder
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
-    db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useAdditionalAssetsPreview = p.useAdditionalAssetsPreview ?? db.useAdditionalAssetsPreview
     db.useLegacyGUI = p.useLegacyGUI ?? db.useLegacyGUI
-    db.hideApiKey = p.hideApiKey ?? db.hideApiKey
     db.unformatQuotes = p.unformatQuotes ?? db.unformatQuotes
     db.blockquoteStyling = p.blockquoteStyling ?? db.blockquoteStyling
     db.cornerBracketStyling = p.cornerBracketStyling ?? db.cornerBracketStyling

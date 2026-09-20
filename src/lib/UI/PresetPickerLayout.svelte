@@ -333,7 +333,7 @@
 
     <div class="flex min-h-0 grow border-t border-darkborderc max-sm:flex-col">
         <aside
-            class="w-48 shrink-0 border-r border-darkborderc p-2 flex flex-col min-h-0 max-sm:w-full max-sm:h-44 max-sm:border-r-0 max-sm:border-b"
+            class="w-48 shrink-0 border-r border-darkborderc px-2 py-3 flex flex-col min-h-0 max-sm:w-full max-sm:h-44 max-sm:border-r-0 max-sm:border-b"
             ondragover={() => {
                 if (!draggingFolderId) restoreItemDragPosition();
             }}
@@ -432,14 +432,16 @@
             {#if showCreateFolder || sidebarFooterActions}
                 <ListActionBar mode="inline" className="shrink-0 gap-1">
                     {#if showCreateFolder}
-                        <button
-                            class="min-w-0 grow flex items-center gap-2 rounded-md px-2 py-2 text-sm text-subtext risu-interactive-accent risu-interactive-surface"
-                            class:opacity-50={createFolderDisabled}
+                        <IconButton
+                            expanded
+                            className="min-w-0 grow justify-start"
                             disabled={createFolderDisabled}
                             onclick={createFolder}
+                            title={newFolderLabel}
+                            aria-label={newFolderLabel}
                         >
-                            {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate">{newFolderLabel}</span>
-                        </button>
+                            {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
+                        </IconButton>
                     {/if}
                     {@render sidebarFooterActions?.()}
                 </ListActionBar>

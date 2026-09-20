@@ -6,9 +6,8 @@ import { downloadFile } from "../globalApi.svelte";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "src/lang";
 import { selectSingleImportFile } from "../util";
-import { assetRegex, type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
-import { getModuleAssets, getModuleRegexScripts, getModuleTriggers } from "./modules";
-import { HypaProcesser } from "./memory/hypamemory";
+import { type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
+import { getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { hasLuaEditListener, runLuaEditTrigger } from "./scriptings";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { runTrigger } from "./triggers";
@@ -62,7 +61,6 @@ export async function importRegex(o:customscript[]):Promise<customscript[]>{
     return o
 }
 
-let bestMatchCache = new Map<string, string>()
 let processScriptCache = new Map<string, string>()
 
 function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}) {
@@ -344,45 +342,6 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
             console.error(error)
         }
     }
-    if(db.dynamicAssets && (char.type === 'simple' || char.type === 'character') && char.additionalAssets && char.additionalAssets.length > 0){
-        if((!db.dynamicAssetsEditDisplay && mode === 'editdisplay')
-            || mode === 'editinput' || mode === 'editprocess'){
-            cacheScript(hash, data)
-            return {data, emoChanged}
-        }
-        const assetNames = char.additionalAssets.map((v) => v[0])
-
-        const moduleAssets = getModuleAssets()
-        if(moduleAssets.length > 0){
-            for(const asset of moduleAssets){
-                assetNames.push(asset[0])
-            }
-        }
-
-        const processer = new HypaProcesser()
-        await processer.addText(assetNames)
-        const matches = data.matchAll(assetRegex)
-
-        for(const match of matches){
-            const type = match[1]
-            const assetName = match[2]
-            const cacheKey = char.chaId + '::' + assetName
-            if(type !== 'emotion' && type !== 'source'){
-                if(bestMatchCache.has(cacheKey)){
-                    data = data.replaceAll(match[0], `{{${type}::${bestMatchCache.get(cacheKey)}}}`)
-                }
-                else if(!assetNames.includes(assetName)){
-                    const searched = await processer.similaritySearch(assetName)
-                    const bestMatch = searched[0]
-                    if(bestMatch){
-                        data = data.replaceAll(match[0], `{{${type}::${bestMatch}}}`)
-                        bestMatchCache.set(cacheKey, bestMatch)
-                    }
-                }
-            }
-        }
-    }
-
     cacheScript(hash, data)
 
     return {data, emoChanged}

@@ -193,7 +193,7 @@
                     </Select>
                 {/snippet}
             </SettingLayout>
-            <SettingRenderer items={emotionPromptItems} layout="row" />
+            <SettingRenderer items={emotionPromptItems} layout="row" hideFirstDivider={false} />
         </div>
     </SettingLayout>
 

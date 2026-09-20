@@ -12,6 +12,7 @@ import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/tex
 import { PRODUCT_BASE_NAME } from '../branding';
 import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
 import { supportsCustomChatBackdrop } from '../storage/database.svelte';
+import { syncPublicStatsVisibility } from '../publicStats';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -309,17 +310,23 @@ export const displaySizeSettingsItems: SettingItem[] = [
 ];
 
 export const displayOtherHomeItems: SettingItem[] = [
+    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
+    { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
-    { id: 'display.showFolderName', type: 'check', labelKey: 'showFolderNameInIcon', helpKey: 'showFolderNameInIcon', bindKey: 'showFolderName', keywords: ['folder', 'name', 'icon'] },
-    { id: 'display.roundIcons', type: 'check', labelKey: 'roundIcons', helpKey: 'roundIcons', bindKey: 'roundIcons', keywords: ['round', 'icons'] },
-    { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
+    {
+        id: 'display.hidePublicStats',
+        type: 'check',
+        labelKey: 'hidePublicStats',
+        helpKey: 'hidePublicStats',
+        bindKey: 'hidePublicStats',
+        onChange: (hidden) => { void syncPublicStatsVisibility(!!hidden); },
+        keywords: ['statistics', 'stats', 'privacy', 'network', 'hide'],
+    },
 ];
 
 const showChatImageSettings = (ctx: SettingContext) => !ctx.db.hideAllImages;
 
 export const displayOtherChatItems: SettingItem[] = [
-    { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
-    { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     {
         id: 'display.textBorder',
         type: 'custom',
@@ -347,9 +354,8 @@ export const displayOtherChatItems: SettingItem[] = [
         },
         options: { min: 1, max: 8, step: 1, disableable: true, defaultValue: 4 },
         condition: showChatImageSettings,
-        keywords: ['asset', 'difference', 'dynamic', 'matching'],
+        keywords: ['asset', 'difference', 'matching'],
     },
-    { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', condition: showChatImageSettings, keywords: ['dynamic', 'assets', 'matching'] },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
@@ -420,11 +426,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
     },
 ];
 
-export const displayOtherAdvancedItems: SettingItem[] = [
-    { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
-    { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
-];
-
 export const displaySettingsItems: SettingItem[] = [
     ...displayThemeGeneralSettingsItems,
     ...displayThemePaletteSettingsItems,
@@ -432,5 +433,4 @@ export const displaySettingsItems: SettingItem[] = [
     ...displayOtherHomeItems,
     ...displayOtherChatItems,
     ...displayOtherQuoteItems,
-    ...displayOtherAdvancedItems,
 ];
