@@ -44,7 +44,7 @@
 
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
-    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
+    import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
@@ -242,7 +242,7 @@
         && isLastMessage
     )
     const showFloatingToolbarDetails = $derived(Boolean(
-        messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
+        messageGenerationInfo && DBState.db.requestInfoInsideChat
         || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
     ))
     const translationTaskKey = $derived(renderCacheKey
@@ -916,7 +916,7 @@
         className={`chat-generation-info flex-wrap gap-1 ${generationInfoAlignsLeft ? 'justify-start' : 'chat-width w-full justify-end'}`}
         style="min-height:var(--icon-cell-size)"
     >
-        {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
+        {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
             {@const diagnosticMessage = idx >= 0
                 ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
                 : undefined}

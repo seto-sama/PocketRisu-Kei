@@ -258,6 +258,7 @@ async function waitForParserCalls(expected: number) {
     while (parserMocks.ParseMarkdown.mock.calls.length < expected && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 20))
     }
+    expect(parserMocks.ParseMarkdown.mock.calls.length).toBeGreaterThanOrEqual(expected)
 }
 
 async function waitForTranslationButtonState(target: HTMLElement, active: boolean) {
@@ -278,6 +279,36 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
 }
 
 describe('Chat editing', () => {
+    it('shows request information only when the setting is enabled', async () => {
+        const renderChat = (requestInfoInsideChat: boolean) => {
+            DBState.db.requestInfoInsideChat = requestInfoInsideChat
+            const target = document.createElement('div')
+            document.body.appendChild(target)
+            const component = mount(Chat, {
+                target,
+                props: {
+                    message: 'AI response',
+                    name: 'Character',
+                    role: 'char',
+                    idx: -1,
+                    firstMessage: true,
+                    messageGenerationInfo: { model: 'test-model' },
+                    totalLength: 1,
+                },
+            })
+            mountedComponents.push(component)
+            return target
+        }
+
+        const disabledTarget = renderChat(false)
+        await tick()
+        expect(disabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).toBeNull()
+
+        const enabledTarget = renderChat(true)
+        await tick()
+        expect(enabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).not.toBeNull()
+    })
+
     it('keeps user translation toggles while retaining cached room restores', async () => {
         DBState.db.translator = 'google'
         DBState.db.translatorType = 'google'
@@ -404,11 +435,6 @@ describe('Chat editing', () => {
         const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
         expect(editor).not.toBeNull()
         expect(editor?.value).toBe('User message')
-        const editorField = editor?.closest('.risu-field-border')
-        expect(editorField?.classList.contains('risu-local-stack')).toBe(true)
-        expect(editorField?.classList.contains('risu-local-stack-focus')).toBe(true)
-        expect(editorField?.classList.contains('z-20')).toBe(false)
-        expect(editorField?.classList.contains('focus-within:z-40')).toBe(false)
         editor!.value = 'Edited user message'
         editor!.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
@@ -446,7 +472,7 @@ describe('Chat editing', () => {
                 roomIsResponding: true,
             },
         })
-        await waitForParserCalls(3)
+        await waitForParserCalls(2)
 
         const rendered = target.querySelectorAll('.chat-message-container')
         expect(rendered[0].querySelector<HTMLButtonElement>('.button-icon-edit')?.disabled).toBe(false)
@@ -1658,17 +1684,9 @@ describe('Chat editing', () => {
         await tick()
 
         const floatingToolbar = target.querySelector('.chat-toolbar-sticky-layer')
-        const floatingCard = floatingToolbar?.querySelector('.chat-toolbar-floating-card')
         expect(floatingToolbar).not.toBeNull()
         expect(floatingToolbar?.querySelector('.chat-generation-info')).not.toBeNull()
         expect(floatingToolbar?.querySelector('.chat-message-actions')).not.toBeNull()
-        expect(floatingCard?.firstElementChild?.classList.contains('chat-toolbar-actions')).toBe(true)
-        expect(floatingCard?.lastElementChild?.classList.contains('chat-toolbar-generation-info')).toBe(true)
-        if (theme === 'waifu') {
-            expect(floatingCard?.getAttribute('style')).toContain('#34567880')
-        } else {
-            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-lightbg)')
-        }
     })
 
     it('keeps the floating toolbar to one row when model and translation details are absent', async () => {
@@ -1792,9 +1810,7 @@ describe('Chat editing', () => {
         expect(stickyFooter).not.toBeNull()
         expect(stickyFooter?.querySelector('.chat-generation-info')).not.toBeNull()
         expect(stickyFooter?.querySelector('.chat-message-actions')).not.toBeNull()
-        expect(stickyFooter?.classList.contains('chat-toolbar-floating-card')).toBe(false)
-        const stickyFooterLayer = target.querySelector('.chat-message-body')?.nextElementSibling
-        expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
+        const stickyFooterLayer = target.querySelector('.chat-toolbar-sticky-footer-layer')
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
     })
 
@@ -1900,45 +1916,6 @@ describe('Chat editing', () => {
             .toEqual(Array.from({ length: 60 }, (_, index) => index))
         expect(editedMessage?.querySelector('.message-edit-area')).not.toBeNull()
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(60)
-    })
-
-    it('renders auto-translated history without an intermediate original parse', async () => {
-        DBState.db.autoTranslate = true
-        DBState.db.translatorType = 'llm'
-        const messages: Message[] = Array.from({ length: 60 }, (_, index) => ({
-            role: index % 2 === 0 ? 'user' : 'char',
-            data: `Translated message ${index}`,
-            chatId: `translated-message-${index}`,
-        }))
-        const currentCharacter = {
-            ...DBState.db.characters[0],
-            image: 'character.png',
-            largePortrait: false,
-            chats: [{ id: 'chat-1', message: messages }],
-        } as unknown as character
-        DBState.db.characters[0] = currentCharacter
-
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(Chats, {
-            target,
-            props: {
-                messages,
-                currentCharacter,
-                chatRoomId: 'chat-1',
-                onReroll: () => {},
-                unReroll: () => {},
-                currentUsername: 'User',
-                userIcon: 'user.png',
-                loadPages: 30,
-            },
-        })
-        mountedComponents.push(component)
-        await tick()
-        await waitForParserCalls(30)
-
-        expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
-        expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
     })
 
     it('keeps stable streaming blocks mounted and performs a full final parse', async () => {

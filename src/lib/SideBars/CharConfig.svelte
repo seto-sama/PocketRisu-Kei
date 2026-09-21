@@ -323,19 +323,6 @@
             {/if}
         {/if}
     {:else if viewSubMenu === 'assets'}
-
-            {#if DBState.db.newImageHandlingBeta}
-            <Checkbox card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
-
-            {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-
-            <span class="text-maintext mt-2">{language.assetStyle}</span>
-            <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                <SelectOption value="">{language.static}</SelectOption>
-                <SelectOption value="dynamic">{language.dynamic}</SelectOption>
-            </Select>
-            {/if}
-            {/if}
             <AdditionalAssetsEditor
                 assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}
                 onChange={(assets) => {
@@ -478,6 +465,29 @@
 {:else if $CharConfigSubMenu === 2}
         <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
+
+        {#if DBState.db.newImageHandlingBeta}
+            <SettingsList spacing="none" className="mb-2">
+                <SettingsList variant="row">
+                    <span class="min-w-0 text-maintext">
+                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
+                    </span>
+                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
+                </SettingsList>
+
+                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+                    <SettingsList variant="row">
+                        <span class="min-w-0 text-maintext">
+                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
+                        </span>
+                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                            <SelectOption value="">{language.static}</SelectOption>
+                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+                        </Select>
+                    </SettingsList>
+                {/if}
+            </SettingsList>
+        {/if}
 
         <span class="text-maintext mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></Textarea>

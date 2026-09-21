@@ -76,6 +76,8 @@ export const helpEn = {
         additionalAssets:
             "Additional assets to display in your chat. \n\n - use `{{raw::<asset name>}}` to use as path.\n - use `{{image::<asset name>}}` to use as image\n - use `{{video::<asset name>}}` to use as video\n - use `{{audio::<asset name>}}` to use as audio\n    - recommended to put in Background HTML",
         replaceGlobalNote: "If its not blank, it replaces current global note to this.",
+        insertAssetPrompt: "Appends the built-in asset instruction, including registered character and module asset names, to the end of the prompt preset's Global Note block. It is not inserted when the preset has no Global Note block.",
+        assetStyle: "Static displays the image while preserving its full aspect ratio. Dynamic limits and crops its height from the top, then expands it vertically when you hover over it.",
         backgroundHTML:
             "A Markdown/HTML Data that would be injected to the background of chat screen.\n\n you can also use additional assets. for example, you can use `{{audio::<asset name}}` for background music." +
             "\n\n Additionaly, you can use these with additional assets:" +
