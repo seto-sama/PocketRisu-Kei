@@ -40,6 +40,7 @@
     import sendSound from './etc/send.mp3'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
     import { mdViewport } from './ts/gui/breakpoints'
+    import { requestDialogCloseAction } from './ts/gui/escapeKey'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
@@ -51,6 +52,13 @@
 
     function closeCharacterGrid() {
         gridOpen = false
+    }
+
+    function handleDialogKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        if (!requestDialogCloseAction(event.currentTarget as HTMLElement)) return
+        event.preventDefault()
+        event.stopPropagation()
     }
 
     function focusOverlay(node: HTMLElement) {
@@ -160,6 +168,10 @@
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
                     use:focusOverlay
+                    onkeydown={handleDialogKeydown}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={language.characterList}
                 >
                     <GridChars endGrid={closeCharacterGrid} />
                 </div>
@@ -182,6 +194,10 @@
                 class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
                 use:focusOverlay
+                onkeydown={handleDialogKeydown}
+                role="dialog"
+                aria-modal="true"
+                aria-label={language.settings}
             >
                 <Settings />
             </div>

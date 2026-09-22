@@ -125,6 +125,23 @@ describe('Dialog close requests', () => {
         expect(onOpenChange).toHaveBeenLastCalledWith(false)
     })
 
+    it('routes the close button through the shared close request', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onOpenChange = vi.fn()
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, onOpenChange },
+        })
+        mounted.push(component)
+        await tick()
+
+        document.querySelector<HTMLButtonElement>('[data-risu-dialog-close]')!.click()
+        await tick()
+
+        expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false)
+    })
+
     it('uses the shared dynamic overlay layer', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)

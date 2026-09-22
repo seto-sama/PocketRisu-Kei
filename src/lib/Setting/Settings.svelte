@@ -137,7 +137,7 @@
                 {/each}
                 </IconButtonGroup>
                 {#if !$mdViewport}
-                    <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
+                    <button data-risu-dialog-close class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
@@ -183,7 +183,7 @@
                     </div>
             </div>
             {/key}
-            <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
+            <button data-risu-dialog-close class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                 if($mdViewport){
                     settingsOpen.set(false)
                 }
