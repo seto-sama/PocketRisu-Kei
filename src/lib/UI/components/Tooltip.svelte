@@ -15,6 +15,7 @@
         side?: 'top' | 'right' | 'bottom' | 'left'
         disabled?: boolean
         variant?: 'solid' | 'glass'
+        size?: 'default' | 'compact'
     }
 
     let {
@@ -27,6 +28,7 @@
         side,
         disabled = false,
         variant = 'solid',
+        size = 'default',
     }: Props = $props()
 
     let open = $state(false)
@@ -41,12 +43,15 @@
             hasArrow && 'tooltip-arrow',
             variant === 'solid' && 'tooltip-solid',
             variant === 'glass' && 'tooltip-glass',
+            size === 'compact' && 'tooltip-compact',
         ),
     )
 
     const panelClass = $derived(
         cn(
-            'max-w-96 max-h-80 overflow-y-auto break-keep px-3 py-2 text-xs text-maintext leading-relaxed',
+            'max-w-96 max-h-80 overflow-y-auto break-keep text-maintext',
+            size === 'default' && 'px-3 py-2 text-xs leading-relaxed',
+            size === 'compact' && 'px-2 py-1 text-[11px] leading-tight',
             className,
         ),
     )
@@ -92,6 +97,10 @@
         box-shadow:
             0 10px 15px -3px rgb(0 0 0 / 0.1),
             0 4px 6px -4px rgb(0 0 0 / 0.1);
+    }
+
+    :global(.tooltip-bubble.tooltip-compact) {
+        border-radius: 0.25rem;
     }
 
     :global(.tooltip-bubble.tooltip-glass) {

@@ -27,6 +27,7 @@
     import type { Snippet } from 'svelte';
     import type { HTMLButtonAttributes } from 'svelte/elements';
     import { cn } from 'src/lib/utils';
+    import Tooltip from './Tooltip.svelte';
 
     type Props = HTMLButtonAttributes & {
         size?: IconButtonSize;
@@ -47,6 +48,8 @@
         class: classAttr = '',
         className = '',
         type = 'button',
+        title,
+        'aria-label': ariaLabel,
         style,
         children,
         ...rest
@@ -67,17 +70,32 @@
     ].filter(Boolean).join(';'));
 </script>
 
-<button
-    {type}
-    class={classes}
-    style={inlineStyle || undefined}
-    data-icon-button
-    data-icon-size={size}
-    data-expanded={expanded}
-    {...rest}
->
-    {@render children()}
-</button>
+{#snippet button(tooltipProps: Record<string, unknown> = {})}
+    <button
+        {...tooltipProps}
+        {type}
+        class={classes}
+        style={inlineStyle || undefined}
+        data-icon-button
+        data-icon-size={size}
+        data-expanded={expanded}
+        aria-label={ariaLabel ?? title}
+        {...rest}
+    >
+        {@render children()}
+    </button>
+{/snippet}
+
+{#if title}
+    <Tooltip size="compact">
+        {#snippet trigger(props)}
+            {@render button(props)}
+        {/snippet}
+        <span class="whitespace-pre-line">{title}</span>
+    </Tooltip>
+{:else}
+    {@render button()}
+{/if}
 
 <style>
     button {

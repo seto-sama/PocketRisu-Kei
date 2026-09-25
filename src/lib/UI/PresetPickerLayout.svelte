@@ -437,7 +437,6 @@
                             className="min-w-0 grow justify-start"
                             disabled={createFolderDisabled}
                             onclick={createFolder}
-                            title={newFolderLabel}
                             aria-label={newFolderLabel}
                         >
                             {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
