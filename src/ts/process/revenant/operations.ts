@@ -24,7 +24,7 @@ export interface RevenantHypaV3SummaryOperation {
     batchId: string
     characterId: string
     roomId: string
-    chatMemos: string[]
+    chatMemos: (string | null)[]
 }
 
 export interface RevenantLuaLlmOperation {
@@ -100,7 +100,7 @@ export function isRevenantHypaV3SummaryOperation(
         && typeof context.characterId === 'string'
         && typeof context.roomId === 'string'
         && Array.isArray(context.chatMemos)
-        && context.chatMemos.every(memo => typeof memo === 'string')
+        && context.chatMemos.every(memo => memo === null || typeof memo === 'string')
 }
 
 export function isRevenantLuaLlmOperation(

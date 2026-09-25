@@ -98,14 +98,14 @@ export interface SerializableHypaV3Data extends Omit<HypaV3Data, "summaries"> {
 
 interface Summary {
     text: string;
-    chatMemos: Set<string>;
+    chatMemos: Set<string | undefined>;
     isImportant: boolean;
     categoryId?: string;
     tags?: string[];
 }
 
 export interface SerializableSummary extends Omit<Summary, "chatMemos"> {
-    chatMemos: string[];
+    chatMemos: (string | null)[];
 }
 
 interface SummaryChunk {
@@ -211,7 +211,7 @@ function planServerHypaSelection(input: {
     const batchId = createEntityId();
     const summaryRequests = batches.map(batch => ({
         operationId: createEntityId(),
-        chatMemos: batch.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+        chatMemos: batch.map(chat => chat.memo ?? null),
         prompt: buildHypaSummaryPrompt(batch, settings),
         purpose: 'memory',
     }));
@@ -323,7 +323,7 @@ async function executeDurableHypaBatch<T>(
     return { results, successCount, failureCount, allSucceeded: failureCount === 0 };
 }
 
-function sameMemoSet(left: string[], right: string[]): boolean {
+function sameMemoSet(left: (string | null)[], right: (string | null)[]): boolean {
     if (left.length !== right.length) return false;
     const rightSet = new Set(right);
     return left.every(memo => rightSet.has(memo));
@@ -849,7 +849,7 @@ async function hypaMemoryV3MainExp(
                     roomId: room.id,
                     batchId,
                     operationId: operationIds[index],
-                    chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                    chatMemos: item.map(chat => chat.memo ?? null),
                     dispatchPolicy: useDurableDispatch ? {
                         maxConcurrent: settings.summarizationMaxConcurrent,
                         requestsPerMinute: settings.summarizationRequestsPerMinute,
@@ -1654,7 +1654,7 @@ async function hypaMemoryV3Main(
                         characterId: char.chaId,
                         roomId: room.id,
                         batchId: createEntityId(),
-                        chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                        chatMemos: toSummarize.map(chat => chat.memo ?? null),
                     },
                 });
 
@@ -2158,7 +2158,7 @@ function toSerializableHypaV3Data(data: HypaV3Data): SerializableHypaV3Data {
         ...data,
         summaries: data.summaries.map((summary) => ({
             ...summary,
-            chatMemos: [...summary.chatMemos],
+            chatMemos: [...summary.chatMemos].map(memo => memo ?? null),
         })),
     };
 }
@@ -2180,7 +2180,7 @@ function cleanOrphanedSummary(chats: OpenAIChat[], data: HypaV3Data): void {
     }
 }
 
-function isSubset(subset: Set<string>, superset: Set<string>): boolean {
+function isSubset(subset: Set<string | undefined>, superset: Set<string | undefined>): boolean {
     for (const elem of subset) {
         if (!superset.has(elem)) {
             return false;
@@ -2204,7 +2204,7 @@ export interface HypaV3SummarizeOptions {
         roomId: string;
         batchId: string;
         operationId?: string;
-        chatMemos: string[];
+        chatMemos: (string | null)[];
         dispatchPolicy?: { maxConcurrent: number; requestsPerMinute: number };
         onJobCreated?: () => void;
     };

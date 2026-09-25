@@ -41,7 +41,12 @@ describe('Hypa planning before durable main registration', () => {
         state.db = { hypaModel: model, voyageApiKey: 'test-key', supaMemoryKey: 'test-key',
             hypaCustomSettings: { url: 'https://embedding.example/v1/embeddings', key: 'test-key', model: 'custom-model' },
             hypaV3Presets: [hypaPreset], hypaV3PresetId: 0 }
-        const chats = Array.from({ length: 8 }, (_, index) => ({ role: 'user' as const, content: `message-${index}`, memo: `memo-${index}` }))
+        const chats = [
+            { role: 'assistant' as const, content: 'greeting' },
+            ...Array.from({ length: 7 }, (_, index) => ({
+                role: 'user' as const, content: `message-${index}`, memo: `memo-${index}`,
+            })),
+        ]
         const tokenizer = { tokenizeChat: async () => 20, getRevenantSpec: () => ({ tokenizer: 'tik', chatAdditionalTokens: 0 }) }
         const result = await hypaMemoryV3(chats, 190, 100, { id: `room-${experimental}` } as any,
             { chaId: 'character' } as any, tokenizer as any,
@@ -54,6 +59,7 @@ describe('Hypa planning before durable main registration', () => {
         })
         const requests = result.serverExecution!.summaryRequests as any[]
         expect(requests.filter(request => request.purpose === 'memory')).toHaveLength(3)
+        expect(requests[0].chatMemos).toEqual([null, 'memo-0'])
         expect(result.chats[0]).toMatchObject({ memo: 'supaMemory', content: '__memory__' })
         expect(requestChatData).not.toHaveBeenCalled()
         expect(prepareRevenantHypaExecution).not.toHaveBeenCalled()

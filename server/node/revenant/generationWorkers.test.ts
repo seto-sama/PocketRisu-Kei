@@ -37,7 +37,11 @@ describe('generation workers', () => {
         const execution: any = { workflowId: workflow.workflowId, kind: 'hypav3-selection', status: 'queued', recipe: {
             embedding: { model: 'voyageContext3' }, batchId: 'batch-1', expectedOperationIds: ['one', 'two'], memory: { summaries: [] },
             summaryProvider: {}, summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
-            summaryRequests: ['one', 'two'].map(operationId => ({ operationId, purpose: 'memory', chatMemos: [operationId], prompt: [] })),
+            summaryRequests: ['one', 'two'].map(operationId => ({
+                operationId, purpose: 'memory',
+                chatMemos: operationId === 'one' ? [null, operationId] : [operationId],
+                prompt: [],
+            })),
         } }
         const main: any = { jobId: 'main', workflowId: workflow.workflowId, workflowStepKey: 'model.main', status: 'queued' }
         const jobs: any[] = []
@@ -86,6 +90,7 @@ describe('generation workers', () => {
         workers.scheduleHypaWorkflowExecution()
         await vi.advanceTimersByTimeAsync(1)
         expect(executeSummaryAction).toHaveBeenCalledTimes(2)
+        expect(executeSummaryAction.mock.calls[0][0].operationContext.chatMemos).toEqual([null, 'one'])
         expect(runGenerationProviderJob).not.toHaveBeenCalled()
         workers.scheduleHypaWorkflowExecution()
         await vi.advanceTimersByTimeAsync(1)
@@ -102,6 +107,8 @@ describe('generation workers', () => {
             return
         }
         expect(selectMemory).toHaveBeenCalledTimes(1)
+        expect(selectMemory.mock.calls[0][1].map((summary: any) => summary.chatMemos))
+            .toEqual([[null, 'one'], ['two']])
         expect(runGenerationProviderJob).toHaveBeenCalledTimes(1)
         const body = JSON.parse(Buffer.from(runGenerationProviderJob.mock.calls[0][1].body).toString())
         expect(body.messages[0].content).toBe('summary-one\nsummary-two')

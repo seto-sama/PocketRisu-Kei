@@ -27,6 +27,11 @@ const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
     'novellist', 'gemma', 'deepseek',
 ]);
+
+function isHypaChatMemo(value) {
+    return value === null || typeof value === 'string';
+}
+
 const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
 
 function normalizeRevenantJobType(value) {
@@ -225,7 +230,7 @@ function normalizeRevenantOperationContext(jobType, value) {
                 || typeof value.batchId !== 'string'
                 || !WORKFLOW_KEY_PATTERN.test(value.batchId)
                 || !Array.isArray(value.chatMemos)
-                || !value.chatMemos.every(item => typeof item === 'string')
+                || !value.chatMemos.every(isHypaChatMemo)
             ) return undefined;
             break;
         case 'lua-llm':
@@ -366,7 +371,7 @@ function normalizeRevenantHypaExecutionRecipe(value) {
         || !Array.isArray(summaries) || summaries.length > 10000
         || !summaries.every(summary => summary && typeof summary.text === 'string'
             && Array.isArray(summary.chatMemos)
-            && summary.chatMemos.every(memo => typeof memo === 'string')
+            && summary.chatMemos.every(isHypaChatMemo)
             && typeof summary.isImportant === 'boolean')
         || ![value.currentTokens, value.maxContextTokens, value.availableMemoryTokens, value.memoryTokens]
             .every(Number.isFinite)
@@ -383,7 +388,8 @@ function normalizeRevenantHypaExecutionRecipe(value) {
             || !requests.every(request => request
                 && value.expectedOperationIds.includes(request.operationId)
                 && ['memory', 'query'].includes(request.purpose)
-                && Array.isArray(request.chatMemos) && request.chatMemos.every(memo => typeof memo === 'string')
+                && Array.isArray(request.chatMemos)
+                && request.chatMemos.every(isHypaChatMemo)
                 && Array.isArray(request.prompt) && request.prompt.length > 0
                 && request.prompt.every(message => message
                     && ['system', 'user', 'assistant'].includes(message.role)

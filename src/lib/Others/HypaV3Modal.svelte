@@ -224,7 +224,7 @@
 
   function buildResummaryInput(selectedIndices: number[]): {
     oaiMessages: OpenAIChat[];
-    chatMemos: string[];
+    chatMemos: (string | null)[];
   } {
     const oaiMessages = selectedIndices.map((index) => ({
       role: "user" as const,

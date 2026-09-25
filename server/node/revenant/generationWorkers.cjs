@@ -311,17 +311,21 @@ function createGenerationWorkers(options) {
                         job.operationContext.operationId,
                         job,
                     ]));
+                    const requestsByOperation = new Map(
+                        (recipe.summaryRequests ?? []).map(request => [request.operationId, request]),
+                    );
                     const summaries = [
                         ...recipe.memory.summaries,
                         ...recipe.expectedOperationIds.filter(operationId =>
-                            recipe.summaryRequests?.find(request => request.operationId === operationId)?.purpose !== 'query',
+                            requestsByOperation.get(operationId)?.purpose !== 'query',
                         ).map(operationId => {
                             const job = byOperation.get(operationId);
+                            const request = requestsByOperation.get(operationId);
                             return {
                                 text: job.projection.content
                                     .replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '')
                                     .trim(),
-                                chatMemos: [...job.operationContext.chatMemos],
+                                chatMemos: [...(request?.chatMemos ?? job.operationContext.chatMemos)],
                                 isImportant: false,
                             };
                         }),

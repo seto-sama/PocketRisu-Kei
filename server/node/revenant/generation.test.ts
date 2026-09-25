@@ -107,6 +107,9 @@ describe('revenant durable dispatch validation', () => {
 
     it('derives a server-owned dispatch group from a validated Hypa batch', () => {
         const normalizedOperation = normalizeRevenantOperationContext('memory', operation)
+        expect(normalizeRevenantOperationContext('memory', {
+            ...operation, chatMemos: [null, 'message-1'],
+        })).toMatchObject({ chatMemos: [null, 'message-1'] })
         expect(normalizeRevenantDispatchPolicy({
             maxConcurrent: 3,
             requestsPerMinute: 20,
@@ -540,14 +543,26 @@ describe('revenant workflow validation', () => {
             randomSeed: 'seed',
         }
         expect(normalizeRevenantHypaExecutionRecipe(recipe)).toEqual(recipe)
+        const firstMessageSummary = {
+            ...recipe,
+            memory: { summaries: [{ text: 'First message', chatMemos: [null], isImportant: false }] },
+        }
+        expect(normalizeRevenantHypaExecutionRecipe(firstMessageSummary)).toEqual(firstMessageSummary)
+        expect(normalizeRevenantHypaExecutionRecipe({
+            ...recipe,
+            memory: { summaries: [{ text: 'Invalid', chatMemos: [123], isImportant: false }] },
+        })).toBeUndefined()
         const planned = {
             ...recipe,
             summaryProvider: { profileSnapshot: {} },
             summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
-            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: ['memo-1'],
+            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: [null, 'memo-1'],
                 prompt: [{ role: 'user', content: 'summarize' }] }],
         }
         expect(normalizeRevenantHypaExecutionRecipe(planned)).toEqual(planned)
+        expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [
+            { ...planned.summaryRequests[0], chatMemos: [123] },
+        ] })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [] })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
             expectedOperationIds: ['operation-1', 'operation-1'],
