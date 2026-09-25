@@ -36,11 +36,6 @@ import {
 } from "../revenant";
 import { createEntityId } from 'src/ts/id';
 import type { PresetTagFields } from "src/ts/preset/tags";
-import {
-    getRevenantHypaExecution,
-    prepareRevenantHypaExecution,
-    waitForRevenantHypaExecution,
-} from "../revenant/workflow";
 
 export interface HypaV3Preset extends PresetTagFields {
     id: string;
@@ -125,21 +120,8 @@ export interface HypaV3Result {
 export interface HypaV3ExecutionOptions {
     /** Placeholder used to pre-register main while server-side selection runs. */
     deferredMemoryPrompt?: string;
-    /** Called when prompt construction must wait for browser-side Lua. */
-    onRemoteSelectionRequiresClient?: () => Promise<void>;
-    workflowId?: string;
     planServerExecution?: boolean;
     signal?: AbortSignal;
-}
-
-interface RevenantHypaSelectionResult {
-    currentTokens: number;
-    memory: SerializableHypaV3Data;
-    chatSequence: Array<{
-        inputIndex?: number;
-        inputMemo?: string;
-        chat?: OpenAIChat;
-    }>;
 }
 
 const logPrefix = "[HypaV3]";
@@ -264,29 +246,20 @@ function planServerHypaSelection(input: {
 
 async function executeDurableHypaBatch<T>(
     tasks: Array<(onRegistered: () => void) => Promise<T>>,
-    onAllRegistered?: () => Promise<boolean|void>,
-    detachAfterRegistration = false,
 ): Promise<{
     results: Array<{ success: boolean; data?: T; error?: Error }>;
-    successCount: number;
-    failureCount: number;
-    allSucceeded: boolean;
-    detached?: boolean;
 }> {
     const running: Promise<{ success: boolean; data?: T; error?: Error }>[] = [];
-    let allRegistered = true;
     // Compile and register each provider envelope in order, but do not wait for
     // its provider response. Once registered, the durable server dispatcher
     // owns concurrency/rate limiting and the next envelope can be submitted.
     for (const task of tasks) {
-        let jobRegistered = false;
         let registrationReleased = false;
         let releaseRegistration!: () => void;
         const registration = new Promise<void>(resolve => {
             releaseRegistration = resolve;
         });
         const markRegistered = () => {
-            jobRegistered = true;
             if (registrationReleased) return;
             registrationReleased = true;
             releaseRegistration();
@@ -304,23 +277,9 @@ async function executeDurableHypaBatch<T>(
         });
         running.push(result);
         await registration;
-        allRegistered &&= jobRegistered;
-    }
-    const canDetach = allRegistered && (await onAllRegistered?.()) !== false;
-    if (detachAfterRegistration && canDetach) {
-        void Promise.all(running);
-        return {
-            results: [],
-            successCount: 0,
-            failureCount: 0,
-            allSucceeded: true,
-            detached: true,
-        };
     }
     const results = await Promise.all(running);
-    const successCount = results.filter(result => result.success).length;
-    const failureCount = results.length - successCount;
-    return { results, successCount, failureCount, allSucceeded: failureCount === 0 };
+    return { results };
 }
 
 function sameMemoSet(left: (string | null)[], right: (string | null)[]): boolean {
@@ -441,24 +400,6 @@ export async function hypaMemoryV3(
     tokenizer: ChatTokenizer,
     options?: HypaV3ExecutionOptions,
 ): Promise<HypaV3Result> {
-    if (options?.workflowId) {
-        const existingExecution = await getRevenantHypaExecution<RevenantHypaSelectionResult>(
-            options.workflowId,
-            options.signal,
-        );
-        if (existingExecution) {
-            const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
-                options.workflowId,
-                options.signal,
-            );
-            room.hypaV3Data = remote.memory;
-            return {
-                currentTokens: remote.currentTokens,
-                chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
-                memory: remote.memory,
-            };
-        }
-    }
     const settings = getCurrentHypaV3Preset().settings;
     if (settings.similarMemoryRatio > 0) {
         const model = getDatabase().hypaModel || DEFAULT_HYPA_MODEL;
@@ -726,94 +667,6 @@ async function hypaMemoryV3MainExp(
     });
     if (serverPlan) return serverPlan;
 
-    let remoteExecutionPrepared = false;
-    const prepareRemoteSelection = async (
-        batchId: string,
-        operationIds: string[],
-    ): Promise<boolean> => {
-        const embeddingModel = db.hypaModel || DEFAULT_HYPA_MODEL;
-        const remoteEmbedding = getRemoteEmbeddingConfig(embeddingModel);
-        const tokenizerSpec = tokenizer.getRevenantSpec();
-        const serverTokenizers = new Set([
-            'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-            'novellist', 'gemma', 'deepseek',
-        ]);
-        if (
-            !options?.workflowId
-            || !remoteEmbedding
-            || !tokenizerSpec.tokenizer
-            || !serverTokenizers.has(tokenizerSpec.tokenizer)
-        ) return false;
-        try {
-            await prepareRevenantHypaExecution(options.workflowId, {
-                schemaVersion: 1,
-                batchId,
-                expectedOperationIds: operationIds,
-                embedding: remoteEmbedding,
-                tokenizer: tokenizerSpec,
-                settings: {
-                    recentMemoryRatio: settings.recentMemoryRatio,
-                    similarMemoryRatio: settings.similarMemoryRatio,
-                    queryChatCount: settings.queryChatCount,
-                    summaryChunkSeparator: settings.summaryChunkSeparator,
-                },
-                memory: toSerializableHypaV3Data(data),
-                chats: chats.map(chat => ({
-                    role: chat.role,
-                    content: chat.content,
-                    ...(chat.name ? { name: chat.name } : {}),
-                    ...(chat.memo ? { memo: chat.memo } : {}),
-                })),
-                startIdx,
-                currentTokens,
-                maxContextTokens,
-                availableMemoryTokens,
-                memoryTokens,
-                shouldReserveMemoryTokens,
-                randomSeed: batchId,
-            });
-            remoteExecutionPrepared = true;
-            if (!options.deferredMemoryPrompt) {
-                await options.onRemoteSelectionRequiresClient?.();
-            }
-        }
-        catch (error) {
-            console.warn(`${logPrefix} Server selection unavailable; using client:`, error);
-        }
-        return remoteExecutionPrepared;
-    };
-    const consumeRemoteSelection = async (): Promise<HypaV3Result> => {
-        const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
-            options.workflowId,
-            options.signal,
-        );
-        room.hypaV3Data = remote.memory;
-        return {
-            currentTokens: remote.currentTokens,
-            chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
-            memory: remote.memory,
-        };
-    };
-    const deferredRemoteSelection = (): HypaV3Result => {
-        const deferredMemoryPrompt = options?.deferredMemoryPrompt;
-        if (!deferredMemoryPrompt) {
-            throw new Error('Deferred Hypa selection requires a memory placeholder');
-        }
-        return {
-            currentTokens,
-            chats: [
-                {
-                    role: 'system',
-                    content: deferredMemoryPrompt,
-                    memo: 'supaMemory',
-                },
-                ...chats.slice(startIdx),
-            ],
-            memory: toSerializableHypaV3Data(data),
-            deferredRemoteSelection: true,
-        };
-    };
-
     // Process all collected summarization tasks
     if (toSummarizeArray.length > 0) {
         // Initialize rate limiter
@@ -858,10 +711,6 @@ async function hypaMemoryV3MainExp(
                 },
             })
         );
-        const prepareRemoteExecution = useDurableDispatch
-            ? () => prepareRemoteSelection(batchId, operationIds)
-            : undefined;
-
         // Start of performance measurement: summarize
         console.log(
             logPrefix,
@@ -870,11 +719,7 @@ async function hypaMemoryV3MainExp(
         const summarizeStartTime = performance.now();
 
         const batchResult = useDurableDispatch
-            ? await executeDurableHypaBatch<string>(
-                summarizationTasks,
-                prepareRemoteExecution,
-                !!options?.deferredMemoryPrompt,
-            )
+            ? await executeDurableHypaBatch<string>(summarizationTasks)
             : await rateLimiter.executeBatch<string>(
                 summarizationTasks.map(task => () => task())
             );
@@ -892,27 +737,6 @@ async function hypaMemoryV3MainExp(
             msg: "",
             subMsg: "",
         });
-
-        if (
-            remoteExecutionPrepared
-            && 'detached' in batchResult
-            && batchResult.detached
-        ) {
-            return deferredRemoteSelection();
-        }
-
-        if (remoteExecutionPrepared) {
-            const failed = batchResult.results.find(result => !result.success || !result.data);
-            if (failed) {
-                return {
-                    currentTokens,
-                    chats,
-                    error: `${logPrefix} Summarization failed: ${failed.error || 'Empty summary returned'}`,
-                    memory: toSerializableHypaV3Data(data),
-                };
-            }
-            return consumeRemoteSelection();
-        }
 
         // Note:
         // We can't save some successful summaries to the DB temporarily
@@ -948,14 +772,6 @@ async function hypaMemoryV3MainExp(
         }
         room.hypaV3Data = toSerializableHypaV3Data(data);
         await recoverHypaV3SummaryJobs(char, room);
-    }
-
-    if (toSummarizeArray.length === 0 && data.summaries.length > 0) {
-        await prepareRemoteSelection(createEntityId(), []);
-        if (remoteExecutionPrepared) {
-            if (options?.deferredMemoryPrompt) return deferredRemoteSelection();
-            return consumeRemoteSelection();
-        }
     }
 
     console.log(

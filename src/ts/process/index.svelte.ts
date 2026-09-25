@@ -23,7 +23,7 @@ import { runInlayScreen } from "./inlayScreen";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
-import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
+import { type RevenantChatWorkflowContext, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
 import {
     cancelRevenantGeneration,
@@ -67,7 +67,6 @@ import {
     createChatCommitSnapshot,
     fetchChatFromServer,
     getChatServerEtag,
-    saveChatToServer,
     setChatServerEtag,
 } from "../storage/chatStorage";
 import {
@@ -153,47 +152,6 @@ export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
 export let previewFormated:OpenAIChat[] = []
 export let previewBody:string = ''
 
-function isAdditionalSysPrompt(value:unknown):value is additonalSysPrompt{
-    if(!value || typeof value !== 'object' || Array.isArray(value)) return false
-    const candidate = value as Partial<additonalSysPrompt>
-    return typeof candidate.start === 'string'
-        && typeof candidate.historyend === 'string'
-        && typeof candidate.promptend === 'string'
-}
-
-function isOpenAIChatCheckpoint(value:unknown):value is OpenAIChat{
-    if(!value || typeof value !== 'object' || Array.isArray(value)) return false
-    const candidate = value as Partial<OpenAIChat>
-    return ['system', 'user', 'assistant', 'function'].includes(candidate.role ?? '')
-        && typeof candidate.content === 'string'
-}
-
-function restoreHypaChatCheckpoint(
-    value:unknown,
-    inputChats:OpenAIChat[],
-):OpenAIChat[]|undefined{
-    if(!Array.isArray(value)) return undefined
-    const restored:OpenAIChat[] = []
-    for(const entry of value){
-        if(!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined
-        const checkpoint = entry as { inputIndex?:unknown, inputMemo?:unknown, chat?:unknown }
-        if(Number.isInteger(checkpoint.inputIndex)){
-            const chat = inputChats[checkpoint.inputIndex as number]
-            if(!chat) return undefined
-            if(
-                checkpoint.inputMemo !== undefined
-                && checkpoint.inputMemo !== chat.memo
-            ) return undefined
-            restored.push(chat)
-        }
-        else if(isOpenAIChatCheckpoint(checkpoint.chat)){
-            restored.push(structuredClone(checkpoint.chat))
-        }
-        else return undefined
-    }
-    return restored
-}
-
 export async function sendChat(chatProcessIndex = -1,arg:{
     chatAdditonalTokens?:number,
     signal?:AbortSignal,
@@ -214,10 +172,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         characterId: string
         roomId: string
     }
-    revenantResume?: {
-        workflow: RevenantWorkflow
-        context: RevenantWorkflowResumeContext
-    }
 } = {}):Promise<boolean> {
 
     chatProcessStage.set(0)
@@ -227,15 +181,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let selectedChat = -1
     let currentChar:character
     let generationInfo:MessageGenerationInfo|undefined = undefined
-    const resumeWorkflow = arg.revenantResume?.workflow
-    const isContinuation = arg.revenantResume?.context.continue ?? arg.continue === true
-    const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
+    const isContinuation = arg.continue === true
+    const rerollSnapshot = arg.rerollSnapshot
     let workflowSession: ChatGenerationSession
     let revenantMainDependency:RevenantWorkflowDependency|undefined
     let plannedHypaExecution:Record<string, unknown>|undefined
     let revenantMainBackend:'http'|'plugin'|'echo'|undefined
-    let revenantMainJobCreated = (resumeWorkflow?.steps
-        .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
+    let revenantMainJobCreated = false
     let revenantMainJobId:string|undefined
     let revenantMainRegistrationError:unknown
     let generationDetached = false
@@ -438,11 +390,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    function wasWorkflowStepCompleted(stepKey:string):boolean{
-        const status = resumeWorkflow?.steps.find(step => step.key === stepKey)?.status
-        return status === 'completed' || status === 'skipped'
-    }
-
     let isDoing = get(doingChat)
 
     // `doingChat` is a legacy process-wide activity signal. A UI submission
@@ -488,13 +435,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return v
     })
 
-    const messageChatId = arg.revenantResume?.context.messageChatId
-        ?? arg.messageChatId
-        ?? createEntityId()
+    const messageChatId = arg.messageChatId ?? createEntityId()
     const outgoingChat = nowChatroom.chats[selectedChat]
     workflowSession = createChatGenerationSession(
         { characterId: nowChatroom.chaId, roomId: outgoingChat.id },
-        resumeWorkflow?.workflowId,
     )
     const durableInputCommit = arg.durableInputCommit ?? createChatCommitSnapshot(
         nowChatroom.chaId,
@@ -554,46 +498,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
         return { character, chat, ...target }
     }
-    if (resumeWorkflow && rerollSnapshot) {
-        const targetIndex = rerollSnapshot.targetIndex
-        const targetChatId = rerollSnapshot.targetMessage.chatId
-        const currentTarget = outgoingChat.message[targetIndex]
-        if (
-            Number.isInteger(targetIndex)
-            && targetIndex >= 0
-            && currentTarget
-            && (
-                currentTarget.chatId === messageChatId
-                || !targetChatId
-                || currentTarget.chatId === targetChatId
-            )
-        ) {
-            // Reroll removes the previous assistant turn and trailing comments
-            // before prompt construction. Recreate that transient input shape
-            // when the persisted chat still contains the old branch.
-            outgoingChat.message = outgoingChat.message.slice(0, targetIndex)
-        }
-    }
-    else if (resumeWorkflow && !isContinuation) {
-        // A page can disappear in the tiny interval after adding the assistant
-        // placeholder but before the server accepts the main job. It is output
-        // state, not prompt input, so remove it before rebuilding the request.
-        outgoingChat.message = outgoingChat.message.filter(message =>
-            message?.chatId !== messageChatId)
-    }
     const outgoingMessage = outgoingChat.message[outgoingChat.message.length - 1]
-    if(
-        resumeWorkflow
-        && (resumeWorkflow.characterId !== nowChatroom.chaId || resumeWorkflow.roomId !== outgoingChat.id)
-    ){
-        alertError('The recoverable generation workflow does not belong to the active chat.')
-        doingChat.set(false)
-        return false
-    }
-    const resumeHypaStep = resumeWorkflow?.steps.find(step => step.key === 'memory.hypav3')
-    const hypaEnabled = resumeWorkflow
-        ? !!resumeHypaStep && resumeHypaStep.status !== 'skipped'
-        : !!((outgoingChat.supaMemory ?? nowChatroom.supaMemory) && DBState.db.hypaV3)
+    const hypaEnabled = !!((outgoingChat.supaMemory ?? nowChatroom.supaMemory) && DBState.db.hypaV3)
     const claimBinding = resolveChatModelBinding(outgoingChat, 'model')
     const generationModelMetadata = getModelPresetMetadata(
         claimBinding.kind === 'modelPreset' ? claimBinding.preset : undefined,
@@ -604,7 +510,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         || generationModelMetadata.format === 'anthropic-messages'
         || generationModelMetadata.format === 'amazon-bedrock'
     let compiledMainPreset:CompiledModelPreset|undefined
-    if(!resumeWorkflow && !arg.preview && !arg.previewPrompt && claimBinding.kind === 'modelPreset'){
+    if(!arg.preview && !arg.previewPrompt && claimBinding.kind === 'modelPreset'){
         try{
             const effectiveMainPreset = applyPromptPresetParams(
                 claimBinding.preset,
@@ -621,18 +527,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             alertError(message)
             doingChat.set(false)
             return false
-        }
-    }
-    else if (resumeWorkflow && claimBinding.kind === 'modelPreset') {
-        try {
-            revenantMainBackend = compileModelPreset(claimBinding.preset, {
-                jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
-            }).backend
-        }
-        catch {
-            // The ordinary request path reports the actionable preset compile
-            // error. Backend knowledge is only needed to wait for a lazy HTTP
-            // stream to reach durable registration.
         }
     }
     let promptInfo: MessagePresetInfo = {}
@@ -1219,51 +1113,23 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     
     console.log('Prepared messages for token calculation:', ms)
 
-    const storedTriggerMetadata = resumeWorkflow?.steps
-        .find(step => step.key === 'trigger.start')?.metadata
-    const storedAdditionalPrompt = storedTriggerMetadata?.additionalSysPrompt
-    let triggerAdditionalSysPrompt:additonalSysPrompt|undefined =
-        isAdditionalSysPrompt(storedAdditionalPrompt)
-            ? storedAdditionalPrompt
-            : undefined
-    if(!wasWorkflowStepCompleted('trigger.start')){
-        await setWorkflowStep('trigger.start', 'running')
-        const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
-        if(triggerResult){
-            currentChat = triggerResult.chat
-            // Generation owns the room captured at submission time. The user
-            // may switch rooms while this trigger is awaiting; setCurrentChat
-            // would then overwrite the newly selected room and make navigation
-            // appear to snap back to the generating chat.
-            DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(currentChat)
-            ms = makeMs(currentChat)
-            currentTokens += triggerResult.tokens
-            triggerAdditionalSysPrompt = triggerResult.additonalSysPrompt
-            if(workflowSession.workflowId){
-                await saveChatToServer(
-                    nowChatroom.chaId,
-                    selectedChat,
-                    outgoingChat.id,
-                    currentChat,
-                )
-            }
-            if(triggerResult.stopSending){
-                await setWorkflowStep('trigger.start', 'completed', {
-                    additionalSysPrompt: triggerAdditionalSysPrompt,
-                    tokens: triggerResult.tokens,
-                })
-                await finishWorkflow('cancelled')
-                doingChat.set(false)
-                return false
-            }
+    let triggerAdditionalSysPrompt:additonalSysPrompt|undefined
+    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
+    if(triggerResult){
+        currentChat = triggerResult.chat
+        // Generation owns the room captured at submission time. The user
+        // may switch rooms while this trigger is awaiting; setCurrentChat
+        // would then overwrite the newly selected room and make navigation
+        // appear to snap back to the generating chat.
+        DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(currentChat)
+        ms = makeMs(currentChat)
+        currentTokens += triggerResult.tokens
+        triggerAdditionalSysPrompt = triggerResult.additonalSysPrompt
+        if(triggerResult.stopSending){
+            await finishWorkflow('cancelled')
+            doingChat.set(false)
+            return false
         }
-        await setWorkflowStep('trigger.start', 'completed', {
-            additionalSysPrompt: triggerAdditionalSysPrompt,
-            tokens: triggerResult?.tokens ?? 0,
-        })
-    }
-    else if(typeof storedTriggerMetadata?.tokens === 'number'){
-        currentTokens += storedTriggerMetadata.tokens
     }
 
     let index = 0
@@ -1416,102 +1282,51 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     
     if(hypaEnabled){
-        const hypaStep = resumeHypaStep
-        const checkpointSequence = hypaStep?.metadata?.chatSequence
-        const checkpointTokens = hypaStep?.metadata?.currentTokens
-        const restoredCheckpointChats = hypaStep?.status === 'completed'
-            ? restoreHypaChatCheckpoint(checkpointSequence, chats)
-            : undefined
-        const hasHypaCheckpoint = hypaStep?.status === 'completed'
-            && restoredCheckpointChats !== undefined
-            && typeof checkpointTokens === 'number'
-            && Number.isFinite(checkpointTokens)
-        if(hasHypaCheckpoint){
-            chats = restoredCheckpointChats
-            currentTokens = checkpointTokens
-            const checkpointMemory = hypaStep?.metadata?.hypaMemory
-            if (
-                checkpointMemory
-                && typeof checkpointMemory === 'object'
-                && Array.isArray((checkpointMemory as { summaries?: unknown }).summaries)
-            ) {
-                currentChat.hypaV3Data = structuredClone(
-                    checkpointMemory as unknown as SerializableHypaV3Data,
-                )
+        stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
+        chatProcessStage.set(2)
+        stageTimings.stage2Start = Date.now()
+        console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        const sp = await hypaMemoryV3(
+            chats,
+            currentTokens,
+            maxContextTokens,
+            currentChat,
+            nowChatroom,
+            tokenizer,
+            {
+                planServerExecution: !!compiledMainPreset,
+                signal: abortSignal,
+                deferredMemoryPrompt: deferredHypaMemoryPrompt,
+            },
+        )
+        if(sp.error){
+            // Save new summary
+            if (sp.memory) {
+                currentChat.hypaV3Data = sp.memory
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
             }
+            console.log(sp)
+            if(abortSignal.aborted) return finishCancelledGeneration()
+            throwError(sp.error)
+            await finishWorkflow('failed')
+            return false
         }
-        else{
-            await setWorkflowStep('memory.hypav3', 'running')
-            stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
-            chatProcessStage.set(2)
-            stageTimings.stage2Start = Date.now()
-            console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
-            const hypaInputChats = chats
-            const sp = await hypaMemoryV3(
-                hypaInputChats,
-                currentTokens,
-                maxContextTokens,
-                currentChat,
-                nowChatroom,
-                tokenizer,
-                {
-                    workflowId: workflowSession.workflowId,
-                    planServerExecution: !resumeWorkflow && !!compiledMainPreset,
-                    signal: abortSignal,
-                    deferredMemoryPrompt: deferredHypaMemoryPrompt,
-                    onRemoteSelectionRequiresClient: hasEditRequestLua
-                        ? async () => {
-                            await setWorkflowStep('prompt.build', 'waiting_client', {
-                                checkpoint: 'editRequest.lua',
-                                reason: 'lua_edit_request',
-                            })
-                        }
-                        : undefined,
-                },
-            )
-            if(sp.error){
-                // Save new summary
-                if (sp.memory) {
-                    currentChat.hypaV3Data = sp.memory
-                    DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
-                }
-                console.log(sp)
-                if(abortSignal.aborted) return finishCancelledGeneration()
-                throwError(sp.error)
-                await setWorkflowStep('memory.hypav3', 'failed')
-                await finishWorkflow('failed')
-                return false
+        plannedHypaExecution = sp.serverExecution
+        chats = sp.chats
+        currentTokens = sp.currentTokens
+        if(sp.deferredRemoteSelection && deferredHypaMemoryPrompt){
+            revenantMainDependency = {
+                kind: 'hypav3-selection',
+                placeholder: deferredHypaMemoryPrompt,
             }
-            plannedHypaExecution = sp.serverExecution
-            chats = sp.chats
-            currentTokens = sp.currentTokens
-            if(sp.deferredRemoteSelection && deferredHypaMemoryPrompt){
-                revenantMainDependency = {
-                    kind: 'hypav3-selection',
-                    placeholder: deferredHypaMemoryPrompt,
-                }
-            }
-            currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
-            DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+        }
+        currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
+        DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
-            currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
-            console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
-            stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
-            if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
-            if(!sp.deferredRemoteSelection){
-                await setWorkflowStep('memory.hypav3', 'completed', {
-                    chatSequence: chats.map(chat => {
-                        const inputIndex = hypaInputChats.findIndex(input =>
-                            input === chat || (!!chat.memo && input.memo === chat.memo))
-                        return inputIndex >= 0
-                            ? { inputIndex, inputMemo: chat.memo }
-                            : { chat: structuredClone(chat) }
-                    }),
-                    currentTokens,
-                })
-            }
-        }
+        currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
+        console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
+        if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
     }
     else{
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
@@ -1854,11 +1669,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return true
     }
 
-    await setWorkflowStep('prompt.build', 'completed')
-
     if (
-        !resumeWorkflow
-        && !arg.previewPrompt
+        !arg.previewPrompt
         && compiledMainPreset
     ) {
         try {

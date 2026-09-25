@@ -41,8 +41,8 @@ describe('chat generation session', () => {
     it('owns workflow step updates and terminal handoff', async () => {
         const session = createChatGenerationSession(
             { characterId: 'character-1', roomId: 'room-1' },
-            'workflow-1',
         )
+        session.adopt('workflow-1')
 
         await session.setStep('model.main', 'running')
         await session.finish('cancelled')

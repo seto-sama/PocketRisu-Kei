@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHypaV3Preset, hypaMemoryV3 } from './hypav3'
 import { requestChatData } from '../request/request'
-import { prepareRevenantHypaExecution } from '../revenant/workflow'
 
 const state = vi.hoisted(() => ({ db: {} as any }))
 vi.mock('src/ts/storage/database.svelte', () => ({ getDatabase: () => state.db, getCurrentCharacter: () => null }))
@@ -19,9 +18,6 @@ vi.mock('src/ts/stores.svelte', () => ({ hypaV3ProgressStore: { set: vi.fn() } }
 vi.mock('src/ts/storage/chatStorage', () => ({ saveChatToServer: vi.fn() }))
 vi.mock('../revenant/auxiliary', () => ({ resolveRecoverableAuxiliaryGenerations: async () => [], consumeRecoverableAuxiliaryGeneration: vi.fn() }))
 vi.mock('../revenant', () => ({ createRevenantOperation: (value: unknown) => value, isRevenantHypaV3SummaryOperation: () => true }))
-vi.mock('../revenant/workflow', () => ({
-    getRevenantHypaExecution: async () => null, prepareRevenantHypaExecution: vi.fn(), waitForRevenantHypaExecution: vi.fn(),
-}))
 vi.mock('./hypamemory', () => ({ HypaProcesser: class {} }))
 vi.mock('./hypamemoryv2', () => ({ HypaProcessorV2: class {} }))
 vi.mock('./contextualEmbedding', () => ({ isContextModel: () => true, getContextProvider: vi.fn() }))
@@ -62,6 +58,5 @@ describe('Hypa planning before durable main registration', () => {
         expect(requests[0].chatMemos).toEqual([null, 'memo-0'])
         expect(result.chats[0]).toMatchObject({ memo: 'supaMemory', content: '__memory__' })
         expect(requestChatData).not.toHaveBeenCalled()
-        expect(prepareRevenantHypaExecution).not.toHaveBeenCalled()
     })
 })

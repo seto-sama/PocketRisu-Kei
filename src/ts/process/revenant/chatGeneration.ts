@@ -20,9 +20,8 @@ export type ChatGenerationTarget = {
 /** Owns the workflow id and its command-side terminal transition. */
 export function createChatGenerationSession(
     target: ChatGenerationTarget,
-    initialWorkflowId?: string,
 ) {
-    let workflowId = initialWorkflowId
+    let workflowId: string | undefined
 
     return {
         get workflowId() {

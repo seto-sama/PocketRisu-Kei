@@ -524,6 +524,10 @@ describe('revenant workflow validation', () => {
             schemaVersion: 1,
             batchId: 'batch-1',
             expectedOperationIds: ['operation-1'],
+            summaryProvider: { profileSnapshot: {} },
+            summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
+            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: [null, 'memo-1'],
+                prompt: [{ role: 'user', content: 'summarize' }] }],
             embedding: { model: 'openai3small', apiKey: 'secret' },
             tokenizer: { tokenizer: 'tik', chatAdditionalTokens: 3, useName: 'name' },
             settings: {
@@ -552,23 +556,19 @@ describe('revenant workflow validation', () => {
             ...recipe,
             memory: { summaries: [{ text: 'Invalid', chatMemos: [123], isImportant: false }] },
         })).toBeUndefined()
-        const planned = {
-            ...recipe,
-            summaryProvider: { profileSnapshot: {} },
-            summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
-            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: [null, 'memo-1'],
-                prompt: [{ role: 'user', content: 'summarize' }] }],
-        }
-        expect(normalizeRevenantHypaExecutionRecipe(planned)).toEqual(planned)
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [
-            { ...planned.summaryRequests[0], chatMemos: [123] },
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: undefined })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
+            expectedOperationIds: [], summaryRequests: [],
+        })).toMatchObject({ summaryRequests: [] })
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [
+            { ...recipe.summaryRequests[0], chatMemos: [123] },
         ] })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [] })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [] })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
             expectedOperationIds: ['operation-1', 'operation-1'],
-            summaryRequests: [planned.summaryRequests[0], planned.summaryRequests[0]],
+            summaryRequests: [recipe.summaryRequests[0], recipe.summaryRequests[0]],
         })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
             summaryDispatch: { maxConcurrent: 40, requestsPerMinute: 20 },
         })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({
