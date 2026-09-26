@@ -41,9 +41,12 @@
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
+    import { initializePwaInstall } from './ts/pwaInstall.svelte'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
+
+    $effect(() => initializePwaInstall())
 
     function openCharacterGrid() {
         gridOpen = true

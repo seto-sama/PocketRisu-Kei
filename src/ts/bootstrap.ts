@@ -176,15 +176,6 @@ export async function loadData() {
             try {
                 await loadPlugins()
             } catch (error) { }
-            try {
-                //@ts-expect-error navigator.standalone is iOS Safari non-standard property, not in Navigator interface
-                const isInStandaloneMode = (window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone) || document.referrer.includes('android-app://');
-                if (isInStandaloneMode) {
-                    await navigator.storage.persist()
-                }
-            } catch (error) {
-
-            }
             LoadingStatusState.text = "Checking For Format Update..."
             await checkNewFormat()
 

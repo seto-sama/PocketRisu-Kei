@@ -1221,14 +1221,7 @@ export const languageKorean = {
     "모듈을 이 채팅 한정으로 활성화/비활성화합니다. 우클릭 또는 길게 눌러 캐릭터 한정으로 활성화/비활성화할 수 있습니다.",
   personaModuleBinding: "페르소나 연동 설정",
   sideMenuRerollButton: "햄버거 메뉴 리롤 버튼",
-  persistentStorage: "영구 저장소",
-  persistentStorageSuccess: "저장소가 영구적으로 설정되었습니다.",
-  persistentStorageFail:
-    "저장소 설정에 실패했습니다. 브라우저에서 거부되었을 수 있습니다.",
-  persistentStorageRecommended: "영구 저장소 권장됨",
   unsupportedFileType: "지원하지 않는 파일 형식입니다",
-  persistentStorageDesc:
-    "당신의 브라우저는 영구 저장소를 지원합니다. 이 기능을 활성화하면, 데이터가 브라우저에 더 오래 남습니다.",
   enable: "활성화",
   postFile: "파일 업로드",
   requestInfoInsideChat: "채팅 내부에서 요청 정보 보이기",
@@ -2201,6 +2194,9 @@ export const languageKorean = {
     "원격 접속을 닫거나 서버를 종료/재시작하면 링크가 만료되며, 다시 연결하면 새로운 링크가 생성됩니다. 이 페이지나 브라우저를 닫아도 원격 접속은 유지됩니다.",
   remoteAccessTermuxWarning:
     "Termux 환경에서는 Cloudflare Quick Tunnel을 사용할 수 없습니다. Tailscale 등 다른 원격 접속 도구를 사용해 주세요.",
+  appInstall: "앱 설치",
+  appInstallDesc: "PocketRisu Kei를 PWA 애플리케이션 형태로 설치할 수 있습니다.",
+  appInstallAction: "앱 설치",
 
   // 비보안(HTTP) 접속 안내
   httpInsecureWarningTitle: "HTTP로 접속 중",

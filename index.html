@@ -35,6 +35,12 @@
               document.documentElement.style.setProperty(property, value);
             }
           }
+          if (typeof cachedTheme.lightbg === 'string' && CSS.supports('color', cachedTheme.lightbg)) {
+            const themeColor = document.createElement('meta');
+            themeColor.name = 'theme-color';
+            themeColor.content = cachedTheme.lightbg;
+            document.head.append(themeColor);
+          }
         }
       } catch (_) {
         // Storage can be unavailable or contain an obsolete value. In that case

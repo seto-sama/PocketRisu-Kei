@@ -1151,12 +1151,7 @@ export const languageEnglish = {
     chatModulesInfo: "You can enable or disable modules for this chat. You can also enable for this character by right clicking or long pressing the enable button.",
     personaModuleBinding: "Persona Module Binding",
     sideMenuRerollButton: "Side Menu Reroll Button",
-    persistentStorage: "Persistent Storage",
-    persistentStorageSuccess: "Storage is successfully persisted",
-    persistentStorageFail: "Storage is not persisted. Did you deny the request?, or is the browser not supported?",
-    persistentStorageRecommended: "Persistent Storage Recommended",
     unsupportedFileType: "Unsupported file type",
-    persistentStorageDesc: "Your browser supports persistent storage. this is recommended for better performance and user experience.",
     enable: "Enable",
     postFile: "Post File",
     requestInfoInsideChat: "Show Request Info Inside Chat",
@@ -2048,6 +2043,9 @@ export const languageEnglish = {
     remoteAccessWarning: "Never share the QR code or link with others. Anyone with the link can freely access your server. If accidentally shared, close the connection and create a new one.",
     remoteAccessInfo: "The link expires when you close remote access or restart the server. A new link is generated each time. The connection stays active even if you close this page or browser.",
     remoteAccessTermuxWarning: "Cloudflare Quick Tunnel does not work on Termux. Use Tailscale or another remote access tool instead.",
+    appInstall: "App Installation",
+    appInstallDesc: "Install PocketRisu Kei as an application.",
+    appInstallAction: "Install App",
 
     // Insecure (HTTP) connection warning
     httpInsecureWarningTitle: "Connected over HTTP",

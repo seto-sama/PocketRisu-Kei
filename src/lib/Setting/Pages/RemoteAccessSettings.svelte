@@ -12,6 +12,7 @@
     import { LoaderCircleIcon, CopyIcon, CheckIcon, DownloadIcon, TriangleAlertIcon, InfoIcon, MonitorIcon, SmartphoneIcon } from "@lucide/svelte";
     import QRCode from "qrcode";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
+    import { pwaInstallState, requestPwaInstall } from "src/ts/pwaInstall.svelte";
 
     type ActiveDevice = {
         id: string;
@@ -267,4 +268,21 @@
         </div>
     {/if}
 </SettingLayout>
+
+{#if pwaInstallState.canInstall}
+    <SettingLayout variant="panel">
+        <div class="flex items-center gap-2 text-maintext mb-3">
+            <DownloadIcon size={16} />
+            <span class="font-medium">{language.appInstall}</span>
+        </div>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.appInstallDesc}</p>
+
+        <div class="flex justify-end">
+            <Button variant="outline" onclick={requestPwaInstall}>
+                <DownloadIcon />
+                {language.appInstallAction}
+            </Button>
+        </div>
+    </SettingLayout>
+{/if}
 </SettingPage>
