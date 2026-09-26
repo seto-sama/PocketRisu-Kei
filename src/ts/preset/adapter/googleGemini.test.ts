@@ -646,7 +646,7 @@ describe('streamGoogleChatRequest', () => {
 
     test('classifies HTTP 429 before streaming starts', async () => {
         const { fetchImpl } = captureFetch(
-            jsonResponse({ error: { message: 'limited' } }, { status: 429 }),
+            jsonResponse({ error: { message: 'Rate limit exceeded' } }, { status: 429 }),
         )
         const gen = streamGoogleChatRequest(
             makePreset(),

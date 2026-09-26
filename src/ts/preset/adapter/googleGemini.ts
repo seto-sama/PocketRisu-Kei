@@ -2,7 +2,7 @@ import { beginGeminiCacheTurn, type GeminiCacheTurn } from '../cache/geminiCache
 import type { ModelPreset } from '../types'
 import {
     ModelPresetAdapterError,
-    extractErrorMessage,
+    extractErrorDetails,
     normalizeFetchError,
     normalizeHttpStatus,
     parseRetryAfterMs,
@@ -521,11 +521,14 @@ async function deriveHttpError(response: Response): Promise<ModelPresetAdapterEr
     } catch {
         // ignore body read failures
     }
-    const message = extractErrorMessage(bodyText) ?? `HTTP ${response.status}`
-    return normalizeHttpStatus(response.status, message, {
+    const error = extractErrorDetails(bodyText)
+    return normalizeHttpStatus(response.status, error.message ?? undefined, {
         retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+        providerCode: error.code,
     })
-        ?? new ModelPresetAdapterError('unknown', message, { status: response.status })
+        ?? new ModelPresetAdapterError('unknown', error.message ?? `HTTP ${response.status}`, {
+            status: response.status,
+        })
 }
 
 export function parseGeminiResponse(raw: unknown): AdapterChatResponse {

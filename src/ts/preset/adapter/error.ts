@@ -8,6 +8,27 @@ export interface AdapterErrorOptions {
     cause?: unknown
 }
 
+interface HttpErrorNormalizationOptions extends Pick<AdapterErrorOptions, 'retryAfterMs'> {
+    providerCode?: string
+}
+
+const RETRYABLE_RATE_LIMIT_CODES = new Set([
+    'overloadederror',
+    'ratelimitexceeded',
+    'requestrateexceeded',
+    'throttled',
+    'throttlingexception',
+    'toomanyrequests',
+])
+const RETRYABLE_RATE_LIMIT_MESSAGE_PATTERN = /(?:\bhttp\s+(?:429|503|529)\b|too[\s_-]*many[\s_-]*requests|rate[\s_-]*limit|throttl(?:e|ed|ing)|overload(?:ed)?|\b(?:rpm|tpm)\b|requests?\s+per\s+(?:second|minute)|tokens?\s+per\s+minute|capacity.{0,24}(?:temporar|exceed|unavailable))/i
+
+function isRetryableRateLimitSignal(message: string, providerCode?: string): boolean {
+    const hasRetryableCode = providerCode?.split(/\s+/u).some((code) => (
+        RETRYABLE_RATE_LIMIT_CODES.has(code.toLowerCase().replace(/[^a-z0-9]+/gu, ''))
+    )) ?? false
+    return hasRetryableCode || RETRYABLE_RATE_LIMIT_MESSAGE_PATTERN.test(message)
+}
+
 export class ModelPresetAdapterError extends Error {
     readonly kind: AdapterErrorKind
     readonly status?: number
@@ -69,6 +90,21 @@ export function defaultFallbackEligible(kind: AdapterErrorKind): boolean {
     }
 }
 
+function isRetryableRateLimitError(
+    message: string | undefined,
+    providerCode: string | undefined,
+    retryAfterMs: number | undefined,
+): boolean {
+    const resolvedMessage = message ?? ''
+    // Some OpenAI-compatible providers return only an HTTP 429. With no
+    // contradictory provider detail, treat the HTTP status itself as a
+    // transient request-rate signal.
+    const normalizedProviderCode = providerCode?.trim()
+    if (message === undefined && (!normalizedProviderCode || normalizedProviderCode === '429')) return true
+    if (retryAfterMs !== undefined) return true
+    return isRetryableRateLimitSignal(resolvedMessage, providerCode)
+}
+
 export function normalizeFetchError(err: unknown): ModelPresetAdapterError {
     if (err instanceof ModelPresetAdapterError) return err
     if (err instanceof Error) {
@@ -97,74 +133,104 @@ export function normalizeFetchError(err: unknown): ModelPresetAdapterError {
  * payload is not JSON, or `null` if JSON parsed but no known field matched.
  */
 export function extractErrorMessage(bodyText: string): string | null {
-    if (!bodyText) return null
+    return extractErrorDetails(bodyText).message
+}
+
+interface ExtractedErrorDetails {
+    message: string | null
+    code?: string
+}
+
+export function extractErrorDetails(bodyText: string): ExtractedErrorDetails {
+    if (!bodyText) return { message: null }
     try {
         const parsed = JSON.parse(bodyText) as {
-            error?: { message?: unknown } | unknown
+            error?: { message?: unknown; code?: unknown; type?: unknown } | unknown
             message?: unknown
+            code?: unknown
+            type?: unknown
+            status?: unknown
             error_description?: unknown
         }
+        const nested = typeof parsed?.error === 'object' && parsed.error !== null
+            ? parsed.error as { message?: unknown; code?: unknown; type?: unknown }
+            : undefined
+        const rawCode = [nested?.code, nested?.type, parsed?.code, parsed?.type, parsed?.status]
+            .find(value => typeof value === 'string' || typeof value === 'number')
+        const code = rawCode === undefined ? {} : { code: String(rawCode) }
         if (
-            typeof parsed?.error === 'object'
-            && parsed.error !== null
-            && typeof (parsed.error as { message?: unknown }).message === 'string'
+            nested
+            && typeof nested.message === 'string'
         ) {
-            return (parsed.error as { message: string }).message
+            return { message: nested.message, ...code }
         }
-        if (typeof parsed?.message === 'string') return parsed.message
+        if (typeof parsed?.message === 'string') return { message: parsed.message, ...code }
         if (typeof parsed?.error_description === 'string') {
             // Google OAuth: include the error code alongside the description
             // when both are present, so the caller sees both `invalid_grant`
             // and the human-readable reason.
             if (typeof parsed.error === 'string') {
-                return `${parsed.error}: ${parsed.error_description}`
+                return {
+                    message: `${parsed.error}: ${parsed.error_description}`,
+                    code: parsed.error,
+                }
             }
-            return parsed.error_description
+            return { message: parsed.error_description, ...code }
         }
-        if (typeof parsed?.error === 'string') return parsed.error
+        if (typeof parsed?.error === 'string') return { message: parsed.error, code: parsed.error }
+        return { message: null, ...code }
     } catch {
-        return bodyText.slice(0, 200)
+        return { message: bodyText.slice(0, 200) }
     }
-    return null
 }
 
 export function normalizeHttpStatus(
     status: number,
     message?: string,
-    options: Pick<AdapterErrorOptions, 'retryAfterMs'> = {},
+    options: HttpErrorNormalizationOptions = {},
 ): ModelPresetAdapterError | null {
+    const { providerCode, ...errorOptions } = options
     if (status >= 200 && status < 300) return null
     if (status === 401 || status === 403) {
         return new ModelPresetAdapterError('auth', message ?? `HTTP ${status}`, {
             status,
-            ...options,
+            ...errorOptions,
             retryable: false,
         })
     }
     if (status === 404) {
         return new ModelPresetAdapterError('not-found', message ?? `HTTP ${status}`, {
             status,
-            ...options,
+            ...errorOptions,
             retryable: false,
         })
     }
     if (status === 408) {
-        return new ModelPresetAdapterError('timeout', message ?? `HTTP ${status}`, { status, ...options })
+        return new ModelPresetAdapterError('timeout', message ?? `HTTP ${status}`, { status, ...errorOptions })
     }
     if (status === 429) {
-        return new ModelPresetAdapterError('rate-limit', message ?? `HTTP ${status}`, { status, ...options })
+        const resolvedMessage = message ?? `HTTP ${status}`
+        return new ModelPresetAdapterError('rate-limit', resolvedMessage, {
+            status,
+            ...errorOptions,
+            retryable: isRetryableRateLimitError(
+                message,
+                providerCode,
+                errorOptions.retryAfterMs,
+            ),
+        })
     }
     if (status >= 400 && status < 500) {
         return new ModelPresetAdapterError('invalid-request', message ?? `HTTP ${status}`, {
             status,
-            ...options,
+            ...errorOptions,
             retryable: false,
         })
     }
     if (status >= 500 && status < 600) {
-        return new ModelPresetAdapterError('server', message ?? `HTTP ${status}`, { status, ...options })
+        return new ModelPresetAdapterError('server', message ?? `HTTP ${status}`, { status, ...errorOptions })
     }
-    return new ModelPresetAdapterError('unknown', message ?? `HTTP ${status}`, { status, ...options })
+    return new ModelPresetAdapterError('unknown', message ?? `HTTP ${status}`, { status, ...errorOptions })
 }
 
 /** Parses either Retry-After delta-seconds or an HTTP date into milliseconds. */
@@ -198,19 +264,23 @@ export function normalizeProviderStreamError(
     const value = payload && typeof payload === 'object'
         ? payload as Record<string, unknown>
         : {}
-    const message = typeof value.message === 'string' ? value.message : fallbackMessage
+    const providerMessage = typeof value.message === 'string' ? value.message : undefined
+    const message = providerMessage ?? fallbackMessage
     const status = [value.status, value.status_code, value.http_status]
         .find(candidate => typeof candidate === 'number') as number | undefined
-    if (status !== undefined) {
-        const normalized = normalizeHttpStatus(status, message)
-        if (normalized) return normalized
-    }
-
     const providerCode = [value.code, value.type]
         .filter(candidate => typeof candidate === 'string')
         .join(' ')
-    if (isTransientOverloadMessage(`${providerCode} ${message}`)) {
-        return new ModelPresetAdapterError('rate-limit', message, { status })
+    if (status !== undefined) {
+        const normalized = normalizeHttpStatus(status, providerMessage, { providerCode })
+        if (normalized) return normalized
+    }
+
+    if (isRetryableRateLimitSignal(message, providerCode)) {
+        return new ModelPresetAdapterError('rate-limit', message, {
+            status,
+            retryable: true,
+        })
     }
     if (/(?:server|internal|service[\s_-]*unavailable)/i.test(providerCode)) {
         return new ModelPresetAdapterError('server', message, { status })

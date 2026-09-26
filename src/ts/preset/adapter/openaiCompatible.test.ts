@@ -446,7 +446,7 @@ describe('streamChatRequest', () => {
 
     test('classifies HTTP errors before streaming starts', async () => {
         const { fetchImpl } = captureFetch(
-            jsonResponse({ error: { message: 'limited' } }, { status: 429 }),
+            jsonResponse({ error: { message: 'Rate limit exceeded' } }, { status: 429 }),
         )
         const gen = streamChatRequest(
             makePreset(),
