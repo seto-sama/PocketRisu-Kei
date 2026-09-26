@@ -33,6 +33,8 @@ const {
     stmtSetRawBytes,
     stmtExpiredTerminalJobs,
     stmtCreateWorkflow,
+    stmtCreateWorkflowChatSnapshot,
+    stmtGetWorkflowChatSnapshot,
     stmtCreateWorkflowStep,
     stmtGetWorkflow,
     stmtGetActiveWorkflowForRoom,
@@ -63,6 +65,7 @@ const {
     stmtFailActiveStepExecutions,
     stmtDeleteCompletedStepExecutions,
     stmtDeleteCompletedWorkflowSteps,
+    stmtDeleteCompletedWorkflowChatSnapshots,
     stmtDeleteCompletedWorkflows,
     stmtPutWorkflowExecution,
     stmtGetWorkflowExecution,
@@ -131,6 +134,11 @@ function rowToWorkflow(row, includeSteps = true) {
             ? { steps: stmtListWorkflowSteps.all(row.workflow_id).map(rowToWorkflowStep) }
             : {}),
     };
+}
+
+function getGenerationWorkflowInputChat(workflowId) {
+    const snapshot = stmtGetWorkflowChatSnapshot.get(workflowId);
+    return snapshot?.input_chat ? JSON.parse(snapshot.input_chat) : undefined;
 }
 
 function getGenerationWorkflow(workflowId, includeSteps = true) {
@@ -292,16 +300,28 @@ function consumeGenerationWorkflowClientActionJobs(workflowId, actionId) {
 
 function createGenerationWorkflow(input) {
     const now = Date.now();
+    const inputChat = input.context?.inputCommit?.chat;
+    let context = input.context;
+    if (inputChat) {
+        const { inputCommit: _inputCommit, ...workflowContext } = input.context;
+        context = workflowContext;
+    }
     try {
         db.transaction(() => {
             stmtCreateWorkflow.run(
                 input.workflowId,
                 input.characterId,
                 input.roomId,
-                input.context ? JSON.stringify(input.context) : null,
+                context ? JSON.stringify(context) : null,
                 now,
                 now,
             );
+            if (inputChat) {
+                stmtCreateWorkflowChatSnapshot.run(
+                    input.workflowId,
+                    JSON.stringify(inputChat),
+                );
+            }
             for (const step of input.plan) {
                 stmtCreateWorkflowStep.run({
                     workflowId: input.workflowId,
@@ -931,6 +951,7 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
         stmtDeleteCompletedWorkflowExecutions.run(cutoff);
         stmtDeleteCompletedStepExecutions.run(cutoff);
         stmtDeleteCompletedWorkflowSteps.run(cutoff);
+        stmtDeleteCompletedWorkflowChatSnapshots.run(cutoff);
         workflowsDeleted = stmtDeleteCompletedWorkflows.run(cutoff).changes;
     })();
     if (deletedJobs.length > 0) db.pragma('wal_checkpoint(PASSIVE)');
@@ -950,6 +971,7 @@ module.exports = {
     createSingleGenerationJob,
     createGenerationWorkflow,
     getGenerationWorkflow,
+    getGenerationWorkflowInputChat,
     getActiveGenerationWorkflow,
     getLatestGenerationWorkflow,
     listReadyChatWorkflowJobs,

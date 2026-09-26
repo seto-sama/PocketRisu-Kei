@@ -79,6 +79,7 @@ import {
     type ChatCommitSnapshot,
 } from '../storage/chatWorkingCopy';
 import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
+import { compare } from 'fast-json-patch';
 import { createOpenAiPromptCacheKey } from '../preset/cache/openaiPromptCacheKey';
 import {
     applyCancelledGenerationProjection,
@@ -1704,9 +1705,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 promptInfo,
                 rerollSnapshot,
             })
-            const postprocessCharacter = structuredClone(nowChatroom)
-            postprocessCharacter.chats = [structuredClone(postprocessChat)]
-            postprocessCharacter.chatPage = 0
+            const {
+                chats: _postprocessChats,
+                chatPage: _postprocessChatPage,
+                ...postprocessCharacterState
+            } = nowChatroom
+            const postprocessCharacter = structuredClone(postprocessCharacterState)
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
                 kind: 'chat-generation',
@@ -1736,7 +1740,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         otherAx: snapshotAuxProvider('otherAx'),
                     },
                     character: postprocessCharacter,
-                    chat: postprocessChat,
+                    chatPatch: compare(
+                        durableInputChat,
+                        postprocessChat,
+                    ) as RevenantChatWorkflowContext['postprocess']['chatPatch'],
                     database: {
                         presetRegex: structuredClone(DBState.db.presetRegex ?? []),
                         templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',

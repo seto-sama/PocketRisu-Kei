@@ -196,6 +196,13 @@ function createGenerationStatements(db) {
             plan_version, context, status, created_at, updated_at
         ) VALUES (?, ?, ?, 1, ?, 'active', ?, ?)
     `);
+    const stmtCreateWorkflowChatSnapshot = db.prepare(`
+        INSERT INTO workflowChatSnapshots (workflow_id, input_chat)
+        VALUES (?, ?)
+    `);
+    const stmtGetWorkflowChatSnapshot = db.prepare(`
+        SELECT input_chat FROM workflowChatSnapshots WHERE workflow_id = ?
+    `);
     const stmtCreateWorkflowStep = db.prepare(`
         INSERT INTO generation_workflow_steps (
             workflow_id, step_key, step_order, kind, recovery_policy,
@@ -387,6 +394,13 @@ function createGenerationStatements(db) {
             WHERE status <> 'active' AND completed_at < ?
         )
     `);
+    const stmtDeleteCompletedWorkflowChatSnapshots = db.prepare(`
+        DELETE FROM workflowChatSnapshots
+        WHERE workflow_id IN (
+            SELECT workflow_id FROM generation_workflows
+            WHERE status <> 'active' AND completed_at < ?
+        )
+    `);
     const stmtDeleteCompletedWorkflows = db.prepare(`
         DELETE FROM generation_workflows
         WHERE status <> 'active' AND completed_at < ?
@@ -460,6 +474,8 @@ function createGenerationStatements(db) {
         stmtSetRawBytes,
         stmtExpiredTerminalJobs,
         stmtCreateWorkflow,
+        stmtCreateWorkflowChatSnapshot,
+        stmtGetWorkflowChatSnapshot,
         stmtCreateWorkflowStep,
         stmtGetWorkflow,
         stmtGetActiveWorkflowForRoom,
@@ -490,6 +506,7 @@ function createGenerationStatements(db) {
         stmtFailActiveStepExecutions,
         stmtDeleteCompletedStepExecutions,
         stmtDeleteCompletedWorkflowSteps,
+        stmtDeleteCompletedWorkflowChatSnapshots,
         stmtDeleteCompletedWorkflows,
         stmtPutWorkflowExecution,
         stmtGetWorkflowExecution,

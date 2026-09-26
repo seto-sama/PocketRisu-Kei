@@ -28,6 +28,7 @@ const {
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
+    resolveRevenantPostprocessRecipe,
     resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
     isRevenantWorkflowClientActionJobAllowed: (input: Record<string, unknown>) => boolean
@@ -45,6 +46,7 @@ const {
     ) => any
     normalizeRevenantWorkflowPlan: (value: unknown) => unknown
     normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
+    resolveRevenantPostprocessRecipe: (context: unknown, inputChat: unknown) => any
     normalizeRevenantWorkflowDependency: (
         value: unknown,
         jobType: string,
@@ -400,7 +402,7 @@ describe('revenant workflow validation', () => {
                 emotion: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
             },
             character: { chaId: 'character-1' },
-            chat: { id: 'room-1', message: [] },
+            chatPatch: [{ op: 'remove', path: '/message/0' }],
             database: {},
             modules: [],
             moduleRegexScripts: [],
@@ -409,11 +411,20 @@ describe('revenant workflow validation', () => {
     }
 
     it('accepts a bounded chat workflow execution context', () => {
-        expect(normalizeRevenantWorkflowContext(
+        const normalized = normalizeRevenantWorkflowContext(
             workflowContext,
             'character-1',
             'room-1',
-        )).toEqual(workflowContext)
+        )
+        expect(normalized).toEqual(workflowContext)
+        expect(normalized.postprocess.chat).toBeUndefined()
+        expect(resolveRevenantPostprocessRecipe(
+            normalized,
+            normalized.inputCommit.chat,
+        )).toMatchObject({
+            chat: { id: 'room-1', message: [] },
+            character: { chats: [{ id: 'room-1', message: [] }], chatPage: 0 },
+        })
         expect(normalizeRevenantWorkflowContext(
             { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
             'character-1',
@@ -429,6 +440,32 @@ describe('revenant workflow validation', () => {
                     ...workflowContext.postprocess,
                     auxProviders: {
                         emotion: { backend: 'legacy', modelPreset: {} },
+                    },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    chatPatch: undefined,
+                    chat: { id: 'room-1', message: [] },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    character: {
+                        ...workflowContext.postprocess.character,
+                        chats: [],
                     },
                 },
             },

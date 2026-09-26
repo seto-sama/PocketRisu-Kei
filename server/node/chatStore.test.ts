@@ -44,6 +44,7 @@ function createServiceHarness(initialChat: any, overrides: Record<string, any> =
         computeChatEtag,
         getActiveGenerationWorkflow: () => undefined,
         getLatestGenerationWorkflow: () => undefined,
+        getGenerationWorkflowInputChat: () => undefined,
         persistNow,
         schedulePersist,
         publishChatCommitted,
@@ -364,14 +365,17 @@ describe('canonical chat service', () => {
         const harness = createServiceHarness(input, {
             persistNow: vi.fn(async () => { calls.push('persist') }),
             publishChatCommitted: vi.fn(() => { calls.push('publish') }),
+            getGenerationWorkflowInputChat: () => input,
         })
 
         const result = await harness.service.commitGenerationResult({
             job: { characterId: 'character-1', roomId: 'room-1' },
             workflow: {
+                workflowId: 'workflow-1',
                 context: {
-                    inputCommit: { chat: input },
-                    postprocess: { messageChatId: 'generated-1' },
+                    postprocess: {
+                        chatPatch: [], character: {}, messageChatId: 'generated-1',
+                    },
                 },
             },
             chat: generated,

@@ -1,5 +1,7 @@
 'use strict';
 
+const { applyPatch } = require('fast-json-patch');
+
 const JOB_TYPES = new Set([
     'model', 'submodel', 'memory', 'emotion', 'otherAx', 'translate',
 ]);
@@ -27,12 +29,45 @@ const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
     'novellist', 'gemma', 'deepseek',
 ]);
+const CHAT_PATCH_OPERATIONS = new Set(['add', 'remove', 'replace']);
 
 function isHypaChatMemo(value) {
     return value === null || typeof value === 'string';
 }
 
-const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
+const MAX_WORKFLOW_CONTEXT_BYTES = 32 * 1024 * 1024;
+
+function resolveRevenantPostprocessChat(context, inputChat) {
+    const recipe = context?.postprocess;
+    const base = inputChat;
+    if (
+        !recipe
+        || typeof recipe !== 'object'
+        || !base?.id
+        || !Array.isArray(base.message)
+        || !Array.isArray(recipe.chatPatch)
+    ) return undefined;
+    try {
+        return applyPatch(structuredClone(base), recipe.chatPatch, true, true, true).newDocument;
+    } catch {
+        return undefined;
+    }
+}
+
+function resolveRevenantPostprocessRecipe(context, inputChat) {
+    const chat = resolveRevenantPostprocessChat(context, inputChat);
+    if (!chat) return undefined;
+    const { chatPatch: _chatPatch, ...snapshot } = context.postprocess;
+    return {
+        ...snapshot,
+        character: {
+            ...snapshot.character,
+            chats: [chat],
+            chatPage: 0,
+        },
+        chat,
+    };
+}
 
 function normalizeRevenantJobType(value) {
     return JOB_TYPES.has(value) ? value : 'model';
@@ -139,16 +174,25 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
             ))
         ))
         || value.postprocess.character?.chaId !== characterId
-        || value.postprocess.chat?.id !== roomId
-        || !Array.isArray(value.postprocess.chat?.message)
+        || value.postprocess.character.chats !== undefined
+        || value.postprocess.character.chatPage !== undefined
+        || value.postprocess.chat !== undefined
+        || !Array.isArray(value.postprocess.chatPatch)
+        || value.postprocess.chatPatch.some(operation => (
+            !operation
+            || typeof operation !== 'object'
+            || !CHAT_PATCH_OPERATIONS.has(operation.op)
+            || typeof operation.path !== 'string'
+            || !operation.path.startsWith('/')
+        ))
         || !value.postprocess.database
         || typeof value.postprocess.database !== 'object'
         || !Array.isArray(value.postprocess.modules)
         || !Array.isArray(value.postprocess.moduleRegexScripts)
         || !Array.isArray(value.postprocess.moduleTriggers)
-        || (value.inputCommit != null && (
-            !value.inputCommit
-            || typeof value.inputCommit !== 'object'
+        || !value.inputCommit
+        || (
+            typeof value.inputCommit !== 'object'
             || Array.isArray(value.inputCommit)
             || value.inputCommit.schemaVersion !== 1
             || value.inputCommit.chat?.id !== roomId
@@ -156,7 +200,12 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
             || (value.inputCommit.expectedEtag != null
                 && (typeof value.inputCommit.expectedEtag !== 'string'
                     || !value.inputCommit.expectedEtag))
-        ))
+        )
+    ) return undefined;
+    const postprocessChat = resolveRevenantPostprocessChat(value, value.inputCommit.chat);
+    if (
+        postprocessChat?.id !== roomId
+        || !Array.isArray(postprocessChat?.message)
     ) return undefined;
     return JSON.parse(serialized);
 }
@@ -406,6 +455,7 @@ module.exports = {
     isRevenantWorkflowClientActionJobAllowed,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowContext,
+    resolveRevenantPostprocessRecipe,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,
     normalizeRevenantJobType,

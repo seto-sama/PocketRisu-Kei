@@ -1520,6 +1520,7 @@ const canonicalChatService = createCanonicalChatService({
     computeChatEtag,
     getActiveGenerationWorkflow,
     getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
+    getGenerationWorkflowInputChat: generationDb.getGenerationWorkflowInputChat,
     persistNow: persistCanonicalChatState,
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
@@ -1614,8 +1615,8 @@ async function executeServerImageAction({ workflow, action, projection = false }
     const target = payload.target || (workflow.context?.kind === 'image-generation'
         ? workflow.context.target
         : {
-            characterId: workflow.context?.postprocess?.character?.chaId,
-            roomId: workflow.context?.postprocess?.chat?.id,
+            characterId: workflow.characterId,
+            roomId: workflow.roomId,
         });
     if (!target?.characterId || !target?.roomId) throw new Error('Image generation target is missing');
     const config = currentServerImageGenerationSettings();

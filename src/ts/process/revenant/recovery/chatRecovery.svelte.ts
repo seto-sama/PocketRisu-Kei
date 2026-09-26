@@ -561,7 +561,7 @@ export async function recoverRevenantGenerationsForChat(
                 recovered++
                 continue
             }
-            const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat
+            const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat ?? chat
             if (
                 workflowBaseChat?.id === chat.id
                 && Array.isArray(workflowBaseChat.message)

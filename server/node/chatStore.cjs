@@ -9,6 +9,7 @@ const {
     mergeConcurrentChatEdit,
     mergeGenerationChatResult,
 } = require('./revenant/chatResultMerge.cjs');
+const { resolveRevenantPostprocessRecipe } = require('./revenant/generation.cjs');
 
 const MISSING_CHAT_ETAG = 'missing';
 
@@ -182,6 +183,7 @@ function createCanonicalChatService(options) {
         computeChatEtag,
         getActiveGenerationWorkflow,
         getLatestGenerationWorkflow,
+        getGenerationWorkflowInputChat,
         persistNow,
         schedulePersist,
         publishChatCommitted,
@@ -298,7 +300,9 @@ function createCanonicalChatService(options) {
             if (!currentChat || !Array.isArray(currentChat.message)) {
                 throw new CanonicalChatCommitError(404, 'Target chat not found');
             }
-            const baseChat = workflow?.context?.inputCommit?.chat;
+            const baseChat = workflow
+                ? getGenerationWorkflowInputChat(workflow.workflowId)
+                : undefined;
             if (!baseChat?.id || !Array.isArray(baseChat.message)) {
                 throw new CanonicalChatCommitError(409, 'Workflow has no durable chat merge base');
             }
@@ -308,7 +312,7 @@ function createCanonicalChatService(options) {
                     baseChat,
                     chat,
                     currentChat,
-                    workflow.context?.postprocess,
+                    resolveRevenantPostprocessRecipe(workflow.context, baseChat),
                 );
             } catch (error) {
                 throw new CanonicalChatCommitError(
@@ -348,13 +352,19 @@ function createCanonicalChatService(options) {
             const activeWorkflow = getActiveGenerationWorkflow(characterId, chatId, true);
             const latestWorkflow = activeWorkflow
                 ?? getLatestGenerationWorkflow(characterId, chatId, true);
+            const inputChat = latestWorkflow
+                ? getGenerationWorkflowInputChat(latestWorkflow.workflowId)
+                : undefined;
+            const recipe = latestWorkflow
+                ? resolveRevenantPostprocessRecipe(latestWorkflow.context, inputChat)
+                : undefined;
             const currentChat = getChat(characterId, chatId);
             const staleTerminalProjection = !activeWorkflow
                 && latestWorkflow?.status !== 'active'
                 && isStaleGenerationTargetWrite(
                     chat,
                     currentChat,
-                    latestWorkflow?.context?.postprocess,
+                    recipe,
                 );
             const mergeWorkflow = activeWorkflow ?? (staleTerminalProjection
                 ? latestWorkflow
@@ -362,7 +372,6 @@ function createCanonicalChatService(options) {
             const inputStep = mergeWorkflow?.steps?.find(step =>
                 step.key === 'input.commit' && step.status === 'completed');
             const inputEtag = inputStep?.metadata?.etag;
-            const inputChat = mergeWorkflow?.context?.inputCommit?.chat;
             const currentEtag = computeChatEtag(currentChat);
             let candidate = chat;
             let candidateEtag = expectedEtag;
@@ -387,7 +396,7 @@ function createCanonicalChatService(options) {
                         mergeBase,
                         chat,
                         currentChat,
-                        mergeWorkflow.context?.postprocess,
+                        recipe,
                     );
                 } catch (error) {
                     if (!(error instanceof ChatResultMergeConflict)) throw error;

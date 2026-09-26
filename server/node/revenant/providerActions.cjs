@@ -16,6 +16,7 @@ const { parseChatMLCore } = source('parser/chatMLCore.ts');
 const { normalizeLuaLlmPrompt, extractLuaLlmInlays } = source('process/luaLlmCore.ts');
 const { renderRevenantTemplate } = source('process/revenant/postprocess/headlessParser.ts');
 const { GENERATION_REQUEST_DEFAULT_TIMEOUT_MS } = require('./generationConfig.cjs');
+const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
 
 const PROVIDER_ACTIONS = new Set([
     'provider.llm', 'provider.axllm', 'provider.simplellm', 'provider.igp',
@@ -46,7 +47,14 @@ function createServerProviderActionExecutor(options) {
 
     const tokenCache = options.tokenCache ?? createServerServiceAccountTokenCache();
 
-    return async function executeProviderAction({ workflow, action, chat, operationContext, dispatchPolicy }) {
+    return async function executeProviderAction({
+        workflow,
+        action,
+        chat,
+        recipe: suppliedRecipe,
+        operationContext,
+        dispatchPolicy,
+    }) {
         const controller = new AbortController();
         const signal = controller.signal;
         const checkActive = () => {
@@ -70,7 +78,11 @@ function createServerProviderActionExecutor(options) {
                 jsonSchemaRequested: database.jsonSchemaEnabled === true,
             });
             const preset = compiled.preset;
-            const recipe = workflow.context.postprocess;
+            const recipe = suppliedRecipe || resolveRevenantPostprocessRecipe(
+                workflow.context,
+                repository.getGenerationWorkflowInputChat(workflow.workflowId),
+            );
+            if (!recipe) throw new Error('Workflow postprocess context is invalid');
             const currentChat = chat || recipe.chat;
             const rawPrompt = payload.prompt;
             let prompt = action.kind === 'provider.simplellm'

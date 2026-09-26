@@ -51,24 +51,21 @@ describe('revenant canonical materializer', () => {
             ['workflow-1', {
                 workflowId: 'workflow-1', status: 'cancelled',
                 context: {
-                    inputCommit: { chat: inputChat },
-                    postprocess: { chat: inputChat, messageChatId: 'message-1' },
+                    postprocess: { chatPatch: [], messageChatId: 'message-1', character: {} },
                 },
                 steps: [],
             }],
             ['workflow-2', {
                 workflowId: 'workflow-2', status: 'cancelled',
                 context: {
-                    inputCommit: { chat: inputChat },
-                    postprocess: { chat: inputChat, messageChatId: 'message-2' },
+                    postprocess: { chatPatch: [], messageChatId: 'message-2', character: {} },
                 },
                 steps: [],
             }],
             ['workflow-3', {
                 workflowId: 'workflow-3', status: 'active',
                 context: {
-                    inputCommit: { chat: inputChat },
-                    postprocess: { chat: inputChat, messageChatId: 'message-3' },
+                    postprocess: { chatPatch: [], messageChatId: 'message-3', character: {} },
                 },
                 steps: [{
                     key: 'postprocess', status: 'completed', metadata: { chat: newerChat },
@@ -79,6 +76,7 @@ describe('revenant canonical materializer', () => {
         const repository = {
             getGenerationJob: (jobId: string) => jobs.get(jobId),
             getGenerationWorkflow: (workflowId: string) => workflows.get(workflowId),
+            getGenerationWorkflowInputChat: () => inputChat,
             listGenerationWorkflowJobs: (workflowId: string) =>
                 [...jobs.values()].filter(job => job.workflowId === workflowId),
             getEarlierRecoverableGenerationWorkflowJob: (
@@ -140,8 +138,10 @@ describe('revenant canonical materializer', () => {
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
                 context: {
-                    inputCommit: { chat: stored },
-                    postprocess: { messageChatId: 'message-1', isContinuation: false },
+                    postprocess: {
+                        chatPatch: [], character: {},
+                        messageChatId: 'message-1', isContinuation: false,
+                    },
                 },
                 steps: [{
                     key: 'postprocess',
@@ -155,6 +155,7 @@ describe('revenant canonical materializer', () => {
                     },
                 }],
             }),
+            getGenerationWorkflowInputChat: () => stored,
             getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: () => { materialized = true; return true },
             updateGenerationWorkflowStep: vi.fn(),
@@ -231,8 +232,8 @@ describe('revenant canonical materializer', () => {
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-b',
                 context: {
-                    inputCommit: { chat: workflowBase },
                     postprocess: {
+                        chatPatch: [], character: {},
                         messageChatId: 'client-b-result',
                         rerollSnapshot: { targetMessage: original, targetIndex: 0, trailingMessages: [] },
                     },
@@ -247,6 +248,7 @@ describe('revenant canonical materializer', () => {
                     },
                 ],
             }),
+            getGenerationWorkflowInputChat: () => workflowBase,
             getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: () => true,
             updateGenerationWorkflowStep: vi.fn(),
@@ -300,9 +302,8 @@ describe('revenant canonical materializer', () => {
         const workflow = {
             workflowId: 'workflow-1', status: 'cancelled',
             context: {
-                inputCommit: { chat: inputChat },
                 postprocess: {
-                    chat: inputChat,
+                    chatPatch: [],
                     character: { chaId: 'character-1' },
                     messageChatId: 'partial-message',
                     isContinuation: false,
@@ -316,6 +317,7 @@ describe('revenant canonical materializer', () => {
         }
         const repository = {
             getGenerationWorkflow: () => workflow,
+            getGenerationWorkflowInputChat: () => inputChat,
             listGenerationWorkflowJobs: () => [job],
             getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: vi.fn(() => true),
@@ -395,9 +397,8 @@ describe('revenant canonical materializer', () => {
         const workflow = {
             workflowId: 'workflow-1', status: 'cancelled',
             context: {
-                inputCommit: { chat: inputChat },
                 postprocess: {
-                    chat: inputChat,
+                    chatPatch: [],
                     character: { chaId: 'character-1' },
                     messageChatId: 'partial-message',
                     isContinuation: false,
@@ -409,6 +410,7 @@ describe('revenant canonical materializer', () => {
         const repository = {
             getGenerationJob: () => job,
             getGenerationWorkflow: () => workflow,
+            getGenerationWorkflowInputChat: () => inputChat,
             listGenerationWorkflowJobs: () => [job],
             getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: vi.fn(() => true),

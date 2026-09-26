@@ -2,6 +2,7 @@
 
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
 const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
+const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
 const {
     isGenerationProjectionCurrent,
     projectGenerationJournal,
@@ -21,7 +22,7 @@ function completedServerChat(workflow) {
     for (const key of ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']) {
         const step = workflow.steps?.find(item => item.key === key && item.status === 'completed');
         if (step?.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
-            return structuredClone(step.metadata.chat);
+            return step.metadata.chat;
         }
     }
     return undefined;
@@ -80,6 +81,7 @@ function createRevenantMaterializer(options) {
     const {
         getGenerationJob,
         getGenerationWorkflow,
+        getGenerationWorkflowInputChat,
         listGenerationWorkflowJobs,
         getEarlierRecoverableGenerationWorkflowJob,
         markGenerationMaterialized,
@@ -103,14 +105,13 @@ function createRevenantMaterializer(options) {
         }
     }
 
-    function cancellationOwnsEveryConflict(workflow, job, error) {
+    function cancellationOwnsEveryConflict(job, error, recipe, inputChat) {
         if (error?.status !== 409 || !Array.isArray(error.conflicts) || error.conflicts.length === 0) {
             return false;
         }
-        const recipe = workflow.context?.postprocess;
-        const inputMessages = workflow.context?.inputCommit?.chat?.message || [];
+        const inputMessages = inputChat?.message || [];
         const continuationTarget = recipe?.isContinuation
-            ? [...inputMessages].reverse().find(message => message?.role === 'char')?.chatId
+            ? inputMessages.findLast(message => message?.role === 'char')?.chatId
             : undefined;
         const ownedIds = new Set([
             job.chatId,
@@ -216,8 +217,8 @@ function createRevenantMaterializer(options) {
      * they never race to persist a partial response.
      */
     async function materializeCancelledJob(workflow, job) {
-        const inputChat = workflow.context?.inputCommit?.chat;
-        const recipe = workflow.context?.postprocess;
+        const inputChat = getGenerationWorkflowInputChat(workflow.workflowId);
+        const recipe = resolveRevenantPostprocessRecipe(workflow.context, inputChat);
         if (!inputChat?.id || !Array.isArray(inputChat.message) || !recipe?.chat) {
             throw new RevenantMaterializationError(409, 'Workflow has no durable cancellation input');
         }
@@ -264,7 +265,7 @@ function createRevenantMaterializer(options) {
                 },
             });
         } catch (error) {
-            if (!cancellationOwnsEveryConflict(workflow, job, error)) throw error;
+            if (!cancellationOwnsEveryConflict(job, error, recipe, inputChat)) throw error;
             // A user edited or deleted the exact continuation/reroll target
             // while cancellation was settling. Their newer canonical choice
             // wins; acknowledge the partial so a later generation never drains

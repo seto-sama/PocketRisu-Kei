@@ -166,6 +166,16 @@ export interface RevenantPostprocessRecipe {
     moduleTriggers: triggerscript[]
 }
 
+export interface RevenantPostprocessSnapshot extends Omit<RevenantPostprocessRecipe, 'chat' | 'character'> {
+    character: Omit<character, 'chats' | 'chatPage'>
+    /** RFC 6902 changes from inputCommit.chat to the postprocess chat. */
+    chatPatch: Array<{
+        op: 'add' | 'remove' | 'replace'
+        path: string
+        value?: unknown
+    }>
+}
+
 export interface RevenantWorkflowInputCommit {
     schemaVersion: 1
     /** Canonical chat state at the submission boundary, before prompt-only transforms. */
@@ -188,7 +198,7 @@ export interface RevenantChatWorkflowContext {
     schemaVersion: 1
     kind: 'chat-generation'
     comfyBridgeId?: string
-    inputCommit: RevenantWorkflowInputCommit
+    inputCommit?: RevenantWorkflowInputCommit
     resume: {
         schemaVersion: 1
         chatProcessIndex: number
@@ -196,7 +206,7 @@ export interface RevenantChatWorkflowContext {
         isContinuation: boolean
         rerollSnapshot?: RevenantRerollSnapshot
     }
-    postprocess: RevenantPostprocessRecipe
+    postprocess: RevenantPostprocessSnapshot
 }
 
 export interface RevenantImageWorkflowContext {
