@@ -5,10 +5,13 @@
     import { DBState, OtherBotsSubmenuIndex, selectedCharID } from "src/ts/stores.svelte";
     import { untrack } from "svelte";
     import { tokenizePreset } from "src/ts/process/prompt";
-    import { getCharToken } from "src/ts/tokenizer";
+    import { ChatTokenizer, getCharToken, getModelPresetChatTokenizerConfig } from "src/ts/tokenizer";
+    import { getRecentContextToken, selectActiveChatMessages, type TokenizableChatMessage } from "src/ts/chatContextTokens";
     import HypaMemorySettings from "./HypaMemorySettings.svelte";
     import TTSSettings from "./TTSSettings.svelte";
     import ImageSettings from "./ImageSettings.svelte";
+    import { resolveChatMaxContextTokens, resolveChatModelBinding } from "src/ts/process/request/modelPresetBinding";
+    import { risuChatParser } from "src/ts/parser/parser.svelte";
 
     let { embedded = false }: { embedded?: boolean } = $props();
 
@@ -41,16 +44,58 @@
     });
 
     async function getMaxMemoryRatio(): Promise<number> {
-        const promptTemplateToken = await tokenizePreset(DBState.db.promptTemplate);
+        const promptTemplate = DBState.db.promptTemplate;
         const char = DBState.db.characters[$selectedCharID];
-        const charToken = await getCharToken(char);
+        const chat = char?.chats?.[char.chatPage];
+        if (!char || !chat) return 0;
+        const settings = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings;
+        if (!settings) return 0;
         const maxLoreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken;
-        const maxResponse = DBState.db.maxResponse;
-        const requiredToken = promptTemplateToken + charToken.persistant + Math.min(charToken.dynamic, maxLoreToken) + maxResponse * 3;
-        const maxContext = DBState.db.maxContext;
+        const binding = resolveChatModelBinding(chat, "model");
+        const tokenizerConfig = getModelPresetChatTokenizerConfig(
+            binding.kind === "modelPreset" ? binding.preset : undefined
+        );
+        const tokenizer = new ChatTokenizer(
+            tokenizerConfig.chatAdditionalTokens,
+            tokenizerConfig.useName,
+            tokenizerConfig.tokenizer,
+        );
+        const selectedMessages = selectActiveChatMessages(chat, settings.queryChatCount);
+        const recentCandidates: TokenizableChatMessage[] = [];
+        const recentMessages = selectedMessages.messages;
+        if (recentMessages.length < settings.queryChatCount
+            && !selectedMessages.startsAfterCutoff && !chat.firstMessageDisabled) {
+            const firstMessage = (chat.fmIndex ?? -1) === -1
+                ? char.firstMessage
+                : char.alternateGreetings[chat.fmIndex ?? 0];
+            recentCandidates.push({
+                role: "assistant",
+                content: risuChatParser(firstMessage ?? "", { chara: char }),
+            });
+        }
+        recentCandidates.push(...recentMessages.map(message => ({
+            role: message.role === "user" ? "user" as const : "assistant" as const,
+            content: risuChatParser(message.data, { chara: char, role: message.role }),
+        })));
+        const [promptTemplateToken, charToken] = await Promise.all([
+            tokenizePreset(promptTemplate),
+            getCharToken(char),
+        ]);
+        const recentChatToken = await getRecentContextToken(
+            recentCandidates,
+            settings.queryChatCount,
+            tokenizer,
+        );
+        const requiredToken = promptTemplateToken
+            + charToken.persistant
+            + Math.min(charToken.dynamic, maxLoreToken)
+            + recentChatToken;
+        const maxContext = resolveChatMaxContextTokens(chat);
         if (maxContext === 0) return 0;
         return parseFloat(Math.max((maxContext - requiredToken) / maxContext, 0).toFixed(2));
     }
+
+    const maxMemoryRatio = $derived.by(() => getMaxMemoryRatio());
 </script>
 
 <SettingPage title={embedded ? undefined : language.otherBots}>
@@ -61,7 +106,7 @@
     ]} bind:selected={$OtherBotsSubmenuIndex} />
 
     {#if $OtherBotsSubmenuIndex === 0}
-        <HypaMemorySettings maxMemoryRatio={getMaxMemoryRatio()} />
+        <HypaMemorySettings {maxMemoryRatio} />
     {:else if $OtherBotsSubmenuIndex === 1}
         <TTSSettings />
     {:else if $OtherBotsSubmenuIndex === 2}

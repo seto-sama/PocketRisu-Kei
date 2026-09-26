@@ -264,8 +264,6 @@ function installRevenantJobRoutes(app, deps) {
                     || (workflowDependency ? `${workflowId}:main` : undefined),
                 dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent
                     || (workflowDependency ? 1 : undefined),
-                dispatchRequestsPerMinute: dispatchPolicy?.requestsPerMinute
-                    || (workflowDependency ? 1000 : undefined),
                 requestSpec,
             });
             workflowId = persistedJob.workflowId;

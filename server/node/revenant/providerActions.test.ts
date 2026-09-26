@@ -208,10 +208,10 @@ describe('server postprocess provider actions', () => {
         const operationContext = { kind: 'hypav3-summary', operationId: 'operation-1',
             batchId: 'batch-1', characterId: 'char-1', roomId: 'room-1', chatMemos: ['memo-1'], purpose: 'memory' }
         await h.executeProviderAction({ workflow: h.workflow, action: h.action,
-            operationContext, dispatchPolicy: { maxConcurrent: 2, requestsPerMinute: 10 } })
+            operationContext, dispatchPolicy: { maxConcurrent: 2 } })
         expect(h.jobs[0]).toMatchObject({
             jobType: 'memory', operationContext,
-            dispatchGroup: 'workflow-1:hypa:batch-1', dispatchMaxConcurrent: 2, dispatchRequestsPerMinute: 10,
+            dispatchGroup: 'workflow-1:hypa:batch-1', dispatchMaxConcurrent: 2,
         })
     })
 

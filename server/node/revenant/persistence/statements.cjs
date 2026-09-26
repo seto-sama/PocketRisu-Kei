@@ -8,7 +8,7 @@ function createGenerationStatements(db) {
             operation_context, workflow_id, workflow_step_key, step_execution_id,
             adapter_kind, streaming,
             dispatch_group, dispatch_max_concurrent,
-            dispatch_requests_per_minute, request_spec,
+            request_spec,
             status, created_at, updated_at
         ) VALUES (
             @jobId, @chatId, @jobType, @characterId, @roomId,
@@ -16,7 +16,7 @@ function createGenerationStatements(db) {
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
             @adapterKind, @streaming,
             @dispatchGroup, @dispatchMaxConcurrent,
-            @dispatchRequestsPerMinute, @requestSpec,
+            @requestSpec,
             'queued', @now, @now
         )
     `);
@@ -139,9 +139,7 @@ function createGenerationStatements(db) {
     `);
     const stmtDispatchState = db.prepare(`
         SELECT
-            COALESCE(SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END), 0) AS active,
-            COALESCE(SUM(CASE WHEN dispatched_at >= ? THEN 1 ELSE 0 END), 0) AS recent,
-            MIN(CASE WHEN dispatched_at >= ? THEN dispatched_at ELSE NULL END) AS oldest_recent
+            COALESCE(SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END), 0) AS active
         FROM generation_jobs
         WHERE dispatch_group = ?
     `);

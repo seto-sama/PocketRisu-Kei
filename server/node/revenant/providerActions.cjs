@@ -64,8 +64,8 @@ function createServerProviderActionExecutor(options) {
         };
         checkActive();
         const cancellationTimer = setInterval(checkActive, 100);
-        // A rate-limited Hypa batch can spend longer than a request timeout in
-        // the queue. Its provider timeout starts when the dispatcher runs it.
+        // A queued Hypa batch can spend longer than a request timeout waiting
+        // for a concurrency slot. Its timeout starts when the dispatcher runs it.
         const timeoutTimer = operationContext?.kind === 'hypav3-summary' ? null
             : setTimeout(() => controller.abort(new Error('Provider action timed out')),
                 GENERATION_REQUEST_DEFAULT_TIMEOUT_MS);
@@ -133,7 +133,6 @@ function createServerProviderActionExecutor(options) {
                         ? `${workflow.workflowId}:hypa:${operationContext.batchId}`
                         : `${workflow.workflowId}:postprocess`,
                     dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent ?? 1,
-                    dispatchRequestsPerMinute: dispatchPolicy?.requestsPerMinute ?? 1000,
                     requestSpec: {
                         targetUrl, method: init.method || 'POST',
                         headers: Object.fromEntries(new Headers(init.headers).entries()),

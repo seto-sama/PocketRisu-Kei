@@ -47,7 +47,6 @@ export function reissueMessageIds(
             // These fields contain summary indexes and become stale after a
             // branch drops summaries that refer to messages past the cut.
             delete chat.hypaV3Data.metrics
-            delete chat.hypaV3Data.lastSelectedSummaries
         }
     }
 

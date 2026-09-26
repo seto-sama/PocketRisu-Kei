@@ -40,7 +40,6 @@ db.exec(`
         streaming INTEGER NOT NULL DEFAULT 0,
         dispatch_group TEXT,
         dispatch_max_concurrent INTEGER,
-        dispatch_requests_per_minute INTEGER,
         dispatched_at INTEGER,
         request_spec BLOB,
         status TEXT NOT NULL,

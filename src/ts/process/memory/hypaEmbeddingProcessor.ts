@@ -1,15 +1,16 @@
 import { type HypaModel, DEFAULT_HYPA_MODEL, getPersistedHypaVector, setPersistedHypaVector, contextHash, truncateErrorBody } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
-import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
+import { TaskConcurrencyLimiter, TaskCanceledError } from "./taskConcurrencyLimiter";
 import { globalFetch } from "src/ts/globalApi.svelte";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { appendLastPath } from "src/ts/util";
+import { HYPA_EMBEDDING_BATCH_SIZE } from "./embeddingModels";
 
-export interface HypaProcessorV2Options {
+export interface HypaEmbeddingProcessorOptions {
   model?: HypaModel;
   customEmbeddingUrl?: string;
   oaiKey?: string;
-  rateLimiter?: TaskRateLimiter;
+  concurrencyLimiter?: TaskConcurrencyLimiter;
 }
 
 export interface EmbeddingText<TMetadata> {
@@ -24,33 +25,25 @@ export interface EmbeddingResult<TMetadata> extends EmbeddingText<TMetadata> {
 
 export type EmbeddingVector = number[] | Float32Array;
 
-export class HypaProcessorV2<TMetadata> {
-  private static readonly LOG_PREFIX = "[HypaProcessorV2]";
-  public readonly options: HypaProcessorV2Options;
+export class HypaEmbeddingProcessor<TMetadata> {
+  public readonly options: HypaEmbeddingProcessorOptions;
   public progressCallback: (queuedCount: number) => void = null;
   public vectors: Map<string, EmbeddingResult<TMetadata>> = new Map();
 
-  public constructor(options?: HypaProcessorV2Options) {
+  public constructor(options?: HypaEmbeddingProcessorOptions) {
     const db = getDatabase();
 
     this.options = {
       model: db.hypaModel || DEFAULT_HYPA_MODEL,
       customEmbeddingUrl: db.hypaCustomSettings?.url?.trim() || "",
       oaiKey: db.supaMemoryKey?.trim() || "",
-      rateLimiter: new TaskRateLimiter(),
+      concurrencyLimiter: new TaskConcurrencyLimiter(),
       ...options,
     };
   }
 
   public async addTexts(ebdTexts: EmbeddingText<TMetadata>[]): Promise<void> {
     await this.getEmbeds(ebdTexts, true);
-  }
-
-  public async similaritySearchScored(
-    query: string
-  ): Promise<[EmbeddingResult<TMetadata>, number][]> {
-    const results = await this.similaritySearchScoredBatch([query]);
-    return results[0];
   }
 
   public async similaritySearchScoredBatch(
@@ -125,7 +118,7 @@ export class HypaProcessorV2<TMetadata> {
     }
 
     // Load cache
-    const loadPromises = ebdTexts.map(async (item, index) => {
+    const loadPromises = ebdTexts.map(async (item) => {
       const { id, content, metadata } = item;
 
       // Use if already in memory
@@ -138,12 +131,6 @@ export class HypaProcessorV2<TMetadata> {
         const cached = await getPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id))) as EmbeddingResult<TMetadata> | undefined;
 
         if (cached) {
-          // Debug log for cache hit
-          console.debug(
-            HypaProcessorV2.LOG_PREFIX,
-            `Cache hit for getting embedding ${index} with model ${this.options.model}`
-          );
-
           // The persisted cache is shared by every processor. Keep request
           // metadata on a detached result so a metadata-less query cannot
           // erase the summary metadata held by another processor.
@@ -169,12 +156,13 @@ export class HypaProcessorV2<TMetadata> {
       const missMetadatas = new Set(
         toEmbed.map((item) => item.metadata).filter(Boolean)
       );
+      const missingIds = new Set(toEmbed.map((item) => item.id));
 
       const additionalItems = ebdTexts.filter(
         (item) =>
           item.metadata &&
           missMetadatas.has(item.metadata) &&
-          !toEmbed.some((e) => e.id === item.id)
+          !missingIds.has(item.id)
       );
 
       for (const item of additionalItems) {
@@ -191,16 +179,7 @@ export class HypaProcessorV2<TMetadata> {
       return ebdTexts.map((item) => resultMap.get(item.id));
     }
 
-    // Chunking array
-    const chunkSize = 50;
-
-    // Debug log for optimal chunk size
-    console.debug(
-      HypaProcessorV2.LOG_PREFIX,
-      `Optimal chunk size for ${this.options.model}: ${chunkSize}`
-    );
-
-    const chunks = this.chunkArray(toEmbed, chunkSize);
+    const chunks = this.chunkArray(toEmbed, HYPA_EMBEDDING_BATCH_SIZE);
 
     if (ctxProvider && saveToMemory) {
       const metadataGroups = new Map<TMetadata, EmbeddingText<TMetadata>[]>();
@@ -250,9 +229,9 @@ export class HypaProcessorV2<TMetadata> {
       });
 
       // Progress callback
-      this.options.rateLimiter.taskQueueChangeCallback = this.progressCallback;
+      this.options.concurrencyLimiter.taskQueueChangeCallback = this.progressCallback;
 
-      const batchResult = await this.options.rateLimiter.executeBatch<
+      const batchResult = await this.options.concurrencyLimiter.executeBatch<
         EmbeddingVector[]
       >(embeddingTasks);
       const errors: Error[] = [];

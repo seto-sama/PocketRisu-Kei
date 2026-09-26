@@ -304,7 +304,6 @@ export interface RevenantGenerationRequest {
 
 export interface RevenantDispatchPolicy {
     maxConcurrent: number
-    requestsPerMinute: number
 }
 
 export interface RevenantWorkflowDependency {

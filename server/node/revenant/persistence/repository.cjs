@@ -723,7 +723,6 @@ function createGenerationJob(input) {
                 streaming: input.streaming ? 1 : 0,
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
-                dispatchRequestsPerMinute: input.dispatchRequestsPerMinute || null,
                 requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
                 now,
             });
@@ -765,17 +764,14 @@ function listQueuedGenerationDispatches(limit = 500) {
         job: rowToJob(row, false),
         dispatchGroup: row.dispatch_group,
         maxConcurrent: Math.max(1, Number(row.dispatch_max_concurrent) || 1),
-        requestsPerMinute: Math.max(1, Number(row.dispatch_requests_per_minute) || 1),
         requestSpec: decodeGenerationRequest(row.request_spec),
     }));
 }
 
-function getGenerationDispatchState(dispatchGroup, since) {
-    const row = stmtDispatchState.get(since, since, dispatchGroup);
+function getGenerationDispatchState(dispatchGroup) {
+    const row = stmtDispatchState.get(dispatchGroup);
     return {
         active: Math.max(0, Number(row?.active) || 0),
-        recent: Math.max(0, Number(row?.recent) || 0),
-        oldestRecent: row?.oldest_recent || undefined,
     };
 }
 

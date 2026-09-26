@@ -3,7 +3,8 @@ import { get, writable } from "svelte/store";
 import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
-import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
+import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
+import { selectActiveChatMessages } from "../chatContextTokens";
 import { language } from "../../lang";
 import { alertError } from "../alert";
 import { parseChatML } from "../parser/chatML";
@@ -21,7 +22,7 @@ import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
-import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
+import { applyPromptPresetParams, resolveChatMaxContextTokens, resolveChatMaxResponseTokens, resolveChatModelBinding } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
 import { type RevenantChatWorkflowContext, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
@@ -556,14 +557,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    let caculatedChatTokens = 0
-    if(usesOpenAIStyleTokenAccounting){
-        caculatedChatTokens += 5
-    }
-    else{
-        caculatedChatTokens += 3
-    }
-
     currentChar = nowChatroom
     const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
     const deferredHypaMemoryPrompt = (workflowSession.workflowId || compiledMainPreset)
@@ -571,52 +564,22 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         ? `__RISU_REVENANT_HYPA_${createEntityId()}__`
         : undefined
 
-    let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
     let currentChat = runCurrentChatFunction(nowChatroom.chats[selectedChat])
     nowChatroom.chats[selectedChat] = currentChat
     const mainBinding = resolveChatModelBinding(currentChat, 'model')
-    const presetTokenizer = mainBinding.kind === 'modelPreset'
-        ? (mainBinding.preset.tokenizerOverride ?? mainBinding.preset.profileSnapshot.recommendedTokenizer)
-        : undefined
-    const tokenizer = new ChatTokenizer(
-        chatAdditonalTokens,
-        usesOpenAIStyleTokenAccounting ? 'noName' : 'name',
-        presetTokenizer,
+    const tokenizerConfig = getModelPresetChatTokenizerConfig(
+        mainBinding.kind === 'modelPreset' ? mainBinding.preset : undefined
     )
-    let maxContextTokens = DBState.db.maxContext
+    const tokenizer = new ChatTokenizer(
+        arg.chatAdditonalTokens ?? tokenizerConfig.chatAdditionalTokens,
+        tokenizerConfig.useName,
+        tokenizerConfig.tokenizer,
+    )
+    const maxContextTokens = resolveChatMaxContextTokens(currentChat)
     // Maximum response size sent to the provider. This is deliberately kept
     // separate from maxContextTokens: the latter is the configured input
     // (prompt) budget, as described by the settings UI.
-    let maxResponseTokens = DBState.db.maxResponse
-    // When this chat is bound to a ModelPreset, use the preset's own input
-    // budget (preset.maxContext, default 65000) instead of the global
-    // db.maxContext — clamped to the model's context window when known.
-    // Without this, a small global maxContext blocks large-context presets.
-    {
-        if (mainBinding.kind === 'modelPreset') {
-            const ctxWindow = mainBinding.preset.profileSnapshot.limits?.contextWindowTokens
-            const set = mainBinding.preset.maxContext
-            const defaultBudget = DBState.db.modelPresetDefaultMaxContext && DBState.db.modelPresetDefaultMaxContext > 0
-                ? DBState.db.modelPresetDefaultMaxContext
-                : 65000
-            const budget = DBState.db.modelPresetPromptPresetFirst
-                ? DBState.db.maxContext
-                : (set && set > 0 ? set : defaultBudget)
-            maxContextTokens = ctxWindow ? Math.min(budget, ctxWindow) : budget
-            // Resolve the provider's response limit independently from the
-            // prompt budget. The legacy global value can be a stray figure, so
-            // model presets still use their own max-output setting when set.
-            if (!DBState.db.modelPresetPromptPresetFirst) {
-                const presetOut = resolvePresetMaxOutputTokens(mainBinding.preset, DBState.db.modelPresetDefaultMaxResponse)
-                if (presetOut !== undefined) {
-                    maxResponseTokens = presetOut
-                }
-                else if (DBState.db.modelPresetDefaultMaxResponse && DBState.db.modelPresetDefaultMaxResponse > 0) {
-                    maxResponseTokens = DBState.db.modelPresetDefaultMaxResponse
-                }
-            }
-        }
-    }
+    const maxResponseTokens = resolveChatMaxResponseTokens(currentChat)
 
     chatProcessStage.set(1)
     stageTimings.stage1Start = Date.now()
@@ -1070,26 +1033,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     
     let msReseted = false
     const makeMs = (currentChat:Chat) => {
-        let mss:Message[] = []
-        msReseted = false
-        for(let i=currentChat.message.length -1;i>=0;i--){
-            const d = currentChat.message[i]
-            if(d.kind === 'imageGeneration'){
-                continue
-            }
-            if(d.isRecovering === true){
-                continue
-            }
-            if(d.disabled === true){
-                continue
-            }
-            if(d.disabled === 'allBefore'){
-                msReseted = true
-                break
-            }
-            mss.unshift(d)
-        }
-        return mss
+        const selected = selectActiveChatMessages(currentChat)
+        msReseted = selected.startsAfterCutoff
+        return selected.messages
     }
 
     let ms:Message[] = makeMs(currentChat)

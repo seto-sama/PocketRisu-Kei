@@ -197,7 +197,7 @@ export const helpEn = {
         preloadChatImagesDesc: "Preloads nearby inlays and other chat images to prevent layout shifts while scrolling. Disable it to rely on browser lazy loading.",
         embedding:
             "Embedding model is used for similarity search across multiple features:\n\n" +
-            "- **Long Term Memory**: HypaV2, HypaV3, Hanurai Memory, and SupaMemory (with HypaMemory enabled)\n" +
+            "- **Long Term Memory**: HypaV3 (with HypaMemory enabled)\n" +
             "- **Additional Text**: Matching character additional info based on context\n" +
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
@@ -230,7 +230,7 @@ export const helpEn = {
         hypaV3SummaryChunkSeparator:
             "Separator used to split summaries into chunks for similarity search.",
         hypaV3UseExperimentalImpl:
-            "Switches to the experimental HypaMemory V3 implementation. Enables rate limit settings and changes the query method.",
+            "Switches to the experimental HypaMemory V3 implementation. Enables concurrency controls and changes the query method.",
         hypaV3AlwaysToggleOn:
             "If enabled, the HypaMemory toggle is automatically activated when selecting a character.",
         toggleHypaMemory:
@@ -244,12 +244,8 @@ export const helpEn = {
             "Off : Use the existing chatbot settings. (default)",
         promptPresetParams:
             "When this chat sends its main request through a model preset, the sampling parameters of the currently applied prompt preset (Temperature, Top P, penalties, etc.) override the model preset's parameters.\n\n- Applies to this chat only, and only to the main model request (not sub/auxiliary models).\n- Only parameters the model preset actually supports are overridden. Output token caps (max tokens) and thinking settings are properties of the model, so the model preset always decides them.\n- Values you set explicitly in the model preset's custom body / additional parameters still take priority.\n- In classic model mode, prompt preset parameters already apply, so this option has no effect there.",
-        hypaV3SummarizationRequestsPerMinute:
-            "Maximum summarization model requests per minute. Only applies when the summarization model is set to Auxiliary Model.",
         hypaV3SummarizationMaxConcurrent:
             "Maximum concurrent summarization model requests. Only applies when the summarization model is set to Auxiliary Model.",
-        hypaV3EmbeddingRequestsPerMinute:
-            "Maximum embedding model requests per minute for similarity search.",
         hypaV3EmbeddingMaxConcurrent:
             "Maximum concurrent embedding model requests for similarity search.",
         hypaV3QueryChatCount:
@@ -507,14 +503,9 @@ export const helpEn = {
         memType:
             "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
         hypaV3Description: "HypaMemory V3 is a long-term memory system that uses both summarization and vector search.",
-        hypaV3SummaryModel:
-            "Model used to summarize chat.\n\n- **subModel**: use the auxiliary model (most common)\n- **Qwen3 4B/14B**: free local summarization (runs in the browser or Node instance directly, downloads on first use)\n\nUsing a lighter model than the main model saves cost.",
         hypaV3Preset:
-            "HypaV3 settings preset. Save and load groups of frequently used settings; switching presets also swaps every ratio / model option above.",
+            "HypaV3 settings preset. Save and load groups of frequently used summarization and retrieval settings.",
         hypaV3EmbeddingModel: "The embedding model to use from the selected provider.",
-        hypaV3OpenAIKeyList: "Select an OpenAI key saved in API Key Management.",
-        hypaV3VoyageKeyList: "Select a Voyage key saved in API Key Management.",
-        hypaV3CustomKeyList: "Select a key saved in API Key Management.",
         embeddingOpenAIKey:
             "API key used when an OpenAI embedding model is selected. Set this only if you want to manage embedding cost separately from the main-model key. If empty, the main OpenAI key is reused.",
         embeddingCustomURL:

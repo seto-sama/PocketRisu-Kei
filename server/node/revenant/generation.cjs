@@ -1,5 +1,10 @@
 'use strict';
 
+const HYPA_CONCURRENT_REQUEST_MIN = 1;
+const HYPA_CONCURRENT_REQUEST_MAX = 12;
+const HYPA_QUERY_CHAT_COUNT_MIN = 1;
+const HYPA_QUERY_CHAT_COUNT_MAX = 12;
+
 const { applyPatch } = require('fast-json-patch');
 
 const JOB_TYPES = new Set([
@@ -309,18 +314,14 @@ function normalizeRevenantDispatchPolicy(value, operationContext, workflowId) {
         || operationContext?.kind !== 'hypav3-summary'
     ) return undefined;
     const maxConcurrent = Number(value.maxConcurrent);
-    const requestsPerMinute = Number(value.requestsPerMinute);
     if (
         !Number.isInteger(maxConcurrent)
-        || !Number.isInteger(requestsPerMinute)
-        || maxConcurrent < 1 || maxConcurrent > 32
-        || requestsPerMinute < 1 || requestsPerMinute > 1000
-        || maxConcurrent > requestsPerMinute
+        || maxConcurrent < HYPA_CONCURRENT_REQUEST_MIN
+        || maxConcurrent > HYPA_CONCURRENT_REQUEST_MAX
     ) return undefined;
     return {
         dispatchGroup: `${workflowId || 'standalone'}:hypa:${operationContext.batchId}`,
         maxConcurrent,
-        requestsPerMinute,
     };
 }
 
@@ -411,7 +412,8 @@ function normalizeRevenantHypaExecutionRecipe(value) {
             .every(number => Number.isFinite(number) && number >= 0 && number <= 1)
         || settings.recentMemoryRatio + settings.similarMemoryRatio > 1
         || !Number.isInteger(settings.queryChatCount)
-        || settings.queryChatCount < 1 || settings.queryChatCount > 100
+        || settings.queryChatCount < HYPA_QUERY_CHAT_COUNT_MIN
+        || settings.queryChatCount > HYPA_QUERY_CHAT_COUNT_MAX
         || typeof settings.summaryChunkSeparator !== 'string'
         || settings.summaryChunkSeparator.length > 1000
         || !Array.isArray(value.chats) || value.chats.length > 10000
@@ -430,6 +432,10 @@ function normalizeRevenantHypaExecutionRecipe(value) {
         || typeof value.randomSeed !== 'string'
     ) return undefined;
     if (settings.queryMode !== undefined && !['chat', 'paragraph'].includes(settings.queryMode)) return undefined;
+    if (settings.embeddingMaxConcurrent !== undefined
+        && (!Number.isInteger(settings.embeddingMaxConcurrent)
+            || settings.embeddingMaxConcurrent < HYPA_CONCURRENT_REQUEST_MIN
+            || settings.embeddingMaxConcurrent > HYPA_CONCURRENT_REQUEST_MAX)) return undefined;
     const requests = value.summaryRequests;
     if (!Array.isArray(requests) || requests.length !== value.expectedOperationIds.length
         || new Set(requests.map(request => request?.operationId)).size !== requests.length

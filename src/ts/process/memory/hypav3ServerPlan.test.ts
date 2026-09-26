@@ -6,7 +6,6 @@ const state = vi.hoisted(() => ({ db: {} as any }))
 vi.mock('src/ts/storage/database.svelte', () => ({ getDatabase: () => state.db, getCurrentCharacter: () => null }))
 vi.mock('../request/request', () => ({ requestChatData: vi.fn(() => { throw new Error('Summary started before registration') }) }))
 vi.mock('../request/modelPresetBinding', () => ({
-    resolveChatMaxResponseTokens: () => 0,
     resolveChatModelBinding: () => ({ kind: 'modelPreset', preset: {
         id: 'summary', name: 'Summary', userValues: {},
         profileSnapshot: { adapterKind: 'echo', schema: [], capabilities: [], auth: { kind: 'none' } },
@@ -19,7 +18,7 @@ vi.mock('src/ts/storage/chatStorage', () => ({ saveChatToServer: vi.fn() }))
 vi.mock('../revenant/auxiliary', () => ({ resolveRecoverableAuxiliaryGenerations: async () => [], consumeRecoverableAuxiliaryGeneration: vi.fn() }))
 vi.mock('../revenant', () => ({ createRevenantOperation: (value: unknown) => value, isRevenantHypaV3SummaryOperation: () => true }))
 vi.mock('./hypamemory', () => ({ HypaProcesser: class {} }))
-vi.mock('./hypamemoryv2', () => ({ HypaProcessorV2: class {} }))
+vi.mock('./hypaEmbeddingProcessor', () => ({ HypaEmbeddingProcessor: class {} }))
 vi.mock('./contextualEmbedding', () => ({ isContextModel: () => true, getContextProvider: vi.fn() }))
 
 afterEach(() => vi.restoreAllMocks())
@@ -31,6 +30,7 @@ describe('Hypa planning before durable main registration', () => {
         vi.spyOn(console, 'log').mockImplementation(() => {})
         const hypaPreset = createHypaV3Preset('Test', {
             useExperimentalImpl: experimental, maxChatsPerSummary: 2, queryChatCount: 2,
+            summarizationMaxConcurrent: 3, embeddingMaxConcurrent: 4,
             memoryTokensRatio: 0.3, extraSummarizationRatio: 0,
             recentMemoryRatio: 0.5, similarMemoryRatio: 0.5,
         })
@@ -49,9 +49,13 @@ describe('Hypa planning before durable main registration', () => {
             { planServerExecution: true, deferredMemoryPrompt: '__memory__' })
         expect(result.error).toBeUndefined()
         expect(result.deferredRemoteSelection).toBe(true)
+        expect(result.serverExecution?.summaryDispatch).toEqual({ maxConcurrent: 3 })
         expect(result.serverExecution).toMatchObject({
             embedding: { model },
-            settings: { queryMode: experimental ? 'paragraph' : 'chat' },
+            settings: {
+                embeddingMaxConcurrent: 4,
+                queryMode: experimental ? 'paragraph' : 'chat',
+            },
         })
         const requests = result.serverExecution!.summaryRequests as any[]
         expect(requests.filter(request => request.purpose === 'memory')).toHaveLength(3)

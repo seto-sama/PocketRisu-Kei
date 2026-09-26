@@ -84,5 +84,5 @@ export const helpCn = {
         "promptInfoInsideChatDesc": "启用后，这会将提示预设信息存储在聊天元数据中。存储的数据包括预设名称、活动切换和提示文本。这可能会略微增加处理时间和存储使用量。",
         "settingsCloseButtonSize": "调整设置窗口右上角关闭(X)按钮的大小。默认值为24。",
         "hideAllImagesDesc": "隐藏机器人图标、机器人图片资源和RisuRealm封面图片。",
-        "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索",
+        "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV3 (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索",
     }

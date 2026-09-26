@@ -66,7 +66,6 @@ function createGenerationWorkers(options) {
             return;
         }
         dispatchRunning = true;
-        let nextWakeMs;
         let retryDelayMs;
         try {
             const queued = listQueuedGenerationDispatches(1000);
@@ -113,21 +112,11 @@ function createGenerationWorkers(options) {
 
                 let state = states.get(item.dispatchGroup);
                 if (!state) {
-                    state = getGenerationDispatchState(
-                        item.dispatchGroup,
-                        Date.now() - 60 * 1000,
-                    );
+                    state = getGenerationDispatchState(item.dispatchGroup);
                     states.set(item.dispatchGroup, state);
                 }
                 // Running job completion explicitly wakes this worker.
                 if (state.active >= item.maxConcurrent) continue;
-                if (state.recent >= item.requestsPerMinute) {
-                    if (state.oldestRecent) {
-                        const wait = Math.max(100, state.oldestRecent + 60 * 1000 - Date.now());
-                        nextWakeMs = nextWakeMs === undefined ? wait : Math.min(nextWakeMs, wait);
-                    }
-                    continue;
-                }
 
                 const claimed = claimQueuedGenerationDispatch(item.job.jobId);
                 if (!claimed) continue;
@@ -164,11 +153,8 @@ function createGenerationWorkers(options) {
                     scheduleHypaWorkflowExecution();
                 });
                 state.active += 1;
-                state.recent += 1;
-                state.oldestRecent ??= Date.now();
                 globalActive += 1;
             }
-            if (nextWakeMs !== undefined) scheduleGenerationDispatch(nextWakeMs);
         } catch (error) {
             logger.error('[GenerationDispatch] Failed to pump durable queue:', error);
             retryDelayMs = 1000;

@@ -114,11 +114,9 @@ describe('revenant durable dispatch validation', () => {
         })).toMatchObject({ chatMemos: [null, 'message-1'] })
         expect(normalizeRevenantDispatchPolicy({
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         }, normalizedOperation, 'workflow-1')).toEqual({
             dispatchGroup: 'workflow-1:hypa:batch-1',
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         })
     })
 
@@ -128,12 +126,7 @@ describe('revenant durable dispatch validation', () => {
             batchId: '../unsafe',
         })).toBeUndefined()
         expect(normalizeRevenantDispatchPolicy({
-            maxConcurrent: 4,
-            requestsPerMinute: 3,
-        }, operation, 'workflow-1')).toBeUndefined()
-        expect(normalizeRevenantDispatchPolicy({
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
     })
 
@@ -562,7 +555,7 @@ describe('revenant workflow validation', () => {
             batchId: 'batch-1',
             expectedOperationIds: ['operation-1'],
             summaryProvider: { profileSnapshot: {} },
-            summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
+            summaryDispatch: { maxConcurrent: 1 },
             summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: [null, 'memo-1'],
                 prompt: [{ role: 'user', content: 'summarize' }] }],
             embedding: { model: 'openai3small', apiKey: 'secret' },
@@ -606,7 +599,7 @@ describe('revenant workflow validation', () => {
             summaryRequests: [recipe.summaryRequests[0], recipe.summaryRequests[0]],
         })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
-            summaryDispatch: { maxConcurrent: 40, requestsPerMinute: 20 },
+            summaryDispatch: { maxConcurrent: 40 },
         })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({
             ...recipe,

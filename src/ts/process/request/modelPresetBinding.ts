@@ -15,7 +15,7 @@ import type { ModelModeExtended } from './shared'
  * mode, which ModelPreset the chat dispatches through.
  *
  * Resolution rules:
- *  - the persisted legacy model-mode settings are ignored; all chats use model
+ *  - retired model-mode settings are ignored; all chats use model
  *    presets. A chat without its own binding, or with sidebar model bindings
  *    hidden, uses the global default binding.
  *  - mode 'model'    → main slot.  unresolved → block (main is often expensive;
@@ -89,8 +89,8 @@ export function resolveChatModelBinding(
  * output-token body path (`max_tokens` for most providers, `maxOutputTokens`
  * for Gemini-native).
  *
- * Token-budget math must use THIS, not the legacy global `db.maxResponse`: that
- * is a separate "[채팅 봇]" setting that can carry an unrelated value (e.g. a
+ * Token-budget math must use THIS, not the prompt preset's `db.maxResponse`: that
+ * setting can carry an unrelated value (e.g. a
  * stray 65535 imported from a shared prompt preset) which would eat the entire
  * context window and make even the first message fail with a false "too much
  * token" error.
@@ -115,14 +115,32 @@ export function resolvePresetMaxOutputTokens(preset: ModelPreset, defaultValue?:
     return getPresetMaxOutputTokens(preset, defaultValue)
 }
 
+export const DEFAULT_MODEL_PRESET_MAX_CONTEXT = 65_000
+
+/** Effective input-token budget for the chat's bound main model preset. */
+export function resolveChatMaxContextTokens(chat: Chat | null | undefined): number {
+    const db = getDatabase()
+    const binding = resolveChatModelBinding(chat, 'model')
+    if (binding.kind !== 'modelPreset') return db.maxContext
+
+    const preset = binding.preset
+    const configuredBudget = db.modelPresetPromptPresetFirst
+        ? db.maxContext
+        : isPositiveNumber(preset.maxContext)
+            ? preset.maxContext
+            : isPositiveNumber(db.modelPresetDefaultMaxContext)
+                ? db.modelPresetDefaultMaxContext
+                : DEFAULT_MODEL_PRESET_MAX_CONTEXT
+    const modelLimit = preset.profileSnapshot.limits?.contextWindowTokens
+    return isPositiveNumber(modelLimit)
+        ? Math.min(configuredBudget, modelLimit)
+        : configuredBudget
+}
+
 /**
- * Effective output-token reservation for a chat's main request: the bound
- * ModelPreset's own max-output cap, falling back to the legacy global
- * db.maxResponse for classic chats (or presets that declare no output field).
- *
- * This is the single source so that the reservation ADDED to the context budget
- * (process/index.svelte.ts) and any later correction that SUBTRACTS it
- * (memory/hypav3.ts) always use the same value.
+ * Effective output-token limit for a chat's main request: the bound
+ * ModelPreset's own max-output cap, falling back to the prompt preset value
+ * when the model preset declares no output field.
  */
 export function resolveChatMaxResponseTokens(chat: Chat | null | undefined): number {
     const db = getDatabase()
@@ -141,16 +159,14 @@ export function resolveChatMaxResponseTokens(chat: Chat | null | undefined): num
  * Prompt-preset parameter override. Enabled globally by
  * db.modelPresetPromptParamsFirst or per chat by chat.usePromptPresetParams.
  *
- * The classic path reads sampling parameters from the active prompt preset
- * (mirrored into db.temperature / db.top_p / ... by setPreset); the ModelPreset
- * path ignores them entirely and uses preset.userValues. When the user opts in
- * on a chat, inject the prompt preset's sampling values into a COPY of the
- * preset's userValues so they override the editor's values.
+ * Sampling parameters from the active prompt preset are mirrored into
+ * db.temperature / db.top_p / ... by setPreset. When the user opts in on a
+ * chat, inject those values into a COPY of the model preset's userValues so
+ * they override the editor's values.
  *
  * Priority: sits ABOVE userValues but BELOW customBody / additionalParamsText —
  * buildPreparedRequest applies those after userValues, so explicit power-user
- * overrides keep the final say (same ordering the classic path gives its
- * "additional parameters" textarea).
+ * overrides keep the final say.
  *
  * Scope guards:
  *  - main request only (mode 'model') — aux/sub requests keep their preset values.
@@ -161,7 +177,7 @@ export function resolveChatMaxResponseTokens(chat: Chat | null | undefined): num
  *  - sampling only: output-token caps (max_tokens) and thinking config stay on
  *    the model preset — overriding them would desync the token-budget math in
  *    resolvePresetMaxOutputTokens.
- *  - -1000 is the classic "slider disabled" sentinel; treated as unset.
+ *  - -1000 is the prompt-preset "slider disabled" sentinel; treated as unset.
  */
 const PROMPT_PARAM_READERS: Record<string, (db: Database) => number | undefined> = {
     temperature: (db) => hundredScale(db.temperature),
@@ -178,7 +194,7 @@ const PROMPT_PARAM_READERS: Record<string, (db: Database) => number | undefined>
     top_a: (db) => db.top_a,
 }
 
-// Classic sliders store hundredths (0–200 => 0–2.0); -1000 means disabled.
+// Prompt-preset sliders store hundredths (0–200 => 0–2.0); -1000 means disabled.
 function hundredScale(value: number | undefined): number | undefined {
     if (value === undefined || value === -1000) return undefined
     return value / 100
@@ -196,14 +212,14 @@ export function applyPromptPresetParams(
     const db = getDatabase()
     const overrides: Record<string, unknown> = {}
     for (const field of schema) {
-        const legacyParameterTarget =
+        const mappedParameterTarget =
             field.mapsTo?.target === 'body'
             || field.mapsTo?.target === 'custom'
         const outputField =
             field.semantic === 'maxOutputTokens'
             || (
                 field.semantic === undefined
-                && legacyParameterTarget
+                && mappedParameterTarget
                 && isOutputTokenField(field)
             )
         if (outputField) {
@@ -222,7 +238,7 @@ export function applyPromptPresetParams(
         if (!db.modelPresetPromptParamsFirst && !chat?.usePromptPresetParams) continue
         const read = field.semantic === 'temperature'
             ? PROMPT_PARAM_READERS.temperature
-            : field.semantic === undefined && legacyParameterTarget
+            : field.semantic === undefined && mappedParameterTarget
                 ? PROMPT_PARAM_READERS[field.key]
                 : undefined
         if (!read) continue

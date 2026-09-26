@@ -100,7 +100,6 @@
       ].hypaV3Data ??= {
         summaries: [],
         categories: [{ id: "", name: language.hypaV3Modal.unclassified }],
-        lastSelectedSummaries: [],
       };
 
       expandedMessageState = null;
