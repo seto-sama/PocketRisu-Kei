@@ -38,23 +38,23 @@ Holen Sie die Datei für Ihr OS von der [Releases-Seite](https://github.com/seto
 
 | OS                      | Datei                                     |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `PocketRisu-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `PocketRisu-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `PocketRisu-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `PocketRisu-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
+| macOS (Apple Silicon)   | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
+| Linux (x64)             | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
+| Linux (ARM)             | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
 
 ### Ausführen
 
 **Windows**
 
-Entpacken Sie die zip und doppelklicken Sie auf `PocketRisu.exe`. Ein Browser öffnet sich automatisch unter `http://localhost:6001`.
+Entpacken Sie die zip und doppelklicken Sie auf `PocketRisu-Kei.exe`. Ein Browser öffnet sich automatisch unter `http://localhost:6001`.
 
 **macOS**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-vX.X.X-macos-arm64
-open PocketRisu-vX.X.X-macos-arm64/PocketRisu.app
+tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
+xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
+open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
 ```
 
 Der `xattr`-Befehl ist ein einmaliger Schritt, um die "Apple kann nicht verifizieren"-Warnung zu umgehen.
@@ -62,8 +62,8 @@ Der `xattr`-Befehl ist ein einmaliger Schritt, um die "Apple kann nicht verifizi
 **Linux**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-linux-*.tar.gz
-cd PocketRisu-vX.X.X-linux-*
+tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
+cd PocketRisu-Kei-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -78,9 +78,9 @@ Für Linux/macOS-Server ohne GUI: Neueste Version in einem Befehl herunterladen 
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-v${VERSION}-linux-x64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+cd PocketRisu-Kei-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -91,10 +91,10 @@ cd PocketRisu-v${VERSION}-linux-x64
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-v${VERSION}-macos-arm64
-cd PocketRisu-v${VERSION}-macos-arm64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
+cd PocketRisu-Kei-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -170,7 +170,7 @@ Eine Statusmeldung wird angezeigt, wenn die Installation abgeschlossen ist.
 ### Server starten
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 pnpm runserver
 ```
 
@@ -179,12 +179,11 @@ pnpm runserver
 ### Aktualisieren
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 ./update.sh
 ```
 
-> **Einmaliger Hinweis für v1.5.x → v1.6.0**: Wenn Sie während der Risuai-NodeOnly-Ära (v1.5.x oder früher) über `install.sh` installiert haben, ersetzen Sie `update.sh` einmal mit der neuen Version vor Ihrem ersten v1.6.0-Update. (Das Repository wurde in PocketRisu umbenannt, und das alte `update.sh` kann das neue Quellverzeichnis nicht finden.)
->
+> Ersetzen Sie bei Bedarf vor dem Update `update.sh` durch die neueste Version:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh

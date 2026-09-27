@@ -1,6 +1,5 @@
 <script lang="ts">
-    // Button — vega-derived spec, sizes shifted +1 step for mixed
-    // desktop/mobile use (NodeOnly is also accessed via Tailscale on phones).
+    // Button — vega-derived spec, sizes shifted +1 step for mixed desktop/mobile use.
     // Sizes are coordinated with Input, Toggle, and Select.
     import type { Snippet } from 'svelte';
     import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';

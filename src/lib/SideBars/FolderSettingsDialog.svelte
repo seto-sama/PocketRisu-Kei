@@ -28,7 +28,7 @@
         pickSidebarFolderImage,
     } from './sidebarFolderMenu';
 
-    type FolderSettingsPatch = Partial<Pick<CharacterFolder, 'name' | 'color' | 'localOnly' | 'nodeOnlyDisplay' | 'nodeOnlyIcon'>>;
+    type FolderSettingsPatch = Partial<Pick<CharacterFolder, 'name' | 'color' | 'localOnly' | 'displayMode' | 'icon'>>;
 
     const characterFolder = $derived($folderSettingsTarget ? findSidebarFolder($folderSettingsTarget) : undefined);
     const chatFolder = $derived($chatFolderSettingsTarget
@@ -113,7 +113,7 @@
                 {#if !isChatFolder}
                     <SettingRow title={language.folderDisplayMode} className="border-0 py-0">
                         {#snippet control()}
-                            <Select size="sm" className="w-48" bind:value={() => mode, (value) => updateTarget({ nodeOnlyDisplay: value as FolderDisplayMode })}>
+                            <Select size="sm" className="w-48" bind:value={() => mode, (value) => updateTarget({ displayMode: value as FolderDisplayMode })}>
                                 <SelectOption value="icon">{language.folderModeIcon}</SelectOption>
                                 <SelectOption value="image">{language.folderModeImage}</SelectOption>
                                 <SelectOption value="name">{language.folderModeName}</SelectOption>
@@ -144,8 +144,8 @@
             <div class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 rounded-md border border-darkborderc p-2 max-h-48 overflow-y-auto">
                 {#each FOLDER_ICON_NAMES as name (name)}
                     {@const Icon = FOLDER_ICONS[name]}
-                    <button type="button" class="flex aspect-square w-full items-center justify-center rounded-md {(target.nodeOnlyIcon ?? 'folder') === name ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-surface'}"
-                        title={name} aria-label={name} aria-pressed={(target.nodeOnlyIcon ?? 'folder') === name} onclick={() => updateTarget({ nodeOnlyIcon: name === 'folder' ? undefined : name })}><Icon size={folderIconSize} /></button>
+                    <button type="button" class="flex aspect-square w-full items-center justify-center rounded-md {(target.icon ?? 'folder') === name ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-surface'}"
+                        title={name} aria-label={name} aria-pressed={(target.icon ?? 'folder') === name} onclick={() => updateTarget({ icon: name === 'folder' ? undefined : name })}><Icon size={folderIconSize} /></button>
                 {/each}
             </div>
         {/if}

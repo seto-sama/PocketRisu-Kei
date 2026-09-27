@@ -1,5 +1,5 @@
 /**
- * Spawn a RisuAI-NodeOnly server in isolation using a temporary save directory.
+ * Spawn the server in isolation using a temporary save directory.
  *
  * Strategy: run `node <project>/server/node/server.cjs` with cwd set to a temp
  * directory.  The server resolves `save/` relative to cwd, but loads code via

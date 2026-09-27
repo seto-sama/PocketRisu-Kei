@@ -114,13 +114,13 @@
 
     const visibleCharacters = $derived(formatChars(search, DBState.db, section === 1));
 
-    const hiddenCharacterIds = $derived(new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? []));
+    const hiddenCharacterIds = $derived(new Set(DBState.db.hiddenCharacterIds ?? []));
 
     function toggleCharacterHidden(id: string) {
         const next = new Set(hiddenCharacterIds);
         if (next.has(id)) next.delete(id);
         else next.add(id);
-        DBState.db.nodeOnlyHiddenCharacterIds = [...next];
+        DBState.db.hiddenCharacterIds = [...next];
     }
 
     let orderElement: HTMLDivElement | undefined = $state();
@@ -360,7 +360,7 @@
                         {#if entry.type === 'folder'}
                             {@const expanded = !!search.trim() || !collapsedFolders.has(entry.folder.id)}
                             {@const displayMode = folderDisplayMode(entry.folder)}
-                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.nodeOnlyIcon) : undefined}
+                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.icon) : undefined}
                             {@const FolderGlyph = CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon)}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
                                 <div class="risu-folder-header min-h-9 risu-selectable-row text-maintext">

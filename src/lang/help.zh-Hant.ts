@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — Traditional Chinese help texts (`language.help`).
+ * Traditional Chinese help texts (`language.help`).
  *
  * Extracted from `src/lang/zh-Hant.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).
@@ -112,7 +112,7 @@ export const helpZhHant = {
         "showPersonaInSidebar": "在側邊欄中顯示目前啟用的人設名稱，方便快速查看。",
         "disableToggleBinding": "顯示將切換值綁定至個別對話的功能。",
         "keepSessionAlive": "透過播放靜音音訊讓分頁保持活躍，防止瀏覽器工作階段因閒置而過期。可能需要重新整理後才能生效。",
-        "nodeOnlyScrollButtonType": "聊天捲動按鈕的顯示方式。4 個按鈕會加入跳至頂部與底部的控制項；2 個按鈕僅保留上一則/下一則訊息導覽；停用則隱藏按鈕。",
+        "scrollButtonType": "聊天捲動按鈕的顯示方式。4 個按鈕會加入跳至頂部與底部的控制項；2 個按鈕僅保留上一則/下一則訊息導覽；停用則隱藏按鈕。",
         "lorePlus": "Lorebook+ 是一項實驗性功能。使用向量資料庫（VectorDB），而不僅是字串匹配。目的在於提供更好的建立角色體驗和更好的匹配效能。",
         "removePunctuationHypa": "啟用後，將在執行 HypaMemory 前移除標點符號。",
         "groupOtherBotRole": "用於定義群組對話中非發言者的角色。",

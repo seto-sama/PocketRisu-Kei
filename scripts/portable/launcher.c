@@ -1,6 +1,6 @@
 /*
- * RisuAI NodeOnly — Windows portable launcher
- * Compiled with: gcc -municode -O2 -o RisuAI.exe launcher.c launcher.res -lshell32
+ * Windows portable launcher
+ * Compiled with: gcc -municode -O2 -o PocketRisu-Kei.exe launcher.c launcher.res -lshell32
  * Note: -municode already defines UNICODE and _UNICODE
  */
 #include <windows.h>
@@ -16,7 +16,7 @@ int wmain(void) {
     WCHAR *sep = wcsrchr(dir, L'\\');
     if (sep) *sep = L'\0';
 
-    SetConsoleTitleW(L"RisuAI NodeOnly");
+    SetConsoleTitleW(L"PocketRisu Kei");
     SetCurrentDirectoryW(dir);
 
     /* PORT: honour existing env var, default to 6001 */

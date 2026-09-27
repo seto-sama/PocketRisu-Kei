@@ -544,7 +544,7 @@ function validateHashedAsset(name, value) {
 }
 
 /**
- * Restore only currently-missing assets from a local PocketRisu server backup.
+ * Restore only currently-missing assets from a local server backup.
  *
  * The backup is scanned completely before any write. Target entries are then
  * hash-checked (for content-addressed names) and inserted in one SQLite

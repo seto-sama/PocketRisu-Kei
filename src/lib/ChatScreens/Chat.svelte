@@ -696,9 +696,9 @@
 
     let blankMessage = $derived((message === '{{none}}' || message === '{{blank}}' || message === '') && idx === -1 && !altGreeting || isComment)
     const isBranchedFromComment = $derived(Boolean(isComment && message?.startsWith('{{specialcomment::branchedfrom::')))
-    let nodeOnlyWidthClass = $derived(
-        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
+    let chatWidthClass = $derived(
+        DBState.db.standardChatWidth === 'full' ? 'max-w-full' :
+        DBState.db.standardChatWidth === 'wide' ? 'max-w-6xl' :
         'max-w-3xl'
     )
 
@@ -1785,7 +1785,6 @@
 <div class="w-full border-t-2 border-dashed border-primary"></div>
 {/if}
 {#if DBState.db.theme === ''}
-<!-- NodeOnly Standard: 전용 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      bind:this={partialEditRoot}
      data-chat-index={idx}
@@ -1800,7 +1799,7 @@
     >
         {#if !blankMessage}
             <div
-                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg md:[--chat-shell-inline-padding:2rem]"
+                class="chat-message-shell flex flex-col w-full min-w-0 {chatWidthClass} mx-auto bg-lightbg sm:rounded-lg md:[--chat-shell-inline-padding:2rem]"
                 class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
             >
                 {#if !hideSender}
@@ -1831,7 +1830,7 @@
                 {/if}
             </div>
         {:else if isComment}
-            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
+            <div class="flex flex-col w-full min-w-0 {chatWidthClass} mx-auto px-4 sm:px-8">
                 {#if isBranchedFromComment}
                     {@render branchedFromCommentRow()}
                 {:else}

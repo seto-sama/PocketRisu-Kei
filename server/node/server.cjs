@@ -730,10 +730,11 @@ if(existsSync(passwordPath)){
     authState.password = readFileSync(passwordPath, 'utf-8')
 }
 
-// ── NodeOnly: server-side JWT (HMAC-SHA256) ─────────────────────────────────
+// Server-side JWT signing allows authentication over plain HTTP, where the
+// browser's crypto.subtle API is unavailable outside localhost.
 // Upstream uses client-side ECDSA JWT via crypto.subtle, which requires
-// Secure Context (HTTPS or localhost). NodeOnly needs HTTP remote access,
-// so we moved JWT signing/verification to the server using HMAC-SHA256.
+// Secure Context (HTTPS or localhost), so signing and verification use
+// HMAC-SHA256 on the server instead.
 // If upstream changes its auth flow, this section needs manual sync.
 // Related: createServerJwt(), checkAuth(), /api/login, /api/token/refresh
 const jwtSecretPath = path.join(savePath, '__jwt_secret')
@@ -1293,8 +1294,6 @@ async function hashJSON(json){
     hash.update(JSON.stringify(json));
     return hash.digest('hex');
 }
-
-// NodeOnly: server-issued JWT (see jwt_secret comment above)
 
 // --- Generation: auth helpers ---
 

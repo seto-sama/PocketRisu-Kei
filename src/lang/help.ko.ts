@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — Korean help texts (`language.help`).
+ * Korean help texts (`language.help`).
  *
  * Extracted from `src/lang/ko.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).
@@ -147,7 +147,7 @@ export const helpKo = {
         "promptPresetParams": "이 채팅이 모델 프리셋으로 메인 요청을 보낼 때, 현재 적용 중인 프롬프트 프리셋의 샘플링 파라미터(Temperature, Top P, 페널티 등)로 모델 프리셋의 파라미터를 덮어씁니다.\n\n- 이 채팅에만, 그리고 메인 모델 요청에만 적용됩니다 (보조 모델 제외).\n- 모델 프리셋이 실제로 지원하는 파라미터만 덮어쓰며, 모델 프리셋의 추가 파라미터로 직접 지정한 값은 덮어쓰지 않습니다.",
         "hypaV3SummarizationMaxConcurrent": "요약을 진행할 때, 설정한 숫자만큼 동시에 요청을 보냅니다.",
         "hypaV3EmbeddingMaxConcurrent": "유사도 검색을 진행할 때, 설정한 숫자만큼 동시에 요청을 보냅니다.",
-        "nodeOnlyScrollButtonType": "채팅 스크롤 버튼 표시 방식입니다. 4버튼은 맨 위·맨 아래로 이동 버튼을 추가하고, 2버튼은 이전/다음 메시지 이동만, 사용 안 함은 버튼을 숨깁니다.",
+        "scrollButtonType": "채팅 스크롤 버튼 표시 방식입니다. 4버튼은 맨 위·맨 아래로 이동 버튼을 추가하고, 2버튼은 이전/다음 메시지 이동만, 사용 안 함은 버튼을 숨깁니다.",
         "confirmReroll": "메시지를 재생성(reroll)할 때 확인 다이얼로그를 띄웁니다. 실수로 응답을 날리는 것을 막고 싶을 때 켜세요.",
         "confirmMessageDelete": "삭제할 메시지 종류를 선택한 뒤 한 번 더 확인 다이얼로그를 띄웁니다. 끄면 선택한 삭제 작업이 추가 확인 없이 바로 실행됩니다.",
         "showPreviousChatSwipeButtons": "이전의 재생성된 캐릭터 메시지와 첫 메시지의 추가 첫 메시지에도 스와이프 이동 버튼을 표시합니다. 이전 메시지는 기존 스와이프 사이를 이동하거나 선택된 재생성 메시지를 삭제할 수 있지만, 새 재생성 버튼은 표시하지 않습니다.",
@@ -191,7 +191,7 @@ export const helpKo = {
         "theme": "전체 채팅 화면 레이아웃 테마입니다.",
         "waifuWidth": "Waifulike 테마의 채팅 영역 너비입니다.",
         "waifuWidth2": "Waifulike 테마의 캐릭터 일러스트 크기입니다.",
-        "nodeOnlyStandardChatWidth": "PocketRisu Standard 테마에서 메시지 카드의 최대 가로폭입니다.",
+        "standardChatWidth": "PocketRisu Standard 테마에서 메시지 카드의 최대 가로폭입니다.",
         "colorScheme": "Risu UI 전체에 적용되는 색상 팔레트입니다.",
         "colorSchemeTransferDesc": "색상 팔레트 JSON 파일을 가져오거나 내보냅니다.",
         "textColor": "메시지 본문 텍스트 색 테마입니다.",

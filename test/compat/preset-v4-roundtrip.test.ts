@@ -4,7 +4,7 @@
  *
  * Confirms that the persistence layer (SQLite KV + msgpackr round-trip + KV
  * encoder) preserves every v4-specific top-level DB field. This locks in
- * forward compatibility so a user with v4 data exported from one NodeOnly
+ * forward compatibility so a user with v4 data exported from one local
  * instance can re-import it on another instance without losing migration
  * state, model presets, api key pool, or task bindings.
  *

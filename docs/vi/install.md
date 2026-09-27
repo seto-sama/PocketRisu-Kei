@@ -38,23 +38,23 @@ Lấy tệp cho OS của bạn từ [trang Releases](https://github.com/seto-sam
 
 | OS                       | Tệp                                       |
 | ------------------------ | ----------------------------------------- |
-| Windows (x64)            | `PocketRisu-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)    | `PocketRisu-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)              | `PocketRisu-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)              | `PocketRisu-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)            | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
+| macOS (Apple Silicon)    | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
+| Linux (x64)              | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
+| Linux (ARM)              | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
 
 ### Chạy
 
 **Windows**
 
-Giải nén tệp zip và nhấp đúp vào `PocketRisu.exe`. Trình duyệt tự động mở tại `http://localhost:6001`.
+Giải nén tệp zip và nhấp đúp vào `PocketRisu-Kei.exe`. Trình duyệt tự động mở tại `http://localhost:6001`.
 
 **macOS**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-vX.X.X-macos-arm64
-open PocketRisu-vX.X.X-macos-arm64/PocketRisu.app
+tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
+xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
+open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
 ```
 
 Lệnh `xattr` là thao tác một lần để bỏ qua cảnh báo "Apple không thể xác minh".
@@ -62,8 +62,8 @@ Lệnh `xattr` là thao tác một lần để bỏ qua cảnh báo "Apple khôn
 **Linux**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-linux-*.tar.gz
-cd PocketRisu-vX.X.X-linux-*
+tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
+cd PocketRisu-Kei-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -78,9 +78,9 @@ Mở `http://localhost:6001` trong trình duyệt.
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-v${VERSION}-linux-x64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+cd PocketRisu-Kei-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -91,10 +91,10 @@ cd PocketRisu-v${VERSION}-linux-x64
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-v${VERSION}-macos-arm64
-cd PocketRisu-v${VERSION}-macos-arm64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
+cd PocketRisu-Kei-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -170,7 +170,7 @@ Thông báo trạng thái hiển thị khi cài đặt hoàn tất.
 ### Khởi động máy chủ
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 pnpm runserver
 ```
 
@@ -179,12 +179,11 @@ Mở `http://localhost:6001` trong trình duyệt.
 ### Cập nhật
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 ./update.sh
 ```
 
-> **Lưu ý một lần cho v1.5.x → v1.6.0**: Nếu bạn đã cài đặt qua `install.sh` trong thời kỳ Risuai-NodeOnly (v1.5.x trở về trước), hãy thay `update.sh` bằng phiên bản mới một lần trước lần cập nhật v1.6.0 đầu tiên. (Repository đã được đổi tên thành PocketRisu và `update.sh` cũ không thể tìm thấy thư mục mã nguồn mới.)
->
+> Nếu cần, hãy thay `update.sh` bằng phiên bản mới nhất trước khi cập nhật:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh

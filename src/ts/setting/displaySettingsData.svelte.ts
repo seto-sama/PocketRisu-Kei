@@ -43,11 +43,11 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         keywords: ['custom', 'html', 'chat'],
     },
     {
-        id: 'display.nodeOnlyStandardChatWidth',
+        id: 'display.standardChatWidth',
         type: 'select',
-        labelKey: 'nodeOnlyStandardChatWidth',
-        helpKey: 'nodeOnlyStandardChatWidth',
-        bindKey: 'nodeOnlyStandardChatWidth',
+        labelKey: 'standardChatWidth',
+        helpKey: 'standardChatWidth',
+        bindKey: 'standardChatWidth',
         condition: (ctx) => ctx.db.theme === '',
         options: {
             selectOptions: [
@@ -56,7 +56,7 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
                 { value: 'full', labelKey: 'chatWidthFull' },
             ],
         },
-        keywords: ['chat', 'width', 'nodeonly', 'standard'],
+        keywords: ['chat', 'width', 'pocketrisu', 'standard'],
     },
     {
         id: 'display.waifuWidth',

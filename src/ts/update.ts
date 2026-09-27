@@ -47,7 +47,7 @@ export async function checkRisuUpdate(): Promise<UpdateInfo | null> {
     }
 }
 
-const DISMISSED_KEY = 'risuNodeOnly_dismissedUpdateVersion'
+const DISMISSED_KEY = 'pocketRisuKei_dismissedUpdateVersion'
 
 function showUpdatePopupOnce(info: UpdateInfo) {
     const dismissed = localStorage.getItem(DISMISSED_KEY)

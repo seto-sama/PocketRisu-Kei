@@ -40,9 +40,9 @@ describe('sidebar folder settings', () => {
         openSidebarFolderMenu('a')
         expect(get(folderSettingsTarget)).toBe('a')
         mocks.DBState.db.characterOrder.reverse()
-        updateSidebarFolder('a', { name: 'renamed', nodeOnlyDisplay: 'name' })
+        updateSidebarFolder('a', { name: 'renamed', displayMode: 'name' })
         expect(mocks.DBState.db.characterOrder).toEqual([
-            makeFolder('b'), { ...makeFolder('a'), name: 'renamed', nodeOnlyDisplay: 'name' },
+            makeFolder('b'), { ...makeFolder('a'), name: 'renamed', displayMode: 'name' },
         ])
     })
 
@@ -85,7 +85,7 @@ describe('sidebar folder settings', () => {
         expect(folderDisplayMode(target)).toBe('icon')
         target.imgFile = 'assets/old.png'
         expect(folderDisplayMode(target)).toBe('image')
-        target.nodeOnlyDisplay = 'name'
+        target.displayMode = 'name'
         expect(folderDisplayMode(target)).toBe('name')
     })
 
@@ -100,8 +100,8 @@ describe('sidebar folder settings', () => {
 
         openChatFolderMenu('char-a', 'f1')
         expect(get(chatFolderSettingsTarget)).toEqual({ characterId: 'char-a', folderId: 'f1' })
-        updateChatFolder('char-a', 'f1', { name: 'renamed', nodeOnlyIcon: 'star' })
-        expect(character.chatFolders[0]).toEqual({ ...makeChatFolder('f1'), name: 'renamed', nodeOnlyIcon: 'star' })
+        updateChatFolder('char-a', 'f1', { name: 'renamed', icon: 'star' })
+        expect(character.chatFolders[0]).toEqual({ ...makeChatFolder('f1'), name: 'renamed', icon: 'star' })
 
         expect(deleteChatFolder('char-a', 'f1')).toBe(true)
         expect(character.chatFolders).toEqual([makeChatFolder('f2')])

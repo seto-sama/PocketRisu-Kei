@@ -296,12 +296,12 @@ function installBackupRoutes(app, {
     app.get('/api/backup/export', async (req, res, next) => {
         if(!await checkAuth(req, res)){ return; }
         try {
-            // ?target=upstream excludes NodeOnly-only inlay namespaces (inlay/,
+            // ?target=upstream excludes application-specific inlay namespaces (inlay/,
             // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
             // which upstream RisuAI's import treats as a path under assets/ and
             // fails with ENOENT. The export becomes lossy on inlay images but
             // imports cleanly into upstream.
-            const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
+            const target = req.query.target === 'upstream' ? 'upstream' : 'pocketrisu';
             const settingsOnly = req.query.mode === 'settings';
             const includeModuleAssets = req.query.moduleAssets !== '0';
             // Flush any pending patches to ensure export includes latest data

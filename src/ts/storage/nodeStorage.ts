@@ -2,11 +2,10 @@ import { encodeAssetBatch, decodeAssetBatch } from './assetTransport'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
-// ── NodeOnly: server-side JWT ────────────────────────────────────────────────
 // Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
-// Context (HTTPS/localhost). NodeOnly needs HTTP remote access, so JWT
-// signing is moved to the server. The client only caches and forwards
-// server-issued tokens. If upstream changes its auth flow, sync manually.
+// Context (HTTPS/localhost). To support remote access over plain HTTP, signing
+// happens on the server; the client only caches and forwards issued tokens.
+// If upstream changes its auth flow, sync manually.
 // Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
 // /api/login, /api/token/refresh)
 import { language } from "src/lang"

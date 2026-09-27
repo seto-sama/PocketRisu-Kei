@@ -120,7 +120,7 @@ Release with: `termux-wake-unlock`
 From the PocketRisu directory:
 
 ```bash
-cd ~/PocketRisu
+cd ~/PocketRisu-Kei
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```

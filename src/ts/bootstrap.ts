@@ -590,7 +590,7 @@ async function checkNewFormat(): Promise<void> {
  */
 async function cleanChunks() {
     const db = getDatabase()
-    if(db.nodeOnlyAutoCleanAssets === true){
+    if(db.autoCleanAssets === true){
         try {
             await purgeOrphanAssets()
         }

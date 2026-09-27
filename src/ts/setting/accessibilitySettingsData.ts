@@ -184,11 +184,11 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['left', 'bar', 'collapse', 'toggle', 'mobile', 'sidebar', 'hide'],
     },
     {
-        id: 'acc.nodeOnlyScrollButtonType',
+        id: 'acc.scrollButtonType',
         type: 'select',
-        labelKey: 'nodeOnlyScrollButtonType',
-        bindKey: 'nodeOnlyScrollButtonType',
-        helpKey: 'nodeOnlyScrollButtonType',
+        labelKey: 'scrollButtonType',
+        bindKey: 'scrollButtonType',
+        helpKey: 'scrollButtonType',
         options: {
             selectOptions: [
                 { value: 'four', labelKey: 'scrollButtonTypeFour' },
@@ -284,7 +284,7 @@ export const accessibilityEditingItems = pick([
 export const accessibilityScrollItems = pick([
     'acc.autoScrollToNewMessage',
     'acc.newMessageButtonStyle',
-    'acc.nodeOnlyScrollButtonType',
+    'acc.scrollButtonType',
     'acc.stickyChatToolbar',
     'acc.fixedChatTextarea',
     'acc.chatLoadInitialPages',

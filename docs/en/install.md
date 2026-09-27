@@ -36,23 +36,23 @@ Get the file for your OS from the [Releases page](https://github.com/seto-sama/P
 
 | OS                      | File                                      |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `PocketRisu-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `PocketRisu-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `PocketRisu-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `PocketRisu-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
+| macOS (Apple Silicon)   | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
+| Linux (x64)             | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
+| Linux (ARM)             | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
 
 ### Run
 
 **Windows**
 
-Extract the zip and double-click `PocketRisu.exe`. A browser opens automatically at `http://localhost:6001`.
+Extract the zip and double-click `PocketRisu-Kei.exe`. A browser opens automatically at `http://localhost:6001`.
 
 **macOS**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-vX.X.X-macos-arm64
-open PocketRisu-vX.X.X-macos-arm64/PocketRisu.app
+tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
+xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
+open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
 ```
 
 The `xattr` command is a one-time step to bypass the "Apple cannot verify" warning.
@@ -60,8 +60,8 @@ The `xattr` command is a one-time step to bypass the "Apple cannot verify" warni
 **Linux**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-linux-*.tar.gz
-cd PocketRisu-vX.X.X-linux-*
+tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
+cd PocketRisu-Kei-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -76,9 +76,9 @@ For Linux/macOS servers without a GUI, fetch and run the latest version in one c
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-v${VERSION}-linux-x64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+cd PocketRisu-Kei-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -89,10 +89,10 @@ cd PocketRisu-v${VERSION}-linux-x64
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-v${VERSION}-macos-arm64
-cd PocketRisu-v${VERSION}-macos-arm64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
+cd PocketRisu-Kei-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -168,7 +168,7 @@ A status message is shown when installation finishes.
 ### Start Server
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 pnpm runserver
 ```
 
@@ -177,12 +177,11 @@ Open `http://localhost:6001` in your browser.
 ### Update
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 ./update.sh
 ```
 
-> **One-time note for v1.5.x → v1.6.0**: If you installed via `install.sh` during the Risuai-NodeOnly era (v1.5.x or earlier), replace `update.sh` with the new version once before your first v1.6.0 update. (The repository was renamed to PocketRisu, and the old `update.sh` cannot find the new source directory.)
->
+> If needed, refresh the update script before updating:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh

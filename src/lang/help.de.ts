@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — German help texts (`language.help`).
+ * German help texts (`language.help`).
  *
  * Extracted from `src/lang/de.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).

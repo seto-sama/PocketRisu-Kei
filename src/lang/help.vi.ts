@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — Vietnamese help texts (`language.help`).
+ * Vietnamese help texts (`language.help`).
  *
  * Extracted from `src/lang/vi.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).

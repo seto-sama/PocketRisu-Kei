@@ -396,8 +396,8 @@ export function setDatabase(data:Database){
         data.iconsize = 100
     }
     data.theme = normalizeTheme(data.theme)
-    if(data.nodeOnlyStandardChatWidth !== 'standard' && data.nodeOnlyStandardChatWidth !== 'wide' && data.nodeOnlyStandardChatWidth !== 'full'){
-        data.nodeOnlyStandardChatWidth = 'standard'
+    if(data.standardChatWidth !== 'standard' && data.standardChatWidth !== 'wide' && data.standardChatWidth !== 'full'){
+        data.standardChatWidth = 'standard'
     }
     if(checkNullish(data.waifuWidth)){
         data.waifuWidth = 100
@@ -879,9 +879,9 @@ export function setDatabase(data:Database){
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
     data.saveSignatures ??= false
-    data.nodeOnlyScrollButtonType ??= 'four'
-    data.nodeOnlyHideRecentChats ??= false
-    data.nodeOnlyAutoCleanAssets ??= false
+    data.scrollButtonType ??= 'four'
+    data.hideRecentChats ??= false
+    data.autoCleanAssets ??= false
     const legacyKeepSessionAlive = data.keepSessionAlive as unknown
     data.keepSessionAlive = legacyKeepSessionAlive === true
         || legacyKeepSessionAlive === 'sound'
@@ -1140,7 +1140,7 @@ export interface Database{
     plugins: RisuPlugin[]
     currentPluginProvider: string
     zoomsize:number
-    nodeOnlyHiddenCharacterIds?: string[]
+    hiddenCharacterIds?: string[]
     trashRetentionDays: number
     customBackground:string
     /** Custom CSS that is applied independently of the selected theme preset. */
@@ -1164,7 +1164,7 @@ export interface Database{
     customSounds:{ id:string, name:string, path:string }[]
     iconsize:number
     theme: string
-    nodeOnlyStandardChatWidth: 'standard' | 'wide' | 'full'
+    standardChatWidth: 'standard' | 'wide' | 'full'
     emotionPrompt: string,
     formatversion:number
     waifuWidth:number
@@ -1536,10 +1536,10 @@ export interface Database{
     hideLeftBarCollapseButton?:boolean
     blockquoteStyling?:boolean
     cornerBracketStyling?:boolean
-    nodeOnlyScrollButtonType?:'four'|'two'|'off'
-    nodeOnlyHideRecentChats?:boolean
+    scrollButtonType?:'four'|'two'|'off'
+    hideRecentChats?:boolean
     /** Opt-in server-side orphan asset sweep after startup. */
-    nodeOnlyAutoCleanAssets?:boolean
+    autoCleanAssets?:boolean
     seperateParametersByModel?:boolean
     saveSignatures?:boolean
     keepSessionAlive: boolean
@@ -1824,7 +1824,7 @@ export interface themePreset extends PresetTagFields {
     name: string
     // Theme tab (submenu 0)
     theme: string
-    nodeOnlyStandardChatWidth?: 'standard' | 'wide' | 'full'
+    standardChatWidth?: 'standard' | 'wide' | 'full'
     guiHTML: string
     customCSS: string
     waifuWidth: number
@@ -1880,8 +1880,8 @@ interface hordeConfig{
 export type FolderDisplayMode = 'icon' | 'image' | 'name'
 
 export interface folder{
-    nodeOnlyDisplay?: FolderDisplayMode
-    nodeOnlyIcon?: string
+    displayMode?: FolderDisplayMode
+    icon?: string
     name:string
     data:string[]
     color:string
@@ -2054,7 +2054,7 @@ export interface ChatFolder{
     color?:string
     folded:boolean
     localOnly?:boolean
-    nodeOnlyIcon?:string
+    icon?:string
 }
 
 export interface Message{
@@ -2248,7 +2248,7 @@ export const themePresetTemplate: themePreset = {
     id: createEntityId(),
     name: "New Theme",
     theme: '',
-    nodeOnlyStandardChatWidth: 'standard',
+    standardChatWidth: 'standard',
     guiHTML: '',
     customCSS: '',
     waifuWidth: 100,
@@ -2582,7 +2582,7 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         name: pres[db.themePresetsId]?.name ?? "Default",
         tagIds: structuredClone(pres[db.themePresetsId]?.tagIds),
         theme: normalizeTheme(db.theme),
-        nodeOnlyStandardChatWidth: db.nodeOnlyStandardChatWidth,
+        standardChatWidth: db.standardChatWidth,
         guiHTML: db.guiHTML,
         customCSS: db.customCSS,
         waifuWidth: db.waifuWidth,
@@ -2640,7 +2640,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     if(!p) return
     db.themePresetsId = id
     db.theme = normalizeTheme(p.theme ?? db.theme)
-    db.nodeOnlyStandardChatWidth = p.nodeOnlyStandardChatWidth ?? db.nodeOnlyStandardChatWidth
+    db.standardChatWidth = p.standardChatWidth ?? db.standardChatWidth
     db.guiHTML = p.guiHTML ?? db.guiHTML
     db.customCSS = p.customCSS ?? db.customCSS
     db.waifuWidth = p.waifuWidth ?? db.waifuWidth

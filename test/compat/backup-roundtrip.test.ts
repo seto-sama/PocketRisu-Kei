@@ -132,7 +132,7 @@ describe('asset round-trip', () => {
 // ─── Upstream-compatible export ────────────────────────────────────────────
 
 describe('upstream-compatible backup export', () => {
-  test('excludes NodeOnly-only inlay namespaces while regular export preserves them', async () => {
+  test('excludes PocketRisu-specific inlay namespaces while regular export preserves them', async () => {
     const srv = await spawnServer()
     servers.push(srv)
     const client = await createClient(srv.port, srv.password)

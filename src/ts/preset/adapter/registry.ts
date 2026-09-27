@@ -71,7 +71,7 @@ export interface ModelPresetAdapterDefinition {
 
 /**
  * Single source of truth for concrete adapter dispatch and wire features that
- * are implemented by PocketRisu. Profile capabilities and per-preset switches
+ * are implemented by the application. Profile capabilities and per-preset switches
  * are separate policy gates layered on top by the compiler/request path.
  */
 export const MODEL_PRESET_ADAPTER_REGISTRY = {

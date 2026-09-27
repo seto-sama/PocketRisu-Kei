@@ -2,7 +2,7 @@
 //
 // Three independent pieces the adapter wiring composes per request:
 //   1. Runtime state store — in-module Map mirrored to localStorage
-//      ('nodeOnlyGeminiCacheState'). NEVER persisted to the db: TTL-bound
+//      ('pocketRisuGeminiCacheState'). NEVER persisted to the db: TTL-bound
 //      throwaway state must not leak into save folders or .bin backups.
 //   2. Pure decision functions — evaluateGeminiCacheBeforeRequest /
 //      decideGeminiCacheAfterResponse. No I/O, no module state, inputs are
@@ -17,7 +17,7 @@
 // chat identity, config and credentials all arrive as arguments.
 // Design: .agent/notes/gemini-cache-keeper-internalization.md §4-3/§4-4.
 
-const STORAGE_KEY = 'nodeOnlyGeminiCacheState'
+const STORAGE_KEY = 'pocketRisuGeminiCacheState'
 
 // Consecutive prefix-hash invalidations before caching auto-disables for the
 // chat session (dynamic-prompt guard: a prefix that changes every turn would

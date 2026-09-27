@@ -206,7 +206,7 @@ export function applyModelPresetDefaults(data: ModelPresetDefaultsTarget): void 
     }
     data.modelProfileRegistryLastFetched ??= 0
     // Default to hiding retired models. `currentOnly` was the former default;
-    // models.dev does not produce PocketRisu's `outdated` status, so migrate it
+    // models.dev does not produce the application's `outdated` status, so migrate it
     // to the equivalent two-level choice.
     if (
         data.modelProfileVisibilityLevel !== 'all'

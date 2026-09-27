@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — English help texts (`language.help`).
+ * English help texts (`language.help`).
  *
  * Extracted from `src/lang/en.ts` for maintainability. See
  * `.agent/notes/help-audit/` (workspace) for the audit, structure rationale,
@@ -251,7 +251,7 @@ export const helpEn = {
         hypaV3QueryChatCount:
             "The number of recent chat messages used as the query for similarity search. " +
             "Higher values use more chat context to determine similarity.",
-        nodeOnlyScrollButtonType: "How the chat scroll buttons are shown. 4 Buttons adds jump-to-top and jump-to-bottom controls; 2 Buttons keeps only previous/next message navigation; Off hides them.",
+        scrollButtonType: "How the chat scroll buttons are shown. 4 Buttons adds jump-to-top and jump-to-bottom controls; 2 Buttons keeps only previous/next message navigation; Off hides them.",
         confirmReroll: "Ask for confirmation before regenerating a message.",
         confirmMessageDelete:
             "Ask for confirmation after choosing a message deletion action. When disabled, the selected deletion action runs without the extra confirmation.",
@@ -311,7 +311,7 @@ export const helpEn = {
         theme: "Overall chat layout theme.",
         waifuWidth: "Width of the chat area in the Waifulike theme.",
         waifuWidth2: "Size of the character illustration in the Waifulike theme.",
-        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
+        standardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
         textColor: "Message text color theme.",

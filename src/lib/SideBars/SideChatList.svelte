@@ -256,7 +256,7 @@
             {#each chara.chatFolders as folder, i (folder.id)}
             {@const folderColorStyle = getFolderColorStyle(folder.color)}
             {@const folderChats = chatsByFolder.get(folder.id) ?? []}
-            {@const FolderGlyph = folderIconComponent(folder.nodeOnlyIcon) ?? (folder.folded ? FolderIcon : FolderOpenIcon)}
+            {@const FolderGlyph = folderIconComponent(folder.icon) ?? (folder.folded ? FolderIcon : FolderOpenIcon)}
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="risu-folder-section flex flex-col mb-1"
                 style:--risu-folder-color={folderColorStyle.accent}>

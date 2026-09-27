@@ -1376,8 +1376,8 @@ import { isMobile } from 'src/ts/platform'
     let isStandardTheme = $derived(DBState.db.theme === '')
     let composerWidthClass = $derived(
         !isStandardTheme ? '' :
-        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
+        DBState.db.standardChatWidth === 'full' ? 'max-w-full' :
+        DBState.db.standardChatWidth === 'wide' ? 'max-w-6xl' :
         'max-w-3xl'
     )
     // Effective persona name for the input placeholder (chat-bound persona overrides the selected one).
@@ -1455,7 +1455,7 @@ import { isMobile } from 'src/ts/platform'
 
 <div
     class="w-full h-full relative"
-    class:nodeonly-standard-chat-surface={DBState.db.theme === '' && $selectedCharID >= 0}
+    class:pocketrisu-standard-chat-surface={DBState.db.theme === '' && $selectedCharID >= 0}
     style={customStyle}
     style:--chat-fixed-composer-height={DBState.db.fixedChatTextarea ? `${composerHeight}px` : '0px'}
     use:trackFixedComposerBounds={DBState.db.fixedChatTextarea}
@@ -1471,14 +1471,14 @@ import { isMobile } from 'src/ts/platform'
         onConfirm={appendTranslationToMessageInput}
     />
     
-    {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
+    {#if DBState.db.scrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
         <div
             class="chat-side-navigation risu-layer-sticky fixed right-3 flex flex-col rounded-lg bg-lightbg/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
-            {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
+            {#if DBState.db.scrollButtonType === 'four'}
                 <button
                     class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
@@ -1500,7 +1500,7 @@ import { isMobile } from 'src/ts/platform'
             >
                 <ChevronDownIcon size={18} />
             </button>
-            {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
+            {#if DBState.db.scrollButtonType === 'four'}
                 <div class="border-t border-darkborderc border-opacity-30"></div>
                 <button
                     class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
@@ -1780,11 +1780,11 @@ import { isMobile } from 'src/ts/platform'
             bind:this={chatScreenRoot}
             onclickcapture={handleInlayViewerClick}
             onkeydowncapture={handleInlayViewerKeydown}
-            class:nodeonly-standard={DBState.db.theme === ''}
-            class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
-            class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
+            class:pocketrisu-standard={DBState.db.theme === ''}
+            class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.standardChatWidth === 'wide'}
+            class:no-chat-width-full={DBState.db.theme === '' && DBState.db.standardChatWidth === 'full'}
             onscroll={(e) => {
-            if (DBState.db.nodeOnlyScrollButtonType !== 'off') {
+            if (DBState.db.scrollButtonType !== 'off') {
                 bumpScrollNav()
             }
             const chatTarget = e.currentTarget as HTMLElement;

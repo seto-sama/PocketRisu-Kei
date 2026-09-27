@@ -16,6 +16,9 @@ function installSystemRoutes(app, {
     flushPendingDb,
 }) {
     const GITHUB_REPO = 'seto-sama/PocketRisu-Kei';
+    const RELEASE_TAG_PREFIX = 'kei-v';
+    const RELEASE_ASSET_PREFIX = 'PocketRisu-Kei';
+    const UPDATE_USER_AGENT = `${RELEASE_ASSET_PREFIX}-Updater`;
 
     const UPDATE_CHECK_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
     const PUBLIC_STATS_URL = 'https://risu-update-worker.nodridan.workers.dev/api/public-stats';
@@ -50,15 +53,15 @@ function installSystemRoutes(app, {
         if (!platformName) return null;
         const arch = process.arch; // x64, arm64
         const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
-        const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
-        const url = `https://github.com/${GITHUB_REPO}/releases/download/kei-v${version}/${filename}`;
+        const filename = `${RELEASE_ASSET_PREFIX}-v${version}-${platformName}-${arch}.${ext}`;
+        const url = `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG_PREFIX}${version}/${filename}`;
         return { platformName, arch, ext, filename, url };
     }
 
     async function fetchLatestRelease() {
         try {
             const currentVersion = getCurrentVersion();
-            const headers = { 'User-Agent': 'PocketRisu-Kei-Updater', Accept: 'application/vnd.github+json' };
+            const headers = { 'User-Agent': UPDATE_USER_AGENT, Accept: 'application/vnd.github+json' };
             const res = await fetch(UPDATE_CHECK_URL, { headers });
             if (!res.ok) return null;
             const data = await res.json();
@@ -98,11 +101,18 @@ function installSystemRoutes(app, {
     }
 
     function normalizeReleaseVersion(value) {
-        return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+        const normalized = String(value || '').trim();
+        if (normalized.toLowerCase().startsWith(RELEASE_TAG_PREFIX)) {
+            return normalized.slice(RELEASE_TAG_PREFIX.length);
+        }
+        return normalized.replace(/^v/i, '');
     }
 
     function normalizeGitHubRelease(release, currentVersion) {
-        const latestVersion = normalizeReleaseVersion(release?.tag_name);
+        const releaseTag = String(release?.tag_name || '').trim();
+        const latestVersion = releaseTag.toLowerCase().startsWith(RELEASE_TAG_PREFIX)
+            ? normalizeReleaseVersion(releaseTag)
+            : '';
         const hasUpdate = !!latestVersion && compareReleaseVersions(latestVersion, currentVersion) > 0;
         return {
             currentVersion,
@@ -193,7 +203,7 @@ function installSystemRoutes(app, {
             }
 
             // 2. Download
-            tmpDir = path.join(os.tmpdir(), `risu-update-${Date.now()}`);
+            tmpDir = path.join(os.tmpdir(), `${RELEASE_ASSET_PREFIX.toLowerCase()}-update-${Date.now()}`);
             await fs.mkdir(tmpDir, { recursive: true });
             const archivePath = path.join(tmpDir, assetInfo.filename);
 
@@ -279,7 +289,7 @@ function installSystemRoutes(app, {
             // Restore from a previous interrupted update only when its in-progress
             // marker is still there. A leftover backup/ alone is not proof of an
             // interrupted update: on Windows the running launcher exe keeps
-            // backup/PocketRisu.exe locked, so the restart script's rmdir leaves
+            // backup/PocketRisu-Kei.exe locked, so the restart script's rmdir leaves
             // the folder behind after a SUCCESSFUL update — restoring from it
             // would roll the app back to the previous version.
             const prevBackup = path.join(updateTmp, 'backup');

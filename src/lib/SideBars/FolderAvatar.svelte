@@ -24,7 +24,7 @@
     let { folder, expanded = false, size = String(SIDEBAR_ROOT_ITEM_SIZE), selected = false, mergeTarget = false, interactive = true, showTooltip = true, onClick, oncontextmenu }: Props = $props();
     const characterFolder = $derived('data' in folder ? folder : undefined);
     const mode = $derived(characterFolder ? folderDisplayMode(characterFolder) : 'icon');
-    const Icon = $derived(folderIconComponent(folder.nodeOnlyIcon) ?? (expanded ? FolderOpenIcon : FolderIcon));
+    const Icon = $derived(folderIconComponent(folder.icon) ?? (expanded ? FolderOpenIcon : FolderIcon));
     const folderImage = $derived(characterFolder?.imgFile);
     const backgroundImage = $derived(mode === 'image' && folderImage ? getCharImage(folderImage, 'plain') : '');
     const folderName = $derived(folder.name ?? '');

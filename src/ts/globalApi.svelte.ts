@@ -167,8 +167,7 @@ function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number |
  * @returns {Promise<string>} - A promise that resolves to the source URL of the file.
  */
 export async function getFileSrc(loc: string) {
-    // NodeOnly: return a direct server URL instead of fetching + base64-encoding.
-    // The browser will cache the response using HTTP Cache-Control headers,
+    // A direct server URL lets the browser cache the response using HTTP headers,
     // so repeated renders (sidebar, chat) cost zero network after first load.
     if ((globalThis as any).__NODE__) {
         return `/api/asset/${Buffer.from(loc, 'utf-8').toString('hex')}`
@@ -1715,10 +1714,10 @@ export function getBasename(data: string) {
 export function checkCharOrder() {
     let db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
-    if (db.nodeOnlyHiddenCharacterIds?.length) {
+    if (db.hiddenCharacterIds?.length) {
         const knownIds = new Set(db.characters.map(character => character.chaId))
-        const hiddenIds = [...new Set(db.nodeOnlyHiddenCharacterIds)].filter(id => knownIds.has(id))
-        if (hiddenIds.length !== db.nodeOnlyHiddenCharacterIds.length) db.nodeOnlyHiddenCharacterIds = hiddenIds
+        const hiddenIds = [...new Set(db.hiddenCharacterIds)].filter(id => knownIds.has(id))
+        if (hiddenIds.length !== db.hiddenCharacterIds.length) db.hiddenCharacterIds = hiddenIds
     }
     let ordered = []
     for (let i = 0; i < db.characterOrder.length; i++) {

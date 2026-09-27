@@ -36,23 +36,23 @@ PocketRisu를 설치하는 방법은 네 가지가 있습니다.
 
 | OS                      | 파일명                                    |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `PocketRisu-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `PocketRisu-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `PocketRisu-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `PocketRisu-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
+| macOS (Apple Silicon)   | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
+| Linux (x64)             | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
+| Linux (ARM)             | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
 
 ### 실행
 
 **Windows**
 
-zip 파일의 압축을 풀고 폴더 안의 `PocketRisu.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:6001`로 접속됩니다.
+zip 파일의 압축을 풀고 폴더 안의 `PocketRisu-Kei.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:6001`로 접속됩니다.
 
 **macOS**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-vX.X.X-macos-arm64
-open PocketRisu-vX.X.X-macos-arm64/PocketRisu.app
+tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
+xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
+open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
 ```
 
 `xattr` 명령은 "Apple에서 확인할 수 없습니다" 경고를 우회하기 위한 1회성 작업입니다.
@@ -60,8 +60,8 @@ open PocketRisu-vX.X.X-macos-arm64/PocketRisu.app
 **Linux**
 
 ```bash
-tar -xzf PocketRisu-vX.X.X-linux-*.tar.gz
-cd PocketRisu-vX.X.X-linux-*
+tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
+cd PocketRisu-Kei-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -76,9 +76,9 @@ GUI 없는 Linux/macOS 서버에서 최신 버전을 한 번에 받아 실행합
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-v${VERSION}-linux-x64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+cd PocketRisu-Kei-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -89,10 +89,10 @@ cd PocketRisu-v${VERSION}-linux-x64
 ```bash
 RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
-tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-v${VERSION}-macos-arm64
-cd PocketRisu-v${VERSION}-macos-arm64
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
+tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
+xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
+cd PocketRisu-Kei-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -168,7 +168,7 @@ curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/insta
 ### 서버 시작
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 pnpm runserver
 ```
 
@@ -177,12 +177,11 @@ pnpm runserver
 ### 업데이트
 
 ```bash
-cd ~/pocketrisu
+cd ~/pocketrisu-kei
 ./update.sh
 ```
 
-> **v1.5.x → v1.6.0 1회성 안내**: Risuai-NodeOnly 시절(v1.5.x 이하)에 `install.sh`로 설치하셨다면, v1.6.0으로 첫 업데이트 전에 `update.sh`를 새 버전으로 한 번만 교체해주세요. (repo 이름이 PocketRisu로 바뀌어 옛 `update.sh`가 새 소스 디렉토리를 찾지 못합니다.)
->
+> 필요하다면 업데이트 전에 `update.sh`를 최신 버전으로 교체하세요:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh

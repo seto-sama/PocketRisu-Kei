@@ -200,7 +200,7 @@
   $effect(() => {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
-    const hiddenIds = new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])
+    const hiddenIds = new Set(DBState.db.hiddenCharacterIds ?? [])
     for (const id of DBState.db.characterOrder) {
       if(typeof(id) === 'string'){
         if (hiddenIds.has(id)) continue
@@ -326,7 +326,7 @@
 
   function syncSidebarOrderUnlessDropping(_orderedKeys: string[], event: SortableEvent) {
     if (!sidebarSortElement || !sidebarDragController.shouldSyncOrder(event)) return
-    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder, new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])))
+    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder, new Set(DBState.db.hiddenCharacterIds ?? [])))
   }
 
   function finishSidebarDrag(sourceId: string, event: SortableEvent) {
@@ -764,11 +764,11 @@
       <div class="flex items-center justify-between gap-2 mt-2">
         <span class="text-sm text-subtext">{language.hideRecentChats}</span>
         <Switch
-          checked={!!DBState.db.nodeOnlyHideRecentChats}
-          onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
+          checked={!!DBState.db.hideRecentChats}
+          onCheckedChange={(v) => (DBState.db.hideRecentChats = v)}
         />
       </div>
-      {#if DBState.db.nodeOnlyHideRecentChats}
+      {#if DBState.db.hideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
         <EmptyState title={language.noRecentChatsDesc} description="" className="mt-2" />
