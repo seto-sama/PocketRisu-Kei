@@ -2,6 +2,7 @@
 
 const { filterRemoteOnlyFolders } = require('../remoteDatabaseFilter.cjs');
 const { normalizePreview } = require('../bookmarkStore.cjs');
+const { codes, sendApiError } = require('../apiErrors.cjs');
 
 function installBookmarksRoutes(app, {
     isCloudflareTunnelRequest,
@@ -17,6 +18,7 @@ function installBookmarksRoutes(app, {
     const BOOKMARKS_API_PATH = '/api/bookmarks';
 
     const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags';
+    const sendBookmarkNotFound = res => sendApiError(res, 404, codes.BOOKMARK_NOT_FOUND);
 
     async function visibleBookmarkChatKeys(req) {
         if (!isCloudflareTunnelRequest(req)) return null;
@@ -68,11 +70,11 @@ function installBookmarksRoutes(app, {
             await ensureChatStore(characterId, chatId);
             const visible = await visibleBookmarkChatKeys(req);
             if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-                return res.status(404).json({ error: 'Bookmark target not found' });
+                return sendBookmarkNotFound(res);
             }
             const chat = storageState.fullChatStore.get(characterId)?.get(chatId);
             const message = chat?.message?.find(value => value?.chatId === messageId);
-            if (!chat || !message) return res.status(404).json({ error: 'Bookmark target not found' });
+            if (!chat || !message) return sendBookmarkNotFound(res);
             bookmarkStore.upsertBookmarkEntry({
                 characterId,
                 chatId,
@@ -94,7 +96,7 @@ function installBookmarksRoutes(app, {
             const { characterId, chatId, messageId } = req.body ?? {};
             const visible = await visibleBookmarkChatKeys(req);
             if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-                return res.status(404).json({ error: 'Bookmark not found' });
+                return sendBookmarkNotFound(res);
             }
             const patch = {};
             if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'name')) {
@@ -104,7 +106,7 @@ function installBookmarksRoutes(app, {
                 patch.tagIds = Array.isArray(req.body.tagIds) ? req.body.tagIds : [];
             }
             if (!bookmarkStore.patchBookmarkEntry({ characterId, chatId, messageId }, patch)) {
-                return res.status(404).json({ error: 'Bookmark not found' });
+                return sendBookmarkNotFound(res);
             }
             broadcastBookmarksInvalidated(req);
             res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
@@ -119,10 +121,10 @@ function installBookmarksRoutes(app, {
             const { characterId, chatId, messageId } = req.body ?? {};
             const visible = await visibleBookmarkChatKeys(req);
             if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
-                return res.status(404).json({ error: 'Bookmark not found' });
+                return sendBookmarkNotFound(res);
             }
             if (!bookmarkStore.removeBookmarkEntry({ characterId, chatId, messageId })) {
-                return res.status(404).json({ error: 'Bookmark not found' });
+                return sendBookmarkNotFound(res);
             }
             broadcastBookmarksInvalidated(req);
             res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
@@ -134,7 +136,7 @@ function installBookmarksRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         try {
             if (isCloudflareTunnelRequest(req)) {
-                return res.status(403).json({ error: 'Bookmark tags are local-only' });
+                return sendApiError(res, 403, codes.BOOKMARK_TAGS_LOCAL_ONLY);
             }
             await ensureCanonicalStorage();
             bookmarkStore.replaceTags(req.body?.tags);
@@ -148,7 +150,7 @@ function installBookmarksRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         try {
             if (isCloudflareTunnelRequest(req)) {
-                return res.status(403).json({ error: 'Bookmark tags are local-only' });
+                return sendApiError(res, 403, codes.BOOKMARK_TAGS_LOCAL_ONLY);
             }
             await ensureCanonicalStorage();
             const idMap = bookmarkStore.mergeTags(req.body?.tags);

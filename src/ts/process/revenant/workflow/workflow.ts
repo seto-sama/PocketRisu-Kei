@@ -19,6 +19,7 @@ import type {
     RevenantWorkflowStepStatus,
 } from '../types'
 import { getComfyBridgeId } from './comfyBridgeId'
+import { ApiRequestError } from 'src/ts/network/apiError'
 
 const activeWorkflows = new Map<string, RevenantWorkflow>()
 export const activeRevenantWorkflows = writable<RevenantWorkflow[]>([])
@@ -235,6 +236,8 @@ export async function beginRevenantWorkflow(arg: {
     const body = await response.json().catch(() => ({})) as {
         workflow?: RevenantWorkflow
         error?: string
+        code?: string
+        details?: Record<string, unknown>
         busyReason?: string
         retryAfterMs?: number
     }
@@ -246,7 +249,14 @@ export async function beginRevenantWorkflow(arg: {
         throw new RevenantWorkflowBusyError(body.workflow, body.retryAfterMs)
     }
     if (!response.ok || !body.workflow) {
-        throw new Error(body.error || `Failed to create generation workflow: ${response.status}`)
+        throw new ApiRequestError(
+            response.status,
+            body.error ?? '',
+            body.code,
+            body.details,
+            `Failed to create generation workflow: ${response.status}`,
+            '',
+        )
     }
     return rememberWorkflow(body.workflow)
 }

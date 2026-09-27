@@ -6,6 +6,7 @@ import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
 import { getSyncClientId } from "../storage/nodeStorage";
 import { language } from "src/lang";
+import { apiRequestError } from "../network/apiError";
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
@@ -348,10 +349,10 @@ export async function SaveManualSnapshot(note = '') {
             headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
             body: JSON.stringify({ note }),
         })
-        const json = await res.json().catch(() => ({}))
         if (!res.ok) {
-            throw new Error(json?.error || `manual snapshot save error: ${res.status}`)
+            throw await apiRequestError(res, 'Manual snapshot failed')
         }
+        const json = await res.json().catch(() => ({}))
         notifySuccess(language.manualSnapshotSaveSuccess(json?.snapshot?.filename ?? 'snapshot'))
         return json
     } catch (error) {

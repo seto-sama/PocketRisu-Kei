@@ -5,6 +5,7 @@ const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, a
 const fs = require('fs/promises');
 const path = require('path');
 const { logger } = require('../logs/logs.cjs');
+const { codes, sendApiError } = require('../apiErrors.cjs');
 
 function installMaintenanceRoutes(app, {
     checkAuth,
@@ -386,8 +387,7 @@ function installMaintenanceRoutes(app, {
 
             const { free } = await diskFreeStat(saveDir);
             if (requiredFreeBytes > 0 && free != null && free < requiredFreeBytes) {
-                return res.status(400).json({
-                    error: 'Insufficient disk space for VACUUM',
+                return sendApiError(res, 507, codes.INSUFFICIENT_STORAGE, {
                     required: requiredFreeBytes,
                     free,
                 });

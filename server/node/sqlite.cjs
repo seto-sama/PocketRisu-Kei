@@ -1,6 +1,7 @@
 'use strict';
 
 const { DatabaseSync } = require('node:sqlite');
+const { apiErrorMessage, codes: API_ERROR_CODES } = require('./apiErrors.cjs');
 
 let savepointSequence = 0;
 
@@ -18,6 +19,16 @@ function normalizeRow(row) {
 }
 
 function normalizeError(error) {
+    if (
+        error?.code === 'ERR_SQLITE_ERROR'
+        && (error.errcode === 5 || /database is locked/i.test(error.message))
+    ) {
+        error.nodeCode = error.code;
+        error.code = API_ERROR_CODES.DATABASE_LOCKED;
+        error.message = apiErrorMessage(error.code);
+        error.statusCode = 503;
+        return error;
+    }
     if (
         error?.code === 'ERR_SQLITE_ERROR'
         && (error.errcode === 2067 || /^UNIQUE constraint failed:/i.test(error.message))
@@ -75,8 +86,12 @@ function rollback(db, savepoint) {
 }
 
 class Database extends DatabaseSync {
+    exec(sql) {
+        return executeStatement(() => super.exec(sql));
+    }
+
     prepare(sql, options) {
-        return wrapStatement(super.prepare(sql, options));
+        return wrapStatement(executeStatement(() => super.prepare(sql, options)));
     }
 
     pragma(source, options = {}) {

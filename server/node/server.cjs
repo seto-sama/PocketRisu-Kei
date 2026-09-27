@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
+const { codes: API_ERROR_CODES, sendApiError } = require('./apiErrors.cjs');
 
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
@@ -41,6 +42,7 @@ const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
 } = require('./upstreamRequest.cjs');
+const { REVENANT_CAPACITY } = require('./revenant/capacity.cjs');
 
 const {
     generationDb,
@@ -1196,7 +1198,7 @@ function getSyncClientIdFromRequest(req) {
 
 function requireSyncClientId(req, res) {
     if (!getSyncClientIdFromRequest(req)) {
-        res.status(400).json({ error: 'Sync client id required' })
+        sendApiError(res, 400, API_ERROR_CODES.SYNC_CLIENT_ID_REQUIRED)
         return false
     }
     return true
@@ -1263,13 +1265,15 @@ const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
 const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
 const GENERATION_JOB_GC_INTERVAL_MS = 60000;
 const GENERATION_JOB_DONE_GRACE_MS = 30000;
-const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
 const generationRuntimeJobs = new Map();
+let imageGenerationJobService;
 
-function countActiveGenerationJobs() {
-    return Array.from(generationRuntimeJobs.values())
-        .filter(job => !job.done && !job.waitingDispatch)
-        .length;
+function countActiveProviderJobs() {
+    let count = imageGenerationJobService?.countActiveJobs() ?? 0;
+    for (const job of generationRuntimeJobs.values()) {
+        if (!job.done && !job.waitingDispatch) count += 1;
+    }
+    return count;
 }
 
 const LOGIN_FAILURE_WINDOW_MS = 5 * 60 * 1000;
@@ -1484,8 +1488,8 @@ const generationWorkers = createGenerationWorkers({
     repository: generationDb,
     logger,
     generationRuntimeJobs,
-    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
-    countActiveGenerationJobs,
+    capacity: REVENANT_CAPACITY,
+    countActiveProviderJobs,
     createGenerationRuntimeJob,
     runGenerationProviderJob,
     markGenerationJobDone,
@@ -1525,7 +1529,11 @@ const canonicalChatService = createCanonicalChatService({
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
 });
-const imageGenerationJobService = createImageGenerationJobService({ logger });
+imageGenerationJobService = createImageGenerationJobService({
+    logger,
+    capacity: REVENANT_CAPACITY,
+    countActiveProviderJobs,
+});
 
 function currentServerImageGenerationSettings() {
     const database = appDataStore.exportProjection({ includeMessages: false });
@@ -2347,15 +2355,10 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         const authHeader = req.headers['risu-auth'];
 
         if(!authHeader){
-            if(!returnOnlyStatus){
-                console.log('No auth header')
-            }
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'No auth header'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_REQUIRED);
             return false
         }
 
@@ -2376,26 +2379,20 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         if(!allowExpired){
             const now = Math.floor(Date.now() / 1000);
             if(jsonPayload.exp < now){
-                console.log('Token expired')
                 if(returnOnlyStatus){
                     return false;
                 }
-                res.status(400).send({
-                    error:'Token Expired'
-                });
+                sendApiError(res, 401, API_ERROR_CODES.AUTH_TOKEN_EXPIRED);
                 return false
             }
         }
 
         //check signature (HMAC-SHA256)
         if(jsonHeader.alg !== "HS256"){
-            console.log('Unsupported algorithm')
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'Unsupported Algorithm'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
             return false
         }
 
@@ -2405,24 +2402,18 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         const actualSig = Buffer.from(signatureB64, 'base64url')
 
         if(expectedSig.length !== actualSig.length || !nodeCrypto.timingSafeEqual(expectedSig, actualSig)){
-            console.log('Invalid signature')
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'Invalid Signature'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
             return false
         }
         return true
-    } catch (error) {
-        console.log(error)
+    } catch {
         if(returnOnlyStatus){
             return false;
         }
-        res.status(500).send({
-            error:'Internal Server Error'
-        });
+        sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
         return false
     }
 }
@@ -2591,8 +2582,8 @@ installRevenantGenerationRoutes(app, {
     commitWorkflowInput: generationWorkflowService.commitInput,
     cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,
-    countActiveGenerationJobs,
-    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    countActiveProviderJobs,
+    capacity: REVENANT_CAPACITY,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,
@@ -2807,10 +2798,15 @@ require('./routes/tunnel.cjs').installTunnelRoutes(app, {
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    const unsupportedRemote = err?.code === 'UNSUPPORTED_REMOTE_SAVE';
-    res.status(unsupportedRemote ? 400 : 500).json({
+    const unsupportedRemote = err?.code === API_ERROR_CODES.UNSUPPORTED_REMOTE_SAVE;
+    const requestedStatus = err?.statusCode ?? err?.httpStatus;
+    const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus <= 599
+        ? requestedStatus
+        : unsupportedRemote ? 400 : 500;
+    res.status(status).json({
         error: err?.message || 'internal server error',
         ...(err?.code ? { code: err.code } : {}),
+        ...(err?.details ? { details: err.details } : {}),
     });
 });
 

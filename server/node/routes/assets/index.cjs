@@ -16,6 +16,7 @@ const nodeCrypto = require('crypto');
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { applyPatch } = require('fast-json-patch');
+const { apiErrorMessage, codes, sendApiError } = require('../../apiErrors.cjs');
 
 function installAssetRoutes(app, {
     saveTimers,
@@ -512,11 +513,11 @@ function installAssetRoutes(app, {
         const filePath = req.headers['file-path'];
         if (!filePath) {
             console.log('no path')
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
@@ -567,11 +568,11 @@ function installAssetRoutes(app, {
         }
         const filePath = req.headers['file-path'];
         if (!filePath) {
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
@@ -647,11 +648,11 @@ function installAssetRoutes(app, {
         const filePath = req.headers['file-path'];
         const fileContent = req.body;
         if (!filePath || !fileContent) {
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
@@ -760,7 +761,7 @@ function installAssetRoutes(app, {
                         bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
                     } catch (e) {
                         logger.error('[Write] Compatibility database import failed:', e);
-                        if (e?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+                        if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
                             res.status(400).json({ error: e.message, code: e.code });
                         } else {
                             res.status(500).json({ error: 'Database import failed' });
@@ -811,7 +812,7 @@ function installAssetRoutes(app, {
             return;
         }
         if (!isHex(filePath)) {
-            res.status(400).send({ error: 'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
 
@@ -863,9 +864,8 @@ function installAssetRoutes(app, {
                         storageState.dbEtag = currentEtag;
                     } catch {}
                     res.status(409).send({
-                        error: 'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
-                        code: 'CHAT_GUARD_REJECTED',
-                        chatGuardRejected: true,
+                        error: apiErrorMessage(codes.CHAT_GUARD_REJECTED),
+                        code: codes.CHAT_GUARD_REJECTED,
                         currentEtag,
                     });
                     return;

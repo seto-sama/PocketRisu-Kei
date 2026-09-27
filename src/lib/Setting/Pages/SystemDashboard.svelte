@@ -32,6 +32,7 @@
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import OrphanAssetCleanupCard from './OrphanAssetCleanupCard.svelte'
     import type { OrphanAssetStats } from 'src/ts/storage/orphanAssets'
+    import { apiErrorCodes } from 'src/ts/network/apiError'
 
     // ── Types ────────────────────────────────────────────────────────────────
     interface PrefixInfo { totalSize: number; count: number }
@@ -272,8 +273,12 @@
             })
             const json = await res.json().catch(() => ({}))
             if (!res.ok) {
-                if (json?.error === 'Insufficient disk space for VACUUM' && json.required && json.free != null) {
-                    notifyError(language.storageOptimizeNeedsSpace(json.required, json.free))
+                if (json?.code === apiErrorCodes.INSUFFICIENT_STORAGE
+                    && json.details?.required && json.details.free != null) {
+                    notifyError(language.storageOptimizeNeedsSpace(
+                        json.details.required,
+                        json.details.free,
+                    ))
                 } else {
                     notifyError(language.storageOptimizeFailed + ': ' + (json?.error || `HTTP ${res.status}`))
                 }

@@ -13,6 +13,7 @@ import { createEntityId } from 'src/ts/id';
 import { createRevenantGenerationAuth } from './revenant/transport/client'
 import { serviceComfyBridgeJob } from './revenant/workflow/comfyBridge'
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId'
+import { apiRequestError } from '../network/apiError'
 
 const NOVELAI_MAX_SEED = 2**32 - 1
 const COMFYUI_MAX_SEED = 999_999_999
@@ -30,10 +31,7 @@ interface NodeImageGenerationJob {
 }
 
 async function readNodeImageJob(response: Response): Promise<NodeImageGenerationJob> {
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        throw new Error(error.error || `Image generation request failed: ${response.status}`)
-    }
+    if (!response.ok) throw await apiRequestError(response, 'Image generation request failed')
     const { metadata, bytes } = decodeBinaryMessage(new Uint8Array(await response.arrayBuffer()))
     return { ...metadata, result: bytes } as unknown as NodeImageGenerationJob
 }

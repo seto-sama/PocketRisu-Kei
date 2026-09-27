@@ -24,8 +24,8 @@ function createGenerationWorkers(options) {
     const {
         logger,
         generationRuntimeJobs,
-        maxActiveJobs,
-        countActiveGenerationJobs,
+        capacity,
+        countActiveProviderJobs,
         createGenerationRuntimeJob,
         runGenerationProviderJob,
         markGenerationJobDone,
@@ -70,9 +70,9 @@ function createGenerationWorkers(options) {
         try {
             const queued = listQueuedGenerationDispatches(1000);
             const states = new Map();
-            let globalActive = countActiveGenerationJobs();
+            let globalActive = countActiveProviderJobs();
             for (const item of queued) {
-                if (globalActive >= maxActiveJobs) break;
+                if (globalActive >= capacity.maxActiveProviderJobs) break;
                 let preparedRequest = item.requestSpec;
                 const workflowDependency = preparedRequest.workflowDependency;
                 if (workflowDependency) {

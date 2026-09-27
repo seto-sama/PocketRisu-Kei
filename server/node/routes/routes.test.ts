@@ -83,7 +83,8 @@ describe('server route composition', () => {
             expect(response.status, path + ': ' + await response.text()).toBe(200)
         }
         const unauthorized = await fetch(base + '/api/read', { headers: { 'file-path': Buffer.from('assets/test').toString('hex') } })
-        expect(unauthorized.status).toBe(400)
+        expect(unauthorized.status).toBe(401)
+        expect(await unauthorized.json()).toMatchObject({ code: 'AUTH_REQUIRED' })
         const session = await fetch(base + '/api/session', { method: 'POST', headers })
         expect(session.status).toBe(200)
         const restored = await fetch(base + '/api/test_auth', { headers: { cookie: session.headers.get('set-cookie')!.split(';')[0] } })
@@ -122,6 +123,28 @@ describe('server route composition', () => {
             headers: { ...headers, 'file-path': Buffer.from('inlay/route-test').toString('hex') },
         })
         expect(decodeInlayAsset(new Uint8Array(await read.arrayBuffer())).bytes).toEqual(Uint8Array.of(0, 255, 128, 13, 10))
+    })
+
+    it('returns stable codes for user-facing auth and backup errors', async () => {
+        const login = await fetch(base + '/api/login', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ password: 'wrong-password' }),
+        })
+        expect(login.status).toBe(401)
+        expect(await login.json()).toMatchObject({
+            code: 'AUTH_INVALID_PASSWORD',
+            error: 'Wrong password.',
+        })
+
+        const restore = await fetch(base + '/api/backup/server/restore', {
+            method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ filename: 'risu-backup-1.bin' }),
+        })
+        expect(restore.status).toBe(404)
+        expect(await restore.json()).toMatchObject({
+            code: 'BACKUP_NOT_FOUND',
+            error: 'The backup file could not be found.',
+        })
     })
 
     it.each([

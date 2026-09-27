@@ -1,5 +1,7 @@
 'use strict';
 
+const { codes, createApiError } = require('../apiErrors.cjs');
+
 // Full backup and selective asset restore engines.
 
 const nodeCrypto = require('crypto');
@@ -233,7 +235,7 @@ function createBackupRestoreService({
             for await (const chunk of dataSource) {
                 bytesReceived += chunk.length;
                 if (maxBytes > 0 && bytesReceived > maxBytes) {
-                    throw new Error(`Backup exceeds max allowed size (${maxBytes} bytes)`);
+                    throw createApiError(codes.BACKUP_TOO_LARGE, 413, { maxBytes });
                 }
                 onProgress?.(bytesReceived, totalBytes);
                 pendingChunks.push(Buffer.from(chunk));

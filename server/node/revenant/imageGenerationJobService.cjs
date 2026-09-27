@@ -5,14 +5,30 @@ const { unzipSync } = require('fflate');
 const {
     MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES,
 } = require('./protocol.cjs');
+const {
+    REVENANT_CAPACITY,
+    createProviderCapacityError,
+} = require('./capacity.cjs');
 const MAX_RETAINED_RESULT_BYTES = 512 * 1024 * 1024;
-const MAX_ACTIVE_JOBS = 32;
 const RETENTION_MS = 10 * 60 * 1000;
 const COMFY_RECONNECT_GRACE_MS = 30_000;
 const NOVELAI_TIMEOUT_MS = 5 * 60 * 1000;
+const ACTIVE_JOB_STATUSES = new Set(['queued', 'waiting_client', 'generating']);
 
-function createImageGenerationJobService({ logger = console } = {}) {
+function createImageGenerationJobService({
+    logger = console,
+    capacity = REVENANT_CAPACITY,
+    countActiveProviderJobs,
+} = {}) {
     const jobs = new Map();
+    const countActiveJobs = () => {
+        let count = 0;
+        for (const job of jobs.values()) {
+            if (ACTIVE_JOB_STATUSES.has(job.status)) count += 1;
+        }
+        return count;
+    };
+    const currentProviderLoad = countActiveProviderJobs || countActiveJobs;
 
     const publicJob = job => ({
         jobId: job.jobId,
@@ -54,7 +70,7 @@ function createImageGenerationJobService({ logger = console } = {}) {
     const pruneTerminalJobs = (protectedJobId) => {
         const cutoff = Date.now() - RETENTION_MS;
         const terminal = [...jobs.values()]
-            .filter(job => !['queued', 'waiting_client', 'generating'].includes(job.status))
+            .filter(job => !ACTIVE_JOB_STATUSES.has(job.status))
             .sort((left, right) => left.updatedAt - right.updatedAt);
         let retainedBytes = terminal.reduce((sum, job) => sum + (job.result?.length || 0), 0);
         for (const job of terminal) {
@@ -124,12 +140,8 @@ function createImageGenerationJobService({ logger = console } = {}) {
     function createJob({ jobId, provider, spec }) {
         const existing = jobs.get(jobId);
         if (existing) return existing;
-        const activeCount = [...jobs.values()].filter(job =>
-            ['queued', 'waiting_client', 'generating'].includes(job.status)).length;
-        if (activeCount >= MAX_ACTIVE_JOBS) {
-            const error = new Error('Too many active image generation jobs');
-            error.code = 'IMAGE_JOB_LIMIT';
-            throw error;
+        if (currentProviderLoad() >= capacity.maxActiveProviderJobs) {
+            throw createProviderCapacityError(capacity);
         }
         const now = Date.now();
         const job = {
@@ -318,7 +330,7 @@ function createImageGenerationJobService({ logger = console } = {}) {
             const waits = [];
             for (const job of jobs.values()) {
                 if (!job.jobId.startsWith(`${workflowId}:`)
-                    || !['queued', 'waiting_client', 'generating'].includes(job.status)) continue;
+                    || !ACTIVE_JOB_STATUSES.has(job.status)) continue;
                 job.abortController.abort();
                 if (job.provider === 'comfyui') {
                     finishBridgeJob(job, 'interrupted', 'Image generation workflow was terminated');
@@ -329,7 +341,7 @@ function createImageGenerationJobService({ logger = console } = {}) {
         },
         abortAll: () => {
             for (const job of jobs.values()) {
-                if (['queued', 'waiting_client', 'generating'].includes(job.status)) {
+                if (ACTIVE_JOB_STATUSES.has(job.status)) {
                     job.abortController.abort();
                     if (job.provider === 'comfyui') {
                         finishBridgeJob(job, 'interrupted', 'Image generation interrupted by server shutdown');
@@ -342,10 +354,11 @@ function createImageGenerationJobService({ logger = console } = {}) {
         finishBridgeJob,
         completeBridgeJob,
         executeImageGeneration,
+        countActiveJobs,
         publicJob,
         releaseResult: jobId => {
             const job = jobs.get(jobId);
-            if (job && !['queued', 'waiting_client', 'generating'].includes(job.status)) {
+            if (job && !ACTIVE_JOB_STATUSES.has(job.status)) {
                 job.result = undefined;
             }
         },

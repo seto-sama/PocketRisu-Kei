@@ -2,13 +2,15 @@
 
 const { webcrypto } = require('node:crypto');
 const { fetchWithRequestTimeout } = require('../../../shared/requestTimeout.mjs');
+const { apiErrorMessage, codes } = require('../apiErrors.cjs');
 
 const ACCOUNT_BACKUP_KEY_URL = 'https://sv.risuai.xyz/cryptokey';
 const KEY_LOOKUP_TIMEOUT_MS = 30_000;
 
-function backupError(code, detail) {
-    const error = new Error(detail);
+function backupError(code, details) {
+    const error = new Error(apiErrorMessage(code));
     error.code = code;
+    error.details = details;
     return error;
 }
 
@@ -19,7 +21,7 @@ async function decryptAccountBackup(database, marker, { fetchImpl = globalThis.f
     let metadata;
     try { metadata = JSON.parse(marker.toString('utf8')); } catch { /* validated below */ }
     if (metadata?.type !== 'account' || !Number.isSafeInteger(metadata.time) || metadata.time <= 0) {
-        throw backupError('BACKUP_ENCRYPTION_METADATA_INVALID', 'Backup encryption metadata is invalid or unsupported.');
+        throw backupError(codes.BACKUP_ENCRYPTION_METADATA_INVALID);
     }
 
     let keyString;
@@ -38,9 +40,9 @@ async function decryptAccountBackup(database, marker, { fetchImpl = globalThis.f
         keyString = data.key;
     } catch (error) {
         // Never include the service's body or key in logs/errors.
-        const detail = /^HTTP \d+$/.test(error?.message) ? ` (${error.message})` : '';
-        throw backupError('BACKUP_ENCRYPTION_KEY_UNAVAILABLE',
-            `Could not retrieve the backup decryption key from RisuAI${detail}. Try again later or export a partial backup from OriginalRisu.`);
+        const upstreamStatus = /^HTTP (\d+)$/.exec(error?.message)?.[1];
+        throw backupError(codes.BACKUP_ENCRYPTION_KEY_UNAVAILABLE,
+            upstreamStatus ? { upstreamStatus: Number(upstreamStatus) } : undefined);
     }
 
     try {
@@ -50,8 +52,7 @@ async function decryptAccountBackup(database, marker, { fetchImpl = globalThis.f
             name: 'AES-GCM', iv: new Uint8Array(12),
         }, key, database));
     } catch {
-        throw backupError('BACKUP_DECRYPTION_FAILED',
-            'Backup decryption failed. The key may not match or the backup may be damaged.');
+        throw backupError(codes.BACKUP_DECRYPTION_FAILED);
     }
 }
 

@@ -29,6 +29,8 @@ const { createClientGenerationProjection } = require('../generationProjection.cj
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../protocol.cjs');
 const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
+const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { createProviderCapacityError } = require('../capacity.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
     createGenerationJobCancellationService,
@@ -45,8 +47,8 @@ function installRevenantJobRoutes(app, deps) {
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
         generationRuntimeJobs,
-        countActiveGenerationJobs,
-        maxActiveJobs,
+        countActiveProviderJobs,
+        capacity,
         randomUUID,
         terminateGenerationWorkflow,
         notifyRevenantWorkflowUpdated = () => {},
@@ -67,6 +69,7 @@ function installRevenantJobRoutes(app, deps) {
     const journalStore = deps.generationJournalStore ?? generationJournalStore;
     const routeGetGenerationJob = deps.getGenerationJob ?? getGenerationJob;
     const routeCreateGenerationJob = deps.createGenerationJob ?? createGenerationJob;
+    const sendJobNotFound = res => sendApiError(res, 404, codes.REVENANT_JOB_NOT_FOUND);
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
@@ -77,7 +80,7 @@ function installRevenantJobRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         const job = routeGetGenerationJob(req.params.jobId, false);
         if (!job) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         const bytes = journalStore.readAll(job.workflowId, job.jobId);
@@ -163,7 +166,7 @@ function installRevenantJobRoutes(app, deps) {
         if (workflowId) {
             workflow = getGenerationWorkflow(workflowId);
             if (!workflow || workflow.status !== 'active') {
-                res.status(404).send({ error: 'Active generation workflow not found' });
+                sendApiError(res, 404, codes.REVENANT_WORKFLOW_NOT_FOUND);
                 return;
             }
             if (
@@ -204,8 +207,10 @@ function installRevenantJobRoutes(app, deps) {
                 return;
             }
         }
-        if (!dispatchPolicy && !workflowDependency && countActiveGenerationJobs() >= maxActiveJobs) {
-            res.status(429).send({ error: 'Too many active generation jobs. Retry shortly.' });
+        if (!dispatchPolicy && !workflowDependency
+            && countActiveProviderJobs() >= capacity.maxActiveProviderJobs) {
+            const error = createProviderCapacityError(capacity);
+            sendApiError(res, error.httpStatus, error.code, error.details);
             return;
         }
         const forwardHeaders = normalizeForwardHeaders(req.body?.headers);
@@ -284,6 +289,8 @@ function installRevenantJobRoutes(app, deps) {
                 res.status(error.httpStatus).send({
                     error: error.message,
                     workflowId: error.workflowId,
+                    ...(error.code ? { code: error.code } : {}),
+                    ...(error.details ? { details: error.details } : {}),
                 });
                 return;
             }
@@ -387,7 +394,7 @@ function installRevenantJobRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         const job = getGenerationJob(req.params.jobId, false);
         if (!job) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         res.send(job);
@@ -408,7 +415,7 @@ function installRevenantJobRoutes(app, deps) {
         if (!requireSyncClientId(req, res)) return;
         const job = cancellationRepository.getGenerationJob(req.params.jobId, false);
         if (!job) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         if (job.jobType === 'model' && job.workflowId) {
@@ -428,7 +435,7 @@ function installRevenantJobRoutes(app, deps) {
             return;
         }
         if (!cancellationRepository.markGenerationMaterialized(req.params.jobId)) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         res.send({ success: true });
@@ -444,7 +451,7 @@ function installRevenantJobRoutes(app, deps) {
         }
         const job = getGenerationJob(req.params.jobId, false);
         if (!job) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         setGenerationJobClientProjection(
@@ -459,7 +466,7 @@ function installRevenantJobRoutes(app, deps) {
         if (!requireSyncClientId(req, res)) return;
         const job = getGenerationJob(req.params.jobId, false);
         if (!job) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         if (!updateGenerationJobMetadata(
@@ -467,7 +474,7 @@ function installRevenantJobRoutes(app, deps) {
             req.body?.generationInfo,
             req.body?.promptInfo,
         )) {
-            res.status(404).send({ error: 'Generation job not found' });
+            sendJobNotFound(res);
             return;
         }
         res.send({ success: true });

@@ -3,6 +3,7 @@
 const { writeFileSync } = require('fs');
 const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
+const { codes: API_ERROR_CODES, sendApiError } = require('../apiErrors.cjs');
 
 function installAuthRoutes(app, {
     SESSION_FILE,
@@ -34,9 +35,12 @@ function installAuthRoutes(app, {
     function sendLoginBlocked(res, blockedUntil) {
         const retryAfterSeconds = Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000));
         res.set('Retry-After', String(retryAfterSeconds));
-        return res.status(429).send({
-            error: 'Too many failed attempts. Please wait and try again later.'
-        });
+        return sendApiError(
+            res,
+            429,
+            API_ERROR_CODES.AUTH_RATE_LIMITED,
+            { retryAfterSeconds },
+        );
     }
 
     function startLoginBlock(req, res) {
@@ -100,7 +104,7 @@ function installAuthRoutes(app, {
 
     app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, async (req, res) => {
         if(authState.password === ''){
-            res.status(400).send({error: 'Password not set'})
+            sendApiError(res, 400, API_ERROR_CODES.AUTH_PASSWORD_NOT_SET)
             return;
         }
         if(req.body.password && req.body.password.trim() === authState.password.trim()){
@@ -111,7 +115,7 @@ function installAuthRoutes(app, {
                 startLoginBlock(req, res)
                 return
             }
-            res.status(401).send({error: 'Password incorrect'})
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_PASSWORD)
         }
     })
 
@@ -164,7 +168,7 @@ function installAuthRoutes(app, {
             hash.update(Buffer.from(req.body.data, 'utf-8'))
             res.send(hash.digest('hex'))
         } catch (error) {
-            res.status(500).send({ error: 'Crypto operation failed' });
+            sendApiError(res, 500, API_ERROR_CODES.AUTH_CRYPTO_FAILED);
         }
     })
 
@@ -175,7 +179,7 @@ function installAuthRoutes(app, {
             res.send({status: 'success'})
         }
         else{
-            res.status(400).send("already set")
+            sendApiError(res, 409, API_ERROR_CODES.AUTH_PASSWORD_ALREADY_SET)
         }
     })
 }

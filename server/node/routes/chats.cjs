@@ -5,6 +5,7 @@ const { encodeRisuSaveLegacy, decodeRisuSave } = require('../utils.cjs');
 const { computeChatEtag, CanonicalChatCommitError } = require('../chatStore.cjs');
 const { readChatCompatibility, stripChatCompatibility } = require('../bookmarkStore.cjs');
 const { binaryBodyParser } = require('../binaryHttp.cjs');
+const { codes, sendApiError } = require('../apiErrors.cjs');
 
 function installChatsRoutes(app, {
     checkAuth,
@@ -20,6 +21,8 @@ function installChatsRoutes(app, {
     bookmarkStore,
     broadcastBookmarksInvalidated,
 }) {
+    const sendChatNotFound = res => sendApiError(res, 404, codes.CHAT_NOT_FOUND);
+
     app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         if (!await checkAuth(req, res)) { return; }
         try {
@@ -31,13 +34,13 @@ function installChatsRoutes(app, {
             if (isCloudflareTunnelRequest(req)) {
                 const dbObj = appDataStore.exportProjection({ includeMessages: false });
                 if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                    return res.status(404).json({ error: 'Chat not found' });
+                    return sendChatNotFound(res);
                 }
             }
             const indexedStub = appDataStore.getChatStubAt(chaId, chatIndex);
             const resolvedChatId = expectedChatId || indexedStub?.id;
             if (!indexedStub || !resolvedChatId) {
-                return res.status(404).json({ error: 'Chat not found' });
+                return sendChatNotFound(res);
             }
             // Verify chatId matches if provided
             if (expectedChatId && indexedStub.id !== expectedChatId) {
@@ -45,9 +48,9 @@ function installChatsRoutes(app, {
             }
             await ensureChatStore(chaId, resolvedChatId);
             const chat = storageState.fullChatStore.get(chaId)?.get(resolvedChatId);
-            if (!chat) return res.status(404).json({ error: 'Chat not found' });
+            if (!chat) return sendChatNotFound(res);
             if (!restoreColdStorageChat(chat)) {
-                return res.status(500).json({ error: 'Cold storage restore failed' });
+                return sendApiError(res, 500, codes.CHAT_RESTORE_FAILED);
             }
             const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
             res.setHeader('Content-Type', 'application/octet-stream');
@@ -89,7 +92,7 @@ function installChatsRoutes(app, {
             if (isCloudflareTunnelRequest(req)) {
                 const dbObj = appDataStore.exportProjection({ includeMessages: false });
                 if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                    return res.status(404).json({ error: 'Chat not found' });
+                    return sendChatNotFound(res);
                 }
             }
 

@@ -3,6 +3,7 @@
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
 const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
 const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
+const { apiErrorMessage, codes } = require('../apiErrors.cjs');
 const {
     isGenerationProjectionCurrent,
     projectGenerationJournal,
@@ -153,7 +154,12 @@ function createRevenantMaterializer(options) {
 
     async function materialize(jobId) {
         const job = getGenerationJob(jobId, false);
-        if (!job) throw new RevenantMaterializationError(404, 'Generation job not found');
+        if (!job) {
+            throw new RevenantMaterializationError(
+                404,
+                apiErrorMessage(codes.REVENANT_JOB_NOT_FOUND),
+            );
+        }
         if (job.materializedAt) return { success: true, alreadyMaterialized: true };
         if (!job.characterId || !job.roomId || !job.chatId) {
             throw new RevenantMaterializationError(400, 'Generation job has no chat target');
@@ -290,7 +296,12 @@ function createRevenantMaterializer(options) {
 
     async function materializeCancellation(workflowId) {
         const workflow = getGenerationWorkflow(workflowId);
-        if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
+        if (!workflow) {
+            throw new RevenantMaterializationError(
+                404,
+                apiErrorMessage(codes.REVENANT_WORKFLOW_NOT_FOUND),
+            );
+        }
         if (workflow.status !== 'cancelled') {
             return { success: true, notCancelled: true };
         }

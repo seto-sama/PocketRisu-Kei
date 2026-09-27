@@ -2,6 +2,7 @@ const { Packr, Unpackr, decode } = require('msgpackr');
 const fflate = require('fflate');
 const { randomUUID } = require('crypto');
 const { logger } = require('./logs/logs.cjs');
+const { apiErrorMessage, codes } = require('./apiErrors.cjs');
 
 // Magic headers for different save formats
 const magicHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7]);
@@ -234,10 +235,8 @@ class RisuSaveDecoder {
         }
 
         if (this.blocks.some(block => block.type === RisuSaveType.UNSUPPORTED_REMOTE)) {
-            const error = new Error(
-                'This save uses RisuAI Remote Saving. Disable Remote Saving in Original RisuAI, restart it, wait for saving to finish, then create and import a new backup.',
-            );
-            error.code = 'UNSUPPORTED_REMOTE_SAVE';
+            const error = new Error(apiErrorMessage(codes.UNSUPPORTED_REMOTE_SAVE));
+            error.code = codes.UNSUPPORTED_REMOTE_SAVE;
             throw error;
         }
 
@@ -353,7 +352,7 @@ async function _decodeRisuSaveInternal(data) {
         }
         return unpackr.decode(data);
     } catch (error) {
-        if (error?.code === 'UNSUPPORTED_REMOTE_SAVE') throw error;
+        if (error?.code === codes.UNSUPPORTED_REMOTE_SAVE) throw error;
         logger.error('Error decoding RisuSave data:', error);
         try {
             const risuSaveHeader = new Uint8Array(Buffer.from("\u0000\u0000RISU", 'utf-8'));

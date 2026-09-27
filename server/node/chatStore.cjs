@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const API_ERROR_CODES = require('../../shared/apiErrorCodes.json');
 const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
 const {
@@ -192,6 +193,7 @@ function createCanonicalChatService(options) {
     function conflict(message, currentChat, options = {}) {
         return new CanonicalChatCommitError(409, message, {
             currentEtag: computeChatEtag(currentChat),
+            code: API_ERROR_CODES.CHAT_CONTENT_CHANGED,
             ...options,
         });
     }

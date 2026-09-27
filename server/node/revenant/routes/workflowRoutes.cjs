@@ -27,6 +27,7 @@ const {
     isUnregisteredWorkflowExpired,
     shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs');
+const { codes, sendApiError } = require('../../apiErrors.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
     const {
@@ -46,6 +47,8 @@ function installRevenantWorkflowRoutes(app, deps) {
         getWorkflowRequestStatusWorkflow = getGenerationWorkflow,
         getWorkflowRequestStatusJobs = listGenerationWorkflowJobs,
     } = deps;
+    const sendWorkflowNotFound = res =>
+        sendApiError(res, 404, codes.REVENANT_WORKFLOW_NOT_FOUND);
 
     app.post('/api/generation/workflows', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
@@ -186,7 +189,7 @@ function installRevenantWorkflowRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         const workflow = getGenerationWorkflow(req.params.workflowId);
         if (!workflow) {
-            res.status(404).send({ error: 'Generation workflow not found' });
+            sendWorkflowNotFound(res);
             return;
         }
         res.send({ workflow });
@@ -196,7 +199,7 @@ function installRevenantWorkflowRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         const workflow = getWorkflowRequestStatusWorkflow(req.params.workflowId, false);
         if (!workflow) {
-            res.status(404).send({ error: 'Generation workflow not found' });
+            sendWorkflowNotFound(res);
             return;
         }
         // Include consumed jobs: request lifecycle does not depend on whether
@@ -219,7 +222,7 @@ function installRevenantWorkflowRoutes(app, deps) {
         if (!requireSyncClientId(req, res)) return;
         const workflow = getGenerationWorkflow(req.params.workflowId, false);
         if (!workflow) {
-            res.status(404).send({ error: 'Generation workflow not found' });
+            sendWorkflowNotFound(res);
             return;
         }
         const result = await terminateGenerationWorkflow(req.params.workflowId, 'cancelled');
@@ -241,7 +244,7 @@ function installRevenantWorkflowRoutes(app, deps) {
         }
         try {
             if (!updateGenerationWorkflowStep(req.params.workflowId, stepKey, update)) {
-                res.status(404).send({ error: 'Active generation workflow not found' });
+                sendWorkflowNotFound(res);
                 return;
             }
             res.send({ success: true });
@@ -272,7 +275,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             isSyncClientConnected,
         );
         if (!result) {
-            res.status(404).send({ error: 'Pending workflow client action not found' });
+            sendApiError(res, 404, codes.REVENANT_CLIENT_ACTION_NOT_FOUND);
             return;
         }
         if (result.busy) {
@@ -316,7 +319,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             req.body.response,
         );
         if (!result) {
-            res.status(404).send({ error: 'Pending workflow client action not found' });
+            sendApiError(res, 404, codes.REVENANT_CLIENT_ACTION_NOT_FOUND);
             return;
         }
         if (result.staleClaim) {
@@ -376,7 +379,7 @@ function installRevenantWorkflowRoutes(app, deps) {
         if (!result.changed) {
             const existing = getGenerationWorkflow(req.params.workflowId, false);
             if (!existing) {
-                res.status(404).send({ error: 'Generation workflow not found' });
+                sendWorkflowNotFound(res);
                 return;
             }
             res.send({ success: true, alreadyFinished: true });
@@ -399,7 +402,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             recipe,
         );
         if (!execution) {
-            res.status(404).send({ error: 'Active generation workflow not found' });
+            sendWorkflowNotFound(res);
             return;
         }
         scheduleHypaWorkflowExecution();

@@ -6,6 +6,7 @@ vi.mock('./risuSave', () => ({
 }))
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 
+import { changeLanguage } from 'src/lang'
 import { ConflictError, NodeStorage } from './nodeStorage'
 import { decodeAssetBatch, encodeAssetBatch } from './assetTransport'
 
@@ -71,6 +72,54 @@ describe('storage request integration', () => {
         await expect(storage.patchDatabase(patch)).resolves.toMatchObject({ conflict: true, etag: 'server' })
         await expect(storage.saveChatContent('character', 0, 'chat', {})).rejects.toBeInstanceOf(ConflictError)
         expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('localizes the stable chat conflict returned by the server', async () => {
+        changeLanguage('ko')
+        try {
+            fetchMock.mockResolvedValue(new Response(JSON.stringify({
+                code: 'CHAT_CONTENT_CHANGED',
+                error: 'Chat content changed on another client', currentEtag: 'server',
+            }), { status: 409 }))
+            await expect(storage.saveChatContent('character', 0, 'chat', {}))
+                .rejects.toMatchObject({
+                    code: 'CHAT_CONTENT_CHANGED',
+                    message: expect.stringContaining('다른 클라이언트에 의한 수정사항이 있습니다'),
+                })
+        } finally {
+            changeLanguage('en')
+        }
+    })
+
+    it('routes backup and login responses through the common coded error parser', async () => {
+        changeLanguage('ko')
+        try {
+            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+                code: 'BACKUP_IMPORT_IN_PROGRESS', error: 'server diagnostic',
+            }), { status: 409 }))
+            await expect(storage.prepareImport(1)).rejects.toThrow('다른 백업 가져오기 또는 복원이 이미 진행 중입니다.')
+
+            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+                code: 'BACKUP_NOT_FOUND', error: 'server diagnostic',
+            }), { status: 404 }))
+            await expect(storage.restoreServerBackup('missing.bin')).rejects.toThrow('백업 파일을 찾을 수 없습니다.')
+
+            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+                code: 'AUTH_INVALID_PASSWORD', error: 'server diagnostic',
+            }), { status: 401 }))
+            await expect((storage as any).loginWithPassword('wrong')).rejects.toThrow('비밀번호가 잘못되었습니다.')
+        } finally {
+            changeLanguage('en')
+        }
+    })
+
+    it('retries authentication from stable codes only', async () => {
+        const shouldRetry = (body: object, status = 401) =>
+            (storage as any).shouldRetryAuth(new Response(JSON.stringify(body), { status }))
+        await expect(shouldRetry({ code: 'AUTH_TOKEN_EXPIRED' })).resolves.toBe(true)
+        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' })).resolves.toBe(true)
+        await expect(shouldRetry({ error: 'Token Expired' })).resolves.toBe(false)
+        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' }, 400)).resolves.toBe(false)
     })
 
     it('retains server rejection details even in an HTTP 200 response', async () => {

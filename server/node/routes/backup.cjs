@@ -10,6 +10,7 @@ const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
 const { STORED_ASSET_PREFIX, collectDatabaseAssetBasenames, assetBasename: statsBasename } = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
 
 function installBackupRoutes(app, {
     deleteSnapshotStateRows,
@@ -287,7 +288,7 @@ function installBackupRoutes(app, {
         try {
             await flushPendingDb();
             const plan = await createSettingsBackupPlan();
-            if (!plan) return res.status(500).json({ error: 'database.bin missing' });
+            if (!plan) return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
             res.json(plan.breakdown);
         } catch (error) { next(error); }
     });
@@ -310,7 +311,7 @@ function installBackupRoutes(app, {
                 ? await createSettingsBackupPlan(includeModuleAssets)
                 : null;
             if (settingsOnly && !settingsPlan) {
-                return res.status(500).json({ error: 'database.bin missing' });
+                return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
             }
 
             const skipInlay = settingsOnly || target === 'upstream';
@@ -425,25 +426,24 @@ function installBackupRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         try {
             if (importInProgress) {
-                res.status(409).json({ error: 'Another import is already in progress' });
-                return;
+                return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
             }
 
             const size = Number(req.body?.size ?? 0);
             if (BACKUP_IMPORT_MAX_BYTES > 0 && size > BACKUP_IMPORT_MAX_BYTES) {
-                res.status(413).json({ error: `Backup exceeds max allowed size (${BACKUP_IMPORT_MAX_BYTES} bytes)` });
-                return;
+                return sendApiError(
+                    res, 413, API_ERROR_CODES.BACKUP_TOO_LARGE,
+                    { maxBytes: BACKUP_IMPORT_MAX_BYTES },
+                );
             }
 
             if (size > 0) {
                 const disk = await checkDiskSpace(size * BACKUP_DISK_HEADROOM);
                 if (!disk.ok) {
-                    res.status(507).json({
-                        error: 'Insufficient disk space',
+                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
                         available: disk.available,
                         required: size * BACKUP_DISK_HEADROOM,
                     });
-                    return;
                 }
             }
 
@@ -458,8 +458,7 @@ function installBackupRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
 
         if (importInProgress) {
-            res.status(409).json({ error: 'Another import is already in progress' });
-            return;
+            return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
         }
         importInProgress = true;
 
@@ -485,8 +484,10 @@ function installBackupRoutes(app, {
 
             const contentLength = Number(req.headers['content-length'] ?? '0');
             if (BACKUP_IMPORT_MAX_BYTES > 0 && Number.isFinite(contentLength) && contentLength > BACKUP_IMPORT_MAX_BYTES) {
-                res.status(413).json({ error: `Backup exceeds max allowed size (${BACKUP_IMPORT_MAX_BYTES} bytes)` });
-                return;
+                return sendApiError(
+                    res, 413, API_ERROR_CODES.BACKUP_TOO_LARGE,
+                    { maxBytes: BACKUP_IMPORT_MAX_BYTES },
+                );
             }
 
             if (wantsNdjson) {
@@ -542,6 +543,7 @@ function installBackupRoutes(app, {
                         type: 'error',
                         message: error?.message || 'backup import failed',
                         ...(error?.code ? { code: error.code } : {}),
+                        ...(error?.details ? { details: error.details } : {}),
                     }) + '\n');
                     res.end();
                 } catch (_) {}
@@ -572,9 +574,7 @@ function installBackupRoutes(app, {
                 const sf = await fs.statfs(backupState.backupsDir);
                 const free = sf.bsize * sf.bavail;
                 if (estimate > 0 && free < required) {
-                    return res.status(400).json({
-                        error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB)`,
-                        code: 'insufficient_space',
+                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
                         required,
                         free,
                     });
@@ -729,7 +729,7 @@ function installBackupRoutes(app, {
                 return res.status(400).json({ error: 'Invalid backup note target' });
             }
             if (!await backupNoteTargetExists(kind, id)) {
-                return res.status(404).json({ error: 'Backup not found' });
+                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
             const note = setBackupNote(getBackupNotesDir(), kind, id, req.body?.note);
             res.json({ ok: true, note });
@@ -743,15 +743,14 @@ function installBackupRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
 
         if (importInProgress) {
-            res.status(409).json({ error: 'Another import is already in progress' });
-            return;
+            return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
         }
         importInProgress = true;
 
         try {
             const filename = req.body?.filename;
             if (!filename || !BACKUP_FILENAME_REGEX.test(filename)) {
-                res.status(400).json({ error: 'Invalid backup filename' });
+                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
                 return;
             }
             const filePath = path.join(backupState.backupsDir, filename);
@@ -759,18 +758,15 @@ function installBackupRoutes(app, {
             try {
                 fileStat = await fs.stat(filePath);
             } catch {
-                res.status(404).json({ error: 'Backup file not found' });
-                return;
+                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
 
             const disk = await checkDiskSpace(fileStat.size * BACKUP_DISK_HEADROOM);
             if (!disk.ok) {
-                res.status(507).json({
-                    error: 'Insufficient disk space',
+                return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
                     available: disk.available,
                     required: fileStat.size * BACKUP_DISK_HEADROOM,
                 });
-                return;
             }
 
             res.setHeader('content-type', 'application/x-ndjson');
@@ -817,30 +813,28 @@ function installBackupRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
 
         if (importInProgress) {
-            res.status(409).json({ error: 'Another import is already in progress' });
-            return;
+            return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
         }
         importInProgress = true;
 
         try {
             const filename = req.body?.filename;
             if (!filename || !BACKUP_FILENAME_REGEX.test(filename)) {
-                res.status(400).json({ error: 'Invalid backup filename' });
+                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
                 return;
             }
             const filePath = path.join(backupState.backupsDir, filename);
             try {
                 await fs.access(filePath);
             } catch {
-                res.status(404).json({ error: 'Backup file not found' });
-                return;
+                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
 
             // Include any debounced DB changes before deciding which assets the
             // current save references. Asset restoration itself is additive.
             await flushPendingDb();
             if (!appDataStore.getState().initialized) {
-                res.status(409).json({ error: 'Current database is missing' });
+                sendApiError(res, 409, API_ERROR_CODES.DATABASE_NOT_FOUND);
                 return;
             }
             const dbObj = appDataStore.exportProjection({ includeMessages: true });
@@ -871,8 +865,10 @@ function installBackupRoutes(app, {
                     const required = restoreBytes * BACKUP_DISK_HEADROOM;
                     const disk = await checkDiskSpace(required);
                     if (!disk.ok) {
-                        throw new Error(
-                            `Insufficient disk space (available=${disk.available}, required=${required})`,
+                        throw createApiError(
+                            API_ERROR_CODES.INSUFFICIENT_STORAGE,
+                            507,
+                            { available: disk.available, required },
                         );
                     }
                 },
@@ -890,7 +886,12 @@ function installBackupRoutes(app, {
             if (!res.headersSent) {
                 next(error);
             } else {
-                res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+                res.write(JSON.stringify({
+                    type: 'error',
+                    message: error.message,
+                    ...(error?.code ? { code: error.code } : {}),
+                    ...(error?.details ? { details: error.details } : {}),
+                }) + '\n');
                 res.end();
             }
         } finally {
@@ -904,7 +905,7 @@ function installBackupRoutes(app, {
         try {
             const filename = req.params.filename;
             if (!BACKUP_FILENAME_REGEX.test(filename)) {
-                res.status(400).json({ error: 'Invalid backup filename' });
+                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
                 return;
             }
             const filePath = path.join(backupState.backupsDir, filename);
@@ -912,8 +913,7 @@ function installBackupRoutes(app, {
                 await fs.unlink(filePath);
             } catch (err) {
                 if (err.code === 'ENOENT') {
-                    res.status(404).json({ error: 'Backup file not found' });
-                    return;
+                    return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
                 }
                 throw err;
             }
@@ -929,7 +929,7 @@ function installBackupRoutes(app, {
         try {
             const filename = req.params.filename;
             if (!BACKUP_FILENAME_REGEX.test(filename)) {
-                res.status(400).json({ error: 'Invalid backup filename' });
+                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
                 return;
             }
             const filePath = path.join(backupState.backupsDir, filename);
@@ -937,8 +937,7 @@ function installBackupRoutes(app, {
             try {
                 stat = await fs.stat(filePath);
             } catch {
-                res.status(404).json({ error: 'Backup file not found' });
-                return;
+                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
             res.setHeader('content-type', 'application/octet-stream');
             res.setHeader('content-disposition', `attachment; filename="${filename}"`);
@@ -1028,7 +1027,7 @@ function installBackupRoutes(app, {
             const key = typeof req.query?.key === 'string' ? req.query.key : '';
             // Restrict to snapshot prefix — never let this endpoint touch other kv keys.
             if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return res.status(400).json({ error: 'Invalid snapshot key' });
+                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
             }
             deleteSnapshotState(key);
             res.json({ ok: true });
@@ -1042,13 +1041,13 @@ function installBackupRoutes(app, {
             const key = typeof req.body?.key === 'string' ? req.body.key : '';
             const note = normalizeBackupNote(req.body?.note);
             if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return res.status(400).json({ error: 'Invalid snapshot key' });
+                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
             }
             if (!note) {
                 return res.status(400).json({ error: 'A note is required to preserve this snapshot' });
             }
             const raw = kvGet(key);
-            if (!raw) return res.status(404).json({ error: 'Snapshot not found' });
+            if (!raw) return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
 
             const database = normalizeJSON(await decodeRisuSave(raw));
             // New snapshots keep bookmarks in a dedicated snapshot table. Project
@@ -1063,15 +1062,13 @@ function installBackupRoutes(app, {
                 const stat = await fs.statfs(dir);
                 const required = Math.ceil(blob.length * 1.05);
                 if (stat.bsize * stat.bavail < required) {
-                    return res.status(400).json({
-                        error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB)`,
-                        code: 'insufficient_space',
+                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
                         required,
                         free: stat.bsize * stat.bavail,
                     });
                 }
             } catch (error) {
-                if (error?.code === 'insufficient_space') throw error;
+                if (error?.code === API_ERROR_CODES.INSUFFICIENT_STORAGE) throw error;
                 logger.warn('[Snapshot promotion] pre-flight disk check failed:', error?.message || error);
             }
 
@@ -1137,11 +1134,11 @@ function installBackupRoutes(app, {
         try {
             const key = typeof req.body?.key === 'string' ? req.body.key : '';
             if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return res.status(400).json({ error: 'Invalid snapshot key' });
+                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
             }
             const blob = kvGet(key);
             if (!blob) {
-                return res.status(404).json({ error: 'Snapshot not found' });
+                return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
             }
             await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
             broadcastDatabaseInvalidated(req, { allChats: true });
@@ -1185,7 +1182,7 @@ function installBackupRoutes(app, {
             await flushPendingDb();
             const blob = await createCompatibleDatabaseValue();
             if (!blob) {
-                return res.status(404).json({ error: 'Database not found' });
+                return sendApiError(res, 404, API_ERROR_CODES.DATABASE_NOT_FOUND);
             }
             const dir = getManualSnapshotsDir();
             await fs.mkdir(dir, { recursive: true });
@@ -1195,9 +1192,7 @@ function installBackupRoutes(app, {
                 const free = sf.bsize * sf.bavail;
                 const required = Math.ceil(blob.length * 1.05);
                 if (free < required) {
-                    return res.status(400).json({
-                        error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB)`,
-                        code: 'insufficient_space',
+                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
                         required,
                         free,
                     });
@@ -1234,14 +1229,14 @@ function installBackupRoutes(app, {
         try {
             const filename = typeof req.query?.filename === 'string' ? req.query.filename : '';
             if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-                return res.status(400).json({ error: 'Invalid snapshot filename' });
+                return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
             }
             const filePath = path.join(getManualSnapshotsDir(), filename);
             try {
                 await fs.unlink(filePath);
             } catch (err) {
                 if (err.code === 'ENOENT') {
-                    return res.status(404).json({ error: 'Snapshot not found' });
+                    return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
                 }
                 throw err;
             }
@@ -1256,7 +1251,7 @@ function installBackupRoutes(app, {
         try {
             const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
             if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-                return res.status(400).json({ error: 'Invalid snapshot filename' });
+                return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
             }
             const filePath = path.join(getManualSnapshotsDir(), filename);
             let blob;
@@ -1264,7 +1259,7 @@ function installBackupRoutes(app, {
                 blob = await fs.readFile(filePath);
             } catch (err) {
                 if (err.code === 'ENOENT') {
-                    return res.status(404).json({ error: 'Snapshot not found' });
+                    return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
                 }
                 throw err;
             }

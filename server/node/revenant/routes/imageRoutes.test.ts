@@ -23,6 +23,26 @@ function responseRecorder() {
 describe('Node image generation jobs', () => {
     afterEach(() => vi.unstubAllGlobals())
 
+    it('shares the provider capacity while preserving idempotent job retries', () => {
+        const service = createImageGenerationJobService({
+            logger: { warn: vi.fn() },
+            capacity: { maxActiveWorkflows: 1, maxActiveProviderJobs: 1 },
+        })
+        const input = {
+            jobId: 'image-1',
+            provider: 'comfyui',
+            spec: { prompt: '', negativePrompt: '', seed: 1, bridgeId: 'device-1' },
+        }
+        const first = service.createJob(input)
+        expect(service.createJob(input)).toBe(first)
+        expect(() => service.createJob({ ...input, jobId: 'image-2' })).toThrow(expect.objectContaining({
+            code: 'REVENANT_PROVIDER_CAPACITY',
+            httpStatus: 429,
+            details: { limit: 1 },
+        }))
+        service.abortAll()
+    })
+
     it('keeps one NovelAI request for repeated deterministic job IDs', async () => {
         const routes = new Map<string, Function>()
         const app = {

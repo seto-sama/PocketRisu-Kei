@@ -1,6 +1,5 @@
 import { language } from 'src/lang'
-
-const MAX_STORAGE_ERROR_MESSAGE_LENGTH = 512
+import { ApiRequestError, readApiErrorPayload } from '../network/apiError'
 
 // Chat entry only: bound header wait without replaying the request or
 // limiting the time needed to download a large conversation after headers.
@@ -8,33 +7,23 @@ export const CHAT_CONTENT_READ_POLICY = Object.freeze({
     firstResponseTimeoutMs: 30_000,
 })
 
-export class StorageRequestError extends Error {
+export class StorageRequestError extends ApiRequestError {
     constructor(
         readonly operation: string,
-        readonly status: number,
-        readonly serverMessage = '',
+        status: number,
+        serverMessage = '',
+        code?: string,
+        details?: Record<string, unknown>,
     ) {
-        serverMessage = serverMessage.replace(/\s+/g, ' ').trim().slice(0, MAX_STORAGE_ERROR_MESSAGE_LENGTH)
-        const detail = status === 413 ? language.errors.storageRequestTooLarge : serverMessage
-        super(`${operation} (HTTP ${status})${detail ? `: ${detail}` : ''}`)
+        super(status, serverMessage, code, details, '', `${operation} (HTTP ${status})`)
         this.name = 'StorageRequestError'
     }
 }
 
 /** Consume an unsuccessful response once, keeping useful text out of proxy HTML. */
 export async function storageRequestError(operation: string, response: Response): Promise<StorageRequestError> {
-    const body = await response.text().catch(() => '')
-    let message = ''
-    try {
-        const data = JSON.parse(body)
-        message = typeof data?.error === 'string' ? data.error
-            : typeof data?.message === 'string' ? data.message : ''
-    } catch {
-        if (!response.headers.get('content-type')?.includes('text/html') && !body.trimStart().startsWith('<')) {
-            message = body
-        }
-    }
-    return new StorageRequestError(operation, response.status, message)
+    const payload = await readApiErrorPayload(response)
+    return new StorageRequestError(operation, response.status, payload.message, payload.code, payload.details)
 }
 
 export class ChatSaveError extends Error {

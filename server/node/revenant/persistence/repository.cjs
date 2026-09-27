@@ -4,6 +4,10 @@ const { encodeGenerationRequest, decodeGenerationRequest } = require('../protoco
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
 const { createGenerationStatements } = require('./statements.cjs');
+const {
+    REVENANT_CAPACITY,
+    createWorkflowCapacityError,
+} = require('../capacity.cjs');
 
 const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
@@ -38,6 +42,7 @@ const {
     stmtCreateWorkflowStep,
     stmtGetWorkflow,
     stmtGetActiveWorkflowForRoom,
+    stmtCountActiveWorkflows,
     stmtGetLatestWorkflowForRoom,
     stmtListWorkflowSteps,
     stmtGetWorkflowStep,
@@ -306,8 +311,21 @@ function createGenerationWorkflow(input) {
         const { inputCommit: _inputCommit, ...workflowContext } = input.context;
         context = workflowContext;
     }
+    let activeWorkflowId;
     try {
         db.transaction(() => {
+            const activeWorkflow = stmtGetActiveWorkflowForRoom.get(
+                input.characterId,
+                input.roomId,
+            );
+            if (activeWorkflow) {
+                activeWorkflowId = activeWorkflow.workflow_id;
+                return;
+            }
+            const activeCount = Number(stmtCountActiveWorkflows.get()?.count) || 0;
+            if (activeCount >= REVENANT_CAPACITY.maxActiveWorkflows) {
+                throw createWorkflowCapacityError();
+            }
             stmtCreateWorkflow.run(
                 input.workflowId,
                 input.characterId,
@@ -339,6 +357,12 @@ function createGenerationWorkflow(input) {
             };
         }
         throw error;
+    }
+    if (activeWorkflowId) {
+        return {
+            busy: true,
+            workflow: getGenerationWorkflow(activeWorkflowId),
+        };
     }
     return { busy: false, workflow: getGenerationWorkflow(input.workflowId) };
 }

@@ -10,9 +10,10 @@ import { validateContentReferences, type ContentReferenceKind } from '../../../s
 // Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
 // /api/login, /api/token/refresh)
 import { language } from "src/lang"
-import { alertInput, waitAlert, notifyError } from "../alert"
+import { alertInput } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
+import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../network/apiError'
 import { CHAT_CONTENT_READ_POLICY, storageRequestError, StorageRequestError } from './storageRequest'
 import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
 import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
@@ -26,23 +27,23 @@ const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
 function serverErrorMessage(body: any, fallback: string): string {
-    switch (body?.code) {
-        case 'BACKUP_ENCRYPTION_METADATA_INVALID': return language.errors.backupEncryptionMetadataInvalid
-        case 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE': return language.errors.backupEncryptionKeyUnavailable
-        case 'BACKUP_DECRYPTION_FAILED': return language.errors.backupDecryptionFailed
-        case 'UNSUPPORTED_REMOTE_SAVE': return language.unsupportedRemoteSave
-    }
-    return typeof body?.error === 'string' ? body.error
-        : typeof body?.message === 'string' ? body.message : fallback
+    return localizedApiErrorMessage({
+        code: typeof body?.code === 'string' ? body.code : undefined,
+        message: typeof body?.error === 'string' ? body.error
+            : typeof body?.message === 'string' ? body.message : '',
+        fallback,
+    })
 }
 
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
     currentEtag: string
-    constructor(message: string, currentEtag: string) {
-        super(message)
+    code?: string
+    constructor(message: string, currentEtag: string, code?: string) {
+        super(localizedApiErrorMessage({ code, message }))
         this.name = 'ConflictError'
         this.currentEtag = currentEtag
+        this.code = code
     }
 }
 
@@ -218,21 +219,8 @@ export class NodeStorage{
             }
         })
 
-        if(response.status === 429){
-            notifyError(`Too many attempts. Please wait and try again later.`)
-            await waitAlert()
-            throw new Error('Too many login attempts')
-        }
-
         if(response.status < 200 || response.status >= 300){
-            let message = 'Node login failed'
-            try {
-                const data = await response.json()
-                message = data.error ?? message
-            } catch {
-                // noop
-            }
-            throw new Error(message)
+            throw await apiRequestError(response, 'Node login failed')
         }
 
         const data = await response.json()
@@ -243,16 +231,14 @@ export class NodeStorage{
     }
 
     private async shouldRetryAuth(response: Response) {
-        if(response.status !== 400 && response.status !== 401){
-            return false
-        }
+        if(response.status !== 401) return false
 
         try {
             const data = await response.clone().json()
             return [
-                'Invalid Signature',
-                'Token Expired'
-            ].includes(data?.error)
+                apiErrorCodes.AUTH_INVALID_TOKEN,
+                apiErrorCodes.AUTH_TOKEN_EXPIRED,
+            ].includes(data?.code)
         } catch {
             return false
         }
@@ -299,14 +285,14 @@ export class NodeStorage{
         })
         if(da.status === 409){
             const data = await da.json()
-            throw new ConflictError(data.error, data.currentEtag)
+            throw new ConflictError(data.error, data.currentEtag, data.code)
         }
         if(da.status < 200 || da.status >= 300){
             throw await storageRequestError('setItem', da)
         }
         const data = await da.json()
         if(data.error){
-            throw new StorageRequestError('setItem', da.status, String(data.error))
+            throw new StorageRequestError('setItem', da.status, String(data.error), data.code)
         }
         const nextEtag = data.etag as string | undefined
         if (key === 'database/database.bin' && nextEtag) {
@@ -439,7 +425,7 @@ export class NodeStorage{
                 })
 
                 if(response.status < 200 || response.status >= 300){
-                    throw new Error('Failed to set node password')
+                    throw await apiRequestError(response, 'Failed to set node password')
                 }
 
                 await this.loginWithPassword(input)
@@ -554,6 +540,7 @@ export class NodeStorage{
         })
         if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
+            code?: string
             error?: string
             etag?: string
             currentEtag?: string
@@ -570,7 +557,7 @@ export class NodeStorage{
             return { success: false, conflict: true, etag, revision }
         }
         if (data.error) {
-            throw new StorageRequestError('initializeDatabase', response.status, data.error)
+            throw new StorageRequestError('initializeDatabase', response.status, data.error, data.code)
         }
         return {
             success: true,
@@ -627,12 +614,7 @@ export class NodeStorage{
             if (tracksDatabase && Number.isSafeInteger(currentRevision)) {
                 this._lastDbRevision = currentRevision as number
             }
-            // Server signals chat-guard rejection via explicit fields. The
-            // error string fallback is kept for forward-compat with deployed
-            // servers that haven't shipped the explicit fields yet.
-            const rejectedByChatGuard = data.chatGuardRejected === true
-                || data.code === 'CHAT_GUARD_REJECTED'
-                || (typeof data.error === 'string' && data.error.includes('chat-internal field ops'))
+            const rejectedByChatGuard = data.code === apiErrorCodes.CHAT_GUARD_REJECTED
             return {
                 success: false,
                 etag: currentEtag,
@@ -649,7 +631,7 @@ export class NodeStorage{
         }
         const data = await da.json()
         if (data.error) {
-            throw new StorageRequestError(operation, da.status, String(data.error))
+            throw new StorageRequestError(operation, da.status, String(data.error), data.code)
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
@@ -716,14 +698,7 @@ export class NodeStorage{
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ size }),
         })
-        if (da.status === 409) throw new Error('Another import is already in progress')
-        if (da.status === 413) throw new Error('Backup file is too large')
-        if (da.status === 507) {
-            const body = await da.json().catch(() => ({}))
-            const avail = body.available != null ? ` (available: ${Math.round(body.available / 1024 / 1024)} MB)` : ''
-            throw new Error(`Insufficient disk space${avail}`)
-        }
-        if (da.status < 200 || da.status >= 300) throw new Error(`backup prepare error: ${da.status}`)
+        if (!da.ok) throw await storageRequestError('prepareImport', da)
     }
 
     async importBackup(
@@ -817,8 +792,7 @@ export class NodeStorage{
             body: JSON.stringify({ note }),
         })
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup save error: ${da.status}`)
+            throw await storageRequestError('saveServerBackup', da)
         }
 
         const reader = da.body!.getReader()
@@ -840,7 +814,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup save failed'))
                 }
             }
         }
@@ -866,11 +840,8 @@ export class NodeStorage{
             },
             body: JSON.stringify({ filename }),
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(serverErrorMessage(body, `server backup restore error: ${da.status}`))
+            throw await storageRequestError('restoreServerBackup', da)
         }
 
         const reader = da.body!.getReader()
@@ -921,11 +892,8 @@ export class NodeStorage{
             },
             body: JSON.stringify({ filename }),
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup asset restore error: ${da.status}`)
+            throw await storageRequestError('restoreMissingServerBackupAssets', da)
         }
 
         const reader = da.body!.getReader()
@@ -956,7 +924,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup asset restore failed'))
                 }
             }
         }
@@ -968,14 +936,12 @@ export class NodeStorage{
         const da = await this.authFetch(`/api/backup/server/${encodeURIComponent(filename)}`, {
             method: 'DELETE',
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status < 200 || da.status >= 300) throw new Error(`server backup delete error: ${da.status}`)
+        if (!da.ok) throw await storageRequestError('deleteServerBackup', da)
     }
 
     async downloadServerBackup(filename: string): Promise<Response> {
         const da = await this.authFetch(`/api/backup/server/download/${encodeURIComponent(filename)}`)
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status < 200 || da.status >= 300) throw new Error(`server backup download error: ${da.status}`)
+        if (!da.ok) throw await storageRequestError('downloadServerBackup', da)
         return da
     }
 
@@ -1092,11 +1058,11 @@ export class NodeStorage{
         })
         if (da.status === 409) {
             const data = await da.json().catch(() => ({}))
-            throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '')
+            throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '', data.code)
         }
         if (da.status < 200 || da.status >= 300) throw await storageRequestError('saveChatContent', da)
         const data = await da.json()
-        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error))
+        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error), data.code)
         if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
     }
 
@@ -1121,7 +1087,7 @@ async function digestPassword(message:string) {
         method: "POST"
     })
     if(res.status < 200 || res.status >= 300){
-        throw new Error(`Password hashing failed (${res.status})`)
+        throw await apiRequestError(res, 'Password hashing failed')
     }
     return await res.text()
 }
