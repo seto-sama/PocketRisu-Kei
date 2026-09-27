@@ -58,7 +58,7 @@
 </script>
 
 <Tooltip.Provider {delayDuration}>
-    <Tooltip.Root bind:open {disabled}>
+    <Tooltip.Root bind:open {disabled} ignoreNonKeyboardFocus>
         <Tooltip.Trigger>
             {#snippet child({ props })}
                 {@render trigger(props)}

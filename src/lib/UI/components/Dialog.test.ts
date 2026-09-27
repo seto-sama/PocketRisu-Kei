@@ -14,7 +14,50 @@ afterEach(async () => {
     document.body.replaceChildren()
 })
 
-describe('Dialog close requests', () => {
+describe('Dialog', () => {
+    async function openAndCloseAfter(modality: 'keyboard' | 'pointer') {
+        const target = document.createElement('div')
+        const trigger = document.createElement('button')
+        document.body.appendChild(target)
+        document.body.appendChild(trigger)
+
+        if (modality === 'keyboard') {
+            trigger.focus()
+            trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        } else {
+            trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+            trigger.focus()
+        }
+
+        const component = mount(Dialog, {
+            target,
+            props: {
+                open: true,
+                closable: false,
+                children: createRawSnippet(() => ({ render: () => '<button>Inside</button>' })),
+            },
+        })
+        mounted.push(component)
+        await tick()
+
+        document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        )
+        await tick()
+
+        return trigger
+    }
+
+    it('restores trigger focus when the dialog was opened with the keyboard', async () => {
+        const trigger = await openAndCloseAfter('keyboard')
+        expect(document.activeElement).toBe(trigger)
+    })
+
+    it('does not restore trigger focus when the dialog was opened with a pointer', async () => {
+        const trigger = await openAndCloseAfter('pointer')
+        expect(document.activeElement).not.toBe(trigger)
+    })
+
     it('consumes Escape without closing a non-dismissible dialog', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)

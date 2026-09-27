@@ -9,6 +9,7 @@
     import { Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
+    import { wasLastInteractionKeyboard } from 'src/ts/gui/inputModality';
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
 
     interface Props {
@@ -59,6 +60,7 @@
         ariaLabel,
     }: Props = $props();
     let contentRef = $state<HTMLElement | null>(null);
+    let restoreFocusOnClose = false;
 
     const overlayLayer = provideOverlayLayer(() => open);
     const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
@@ -84,6 +86,7 @@
     }
 
     function handleOpenAutoFocus(event: Event) {
+        restoreFocusOnClose = wasLastInteractionKeyboard(contentRef?.ownerDocument ?? document);
         if (onOpenAutoFocus) {
             onOpenAutoFocus(event);
             return;
@@ -97,6 +100,12 @@
             return true;
         };
         if (!focusFirst()) queueMicrotask(focusFirst);
+    }
+
+    function handleCloseAutoFocus(event: Event) {
+        if (!restoreFocusOnClose) event.preventDefault();
+        onCloseAutoFocus?.(event);
+        restoreFocusOnClose = false;
     }
 
     function handleTabKeydown(event: KeyboardEvent) {
@@ -191,7 +200,7 @@
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
             onOpenAutoFocus={handleOpenAutoFocus}
-            {onCloseAutoFocus}
+            onCloseAutoFocus={handleCloseAutoFocus}
         >
             {#if title || description || closable || headerActions}
                 <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
