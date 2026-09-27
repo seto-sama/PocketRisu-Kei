@@ -685,7 +685,6 @@ export function setDatabase(data:Database){
     data.enabledModules ??= []
     data.personaEnabledModules ??= {}
     data.additionalParams ??= []
-    data.antiClaudeOverload ??= false
     data.ollamaURL ??= ''
     data.ollamaModel ??= ''
     data.repetition_penalty ??= 1
@@ -816,14 +815,11 @@ export function setDatabase(data:Database){
     data.useExperimentalGoogleTranslator ??= false
     data.thinkingType ??= 'budget'
     data.adaptiveThinkingEffort ??= 'high'
-    // The legacy toggle no longer controls retries; overload backoff is always on.
-    data.antiClaudeOverload = false
     data.hypaCustomSettings = {
         url: data.hypaCustomSettings?.url ?? "",
         key: data.hypaCustomSettings?.key ?? "",
         model: data.hypaCustomSettings?.model ?? ""     
     }
-    data.doNotChangeSeperateModels ??= false
     data.seperateModelsForAxModels ??= false
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
     if (!Array.isArray(data.hotkeys)) {
@@ -1333,7 +1329,6 @@ export interface Database{
     requestInfoInsideChat?:boolean
     stickyChatToolbar?:boolean
     additionalParams:[string, string][]
-    antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
     openrouterProvider: {
@@ -1442,7 +1437,6 @@ export interface Database{
         translate: string
         otherAx: string
     }
-    doNotChangeSeperateModels:boolean
     hotkeys: Hotkey[]
     fallbackModels: {
         memory: string[],
@@ -1675,7 +1669,6 @@ export interface character{
     hideChatIcon?:boolean
     lastInteraction?:number
     translatorNote?:string
-    doNotChangeSeperateModels?:boolean
     escapeOutput?:boolean
     prebuiltAssetCommand?:boolean
     prebuiltAssetStyle?:string
@@ -2033,8 +2026,7 @@ export interface Chat{
     modelBinding?: ModelBindingSet
     /** Per-chat opt-in: when this chat's MAIN request goes through a ModelPreset,
      * override the preset's sampling parameters with the active prompt preset's
-     * (temperature, top_p, penalties, ...). Off (or absent) => preset params only.
-     * No effect in classic mode, where prompt-preset params already apply. */
+     * (temperature, top_p, penalties, ...). Off (or absent) => preset params only. */
     usePromptPresetParams?: boolean
     /** Runtime-only: true while awaiting hydration from server. Never persisted. */
     _placeholder?: boolean

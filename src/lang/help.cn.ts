@@ -46,7 +46,6 @@ export const helpCn = {
         "requestretrys": "此选项用于设置请求失败时的重试次数。",
         "emotionPrompt": "此选项用于设置情绪检测的提示词。留空将使用默认提示词。",
         "additionalParams": "此选项允许将附加的参数添加到请求主体（Request body）中。若要排除某些参数，可以将值设为 `{{none}}`。若要添加包头（Request header）而非主体，可以在键前加上 `header::`，如 `header::Authorization`。若要将值作为 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情况下，系统将自动判定值的类型。",
-        "antiClaudeOverload": "若 Claude 过载发生，叡苏会透过继续相同的提示来阻止它，以减少过载的概率。此功能仅适用于串流回应（Streamed Responses），对非官方 API 端点可能无效。",
         "triggerScript": "触发器（Trigger）是一个自定义脚本，在符合条件时执行。可用于修改聊天数据、执行命令、更改变量等。类型取决于触发时的情况，也可由按钮触发，如 {{button::Display::TriggerName}} 或带有 risu-trigger=\"<TriggerName>\" 属性的 HTML 按钮。",
         "combineTranslation": "激活后，将把被 HTML 标签分隔但属于同一句的文本合并后进行翻译，并在翻译结果上重新套用“修改显示”（Modify Display）。这有助于提高翻译的准确性。若激活此后接口出现异常，请关闭此选项并回报问题。",
         "nickname": "设置后，将在聊天中以此昵称取代角色名称，并显示于 {{char}} 和 <char>。",

@@ -69,8 +69,6 @@ export const languageKorean = {
     networkFetchWeb:
       "이것은 CORS 오류일 수 있습니다. 이는 브라우저의 제한으로 인해 웹 버전을 사용할 때만 발생합니다. 데스크톱 로컬 버전이나 다른 버전의 RisuAI를 사용해보세요.",
     requestLogRemoved: "리퀘스트 로그가 삭제되었습니다.",
-    requestLogRemovedDesc:
-      "리퀘스트 로그는 앱이 재시작되거나 새로고침되면 삭제됩니다.",
     vertexAuthError: "Vertex AI 인증 정보가 누락되었습니다.",
     coldStorageWriteFailed:
       "콜드 스토리지 저장에 실패했습니다. 채팅 데이터는 보존되었습니다.",
@@ -1266,7 +1264,6 @@ export const languageKorean = {
   tokenizerOverride: "토크나이저 오버라이드",
   tokenizerAuto: "자동",
   useAdvancedEditor: "고급 에디터 사용",
-  antiClaudeOverload: "Claude 오버로드 방지",
   activeTabChange:
     "현재 탭이 비활성화되었습니다. OK를 누르면 탭이 다시 활성화됩니다.",
   addCharacter: "캐릭터 추가",
@@ -1381,10 +1378,8 @@ export const languageKorean = {
   presetUntagged: "태그 없음",
   presetNewFolder: "새 폴더",
   presetNewTag: "새 태그",
-  presetFolderNamePrompt: "폴더 이름을 입력하세요",
-  presetTagNamePrompt: "태그 이름을 입력하세요",
-  presetFolderRenamePrompt: "새 폴더 이름을 입력하세요",
-  presetTagRenamePrompt: "새 태그 이름을 입력하세요",
+  presetFolderNamePrompt: "새 폴더 이름을 입력하세요",
+  presetTagNamePrompt: "새 태그 이름을 입력하세요",
   presetFolderDeleteConfirm: "이 폴더를 삭제하시겠습니까? 폴더 안의 프리셋은 미분류로 이동합니다.",
   presetTagDeleteConfirm: "이 태그를 삭제하시겠습니까? 지정된 항목에서 태그가 제거됩니다.",
   presetFolderEmpty: "이 폴더에 프리셋이 없습니다",
@@ -1745,14 +1740,12 @@ export const languageKorean = {
   disableToggleBinding: "채팅 토글 바인딩 활성화",
   seperateModelsForAxModels: "보조 모델 분리",
   axModelsDef: "보조 모델 정의",
-  doNotChangeSeperateModels: "프리셋 변경 시 분리된 모델 변경하지 않기",
   useDefaultSubModel: "기본 보조모델 사용",
   modelPresetBindingMainUnset:
     "이 채팅에 바인딩된 메인 모델 프리셋이 없습니다. 전송하려면 바인딩하세요.",
   modelPresetBindingSubUnset:
     "이 채팅에 바인딩된 보조 모델 프리셋이 없습니다. 전송하려면 바인딩하세요.",
   modelPresetBindingTitle: "모델/보조 모델 프리셋 바인딩",
-  useModelPresetBindingToggle: "모델 프리셋 바인딩 사용하기",
   modelPresetConfigure: "모델 프리셋 설정하기",
   modelPresetSetDefaultConfirm:
     "현재 모델 바인딩을 새 채팅 기본값으로 지정할까요?",
@@ -1810,7 +1803,6 @@ export const languageKorean = {
   modelPresetTabPresets: "프리셋",
   modelPresetTabOptions: "기타",
   moduleModelBindingEnable: "모듈별 모델 바인딩",
-  moduleModelBindingUnset: "지정 안 함",
   modelPresetTabTest: "테스트",
   modelPresetTestTitle: "테스트 요청",
   modelPresetTestSend: "테스트 전송",
@@ -1848,11 +1840,6 @@ export const languageKorean = {
   registrySyncFailed: "동기화 실패",
   modelPresetDeleted: "삭제된 프리셋",
   modelPresetUnset: "미설정",
-  modelPresetSetAsDefault: "현재 바인딩을 새 채팅 기본값으로",
-  modelPresetDefaultSaved: "기본 바인딩으로 저장됨",
-  modelPresetSaveAsDefaultButton: "기본값으로 저장",
-  modelTabBuiltin: "기본 모델",
-  modelTabPlugin: "플러그인",
   axModelMemory: "장기 기억",
   axModelTranslate: "번역",
   axModelEmotion: "감정",
@@ -2258,7 +2245,7 @@ export const languageKorean = {
   systemLogsFailedLoad: "로그를 불러오지 못했습니다",
   systemLogsLoading: "불러오는 중...",
   pluginStorageTab: "플러그인 저장소",
-  pluginStorageDesc: "플러그인이 저장한 데이터를 직접 보고 편집·삭제할 수 있습니다. 플러그인 데이터는 플러그인별로 분리되지 않고 하나의 전역 공간에서 공유됩니다.",
+  pluginStorageDesc: "플러그인이 저장한 데이터를 직접 보고 편집·삭제할 수 있습니다. 모든 플러그인 데이터는 하나의 저장 공간을 공유합니다.",
   pluginStorageLocation: "저장 위치",
   pluginStorageBackendSave: "세이브 저장",
   pluginStorageBackendSaveDesc: "세이브 파일에 저장 · 세이브와 함께 이동",
@@ -2275,7 +2262,7 @@ export const languageKorean = {
   popupEditorWordWrap: "자동 줄바꿈",
   popupEditorPreview: "미리보기",
   popupEditorEdit: "편집하기",
-  popupEditorPreviewVariables: "CBS 테스트하기",
+  popupEditorPreviewVariables: "CBS 테스트",
   popupEditorPreviewNoVariables: "변경할 수 있는 CBS가 포함되어 있지 않습니다.",
   popupEditorPreviewEmpty: "미리보기할 내용이 없습니다.",
   popupEditorPreviewError: (msg: string) => `미리보기 실패: ${msg}`,
@@ -2500,8 +2487,6 @@ export const languageKorean = {
   migration: "데이터 이전",
   migrationDesc:
     "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 PocketRisu Kei 데이터를 원본 호환 형식으로 내보냅니다.",
-  migrationInfoBackupMoved:
-    "서버 백업, 로컬 백업, 자동 스냅샷 관리는 [저장공간 관리 → 백업] 탭으로 이동했습니다.",
   migrationGotoBackupTab: "백업 탭 열기",
   migrationLegacyAccordion: "기존 리스 방식으로 백업 (레거시)",
   migrationLegacyDesc:

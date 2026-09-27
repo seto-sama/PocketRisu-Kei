@@ -28,7 +28,6 @@ export const languageChinese = {
         "networkFetch": "这通常是由于网络连接不稳定或服务器故障引起的。",
         "networkFetchWeb": "这可能是由 CORS 错误引起的。这种情况只会在使用网页版时发生，因为浏览器存在一些限制。请尝试使用本地版或其他版本的叡苏。",
         "requestLogRemoved": "该请求记录已被删除。",
-        "requestLogRemovedDesc": "当客户端刷新或加载时，该请求记录会被删除。",
         "vertexAuthError": "Vertex AI 身份验证详情缺失。",
         "coldStorageWriteFailed": "冷存储写入失败。您的聊天数据已被保留。",
         "coldStorageVerifyFailed": "冷存储验证失败。您的聊天数据已被保留。"
@@ -687,7 +686,6 @@ export const languageChinese = {
     "popularityLevelDesc": "人气会随着下载量等增加。3.7 人气约等于 1 次下载。",
     "additionalParams": "额外参数",
     "useAdvancedEditor": "使用高级编辑器",
-    "antiClaudeOverload": "防止 Claude 超载",
     "activeTabChange": "目前的标签已停用，因其他标签处于活动中。若要激活此标签，请按“确定”。",
     "addCharacter": "新增角色",
     "importFromRealm": "从 RisuRealm 选择",
@@ -905,7 +903,6 @@ export const languageChinese = {
     "playMessageOnTranslateEnd": "翻译完成后播放音频",
     "seperateModelsForAxModels": "为辅助模型分离模型",
     "axModelsDef": "辅助模型定义",
-    "doNotChangeSeperateModels": "预设更改时不要更改分离模型",
     "tools": "工具",
     "action": "动作",
     "hotkey": "快捷键",

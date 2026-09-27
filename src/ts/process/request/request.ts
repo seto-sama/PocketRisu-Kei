@@ -786,7 +786,7 @@ export function modelPresetRequestFailurePolicy(error: unknown): {
 // channel (src/ts/status/requestStatus). Every call is wrapped so status
 // reporting can NEVER break a request (P0: status display must not throw into
 // the request path). Gated by db.showRequestStatus so the whole feature is a
-// no-op when off — and the classic path is never touched regardless.
+// no-op when off.
 //
 // Token counts during streaming use a cheap char-based estimate (no per-chunk
 // tokenizer cost — mobile-friendly), reconciled against the authoritative
@@ -1040,8 +1040,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    // System/role normalization. The classic path always runs reformater() before
-    // dispatch (~431); the preset path skipped it, so models without a native system
+    // System/role normalization. The plugin preset path runs reformater() before
+    // dispatch; this adapter path previously skipped it, so models without a native system
     // role (e.g. Ollama Gemma3) never saw bot/persona info folded into user turns.
     // Synthesize the relevant LLMFlags from the preset's ability toggles and reuse
     // reformater (which also honors db.systemRoleReplacement/ContentReplacement, also
@@ -1061,10 +1061,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     if (compiled.behavior.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
     if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
     // reformater mutates its input in place (requiresAlternateRole appends merged
-    // content onto the first message of a run). The preset path returns before the
-    // legacy clone below, and the retry loop reuses arg.formated, so mutating it
+    // content onto the first message of a run). The retry loop reuses arg.formated,
+    // so mutating it
     // directly would re-merge on every retry
-    // (A,B → A\nB → A\nB\nB). Clone first, matching the classic path's structuredClone.
+    // (A,B → A\nB → A\nB\nB). Clone first, matching the plugin preset path.
     // Also guarded: reformater runs outside the request try below, so a throw returns
     // a graceful fail instead of propagating (mirrors the previewBody/request catches).
     try {

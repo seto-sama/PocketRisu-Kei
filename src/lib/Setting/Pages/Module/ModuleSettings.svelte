@@ -396,7 +396,7 @@
                             <ModelPresetList
                                 compact
                                 blankable
-                                blankLabel={language.moduleModelBindingUnset}
+                                blankLabel={language.bindingNone}
                                 value={DBState.db.moduleModelBindings[rmodule.id] ?? ''}
                                 onChange={(presetId) => setModuleModelBinding(rmodule.id, presetId)}
                             />

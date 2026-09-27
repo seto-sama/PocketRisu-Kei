@@ -28,7 +28,6 @@ export const languageVietnamese = {
         "networkFetch": "This happens when the network is unstable or the server is down.",
         "networkFetchWeb": "This can be a CORS error. this only happens when using web version dude to limitations of the browser. try using desktop local version, or other version of PocketRisu Kei.",
         "requestLogRemoved": "This request log is removed.",
-        "requestLogRemovedDesc": "This request log removes when client is refreshed or reloaded.",
         "vertexAuthError": "Thiếu thông tin xác thực Vertex AI.",
         "coldStorageWriteFailed": "Ghi vào bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageVerifyFailed": "Xác minh bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn."
@@ -687,7 +686,6 @@ export const languageVietnamese = {
     "popularityLevelDesc": "Mức độ phổ biến tăng theo số lượt tải xuống, v.v. để ước tính, mức độ phổ biến 3.7 là khoảng 1 lượt tải xuống.",
     "additionalParams": "Tham số bổ sung",
     "useAdvancedEditor": "Sử dụng trình biên tập nâng cao",
-    "antiClaudeOverload": "Chống quá tải Claude",
     "activeTabChange": "Tab hiện tại bị vô hiệu hóa vì tab khác đang hoạt động. Để kích hoạt tab này, nhấp OK",
     "addCharacter": "Thêm nhân vật",
     "importFromRealm": "Chọn từ RisuRealm",
@@ -905,7 +903,6 @@ export const languageVietnamese = {
     "playMessageOnTranslateEnd": "Phát âm thanh khi hoàn thành dịch",
     "seperateModelsForAxModels": "Tách biệt mô hình cho các mô hình phụ trợ",
     "axModelsDef": "Định nghĩa mô hình Ax",
-    "doNotChangeSeperateModels": "Không thay đổi mô hình tách biệt khi thay đổi cài đặt trước",
     "tools": "Công cụ",
     "action": "Hành động",
     "hotkey": "Phím nóng",

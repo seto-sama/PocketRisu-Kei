@@ -114,8 +114,6 @@ export const helpEn = {
             'Additional parameters that would be added to the request body. if you want to exclude some parameters, you can put `{{none}}` to the value. if you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. if you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
         additionalParamsHelp: "One per line. Supports `key=value`, `key=json::{...}`, `header::Name=value`, `key={{none}}`.",
         tokenizerOverrideHelp: "Used for token counting. Leave Auto to use the profile recommendation.",
-        antiClaudeOverload:
-            "If Claude overload happens, PocketRisu Kei would try to prevent it by continuing with same prompt, making it less likely to happen. works only for streamed responses. this could not work for non-official api endpoints.",
         triggerScript:
             'Trigger Script is a custom script that runs when a condition is met. it can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. it can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
         combineTranslation:
@@ -238,12 +236,8 @@ export const helpEn = {
             "- When on, past messages are automatically summarized into long-term memory once the context fills up, and relevant summaries are pulled back into later responses.\n" +
             "- When off, messages beyond the context window are simply truncated and never reach the model.\n\n" +
             "This setting is stored per-chat (independent of the character default), so other chats with the same character are unaffected. Tune the summarization behavior itself under HypaV3 in the preset.",
-        useModelPresetBinding:
-            "Bind a model preset to this chat.\n\n" +
-            "On : Use a model preset, binding a model per chat.\n" +
-            "Off : Use the existing chatbot settings. (default)",
         promptPresetParams:
-            "When this chat sends its main request through a model preset, the sampling parameters of the currently applied prompt preset (Temperature, Top P, penalties, etc.) override the model preset's parameters.\n\n- Applies to this chat only, and only to the main model request (not sub/auxiliary models).\n- Only parameters the model preset actually supports are overridden. Output token caps (max tokens) and thinking settings are properties of the model, so the model preset always decides them.\n- Values you set explicitly in the model preset's custom body / additional parameters still take priority.\n- In classic model mode, prompt preset parameters already apply, so this option has no effect there.",
+            "When this chat sends its main request through a model preset, the sampling parameters of the currently applied prompt preset (Temperature, Top P, penalties, etc.) override the model preset's parameters.\n\n- Applies to this chat only, and only to the main model request (not sub/auxiliary models).\n- Only parameters the model preset actually supports are overridden. Output token caps (max tokens) and thinking settings are properties of the model, so the model preset always decides them.\n- Values you set explicitly in the model preset's custom body / additional parameters still take priority.",
         hypaV3SummarizationMaxConcurrent:
             "Maximum concurrent summarization model requests. Only applies when the summarization model is set to Auxiliary Model.",
         hypaV3EmbeddingMaxConcurrent:

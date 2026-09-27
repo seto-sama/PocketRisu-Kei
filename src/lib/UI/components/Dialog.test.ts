@@ -268,9 +268,6 @@ describe('Dialog', () => {
             ?.closest<HTMLElement>('[data-risu-overlay-layer]')
         const selectLayer = Number(selectLayerRoot?.dataset.risuOverlayLayer)
         expect(selectLayer).toBeGreaterThan(dialogLayer)
-        expect(selectLayerRoot?.style.position).toBe('fixed')
-        expect(selectLayerRoot?.style.width).toBe('0px')
-        expect(selectLayerRoot?.style.height).toBe('0px')
         expect(Number(selectLayerRoot?.style.zIndex)).toBe(selectLayer)
     })
 

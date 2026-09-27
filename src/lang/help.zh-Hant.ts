@@ -46,7 +46,6 @@ export const helpZhHant = {
         "requestretrys": "設定請求失敗時的重試次數。",
         "emotionPrompt": "此選項用於設定情緒檢測的提示詞。留空將使用預設提示詞。",
         "additionalParams": "此選項允許將附加的參數加入至請求主體（Request body）中。若要排除某些參數，可以將值設為 `{{none}}`。若要加入標頭（Request header）而非主體，可以在鍵前加上 `header::`，如 `header::Authorization`。若要將值作為 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情況下，系統將自動判定值的類型。",
-        "antiClaudeOverload": "當 Claude 發生過載時，PocketRisu Kei 會嘗試繼續發送相同的提示詞以防止請求中斷，藉此減少過載機率。此功能僅適用於串流回應 (Streamed Responses)，對非官方 API 端點可能無效。",
         "triggerScript": "觸發式（Trigger）是一個自訂腳本，在符合條件時執行。可用於修改對話資料、執行指令、更改變數等。類型取決於觸發時的情況，也可由按鈕觸發，如 {{button::Display::TriggerName}} 或帶有 risu-trigger=\"<TriggerName>\" 屬性的 HTML 按鈕。",
         "combineTranslation": "啟用後，將把被 HTML 標籤分隔但屬於同一句的文字合併後進行翻譯，並在翻譯結果上重新套用「修改顯示」（Modify Display）。這有助於提高翻譯的準確性。若啟用此功能後介面出現異常，請關閉此選項並回報問題。",
         "nickname": "設定後，將在對話中以此暱稱取代角色名稱，並顯示於 {{char}} 和 <char>。",

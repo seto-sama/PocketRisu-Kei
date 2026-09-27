@@ -115,7 +115,7 @@
         folderEmptyMessage = organizationKind === 'tag' ? language.presetTagEmpty : language.presetFolderEmpty,
         folderEmptySize = 'default',
         folderNamePrompt = organizationKind === 'tag' ? language.presetTagNamePrompt : language.presetFolderNamePrompt,
-        folderRenamePrompt = organizationKind === 'tag' ? language.presetTagRenamePrompt : language.presetFolderRenamePrompt,
+        folderRenamePrompt = organizationKind === 'tag' ? language.presetTagNamePrompt : language.presetFolderNamePrompt,
         folderDeleteConfirm = organizationKind === 'tag' ? language.presetTagDeleteConfirm : language.presetFolderDeleteConfirm,
         newFolderLabel = organizationKind === 'tag' ? language.presetNewTag : language.presetNewFolder,
         showCreateFolder = true,

@@ -28,7 +28,6 @@ export const languageGerman = {
         "networkFetch": "Dies passiert, wenn das Netzwerk instabil ist oder der Server ausgefallen ist.",
         "networkFetchWeb": "Dies kann ein CORS-Fehler sein. Dies geschieht nur bei Verwendung der Webversion aufgrund von Browserbeschränkungen. Versuchen Sie, die lokale Desktop-Version oder eine andere Version von PocketRisu Kei zu verwenden.",
         "requestLogRemoved": "Dieses Anfrage-Protokoll wurde entfernt.",
-        "requestLogRemovedDesc": "Dieses Anfrage-Protokoll wird entfernt, wenn der Client aktualisiert oder neu geladen wird.",
         "vertexAuthError": "Vertex AI-Authentifizierungsdetails fehlen.",
         "coldStorageWriteFailed": "Kaltlager-Schreibvorgang fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
         "coldStorageVerifyFailed": "Kaltlager-Überprüfung fehlgeschlagen. Ihre Chat-Daten wurden beibehalten."
@@ -687,7 +686,6 @@ export const languageGerman = {
     "popularityLevelDesc": "Beliebtheit steigt mit Downloads usw. Zur Schätzung: 3,7 Beliebtheit entspricht etwa 1 Download.",
     "additionalParams": "Zusätzliche Parameter",
     "useAdvancedEditor": "Erweiterten Editor verwenden",
-    "antiClaudeOverload": "Anti-Claude-Überlastung",
     "activeTabChange": "Aktueller Tab ist inaktiv, da ein anderer Tab aktiv ist. Um diesen Tab zu aktivieren, klicken Sie auf OK",
     "addCharacter": "Charakter hinzufügen",
     "importFromRealm": "Aus RisuRealm auswählen",
@@ -905,7 +903,6 @@ export const languageGerman = {
     "playMessageOnTranslateEnd": "Audio bei Übersetzungsabschluss abspielen",
     "seperateModelsForAxModels": "Separate Modelle für Hilfsmodelle",
     "axModelsDef": "Hilfsmodell-Definition",
-    "doNotChangeSeperateModels": "Separate Modelle bei Voreinstellungsänderung nicht ändern",
     "tools": "Tools",
     "action": "Aktion",
     "hotkey": "Hotkey",

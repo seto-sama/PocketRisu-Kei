@@ -28,7 +28,6 @@ export const languageSpanish = {
         "networkFetch": "Esto ocurre cuando la red es inestable o el servidor está caído.",
         "networkFetchWeb": "Esto puede ser un error de CORS. Esto solo ocurre al usar la versión web debido a las limitaciones del navegador. Intenta usar la versión local de escritorio u otra versión de PocketRisu Kei.",
         "requestLogRemoved": "Este registro de solicitud ha sido eliminado.",
-        "requestLogRemovedDesc": "Este registro de solicitud se elimina cuando el cliente se actualiza o recarga.",
         "vertexAuthError": "Faltan los detalles de autenticación de Vertex AI.",
         "coldStorageWriteFailed": "Error al escribir en almacenamiento frío. Sus datos de chat se han conservado.",
         "coldStorageVerifyFailed": "Error en la verificación del almacenamiento frío. Sus datos de chat se han conservado."
@@ -687,7 +686,6 @@ export const languageSpanish = {
     "popularityLevelDesc": "La popularidad aumenta con las descargas, etc. Para estimar, 3.7 de popularidad equivale a aproximadamente 1 descarga.",
     "additionalParams": "Parámetros Adicionales",
     "useAdvancedEditor": "Usar Editor Avanzado",
-    "antiClaudeOverload": "Anti-Sobrecarga de Claude",
     "activeTabChange": "La pestaña actual se desactivó porque otra pestaña está activa. para activar esta pestaña, haz clic en Aceptar",
     "addCharacter": "Agregar Personaje",
     "importFromRealm": "Elegir desde RisuRealm",
@@ -905,7 +903,6 @@ export const languageSpanish = {
     "playMessageOnTranslateEnd": "Reproducir Audio al Completar Traducción",
     "seperateModelsForAxModels": "Modelos Separados para Modelos Auxiliares",
     "axModelsDef": "Definición de Modelos Auxiliares",
-    "doNotChangeSeperateModels": "No Cambiar Modelos Separados al Cambiar Preset",
     "tools": "Herramientas",
     "action": "Acción",
     "hotkey": "Tecla de Acceso Rápido",
