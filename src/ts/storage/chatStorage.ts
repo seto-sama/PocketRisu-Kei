@@ -1,6 +1,7 @@
 import { forageStorage } from "./autoStorage"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
+import { writable, type Readable } from 'svelte/store'
 import {
     acknowledgeChatCommit,
     createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
@@ -110,6 +111,27 @@ function chatKey(chaId: string, chatId: string): string {
     return `${chaId}/${chatId}`
 }
 
+export type ChatHydrationFailure = 'missing' | 'error'
+
+const chatHydrationFailureStore = writable<ReadonlyMap<string, ChatHydrationFailure>>(new Map())
+
+/** Transient hydration failures, kept in this client only. */
+export const chatHydrationFailures: Readable<ReadonlyMap<string, ChatHydrationFailure>> = chatHydrationFailureStore
+
+export function chatHydrationKey(chaId: string, chatId: string): string {
+    return chatKey(chaId, chatId)
+}
+
+function setChatHydrationFailure(key: string, failure: ChatHydrationFailure | null): void {
+    chatHydrationFailureStore.update(current => {
+        if ((current.get(key) ?? null) === failure) return current
+        const next = new Map(current)
+        if (failure) next.set(key, failure)
+        else next.delete(key)
+        return next
+    })
+}
+
 /** Hydration in progress — suppress dirty tracking */
 export const hydrationInFlight = new Set<string>()
 
@@ -204,7 +226,7 @@ export function isHydrating(chaId: string, chatId: string): boolean {
 /**
  * Hydrate a placeholder Chat in-place on the character's chats array.
  * If the slot is already a real Chat (not placeholder), returns it as-is.
- * Returns the hydrated Chat, or null if fetch failed.
+ * Returns the hydrated Chat, or null if its body is missing.
  */
 export async function ensureChatHydrated(
     chats: Chat[],
@@ -223,11 +245,18 @@ export async function ensureChatHydrated(
     const existing = hydrationPromises.get(key)
     if (existing) return existing
 
+    // Starting a new attempt returns the UI to its loading state.
+    setChatHydrationFailure(key, null)
+
     const promise = (async () => {
         hydrationInFlight.add(key)
         try {
-            const full = await fetchChatFromServer(chaId, index, chatId)
+            const full = await fetchChatFromServer(chaId, index, chatId).catch(error => {
+                setChatHydrationFailure(key, 'error')
+                throw error
+            })
             if (!full) {
+                setChatHydrationFailure(key, 'missing')
                 console.error(`[chatStorage] hydrate failed: chat not found on server (${key})`)
                 return null
             }
@@ -243,17 +272,18 @@ export async function ensureChatHydrated(
                 return currentSlot
             }
 
-            // Yield one frame so loading overlay dismissal paints before heavy DOM work
+            // Schedule the large chat update for the next animation frame.
             await new Promise<void>(r => requestAnimationFrame(() => r()))
 
-            // Apply to memory — mark JustApplied to suppress the reactive write-back
+            // Suppress reactive write-back while replacing the placeholder.
             hydrationJustApplied.add(key)
             chats[currentIndex] = full
 
-            // Wait one tick so Svelte reactivity settles before allowing dirty tracking
+            // Keep suppression through Svelte's next update.
             await tick()
             hydrationJustApplied.delete(key)
 
+            setChatHydrationFailure(key, null)
             return full
         } finally {
             hydrationInFlight.delete(key)

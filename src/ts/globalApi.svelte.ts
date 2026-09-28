@@ -6,7 +6,7 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
@@ -2512,21 +2512,33 @@ export function changeChatTo(IdOrIndex: string | number) {
     const newChat = char.chats[index]
     char.chatPage = index
     if(newChat){
+        dismissClaimedLoadingOverlay()
         if(newChat._placeholder){
             const capturedIndex = index
+            const capturedCharacterId = char.chaId
+            const capturedChatId = newChat.id
             let cancelled = false
-            loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+            const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
                 cancelled = true
                 chatDeselected.set(true)
-                loadingOverlayStore.set({ active: false, text: '', onCancel: null })
-            }})
+                releaseOverlay()
+            })
             void ensureChatHydrated(char.chats, capturedIndex, char.chaId).then((hydrated) => {
                 if(cancelled) return
-                if(hydrated && char.chatPage === capturedIndex) loadTogglesFromChat(hydrated)
+                const activeCharacter = DBState.db.characters[get(selectedCharID)]
+                const activeChat = activeCharacter?.chats[activeCharacter.chatPage]
+                if (
+                    hydrated
+                    && activeCharacter?.chaId === capturedCharacterId
+                    && activeChat?.id === capturedChatId
+                    && !activeChat._placeholder
+                ) {
+                    loadTogglesFromChat(activeChat)
+                }
             }).catch((e) => {
                 console.error('[changeChatTo] hydration failed:', e)
             }).finally(() => {
-                if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                if(!cancelled) releaseOverlay()
             })
         } else {
             loadTogglesFromChat(newChat)

@@ -3,7 +3,7 @@ import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
-import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
 import { createEntityId } from 'src/ts/id';
@@ -826,6 +826,7 @@ export function changeChar(index: number, arg:{
 } = {}) {
     const reseter = arg.reseter ?? (() => {})
     const char = getDatabase().characters[index]
+    if(char) dismissClaimedLoadingOverlay()
     reseter();
     chatDeselected.set(false)
     characterFormatUpdate(index);
@@ -839,11 +840,11 @@ export function changeChar(index: number, arg:{
             const capturedChatId = chat.id
             if(char){
                 let cancelled = false
-                loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+                const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
                     cancelled = true
                     chatDeselected.set(true)
-                    loadingOverlayStore.set({ active: false, text: '', onCancel: null })
-                }})
+                    releaseOverlay()
+                })
                 void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
                     if(cancelled) return
                     const currentChar = getDatabase().characters[capturedIndex]
@@ -854,7 +855,7 @@ export function changeChar(index: number, arg:{
                 }).catch((e) => {
                     console.error('[selectCharacter] hydration failed:', e)
                 }).finally(() => {
-                    if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                    if(!cancelled) releaseOverlay()
                 })
             }
         } else {

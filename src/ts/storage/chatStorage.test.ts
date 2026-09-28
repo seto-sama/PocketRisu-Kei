@@ -1,17 +1,28 @@
-import { describe, test, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, test, expect, vi } from 'vitest'
+import { get } from 'svelte/store'
+
+const storageMocks = vi.hoisted(() => ({ fetchChatContent: vi.fn() }))
 
 // Stub out the heavy reactive modules so loading chatStorage.ts doesn't trigger
 // unrelated $effect chains that fail in a stripped-down test environment.
 // Mirror the production isChatStub semantics including the hybrid guard so
 // the chat-data-loss tests below exercise the real intent.
-vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
+vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: storageMocks } }))
 vi.mock('./database.svelte', () => ({
     isChatStub: (chat: any) => chat
         && chat._stub === true
         && !Array.isArray(chat.message),
 }))
 
-const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders, mergeHydratedChatWithMetadata } = await import('./chatStorage')
+const {
+    chatToStub,
+    stubToPlaceholder,
+    convertStubsToPlaceholders,
+    mergeHydratedChatWithMetadata,
+    ensureChatHydrated,
+    chatHydrationFailures,
+    chatHydrationKey,
+} = await import('./chatStorage')
 type Chat = any
 type ChatStub = any
 
@@ -29,6 +40,16 @@ const blankChat = (overrides: Partial<Chat> = {}): Chat => ({
     id: 'c1',
     ...overrides,
 })
+
+beforeEach(() => {
+    storageMocks.fetchChatContent.mockReset()
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        callback(0)
+        return 1
+    })
+})
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('chatToStub', () => {
     test('restores a hydrated body without reverting merged metadata or deleted fields', () => {
@@ -71,10 +92,74 @@ describe('stubToPlaceholder', () => {
 
 })
 
-// The bug this branch fixes: a user clearing folderId would round-trip into
-// a "remove" patch op once the placeholder dropped the null key. With key
-// presence preserved end-to-end, the explicit null survives placeholder →
-// stub conversion and reaches the server merge layer as a real value.
+describe('chat body hydration failures', () => {
+    const failureFor = (chatId = 'c1') =>
+        get(chatHydrationFailures).get(chatHydrationKey('character-1', chatId))
+
+    test('records a missing body on 404 without replacing the placeholder', async () => {
+        const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
+        const chats = [placeholder]
+        storageMocks.fetchChatContent.mockResolvedValue(null)
+
+        await expect(ensureChatHydrated(chats, 0, 'character-1')).resolves.toBeNull()
+
+        expect(chats[0]).toBe(placeholder)
+        expect(chats[0]._placeholder).toBe(true)
+        expect(failureFor()).toBe('missing')
+    })
+
+    test('records a request error, rethrows it, and preserves the placeholder', async () => {
+        const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
+        const chats = [placeholder]
+        const error = new Error('network unavailable')
+        storageMocks.fetchChatContent.mockRejectedValue(error)
+
+        await expect(ensureChatHydrated(chats, 0, 'character-1')).rejects.toBe(error)
+
+        expect(chats[0]).toBe(placeholder)
+        expect(chats[0]._placeholder).toBe(true)
+        expect(failureFor()).toBe('error')
+    })
+
+    test('clears failure when retry begins and removes it after successful hydration', async () => {
+        const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
+        const chats = [placeholder]
+        storageMocks.fetchChatContent.mockResolvedValueOnce(null)
+        await ensureChatHydrated(chats, 0, 'character-1')
+        expect(failureFor()).toBe('missing')
+
+        let resolveFetch!: (chat: Chat) => void
+        storageMocks.fetchChatContent.mockImplementationOnce(() => new Promise(resolve => {
+            resolveFetch = resolve
+        }))
+        const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
+        const retry = ensureChatHydrated(chats, 0, 'character-1')
+
+        expect(failureFor()).toBeUndefined()
+        resolveFetch(hydrated)
+        await expect(retry).resolves.toBe(hydrated)
+        expect(chats[0]).toBe(hydrated)
+        expect(failureFor()).toBeUndefined()
+    })
+
+    test('deduplicates concurrent requests for the same placeholder', async () => {
+        const chats = [stubToPlaceholder({ id: 'c1', name: 't', _stub: true })]
+        let resolveFetch!: (chat: Chat) => void
+        storageMocks.fetchChatContent.mockImplementationOnce(() => new Promise(resolve => {
+            resolveFetch = resolve
+        }))
+        const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
+
+        const first = ensureChatHydrated(chats, 0, 'character-1')
+        const second = ensureChatHydrated(chats, 0, 'character-1')
+        expect(storageMocks.fetchChatContent).toHaveBeenCalledTimes(1)
+        resolveFetch(hydrated)
+        await expect(Promise.all([first, second])).resolves.toEqual([hydrated, hydrated])
+    })
+})
+
+// Explicit null metadata must survive placeholder and stub conversion so the
+// server receives a value change rather than a field removal.
 describe('chat → stub → placeholder → stub round-trip', () => {
     test('null folderId survives the full round-trip', () => {
         const original = blankChat({ folderId: null as any })
