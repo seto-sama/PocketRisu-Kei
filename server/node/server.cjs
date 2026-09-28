@@ -108,7 +108,7 @@ const storageState = {
 const saveTimers = {};
 
 const MISSING_DATABASE_ETAG = '__missing_database__';
-let restoreColdStorageCharactersInDb;
+let restoreColdStorageInDb;
 let restoreColdStorageChat;
 let appDataMigration;
 let appDataReadyPromise = null;
@@ -398,18 +398,7 @@ function normalizeLegacyDatabaseProjection(dbObj) {
     assignMissingPersistentIds(normalized);
     normalizeOrphanFolderIds(normalized);
 
-    const coldRestoreResult = restoreColdStorageCharactersInDb(normalized);
-    if (Array.isArray(normalized?.characters)) {
-        for (const character of normalized.characters) {
-            for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
-                if (!restoreColdStorageChat(chat)) {
-                    throw new Error(
-                        `Cold storage chat restore failed for ${character?.chaId ?? 'unknown'}/${chat?.id ?? 'unknown'}`,
-                    );
-                }
-            }
-        }
-    }
+    const coldRestoreResult = restoreColdStorageInDb(normalized);
     return { database: normalized, coldRestoreResult };
 }
 
@@ -2237,9 +2226,10 @@ const {
     normalizeColdStorageStorageKey,
     parseColdStorageJsonBuffer,
     encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     readColdStorageJsonEntry,
     listColdStorageBackupEntries,
-    restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
+    restoreColdStorageInDb: restoreColdStorage,
     restoreColdStorageChat: restoreColdChat,
 } = createLegacyRestoreService({
     sqliteDb,
@@ -2248,7 +2238,7 @@ const {
     kvDel,
     logger,
 });
-restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
+restoreColdStorageInDb = restoreColdStorage;
 restoreColdStorageChat = restoreColdChat;
 
 appDataMigration = createAppDataMigration({
@@ -2699,8 +2689,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     decodeDataUri,
     ensureInlayDir,
     normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     ensureCanonicalStorage,
     checkAuth,
     listInlayFiles,

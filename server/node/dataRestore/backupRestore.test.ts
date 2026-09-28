@@ -92,6 +92,14 @@ async function fullRestoreHarness(
     const get = db.prepare('SELECT value FROM kv WHERE key = ?')
     set.run('assets/old.png', Buffer.from('old'), 1)
     set.run('database/database.bin', Buffer.from('old compatibility blob'), 1)
+    const logger = { info: () => {}, warn: () => {}, error: () => {} }
+    const coldStorage = createLegacyRestoreService({
+        sqliteDb: db,
+        kvGet: (key: string) => get.get(key)?.value ?? null,
+        kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
+        kvDel: (key: string) => del.run(key),
+        logger,
+    })
 
     const service = createBackupRestoreService({
         savePath,
@@ -113,13 +121,12 @@ async function fullRestoreHarness(
         isSafeInlayId: (id: string) => /^[a-zA-Z0-9_-]+$/.test(id),
         decodeDataUri: () => ({ buffer: Buffer.alloc(0) }),
         ensureInlayDir: () => mkdir(inlayDir, { recursive: true }),
-        normalizeColdStorageStorageKey: (key: string) => key,
-        parseColdStorageJsonBuffer: () => ({ coldData: {} }),
-        encodeColdStorageCanonicalBuffer: () => Buffer.alloc(0),
-        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        normalizeColdStorageStorageKey: coldStorage.normalizeColdStorageStorageKey,
+        normalizeColdStorageBackupBuffer: coldStorage.normalizeColdStorageBackupBuffer,
+        logger,
         ...overrides,
     })
-    return { db, get, inlayDir, savePath, service }
+    return { db, get, inlayDir, savePath, service, coldStorage }
 }
 
 describe('restoreMissingAssetsFromBackupFile', () => {
@@ -271,6 +278,119 @@ describe('createBackupRestoreService', () => {
             .toBe('new projection')
     })
 
+    it('restores plugin, character, and chat cold storage during import while retaining failed plugin references', async () => {
+        const pluginColdId = 'plugin-cold-id'
+        const missingColdId = 'plugin-missing-id'
+        const corruptColdId = 'plugin-corrupt-id'
+        const characterColdId = 'character-cold-id'
+        const chatColdId = 'chat-cold-id'
+        const corruptColdValue = Buffer.from('unreadable cold storage')
+        const database = {
+            pluginCustomStorage: {
+                _coldplugin: {
+                    'memory/state': pluginColdId,
+                    'memory/missing': missingColdId,
+                    'memory/corrupt': corruptColdId,
+                },
+                'memory/state': 'stale inline value',
+                'other/value': 'kept inline',
+            },
+            characters: [{
+                chaId: 'character-1',
+                coldstorage: characterColdId,
+                chats: [],
+            }],
+        }
+        let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
+        let coldRestoreResult: any
+        harness = await fullRestoreHarness(async () => ({
+            install() {
+                coldRestoreResult = harness.coldStorage.restoreColdStorageInDb(database)
+                return { coldStorageFailed: coldRestoreResult.failed }
+            },
+        }))
+        const backup = Buffer.concat([
+            backupEntry(`coldstorage/${pluginColdId}.json`, Buffer.from(JSON.stringify({ entries: [1, 2] }))),
+            backupEntry(`coldstorage/${corruptColdId}.json`, corruptColdValue),
+            backupEntry(`coldstorage/${characterColdId}.json`, Buffer.from(JSON.stringify({
+                character: {
+                    name: 'Restored character',
+                    chats: [{
+                        id: 'chat-1',
+                        message: [{ data: `\uEF01COLDSTORAGE\uEF01${chatColdId}` }],
+                    }],
+                },
+            }))),
+            backupEntry(`coldstorage/${chatColdId}.json`, Buffer.from(JSON.stringify({
+                message: [{ data: 'restored chat body' }],
+                localLore: ['restored lore'],
+            }))),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+
+        async function* chunks() { yield backup }
+        const result = await harness.service.importBackupFromSource(chunks())
+
+        expect(result.coldStorageFailed).toBe(2)
+        expect(coldRestoreResult).toMatchObject({
+            restored: 2,
+            failed: 2,
+            pluginStorage: { restored: 1, failed: 2 },
+            characters: { restored: 1, failed: 0 },
+        })
+        expect(database.pluginCustomStorage).toEqual({
+            'memory/state': { entries: [1, 2] },
+            'other/value': 'kept inline',
+            _coldplugin: {
+                'memory/missing': missingColdId,
+                'memory/corrupt': corruptColdId,
+            },
+        })
+        expect(database.pluginCustomStorage).not.toHaveProperty('memory/corrupt')
+        expect(database.characters[0]).toMatchObject({
+            name: 'Restored character',
+            chats: [{
+                id: 'chat-1',
+                message: [{ data: 'restored chat body' }],
+                localLore: ['restored lore'],
+            }],
+        })
+        expect(harness.get.get(`coldstorage/${pluginColdId}`)).toBeDefined()
+        expect(harness.get.get(`coldstorage/${corruptColdId}`).value).toEqual(corruptColdValue)
+        expect(harness.get.get(`coldstorage/${missingColdId}`)).toBeUndefined()
+    })
+
+    it('rolls back imported cold storage when projection installation fails', async () => {
+        const coldId = 'plugin-cold-id'
+        let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
+        harness = await fullRestoreHarness(async () => ({
+            install() {
+                harness.coldStorage.restoreColdStorageInDb({
+                    pluginCustomStorage: { _coldplugin: { 'memory/state': coldId } },
+                })
+                harness.db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
+                    .run('partially installed')
+                throw new Error('projection install failed')
+            },
+        }))
+        const oldColdValue = harness.coldStorage.encodeColdStorageCanonicalBuffer({ old: true })
+        harness.db.prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, 1)')
+            .run('coldstorage/old-cold-id', oldColdValue)
+        const backup = Buffer.concat([
+            backupEntry(`coldstorage/${coldId}.json`, Buffer.from(JSON.stringify({ new: true }))),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+
+        async function* chunks() { yield backup }
+        await expect(harness.service.importBackupFromSource(chunks()))
+            .rejects.toThrow('projection install failed')
+
+        expect(harness.get.get('coldstorage/old-cold-id').value).toEqual(oldColdValue)
+        expect(harness.get.get(`coldstorage/${coldId}`)).toBeUndefined()
+        expect(harness.db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value)
+            .toBe('old projection')
+    })
+
     it('rolls back KV, canonical rows, and promoted inlays when install fails', async () => {
         let db!: ReturnType<typeof freshDb>
         const harness = await fullRestoreHarness(async () => ({
@@ -391,10 +511,10 @@ describe('createLegacyRestoreService', () => {
             }],
         }
 
-        expect(service.restoreColdStorageCharactersInDb(database)).toEqual({
+        expect(service.restoreColdStorageInDb(database)).toMatchObject({
             restored: 1,
             failed: 0,
-            failedNames: [],
+            characters: { restored: 1, failed: 0, failedNames: [] },
         })
         expect(database.characters[0].name).toBe('Restored')
         expect(database.characters[0].coldstorage).toBeUndefined()

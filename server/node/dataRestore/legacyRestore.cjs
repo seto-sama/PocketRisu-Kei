@@ -67,6 +67,23 @@ function createLegacyRestoreService({
         return Buffer.from(zlib.gzipSync(Buffer.from(JSON.stringify(coldData), 'utf-8')));
     }
 
+    function normalizeColdStorageBackupBuffer(buffer, sourceLabel) {
+        try {
+            const { coldData } = parseColdStorageJsonBuffer(buffer, sourceLabel, {
+                allowPlainJson: true,
+            });
+            return encodeColdStorageCanonicalBuffer(coldData);
+        } catch (error) {
+            // Keep unreadable entries in KV so database references can remain
+            // as recovery breadcrumbs after an import.
+            logger.warn?.(
+                `[ColdStorage] preserving unreadable backup entry ${sourceLabel}:`,
+                error.message,
+            );
+            return Buffer.from(buffer);
+        }
+    }
+
     function readColdStorageJsonEntry(nameOrKey, options = {}) {
         const { migrateLegacy = false, allowPlainJsonFallback = false } = options;
         const canonicalKey = normalizeColdStorageStorageKey(nameOrKey);
@@ -199,6 +216,74 @@ function createLegacyRestoreService({
         return result;
     }
 
+    function restoreColdPluginStorageInDb(dbObj) {
+        const result = { restored: 0, failed: 0, failedKeys: [] };
+        const storage = dbObj?.pluginCustomStorage;
+        const coldPluginMap = storage?._coldplugin;
+        if (!storage || typeof storage !== 'object' || Array.isArray(storage)
+            || !coldPluginMap || typeof coldPluginMap !== 'object'
+            || Array.isArray(coldPluginMap)) {
+            return result;
+        }
+
+        const remaining = [];
+        for (const [key, coldId] of Object.entries(coldPluginMap)) {
+            let entry = null;
+            try {
+                if (typeof coldId === 'string' && coldId) {
+                    entry = readColdStorageJsonEntry(coldId, { migrateLegacy: true });
+                }
+            } catch (error) {
+                logger.error(
+                    `[ColdStorage] plugin storage key "${key}" (${coldId}) could not be read:`,
+                    error.message,
+                );
+            }
+
+            if (!entry) {
+                remaining.push([key, coldId]);
+                result.failed++;
+                result.failedKeys.push(key);
+                continue;
+            }
+
+            Object.defineProperty(storage, key, {
+                configurable: true,
+                enumerable: true,
+                writable: true,
+                value: entry.coldData,
+            });
+            result.restored++;
+        }
+
+        if (remaining.length > 0) {
+            storage._coldplugin = Object.fromEntries(remaining);
+        } else {
+            delete storage._coldplugin;
+        }
+        return result;
+    }
+
+    function restoreColdStorageInDb(dbObj) {
+        const pluginStorage = restoreColdPluginStorageInDb(dbObj);
+        const characters = restoreColdStorageCharactersInDb(dbObj);
+        for (const character of Array.isArray(dbObj?.characters) ? dbObj.characters : []) {
+            for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
+                if (!restoreColdStorageChat(chat)) {
+                    throw new Error(
+                        `Cold storage chat restore failed for ${character?.chaId ?? 'unknown'}/${chat?.id ?? 'unknown'}`,
+                    );
+                }
+            }
+        }
+        return {
+            restored: pluginStorage.restored + characters.restored,
+            failed: pluginStorage.failed + characters.failed,
+            pluginStorage,
+            characters,
+        };
+    }
+
     function restoreColdStorageChat(chat) {
         if (!chat?.message?.[0]?.data?.startsWith(COLD_STORAGE_HEADER)) return true;
         const key = chat.message[0].data.slice(COLD_STORAGE_HEADER.length);
@@ -229,9 +314,10 @@ function createLegacyRestoreService({
         normalizeColdStorageStorageKey,
         parseColdStorageJsonBuffer,
         encodeColdStorageCanonicalBuffer,
+        normalizeColdStorageBackupBuffer,
         readColdStorageJsonEntry,
         listColdStorageBackupEntries,
-        restoreColdStorageCharactersInDb,
+        restoreColdStorageInDb,
         restoreColdStorageChat,
     };
 }
