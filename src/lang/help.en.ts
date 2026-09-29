@@ -25,6 +25,7 @@ export const helpEn = {
         frequencyPenalty: "Higher values prevent the use of duplicate words in response, but character's response can break down more easily.",
         presensePenalty: "Higher values prevent the use of duplicate words in all context, but character's response can break down more easily.",
         sdProvider: "provider for image generation.",
+        animaArtistTagCompatibility: "When enabled, converts Anima/ComfyUI artist tags from `(@name:0.6)` to NovelAI's `0.6::artist:name::` format, and converts them back for ComfyUI.",
         descBrowserNotification: "Show a browser notification when a response completes.",
         descMessageSound: "Play a sound when a response completes.",
         descTranslateSound: "Play a sound when a translation completes.",

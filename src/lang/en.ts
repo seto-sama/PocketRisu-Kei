@@ -792,6 +792,7 @@ export const languageEnglish = {
         noise: "Noise",
         workflow: "Workflow",
         timeoutSeconds: "Timeout (sec)",
+        animaArtistTagCompatibility: "Anima Artist Tag Compatibility",
     },
     provider: "Provider",
     key: "Key",

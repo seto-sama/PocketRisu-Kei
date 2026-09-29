@@ -223,6 +223,9 @@
           </Select>
           {/snippet}
         </SettingLayout>
+        <SettingLayout variant="row" title={language.imageSettings.animaArtistTagCompatibility} description={language.help.animaArtistTagCompatibility}>
+          {#snippet control()}<Switch bind:checked={settings.animaArtistTagCompatibility}/>{/snippet}
+        </SettingLayout>
 
         {#if settings.sdProvider === 'novelai'}
             <SettingLayout variant="row" title={language.novelAIApiKey} description={language.help.novelaiToken}>

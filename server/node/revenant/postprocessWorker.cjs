@@ -93,7 +93,7 @@ function createRevenantPostprocessWorker(options) {
         onWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
         const execution = providerAction
             ? executeProviderAction({ workflow, action, chat, recipe })
-            : executeImageAction({ workflow, action, projection: false });
+            : executeImageAction({ workflow, action });
         void execution
             .then(result => {
                 const latest = getGenerationWorkflow(workflow.workflowId)?.steps

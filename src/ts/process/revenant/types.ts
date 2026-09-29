@@ -223,7 +223,7 @@ export interface RevenantImageWorkflowContext {
     negativePrompt: string
     seed?: number
     label: string
-    projection?: 'append' | 'reroll'
+    projection?: 'append' | 'reroll' | 'return'
 }
 
 export type RevenantWorkflowContext =

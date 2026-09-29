@@ -115,6 +115,22 @@ describe('image generation presets', () => {
         expect(duplicate?.tagIds).not.toBe(first.tagIds)
     })
 
+    it('loads a saved preset without the compatibility field as disabled', () => {
+        const state = legacyImageState()
+        state.imageGenerationPresets = [{
+            id: 'saved-preset',
+            name: 'Saved preset',
+            settings: {
+                sdProvider: 'novelai',
+                NAIImgConfig: state.NAIImgConfig,
+                comfyConfig: state.comfyConfig,
+            },
+        }] as never
+        normalizeImageGenerationPresetState(state as never)
+
+        expect(state.imageGenerationPresets![0].settings.animaArtistTagCompatibility).toBe(false)
+    })
+
     it('captures only lightweight fields for the quick editor', () => {
         const state = legacyImageState()
         normalizeImageGenerationPresetState(state as never)

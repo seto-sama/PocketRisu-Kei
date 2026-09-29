@@ -10,6 +10,7 @@ const { codes: API_ERROR_CODES, sendApiError } = require('./apiErrors.cjs');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
+const imagePromptFormattingPromise = import('./imagePromptFormatting.mjs')
 
 const { WebSocketServer } = require('ws')
 const { Worker } = require('worker_threads')
@@ -1617,7 +1618,7 @@ async function prepareNovelAIDirectorReference(buffer) {
     }
 }
 
-async function executeServerImageAction({ workflow, action, projection = false }) {
+async function executeServerImageAction({ workflow, action }) {
     const payload = action?.payload || {};
     const target = payload.target || (workflow.context?.kind === 'image-generation'
         ? workflow.context.target
@@ -1652,12 +1653,14 @@ async function executeServerImageAction({ workflow, action, projection = false }
                 : {}),
         };
     }
+    const promptFormatting = await imagePromptFormattingPromise;
+    const rawPrompt = String(payload.prompt || '');
     const requestPrompt = provider === 'novelai'
-        ? String(payload.prompt || '')
-            .replaceAll('\\(', '♧').replaceAll('\\)', '♤')
-            .replaceAll('(', '{').replaceAll(')', '}')
-            .replaceAll('♧', '(').replaceAll('♤', ')')
-        : String(payload.prompt || '');
+        ? promptFormatting.formatNovelAIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
+        : provider === 'comfyui'
+            ? promptFormatting.formatComfyUIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
+            : rawPrompt;
+    const negativePrompt = String(payload.negativePrompt || '');
     const generated = await imageGenerationJobService.executeImageGeneration({
         jobId,
         settings: provider === 'comfyui' ? {
@@ -1666,7 +1669,7 @@ async function executeServerImageAction({ workflow, action, projection = false }
         } : config.settings,
         apiKey: config.apiKey,
         prompt: requestPrompt,
-        negativePrompt: String(payload.negativePrompt || ''),
+        negativePrompt,
         seed,
         references,
         bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,
@@ -1690,21 +1693,20 @@ async function executeServerImageAction({ workflow, action, projection = false }
         updatedAt: now,
         charId: target.characterId,
         chatId: target.roomId,
-        imageGeneration: {
-            prompt: String(payload.prompt || ''),
-            negativePrompt: String(payload.negativePrompt || ''),
-            seed,
-        },
+        imageGeneration: { prompt: requestPrompt, negativePrompt, seed },
     })));
     const reference = `{{inlayed::${inlayId}}}`;
-    if (projection) {
+    const projection = workflow.context?.kind === 'image-generation'
+        ? workflow.context.projection || 'append'
+        : undefined;
+    if (projection === 'append' || projection === 'reroll') {
         await canonicalChatService.commitServerMutation({
             characterId: target.characterId,
             chatId: target.roomId,
             reason: 'image-generation-result',
             mutate: chat => {
                 const messageId = String(payload.messageId || '');
-                if (payload.projection === 'reroll') {
+                if (projection === 'reroll') {
                     const message = chat.message.find(item => item?.chatId === messageId);
                     if (!message || message.kind !== 'imageGeneration') {
                         throw new Error('Image reroll target no longer exists');
@@ -1739,7 +1741,7 @@ function scheduleImageGenerationWorkflow(workflowId) {
         const action = step?.metadata?.action;
         if (!workflow || !step || !action) return;
         try {
-            const result = await executeServerImageAction({ workflow, action, projection: true });
+            const result = await executeServerImageAction({ workflow, action });
             generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
                 status: 'completed',
                 metadata: { ...step.metadata, schemaVersion: 1, result },

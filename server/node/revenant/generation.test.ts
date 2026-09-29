@@ -193,6 +193,11 @@ describe('manual image workflow validation', () => {
             'image-generation:room-1',
         )).toMatchObject({ projection: 'reroll' })
         expect(normalizeRevenantWorkflowContext(
+            { ...context, projection: 'return' },
+            'character-1',
+            'image-generation:room-1',
+        )).toMatchObject({ projection: 'return' })
+        expect(normalizeRevenantWorkflowContext(
             { ...context, projection: 'replace-everything' },
             'character-1',
             'image-generation:room-1',

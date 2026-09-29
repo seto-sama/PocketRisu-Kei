@@ -70,7 +70,6 @@ describe('revenant postprocess worker', () => {
         expect(executeImageAction).toHaveBeenCalledWith(expect.objectContaining({
             workflow: expect.objectContaining({ workflowId: 'workflow-image' }),
             action,
-            projection: false,
         }))
         expect(steps['output.transform'].status).not.toBe('waiting_client')
         await vi.waitFor(() => expect(steps['output.transform'].metadata?.responses).toEqual({

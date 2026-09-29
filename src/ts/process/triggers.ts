@@ -7,12 +7,12 @@ import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID, CurrentTriggerIdStore } from "../stores.svelte";
 import { processMultiCommand } from "./command";
 import { parseKeyValue, sleep } from "../util";
-import { alertInput, alertNormal, alertSelect } from "../alert";
+import { alertInput, alertNormal, alertSelect, notifyError } from "../alert";
 import type { OpenAIChat } from "./index.svelte";
 import { HypaProcesser } from "./memory/hypamemory";
 import { requestChatData } from "./request/request";
 import { collectStreamingText } from "./request/shared";
-import { generateAIImageInlay } from "./stableDiff";
+import { generateImageThroughWorkflow } from "./revenant/workflow/imageWorkflow";
 import { runScripted } from "./scriptings";
 import type { TriggerV2Effect } from "./triggerV2Core";
 import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
@@ -1328,11 +1328,17 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     }
                     case 'utility.tokenize': return tokenize(String(payload.text ?? ''))
                     case 'image.generate': {
-                        const generated = await generateAIImageInlay(
-                            String(payload.prompt ?? ''), char,
-                            String(payload.negativePrompt ?? ''),
-                        )
-                        return generated || undefined
+                        try {
+                            return await generateImageThroughWorkflow({
+                                characterId: char.chaId,
+                                roomId: chat.id,
+                                prompt: String(payload.prompt ?? ''),
+                                negativePrompt: String(payload.negativePrompt ?? ''),
+                            })
+                        } catch (error) {
+                            notifyError(error)
+                            return undefined
+                        }
                     }
                     case 'provider.llm': {
                         const prompt = String(payload.prompt ?? '')

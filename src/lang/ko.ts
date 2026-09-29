@@ -851,6 +851,7 @@ export const languageKorean = {
     noise: "노이즈",
     workflow: "워크플로",
     timeoutSeconds: "제한 시간(초)",
+    animaArtistTagCompatibility: "Anima 작가 태그 호환",
   },
   provider: "공급자",
   key: "키",

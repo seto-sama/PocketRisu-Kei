@@ -3,7 +3,7 @@ import { getCurrentImageGenerationPreset } from '../../../imageGeneration/preset
 import { endStatus, setStatusProgress, startStatus } from '../../../status/requestStatus'
 import type { RevenantWorkflow } from '../types'
 import { createRevenantGenerationAuth } from '../transport/client'
-import { getRevenantWorkflow } from './workflow'
+import { beginImageGenerationWorkflow, getRevenantWorkflow } from './workflow'
 import { serviceComfyBridgeJob, type ComfyBridgeJobStatus } from './comfyBridge'
 
 interface ServerImageJobStatus extends ComfyBridgeJobStatus {
@@ -147,4 +147,28 @@ export function observeRevenantImageGenerationWorkflow(
         .finally(() => observations.delete(workflow.workflowId))
     observations.set(workflow.workflowId, promise)
     return promise
+}
+
+export async function generateImageThroughWorkflow(arg: {
+    characterId: string
+    roomId: string | undefined
+    prompt: string
+    negativePrompt?: string
+}): Promise<string> {
+    if (!arg.roomId) throw new Error('Image generation requires a chat ID')
+    const preset = getCurrentImageGenerationPreset(getDatabase())
+    const workflow = await beginImageGenerationWorkflow({
+        ...arg,
+        negativePrompt: arg.negativePrompt ?? '',
+        label: preset.name,
+        messageId: arg.roomId,
+        projection: 'return',
+    })
+    const completed = await observeRevenantImageGenerationWorkflow(workflow)
+    const result = completed.steps.find(step => step.key === 'image.generate')?.metadata?.result
+    if (!result || typeof result !== 'object' || !('reference' in result)
+        || typeof result.reference !== 'string') {
+        throw new Error('Image generation workflow did not return an inlay reference')
+    }
+    return result.reference
 }

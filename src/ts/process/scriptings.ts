@@ -5,9 +5,9 @@ import { LuaEngine, LuaFactory } from "wasmoon";
 import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type triggerscript } from "../storage/database.svelte";
 import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
-import { alertSelect, alertError, alertInput, alertNormal, alertConfirm } from "../alert";
+import { alertSelect, alertError, alertInput, alertNormal, alertConfirm, notifyError } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
-import { generateAIImageInlay } from "./stableDiff";
+import { generateImageThroughWorkflow } from "./revenant/workflow/imageWorkflow";
 import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
@@ -309,15 +309,20 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('generateImage', async (id:string, value:string, negValue:string = '') => {
-                const inlay = await generateAIImageInlay(
-                    value,
-                    ScriptingEngineState.character as character,
-                    negValue,
-                )
-                if(!inlay){
+                const imageCharacter = ScriptingEngineState.character?.type === 'character'
+                    ? ScriptingEngineState.character
+                    : getCurrentCharacter()
+                try {
+                    return await generateImageThroughWorkflow({
+                        characterId: imageCharacter.chaId,
+                        roomId: chat.id,
+                        prompt: value,
+                        negativePrompt: negValue,
+                    })
+                } catch (error) {
+                    notifyError(error)
                     return 'Error: Image generation failed'
                 }
-                return inlay
             })
 
             addEffect('getCharacterImageMain', async (id:string) => {

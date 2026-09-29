@@ -20,6 +20,7 @@ export const helpKo = {
         "frequencyPenalty": "값이 높을수록 응답 내에서 대사가 반복되는 걸 줄여주지만, 값이 높으면 캐릭터의 반응이 이상해질 수 있습니다.",
         "presensePenalty": "값이 높을수록 전체 콘텍스트 내에서 대사가 반복되는 걸 줄여주지만, 값이 높으면 캐릭터의 반응이 이상해질 수 있습니다.",
         "sdProvider": "채팅 중 이미지를 생성할 때 사용할 백엔드를 선택합니다.",
+        "animaArtistTagCompatibility": "활성화하면 Anima/ComfyUI 형식의 작가 태그 `(@작가 이름:가중치)`를 NovelAI의 `가중치::artist:작가 이름::` 형식으로 변환하고, ComfyUI에서는 다시 반대로 변환합니다.",
         "descBrowserNotification": "응답이 완료되면 브라우저 알림을 표시합니다.",
         "descMessageSound": "응답이 완료되면 효과음을 재생합니다.",
         "descTranslateSound": "번역이 완료되면 효과음을 재생합니다.",

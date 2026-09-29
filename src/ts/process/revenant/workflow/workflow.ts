@@ -268,7 +268,7 @@ export async function beginImageGenerationWorkflow(arg: {
     negativePrompt: string
     seed?: number
     label: string
-    projection?: 'append' | 'reroll'
+    projection?: 'append' | 'reroll' | 'return'
     messageId?: string
 }): Promise<RevenantWorkflow> {
     const operationId = createEntityId()

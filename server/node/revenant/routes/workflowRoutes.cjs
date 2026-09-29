@@ -91,7 +91,6 @@ function installRevenantWorkflowRoutes(app, deps) {
                                 seed: context.seed,
                                 target: context.target,
                                 messageId: context.messageId,
-                                projection: context.projection || 'append',
                                 bridgeId: context.comfyBridgeId,
                             },
                         },

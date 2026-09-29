@@ -143,7 +143,7 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
             || typeof value.label !== 'string'
             || typeof value.comfyBridgeId !== 'string'
             || !WORKFLOW_KEY_PATTERN.test(value.comfyBridgeId)
-            || (value.projection !== undefined && !['append', 'reroll'].includes(value.projection))
+            || (value.projection !== undefined && !['append', 'reroll', 'return'].includes(value.projection))
         ) return undefined;
         return JSON.parse(serialized);
     }
