@@ -46,7 +46,7 @@ function setResultField(target, source, key) {
  * Unchanged messages remain entirely owned by concurrent editors. Only edits
  * to the same message/field conflict.
  */
-function mergeChatChanges(baseChat, resultChat, currentChat, operation, applyOwnedTarget) {
+function mergeGenerationChatResult(baseChat, resultChat, currentChat, operation) {
     if (!baseChat?.id || baseChat.id !== resultChat?.id || baseChat.id !== currentChat?.id) {
         throw new ChatResultMergeConflict(['/id']);
     }
@@ -122,7 +122,7 @@ function mergeChatChanges(baseChat, resultChat, currentChat, operation, applyOwn
     }
 
     const generated = resultMessages.find(message => message?.chatId === messageChatId);
-    if (applyOwnedTarget && generated) {
+    if (generated) {
         let targetIndex = messageIndexById(mergedMessages, messageChatId);
         if (targetIndex < 0 && ownedBaseId) {
             targetIndex = messageIndexById(mergedMessages, ownedBaseId);
@@ -158,48 +158,11 @@ function mergeChatChanges(baseChat, resultChat, currentChat, operation, applyOwn
 
     if (conflicts.length > 0) throw new ChatResultMergeConflict([...new Set(conflicts)]);
     merged.message = mergedMessages;
-    if (applyOwnedTarget) merged.isStreaming = false;
+    merged.isStreaming = false;
     return merged;
-}
-
-function mergeGenerationChatResult(baseChat, resultChat, currentChat, operation) {
-    return mergeChatChanges(baseChat, resultChat, currentChat, operation, true);
-}
-
-/**
- * Detect a whole-chat save made from the pre-generation reroll/continuation
- * view after the server has already installed the generated replacement.
- * A normal post-generation edit keeps the generated message id; this shape
- * specifically resurrects the durable input target.
- */
-function isStaleGenerationTargetWrite(incomingChat, currentChat, operation) {
-    const generatedId = operation?.messageChatId;
-    if (!generatedId || !Array.isArray(incomingChat?.message) || !Array.isArray(currentChat?.message)) {
-        return false;
-    }
-    if (messageIndexById(currentChat.message, generatedId) < 0) return false;
-    if (messageIndexById(incomingChat.message, generatedId) >= 0) return false;
-
-    const rerollBaseId = operation?.rerollSnapshot?.targetMessage?.chatId;
-    if (rerollBaseId && messageIndexById(incomingChat.message, rerollBaseId) >= 0) return true;
-
-    if (operation?.isContinuation) {
-        const baseMessages = operation?.chat?.message || [];
-        const continuationBase = [...baseMessages].reverse().find(message => message?.role === 'char');
-        return !!continuationBase?.chatId
-            && messageIndexById(incomingChat.message, continuationBase.chatId) >= 0;
-    }
-    return false;
-}
-
-/** Rebase only client-owned edits while leaving the live generation target alone. */
-function mergeConcurrentChatEdit(baseChat, editedChat, currentChat, operation) {
-    return mergeChatChanges(baseChat, editedChat, currentChat, operation, false);
 }
 
 module.exports = {
     ChatResultMergeConflict,
-    mergeConcurrentChatEdit,
     mergeGenerationChatResult,
-    isStaleGenerationTargetWrite,
 };

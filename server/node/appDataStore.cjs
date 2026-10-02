@@ -10,6 +10,7 @@ const {
     mergeChatStubWithFullChat,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
+const { chatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
 const {
     classifiedPluginOwner,
     installedV3Plugins,
@@ -135,8 +136,7 @@ function chatContent(chat) {
     // in the body payload: otherwise removing an optional stub key can expose
     // the stale body copy again during hydration.
     return withoutKeys(chat, [
-        'id', 'name', 'lastDate', 'folderId', 'modules',
-        'message', '_stub', '_placeholder',
+        ...chatMetadataFields, ...runtimeOnlyChatFields, 'message',
     ]);
 }
 
