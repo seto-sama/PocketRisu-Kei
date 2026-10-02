@@ -30,6 +30,7 @@ import {
 import { reissueMessageIds } from './chatClone';
 import { preparePatchConflictRebase, reconcilePendingChanges } from "./storage/patchRebase";
 import { createDelta } from '../../shared/guardedDelta.mjs';
+import { chooseSaveConflict } from './storage/saveConflict';
 import { DeltaSave } from './storage/deltaSave';
 import type { PatchItemResult } from './storage/nodeStorage';
 import {
@@ -43,7 +44,7 @@ import {
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
-import { ChatSaveError, SaveConflictError, SaveRetryPolicy, type SaveAttemptResult } from './storage/storageRequest';
+import { ChatSaveError, SaveConflictError, SaveRetryPolicy, isCancelledSaveConflict, type SaveAttemptResult } from './storage/storageRequest';
 import { createPatchHashDiagnostics, comparePatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs';
 import { isNodeServer, supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
@@ -421,14 +422,42 @@ export async function saveDb() {
     let patcher = new RisuSavePatcher()
     let acceptedPatchBaseline: Database | null = null
     let acceptedProjectionRevision = forageStorage.getDbRevision()
-    const projectionDeltaSave = new DeltaSave<Database, PatchItemResult>(
-        async request => {
-            const result = await forageStorage.patchDatabase(request)
-            if (!result.success) throw new ConflictError('Database fields changed concurrently', result.etag ?? '', result.conflictCode)
-            return result
+    type ProjectionSaveSnapshot = { base: Database, local: Database, tracked: toSaveType }
+    async function readProjectionWorkingCopy(snapshot: ProjectionSaveSnapshot) {
+        const currentPatcher = new RisuSavePatcher()
+        await currentPatcher.init(snapshot.base)
+        mergeTrackedChanges(snapshot.tracked, changeTracker)
+        await currentPatcher.set(getDatabase(), snapshot.tracked)
+        return currentPatcher.getBaselineSnapshot()
+    }
+    const projectionDeltaSave = new DeltaSave<ProjectionSaveSnapshot, PatchItemResult>(
+        async (request, snapshot) => {
+            while (true) {
+                const result = await forageStorage.patchDatabase(request)
+                if (result.success) return result
+                const error = new ConflictError('Database fields changed concurrently', result.etag ?? '', result.conflictCode)
+                if (!result.conflict) throw error
+                const projection = await forageStorage.getDatabaseProjection<Database>()
+                if (!projection.database) throw error
+                snapshot.local = await readProjectionWorkingCopy(snapshot)
+                const changes = createDelta(snapshot.base, snapshot.local)
+                const resolved = await chooseSaveConflict(snapshot.base, changes, projection.database)
+                const pendingChanges = structuredClone(changeTracker)
+                const runtime = reconcilePendingChanges(
+                    snapshot.local, JSON.parse(JSON.stringify(getDatabase())), resolved,
+                ).mergedValue
+                syncApplying = true
+                try { await replaceRuntimeDatabase(runtime) }
+                finally { syncApplying = false }
+                requeueTrackedChanges(pendingChanges)
+                snapshot.base = projection.database
+                snapshot.local = resolved
+                request.changes = createDelta(snapshot.base, resolved)
+                if (request.changes.length === 0) return { success: true, etag: projection.etag, revision: projection.revision }
+            }
         },
-        async (baseline, result) => {
-            await patcher.init(baseline)
+        async (snapshot, result) => {
+            await patcher.init(snapshot.local)
             acceptedPatchBaseline = patcher.getBaselineSnapshot()
             if (result.revision !== undefined) acceptedProjectionRevision = result.revision
         },
@@ -805,10 +834,10 @@ export async function saveDb() {
         }
     })
 
-    function requeueTrackedChanges(toSave: toSaveType) {
-        changeTracker.character = [...new Set([...toSave.character, ...changeTracker.character])]
+    function mergeTrackedChanges(target: toSaveType, toSave: toSaveType) {
+        target.character = [...new Set([...toSave.character, ...target.character])]
         const chatSeen = new Set<string>()
-        changeTracker.chat = [...toSave.chat, ...changeTracker.chat].filter((chatPair) => {
+        target.chat = [...toSave.chat, ...target.chat].filter((chatPair) => {
             const key = `${chatPair?.[0] ?? ''}|${chatPair?.[1] ?? ''}`
             if (chatSeen.has(key)) {
                 return false
@@ -816,11 +845,15 @@ export async function saveDb() {
             chatSeen.add(key)
             return true
         })
-        changeTracker.botPreset = changeTracker.botPreset || toSave.botPreset
-        changeTracker.modules = changeTracker.modules || toSave.modules
-        changeTracker.plugins = changeTracker.plugins || toSave.plugins
-        changeTracker.pluginCustomStorage = changeTracker.pluginCustomStorage || toSave.pluginCustomStorage
-        changeTracker.root = changeTracker.root || toSave.root
+        target.botPreset = target.botPreset || toSave.botPreset
+        target.modules = target.modules || toSave.modules
+        target.plugins = target.plugins || toSave.plugins
+        target.pluginCustomStorage = target.pluginCustomStorage || toSave.pluginCustomStorage
+        target.root = target.root || toSave.root
+    }
+
+    function requeueTrackedChanges(toSave: toSaveType) {
+        mergeTrackedChanges(changeTracker, toSave)
     }
 
     function collectChatsToPersist(db: Database, toSave: toSaveType): [string, string][] {
@@ -1266,7 +1299,11 @@ export async function saveDb() {
                 try {
                     if (isNodeServer) {
                         const baseline = patcher.getBaselineSnapshot()
-                        patchResult = await projectionDeltaSave.save({ changes: createDelta(acceptedPatchBaseline, baseline) }, baseline)
+                        patchResult = await projectionDeltaSave.save({ changes: createDelta(acceptedPatchBaseline, baseline) }, {
+                            base: acceptedPatchBaseline,
+                            local: baseline,
+                            tracked: structuredClone(toSave),
+                        })
                     } else {
                         patchResult = await forageStorage.patchItem('database/database.bin', patchData)
                     }
@@ -1420,7 +1457,7 @@ export async function saveDb() {
                     cancelPendingSave()
                     changed = false
                     saveRetry.reset()
-                    alertError(error)
+                    if (!isCancelledSaveConflict(error)) alertError(error)
                 }
                 else {
                     if (!(error instanceof SaveConflictError)) console.error(error)

@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Chat } from './database.svelte'
+import { get } from 'svelte/store'
 import { ConflictError } from './storageRequest'
+import { saveConflictDialog, SaveConflictCancelledError } from './saveConflict'
 import { applyDelta, valuesEqual, DeltaConflictError } from '../../../shared/guardedDelta.mjs'
 
 const backend = vi.hoisted(() => ({
@@ -213,17 +215,64 @@ describe('guarded chat saves', () => {
         expect(backend.chat.message).toHaveLength(2)
     })
 
-    it('does not overwrite a genuinely overlapping edit or clear the local dirty state', async () => {
+    it('keeps both versions and the local dirty state when conflict resolution is cancelled', async () => {
         const live = await fetchChatFromServer('character', 0, 'room')
         live.message[0].data = 'local edit'
         markChatWorkingCopyDirty('character', 'room', 'etag-0')
         backend.chat.message[0].data = 'remote edit'
         backend.version++
 
-        await expect(saveChatToServer('character', 0, 'room', live)).rejects.toBeInstanceOf(ConflictError)
+        const saving = saveChatToServer('character', 0, 'room', live)
+        await vi.waitFor(() => expect(get(saveConflictDialog)).not.toBeNull())
+        const dialog = get(saveConflictDialog)!
+        expect(dialog.items[0].local.data).toBe('local edit')
+        expect(dialog.items[0].server.data).toBe('remote edit')
+        const cancelled = expect(saving).rejects.toBeInstanceOf(SaveConflictCancelledError)
+        dialog.complete(null)
+        await cancelled
         expect(backend.chat.message[0].data).toBe('remote edit')
         expect(live.message[0].data).toBe('local edit')
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(true)
         expect(backend.realStorage.patchChatContent).toHaveBeenCalledTimes(1)
+    })
+
+    it('uses the selected server message while saving unrelated local edits and retaining server additions', async () => {
+        const live = await fetchChatFromServer('character', 0, 'room')
+        live.message[0].data = 'my edit'
+        live.note = 'my note'
+        markChatWorkingCopyDirty('character', 'room')
+        backend.chat.message[0].data = 'server edit'
+        backend.chat.message.push({ chatId: 'image', role: 'char', data: 'generated image' })
+        const saving = saveChatToServer('character', 0, 'room', live)
+        await vi.waitFor(() => expect(get(saveConflictDialog)).not.toBeNull())
+        get(saveConflictDialog)!.complete(['server'])
+        await saving
+        expect(backend.chat.message[0].data).toBe('server edit')
+        expect(backend.chat.message.at(-1).chatId).toBe('image')
+        expect(backend.chat.note).toBe('my note')
+        expect(live.message).toEqual(backend.chat.message)
+        expect(isChatWorkingCopyDirty('character', 'room')).toBe(false)
+    })
+
+    it('compares again if the server changes while the dialog is open', async () => {
+        const live = await fetchChatFromServer('character', 0, 'room')
+        live.message[0].data = 'my edit'
+        markChatWorkingCopyDirty('character', 'room')
+        backend.chat.message[0].data = 'first server edit'
+        const saving = saveChatToServer('character', 0, 'room', live)
+        await vi.waitFor(() => expect(get(saveConflictDialog)).not.toBeNull())
+        const first = get(saveConflictDialog)!
+        backend.chat.message[0].data = 'second server edit'
+        first.complete(['local'])
+        await vi.waitFor(() => {
+            expect(get(saveConflictDialog)).not.toBeNull()
+            expect(get(saveConflictDialog)).not.toBe(first)
+        })
+        expect(get(saveConflictDialog)!.items[0].server.data).toBe('second server edit')
+        get(saveConflictDialog)!.complete(['local'])
+        await saving
+        expect(backend.chat.message[0].data).toBe('my edit')
+        expect(backend.realStorage.patchChatContent).toHaveBeenCalledTimes(3)
+        expect(isChatWorkingCopyDirty('character', 'room')).toBe(false)
     })
 })

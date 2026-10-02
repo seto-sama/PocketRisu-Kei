@@ -3,7 +3,9 @@ import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./databas
 import { tick } from "svelte"
 import { writable, type Readable } from 'svelte/store'
 import { DeltaSave } from './deltaSave'
-import { chatToStub as toChatStub, optionalChatMetadataFields } from '../../../shared/chatShape.mjs'
+import { chatToStub as toChatStub, optionalChatMetadataFields, chatMetadataFields, runtimeOnlyChatFields } from '../../../shared/chatShape.mjs'
+import { ConflictError } from './storageRequest'
+import { chooseSaveConflict } from './saveConflict'
 import {
     acknowledgeChatCommit,
     createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
@@ -11,6 +13,8 @@ import {
     getChatServerState,
     recordChatServerState,
     shouldPersistTrackedChat,
+    markChatWorkingCopyDirty,
+    rebaseChatWorkingCopy,
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
@@ -216,16 +220,41 @@ export async function saveChatToServer(
     const key = chatKey(chaId, chatId)
     await queueChatSave(key, async () => {
         const getChat = options?.getChat ?? (() => chat)
-        const current = getChat()
-        if (!current || current._placeholder) return
-        await chatDeltaSave(chaId, chatIndex, chatId).flush()
-        // Re-read live edits and the accepted baseline after earlier writes settle.
-        const latest = getChat()
-        if (!latest || latest._placeholder) return
-        if (latest.id !== chatId) throw new Error('Chat save target does not match the payload id')
-        if (options?.tracked && !shouldPersistTrackedChat(chaId, latest)) return
-        const snapshot = createChatCommitSnapshot(chaId, latest)
-        await saveChatCommitToServer(chatIndex, snapshot)
+        while (true) {
+            const current = getChat()
+            if (!current || current._placeholder) return
+            try {
+                await chatDeltaSave(chaId, chatIndex, chatId).flush()
+                // Re-read live edits and the accepted baseline after earlier writes settle.
+                const latest = getChat()
+                if (!latest || latest._placeholder) return
+                if (latest.id !== chatId) throw new Error('Chat save target does not match the payload id')
+                if (options?.tracked && !shouldPersistTrackedChat(chaId, latest)) return
+                await saveChatCommitToServer(chatIndex, createChatCommitSnapshot(chaId, latest))
+                return
+            } catch (error) {
+                if (!(error instanceof ConflictError)) throw error
+                const local = getChat()
+                if (!local || local._placeholder) throw error
+                const snapshot = createChatCommitSnapshot(chaId, local)
+                const fetched = await forageStorage.realStorage.fetchChatState(chaId, chatIndex, chatId)
+                if (!fetched) throw error
+                const canonical = fetched.baseline ?? fetched.chat
+                const resolved = await chooseSaveConflict(snapshot.baseChat, snapshot.changes, canonical, local.name)
+                const live = getChat()
+                if (!live || live._placeholder) return
+                recordChatServerState(chaId, canonical, fetched.etag)
+                rebaseChatWorkingCopy(chaId, chatId, fetched.etag)
+                const excluded = new Set([...chatMetadataFields, ...runtimeOnlyChatFields])
+                for (const field of new Set([...Object.keys(live), ...Object.keys(resolved)])) {
+                    if (excluded.has(field)) continue
+                    if (Object.hasOwn(resolved, field)) live[field] = resolved[field]
+                    else delete live[field]
+                }
+                markChatWorkingCopyDirty(chaId, chatId, fetched.etag)
+                await tick()
+            }
+        }
     })
 }
 

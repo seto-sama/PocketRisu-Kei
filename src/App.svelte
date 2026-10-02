@@ -17,6 +17,7 @@
     import { notifySuccess } from './ts/alert';
     import { language } from './lang';
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
+    import SaveConflictDialog from './lib/Others/SaveConflictDialog.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
     import QuickModelPresetPicker from './lib/UI/QuickModelPresetPicker.svelte';
     import RequestPreviewModal from './lib/Others/RequestPreviewModal.svelte';
@@ -222,6 +223,7 @@
         {/if}
     {/if}
     <FolderSettingsDialog />
+    <SaveConflictDialog />
     <AlertComp />
     {#if $showRealmInfoStore}
         <RealmPopUp bind:openedData={$showRealmInfoStore} />

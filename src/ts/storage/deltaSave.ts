@@ -6,7 +6,7 @@ export class DeltaSave<Snapshot, Result> {
     private pending: { request: DeltaPatch, snapshot: Snapshot } | null = null
 
     constructor(
-        private send: (request: DeltaPatch) => Promise<Result>,
+        private send: (request: DeltaPatch, snapshot: Snapshot) => Promise<Result>,
         private acknowledge: (snapshot: Snapshot, result: Result) => void | Promise<void>,
     ) {}
 
@@ -18,7 +18,7 @@ export class DeltaSave<Snapshot, Result> {
         const pending = this.pending
         if (!pending) return
         try {
-            const result = await this.send(pending.request)
+            const result = await this.send(pending.request, pending.snapshot)
             if (this.pending !== pending) return result
             await this.acknowledge(pending.snapshot, result)
             if (this.pending === pending) this.pending = null

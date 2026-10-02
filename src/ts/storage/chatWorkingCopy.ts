@@ -19,6 +19,7 @@ export type ChatWorkingCopyTarget = {
 
 export type ChatCommitSnapshot = ChatWorkingCopyTarget & {
     chat: Chat
+    baseChat?: Chat
     expectedEtag?: string
     revision?: number
     changes?: ReturnType<typeof createDelta>
@@ -93,6 +94,7 @@ export function createChatCommitSnapshot(
         characterId,
         chatId: chat.id,
         chat: cloneChatValue(chat),
+        baseChat: baseChat ? cloneChatValue(baseChat) : undefined,
         expectedEtag: dirty ? dirty.baseEtag : server?.etag ?? currentServerEtag,
         ...(dirty ? { revision: dirty.revision } : {}),
         changes: createDelta(baseChat ? JSON.parse(JSON.stringify(baseChat)) : undefined, edited, {
