@@ -87,7 +87,7 @@ describe('storage error details', () => {
     })
 
     it('retains failed targets, acknowledged projection state and the original chat error', () => {
-        const cause = new StorageRequestError('saveChatContent', 413)
+        const cause = new StorageRequestError('patchChatContent', 413)
         const error = new ChatSaveError([['character', 'chat']], true, [cause])
         expect(error.failedChats).toEqual([['character', 'chat']])
         expect(error.projectionSaved).toBe(true)
@@ -98,8 +98,8 @@ describe('storage error details', () => {
     })
 
     it('shows the permanent failure when a batch also has a transient failure', () => {
-        const temporary = new StorageRequestError('saveChatContent', 503, 'unavailable')
-        const oversized = new StorageRequestError('saveChatContent', 413)
+        const temporary = new StorageRequestError('patchChatContent', 503, 'unavailable')
+        const oversized = new StorageRequestError('patchChatContent', 413)
         const error = new ChatSaveError([['a', '1'], ['a', '2']], true, [temporary, oversized])
         expect(error.cause).toBe(oversized)
         expect(error.message).toContain('HTTP 413')

@@ -10,12 +10,14 @@ import { validateContentReferences, type ContentReferenceKind } from '../../../s
 // /api/login, /api/token/refresh)
 import { language } from "src/lang"
 import { alertInput } from "../alert"
-import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
+import { decodeRisuSave } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
 import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../network/apiError'
-import { CHAT_CONTENT_READ_POLICY, storageRequestError, StorageRequestError } from './storageRequest'
+import { CHAT_CONTENT_READ_POLICY, ConflictError, storageRequestError, StorageRequestError } from './storageRequest'
+export { ConflictError } from './storageRequest'
 import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
 import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
+import { type createDelta } from '../../../shared/guardedDelta.mjs'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityResult,
@@ -34,18 +36,6 @@ function serverErrorMessage(body: any, fallback: string): string {
     })
 }
 
-// Custom error class for database conflict detection
-export class ConflictError extends Error {
-    currentEtag: string
-    code?: string
-    constructor(message: string, currentEtag: string, code?: string) {
-        super(localizedApiErrorMessage({ code, message }))
-        this.name = 'ConflictError'
-        this.currentEtag = currentEtag
-        this.code = code
-    }
-}
-
 // Warning the server attaches to /api/patch responses when the most recent
 // debounced persist failed (Stage 1 visibility — see issues.md).
 export interface PersistWarning {
@@ -59,6 +49,7 @@ export interface PatchItemResult {
     conflictCode?: string
     currentHash?: string
     hashDiagnostics?: PatchHashDiagnostics
+    conflicts?: unknown[]
     success: boolean
     etag?: string
     revision?: number
@@ -67,6 +58,9 @@ export interface PatchItemResult {
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
 }
+
+export type DeltaPatch = { changes: ReturnType<typeof createDelta> }
+type ProjectionPatch = DeltaPatch | { patch: any[], expectedHash: string }
 
 export interface DatabaseProjection<T = unknown> {
     database: T | null
@@ -567,7 +561,7 @@ export class NodeStorage{
     }
 
     /** Apply metadata changes to the relational database projection. */
-    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+    async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
         return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
     }
 
@@ -577,15 +571,13 @@ export class NodeStorage{
 
     private async sendPatch(
         endpoint: string,
-        patchData: { patch: any[], expectedHash: string },
+        patchData: ProjectionPatch,
         tracksDatabase: boolean,
         key?: string,
         method: 'POST' | 'PATCH' = 'POST',
     ): Promise<PatchItemResult> {
-        // An empty JSON Patch is the identity operation. It has no write intent,
-        // so it must not enter the network/CAS lane with a potentially stale
-        // hash while a server-owned generation commit is advancing the DB.
-        if (patchData.patch.length === 0) return { success: true }
+        // Empty changes have no write intent and need no network request.
+        if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
 
         const headers: Record<string, string> = {
@@ -623,6 +615,7 @@ export class NodeStorage{
                 currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
                 hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
+                conflicts: Array.isArray(data.conflicts) ? data.conflicts : undefined,
             }
         }
         if (da.status < 200 || da.status >= 300) {
@@ -1021,48 +1014,37 @@ export class NodeStorage{
         return await da.json() as BookmarkCompatibilityResult
     }
 
-    async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
+    async fetchChatState(chaId: string, chatIndex: number, chatId: string): Promise<{ chat: any, baseline: any, etag?: string } | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             headers: { 'x-chat-id': chatId },
         }, CHAT_CONTENT_READ_POLICY)
         if (da.status === 404) return null
-        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatState', da)
         const etag = da.headers.get('x-chat-etag')
-        if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
         const buffer = new Uint8Array(await da.arrayBuffer())
-        return normalizeChat(await decodeRisuSave(buffer))
+        const decoded = await decodeRisuSave(buffer)
+        const baseline = JSON.parse(JSON.stringify(decoded))
+        const chat = normalizeChat(decoded)
+        if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
+        return { chat, baseline, etag: etag ?? undefined }
     }
 
-    async saveChatContent(
-        chaId: string,
-        chatIndex: number,
-        chatId: string,
-        chat: any,
-        commit?: { expectedEtag?: string },
-    ): Promise<void> {
-        const encoded = encodeRisuSaveLegacy(chat)
-        const chatKey = `${chaId}\u0000${chatId}`
-        const headers: Record<string, string> = {
-            'content-type': 'application/octet-stream',
-            'x-chat-id': chatId,
-        }
-        const expectedEtag = commit
-            ? commit.expectedEtag
-            : this.chatEtags.get(chatKey)
-        if (expectedEtag) headers['x-chat-if-match'] = expectedEtag
-        const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
-            method: 'POST',
-            headers,
-            body: encoded,
+    async patchChatContent(chaId: string, chatIndex: number, chatId: string, patch: DeltaPatch): Promise<{ etag: string }> {
+        const response = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json', 'x-chat-id': chatId },
+            body: JSON.stringify(patch),
         })
-        if (da.status === 409) {
-            const data = await da.json().catch(() => ({}))
+        if (response.status === 409) {
+            const data = await response.json().catch(() => ({}))
             throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '', data.code)
         }
-        if (da.status < 200 || da.status >= 300) throw await storageRequestError('saveChatContent', da)
-        const data = await da.json()
-        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error), data.code)
-        if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
+        if (!response.ok) throw await storageRequestError('patchChatContent', response)
+        const result = await response.json()
+        if (result.error) throw new StorageRequestError('patchChatContent', response.status, String(result.error), result.code)
+        if (typeof result.etag !== 'string') throw new Error('Chat patch response has no ETag')
+        this.chatEtags.set(`${chaId}\u0000${chatId}`, result.etag)
+        return { etag: result.etag }
     }
 
     getChatEtag(chaId: string, chatId: string): string | undefined {

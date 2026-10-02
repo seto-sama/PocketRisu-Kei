@@ -9,7 +9,6 @@ vi.mock('../alert', () => ({
 }))
 vi.mock('./risuSave', () => ({
     decodeRisuSave: vi.fn(),
-    encodeRisuSaveLegacy: vi.fn(),
 }))
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 

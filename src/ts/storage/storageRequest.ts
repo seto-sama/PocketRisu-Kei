@@ -1,5 +1,12 @@
 import { language } from 'src/lang'
-import { ApiRequestError, readApiErrorPayload } from '../network/apiError'
+import { ApiRequestError, readApiErrorPayload, localizedApiErrorMessage } from '../network/apiError'
+
+export class ConflictError extends Error {
+    constructor(message: string, readonly currentEtag: string, readonly code?: string) {
+        super(localizedApiErrorMessage({ code, message }))
+        this.name = 'ConflictError'
+    }
+}
 
 // Chat entry only: bound header wait without replaying the request or
 // limiting the time needed to download a large conversation after headers.
@@ -42,6 +49,7 @@ export class ChatSaveError extends Error {
 
 export function isRetryableSaveError(error: unknown): boolean {
     if (error instanceof ChatSaveError) return error.errors.every(isRetryableSaveError)
+    if (error instanceof ConflictError) return false
     if (error instanceof StorageRequestError) {
         return error.status === 408 || error.status === 429 || error.status >= 500
     }

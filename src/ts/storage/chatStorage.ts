@@ -2,10 +2,15 @@ import { forageStorage } from "./autoStorage"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
 import { writable, type Readable } from 'svelte/store'
+import { DeltaSave } from './deltaSave'
+import { chatToStub as toChatStub, optionalChatMetadataFields } from '../../../shared/chatShape.mjs'
 import {
     acknowledgeChatCommit,
     createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
     isChatWorkingCopyDirty,
+    getChatServerState,
+    recordChatServerState,
+    shouldPersistTrackedChat,
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
@@ -31,9 +36,9 @@ export function stubToPlaceholder(stub: ChatStub): Chat {
         fmIndex: -1,
         _placeholder: true,
     }
-    if ('lastDate' in stub) placeholder.lastDate = stub.lastDate
-    if ('folderId' in stub) placeholder.folderId = stub.folderId
-    if ('modules' in stub) placeholder.modules = stub.modules
+    for (const field of optionalChatMetadataFields) {
+        if (field in stub) placeholder[field] = stub[field]
+    }
     return placeholder
 }
 
@@ -45,16 +50,7 @@ export function stubToPlaceholder(stub: ChatStub): Chat {
  * server merge layer relies on `in` semantics — see mergeChatStubWithFullChat.
  */
 export function chatToStub(chat: Chat | ChatStub): ChatStub {
-    if (isChatStub(chat)) return chat
-    const stub: ChatStub = {
-        id: chat.id ?? '',
-        name: chat.name ?? '',
-        _stub: true,
-    }
-    if ('lastDate' in chat) stub.lastDate = chat.lastDate
-    if ('folderId' in chat) stub.folderId = chat.folderId
-    if ('modules' in chat) stub.modules = chat.modules
-    return stub
+    return toChatStub(chat) as ChatStub
 }
 
 /** Keep a hydrated body while adopting the complete merged list metadata. */
@@ -140,34 +136,97 @@ export const hydrationJustApplied = new Set<string>()
 
 /** Track in-flight hydration promises to avoid duplicate fetches */
 const hydrationPromises = new Map<string, Promise<Chat | null>>()
+export type FetchedChatState = {
+    etag?: string
+    isCurrent: () => boolean
+}
+
+const fetchedChats = new WeakMap<Chat, FetchedChatState>()
 const chatSaveQueues = new Map<string, Promise<void>>()
+const chatDeltaSaves = new Map<string, DeltaSave<ChatCommitSnapshot, { etag: string }>>()
+
+function chatDeltaSave(chaId: string, chatIndex: number, chatId: string) {
+    const key = chatKey(chaId, chatId)
+    let save = chatDeltaSaves.get(key)
+    if (!save) {
+        save = new DeltaSave(
+            request => forageStorage.realStorage.patchChatContent(chaId, chatIndex, chatId, request),
+            (snapshot, result) => {
+                acknowledgeChatCommit(snapshot, result.etag)
+                if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
+                    detail: { characterId: chaId, chatId },
+                }))
+            },
+        )
+        chatDeltaSaves.set(key, save)
+    }
+    return save
+}
+
+export function discardPendingChatSaves() {
+    for (const save of chatDeltaSaves.values()) save.clear()
+    chatDeltaSaves.clear()
+}
 
 // ── Server fetch/save ───────────────────────────────────────────────────────
 
-export async function fetchChatFromServer(chaId: string, chatIndex: number, chatId: string): Promise<Chat | null> {
-    const storage = forageStorage.realStorage
-    return storage.fetchChatContent(chaId, chatIndex, chatId)
+async function queueChatSave(key: string, save: () => Promise<void>) {
+    const previous = chatSaveQueues.get(key)
+    const queued = (previous ? previous.catch(() => {}) : Promise.resolve()).then(save)
+    chatSaveQueues.set(key, queued)
+    try { await queued }
+    finally {
+        if (chatSaveQueues.get(key) === queued) {
+            chatSaveQueues.delete(key)
+            if (!chatDeltaSaves.get(key)?.hasPending) chatDeltaSaves.delete(key)
+        }
+    }
 }
 
-export async function saveChatToServer(chaId: string, chatIndex: number, chatId: string, chat: Chat): Promise<void> {
+export async function fetchChatFromServer(
+    chaId: string, chatIndex: number, chatId: string, options?: { trackBaseline?: boolean },
+): Promise<Chat | null> {
+    let baseline = getChatServerState(chaId, chatId)
+    const state = await forageStorage.realStorage.fetchChatState(chaId, chatIndex, chatId)
+    if (state) {
+        // Keep a newer baseline accepted from a save or another read.
+        if (options?.trackBaseline !== false && baseline === getChatServerState(chaId, chatId)) {
+            baseline = recordChatServerState(chaId, state.baseline ?? state.chat, state.etag)
+        }
+        fetchedChats.set(state.chat, {
+            etag: state.etag,
+            isCurrent: () => baseline === getChatServerState(chaId, chatId),
+        })
+    }
+    return state?.chat ?? null
+}
+
+export function getFetchedChatState(chat: Chat) { return fetchedChats.get(chat) }
+
+export async function saveChatToServer(
+    chaId: string,
+    chatIndex: number,
+    chatId: string,
+    chat: Chat,
+    options?: { getChat?: () => Chat | undefined, tracked?: boolean },
+): Promise<void> {
     if (chat.id !== chatId) {
         throw new Error('Chat save target does not match the payload id')
     }
     const key = chatKey(chaId, chatId)
-    const previous = chatSaveQueues.get(key)
-    const queued = (previous ? previous.catch(() => {}) : Promise.resolve()).then(async () => {
-        // Snapshot only after the preceding save has acknowledged its ETag.
-        // Creating it before queue admission would carry the stale creation
-        // version into a follow-up edit and make the server reject it with 409.
-        const snapshot = createChatCommitSnapshot(chaId, chat)
+    await queueChatSave(key, async () => {
+        const getChat = options?.getChat ?? (() => chat)
+        const current = getChat()
+        if (!current || current._placeholder) return
+        await chatDeltaSave(chaId, chatIndex, chatId).flush()
+        // Re-read live edits and the accepted baseline after earlier writes settle.
+        const latest = getChat()
+        if (!latest || latest._placeholder) return
+        if (latest.id !== chatId) throw new Error('Chat save target does not match the payload id')
+        if (options?.tracked && !shouldPersistTrackedChat(chaId, latest)) return
+        const snapshot = createChatCommitSnapshot(chaId, latest)
         await saveChatCommitToServer(chatIndex, snapshot)
     })
-    chatSaveQueues.set(key, queued)
-    try {
-        await queued
-    } finally {
-        if (chatSaveQueues.get(key) === queued) chatSaveQueues.delete(key)
-    }
 }
 
 /**
@@ -188,21 +247,17 @@ export function createChatCommitSnapshot(chaId: string, chat: Chat): ChatCommitS
     return createWorkingCopyCommitSnapshot(chaId, chat, getChatServerEtag(chaId, chat.id))
 }
 
-export async function saveChatCommitToServer(
+async function saveChatCommitToServer(
     chatIndex: number,
     snapshot: ChatCommitSnapshot,
 ): Promise<void> {
-    const storage = forageStorage.realStorage
-    await storage.saveChatContent(
-        snapshot.characterId,
-        chatIndex,
-        snapshot.chatId,
-        snapshot.chat,
-        {
-            expectedEtag: snapshot.expectedEtag,
-        },
-    )
-    acknowledgeChatCommit(snapshot, storage.getChatEtag(snapshot.characterId, snapshot.chatId))
+    if (!snapshot.changes) throw new Error('Chat commit has no delta baseline')
+    if (snapshot.changes.length === 0) {
+        acknowledgeChatCommit(snapshot, snapshot.expectedEtag)
+        return
+    }
+    await chatDeltaSave(snapshot.characterId, chatIndex, snapshot.chatId)
+        .save({ changes: snapshot.changes }, snapshot)
 }
 
 export function getChatServerEtag(chaId: string, chatId: string): string | undefined {

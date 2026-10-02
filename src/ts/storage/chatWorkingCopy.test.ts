@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { applyDelta, DeltaConflictError } from '../../../shared/guardedDelta.mjs'
 import {
     acknowledgeChatCommit,
     canApplyChatGenerationCanonical,
@@ -19,12 +20,15 @@ import {
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
     shouldPersistTrackedChat,
+    pruneChatServerStates,
+    recordChatServerState,
 } from './chatWorkingCopy'
 
 describe('chat working copies', () => {
     beforeEach(() => {
         discardAllChatWorkingCopies()
         discardAllChatGenerationProjections()
+        pruneChatServerStates([])
     })
 
     it('binds the first server etag to every later revision of a dirty body', () => {
@@ -280,5 +284,24 @@ describe('chat working copies', () => {
         markChatWorkingCopyDirty('character', 'room', 'new-etag')
         expect(acknowledgeProjectionOnlyChatConflict('character', projection)).toBe(false)
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(true)
+    })
+
+    it('retains a same-message conflict through terminal generation handoff', () => {
+        const base = {
+            id: 'room', message: [{ chatId: 'earlier', role: 'user', data: 'before' }],
+        } as any
+        recordChatServerState('character', base, 'base')
+        beginChatGenerationProjection('character', base, { messageChatId: 'generated' })
+        const local = structuredClone(base)
+        local.message[0].data = 'local edit'
+        markChatWorkingCopyDirty('character', 'room', 'base')
+        awaitChatGenerationCanonical('character', 'room')
+        const canonical = structuredClone(base)
+        canonical.message[0].role = 'char'
+        canonical.message.push({ chatId: 'generated', role: 'char', data: 'result' })
+        const merged = resolveChatGenerationCanonical('character', local, canonical, 'canonical')
+        expect(merged.message).toEqual([local.message[0], canonical.message[1]])
+        expect(() => applyDelta(canonical, createChatCommitSnapshot('character', merged).changes))
+            .toThrow(DeltaConflictError)
     })
 })

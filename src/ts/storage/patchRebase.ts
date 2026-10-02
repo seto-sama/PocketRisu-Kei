@@ -5,7 +5,7 @@ import isEqual from 'fast-deep-equal'
 const identityKeys = ['chaId', 'id', 'chatId'] as const
 const isObject = (value: any) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
-function mergeLocalChanges(base: any, local: any, server: any): any {
+function mergeLocalChanges(base: any, local: any, server: any, atomicMessages = false): any {
     if (isEqual(base, local)) return server
     if (Array.isArray(local) && Array.isArray(server) && Array.isArray(base)) {
         const lists = [base, local, server]
@@ -19,7 +19,9 @@ function mergeLocalChanges(base: any, local: any, server: any): any {
             for (const [id, item] of ours) {
                 // Preserve a server deletion unless this client edited the item.
                 if (before.has(id) && !theirs.has(id) && isEqual(before.get(id), item)) continue
-                merged.set(id, mergeLocalChanges(before.get(id), item, theirs.get(id)))
+                merged.set(id, identity === 'chatId' && atomicMessages
+                    ? isEqual(before.get(id), item) ? theirs.get(id) : item
+                    : mergeLocalChanges(before.get(id), item, theirs.get(id), atomicMessages))
             }
             // Retain concurrent server additions, excluding acknowledged local
             // additions and intentional local deletions. Local ordering wins.
@@ -41,11 +43,19 @@ function mergeLocalChanges(base: any, local: any, server: any): any {
             if (Object.hasOwn(base ?? {}, key) === Object.hasOwn(local, key)
                 && isEqual(base?.[key], local[key])) continue
             if (!Object.hasOwn(local, key)) delete result[key]
-            else result[key] = mergeLocalChanges(base?.[key], local[key], server[key])
+            else result[key] = mergeLocalChanges(base?.[key], local[key], server[key], atomicMessages)
         }
         return result
     }
     return local
+}
+
+/** Retain local intent in the UI and pin its original pre-images for guarded saves. */
+export function reconcilePendingChanges<T>(base: T, local: T, server: T, atomicMessages = false) {
+    return {
+        mergedValue: structuredClone(mergeLocalChanges(base, local, server, atomicMessages)) as T,
+        baseline: structuredClone(mergeLocalChanges(local, base, server, atomicMessages)) as T,
+    }
 }
 
 /**
