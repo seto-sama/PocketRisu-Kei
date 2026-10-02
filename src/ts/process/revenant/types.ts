@@ -9,6 +9,7 @@ import type {
 } from '../../storage/database.svelte'
 
 import type { RevenantOperationContext } from './operations'
+import type { DeltaPatch } from '../../storage/nodeStorage'
 export {
     createRevenantOperation,
     getRevenantOperationJobType,
@@ -181,6 +182,7 @@ export interface RevenantWorkflowInputCommit {
     /** Canonical chat state at the submission boundary, before prompt-only transforms. */
     chat: Chat
     expectedEtag?: string
+    changes?: DeltaPatch['changes']
 }
 
 export interface RevenantPostprocessMutationPatch {

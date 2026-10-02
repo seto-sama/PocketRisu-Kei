@@ -13,7 +13,7 @@ import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
+import { discardPendingChatSaves, fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
     cloneChatValue,
@@ -25,10 +25,13 @@ import {
     markChatSyncApplied,
     observeChatGenerationProjection,
     rebaseChatWorkingCopy,
-    shouldPersistTrackedChat,
+    pruneChatServerStates,
 } from './storage/chatWorkingCopy';
 import { reissueMessageIds } from './chatClone';
-import { preparePatchConflictRebase } from "./storage/patchRebase";
+import { preparePatchConflictRebase, reconcilePendingChanges } from "./storage/patchRebase";
+import { createDelta } from '../../shared/guardedDelta.mjs';
+import { DeltaSave } from './storage/deltaSave';
+import type { PatchItemResult } from './storage/nodeStorage';
 import {
     isClientWritableCharacterField,
     visitClientWritableRootValues,
@@ -36,6 +39,7 @@ import {
 import { forageStorage } from "./storage/autoStorage";
 import {
     registerSyncedDatabaseHandler,
+    reconcileHydratedChats,
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
@@ -416,6 +420,19 @@ export async function saveDb() {
 
     let patcher = new RisuSavePatcher()
     let acceptedPatchBaseline: Database | null = null
+    let acceptedProjectionRevision = forageStorage.getDbRevision()
+    const projectionDeltaSave = new DeltaSave<Database, PatchItemResult>(
+        async request => {
+            const result = await forageStorage.patchDatabase(request)
+            if (!result.success) throw new ConflictError('Database fields changed concurrently', result.etag ?? '', result.conflictCode)
+            return result
+        },
+        async (baseline, result) => {
+            await patcher.init(baseline)
+            acceptedPatchBaseline = patcher.getBaselineSnapshot()
+            if (result.revision !== undefined) acceptedProjectionRevision = result.revision
+        },
+    )
     if (isNodeServer || supportsPatchSync) {
         await patcher.init(patchSyncBaseline ?? getDatabase())
         acceptedPatchBaseline = patcher.getBaselineSnapshot()
@@ -487,6 +504,9 @@ export async function saveDb() {
                 markChatSyncApplied(chat)
             }
         }
+        pruneChatServerStates(DBState.db.characters.flatMap(character =>
+            character.chats.filter(chat => chat?.id && !chat._placeholder)
+                .map(chat => ({ characterId: character.chaId, chatId: chat.id }))))
         await tick()
         clearTrackedChanges()
         cancelPendingSave()
@@ -723,11 +743,30 @@ export async function saveDb() {
     })
 
     registerSyncedDatabaseHandler(async (data, etag, options) => {
+        if (saveInFlight) await saveInFlight
+        if (!options?.authoritativeChatReset && options?.revision !== undefined
+            && acceptedProjectionRevision !== null && options.revision < acceptedProjectionRevision) {
+            window.dispatchEvent(new Event('risu-sync-refresh-requested'))
+            return
+        }
+        const pendingChanges = structuredClone(changeTracker)
+        let nextBaseline = data
+        if (isNodeServer && acceptedPatchBaseline && !options?.authoritativeChatReset) {
+            const localPatcher = new RisuSavePatcher()
+            await localPatcher.init(acceptedPatchBaseline)
+            await localPatcher.set(getDatabase(), pendingChanges)
+            const reconciled = reconcilePendingChanges(acceptedPatchBaseline, localPatcher.getBaselineSnapshot(), data)
+            data = reconciled.mergedValue
+            nextBaseline = reconciled.baseline
+        }
+        if (!options?.authoritativeChatReset) reconcileHydratedChats(data, options?.serverAppliedChats ?? [])
         syncApplying = true
         try {
             if (options?.authoritativeChatReset) {
                 discardAllChatWorkingCopies()
                 discardAllChatGenerationProjections()
+                discardPendingChatSaves()
+                projectionDeltaSave.clear()
             }
             await replaceRuntimeDatabase(data, options?.serverAppliedChats)
             updateColorScheme()
@@ -740,8 +779,9 @@ export async function saveDb() {
             }
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
-                await patcher.init(data)
+                await patcher.init(nextBaseline)
                 acceptedPatchBaseline = patcher.getBaselineSnapshot()
+                if (options?.revision !== undefined) acceptedProjectionRevision = options.revision
             }
             forageStorage.setDbEtag(etag)
             knownChatIdsByCharacter.clear()
@@ -753,12 +793,13 @@ export async function saveDb() {
                 )
             }
             if (!options?.authoritativeChatReset) {
+                requeueTrackedChanges(pendingChanges)
                 changeTracker.chat = listDirtyChatWorkingCopies().map(chat => [
                     chat.characterId,
                     chat.chatId,
                 ])
             }
-            changed = changeTracker.chat.length > 0
+            changed = hasTrackedChanges(changeTracker)
         } finally {
             syncApplying = false
         }
@@ -987,11 +1028,6 @@ export async function saveDb() {
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
             if (!chat || chat._placeholder) return
-            // A debounced edit save can wake after reroll has replaced the
-            // edited body with its temporary placeholder. Once that edit has
-            // already been acknowledged, never persist the clean projection
-            // as an ordinary whole-chat write.
-            if (!shouldPersistTrackedChat(chaId, chat)) return
             try {
                 if (options?.establishServerBaseline) {
                     const serverChat = await fetchChatFromServer(chaId, chatIndex, chatId)
@@ -1004,7 +1040,12 @@ export async function saveDb() {
                         getChatServerEtag(chaId, chatId),
                     )
                 }
-                await saveChatToServer(chaId, chatIndex, chatId, chat)
+                await saveChatToServer(chaId, chatIndex, chatId, chat, {
+                    tracked: true,
+                    getChat: () => getDatabase().characters
+                        .find(character => character.chaId === chaId)?.chats
+                        .find(current => current.id === chatId),
+                })
             } catch (e) {
                 if (
                     e instanceof ConflictError
@@ -1055,6 +1096,7 @@ export async function saveDb() {
 
         const useProjectionPatch = isNodeServer || (supportsPatchSync && !options?.forceFullWrite)
         if (useProjectionPatch) {
+            if (isNodeServer) await projectionDeltaSave.flush()
             const patchData = await patcher.set(db, structuredClone(toSave))
             // Refuse to send patches that would corrupt server-side lazy chats.
             // chatToStub strips chats to metadata before diffing, so the only
@@ -1222,14 +1264,17 @@ export async function saveDb() {
             } else {
                 let patchResult
                 try {
-                    patchResult = isNodeServer
-                        ? await forageStorage.patchDatabase(patchData)
-                        : await forageStorage.patchItem('database/database.bin', patchData)
+                    if (isNodeServer) {
+                        const baseline = patcher.getBaselineSnapshot()
+                        patchResult = await projectionDeltaSave.save({ changes: createDelta(acceptedPatchBaseline, baseline) }, baseline)
+                    } else {
+                        patchResult = await forageStorage.patchItem('database/database.bin', patchData)
+                    }
                 } catch (error) {
                     // RisuSavePatcher advances its in-memory baseline while it
-                    // builds a patch. A transport failure means the server did
-                    // not accept that baseline, so restore the last acknowledged
-                    // projection before the retry loop requeues these changes.
+                    // builds a patch. Until the response is acknowledged, retain
+                    // the last accepted projection; DeltaSave replays an uncertain
+                    // request before creating the next delta.
                     if (isNodeServer) await resetPatcherToAcceptedBaseline()
                     throw error
                 }
@@ -1247,14 +1292,6 @@ export async function saveDb() {
                 if (patchResult.chatGuardRejected) {
                     console.error('[Save] Server rejected patch — chat-internal field ops detected server-side')
                     showChatGuardToastThrottled('server')
-                    if (isNodeServer) {
-                        await rebaseTrackedLocalChangesOnLatestServerDb(
-                            patchResult.etag ?? null,
-                            db,
-                            toSave,
-                        )
-                        return 'retry'
-                    }
                 }
                 if (patchResult.conflict) {
                     // set() already advanced the patcher; compare the rejected
