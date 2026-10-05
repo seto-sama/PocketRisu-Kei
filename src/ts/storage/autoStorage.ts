@@ -43,9 +43,14 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
-    async exportBackup(opts?: ExportBackupOptions) {
+    async downloadBackupExport(opts?: ExportBackupOptions) {
         await this.Init()
-        return this.realStorage.exportBackup(opts)
+        return this.realStorage.downloadBackupExport(opts)
+    }
+
+    async downloadAsset(key: string, filename?: string) {
+        await this.Init()
+        return this.realStorage.downloadAsset(key, filename)
     }
     async settingsBackupEstimate() {
         await this.Init()

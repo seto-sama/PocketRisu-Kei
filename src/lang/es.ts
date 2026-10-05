@@ -791,7 +791,6 @@ export const languageSpanish = {
     "editTranslation": "Editar traducción",
     "editTranslationSave": "Guardar traducción",
     "exportTranslationCache": "Exportar caché de traducción",
-    "exportTranslationCacheSuccess": "Caché de traducción exportada correctamente.",
     "importTranslationCache": "Importar caché de traducción",
     "importTranslationCacheConfirm": "Esto fusionará las entradas en la caché de traducción. Las claves existentes se sobrescribirán. ¿Continuar?",
     "importTranslationCacheSuccess": "Se importaron {0} entradas del caché de traducción.",

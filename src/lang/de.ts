@@ -791,7 +791,6 @@ export const languageGerman = {
     "editTranslation": "Übersetzung bearbeiten",
     "editTranslationSave": "Übersetzung speichern",
     "exportTranslationCache": "Übersetzungscache exportieren",
-    "exportTranslationCacheSuccess": "Übersetzungscache erfolgreich exportiert.",
     "importTranslationCache": "Übersetzungscache importieren",
     "importTranslationCacheConfirm": "Die Einträge werden in den Übersetzungscache zusammengeführt. Vorhandene Schlüssel werden überschrieben. Fortfahren?",
     "importTranslationCacheSuccess": "{0} Übersetzungscache-Einträge importiert.",

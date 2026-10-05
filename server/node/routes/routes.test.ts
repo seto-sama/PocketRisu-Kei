@@ -131,6 +131,54 @@ describe('server route composition', () => {
         expect(decodeInlayAsset(new Uint8Array(await read.arrayBuffer())).bytes).toEqual(Uint8Array.of(0, 255, 128, 13, 10))
     })
 
+    it('serves backup and original asset downloads through the session cookie', async () => {
+        const session = await fetch(base + '/api/session', {
+            method: 'POST', headers: { 'risu-auth': headers['risu-auth'] },
+        })
+        expect(session.status).toBe(200)
+        const cookie = session.headers.get('set-cookie')!.split(';')[0]
+        const name = 'risu-backup-1700000000000.bin'
+        mkdirSync(join(directory, 'backups'), { recursive: true })
+        writeFileSync(join(directory, 'backups', name), Uint8Array.of(0, 128, 255))
+        const paths = ['/api/backup/export', `/api/backup/server/download/${name}`]
+        for (const path of paths) {
+            const response = await fetch(base + path, { headers: { cookie } })
+            expect(response.status, path).toBe(200)
+            expect(response.headers.get('content-disposition')).toContain('attachment')
+            const bytes = new Uint8Array(await response.arrayBuffer())
+            if (path.includes('/export')) {
+                expect(bytes.byteLength).toBeGreaterThan(0)
+            } else {
+                expect(bytes).toEqual(Uint8Array.of(0, 128, 255))
+            }
+            for (const invalid of [{}, { cookie: 'risu-session=invalid' }]) {
+                const refused = await fetch(base + path, { headers: invalid })
+                expect(refused.status, path).toBe(401)
+            }
+        }
+        const headerDownload = await fetch(base + paths[1], { headers: { ...headers, cookie: 'risu-session=invalid' } })
+        expect(headerDownload.status).toBe(200)
+        await headerDownload.arrayBuffer()
+
+        const assetPath = `/api/asset/${Buffer.from('inlay/route-test').toString('hex')}`
+        const assetDownload = await fetch(base + assetPath + '?download=1&filename=' + encodeURIComponent('한글.png'), { headers: { cookie } })
+        expect(assetDownload.status).toBe(200)
+        expect(assetDownload.headers.get('content-disposition')).toContain(`filename*=UTF-8''${encodeURIComponent('한글.png')}`)
+        expect(assetDownload.headers.get('content-type')).toContain('image/png')
+        expect(new Uint8Array(await assetDownload.arrayBuffer())).toEqual(Uint8Array.of(0, 255, 128, 13, 10))
+        const fallbackDownload = await fetch(base + assetPath + '?download=1', { headers: { cookie } })
+        expect(fallbackDownload.headers.get('content-disposition')).toContain('route-test.png')
+        await fallbackDownload.arrayBuffer()
+        const preview = await fetch(base + assetPath, { headers: { cookie } })
+        expect(preview.headers.get('content-disposition')).toBeNull()
+        await preview.arrayBuffer()
+        const missingAsset = await fetch(base + `/api/asset/${Buffer.from('inlay/missing').toString('hex')}?download=1`, { headers: { cookie } })
+        expect(missingAsset.status).toBe(404)
+        expect(missingAsset.headers.get('content-disposition')).toBeNull()
+        const mutation = await fetch(base + `/api/backup/server/${name}`, { method: 'DELETE', headers: { cookie } })
+        expect(mutation.status).toBe(401)
+    })
+
     it('returns stable codes for user-facing auth and backup errors', async () => {
         const login = await fetch(base + '/api/login', {
             method: 'POST', headers: { 'content-type': 'application/json' },

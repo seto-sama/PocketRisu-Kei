@@ -2,8 +2,8 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
-    import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
-    import { downloadFile, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
+    import { alertConfirm, notifyError, notifySuccess, notifyInfo } from 'src/ts/alert';
+    import { forageStorage, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
@@ -185,21 +185,17 @@
     }
 
     async function downloadPreview() {
-        if(!previewAsset || !previewPath){
+        if(!previewAsset){
             return;
         }
         try {
-            const response = await fetch(previewPath);
-            if(!response.ok){
-                throw new Error(`Failed to load asset: ${response.status}`);
-            }
             const name = previewAsset[0];
             const extension = previewAsset[2];
             const downloadName = extension && !name.toLowerCase().endsWith(`.${extension.toLowerCase()}`)
                 ? `${name}.${extension}`
                 : name;
-            await downloadFile(downloadName, await response.arrayBuffer());
-            notifySuccess(language.successExport);
+            await forageStorage.downloadAsset(previewAsset[1], downloadName);
+            notifyInfo(language.browserDownloadStarted);
         }
         catch(error){
             notifyError(`${error}`);

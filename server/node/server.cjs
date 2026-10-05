@@ -826,10 +826,18 @@ function parseSessionCookie(req) {
     return null
 }
 
-function sessionAuthMiddleware(req, res, next) {
+function hasValidSession(req) {
     const token = parseSessionCookie(req)
-    if (token && sessionExpiresAt(sessions.get(token)) > Date.now()) return next()
+    return !!token && sessionExpiresAt(sessions.get(token)) > Date.now()
+}
+
+function sessionAuthMiddleware(req, res, next) {
+    if (hasValidSession(req)) return next()
     res.status(401).end()
+}
+
+async function checkDownloadAuth(req, res) {
+    return hasValidSession(req) || await checkAuth(req, res)
 }
 
 // MIME detection by magic bytes (fallback when key has no extension)
@@ -2281,6 +2289,7 @@ require('./routes/logs.cjs').installLogsRoutes(app, {
 });
 
 require('./routes/backup.cjs').installBackupRoutes(app, {
+    checkDownloadAuth,
     deleteSnapshotStateRows,
     DB_BACKUP_PREFIX,
     storageState,

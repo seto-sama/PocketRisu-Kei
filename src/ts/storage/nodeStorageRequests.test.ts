@@ -29,6 +29,42 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
+it('hands backups and assets to the browser after refreshing only the session cookie', async () => {
+    const downloads: { url: string, name: string }[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+        downloads.push({ url: this.getAttribute('href')!, name: this.download })
+    })
+    fetchMock.mockResolvedValue(new Response('{}'))
+    await storage.downloadBackupExport()
+    await storage.downloadBackupExport({ mode: 'settings', moduleAssets: false })
+    await storage.downloadBackupExport({ target: 'upstream' })
+    await storage.downloadServerBackup('risu-backup-1.bin')
+    await storage.downloadAsset('inlay/image', '한글.png')
+    expect(downloads).toEqual([
+        { url: '/api/backup/export', name: '' },
+        { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
+        { url: '/api/backup/export?target=upstream', name: '' },
+        { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
+        { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(downloads.length)
+    for (const [url, request] of fetchMock.mock.calls) {
+        expect(url).toBe('/api/session')
+        expect(request.method).toBe('POST')
+        const authHeaders = new Headers(request.headers)
+        expect(authHeaders.get('risu-auth')).toBe('auth-token')
+        expect(authHeaders.has('x-sync-client-id')).toBe(false)
+        expect(authHeaders.has('x-session-id')).toBe(false)
+    }
+})
+
+it('does not start a download when session refresh fails', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
+    expect(click).not.toHaveBeenCalled()
+})
+
 describe('storage request integration', () => {
     it('sends the same guarded changes for database and chat saves', async () => {
         const delta = { changes: createDelta({ note: 'before' }, { note: 'after' }) }

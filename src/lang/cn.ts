@@ -791,7 +791,6 @@ export const languageChinese = {
     "editTranslation": "编辑翻译",
     "editTranslationSave": "保存翻译",
     "exportTranslationCache": "导出翻译缓存",
-    "exportTranslationCacheSuccess": "翻译缓存已成功导出。",
     "importTranslationCache": "导入翻译缓存",
     "importTranslationCacheConfirm": "这将把条目合并到翻译缓存中。已有的键将被覆盖。是否继续？",
     "importTranslationCacheSuccess": "已导入 {0} 条翻译缓存。",

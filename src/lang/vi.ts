@@ -791,7 +791,6 @@ export const languageVietnamese = {
     "editTranslation": "Chỉnh sửa bản dịch",
     "editTranslationSave": "Lưu bản dịch",
     "exportTranslationCache": "Xuất bộ nhớ đệm dịch",
-    "exportTranslationCacheSuccess": "Đã xuất bộ nhớ đệm dịch thành công.",
     "importTranslationCache": "Nhập bộ nhớ đệm dịch",
     "importTranslationCacheConfirm": "Thao tác này sẽ hợp nhất các mục vào bộ nhớ đệm dịch thuật. Các khóa hiện có sẽ bị ghi đè. Tiếp tục?",
     "importTranslationCacheSuccess": "Đã nhập {0} mục bộ nhớ đệm dịch.",

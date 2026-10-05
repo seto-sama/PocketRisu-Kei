@@ -1,10 +1,10 @@
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
-import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess } from "../alert";
-import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
+import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess, notifyInfo } from "../alert";
+import { LocalWriter, forageStorage } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
-import { getSyncClientId } from "../storage/nodeStorage";
+import { getSyncClientId, type ExportBackupOptions } from "../storage/nodeStorage";
 import { language } from "src/lang";
 import { apiRequestError } from "../network/apiError";
 
@@ -15,44 +15,10 @@ function formatBytes(bytes: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-async function streamBackupToDisk(response: Response, fallbackName: string, progressLabel = 'Saving local backup...'){
-    const disposition = response.headers.get('content-disposition') ?? ''
-    const fileName = disposition.match(/filename=\"?([^"]+)\"?/)?.[1] ?? fallbackName
-    const totalBytes = Number(response.headers.get('content-length') ?? '0')
-
-    if (response.body) {
-        const streamSaver = await import('streamsaver')
-        const writableStream = streamSaver.createWriteStream(fileName)
-        const writer = writableStream.getWriter()
-        const reader = response.body.getReader()
-        let downloadedBytes = 0
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) {
-                break
-            }
-            downloadedBytes += value.length
-            if (totalBytes > 0) {
-                const progress = ((downloadedBytes / totalBytes) * 100).toFixed(2)
-                alertWait(`${progressLabel} (${progress}%)`)
-            } else {
-                alertWait(`${progressLabel} (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`)
-            }
-            await writer.write(value)
-        }
-        await writer.close()
-    } else {
-        await downloadFile(fileName, new Uint8Array(await response.arrayBuffer()))
-    }
-}
-
-export async function SaveLocalBackup(){
+export async function SaveLocalBackup(options?: ExportBackupOptions){
     try {
-        alertWait("Saving local backup...")
-        const response = await forageStorage.exportBackup()
-        await streamBackupToDisk(response, `risu-backup-${Date.now()}.bin`)
-        notifySuccess('Success')
+        await forageStorage.downloadBackupExport(options)
+        notifyInfo(language.browserDownloadStarted)
     } catch (error) {
         console.error(error)
         alertError('Failed')
@@ -90,22 +56,13 @@ export async function SaveSettingsOnlyBackup(){
             return
         }
 
-        alertWait(language.backupSettingsOnlySaving)
-        const response = await forageStorage.exportBackup({
+        await forageStorage.downloadBackupExport({
             mode: 'settings',
             moduleAssets: includeModuleAssets,
         })
-        await streamBackupToDisk(
-            response,
-            `risu-settings-${Date.now()}.bin`,
-            language.backupSettingsOnlySaving,
-        )
-        if(!includeModuleAssets){
-            alertMd(language.backupSettingsOnlyModuleAssetsSkipped)
-        }
-        else{
-            notifySuccess(language.backupSettingsOnlyDone)
-        }
+        notifyInfo(language.browserDownloadStarted, includeModuleAssets ? undefined : {
+            description: language.backupSettingsOnlyModuleAssetsSkipped,
+        })
     }
     catch(error){
         alertClear()
@@ -115,15 +72,7 @@ export async function SaveSettingsOnlyBackup(){
 }
 
 export async function SaveLocalBackupForUpstream(){
-    try {
-        alertWait("Saving local backup...")
-        const response = await forageStorage.exportBackup({ target: 'upstream' })
-        await streamBackupToDisk(response, `risu-backup-${Date.now()}-upstream.bin`)
-        notifySuccess('Success')
-    } catch (error) {
-        console.error(error)
-        alertError('Failed')
-    }
+    await SaveLocalBackup({ target: 'upstream' })
 }
 
 /**

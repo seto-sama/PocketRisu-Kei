@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer'
 import { encodeInlayAsset, decodeInlayAsset } from '../../storage/inlayTransport'
+import { getAssetUrl } from '../../storage/assetTransport'
 import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "src/ts/media";
@@ -75,15 +76,15 @@ export const INLAY_IMAGE_SIZE_PIXELS = {
 export const INLAY_IMAGE_MAX_PIXELS = INLAY_IMAGE_SIZE_PIXELS['1k']
 
 export function getInlayAssetUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay/${id}`)
 }
 
 export function getInlayVideoThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay_video_thumb/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay_video_thumb/${id}`)
 }
 
 export function getInlayThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay_thumb/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay_thumb/${id}`)
 }
 
 export function buildInlayReference(id: string): string {
@@ -574,7 +575,7 @@ export function getCharacterChatIndex(): CharacterChatIndexItem[] {
 
 /**
  * Lightweight explorer list for the inlay gallery.
- * Use `getInlayAssetBlob(id)` on demand when the user opens or downloads the original file.
+ * Use `getInlayAssetBlob(id)` on demand when the user opens the original file.
  */
 // Gallery metadata cache — avoids re-fetching on gallery re-entry
 let _explorerItemsCache: InlayExplorerItem[] | null = null

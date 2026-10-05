@@ -1466,7 +1466,6 @@ export const languageEnglish = {
     importTranslationCacheDesc: "Merge translations from a previously exported JSON cache file.",
     cleanupUnusedTranslationCacheDesc: "Delete only cache entries whose source text is no longer used by chats or summaries.",
     exportTranslationCache: "Export Translation Cache",
-    exportTranslationCacheSuccess: "Translation cache exported successfully.",
     importTranslationCache: "Import Translation Cache",
     importTranslationCacheConfirm: "This will merge entries into your translation cache. Existing keys will be overwritten. Continue?",
     importTranslationCacheSuccess: "Imported {0} translation cache entries.",
@@ -1960,7 +1959,7 @@ export const languageEnglish = {
     serverBackupDownload: "Download",
     serverBackupDelete: "Delete",
     serverBackupRestoring: "Restoring backup from server...",
-    serverBackupDownloading: "Downloading backup...",
+    browserDownloadStarted: "The download has been handed to your browser. Check progress and completion in the browser’s download list.",
     serverBackupDeleteConfirm: (filename: string) => `Delete backup "${filename}"? This cannot be undone.`,
     serverBackupDeleteSuccess: "Backup deleted.",
     pluginProviderNotFound: "Unknown Plugin detected. please change the model or enable the corresponding plugin.",
@@ -2475,7 +2474,6 @@ export const languageEnglish = {
     backupSettingsOnly: "Export Settings",
     backupSettingsOnlyDesc: "Export a settings backup without chats, characters, and similar data.",
     backupSettingsOnlyEstimating: "Calculating settings backup size...",
-    backupSettingsOnlySaving: "Exporting settings...",
     backupSettingsOnlyConfirm: (size: string) =>
         `Export a settings backup without chats and characters? Estimated size: ${size}.`,
     backupSettingsOnlyBreakdown: (baseSize: string, moduleCount: number, assetCount: number, moduleSize: string) =>
@@ -2483,7 +2481,6 @@ export const languageEnglish = {
     backupSettingsOnlyWithModuleAssets: (size: string) => `Include module assets (${size})`,
     backupSettingsOnlyWithoutModuleAssets: (size: string) => `Exclude module assets (${size})`,
     backupSettingsOnlyModuleAssetsSkipped: "Settings were exported without module assets. Module images may be blank until the modules are downloaded again.",
-    backupSettingsOnlyDone: "Settings exported.",
     backupSettingsOnlyFailed: "Failed to export settings",
 
     relatedGithub: "GitHub",

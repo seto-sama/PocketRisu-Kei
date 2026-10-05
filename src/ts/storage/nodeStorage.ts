@@ -1,4 +1,5 @@
-import { encodeAssetBatch, decodeAssetBatch } from './assetTransport'
+import { encodeAssetBatch, decodeAssetBatch, getAssetUrl } from './assetTransport'
+import { downloadUrl } from '../download'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
@@ -666,16 +667,30 @@ export class NodeStorage{
         }
     }
 
-    async exportBackup(opts?: ExportBackupOptions): Promise<Response> {
+    async downloadBackupExport(opts?: ExportBackupOptions): Promise<void> {
         const params = new URLSearchParams()
         if(opts?.target === 'upstream') params.set('target', 'upstream')
         if(opts?.mode === 'settings') params.set('mode', 'settings')
         if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
         const query = params.toString()
         const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
-        const da = await this.authFetch(url)
-        if (da.status < 200 || da.status >= 300) throw `backup export error: ${da.status}`
-        return da
+        await this.startCookieDownload(url)
+    }
+
+    private async startCookieDownload(url: string): Promise<void> {
+        // Refresh only the download cookie, without registering a sync client.
+        const response = await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'risu-auth': await this.createAuth() },
+        })
+        if (!response.ok) throw await storageRequestError('startCookieDownload', response)
+        downloadUrl(url)
+    }
+
+    async downloadAsset(key: string, filename?: string): Promise<void> {
+        const params = new URLSearchParams({ download: '1' })
+        if (filename) params.set('filename', filename)
+        await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
     }
 
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
@@ -931,10 +946,8 @@ export class NodeStorage{
         if (!da.ok) throw await storageRequestError('deleteServerBackup', da)
     }
 
-    async downloadServerBackup(filename: string): Promise<Response> {
-        const da = await this.authFetch(`/api/backup/server/download/${encodeURIComponent(filename)}`)
-        if (!da.ok) throw await storageRequestError('downloadServerBackup', da)
-        return da
+    async downloadServerBackup(filename: string): Promise<void> {
+        await this.startCookieDownload(`/api/backup/server/download/${encodeURIComponent(filename)}`)
     }
 
     // ── Chat content (runtime lazy load) ────────────────────────────────────

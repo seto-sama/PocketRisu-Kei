@@ -137,11 +137,13 @@ function installAssetRoutes(app, {
 
     function pipeFileResponse(res, filePath, options) {
         const stream = createReadStream(filePath, options)
+        res.once('close', () => stream.destroy())
         stream.on('error', (error) => {
             if (res.headersSent) res.destroy(error)
             else {
                 res.removeHeader('Content-Length')
                 res.removeHeader('Content-Range')
+                res.removeHeader('Content-Disposition')
                 res.status(500).end()
             }
         })
@@ -151,11 +153,14 @@ function installAssetRoutes(app, {
     app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
         try {
             const key = Buffer.from(req.params.hexKey, 'hex').toString('utf-8')
+            const download = req.query.download === '1'
+            const filename = typeof req.query.filename === 'string' ? req.query.filename : ''
 
             if (key.startsWith('inlay/')) {
                 const id = key.slice('inlay/'.length)
                 const file = await getInlayFileInfo(id)
                 if (file) {
+                    if (download) res.attachment(filename || `${id}.${file.ext}`)
                     const etag = `"${Math.floor(file.mtimeMs)}"`
                     const cacheHeaders = {
                         'Content-Type': getMimeFromExt(file.ext),
@@ -211,6 +216,7 @@ function installAssetRoutes(app, {
             if (thumbnailAsset) {
                 const thumbnail = await ensureThumbnail(thumbnailAsset.id, thumbnailAsset.type)
                 if (!thumbnail) return res.status(404).set('Cache-Control', 'no-store').end()
+                if (download) res.attachment(filename || `${thumbnailAsset.id}.webp`)
 
                 const isVideo = thumbnailAsset.type === 'video'
                 const etagPrefix = isVideo ? 'video-thumb' : 'thumb'
@@ -243,6 +249,7 @@ function installAssetRoutes(app, {
             if (!data) return res.status(404).set('Cache-Control', 'no-store').end()
 
             const { binary, contentType } = resolveAssetPayload(key, data)
+            if (download) res.attachment(filename || key.split('/').pop())
             res.set({
                 'Content-Type': contentType,
                 'Cache-Control': 'public, max-age=31536000, immutable',

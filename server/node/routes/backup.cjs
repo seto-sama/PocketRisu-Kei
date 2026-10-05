@@ -13,6 +13,7 @@ const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, dele
 const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
 
 function installBackupRoutes(app, {
+    checkDownloadAuth,
     deleteSnapshotStateRows,
     DB_BACKUP_PREFIX,
     storageState,
@@ -292,7 +293,7 @@ function installBackupRoutes(app, {
     });
 
     app.get('/api/backup/export', async (req, res, next) => {
-        if(!await checkAuth(req, res)){ return; }
+        if(!await checkDownloadAuth(req, res)){ return; }
         try {
             // ?target=upstream excludes application-specific inlay namespaces (inlay/,
             // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
@@ -923,7 +924,7 @@ function installBackupRoutes(app, {
     });
 
     app.get('/api/backup/server/download/:filename', async (req, res, next) => {
-        if (!await checkAuth(req, res)) { return; }
+        if (!await checkDownloadAuth(req, res)) { return; }
         try {
             const filename = req.params.filename;
             if (!BACKUP_FILENAME_REGEX.test(filename)) {
@@ -941,7 +942,17 @@ function installBackupRoutes(app, {
             res.setHeader('content-disposition', `attachment; filename="${filename}"`);
             res.setHeader('content-length', stat.size);
             const { createReadStream } = require('fs');
-            createReadStream(filePath).pipe(res);
+            const stream = createReadStream(filePath);
+            res.once('close', () => stream.destroy());
+            stream.once('error', error => {
+                if (res.headersSent) res.destroy(error);
+                else {
+                    res.removeHeader('Content-Length');
+                    res.removeHeader('Content-Disposition');
+                    next(error);
+                }
+            });
+            stream.pipe(res);
         } catch (error) {
             next(error);
         }

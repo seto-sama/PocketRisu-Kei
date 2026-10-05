@@ -1546,7 +1546,6 @@ export const languageKorean = {
   cleanupUnusedTranslationCacheDesc:
     "채팅이나 요약에서 더 이상 사용하지 않는 캐시를 삭제합니다.",
   exportTranslationCache: "번역 캐시 내보내기",
-  exportTranslationCacheSuccess: "번역 캐시를 내보냈습니다.",
   importTranslationCache: "번역 캐시 가져오기",
   importTranslationCacheConfirm:
     "번역 캐시에 항목을 병합합니다. 기존 키는 덮어씌워집니다. 계속하시겠습니까?",
@@ -2106,7 +2105,7 @@ export const languageKorean = {
   serverBackupDownload: "다운로드",
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
-  serverBackupDownloading: "백업 다운로드 중...",
+  browserDownloadStarted: "다운로드를 시작합니다.",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",
@@ -2635,7 +2634,6 @@ export const languageKorean = {
   backupSettingsOnly: "설정 내보내기",
   backupSettingsOnlyDesc: "채팅 및 캐릭터 등을 제외한 설정 백업만 내보냅니다.",
   backupSettingsOnlyEstimating: "설정 백업 용량 확인 중...",
-  backupSettingsOnlySaving: "설정 내보내는 중...",
   backupSettingsOnlyConfirm: (size: string) =>
     `채팅과 캐릭터를 제외한 설정 백업을 내보낼까요? 예상 용량은 ${size}입니다.`,
   backupSettingsOnlyBreakdown: (
@@ -2649,7 +2647,6 @@ export const languageKorean = {
   backupSettingsOnlyWithoutModuleAssets: (size: string) => `모듈 에셋 제외 (${size})`,
   backupSettingsOnlyModuleAssetsSkipped:
     "모듈 에셋을 제외하고 설정을 내보냈습니다. 모듈을 다시 다운로드하기 전까지 이미지가 비어 보일 수 있습니다.",
-  backupSettingsOnlyDone: "설정을 내보냈습니다.",
   backupSettingsOnlyFailed: "설정 내보내기 실패",
 
   relatedGithub: "GitHub",

@@ -38,6 +38,7 @@ import {
     visitClientWritableRootValues,
 } from './storage/persistenceShape';
 import { forageStorage } from "./storage/autoStorage";
+import { getAssetUrl } from './storage/assetTransport';
 import {
     registerSyncedDatabaseHandler,
     reconcileHydratedChats,
@@ -108,30 +109,7 @@ configureNativeFetchLogging({
     },
 })
 
-export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer | string) {
-    if (typeof (dat) === 'string') {
-        dat = Buffer.from(dat, 'utf-8')
-    }
-    const data = new Uint8Array(dat)
-    const downloadURL = (data: string, fileName: string) => {
-        const a = document.createElement('a')
-        a.href = data
-        a.download = fileName
-        document.body.appendChild(a)
-        a.style.display = 'none'
-        a.click()
-        a.remove()
-    }
-
-    const blob = new Blob([data], { type: 'application/octet-stream' })
-    const url = URL.createObjectURL(blob)
-
-    downloadURL(url, name)
-
-    setTimeout(() => {
-        URL.revokeObjectURL(url)
-    }, 10000)
-}
+export { downloadFile } from './download'
 
 let fileCache: {
     origin: string[], res: (Uint8Array | 'loading')[]
@@ -175,7 +153,7 @@ export async function getFileSrc(loc: string) {
     // A direct server URL lets the browser cache the response using HTTP headers,
     // so repeated renders (sidebar, chat) cost zero network after first load.
     if ((globalThis as any).__NODE__) {
-        return `/api/asset/${Buffer.from(loc, 'utf-8').toString('hex')}`
+        return getAssetUrl(loc)
     }
     try {
         let ind = fileCache.origin.indexOf(loc)
