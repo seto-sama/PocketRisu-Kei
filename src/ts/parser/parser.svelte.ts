@@ -1639,9 +1639,7 @@ function decodeStyleContent(hexText:string):{css?:string, fallback?:string}{
     }
 }
 
-export async function hasher(data:Uint8Array){
-    return Buffer.from(await crypto.subtle.digest("SHA-256", data as any)).toString('hex');
-}
+export { sha256Hex as hasher } from '../hash'
 
 export type CbsConditions = {
     firstmsg?:boolean

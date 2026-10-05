@@ -1,4 +1,4 @@
-import { Sha256 } from '@aws-crypto/sha256-js'
+import { sha256Hex } from '../../hash'
 import type { PromptItem } from '../../process/prompt'
 
 const CACHE_KEY_PREFIX = 'rk'
@@ -32,19 +32,7 @@ function getRawPresetPrefix(promptTemplate: readonly PromptItem[]): readonly Pro
     return throughFinalCachePoint.filter(item => item.type !== 'cache')
 }
 
-async function sha256Hex(value: string): Promise<string> {
-    const hash = new Sha256()
-    hash.update(value)
-    const digest = await hash.digest()
-    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/**
- * Builds the stable GPT-5.6 prompt-cache routing key for a chat request.
- * The preset component intentionally hashes the unparsed prompt cards through
- * the card immediately before the final explicit cache card. With no explicit
- * cache card, the complete raw prompt template participates in the hash.
- */
+/** Hashes raw prompt cards before the final cache marker, or all cards when none exists. */
 export async function createOpenAiPromptCacheKey(
     roomId: string | undefined,
     promptTemplate: readonly PromptItem[] | null | undefined,
@@ -52,7 +40,6 @@ export async function createOpenAiPromptCacheKey(
     if (!roomId || !Array.isArray(promptTemplate)) return undefined
 
     const roomPrefix = roomId.slice(0, ROOM_ID_LENGTH)
-    if (!roomPrefix) return undefined
 
     const rawPresetPrefix = getRawPresetPrefix(promptTemplate)
     const presetHash = await sha256Hex(canonicalStringify(rawPresetPrefix))
