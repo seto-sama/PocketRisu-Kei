@@ -1,3 +1,4 @@
+const { chatMetadataFields } = require('../../shared/chatShape.mjs');
 const express = require('express');
 
 const app = express();
@@ -55,7 +56,6 @@ const {
     finishGenerationJob,
     finishGenerationWorkflow,
     getGenerationWorkflow,
-    getActiveGenerationWorkflow,
     cancelGenerationWorkflow,
     cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
@@ -359,7 +359,7 @@ function assignMissingPersistentIds(dbObj) {
             const messageIds = new Set();
             for (const message of chat.message) {
                 if (!message) continue;
-                if (!message.chatId || messageIds.has(message.chatId)) {
+                if (typeof message.chatId !== 'string' || !message.chatId || messageIds.has(message.chatId)) {
                     message.chatId = nodeCrypto.randomUUID();
                     changed = true;
                 }
@@ -418,9 +418,20 @@ async function ensureChatStore(characterId, chatId) {
     if (!storageState.fullChatStore) storageState.fullChatStore = new Map();
     if (!appDataStore.getState().initialized || !characterId || !chatId) return;
     let chats = storageState.fullChatStore.get(characterId);
-    if (chats?.has(chatId)) return;
-    const chat = appDataStore.getChat(characterId, chatId);
+    let chat = chats?.get(chatId) ?? appDataStore.getChat(characterId, chatId);
     if (!chat) return;
+    const messageIds = new Set();
+    const needsIds = (chat.message ?? []).some(message => {
+        if (typeof message?.chatId !== 'string' || !message.chatId || messageIds.has(message.chatId)) return true;
+        messageIds.add(message.chatId);
+        return false;
+    });
+    if (needsIds) {
+        const normalized = structuredClone(chat);
+        assignMissingPersistentIds({ characters: [{ chaId: characterId, chats: [normalized] }] });
+        chat = appDataStore.commitChat(characterId, chatId, normalized, undefined, { requireExpected: false }).chat;
+        refreshCanonicalDatabaseCache();
+    }
     if (!chats) {
         chats = new Map();
         storageState.fullChatStore.set(characterId, chats);
@@ -432,7 +443,7 @@ async function ensureChatStore(characterId, chatId) {
 // entry. Anything else is a chat-internal field — those live in fullChatStore,
 // not in dbCache, and should never appear in a /api/patch payload. Keep in
 // intentionally limited to metadata that is part of the lazy chat stub.
-const STUB_METADATA_FIELDS = new Set(['id', 'name', '_stub', 'lastDate', 'folderId', 'modules']);
+const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
 
 // Only add/replace/remove are produced by the legitimate patcher. move/copy
 // could alias _stub or other chat-internal fields through `from`, bypassing
@@ -1510,8 +1521,6 @@ const canonicalChatService = createCanonicalChatService({
     commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
         commitChatContent(storageState.fullChatStore, characterId, chatId, chat, expectedEtag, options),
     computeChatEtag,
-    getActiveGenerationWorkflow,
-    getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
     getGenerationWorkflowInputChat: generationDb.getGenerationWorkflowInputChat,
     persistNow: persistCanonicalChatState,
     schedulePersist: scheduleCanonicalChatPersist,
@@ -2414,6 +2423,7 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
         chatId: roomId,
         chat: input.chat,
         expectedEtag: input.expectedEtag,
+        changes: input.changes,
     });
 }
 

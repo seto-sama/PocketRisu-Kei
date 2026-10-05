@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import chatStorePkg from './chatStore.cjs'
+import { createDelta } from '../../shared/guardedDelta.mjs'
 
 const {
     computeChatEtag,
@@ -42,8 +43,6 @@ function createServiceHarness(initialChat: any, overrides: Record<string, any> =
             options,
         ),
         computeChatEtag,
-        getActiveGenerationWorkflow: () => undefined,
-        getLatestGenerationWorkflow: () => undefined,
         getGenerationWorkflowInputChat: () => undefined,
         persistNow,
         schedulePersist,
@@ -148,6 +147,56 @@ describe('chat content compare-and-swap', () => {
 })
 
 describe('canonical chat service', () => {
+    it.each(['user', 'generation'])('keeps legacy bookmark fields out of %s delta commits', async kind => {
+        const base = { id: 'room-1', message: [{ chatId: 'message', role: 'user', data: 'text' }] }
+        const edited = { ...base, note: 'edited', bookmarks: ['message'], bookmarkNames: { message: 'name' }, bookmarkTagIds: { message: ['tag'] } }
+        const harness = createServiceHarness(base)
+        const input = { characterId: 'character-1', chatId: 'room-1', changes: createDelta(base, edited) }
+        const result = kind === 'user'
+            ? await harness.service.commitUserDelta(input)
+            : await harness.service.commitGenerationInput(input)
+        expect(result.chat).toEqual({ ...base, note: 'edited' })
+    })
+
+    it('applies a deletion over a concurrently committed image without a historical version', async () => {
+        const base = { id: 'room-1', message: [
+            { chatId: 'old', role: 'user', data: 'old' },
+        ] }
+        const current = { ...base, message: [...base.message, { chatId: 'image', role: 'char', data: 'image' }] }
+        const harness = createServiceHarness(current)
+        const result = await harness.service.commitUserDelta({
+            characterId: 'character-1', chatId: 'room-1',
+            changes: createDelta(base, { ...base, message: [] }),
+        })
+        expect(result.chat.message).toEqual([current.message[1]])
+        expect(harness.chats.get('room-1')).toEqual(result.chat)
+        expect(harness.schedulePersist).toHaveBeenCalledOnce()
+    })
+
+    it('rejects edits to the same message and keeps the failed batch out of persistence', async () => {
+        const base = { id: 'room-1', note: 'before', message: [{ chatId: 'same', role: 'user', data: 'old' }] }
+        const current = { ...base, message: [{ ...base.message[0], data: 'remote' }] }
+        const harness = createServiceHarness(current)
+        await expect(harness.service.commitUserDelta({
+            characterId: 'character-1', chatId: 'room-1',
+            changes: createDelta(base, { ...base, note: 'local', message: [{ ...base.message[0], data: 'local' }] }),
+        })).rejects.toMatchObject({ httpStatus: 409, code: 'CHAT_CONTENT_CHANGED' })
+        expect(harness.chats.get('room-1')).toEqual(current)
+        expect(harness.schedulePersist).not.toHaveBeenCalled()
+    })
+
+    it('uses the same guarded delta for generation input and preserves independent server additions', async () => {
+        const base = { id: 'room-1', message: [{ chatId: 'old', role: 'user', data: 'old' }] }
+        const current = { ...base, message: [...base.message, { chatId: 'image', role: 'char', data: 'image' }] }
+        const input = { ...base, message: [...base.message, { chatId: 'new', role: 'user', data: 'new prompt' }] }
+        const harness = createServiceHarness(current)
+        const result = await harness.service.commitGenerationInput({
+            characterId: 'character-1', chatId: 'room-1', chat: input,
+            expectedEtag: 'stale', changes: createDelta(base, input),
+        })
+        expect(result.chat.message.map(message => message.chatId)).toEqual(['old', 'new', 'image'])
+        expect(harness.persistNow).toHaveBeenCalledWith(expect.objectContaining({ generationInput: true }))
+    })
     it('commits a server-owned image projection and publishes the canonical chat', async () => {
         const initial = { id: 'room-1', message: [{ chatId: 'image-1', data: 'old' }] }
         const harness = createServiceHarness(initial)
@@ -253,29 +302,15 @@ describe('canonical chat service', () => {
         expect(harness.publishChatCommitted).not.toHaveBeenCalled()
     })
 
-    it('rejects a stale ordinary edit at the shared CAS boundary', async () => {
-        const initial = { id: 'room-1', message: [{ role: 'user', data: 'current' }] }
-        const harness = createServiceHarness(initial)
-
-        await expect(harness.service.commitUserEdit({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            chat: { id: 'room-1', message: [{ role: 'user', data: 'stale' }] },
-            expectedEtag: 'stale-etag',
-        })).rejects.toBeInstanceOf(CanonicalChatCommitError)
-        expect(harness.schedulePersist).not.toHaveBeenCalled()
-    })
-
     it('passes the committed chat identity to the durable user-edit boundary', async () => {
         const initial = { id: 'room-1', message: [] }
-        const next = { id: 'room-1', message: [{ role: 'user', data: 'saved' }] }
+        const next = { id: 'room-1', message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }] }
         const harness = createServiceHarness(initial)
 
-        await harness.service.commitUserEdit({
+        await harness.service.commitUserDelta({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: next,
-            expectedEtag: computeChatEtag(initial),
+            changes: createDelta(initial, next),
         })
 
         expect(harness.schedulePersist).toHaveBeenCalledWith({
@@ -292,7 +327,7 @@ describe('canonical chat service', () => {
         }
         const submitted = {
             id: 'room-1', name: 'stale name', folderId: 'stale-folder',
-            message: [{ role: 'user', data: 'saved' }],
+            message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }],
         }
         const durableChat = {
             ...submitted,
@@ -307,11 +342,10 @@ describe('canonical chat service', () => {
         }))
         const harness = createServiceHarness(initial, { schedulePersist })
 
-        const result = await harness.service.commitUserEdit({
+        const result = await harness.service.commitUserDelta({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: submitted,
-            expectedEtag: computeChatEtag(initial),
+            changes: createDelta(initial, submitted),
             originClientId: 'client-a',
         })
 
@@ -334,15 +368,14 @@ describe('canonical chat service', () => {
         const before = { id: 'room-1', message: [] }
         const alreadyCommitted = {
             id: 'room-1',
-            message: [{ role: 'user', data: 'saved' }],
+            message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }],
         }
         const harness = createServiceHarness(alreadyCommitted)
 
-        const result = await harness.service.commitUserEdit({
+        const result = await harness.service.commitUserDelta({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: alreadyCommitted,
-            expectedEtag: computeChatEtag(before),
+            changes: createDelta(before, alreadyCommitted),
         })
 
         expect(result.etag).toBe(computeChatEtag(alreadyCommitted))

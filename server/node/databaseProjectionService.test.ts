@@ -5,6 +5,7 @@ import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
 import utilsPkg from './utils.cjs'
 import { createPatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs'
+import { createDelta } from '../../shared/guardedDelta.mjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const {
@@ -240,6 +241,19 @@ describe('database projection reads and initialization', () => {
 })
 
 describe('database projection JSON Patch commits', () => {
+    it('commits guarded deltas over unrelated canonical changes and rejects overlapping fields', () => {
+        const { store, service } = createService()
+        store.replaceFromProjection(sampleDatabase())
+        const base = service.getStartupProjection().database
+        const local = { ...base, language: 'en' }
+        store.syncStartupProjection({ ...base, localOnlyRoot: { secret: false } })
+        expect(service.patchDatabase({ changes: createDelta(base, local) }).success).toBe(true)
+        expect(service.getStartupProjection().database).toMatchObject({ language: 'en', localOnlyRoot: { secret: false } })
+        expect(service.patchDatabase({ changes: createDelta(base, local) }).success).toBe(true)
+        expect(() => service.patchDatabase({ changes: createDelta(base, { ...base, language: 'ja' }) }))
+            .toThrow(DatabaseProjectionConflictError)
+        expect(service.getStartupProjection().database.language).toBe('en')
+    })
     it.each([
         {
             change: 'root settings',

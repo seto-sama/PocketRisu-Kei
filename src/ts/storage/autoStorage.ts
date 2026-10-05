@@ -4,6 +4,7 @@ import {
     type DatabaseProjection,
     type ExportBackupOptions,
     type PatchItemResult,
+    type DeltaPatch,
 } from "./nodeStorage"
 
 export class AutoStorage{
@@ -79,7 +80,7 @@ export class AutoStorage{
         return this.realStorage.initializeDatabase(database, expectedRevision)
     }
 
-    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+    async patchDatabase(patchData: DeltaPatch | { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
         await this.Init()
         return this.realStorage.patchDatabase(patchData)
     }

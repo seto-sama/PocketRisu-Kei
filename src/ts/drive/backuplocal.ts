@@ -252,7 +252,7 @@ export async function SavePartialLocalBackup(){
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
             if (chat._placeholder && chat.id) {
-                const full = await fetchChatFromServer(char.chaId, i, chat.id)
+                const full = await fetchChatFromServer(char.chaId, i, chat.id, { trackBaseline: false })
                 if (full) {
                     char.chats[i] = full as Chat
                 } else {

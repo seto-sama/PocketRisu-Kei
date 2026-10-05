@@ -30,7 +30,6 @@
     import {
         updatePopupStore,
         selfUpdateProgressStore,
-        dismissUpdatePopup,
         type UpdateInfo,
         type SelfUpdateProgress,
     } from "src/ts/update";
@@ -45,8 +44,44 @@
     import Select from "../UI/components/Select.svelte";
     import SelectOption from "../UI/components/SelectOption.svelte";
     import Accordion from "../UI/components/Accordion.svelte";
+    import { createDelta } from '../../../shared/guardedDelta.mjs';
+    import { chooseSaveConflict, SaveConflictCancelledError } from 'src/ts/storage/saveConflict';
 
     let lastResult = $state('');
+    let conflictPreviewOpen = $state(false);
+
+    async function previewSaveConflict() {
+        conflictPreviewOpen = true;
+        const base = {
+            message: [
+                { chatId: 'edited-message', role: 'char', data: '문을 열었다.\n방 안은 조용했다.' },
+                { chatId: 'deleted-message', role: 'user', data: '이전 질문' },
+            ],
+            note: '이전 메모',
+            savedToggleValues: { prompt: 'A' },
+        };
+        const local = {
+            message: [{ ...base.message[0], data: '문을 천천히 열었다.\n방 안에서 음악이 들렸다.' }],
+            note: '',
+            savedToggleValues: { prompt: 'B' },
+        };
+        const server = {
+            message: [
+                { ...base.message[0], data: '문을 열었다.\n방 안은 환하게 빛났다.' },
+                { ...base.message[1], data: '서버에서 수정한 질문' },
+            ],
+            savedToggleValues: { prompt: 'C' },
+        };
+        try {
+            const result = await chooseSaveConflict<any>(base, createDelta(base, local), server, '저장 충돌 비교 · 미리보기');
+            setResult(`선택 결과 (실제 저장 없음): ${JSON.stringify(result, null, 2)}`);
+        } catch (error) {
+            if (error instanceof SaveConflictCancelledError) setResult('저장 충돌 비교: 취소');
+            else notifyError(error instanceof Error ? error.message : String(error));
+        } finally {
+            conflictPreviewOpen = false;
+        }
+    }
 
     function disablePanel() {
         localStorage.removeItem('risu-dev-panel');
@@ -368,6 +403,7 @@ function hello(): string {
         publishedAt: new Date().toISOString(),
         canSelfUpdate: true,
         deploymentType: 'portable',
+        simulation: true,
     };
     const SAMPLE_POPUP_MESSAGE = '- 채팅 로딩 속도 개선\n- 백업 안정성 향상\n- shadcn 기반 다이얼로그 도입';
 
@@ -379,12 +415,6 @@ function hello(): string {
     function showProgress(progress: SelfUpdateProgress, infoOverrides: Partial<UpdateInfo> = {}) {
         updatePopupStore.set({ ...SAMPLE_UPDATE_BASE, ...infoOverrides });
         selfUpdateProgressStore.set(progress);
-    }
-
-    function forceCloseUpdate() {
-        selfUpdateProgressStore.set(null);
-        dismissUpdatePopup();
-        setResult('UpdatePopup: 강제 닫힘');
     }
 
     // ─── Section 7: Component gallery ────────────────────────────────────────
@@ -483,6 +513,7 @@ function hello(): string {
             <Button onclick={simulatePluginPermissionFlow}>플러그인 권한 흐름 (3종 연속)</Button>
             <Button onclick={simulateCharacterCreate}>캐릭터 생성 흐름</Button>
             <Button onclick={simulateImageGeneration}>이미지 생성 (실패)</Button>
+            <Button variant="outline" disabled={conflictPreviewOpen} onclick={previewSaveConflict}>저장 충돌 비교 (데모)</Button>
         </div>
     </div>
 
@@ -514,8 +545,8 @@ function hello(): string {
         <h3 class="text-sm font-semibold text-maintext">6. UpdatePopup 시뮬레이션</h3>
         <p class="text-xs text-subtext">
             실제 <code class="bg-lightbg px-1 py-0.5 rounded">&lt;UpdatePopup /&gt;</code>
-            (App.svelte에 항상 마운트)을 직접 띄웁니다. <strong class="text-maintext">"Reload" 버튼은 진짜 페이지 reload</strong>를
-            일으키니 데모 중에는 누르지 마세요. 끝나면 "강제 닫기"로 정리.
+            (App.svelte에 항상 마운트)을 직접 띄웁니다. 진행 단계는 2초 후 완료되며,
+            완료 후 Reload 버튼이나 X 버튼으로 닫아도 새로고침되지 않습니다. 실제 업데이트 요청은 실행하지 않습니다.
         </p>
 
         <div class="mt-1 flex flex-col gap-1.5">
@@ -543,9 +574,8 @@ function hello(): string {
         <div class="mt-1 flex flex-col gap-1.5">
             <span class="text-xs text-subtext">종료 단계 (X 노출 / 닫기 가능)</span>
             <div class="flex flex-wrap gap-2">
-                <Button size="sm" variant="success" onclick={() => showProgress({ step: 'done', progress: 100, message: '업데이트 완료.' })}>done (Reload 주의)</Button>
+                <Button size="sm" variant="success" onclick={() => showProgress({ step: 'done', progress: 100, message: '업데이트 완료.' })}>done</Button>
                 <Button size="sm" variant="destructive" onclick={() => showProgress({ step: 'error', progress: null, message: '업데이트 실패: 서버 응답 없음 (HTTP 502)' })}>error</Button>
-                <Button size="sm" variant="ghost" onclick={forceCloseUpdate}>강제 닫기</Button>
             </div>
         </div>
     </div>

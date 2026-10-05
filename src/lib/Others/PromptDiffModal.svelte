@@ -10,6 +10,7 @@
     import Badge from "../UI/components/Badge.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import { language } from "src/lang";
+    import { loadDiffModule, visibleDiffLines } from "src/ts/gui/textDiff";
 
     interface Props {
         firstPresetIndex: number;
@@ -18,13 +19,6 @@
     }
     let { firstPresetIndex, secondPresetIndex, onClose = () => {} }: Props = $props();
 
-
-// Lazy-loaded diff module
-// -----------------------------------------------------------------------------
-    let diffModulePromise: Promise<typeof import("diff")> | null = null
-    function loadDiffModule() {
-        return (diffModulePromise ??= import("diff"))
-    }
 
 // Config / constants
 // -----------------------------------------------------------------------------
@@ -990,30 +984,10 @@
         let current: DiffSegment | null = null
 
         const isContext = (part: DiffPart) => part.k === 'same'
-        const keep = new Array<boolean>(len).fill(!showOnlyChanges)
-
-        if (showOnlyChanges) {
-            for (let i = 0; i < len; i++) {
-                if (isContext(parts[i])) continue
-
-                const from = Math.max(0, i - contextRadius)
-                const to   = Math.min(len - 1, i + contextRadius)
-
-                for (let j = from; j <= to; j++) {
-                    keep[j] = true
-                }
-            }
-            if (!keep.some(Boolean)) return []
-        }
-
-        if (showOnlyChanges) {
-            for (const r of expandedRanges) {
-                if (r.scope !== scope) continue
-                const from = Math.max(0, r.from)
-                const to   = Math.min(len - 1, r.to)
-                for (let j = from; j <= to; j++) keep[j] = true
-            }
-        }
+        const changed = parts.map(part => !isContext(part))
+        if (showOnlyChanges && !changed.some(Boolean)) return []
+        const keep = visibleDiffLines(changed, showOnlyChanges, contextRadius,
+            expandedRanges.filter(range => range.scope === scope))
 
         const flushCurrent = () => {
             if (current) {

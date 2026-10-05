@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyDelta } from '../../../shared/guardedDelta.mjs'
 
 const storage = vi.hoisted(() => {
     let etag: string | undefined
+    let savedChat: any
     const releases: Array<() => void> = []
-    const calls: Array<{ expectedEtag?: string, data: string }> = []
+    const calls: Array<{ data: string }> = []
     return {
         calls,
         releases,
@@ -11,18 +13,21 @@ const storage = vi.hoisted(() => {
             calls.length = 0
             releases.length = 0
             etag = undefined
+            savedChat = undefined
         },
         realStorage: {
-            saveChatContent: vi.fn(async (
+            patchChatContent: vi.fn(async (
                 _characterId: string,
                 _chatIndex: number,
                 _chatId: string,
-                chat: { message: Array<{ data: string }> },
-                commit?: { expectedEtag?: string },
+                request: { changes: any[] },
             ) => {
-                calls.push({ expectedEtag: commit?.expectedEtag, data: chat.message[0]?.data })
+                const next = applyDelta(savedChat, request.changes)
+                calls.push({ data: next.message[0]?.data })
                 await new Promise<void>(resolve => releases.push(resolve))
+                savedChat = next
                 etag = `etag-${calls.length}`
+                return { etag }
             }),
             getChatEtag: vi.fn(() => etag),
         },
@@ -45,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('chat save serialization', () => {
-    it('queues an immediate follow-up edit until creation acknowledges its ETag', async () => {
+    it('queues an immediate follow-up edit until creation acknowledges its baseline', async () => {
         const chat = {
             id: 'copy',
             name: 'Copy',
@@ -62,7 +67,7 @@ describe('chat save serialization', () => {
         storage.releases.shift()?.()
         await creation
         await vi.waitFor(() => expect(storage.calls).toHaveLength(2))
-        expect(storage.calls[1]).toEqual({ expectedEtag: 'etag-1', data: 'after' })
+        expect(storage.calls[1]).toEqual({ data: 'after' })
 
         storage.releases.shift()?.()
         await edit
@@ -77,7 +82,7 @@ describe('chat save serialization', () => {
 
         const flush = flushDirtyChatToServer('character', 0, chat)
         await vi.waitFor(() => expect(storage.calls).toEqual([
-            { expectedEtag: 'base-etag', data: 'edited answer' },
+            { data: 'edited answer' },
         ]))
         storage.releases.shift()?.()
 

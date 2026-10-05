@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test, expect, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-const storageMocks = vi.hoisted(() => ({ fetchChatContent: vi.fn() }))
+const storageMocks = vi.hoisted(() => ({ fetchChatState: vi.fn() }))
 
 // Stub out the heavy reactive modules so loading chatStorage.ts doesn't trigger
 // unrelated $effect chains that fail in a stripped-down test environment.
@@ -42,7 +42,7 @@ const blankChat = (overrides: Partial<Chat> = {}): Chat => ({
 })
 
 beforeEach(() => {
-    storageMocks.fetchChatContent.mockReset()
+    storageMocks.fetchChatState.mockReset()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
         callback(0)
         return 1
@@ -99,7 +99,7 @@ describe('chat body hydration failures', () => {
     test('records a missing body on 404 without replacing the placeholder', async () => {
         const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
         const chats = [placeholder]
-        storageMocks.fetchChatContent.mockResolvedValue(null)
+        storageMocks.fetchChatState.mockResolvedValue(null)
 
         await expect(ensureChatHydrated(chats, 0, 'character-1')).resolves.toBeNull()
 
@@ -112,7 +112,7 @@ describe('chat body hydration failures', () => {
         const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
         const chats = [placeholder]
         const error = new Error('network unavailable')
-        storageMocks.fetchChatContent.mockRejectedValue(error)
+        storageMocks.fetchChatState.mockRejectedValue(error)
 
         await expect(ensureChatHydrated(chats, 0, 'character-1')).rejects.toBe(error)
 
@@ -124,18 +124,19 @@ describe('chat body hydration failures', () => {
     test('clears failure when retry begins and removes it after successful hydration', async () => {
         const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
         const chats = [placeholder]
-        storageMocks.fetchChatContent.mockResolvedValueOnce(null)
+        storageMocks.fetchChatState.mockResolvedValueOnce(null)
         await ensureChatHydrated(chats, 0, 'character-1')
         expect(failureFor()).toBe('missing')
 
         let resolveFetch!: (chat: Chat) => void
-        storageMocks.fetchChatContent.mockImplementationOnce(() => new Promise(resolve => {
-            resolveFetch = resolve
+        storageMocks.fetchChatState.mockImplementationOnce(() => new Promise(resolve => {
+            resolveFetch = chat => resolve({ chat })
         }))
         const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
         const retry = ensureChatHydrated(chats, 0, 'character-1')
 
         expect(failureFor()).toBeUndefined()
+        await vi.waitFor(() => expect(resolveFetch).toBeDefined())
         resolveFetch(hydrated)
         await expect(retry).resolves.toBe(hydrated)
         expect(chats[0]).toBe(hydrated)
@@ -145,14 +146,14 @@ describe('chat body hydration failures', () => {
     test('deduplicates concurrent requests for the same placeholder', async () => {
         const chats = [stubToPlaceholder({ id: 'c1', name: 't', _stub: true })]
         let resolveFetch!: (chat: Chat) => void
-        storageMocks.fetchChatContent.mockImplementationOnce(() => new Promise(resolve => {
-            resolveFetch = resolve
+        storageMocks.fetchChatState.mockImplementationOnce(() => new Promise(resolve => {
+            resolveFetch = chat => resolve({ chat })
         }))
         const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
 
         const first = ensureChatHydrated(chats, 0, 'character-1')
         const second = ensureChatHydrated(chats, 0, 'character-1')
-        expect(storageMocks.fetchChatContent).toHaveBeenCalledTimes(1)
+        await vi.waitFor(() => expect(storageMocks.fetchChatState).toHaveBeenCalledTimes(1))
         resolveFetch(hydrated)
         await expect(Promise.all([first, second])).resolves.toEqual([hydrated, hydrated])
     })
