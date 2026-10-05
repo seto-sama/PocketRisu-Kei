@@ -348,29 +348,6 @@ async function executeClientAction(
             }
             return JSON.stringify(result)
         }
-        case 'utility.dynamic-assets': {
-            let text = String(payload.text ?? '')
-            const assetNames = Array.isArray(payload.assetNames)
-                ? payload.assetNames.map(String).filter(Boolean)
-                : []
-            if (assetNames.length === 0) return text
-            const processer = new HypaProcesser()
-            await processer.addText(assetNames)
-            const replacements = new Map<string, string>()
-            const assetPattern = /{{(raw|path|img|image|video|audio|bgm|bg|emotion|asset|video-img|source)::(.+?)}}/gms
-            for (const match of text.matchAll(assetPattern)) {
-                const [full, type, name] = match
-                if (type === 'emotion' || type === 'source' || assetNames.includes(name)) continue
-                if (!replacements.has(full)) {
-                    const best = (await processer.similaritySearch(name))[0]
-                    if (best) replacements.set(full, `{{${type}::${best}}}`)
-                }
-            }
-            for (const [source, replacement] of replacements) {
-                text = text.replaceAll(source, replacement)
-            }
-            return text
-        }
         default: throw new Error(`Unsupported Revenant client action: ${action.kind}`)
     }
 }
