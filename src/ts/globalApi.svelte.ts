@@ -1764,35 +1764,35 @@ export function getBasename(data: string) {
  * Ensures that all characters are properly ordered and removes any invalid entries.
  */
 export function checkCharOrder() {
-    let db = getDatabase()
+    const db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
     if (db.hiddenCharacterIds?.length) {
         const knownIds = new Set(db.characters.map(character => character.chaId))
         const hiddenIds = [...new Set(db.hiddenCharacterIds)].filter(id => knownIds.has(id))
         if (hiddenIds.length !== db.hiddenCharacterIds.length) db.hiddenCharacterIds = hiddenIds
     }
-    let ordered = []
+    const orderedIds = new Set<string>()
     for (let i = 0; i < db.characterOrder.length; i++) {
         const folder = db.characterOrder[i]
         if (typeof (folder) !== 'string' && folder) {
             for (const f of folder.data) {
-                ordered.push(f)
+                orderedIds.add(f)
             }
         }
         if (typeof (folder) === 'string') {
-            ordered.push(folder)
+            orderedIds.add(folder)
         }
     }
 
-    let charIdList: string[] = []
+    const charIds = new Set<string>()
 
     for (let i = 0; i < db.characters.length; i++) {
         const char = db.characters[i]
         const charId = char.chaId
         if (!char.trashTime) {
-            charIdList.push(charId)
+            charIds.add(charId)
         }
-        if (!ordered.includes(charId)) {
+        if (!orderedIds.has(charId)) {
             if (charId !== '§temp' && !char.trashTime) {
                 db.characterOrder.push(charId)
             }
@@ -1810,7 +1810,7 @@ export function checkCharOrder() {
             }
             for (let i2 = 0; i2 < data.data.length; i2++) {
                 const data2 = data.data[i2]
-                if (!charIdList.includes(data2)) {
+                if (!charIds.has(data2)) {
                     data.data.splice(i2, 1)
                     i2--;
                 }
@@ -1823,7 +1823,7 @@ export function checkCharOrder() {
             db.characterOrder[i] = data
         }
         else {
-            if (!charIdList.includes(data)) {
+            if (!charIds.has(data)) {
                 db.characterOrder.splice(i, 1)
                 i--;
             }

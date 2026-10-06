@@ -4,6 +4,7 @@ const { applyPatch: applyJsonPatch, compare } = require('fast-json-patch');
 const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../../shared/guardedDelta.mjs');
 const { calculateHash, normalizeJSON } = require('./utils.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
+const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { createPatchHashDiagnostics } = require('../../shared/patchHashDiagnostics.mjs');
 const {
     classifiedPluginOwner,
@@ -216,6 +217,9 @@ function createDatabaseProjectionService(options = {}) {
     }
 
     function wrapStoreConflict(error, requestOptions, message = 'Database projection changed') {
+        if (error instanceof EntityIdValidationError) {
+            throw new DatabaseProjectionValidationError(error.message, { cause: error });
+        }
         if (!(error instanceof AppDataConflictError)
             && error?.name !== 'AppDataConflictError') {
             throw error;

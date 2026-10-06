@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const API_ERROR_CODES = require('../../shared/apiErrorCodes.json');
 const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
-const { chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
+const { assertChatIdentity, chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
+const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { stripChatCompatibility } = require('./bookmarkStore.cjs');
 const {
     ChatResultMergeConflict,
@@ -193,6 +194,15 @@ function createCanonicalChatService(options) {
         originClientId,
         finalize,
     }) {
+        try { assertChatIdentity(candidate, chatId); }
+        catch (error) {
+            if (error instanceof EntityIdValidationError) {
+                throw new CanonicalChatCommitError(400, error.message);
+            }
+            throw error;
+        }
+        for (const field of runtimeOnlyChatFields) delete candidate[field];
+        stripChatCompatibility(candidate);
         const previous = getChat(characterId, chatId);
         const previousEtag = computeChatEtag(previous);
         // Prompt construction can outlive the browser's debounced autosave.
@@ -344,15 +354,6 @@ function createCanonicalChatService(options) {
             }
             throw error;
         }
-        if (!candidate || candidate.id !== chatId || !Array.isArray(candidate.message)) {
-            throw new CanonicalChatCommitError(400, 'Chat delta must preserve the chat id and message list');
-        }
-        const ids = candidate.message.map(message => message?.chatId);
-        if (ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== ids.length) {
-            throw new CanonicalChatCommitError(400, 'Chat messages must have unique ids');
-        }
-        for (const field of runtimeOnlyChatFields) delete candidate[field];
-        stripChatCompatibility(candidate);
         return { candidate, expectedEtag: computeChatEtag(current) };
     }
 

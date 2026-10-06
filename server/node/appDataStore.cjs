@@ -10,7 +10,8 @@ const {
     mergeChatStubWithFullChat,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
-const { chatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
+const { assertChatIdentity, chatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
+const { ensureDatabasePresetIds, ensureUniqueEntityIds } = require('../../shared/entityIds.mjs');
 const {
     classifiedPluginOwner,
     installedV3Plugins,
@@ -81,6 +82,7 @@ function normalizedProjection(value) {
         throw new TypeError('Database projection must be an object');
     }
     if (!Array.isArray(normalized.characters)) normalized.characters = [];
+    ensureDatabasePresetIds(normalized);
     return normalized;
 }
 
@@ -110,10 +112,6 @@ function persistentEntityId(candidate, used) {
 
 function collectionItemKey(item, position, used) {
     return uniqueKey(item?.id, position, used);
-}
-
-function messageItemKey(message, position, used) {
-    return uniqueKey(message?.chatId ?? message?.id, position, used);
 }
 
 function chatMetadata(chat) {
@@ -406,6 +404,7 @@ function createAppDataStore(db) {
                     id: chatId,
                     message: Array.isArray(chat.message) ? chat.message : [],
                 };
+                ensureUniqueEntityIds(fullChat.message, crypto.randomUUID, 'chatId');
                 const stub = { ...chatMetadata({ ...chat, id: chatId }), id: chatId };
                 const canonicalChat = mergeChatStubWithFullChat(stub, fullChat);
                 insertChat.run(
@@ -418,13 +417,12 @@ function createAppDataStore(db) {
                     revision,
                 );
 
-                const usedMessages = new Set();
                 for (let messagePosition = 0; messagePosition < fullChat.message.length; messagePosition++) {
                     const message = fullChat.message[messagePosition];
                     insertMessage.run(
                         characterId,
                         chatId,
-                        messageItemKey(message, messagePosition, usedMessages),
+                        message.chatId,
                         messagePosition,
                         encodeValue(message),
                         revision,
@@ -1189,7 +1187,8 @@ function createAppDataStore(db) {
 
         const revision = state.revision + 1;
         const normalized = normalizeJSON(incoming ?? {});
-        const messages = Array.isArray(normalized.message) ? normalized.message : [];
+        assertChatIdentity(normalized, chatId);
+        const messages = normalized.message;
         let stub;
         if (currentRow) {
             stub = decodeValue(currentRow.stub_payload);
@@ -1233,7 +1232,7 @@ function createAppDataStore(db) {
         }
         payloadRowSync.messages(
             [characterId, chatId],
-            keyedItems(messages, messageItemKey),
+            messages.map(message => ({ key: message.chatId, value: message })),
             revision,
         );
         const updatedAt = Date.now();

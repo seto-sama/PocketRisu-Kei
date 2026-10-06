@@ -241,6 +241,23 @@ describe('database projection reads and initialization', () => {
 })
 
 describe('database projection JSON Patch commits', () => {
+    it.each(['personas', 'modelPresets'])('rejects duplicate %s IDs without applying any fields', field => {
+        const { store, service } = createService()
+        store.replaceFromProjection(sampleDatabase())
+        const before = service.getStartupProjection()
+        const incoming = {
+            ...before.database,
+            language: 'en',
+            [field]: [{ id: 'duplicate', name: 'First' }, { id: 'duplicate', name: 'Second' }],
+        }
+
+        const error = thrownBy(() => service.patchDatabase({ changes: createDelta(before.database, incoming) }))
+
+        expect(error).toBeInstanceOf(DatabaseProjectionValidationError)
+        expect(error.statusCode).toBe(400)
+        expect(service.getStartupProjection()).toEqual(before)
+    })
+
     it('commits guarded deltas over unrelated canonical changes and rejects overlapping fields', () => {
         const { store, service } = createService()
         store.replaceFromProjection(sampleDatabase())

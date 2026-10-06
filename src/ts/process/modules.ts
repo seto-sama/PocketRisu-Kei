@@ -388,16 +388,12 @@ function getModuleByIds(ids:string[]){
 }
 
 function deduplicateModuleById(modules:RisuModule[]){
-    let ids:string[] = []
-    let newModules:RisuModule[] = []
-    for(let i=0;i<modules.length;i++){
-        if(ids.includes(modules[i].id)){
-            continue
-        }
-        ids.push(modules[i].id)
-        newModules.push(modules[i])
-    }
-    return newModules
+    const ids = new Set<string>()
+    return modules.filter(module => {
+        if (ids.has(module.id)) return false
+        ids.add(module.id)
+        return true
+    })
 }
 
 let lastModules = ''

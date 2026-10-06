@@ -113,17 +113,35 @@ describe('relational app data projection', () => {
         expect(writes().every((row: any) => row.operation === 'DELETE')).toBe(true)
     })
 
-    it('preserves duplicate and missing message IDs across insertion and reordering', () => {
+    it('rejects duplicate and missing message IDs without changing stored content', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
         for (const message of [
-            [{ chatId: 'same', data: 'a' }, { chatId: 'same', data: 'b' }, { data: 'c' }],
-            [{ data: 'new' }, { data: 'c' }, { chatId: 'same', data: 'b' }, { chatId: 'same', data: 'a' }],
+            [{ chatId: 'same', data: 'a' }, { chatId: 'same', data: 'b' }],
+            [{ data: 'new' }],
         ]) {
             const chat = store.getChat('character-1', 'chat-1')
-            store.commitChat('character-1', 'chat-1', { ...chat, message }, computeChatEtag(chat))
-            expect(store.getChat('character-1', 'chat-1').message).toEqual(message)
+            const state = store.getState()
+            expect(() => store.commitChat('character-1', 'chat-1', { ...chat, message }, computeChatEtag(chat)))
+                .toThrow()
+            expect(store.getChat('character-1', 'chat-1')).toEqual(chat)
+            expect(store.getState()).toEqual(state)
         }
+    })
+
+    it('assigns missing legacy message IDs once during initialization', () => {
+        const { store } = createStore()
+        const source = sampleDatabase()
+        delete source.characters[0].chats[0].message[0].chatId
+
+        store.replaceFromProjection(source)
+        const chat = store.getChat('character-1', 'chat-1')
+        expect(chat.message[0]).toMatchObject(source.characters[0].chats[0].message[0])
+        expect(chat.message[0].chatId).toEqual(expect.any(String))
+        expect(chat.message[0].chatId).not.toBe('')
+
+        store.syncStartupProjection(store.exportProjection({ includeMessages: false }))
+        expect(store.getChat('character-1', 'chat-1')).toEqual(chat)
     })
 
     it.each([
