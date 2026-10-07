@@ -63,6 +63,8 @@ interface WireMessage {
     partial?: boolean
     prefix?: boolean
     reasoning_content?: string
+    extra_content?: Record<string, unknown>
+    reasoning_details?: Record<string, unknown>[]
 }
 
 type AssistantPrefillMode = 'kimi' | 'deepseek'
@@ -306,6 +308,8 @@ function toWireMessage(
         })
     }
     if (message.role === 'assistant') {
+        if (message.thoughtContext?.extraContent) wire.extra_content = message.thoughtContext.extraContent
+        if (message.thoughtContext?.reasoningDetails) wire.reasoning_details = message.thoughtContext.reasoningDetails
         applyAssistantPrefill(wire, assistantPrefillMode)
         applyDeepSeekThinkingInput(wire, message.reasoning, includeDeepSeekThinkingInput)
     }

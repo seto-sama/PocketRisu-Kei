@@ -62,6 +62,7 @@ import {
     registerRevenantRequestStatus,
 } from './revenant/jobStatus';
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
+import { getMessagePromptIdentity } from '../storage/messageIdentity';
 import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
 import {
@@ -96,6 +97,7 @@ export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
     content: string
     memo?:string
+    responseId?:string
     name?:string
     removable?:boolean
     attr?:string[]
@@ -133,7 +135,7 @@ async function runChatOutputListeners(characterId: string, roomId: string, messa
 }
 
 export interface MultiModal{
-    type:'image'|'video'|'audio'|'signature'
+    type:'image'|'video'|'audio'
     base64:string,
     height?:number,
     width?:number
@@ -1139,12 +1141,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         })
                     }
                 }
-                if(inlayData?.type === 'signature'){
-                    multimodal.push({
-                        type: 'signature',
-                        base64: inlayData.data
-                    })
-                }
                 formatedChat = formatedChat.replace(inlay, '')
             }
         }
@@ -1197,7 +1193,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const chat:OpenAIChat = {
             role: role,
             content: formatedChat,
-            memo: msg.chatId,
+            ...getMessagePromptIdentity(msg),
             attr: attr,
             multimodals: multimodal,
             thoughts: thoughts

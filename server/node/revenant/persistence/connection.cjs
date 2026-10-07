@@ -35,6 +35,7 @@ db.exec(`
         workflow_step_key TEXT,
         step_execution_id TEXT,
         adapter_kind TEXT,
+        provider_model TEXT,
         streaming INTEGER NOT NULL DEFAULT 0,
         dispatch_group TEXT,
         dispatch_max_concurrent INTEGER,
@@ -126,6 +127,9 @@ db.exec(`DROP INDEX IF EXISTS idx_generation_jobs_pending`);
 const generationColumns = new Set(
     db.prepare(`PRAGMA table_info(generation_jobs)`).all().map(column => column.name)
 );
+if (!generationColumns.has('provider_model')) {
+    db.exec(`ALTER TABLE generation_jobs ADD COLUMN provider_model TEXT`);
+}
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
 }

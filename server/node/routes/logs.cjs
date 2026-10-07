@@ -5,12 +5,26 @@ const { addLogBatch, queryLogs, countLogs, clearLogs, deleteLog } = require('../
 const { queryRequestLogs, queryRequestLogByChatId, queryRequestLogById, countRequestLogs, clearRequestLogs, deleteRequestLog, enrichRequestLogs } = require('../logs/requestLogs.cjs');
 
 const { listUsage, countUsage, summarizeUsage, clearUsage, deleteUsage, recordReportedUsage, getUsageByJobIds } = require('../logs/usageDb.cjs');
+const { queryProviderContexts } = require('../logs/providerContexts.cjs');
 
 function installLogsRoutes(app, {
     checkAuth,
     requireSyncClientId,
 }) {
     const LOGS_POST_MAX_ENTRIES = 1000;
+
+    app.post('/api/provider-contexts/query', async (req, res, next) => {
+        if (!await checkAuth(req, res)) return;
+        const { responseIds, adapterKind, model } = req.body || {};
+        if (!Array.isArray(responseIds) || !responseIds.every(id => typeof id === 'string')
+            || typeof adapterKind !== 'string' || !adapterKind || typeof model !== 'string' || !model) {
+            res.status(400).send({ error: 'responseIds, adapterKind and model are required' });
+            return;
+        }
+        try {
+            res.send({ records: queryProviderContexts(responseIds, adapterKind, model) });
+        } catch (error) { next(error); }
+    });
 
     app.post('/api/logs', async (req, res, next) => {
         if (!await checkAuth(req, res)) return;

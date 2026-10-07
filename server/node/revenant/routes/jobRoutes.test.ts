@@ -61,7 +61,8 @@ describe('generation job creation route', () => {
         await routes.get('/api/generation/jobs')?.(
             {
                 body: Buffer.from(encodeGenerationRequest({
-                    url: 'https://provider.example/v1/chat',
+                    url: 'https://provider.example/v1beta/models/gemini-test:generateContent',
+                    adapterKind: 'google-gemini',
                     body: Uint8Array.of(0, 255, 128, 10),
                 })),
                 headers: {},
@@ -70,6 +71,7 @@ describe('generation job creation route', () => {
             vi.fn(),
         )
 
+        expect(repository.createGenerationJob.mock.calls[0][0].providerModel).toBe('gemini-test')
         expect([...runGenerationProviderJob.mock.calls[0][1].body]).toEqual([0, 255, 128, 10])
         expect(send).toHaveBeenCalledWith({
             jobId: 'job-1',

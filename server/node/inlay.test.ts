@@ -51,3 +51,45 @@ test('shares thumbnail builds, retries failures, and cleans up a build completed
     expect(await readdir(path.join(directory, '.image-thumbnails'))).toEqual([])
     expect(await service.ensureThumbnail('image', 'image')).toBeNull()
 })
+
+test('removes unsupported legacy inlays and hides unsupported file-backed assets', async () => {
+    directory = await mkdtemp(path.join(tmpdir(), 'inlay-media-types-'))
+    const values = new Map<string, Buffer>([
+        ['inlay/legacy-signature', Buffer.from(JSON.stringify({
+            type: 'signature', ext: 'json', data: 'data:application/json;base64,e30=',
+        }))],
+        ['inlay_info/legacy-signature', Buffer.from(JSON.stringify({ type: 'signature', ext: 'json' }))],
+        ['inlay_thumb/legacy-signature', Buffer.from('thumbnail')],
+    ])
+    const service = inlays.createInlayService({
+        inlayDir: directory,
+        getVips: async () => Vips(),
+        getMimeFromExt: ext => ext === 'png' ? 'image/png' : 'application/json',
+        kvGet: key => values.get(key) ?? null,
+        kvDel: key => values.delete(key),
+        kvList: prefix => [...values.keys()].filter(key => key.startsWith(prefix)),
+        logger: { warn: vi.fn() },
+    })
+    const image = Buffer.from('image-bytes')
+    await service.writeInlayFile('file-signature', 'json', Buffer.from('opaque signature'), { type: 'signature' })
+    await service.writeInlayFile('supported-image', 'png', image, { type: 'image' })
+
+    await service.migrateInlaysToFilesystem()
+
+    expect([...values.keys()]).toEqual([])
+    expect((await service.listInlayFiles()).map(entry => entry.id)).toEqual(['supported-image'])
+    expect(await service.getInlayFileInfo('file-signature')).toBeNull()
+    expect(await service.readInlayAssetPayload('file-signature')).toBeNull()
+    expect(await service.readInlayInfoPayload('file-signature')).toBeNull()
+
+    const payload = await service.readInlayAssetPayload('supported-image')
+    expect(payload).not.toBeNull()
+    expect(service.decodeInlayAsset(payload).bytes).toEqual(image)
+    expect(JSON.parse((await service.readInlayInfoPayload('supported-image')).toString()).type)
+        .toBe('image')
+
+    await service.deleteInlayFile('file-signature')
+    const remaining = await readdir(directory)
+    expect(remaining).not.toContain('file-signature.json')
+    expect(remaining).not.toContain('file-signature.meta.json')
+})

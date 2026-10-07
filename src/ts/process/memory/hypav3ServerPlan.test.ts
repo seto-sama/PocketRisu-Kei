@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHypaV3Preset, hypaMemoryV3 } from './hypav3'
 import { requestChatData } from '../request/request'
+import { reissueMessageIds } from '../../chatClone'
+import { getMessagePromptIdentity } from '../../storage/messageIdentity'
 
 const state = vi.hoisted(() => ({ db: {} as any }))
 vi.mock('src/ts/storage/database.svelte', () => ({ getDatabase: () => state.db, getCurrentCharacter: () => null }))
@@ -24,6 +26,46 @@ vi.mock('./contextualEmbedding', () => ({ isContextModel: () => true, getContext
 afterEach(() => vi.restoreAllMocks())
 
 describe('Hypa planning before durable main registration', () => {
+    it.each([false, true])('reuses branched memory when selected responses retain their provider IDs (experimental=%s)', async experimental => {
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        state.db = {
+            hypaModel: 'openai3small', supaMemoryKey: 'test-key', hypaV3PresetId: 0,
+            hypaV3Presets: [createHypaV3Preset('Test', {
+                useExperimentalImpl: experimental, queryChatCount: 2,
+                memoryTokensRatio: 0.3, extraSummarizationRatio: 0,
+            })],
+        }
+        const source = {
+            id: 'source', name: '', note: '', localLore: [],
+            message: Array.from({ length: 8 }, (_, index) => ({
+                role: 'char' as const, data: `message-${index}`, chatId: `memo-${index}`,
+                swipes: [`message-${index}`], swipeId: 0,
+                swipeMetadata: [{ chatId: `response-${index}` }],
+            })),
+            hypaV3Data: { summaries: [{
+                text: 'existing summary', isImportant: false,
+                chatMemos: Array.from({ length: 5 }, (_, index) => `memo-${index}`),
+            }] },
+        }
+        const room = structuredClone(source)
+        room.id = `branch-${experimental}`
+        room.message = room.message.slice(0, 7)
+        reissueMessageIds(room, source.message.map(message => message.chatId))
+        const chats = room.message.map(message => ({
+            role: 'assistant' as const, content: message.data, ...getMessagePromptIdentity(message),
+        }))
+        const tokenizer = { tokenizeChat: async () => 10, getRevenantSpec: () => ({ tokenizer: 'tik', chatAdditionalTokens: 0 }) }
+        const result = await hypaMemoryV3(chats, 70, 50, room,
+            { chaId: 'character' } as any, tokenizer as any,
+            { planServerExecution: true, deferredMemoryPrompt: '__memory__' })
+
+        expect(result.error).toBeUndefined()
+        expect(result.serverExecution?.startIdx).toBe(5)
+        expect(result.serverExecution?.summaryRequests).toEqual([])
+        expect(result.memory?.summaries).toEqual(room.hypaV3Data.summaries)
+        expect(result.chats.slice(1).map(chat => chat.responseId)).toEqual(['response-5', 'response-6'])
+    })
+
     it.each([false, true].flatMap(experimental =>
         ['voyageContext3', 'openai3small', 'custom'].map(model => ({ experimental, model })),
     ))('plans every summary without starting requests ($model, experimental=$experimental)', async ({ experimental, model }) => {

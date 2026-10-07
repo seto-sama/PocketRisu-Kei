@@ -353,7 +353,6 @@ export const languageVietnamese = {
         "inlayOriginalLoadNeeded": "Original Load Needed",
         "inlayAudioAsset": "Audio Asset",
         "inlayVideoAsset": "Video Asset",
-        "inlaySignatureAsset": "Signature Asset",
         "inlayInfo": "Info",
         "inlayManualMapping": "Manual Mapping",
         "inlayActions": "Actions",

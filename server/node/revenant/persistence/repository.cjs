@@ -1,6 +1,7 @@
 'use strict';
 
 const { encodeGenerationRequest, decodeGenerationRequest } = require('../protocol.cjs');
+const { resolveGenerationProviderModel } = require('../providerContexts.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
 const { createGenerationStatements } = require('./statements.cjs');
@@ -653,6 +654,7 @@ function rowToJob(row, includeRaw = true) {
         workflowStepKey: row.workflow_step_key || undefined,
         workflowStepExecutionId: row.step_execution_id || undefined,
         adapterKind: row.adapter_kind || undefined,
+        providerModel: row.provider_model || undefined,
         streaming: row.streaming === 1,
         status: row.status,
         responseStatus: row.response_status,
@@ -740,6 +742,7 @@ function createGenerationJob(input) {
                 workflowStepKey: input.workflowStepKey || null,
                 stepExecutionId: input.stepExecutionId || null,
                 adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
+                providerModel: input.providerModel || resolveGenerationProviderModel(input.adapterKind, input.requestSpec),
                 streaming: input.streaming ? 1 : 0,
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,

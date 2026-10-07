@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { recordGenerationProviderContext } = require('./providerContexts.cjs');
 
 // The browser and Node server deliberately share the exact same ModelPreset
 // adapter decoder. Sucrase is a production dependency and only strips the
@@ -53,6 +54,11 @@ async function projectGenerationJournal(job, rawResponse) {
             projection: undefined,
         },
         response.body,
+        undefined,
+        undefined,
+        job.jobId && job.jobType === 'model'
+            ? context => recordGenerationProviderContext(job, context)
+            : undefined,
     );
     return createProjection(job, content, 'server', journal.length);
 }

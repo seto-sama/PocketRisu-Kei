@@ -31,6 +31,7 @@ const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../pr
 const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
 const { codes, sendApiError } = require('../../apiErrors.cjs');
 const { createProviderCapacityError } = require('../capacity.cjs');
+const { resolveGenerationProviderModel } = require('../providerContexts.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
     createGenerationJobCancellationService,
@@ -262,6 +263,7 @@ function installRevenantJobRoutes(app, deps) {
                 workflowStepKey,
                 stepExecutionId,
                 adapterKind: req.body?.adapterKind,
+                providerModel: resolveGenerationProviderModel(req.body?.adapterKind, { targetUrl: url, body }),
                 streaming: req.body?.streaming === true,
                 dispatchGroup: dispatchPolicy?.dispatchGroup
                     || (workflowDependency ? `${workflowId}:main` : undefined),

@@ -2,6 +2,7 @@ import type { ServiceAccountTokenCache } from './googleServiceAccount/cache'
 import type { ServerProviderAuth } from '../../network/transportTypes'
 import type { GeminiPromptCachingConfig } from '../cache/geminiContextCache'
 import type { ModelPreset } from '../types'
+import type { ThoughtSignatureContext } from './thoughtSignatures'
 
 export interface AdapterCredential {
     apiKey?: string
@@ -64,37 +65,23 @@ export interface AdapterStreamEvent {
 
 export type AdapterChatRole = 'system' | 'developer' | 'user' | 'assistant' | 'tool'
 
-// A single function/tool invocation requested by the model. `arguments` is the
-// raw JSON string the model emitted (matches OpenAI's wire shape and the classic
-// `toolCallData.call.arg`), so it round-trips without lossy re-encoding.
+// Tool arguments retain the provider's JSON string.
 export interface AdapterToolCall {
     id: string
     name: string
     arguments: string
-    // Opaque continuity token Gemini attaches to a functionCall part
-    // (thoughtSignature). Must be echoed back on the follow-up request or
-    // thinking-enabled Gemini models reject the tool turn. Other providers leave
-    // this undefined.
+    // Gemini thoughtSignature echoed alongside the function call.
     signature?: string
 }
 
-// A reasoning ("thinking") block emitted by the model. Carried opaquely so the
-// follow-up request in a tool loop can echo it back — thinking-enabled models
-// require their prior reasoning (with its signature) to continue a tool turn.
-// `text` is the human-visible thought; `signature` / `redactedData` are opaque
-// provider tokens (Anthropic thinking.signature / redacted_thinking.data,
-// Gemini thought part signature).
+// Provider reasoning text and opaque tokens retained for tool follow-ups.
 export interface AdapterReasoningPart {
     text?: string
     signature?: string
     redactedData?: string
 }
 
-// Image attachment on a user message (Stage 3 vision). `base64` is the RAW
-// base64 payload (no `data:` prefix); `mime` is the media type. Anthropic/Gemini
-// require the mime wire-side and it cannot be inferred from raw base64, so the
-// message builder parses it out of the classic `data:` URL when present and
-// callers default it otherwise.
+// Image payloads omit the data URL prefix; MIME is sent separately.
 export interface AdapterImagePart {
     kind: 'image'
     base64: string
@@ -120,12 +107,9 @@ export interface AdapterChatMessage {
     toolCallId?: string                 // role:'tool' — which call this answers
     toolCalls?: AdapterToolCall[]        // role:'assistant' — calls the model made
     reasoning?: AdapterReasoningPart[]   // role:'assistant' — thinking blocks to echo back
-    // role:'assistant' — the provider's raw assistant payload (OpenAI message /
-    // Anthropic content blocks / Gemini parts). When present, the adapter resends
-    // it VERBATIM instead of reconstructing the turn from the parsed fields.
-    // Both OpenRouter (reasoning_details) and Google (thoughtSignature on any
-    // part) require the exact bytes back on the in-request follow-up. In-memory
-    // only — never persisted (history-restored turns reconstruct from fields).
+    responseId?: string
+    thoughtContext?: ThoughtSignatureContext
+    // Raw provider payload for exact replay during the active tool loop.
     providerEcho?: unknown
     images?: AdapterImagePart[]          // role:'user' — image attachments (vision)
     media?: AdapterMediaPart[]           // role:'user' — enabled audio/video attachments
@@ -215,13 +199,8 @@ export interface AdapterChatOptions {
     }
     abortSignal?: AbortSignal
     fetchImpl?: typeof fetch
-    // Per-request identifier (= the message generationId issued in sendChat).
-    // Threaded through so request-status / context-cache consumers can key
-    // status and badges to this exact request. Optional and side-effect free:
-    // adapters that ignore it behave identically. See
-    // .agent/notes/generation-state-keying.md.
+    // Message UUID used by request status and context caching.
     generationId?: string
-    // Gemini context caching (see AdapterCacheContext). Absent => caching off,
-    // the request is byte-identical to before.
+    // Gemini context caching (see AdapterCacheContext).
     cache?: AdapterCacheContext
 }

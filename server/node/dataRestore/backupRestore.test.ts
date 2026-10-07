@@ -278,6 +278,41 @@ describe('createBackupRestoreService', () => {
             .toBe('new projection')
     })
 
+    it.each(['before', 'after'])('skips signature inlays with metadata %s their raw backup entries', async order => {
+        const media = Buffer.from('image data')
+        const harness = await fullRestoreHarness(async () => ({ install() {} }), {
+            decodeDataUri: (data: string) => ({ buffer: Buffer.from(data.split(',')[1], 'base64') }),
+        })
+        const metadata = [
+            backupEntry('inlay_sidecar/raw', Buffer.from(JSON.stringify({ type: 'signature', ext: 'json' }))),
+            backupEntry('inlay_info/legacy', Buffer.from(JSON.stringify({ type: 'signature', ext: 'json' }))),
+        ]
+        const raw = [
+            backupEntry('inlay/raw.json', Buffer.from('opaque signature')),
+            backupEntry('inlay/legacy.json', Buffer.from('opaque signature')),
+        ]
+        const backup = Buffer.concat([
+            ...(order === 'before' ? metadata : raw),
+            backupEntry('inlay/unsupported', Buffer.from(JSON.stringify({
+                type: 'signature', ext: 'json', data: 'opaque signature',
+            }))),
+            backupEntry('inlay/image', Buffer.from(JSON.stringify({
+                type: 'image', ext: 'png', data: `data:image/png;base64,${media.toString('base64')}`,
+            }))),
+            ...(order === 'before' ? raw : metadata),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+        async function* chunks() { yield backup }
+        try {
+            expect(await harness.service.importBackupFromSource(chunks())).toMatchObject({ assetsRestored: 1 })
+            expect(await readFile(join(harness.inlayDir, 'image.png'))).toEqual(media)
+            for (const id of ['unsupported', 'raw', 'legacy']) {
+                await expect(access(join(harness.inlayDir, `${id}.json`))).rejects.toThrow()
+                await expect(access(join(harness.inlayDir, `${id}.meta.json`))).rejects.toThrow()
+            }
+        } finally { harness.db.close() }
+    })
+
     it('restores plugin, character, and chat cold storage during import while retaining failed plugin references', async () => {
         const pluginColdId = 'plugin-cold-id'
         const missingColdId = 'plugin-missing-id'

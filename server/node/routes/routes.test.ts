@@ -92,6 +92,17 @@ describe('server route composition', () => {
         expect((await restored.json()).status).toBe('success')
     })
 
+    it('authenticates thought context queries and returns an empty result for unknown responses', async () => {
+        const request = { method: 'POST', body: JSON.stringify({ responseIds: ['unknown'], adapterKind: 'google-gemini', model: 'gemini' }) }
+        const unauthenticated = await fetch(base + '/api/provider-contexts/query', {
+            ...request, headers: { 'content-type': 'application/json' },
+        })
+        expect(unauthenticated.status).toBe(401)
+        const response = await fetch(base + '/api/provider-contexts/query', { ...request, headers: { ...headers, 'content-type': 'application/json' } })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ records: [] })
+    })
+
     it('round-trips binary inlays through the mounted parser and filesystem', async () => {
         const bytes = Uint8Array.of(0, 255, 128, 13, 10)
         const key = Buffer.from('inlay/route-test').toString('hex')

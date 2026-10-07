@@ -490,7 +490,6 @@ export const languageKorean = {
     inlayOriginalLoadNeeded: "원본 로드 필요",
     inlayAudioAsset: "오디오 에셋",
     inlayVideoAsset: "비디오 에셋",
-    inlaySignatureAsset: "서명 에셋",
     inlayInfo: "정보",
     inlayManualMapping: "수동 맵핑",
     inlayActions: "작업",

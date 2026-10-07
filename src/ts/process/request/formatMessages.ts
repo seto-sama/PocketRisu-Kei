@@ -1,11 +1,14 @@
 import type { OpenAIChat } from '../index.svelte'
+import { getPromptResponseId } from './modelPresetMessages'
 
 export function formatPresetMessages(formated: OpenAIChat[], behavior: {
     foldSystemPrompt: boolean
     keepFirstSystemPrompt: boolean
     alternateRole: boolean
     startWithUserInput: boolean
-}, db: { systemContentReplacement?: string, systemRoleReplacement?: string }) {
+}, db: { systemContentReplacement?: string, systemRoleReplacement?: string },
+    preserveResponseIds: ReadonlySet<string> = new Set(),
+) {
     let systemPrompt:OpenAIChat|null = null
 
     if(behavior.foldSystemPrompt){
@@ -38,7 +41,12 @@ export function formatPresetMessages(formated: OpenAIChat[], behavior: {
                 continue
             }
 
-            if(newFormated[newFormated.length-1].role === m.role){
+            const previous = newFormated[newFormated.length - 1]
+            const previousResponseId = getPromptResponseId(previous)
+            const responseId = getPromptResponseId(m)
+            const separateResponses = previousResponseId !== responseId
+                && (preserveResponseIds.has(previousResponseId) || preserveResponseIds.has(responseId))
+            if(previous.role === m.role && !separateResponses){
             
                 newFormated[newFormated.length-1].content += '\n' + m.content
 

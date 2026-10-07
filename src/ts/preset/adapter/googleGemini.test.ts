@@ -6,6 +6,10 @@ import {
 } from '../cache/geminiCacheWiring'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
+import { createThoughtSignatureCollector, restoreThoughtSignatures, type ThoughtSignatureContext } from './thoughtSignatures'
+import { decodeRevenantGenerationJournal } from '../../process/revenant/transport/journalDecoder'
+import { expandAdapterMessages, toAdapterMessage } from '../../process/request/modelPresetMessages'
+import { formatPresetMessages } from '../../process/request/formatMessages'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
 
 // Minimal SA JSON that parseServiceAccountJson accepts; the token exchange is
@@ -1310,5 +1314,84 @@ describe('context caching wiring', () => {
             { apiKey: 'k' },
         )
         expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 7 })
+    })
+})
+
+
+describe('persisted Gemini thought context', () => {
+    test('keeps an empty signature part through edits and reverts using the response UUID', async () => {
+        let context: ThoughtSignatureContext | undefined
+        const content = await decodeRevenantGenerationJournal(
+            { jobId: 'job', chatId: 'response', adapterKind: 'google-gemini', streaming: true,
+                status: 'generated', responseStatus: 200, createdAt: 1, updatedAt: 2 },
+            new Response([
+                'data: {"candidates":[{"content":{"parts":[{"text":"original"}]}}]}\n\n',
+                'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
+            ].join('')).body!,
+            undefined, undefined, value => { context = value },
+        )
+        expect(content).toBe('original')
+        const records = [{ responseId: 'response', adapterKind: 'google-gemini', model: 'gemini-demo', turns: [context!] }]
+        for (const text of ['edited by plugin', 'original']) {
+            const history = formatPresetMessages([
+                { role: 'assistant', memo: 'branched-message', responseId: 'response', content: text },
+                { role: 'assistant', memo: 'branched-message', responseId: 'new-response', content: 'original' },
+                { role: 'user', content: 'next' },
+            ], { foldSystemPrompt: false, keepFirstSystemPrompt: false, alternateRole: true, startWithUserInput: false }, {}, new Set(['response']))
+            const messages = history.map(message => toAdapterMessage(message))
+            const restored = restoreThoughtSignatures(messages, records)
+            const { fetchImpl, calls } = captureFetch(jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }))
+            await sendGoogleChatRequest(makePreset(), { messages: restored, fetchImpl }, { apiKey: 'test' })
+            expect(calls[0].body.contents).toEqual([
+                { role: 'model', parts: [{ text }, { text: '', thoughtSignature: 'opaque' }] },
+                { role: 'model', parts: [{ text: 'original' }] },
+                { role: 'user', parts: [{ text: 'next' }] },
+            ])
+            expect(messages[0].thoughtContext).toBeUndefined()
+        }
+    })
+
+    test('restores parallel and sequential tool rounds before their results', async () => {
+        const responses = [
+            [{ text: 'reasoning', thought: true, thoughtSignature: 'thinking' },
+                { functionCall: { name: 'search', args: { q: 'a' } }, thoughtSignature: 'first' },
+                { functionCall: { name: 'search', args: { q: 'b' } } }],
+            [{ functionCall: { id: 'c', name: 'lookup', args: {} }, thoughtSignature: 'second' }],
+            [{ text: 'original final', thoughtSignature: 'final' }],
+        ]
+        const turns = responses.map(parts => {
+            const collector = createThoughtSignatureCollector('google-gemini')
+            collector.add({ candidates: [{ content: { parts } }] })
+            return collector.finish()!
+        })
+        const callsById = {
+            a: { id: 'a', name: 'search', arg: { q: 'a' } },
+            b: { id: 'b', name: 'search', arg: { q: 'b' } },
+            c: { id: 'c', name: 'lookup', arg: {} },
+        }
+        const messages = await expandAdapterMessages([
+            { role: 'assistant', memo: 'branched-message', responseId: 'response', content: '<Thoughts>reasoning</Thoughts>looking<tool_call>a</tool_call><tool_call>b</tool_call><tool_call>c</tool_call>edited final' },
+        ], async marker => {
+            const id = marker.slice('<tool_call>'.length, -'</tool_call>'.length) as keyof typeof callsById
+            return { call: callsById[id], response: [{ type: 'text', text: `result ${id}` }] }
+        })
+        const restored = restoreThoughtSignatures(messages, [{ responseId: 'response', adapterKind: 'google-gemini', model: 'gemini-demo', turns }])
+        const { fetchImpl, calls } = captureFetch(jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }))
+        await sendGoogleChatRequest(makePreset(), { messages: restored, fetchImpl }, { apiKey: 'test' })
+        expect(calls[0].body.contents).toEqual([
+            { role: 'model', parts: [
+                { text: 'reasoning', thought: true, thoughtSignature: 'thinking' },
+                { text: 'looking' },
+                { functionCall: { id: 'a', name: 'search', args: { q: 'a' } }, thoughtSignature: 'first' },
+                { functionCall: { id: 'b', name: 'search', args: { q: 'b' } } },
+            ] },
+            { role: 'user', parts: [
+                { functionResponse: { id: 'a', name: 'search', response: { result: 'result a' } } },
+                { functionResponse: { id: 'b', name: 'search', response: { result: 'result b' } } },
+            ] },
+            { role: 'model', parts: [{ functionCall: { id: 'c', name: 'lookup', args: {} }, thoughtSignature: 'second' }] },
+            { role: 'user', parts: [{ functionResponse: { id: 'c', name: 'lookup', response: { result: 'result c' } } }] },
+            { role: 'model', parts: [{ text: 'edited final', thoughtSignature: 'final' }] },
+        ])
     })
 })

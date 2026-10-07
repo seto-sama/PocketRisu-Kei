@@ -315,8 +315,7 @@ function installAssetRoutes(app, {
                 value = await readInlayAssetPayload(key.slice('inlay/'.length));
             } else if (key.startsWith('inlay_info/')) {
                 value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-            }
-            if (value === null) {
+            } else {
                 value = kvGet(key);
             }
             if (value === null) return res.send();
@@ -387,11 +386,7 @@ function installAssetRoutes(app, {
                 : undefined;
             let data;
             if (keyPrefix === 'inlay/') {
-                const fileKeys = (await listInlayFiles()).map((entry) => `inlay/${entry.id}`);
-                data = [...new Set([
-                    ...fileKeys,
-                    ...kvList('inlay/'),
-                ])];
+                data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
             } else {
                 data = kvList(keyPrefix || undefined, listOptions);
             }

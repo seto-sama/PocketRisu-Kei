@@ -20,6 +20,7 @@ import {
     parseResponsesStreamEvent,
 } from '../../../preset/adapter/openaiResponses'
 import { parseSseStream } from '../../../preset/adapter/sse'
+import { createThoughtSignatureCollector, supportsThoughtSignatures, type ThoughtSignatureContext } from '../../../preset/adapter/thoughtSignatures'
 import type {
     AdapterChatResponse,
     AdapterChatStreamDelta,
@@ -71,6 +72,7 @@ function parseJsonResponse(kind: string | undefined, raw: unknown): AdapterChatR
 function parseSseDelta(
     kind: string | undefined,
     event: { event?: string, data: string },
+    onRaw?: (raw: unknown) => void,
 ): AdapterChatStreamDelta | null | undefined {
     if (event.data.length === 0 || event.data === '[DONE]') return null
     if (kind === 'anthropic-messages') {
@@ -78,6 +80,7 @@ function parseSseDelta(
         if (event.event === 'error') throw new Error('Anthropic journal contains a stream error')
     }
     const raw: unknown = JSON.parse(event.data)
+    onRaw?.(raw)
     switch (kind) {
         case 'anthropic-messages': return parseAnthropicStreamDelta(event.event, raw)
         case 'google-gemini': return parseGeminiStreamDelta(raw)
@@ -100,7 +103,14 @@ export async function decodeRevenantGenerationJournal(
     stream: ReadableStream<Uint8Array>,
     onContent?: (content: string) => void,
     onProgress?: (progress: RevenantJournalProgress) => void,
+    onThoughtContext?: (context: ThoughtSignatureContext) => void,
 ): Promise<string> {
+    const signatures = onThoughtContext && supportsThoughtSignatures(job.adapterKind ?? '')
+        ? createThoughtSignatureCollector(job.adapterKind!) : undefined
+    const finish = () => {
+        const context = signatures?.finish()
+        if (context) onThoughtContext?.(context)
+    }
     if (job.responseStatus !== undefined
         && (job.responseStatus < 200 || job.responseStatus >= 300)) {
         throw new Error(`Provider request failed with HTTP ${job.responseStatus}`)
@@ -109,13 +119,16 @@ export async function decodeRevenantGenerationJournal(
     if (!isStreamingJournal(job)) {
         const text = await new Response(stream).text()
         if (!text.trim()) return projectedContent(job)
-        const parsed = parseJsonResponse(job.adapterKind, JSON.parse(text))
+        const raw: unknown = JSON.parse(text)
+        const parsed = parseJsonResponse(job.adapterKind, raw)
+        signatures?.add(raw)
         onProgress?.({
             thinking: statusReasoning(parsed.reasoning),
             response: parsed.text,
             ...(parsed.usage ? { usage: parsed.usage } : {}),
         })
         const content = formatReasoning(parsed.reasoning) + parsed.text
+        finish()
         if (content) onContent?.(content)
         return content || projectedContent(job)
     }
@@ -152,7 +165,7 @@ export async function decodeRevenantGenerationJournal(
         for await (const event of parseSseStream(stream)) {
             let delta: AdapterChatStreamDelta | null | undefined
             try {
-                delta = parseSseDelta(job.adapterKind, event)
+                delta = parseSseDelta(job.adapterKind, event, signatures?.add)
             }
             catch (error) {
                 if (
@@ -170,5 +183,6 @@ export async function decodeRevenantGenerationJournal(
         }
     }
 
+    finish()
     return publish() || projectedContent(job)
 }

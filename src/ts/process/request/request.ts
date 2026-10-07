@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer'
+import { isNodeServer } from '../../platform'
 import { asBuffer } from '../../util'
 import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
@@ -39,7 +40,7 @@ import {
 } from "./repetitionDetector";
 import { requestRetryDelayMs } from './retryPolicy';
 import { resolveChatModelBinding, buildModelPresetCredential, applyPromptPresetParams } from "./modelPresetBinding";
-import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
+import { expandAdapterMessages, getPromptResponseId, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
 import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
 import { createLLMTransportFetch } from "src/ts/network/llmTransport";
 import {
@@ -71,6 +72,9 @@ import {
 } from "../revenant/transport";
 import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
+import { restoreThoughtSignatures, supportsThoughtSignatures, type ProviderContextRecord } from '../../preset/adapter/thoughtSignatures';
+import { resolveWireModelId } from '../../preset/adapter/wireInvariants';
+import { queryRevenantProviderContexts } from '../revenant/transport/client';
 
 export type ToolCall = {
     name: string;
@@ -305,14 +309,14 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     }
 }
 
-export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
+export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[], preserveResponseIds?: ReadonlySet<string>){
     const flags = Array.isArray(modelInfo) ? modelInfo : modelInfo.flags
     return formatPresetMessages(formated, {
         foldSystemPrompt: !flags.includes(LLMFlags.hasFullSystemPrompt),
         keepFirstSystemPrompt: flags.includes(LLMFlags.hasFirstSystemPrompt),
         alternateRole: flags.includes(LLMFlags.requiresAlternateRole),
         startWithUserInput: flags.includes(LLMFlags.mustStartWithUserInput),
-    }, getDatabase())
+    }, getDatabase(), preserveResponseIds)
 }
 
 
@@ -859,16 +863,11 @@ function toAdapterToolDef(tool: MCPTool): AdapterToolDef {
     return {
         name: tool.name,
         description: tool.description,
-        // simplifySchema mutates; clone first. Stage 1 targets openai-compatible,
-        // whose schema shape matches the default simplification.
+        // simplifySchema mutates its input.
         parameters: simplifySchema(structuredClone(tool.inputSchema)),
     }
 }
 
-// Render a turn's reasoning for DISPLAY, wrapped in the <Thoughts> tags the chat
-// renderer already parses (mirrors the classic anthropic path). Returns '' when
-// there is nothing to show, so non-reasoning models are byte-identical to before.
-// redacted_thinking has no visible text — surface the same placeholder as classic.
 function formatPresetReasoning(reasoning?: AdapterReasoningPart[]): string {
     if (!reasoning || reasoning.length === 0) return ''
     let body = ''
@@ -978,48 +977,16 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     const reportStatus = statusEnabled() && !!genId
     const terminalOutcome = bindRevenantTerminalOutcome(arg)
 
-    // Tool gating. Three guards:
-    //  1) Per-preset opt-in (preset.toolUse, default OFF) — the hard regression
-    //     guard: while off, this preset's requests stay text-only (streaming
-    //     allowed) even for MCP users. One deliberate difference from "do
-    //     nothing": the adapters strip any customBody-provided tools /
-    //     tool_choice / toolConfig so OFF is a true text gate — a request that
-    //     manually smuggled tool fields via customBody will lose them.
-    //  2) Adapter registry support — only adapters whose tool wire is implemented.
-    //  3) Capability gate: the profile must EXPLICITLY declare 'tools'. Stricter
-    //     than the streaming convention (no `!caps` shortcut) so it matches the
-    //     editor toggle's visibility — a capability-less custom profile (e.g.
-    //     after a profile swap that kept toolUse) can never activate tools.
     const tools = (compiled.features.tools && arg.tools && arg.tools.length > 0)
         ? arg.tools.map(toAdapterToolDef)
         : undefined
 
-    // Vision gate: send attached images when the adapter implements image wire AND
-    // either the profile declares the 'vision' capability OR the user opted in via
-    // the preset's imageInput toggle (for profiles like ollama / openai-compatible
-    // whose snapshot does not declare 'vision'). Additive — both branches default
-    // off, so OFF is byte-identical to the prior text-only behavior.
     const supportsVision = compiled.features.vision
     const supportsAudioInput = compiled.features.audioInput
     const supportsVideoInput = compiled.features.videoInput
     const producesMedia = compiled.features.mediaOutput
 
-    // Gemini context caching: MAIN chat requests on the google-gemini adapter
-    // (AI Studio key auth OR Vertex native service-account auth) — tool runs and
-    // previews are excluded. Both auth kinds share the cachedContents wire; the
-    // adapter derives the Studio-vs-Vertex URL/model shape from the prepared
-    // chat URL, so the only difference here is admitting google-service-account.
-    // The profile must EXPLICITLY declare the 'cache' capability (same gate the
-    // editor toggle uses, ModelPresetSettings.svelte): a profile swap that kept
-    // promptCaching.enabled but landed on a cache-less profile can never engage
-    // caching — otherwise the cachedContents API would be hit every turn on a
-    // model that does not support it.
-    // Vertex-OpenAI stays out: it routes through openai-compatible, not this
-    // adapter kind. The context carries everything the cache layer needs so the
-    // adapter never reads the database (SSR rule). The state key is chat.id
-    // (present for chats created in current versions; a chat without one is
-    // simply not cached). All defaults off → cache undefined → requests
-    // byte-identical to before.
+    // Cache main chat prompts; tool rounds and previews require the full prompt.
     const cacheAuthKind = preset.profileSnapshot.auth.kind
     let cache: AdapterCacheContext | undefined
     if (compiled.features.cache && mode === 'model'
@@ -1037,46 +1004,37 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    // System/role normalization. The plugin preset path runs reformater() before
-    // dispatch; this adapter path previously skipped it, so models without a native system
-    // role (e.g. Ollama Gemma3) never saw bot/persona info folded into user turns.
-    // Synthesize the relevant LLMFlags from the preset's ability toggles and reuse
-    // reformater (which also honors db.systemRoleReplacement/ContentReplacement, also
-    // previously ignored here). All toggles default off → flags = [hasFullSystemPrompt]
-    // → reformater is a no-op (byte-identical to the prior preset behavior).
-    //
-    // Folding is gated on the LIVE adapter kind, not just the toggle: only literal-role
-    // adapters (openai-compatible) may fold. anthropic-messages / google-gemini extract
-    // system natively (collectSystemAndChat), so folding system→user would strip their
-    // system instruction — and gating on `kind` also defuses a stale foldSystemPrompt
-    // left over from a profile swap (its UI toggle is hidden on the new kind). Sequence
-    // shaping (alternate role / user-first) is adapter-agnostic and applies to all kinds.
+    let contexts: ProviderContextRecord[] = []
+    if (isNodeServer && supportsThoughtSignatures(kind)) {
+        try {
+            const responseIds = arg.formated.flatMap(message => {
+                const responseId = getPromptResponseId(message)
+                return message.role === 'assistant' && responseId ? [responseId] : []
+            })
+            contexts = await queryRevenantProviderContexts(responseIds, kind, resolveWireModelId(preset))
+        } catch (error) {
+            console.error('[ModelPreset] Failed to restore thought signatures', error)
+        }
+    }
+
     const foldSystem = compiled.behavior.foldSystemPrompt
     const presetFlags: LLMFlags[] = []
     if (!foldSystem) presetFlags.push(LLMFlags.hasFullSystemPrompt)
     else if (compiled.behavior.keepFirstSystemPrompt) presetFlags.push(LLMFlags.hasFirstSystemPrompt)
     if (compiled.behavior.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
     if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
-    // reformater mutates its input in place (requiresAlternateRole appends merged
-    // content onto the first message of a run). The retry loop reuses arg.formated,
-    // so mutating it
-    // directly would re-merge on every retry
-    // (A,B → A\nB → A\nB\nB). Clone first, matching the plugin preset path.
-    // Also guarded: reformater runs outside the request try below, so a throw returns
-    // a graceful fail instead of propagating (mirrors the previewBody/request catches).
+    // Clone before folding so retries cannot merge text into the original history.
     try {
-        arg.formated = reformater(structuredClone(arg.formated), presetFlags)
+        arg.formated = reformater(
+            structuredClone(arg.formated), presetFlags,
+            new Set(contexts.map(context => context.responseId)),
+        )
     } catch (err) {
         return { type: 'fail', result: err instanceof Error ? err.message : String(err), model: preset.name }
     }
 
-    // Expand `<tool_call>` history into structured tool turns ONLY on the active
-    // tool path. With tools off, fall back to the plain mapping so existing chats
-    // behave exactly as before (literal passthrough; no tool-role messages that a
-    // text-only adapter would reject). Guards regression P1#2. Image attachments
-    // ride along in both branches, gated by supportsVision.
     const includeDeepSeekThinkingInput = compiled.behavior.deepSeekThinkingInput
-    const messages = tools
+    let messages = tools
         ? await expandAdapterMessages(
             arg.formated,
             decodeToolCall,
@@ -1092,6 +1050,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             supportsAudioInput,
             supportsVideoInput,
         ))
+    messages = restoreThoughtSignatures(messages, contexts)
     // OpenAI-compatible endpoints that opt into the historical DeveloperRole
     // flag receive developer-role instructions instead of system-role ones.
     // Other wire formats do not accept this role, so the flag is inert there.

@@ -55,7 +55,7 @@ describe('expandAdapterMessages', () => {
         expect(out[0].toolCalls).toBeUndefined()
     })
 
-    test('classic↔preset history is interchangeable (multiple markers in one turn)', async () => {
+    test('expands multiple persisted tool markers in one message', async () => {
         const decode = makeDecoder({
             a: { name: 'roll', arg: {}, text: '6' },
             b: { name: 'roll', arg: {}, text: '3' },
@@ -84,7 +84,7 @@ describe('expandAdapterMessages', () => {
     })
 })
 
-describe('vision (Stage 3) image extraction', () => {
+describe('image extraction', () => {
     const imageMsg: OpenAIChat[] = [
         {
             role: 'user',
@@ -102,7 +102,7 @@ describe('vision (Stage 3) image extraction', () => {
         })
     })
 
-    test('includeImages=false (default) drops images — text-only, no regression', async () => {
+    test('omits images when image input is disabled', async () => {
         const out = await expandAdapterMessages(imageMsg, makeDecoder({}))
         expect(out[0]).toEqual({ role: 'user', content: 'what is this' })
         expect(out[0].images).toBeUndefined()

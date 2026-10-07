@@ -6,7 +6,7 @@ function createGenerationStatements(db) {
             job_id, chat_id, job_type, character_id, room_id,
             generation_info, prompt_info, reroll_snapshot,
             operation_context, workflow_id, workflow_step_key, step_execution_id,
-            adapter_kind, streaming,
+            adapter_kind, provider_model, streaming,
             dispatch_group, dispatch_max_concurrent,
             request_spec,
             status, created_at, updated_at
@@ -14,7 +14,7 @@ function createGenerationStatements(db) {
             @jobId, @chatId, @jobType, @characterId, @roomId,
             @generationInfo, @promptInfo, @rerollSnapshot,
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
-            @adapterKind, @streaming,
+            @adapterKind, @providerModel, @streaming,
             @dispatchGroup, @dispatchMaxConcurrent,
             @requestSpec,
             'queued', @now, @now

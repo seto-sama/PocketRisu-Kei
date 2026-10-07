@@ -355,7 +355,6 @@ export const languageChineseTraditional = {
         "inlayOriginalLoadNeeded": "需要載入原始檔案",
         "inlayAudioAsset": "音訊資源",
         "inlayVideoAsset": "影片資源",
-        "inlaySignatureAsset": "簽名資源",
         "inlayInfo": "資訊",
         "inlayManualMapping": "手動對應",
         "inlayActions": "操作",

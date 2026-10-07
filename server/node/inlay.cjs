@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const nodeCrypto = require('crypto');
 const { binaryBodyParser } = require('./binaryHttp.cjs');
 const { encodeInlayAsset, decodeInlayAsset } = require('../../src/ts/storage/inlayTransport.ts');
+const { isInlayMediaType } = require('../../shared/inlayTypes.mjs');
 
 function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, kvList, logger }) {
     const migrationMarker = path.join(inlayDir, '.migrated_to_fs');
@@ -94,9 +95,13 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         }
     }
 
+    async function readInlayInfo(id) {
+        return (await readInlaySidecar(id)) || (await readInlayLegacyInfo(id));
+    }
+
     async function resolveInlayFilePath(id, sidecar) {
         if (!isSafeInlayId(id)) return null;
-        sidecar ??= await readInlaySidecar(id);
+        if (sidecar === undefined) sidecar = await readInlayInfo(id);
         if (sidecar) {
             const candidate = getInlayFilePath(id, sidecar.ext);
             try { await fs.access(candidate); return candidate; } catch {}
@@ -113,6 +118,8 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
     }
 
     async function getInlayFileInfo(id, sidecar) {
+        if (sidecar === undefined) sidecar = await readInlayInfo(id);
+        if (sidecar && !isInlayMediaType(sidecar.type)) return null;
         const filePath = await resolveInlayFilePath(id, sidecar);
         if (!filePath) return null;
         const ext = normalizeInlayExt(path.extname(filePath).slice(1));
@@ -120,8 +127,8 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         return { ext, filePath, mtimeMs: stat.mtimeMs, size: stat.size };
     }
 
-    async function readInlayFile(id) {
-        const info = await getInlayFileInfo(id);
+    async function readInlayFile(id, sidecar) {
+        const info = await getInlayFileInfo(id, sidecar);
         if (!info) return null;
         const buffer = await fs.readFile(info.filePath);
         return { ...info, buffer, mime: getMimeFromExt(info.ext, buffer) };
@@ -162,10 +169,16 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         await fs.unlink(getInlaySidecarPath(id)).catch(() => {});
     }
 
+    function deleteLegacyInlayData(id) {
+        kvDel(`inlay/${id}`);
+        kvDel(`inlay_thumb/${id}`);
+        kvDel(`inlay_info/${id}`);
+    }
+
     async function listInlayFiles() {
         await ensureInlayDir();
         const entries = await fs.readdir(inlayDir, { withFileTypes: true });
-        return entries
+        const files = entries
             .filter(entry => entry.isFile() && entry.name !== '.migrated_to_fs' && !entry.name.endsWith('.meta.json'))
             .map(entry => {
                 const ext = normalizeInlayExt(path.extname(entry.name).slice(1));
@@ -173,6 +186,19 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
                 return { id, ext, filePath: path.join(inlayDir, entry.name) };
             })
             .filter(entry => isSafeInlayId(entry.id));
+        const ids = [...new Set(files.map(entry => entry.id))];
+        const unsupported = new Set();
+        const metadataBatchSize = 32;
+        for (let start = 0; start < ids.length; start += metadataBatchSize) {
+            const batch = await Promise.all(ids.slice(start, start + metadataBatchSize).map(async id => {
+                const info = await readInlayInfo(id);
+                return info && !isInlayMediaType(info.type) ? id : undefined;
+            }));
+            for (const id of batch) {
+                if (id) unsupported.add(id);
+            }
+        }
+        return files.filter(entry => !unsupported.has(entry.id));
     }
 
     async function readInlayLegacyInfo(id) {
@@ -186,17 +212,14 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
     }
 
     async function readInlayInfoPayload(id) {
-        const sidecar = await readInlaySidecar(id);
-        if (sidecar) return Buffer.from(JSON.stringify(sidecar));
-        const legacy = await readInlayLegacyInfo(id);
-        if (legacy) return Buffer.from(JSON.stringify(legacy));
-        return kvGet(`inlay_info/${id}`);
+        const info = await readInlayInfo(id);
+        return info && isInlayMediaType(info.type) ? Buffer.from(JSON.stringify(info)) : null;
     }
 
     async function readInlayAssetPayload(id) {
-        const file = await readInlayFile(id);
+        const sidecar = await readInlayInfo(id);
+        const file = await readInlayFile(id, sidecar);
         if (!file) return null;
-        const sidecar = (await readInlaySidecar(id)) || (await readInlayLegacyInfo(id));
         const info = {
             ext: sidecar?.ext || file.ext,
             name: sidecar?.name || id,
@@ -216,9 +239,7 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
             if (!isSafeInlayId(id)) continue;
             const fileAlreadyExists = await getInlayFileInfo(id);
             if (fileAlreadyExists) {
-                kvDel(key);
-                kvDel(`inlay_thumb/${id}`);
-                kvDel(`inlay_info/${id}`);
+                deleteLegacyInlayData(id);
                 continue;
             }
             const value = kvGet(key);
@@ -226,10 +247,12 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
             try {
                 const parsed = JSON.parse(value.toString('utf-8'));
                 const type = typeof parsed?.type === 'string' ? parsed.type : 'image';
+                if (!isInlayMediaType(type)) {
+                    deleteLegacyInlayData(id);
+                    continue;
+                }
                 const ext = normalizeInlayExt(parsed?.ext);
-                const buffer = type === 'signature'
-                    ? Buffer.from(typeof parsed?.data === 'string' ? parsed.data : '', 'utf-8')
-                    : decodeDataUri(parsed?.data).buffer;
+                const buffer = decodeDataUri(parsed?.data).buffer;
                 const info = (await readInlayLegacyInfo(id)) || {
                     ext,
                     name: typeof parsed?.name === 'string' ? parsed.name : id,
@@ -238,9 +261,7 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
                     width: typeof parsed?.width === 'number' ? parsed.width : undefined,
                 };
                 await writeInlayFile(id, ext, buffer, info);
-                kvDel(key);
-                kvDel(`inlay_thumb/${id}`);
-                kvDel(`inlay_info/${id}`);
+                deleteLegacyInlayData(id);
             } catch (error) {
                 logger.warn(`[InlayFS] Failed to migrate ${key}:`, error?.message || error);
             }

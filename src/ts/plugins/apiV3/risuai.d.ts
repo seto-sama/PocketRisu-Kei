@@ -111,7 +111,7 @@ interface InlayAssetForPlugin {
     /** Original asset filename */
     name: string;
     /** Asset category */
-    type: 'image' | 'video' | 'audio' | 'signature';
+    type: 'image' | 'video' | 'audio';
     /** Pixel height for images and videos */
     height?: number;
     /** Pixel width for images and videos */

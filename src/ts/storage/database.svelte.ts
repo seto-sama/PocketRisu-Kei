@@ -869,7 +869,6 @@ export function setDatabase(data:Database){
     data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
-    data.saveSignatures ??= false
     data.scrollButtonType ??= 'four'
     data.hideRecentChats ??= false
     data.autoCleanAssets ??= false
@@ -1530,7 +1529,6 @@ export interface Database{
     /** Opt-in server-side orphan asset sweep after startup. */
     autoCleanAssets?:boolean
     seperateParametersByModel?:boolean
-    saveSignatures?:boolean
     keepSessionAlive: boolean
 }
 

@@ -1,9 +1,10 @@
 import { decodeBinaryMessage, encodeBinaryMessage } from '../network/binaryMessage'
+import { isInlayMediaType } from '../../../shared/inlayTypes.mjs'
 
 export interface InlayMetadata {
     ext: string
     name: string
-    type: 'image' | 'video' | 'audio' | 'signature'
+    type: 'image' | 'video' | 'audio'
     height?: number
     width?: number
     mime: string
@@ -17,7 +18,7 @@ export function decodeInlayAsset(message: Uint8Array): { metadata: InlayMetadata
     const { metadata, bytes } = decodeBinaryMessage(message)
     if (typeof metadata.ext !== 'string' || typeof metadata.name !== 'string'
         || typeof metadata.mime !== 'string'
-        || !['image', 'video', 'audio', 'signature'].includes(metadata.type as string)
+        || !isInlayMediaType(metadata.type)
         || [metadata.width, metadata.height].some(value => value !== undefined
             && (typeof value !== 'number' || !Number.isFinite(value) || value < 0))) {
         throw new Error('Invalid inlay metadata')
