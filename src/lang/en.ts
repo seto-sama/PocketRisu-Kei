@@ -1114,7 +1114,6 @@ export const languageEnglish = {
         unconnectedChatRanges: (ranges: string) => `Past Chats ranges are not connected: [${ranges}]`,
     },
     emotionMethod: "Emotion Method",
-    continueResponse: "Continue Response",
     showMenuChatList: "Show Menu Chat List",
     translatorLanguage: "Translator Language",
     translatorType: "Translator Type",

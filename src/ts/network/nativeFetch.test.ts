@@ -61,7 +61,7 @@ it('leaves durable generation deadlines with Revenant', async () => {
     const request = fetchNative('https://provider.example/generate', {
         body: '{}', interceptor: 'model_preset', llmExecutionPolicy: WORKFLOW_LLM_EXECUTION,
         generationRequest: {
-            job: { chatId: 'g', jobType: 'model', isContinuation: false },
+            job: { chatId: 'g', jobType: 'model' },
             workflow: { workflowId: 'w', executionId: 'e', stepKey: 'model.main' },
         },
     })

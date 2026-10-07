@@ -596,7 +596,6 @@ export const languageChinese = {
     "ToggleHypaMemory": "激活 HypaMemory",
     "resetPromptTemplateConfirm": "你真的确定要重置提示词模板吗？",
     "emotionMethod": "情绪检测方式",
-    "continueResponse": "继续回应",
     "showMenuChatList": "在菜单中显示聊天列表",
     "translatorLanguage": "翻译目标语言",
     "translatorType": "翻译器类型",

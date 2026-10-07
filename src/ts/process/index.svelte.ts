@@ -157,7 +157,6 @@ export let previewBody:string = ''
 export async function sendChat(chatProcessIndex = -1,arg:{
     chatAdditonalTokens?:number,
     signal?:AbortSignal,
-    continue?:boolean,
     preview?:boolean
     previewPrompt?:boolean
     rerollSnapshot?: RevenantRerollSnapshot
@@ -183,7 +182,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let selectedChat = -1
     let currentChar:character
     let generationInfo:MessageGenerationInfo|undefined = undefined
-    const isContinuation = arg.continue === true
     const rerollSnapshot = arg.rerollSnapshot
     let workflowSession: ChatGenerationSession
     let revenantMainDependency:RevenantWorkflowDependency|undefined
@@ -459,9 +457,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         doingChat.set(false)
         return false
     }
-    const continuationFallback = isContinuation
-        ? outgoingChat.message.slice().reverse().find(message => message?.role === 'char')?.data ?? ''
-        : ''
     function preserveFailedGenerationMessage(content?: string){
         const character = DBState.db.characters.find(item =>
             item?.chaId === nowChatroom.chaId) ?? nowChatroom
@@ -470,22 +465,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         if(!chat) return
         const generatedTarget = chat.message.find(message =>
             message?.chatId === messageChatId)
-        const continuationTarget = isContinuation
-            ? chat.message.slice().reverse().find(message => message?.role === 'char')
-            : undefined
         const rerollTarget = rerollSnapshot
             ? chat.message.find(message =>
                 message?.chatId === rerollSnapshot.targetMessage.chatId)
                 ?? chat.message[rerollSnapshot.targetIndex]
             : undefined
-        const targetMessage = generatedTarget ?? continuationTarget ?? rerollTarget
-        const preservedContent = isContinuation && content === ''
-            ? continuationFallback
-            : content ?? generatedTarget?.data ?? ''
+        const targetMessage = generatedTarget ?? rerollTarget
+        const preservedContent = content ?? generatedTarget?.data ?? ''
         applyCancelledGenerationProjection(chat, {
             messageChatId,
             content: preservedContent,
-            isContinuation,
             targetMessage,
             rerollSnapshot,
         })
@@ -500,7 +489,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const target = ensureGenerationMessageTarget(chat, {
             messageChatId,
             characterId: nowChatroom.chaId,
-            isContinuation,
             generationInfo,
             promptInfo,
             rerollSnapshot,
@@ -1356,14 +1344,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     let formated:OpenAIChat[] = []
 
-    //continue chat model
-    if(isContinuation && mergesAdjacentSystemPrompts){
-        unformated.postEverything.push({
-            role: 'system',
-            content: '[Continue the last response]'
-        })
-    }
-
     function pushPrompts(cha:OpenAIChat[]){
         for(const chat of cha){
             // Drop payload-less turns before system merging and cache-depth
@@ -1646,14 +1626,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 version: 1,
                 chatProcessIndex,
                 messageChatId,
-                continue: isContinuation,
                 rerollSnapshot,
             }
             const postprocessChat = structuredClone(currentChat)
             ensureGenerationMessageTarget(postprocessChat, {
                 messageChatId,
                 characterId: currentChar.chaId,
-                isContinuation,
                 generationInfo,
                 promptInfo,
                 rerollSnapshot,
@@ -1677,13 +1655,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     schemaVersion: 1,
                     chatProcessIndex,
                     messageChatId,
-                    isContinuation,
                     rerollSnapshot,
                 },
                 postprocess: {
                     schemaVersion: 1,
                     messageChatId,
-                    isContinuation,
                     rerollSnapshot,
                     providerBackend: compiledMainPreset.backend,
                     modelPreset: structuredClone(compiledMainPreset.sourcePreset),
@@ -1730,7 +1706,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }), !!plannedHypaExecution)
             beginChatGenerationProjection(nowChatroom.chaId, durableInputChat, {
                 messageChatId,
-                isContinuation,
                 rerollSnapshot,
             })
             const workflow = await beginRevenantWorkflow({
@@ -1772,7 +1747,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         ensureGenerationMessageTarget(generationChat, {
             messageChatId,
             characterId: currentChar.chaId,
-            isContinuation,
             generationInfo,
             promptInfo,
             rerollSnapshot,
@@ -1797,7 +1771,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             useStreaming: true,
             isGroupChat: false,
             bias: {},
-            continue: isContinuation,
             chatId: messageChatId,
             imageResponse: DBState.db.outputImageModal,
             previewBody: arg.previewPrompt,
@@ -1806,7 +1779,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             revenantWorkflowId: workflowSession.workflowId,
             revenantWorkflowDependency: revenantMainDependency,
             revenantRoomId: outgoingChat.id,
-            revenantContinuationPrefix: continuationFallback,
             onRevenantJobCreated: (jobId, createdAt) => {
                 revenantMainJobCreated = true
                 revenantMainJobId = jobId
@@ -1971,10 +1943,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             void reader.cancel().catch(() => {})
             throw new Error('Generation chat is no longer available')
         }
-        let prefix = ''
-        if(isContinuation){
-            prefix = initialTarget.message.data
-        }
         initialTarget.chat.isStreaming = true
         initialTarget.character.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
@@ -2024,7 +1992,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(!result){
                         result = ''
                     }
-                    rawResult = prefix + result
+                    rawResult = result
                     void checkpointRevenantGeneration(messageChatId, rawResult).catch(error => {
                         console.error('[GenerationJob] Failed to checkpoint parsed response:', error)
                     })
@@ -2036,11 +2004,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(workflowSession.workflowId){
                         setGenerationMessageContent(
                             liveTarget.message,
-                            reformatContent(prefix + result),
+                            reformatContent(result),
                         )
                     }
                     else{
-                        const result2 = await processScriptFull(liveTarget.character, reformatContent(prefix + result), 'editoutput', liveTarget.index)
+                        const result2 = await processScriptFull(liveTarget.character, reformatContent(result), 'editoutput', liveTarget.index)
                         const refreshedTarget = ensureLiveGenerationTarget()
                         if(!refreshedTarget){
                             streamFailure = new Error('Generation chat is no longer available')
@@ -2060,7 +2028,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if (result) {
                 const checkpoint = checkpointRevenantGeneration(
                     messageChatId,
-                    rawResult || prefix + result,
+                    rawResult || result,
                     true,
                 )
                 if(streamDetached){
@@ -2169,36 +2137,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if (i === 0 && msgIndex < 0) {
                 throw new Error('Persisted generation placeholder is missing')
             }
-            let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
-            if(i === 0 && isContinuation){
-                let beforeChat = ensureLiveGenerationTarget()?.message
-                if(!beforeChat) throw new Error('Generation continuation target is missing')
-                result2 = await processScriptFull(nowChatroom, reformatContent(beforeChat.data + mess), 'editoutput', msgIndex)
-            }
+            const result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
             result = result2.data
             const inlayResult = runInlayScreen(currentChar, result)
             result = inlayResult.text
             emoChanged = result2.emoChanged
-            if(i === 0 && isContinuation){
-                const committedTarget = ensureLiveGenerationTarget()
-                if(!committedTarget) throw new Error('Generation continuation target is missing')
-                Object.assign(committedTarget.message, {
-                    role: 'char' as const,
-                    saying: currentChar.chaId,
-                    time: Date.now(),
-                    generationInfo,
-                    promptInfo,
-                    chatId: messageChatId,
-                })
-                setGenerationMessageContent(committedTarget.message, result)
-                if(inlayResult.promise){
-                    const p = await inlayResult.promise
-                    const refreshedTarget = ensureLiveGenerationTarget()
-                    if(!refreshedTarget) throw new Error('Generation continuation target is missing')
-                    setGenerationMessageContent(refreshedTarget.message, p)
-                }
-            }
-            else if(i===0){
+            if(i===0){
                 const committedTarget = ensureLiveGenerationTarget()
                 if(!committedTarget) throw new Error('Generation target is missing')
                 Object.assign(committedTarget.message, {

@@ -11,7 +11,6 @@ function recipe() {
     return {
         schemaVersion: 1,
         messageChatId: 'message-1',
-        isContinuation: false,
         providerBackend: 'plugin',
         modelPreset: { id: 'plugin' },
         character: {

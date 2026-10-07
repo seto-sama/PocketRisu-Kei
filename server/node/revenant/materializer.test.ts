@@ -140,7 +140,7 @@ describe('revenant canonical materializer', () => {
                 context: {
                     postprocess: {
                         chatPatch: [], character: {},
-                        messageChatId: 'message-1', isContinuation: false,
+                        messageChatId: 'message-1',
                     },
                 },
                 steps: [{
@@ -306,7 +306,6 @@ describe('revenant canonical materializer', () => {
                     chatPatch: [],
                     character: { chaId: 'character-1' },
                     messageChatId: 'partial-message',
-                    isContinuation: false,
                     rerollSnapshot,
                 },
             },
@@ -401,7 +400,6 @@ describe('revenant canonical materializer', () => {
                     chatPatch: [],
                     character: { chaId: 'character-1' },
                     messageChatId: 'partial-message',
-                    isContinuation: false,
                     rerollSnapshot,
                 },
             },

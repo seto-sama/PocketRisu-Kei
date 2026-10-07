@@ -22,9 +22,7 @@ describe('generation chat result rebase', () => {
         const current = structuredClone(base)
         current.message[0].data = 'edited while streaming'
 
-        const merged = mergeGenerationChatResult(base, result, current, {
-            messageChatId: 'generated', isContinuation: false,
-        })
+        const merged = mergeGenerationChatResult(base, result, current, { messageChatId: 'generated' })
 
         expect(merged.message).toEqual([
             { chatId: 'old', role: 'char', data: 'edited while streaming' },
@@ -33,14 +31,14 @@ describe('generation chat result rebase', () => {
         ])
     })
 
-    it('rejects concurrent edits to the same continuation target', () => {
+    it('rejects concurrent edits to the reroll target', () => {
         const base = {
             id: 'room',
-            message: [{ chatId: 'target', role: 'char', data: 'prefix' }],
+            message: [{ chatId: 'target', role: 'char', data: 'original', swipes: ['original'], swipeId: 0 }],
         }
         const result = {
             id: 'room',
-            message: [{ chatId: 'generated', role: 'char', data: 'prefix generated' }],
+            message: [{ chatId: 'generated', role: 'char', data: 'rerolled', swipes: ['original', 'rerolled'], swipeId: 1 }],
         }
         const current = {
             id: 'room',
@@ -48,7 +46,10 @@ describe('generation chat result rebase', () => {
         }
 
         expect(() => mergeGenerationChatResult(base, result, current, {
-            messageChatId: 'generated', isContinuation: true,
+            messageChatId: 'generated',
+            rerollSnapshot: {
+                targetMessage: base.message[0], targetIndex: 0, trailingMessages: [],
+            },
         })).toThrow('overlaps concurrent chat edits')
     })
 

@@ -90,7 +90,6 @@ export interface requestDataArgument{
     useStreaming?:boolean
     isGroupChat?:boolean
     useEmotion?:boolean
-    continue?:boolean
     chatId?:string
     noMultiGen?:boolean
     schema?:string
@@ -120,8 +119,6 @@ export interface requestDataArgument{
     revenantWorkflowId?:string
     /** Room captured when the request was submitted; stable across UI navigation. */
     revenantRoomId?:string
-    /** Continuation prefix captured from that same room. */
-    revenantContinuationPrefix?:string
     onRevenantJobCreated?:RevenantJobCreatedHandler
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void

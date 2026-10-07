@@ -75,11 +75,7 @@ function mergeGenerationChatResult(baseChat, resultChat, currentChat, operation)
     const resultMessages = Array.isArray(resultChat.message) ? resultChat.message : [];
     const mergedMessages = Array.isArray(merged.message) ? merged.message : [];
     const messageChatId = operation?.messageChatId;
-    const rerollBaseId = operation?.rerollSnapshot?.targetMessage?.chatId;
-    const continuationBase = operation?.isContinuation
-        ? [...baseMessages].reverse().find(message => message?.role === 'char')
-        : undefined;
-    const ownedBaseId = rerollBaseId || continuationBase?.chatId;
+    const ownedBaseId = operation?.rerollSnapshot?.targetMessage?.chatId;
     const ownedIds = new Set([
         messageChatId,
         ownedBaseId,

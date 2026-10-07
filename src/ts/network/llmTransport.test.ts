@@ -26,7 +26,6 @@ describe('createLLMTransportFetch', () => {
             job: {
                 chatId: 'generation-1',
                 jobType: 'model',
-                isContinuation: false,
             },
         }
         const fetchImpl = createLLMTransportFetch({
@@ -82,7 +81,6 @@ describe('createLLMTransportFetch', () => {
                 job: {
                     chatId: 'aux-1',
                     jobType: 'otherAx',
-                    isContinuation: false,
                 },
             }),
             localNetworkTimeoutMs: 123_000,
@@ -115,7 +113,6 @@ describe('createLLMTransportFetch', () => {
                 job: {
                     chatId,
                     jobType: 'model',
-                    isContinuation: false,
                 },
             }),
         })

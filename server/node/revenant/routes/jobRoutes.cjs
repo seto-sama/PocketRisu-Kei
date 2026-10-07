@@ -254,8 +254,6 @@ function installRevenantJobRoutes(app, deps) {
                 jobType,
                 characterId: req.body?.characterId,
                 roomId: req.body?.roomId,
-                isContinuation: req.body?.isContinuation === true,
-                continuationPrefix: req.body?.continuationPrefix,
                 generationInfo: req.body?.generationInfo,
                 promptInfo: req.body?.promptInfo,
                 rerollSnapshot: req.body?.rerollSnapshot,

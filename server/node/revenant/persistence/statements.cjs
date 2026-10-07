@@ -4,7 +4,7 @@ function createGenerationStatements(db) {
     const stmtCreate = db.prepare(`
         INSERT INTO generation_jobs (
             job_id, chat_id, job_type, character_id, room_id,
-            is_continuation, continuation_prefix, generation_info, prompt_info, reroll_snapshot,
+            generation_info, prompt_info, reroll_snapshot,
             operation_context, workflow_id, workflow_step_key, step_execution_id,
             adapter_kind, streaming,
             dispatch_group, dispatch_max_concurrent,
@@ -12,7 +12,7 @@ function createGenerationStatements(db) {
             status, created_at, updated_at
         ) VALUES (
             @jobId, @chatId, @jobType, @characterId, @roomId,
-            @isContinuation, @continuationPrefix, @generationInfo, @promptInfo, @rerollSnapshot,
+            @generationInfo, @promptInfo, @rerollSnapshot,
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
             @adapterKind, @streaming,
             @dispatchGroup, @dispatchMaxConcurrent,
@@ -171,7 +171,6 @@ function createGenerationStatements(db) {
             + length(CAST(COALESCE(reroll_snapshot, '') AS BLOB))
             + length(CAST(COALESCE(operation_context, '') AS BLOB))
             + length(CAST(COALESCE(response_headers, '') AS BLOB))
-            + length(CAST(COALESCE(continuation_prefix, '') AS BLOB))
             + length(CAST(COALESCE(error, '') AS BLOB))
         ), 0) AS total
         FROM generation_jobs

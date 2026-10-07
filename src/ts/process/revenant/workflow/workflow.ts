@@ -98,7 +98,6 @@ export interface RevenantWorkflowResumeContext {
     version: 1
     chatProcessIndex: number
     messageChatId: string
-    continue: boolean
     rerollSnapshot?: RevenantRerollSnapshot
 }
 
@@ -206,7 +205,6 @@ export function getRevenantWorkflowResumeContext(
         || !Number.isInteger(metadata.chatProcessIndex)
         || typeof metadata.messageChatId !== 'string'
         || !metadata.messageChatId
-        || typeof metadata.continue !== 'boolean'
     ) return undefined
     const rerollSnapshot = metadata.rerollSnapshot
     if (
@@ -217,7 +215,6 @@ export function getRevenantWorkflowResumeContext(
         version: 1,
         chatProcessIndex: metadata.chatProcessIndex as number,
         messageChatId: metadata.messageChatId,
-        continue: metadata.continue,
         rerollSnapshot: rerollSnapshot as RevenantRerollSnapshot | undefined,
     }
 }

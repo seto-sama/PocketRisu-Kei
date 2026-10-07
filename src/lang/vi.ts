@@ -596,7 +596,6 @@ export const languageVietnamese = {
     "ToggleHypaMemory": "Chuyển đổi HypaMemory",
     "resetPromptTemplateConfirm": "Bạn có thực sự muốn đặt lại mẫu lời nhắc không?",
     "emotionMethod": "Phương pháp cảm xúc",
-    "continueResponse": "Tiếp tục phản hồi",
     "showMenuChatList": "Hiển thị Menu Danh sách Trò chuyện",
     "translatorLanguage": "Ngôn ngữ dịch",
     "translatorType": "Loại dịch giả",

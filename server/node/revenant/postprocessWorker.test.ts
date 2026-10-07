@@ -77,7 +77,7 @@ describe('revenant postprocess worker', () => {
         }))
     })
 
-    it('claims and transforms terminal model output exactly once', async () => {
+    it('claims and transforms terminal model output once', async () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'pending' },
             'trigger.output': { status: 'pending' },
@@ -89,7 +89,6 @@ describe('revenant postprocess worker', () => {
         const repository = {
             listReadyChatWorkflowJobs: () => [{
                 jobId: 'job-1', workflowId: 'workflow-1', projection: { content: ' result ' },
-                isContinuation: true, continuationPrefix: 'prefix:',
             }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
@@ -128,7 +127,7 @@ describe('revenant postprocess worker', () => {
 
         expect(transformOutput).toHaveBeenCalledOnce()
         expect(transformOutput).toHaveBeenCalledWith(
-            'prefix: result',
+            'result',
             expect.objectContaining({ schemaVersion: 1 }),
         )
         expect(updates.map(update => update.step)).toEqual([

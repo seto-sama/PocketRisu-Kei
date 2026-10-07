@@ -667,7 +667,6 @@ export const languageChineseTraditional = {
     "ToggleHypaMemory": "啟動 HypaMemory",
     "resetPromptTemplateConfirm": "您真的確定要重置提示詞模板嗎？",
     "emotionMethod": "情緒檢測方式",
-    "continueResponse": "接續回應內容",
     "showMenuChatList": "在選單中顯示對話列表",
     "translatorLanguage": "翻譯目標語言",
     "translatorType": "翻譯器類型",

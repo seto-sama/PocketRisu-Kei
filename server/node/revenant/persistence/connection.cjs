@@ -27,8 +27,6 @@ db.exec(`
         job_type TEXT NOT NULL DEFAULT 'model',
         character_id TEXT,
         room_id TEXT,
-        is_continuation INTEGER NOT NULL DEFAULT 0,
-        continuation_prefix TEXT,
         generation_info TEXT,
         prompt_info TEXT,
         reroll_snapshot TEXT,
@@ -130,12 +128,6 @@ const generationColumns = new Set(
 );
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
-}
-if (!generationColumns.has('is_continuation')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN is_continuation INTEGER NOT NULL DEFAULT 0`);
-}
-if (!generationColumns.has('continuation_prefix')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN continuation_prefix TEXT`);
 }
 if (!generationColumns.has('generation_info')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN generation_info TEXT`);

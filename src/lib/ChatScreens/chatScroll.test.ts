@@ -155,7 +155,7 @@ describe('new response completion timing', () => {
         }))).toBe(true)
     })
 
-    it('does not trigger twice or across room and continuation changes', () => {
+    it('does not trigger twice or across room and generation changes', () => {
         const completed = responseSnapshot({ hasContent: true, isResponding: false })
         expect(didNewResponseComplete(completed, completed)).toBe(false)
 
@@ -166,7 +166,7 @@ describe('new response completion timing', () => {
         })).toBe(false)
         expect(didNewResponseComplete(populated, {
             ...completed,
-            messageKey: 'continuation-generation',
+            messageKey: 'other-generation',
         })).toBe(false)
     })
 })

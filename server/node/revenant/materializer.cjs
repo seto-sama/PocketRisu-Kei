@@ -106,18 +106,13 @@ function createRevenantMaterializer(options) {
         }
     }
 
-    function cancellationOwnsEveryConflict(job, error, recipe, inputChat) {
+    function cancellationOwnsEveryConflict(job, error, recipe) {
         if (error?.status !== 409 || !Array.isArray(error.conflicts) || error.conflicts.length === 0) {
             return false;
         }
-        const inputMessages = inputChat?.message || [];
-        const continuationTarget = recipe?.isContinuation
-            ? inputMessages.findLast(message => message?.role === 'char')?.chatId
-            : undefined;
         const ownedIds = new Set([
             job.chatId,
             recipe?.rerollSnapshot?.targetMessage?.chatId,
-            continuationTarget,
         ].filter(Boolean));
         return error.conflicts.every(path =>
             [...ownedIds].some(id => path === `/message/${id}`));
@@ -247,13 +242,8 @@ function createRevenantMaterializer(options) {
             }
         }
         const partial = String(projection?.content || '');
-        const projected = job.isContinuation
-            && job.continuationPrefix
-            && !partial.startsWith(job.continuationPrefix)
-            ? job.continuationPrefix + partial
-            : partial;
-        const chat = projected.trim()
-            ? applyGeneratedMessage(recipe.chat, recipe, job, projected)
+        const chat = partial.trim()
+            ? applyGeneratedMessage(recipe.chat, recipe, job, partial)
             : structuredClone(inputChat);
         chat.isStreaming = false;
 
@@ -271,8 +261,8 @@ function createRevenantMaterializer(options) {
                 },
             });
         } catch (error) {
-            if (!cancellationOwnsEveryConflict(job, error, recipe, inputChat)) throw error;
-            // A user edited or deleted the exact continuation/reroll target
+            if (!cancellationOwnsEveryConflict(job, error, recipe)) throw error;
+            // A user edited or deleted the exact reroll target
             // while cancellation was settling. Their newer canonical choice
             // wins; acknowledge the partial so a later generation never drains
             // and resurrects it over that edit.

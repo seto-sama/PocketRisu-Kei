@@ -1179,7 +1179,6 @@ export const languageKorean = {
     unconnectedChatRanges: (ranges: string) => `과거 채팅 범위가 연결되지 않았습니다: [${ranges}]`,
   },
   emotionMethod: "감정 방식",
-  continueResponse: "응답 계속하기",
   showMenuChatList: "햄버거 메뉴에 채팅 리스트 보이기",
   translatorLanguage: "번역기 언어",
   translatorType: "번역기 타입",

@@ -185,7 +185,6 @@ export function consumeChatSyncApplied(chat: Chat) {
 
 export type ChatGenerationProjection = {
     messageChatId: string
-    isContinuation?: boolean
     rerollSnapshot?: {
         targetMessage?: { chatId?: string }
         trailingMessages?: Array<{ chatId?: string }>
@@ -229,13 +228,9 @@ export function beginChatGenerationProjection(
     const key = chatWorkingCopyKey(characterId, baseChat.id)
     const existing = serverProjections.get(key)
     if (existing?.messageChatId === operation.messageChatId) return
-    const continuationTarget = operation.isContinuation
-        ? [...baseChat.message].reverse().find(message => message?.role === 'char')
-        : undefined
     const ownedMessageIds = new Set([
         operation.messageChatId,
         operation.rerollSnapshot?.targetMessage?.chatId,
-        continuationTarget?.chatId,
         ...(operation.rerollSnapshot?.trailingMessages ?? []).map(message => message?.chatId),
     ].filter((id): id is string => !!id))
     serverProjections.set(key, {

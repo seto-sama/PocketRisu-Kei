@@ -956,14 +956,7 @@ import { isMobile } from 'src/ts/platform'
         }
     }
 
-    async function send(){
-        return sendMain(false)
-    }
-    async function sendContinue(){
-        return sendMain(true)
-    }
-
-    async function sendMain(continueResponse:boolean) {
+    async function send() {
         const selectedChar = $selectedCharID
         if(currentRoomHasMainGeneration){
             return
@@ -1050,7 +1043,6 @@ import { isMobile } from 'src/ts/platform'
             updateInputSizeAll()
             foregroundHandedOff = true
             const initialResult = await sendChatMain(
-                continueResponse,
                 undefined,
                 generationTarget,
                 foregroundContext,
@@ -1059,7 +1051,6 @@ import { isMobile } from 'src/ts/platform'
                 initialResult.generated
                 && !initialResult.detached
                 && !initialResult.toolExecuted
-                && !continueResponse
                 && !DBState.db.outputImageModal
             ) {
                 await runAutomaticRerolls(
@@ -1177,12 +1168,10 @@ import { isMobile } from 'src/ts/platform'
         beginGenerationMessageProjection(rerollChat, {
             messageChatId,
             characterId: rerollCharacter.chaId,
-            isContinuation: false,
             rerollSnapshot: prepared.rerollSnapshot,
         })
         rerollCharacter.reloadKeys += 1
         const attempt = await sendChatMain(
-            false,
             prepared.rerollSnapshot,
             generationTarget,
             foregroundContext,
@@ -1288,7 +1277,6 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function sendChatMain(
-        continued:boolean = false,
         rerollSnapshot?: RevenantRerollSnapshot,
         generationTarget?: ForegroundGenerationContext['origin'],
         preparedContext?: ForegroundGenerationContext,
@@ -1323,7 +1311,6 @@ import { isMobile } from 'src/ts/platform'
                     toolExecuted ||= result.toolExecuted
                 },
                 suppressTts: automatic,
-                continue:continued,
                 rerollSnapshot,
                 durableInputCommit,
                 messageChatId,

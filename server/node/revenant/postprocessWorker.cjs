@@ -154,9 +154,8 @@ function createRevenantPostprocessWorker(options) {
                 if (outputStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')) {
                     try {
-                        const prefix = job.isContinuation ? job.continuationPrefix || '' : '';
                         const result = await runOutputStage({
-                            text: `${prefix}${job.projection.content}`.trim(),
+                            text: job.projection.content.trim(),
                             recipe,
                             job,
                             responses: outputStep.metadata?.responses,

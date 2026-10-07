@@ -596,7 +596,6 @@ export const languageSpanish = {
     "ToggleHypaMemory": "Alternar HypaMemoria",
     "resetPromptTemplateConfirm": "¿Realmente deseas restablecer la plantilla de prompt?",
     "emotionMethod": "Método de Emoción",
-    "continueResponse": "Continuar Respuesta",
     "showMenuChatList": "Mostrar Menú de Lista de Chats",
     "translatorLanguage": "Idioma del Traductor",
     "translatorType": "Tipo de Traductor",

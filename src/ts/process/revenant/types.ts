@@ -151,7 +151,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
 export interface RevenantPostprocessRecipe {
     schemaVersion: 1
     messageChatId: string
-    isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
@@ -204,7 +203,6 @@ export interface RevenantChatWorkflowContext {
         schemaVersion: 1
         chatProcessIndex: number
         messageChatId: string
-        isContinuation: boolean
         rerollSnapshot?: RevenantRerollSnapshot
     }
     postprocess: RevenantPostprocessSnapshot
@@ -257,8 +255,6 @@ export interface RevenantProviderJobSpec {
     streaming?: boolean
     characterId?: string
     roomId?: string
-    isContinuation: boolean
-    continuationPrefix?: string
     operationContext?: RevenantOperationContext
     dispatchPolicy?: RevenantDispatchPolicy
     /** Canonical models.dev identity used by usage-cost accounting. */
@@ -332,8 +328,6 @@ export interface RecoverableGenerationJob {
     workflowId?: string
     workflowStepKey?: string
     workflowStepExecutionId?: string
-    isContinuation?: boolean
-    continuationPrefix?: string
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot

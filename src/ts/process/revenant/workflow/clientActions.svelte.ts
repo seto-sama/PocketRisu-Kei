@@ -96,7 +96,6 @@ async function executeProviderAction(
             forceStreaming: true,
             noMultiGen: true,
             chatId,
-            continue: options.continue === true,
             revenantWorkflowDependency: options.workflowDependency as any,
             onRevenantJobCreated: lifecycle.onJobCreated,
             onRevenantJobRegistrationUnavailable: lifecycle.onJobRegistrationUnavailable,

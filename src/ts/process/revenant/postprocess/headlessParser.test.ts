@@ -7,7 +7,6 @@ function recipe(): RevenantPostprocessRecipe {
     return {
         schemaVersion: 1,
         messageChatId: 'message-2',
-        isContinuation: false,
         providerBackend: 'http',
         modelPreset: {},
         character: {

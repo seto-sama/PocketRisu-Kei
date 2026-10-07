@@ -55,7 +55,7 @@ describe('generation job registration', () => {
         const body = Uint8Array.of(0, 128, 255, 0xea, 0xb0)
         const response = await fetchViaGenerationJob('https://provider.example', {
             method: 'POST', headers: { authorization: 'test-key' }, body,
-            generationRequest: { job: { jobType: 'otherAx', chatId: 'request', isContinuation: false } },
+            generationRequest: { job: { jobType: 'otherAx', chatId: 'request' } },
         })
         expect(response.status).toBe(200)
         const [url, init] = vi.mocked(fetch).mock.calls[0]

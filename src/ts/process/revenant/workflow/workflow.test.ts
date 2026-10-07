@@ -59,7 +59,6 @@ describe('revenant workflow resume checkpoint', () => {
                 version: 1,
                 chatProcessIndex: -1,
                 messageChatId: 'message-1',
-                continue: false,
             },
             hypaEnabled: false,
             igpEnabled: true,
@@ -90,7 +89,6 @@ describe('revenant workflow resume checkpoint', () => {
                 version: 1,
                 chatProcessIndex: -1,
                 messageChatId: 'message-1',
-                continue: false,
             },
             hypaEnabled: false,
             igpEnabled: false,
@@ -106,7 +104,6 @@ describe('revenant workflow resume checkpoint', () => {
                 version: 1,
                 chatProcessIndex: -1,
                 messageChatId: 'message-1',
-                continue: false,
             },
             hypaEnabled: false,
             igpEnabled: false,
@@ -122,26 +119,24 @@ describe('revenant workflow resume checkpoint', () => {
 
     it('keeps server-planned Hypa pending while marking local prompt assembly complete', () => {
         const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
-            resumeContext: { version: 1, chatProcessIndex: -1, messageChatId: 'message', continue: false },
+            resumeContext: { version: 1, chatProcessIndex: -1, messageChatId: 'message' },
             hypaEnabled: true, igpEnabled: false, pluginProvider: false,
         }), true)
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('pending')
         expect(plan.find(step => step.key === 'prompt.build')?.status).toBe('completed')
     })
 
-    it('round-trips the stable main message identity and invocation mode', () => {
+    it('round-trips the stable main message identity', () => {
         const metadata = createRevenantWorkflowResumeMetadata({
             version: 1,
             chatProcessIndex: -1,
             messageChatId: 'message-1',
-            continue: true,
         })
 
         expect(getRevenantWorkflowResumeContext(workflowWithMetadata(metadata))).toEqual({
             version: 1,
             chatProcessIndex: -1,
             messageChatId: 'message-1',
-            continue: true,
             rerollSnapshot: undefined,
         })
     })
@@ -150,7 +145,6 @@ describe('revenant workflow resume checkpoint', () => {
         expect(getRevenantWorkflowResumeContext(workflowWithMetadata({
             version: 1,
             chatProcessIndex: -1,
-            continue: false,
         }))).toBeUndefined()
     })
 })

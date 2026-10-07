@@ -596,7 +596,6 @@ export const languageGerman = {
     "ToggleHypaMemory": "HypaMemory umschalten",
     "resetPromptTemplateConfirm": "Möchten Sie die Anweisungsvorlage wirklich zurücksetzen?",
     "emotionMethod": "Emotionsmethode",
-    "continueResponse": "Antwort fortsetzen",
     "showMenuChatList": "Menü-Chatliste anzeigen",
     "translatorLanguage": "Übersetzer-Sprache",
     "translatorType": "Übersetzer-Typ",

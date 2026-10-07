@@ -10,7 +10,6 @@ import type { RevenantRerollSnapshot } from '../types'
 export interface GenerationMessageTargetOptions {
     messageChatId: string
     characterId: string
-    isContinuation: boolean
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
@@ -123,20 +122,6 @@ export function ensureGenerationMessageTarget(
         message?.chatId === options.messageChatId)
     if(existingIndex >= 0){
         return { message: chat.message[existingIndex], index: existingIndex }
-    }
-
-    if(options.isContinuation){
-        for(let index = chat.message.length - 1; index >= 0; index--){
-            const message = chat.message[index]
-            if(message?.role !== 'char') continue
-            Object.assign(message, {
-                chatId: options.messageChatId,
-                generationInfo: options.generationInfo,
-                promptInfo: options.promptInfo,
-            })
-            return { message, index }
-        }
-        throw new Error('Cannot continue generation without an assistant message')
     }
 
     let placeholder: Message

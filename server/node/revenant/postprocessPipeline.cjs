@@ -61,14 +61,6 @@ function applyGeneratedMessage(chat, recipe, job, text) {
     const result = structuredClone(chat);
     const snapshot = recipe.rerollSnapshot;
     let targetIndex = result.message.findIndex(message => message?.chatId === recipe.messageChatId);
-    if (targetIndex < 0 && recipe.isContinuation) {
-        for (let index = result.message.length - 1; index >= 0; index--) {
-            if (result.message[index]?.role === 'char') {
-                targetIndex = index;
-                break;
-            }
-        }
-    }
 
     if (snapshot) {
         const previousSwipes = Array.isArray(snapshot.targetMessage?.swipes)

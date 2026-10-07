@@ -388,12 +388,10 @@ describe('revenant workflow validation', () => {
             schemaVersion: 1,
             chatProcessIndex: -1,
             messageChatId: 'message-1',
-            isContinuation: false,
         },
         postprocess: {
             schemaVersion: 1,
             messageChatId: 'message-1',
-            isContinuation: false,
             providerBackend: 'http',
             modelPreset: {},
             auxProviders: {
