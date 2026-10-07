@@ -5,6 +5,7 @@ import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
 import utilsPkg from './utils.cjs'
 import { createPatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs'
+import { createDelta } from '../../shared/guardedDelta.mjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const {
@@ -240,6 +241,36 @@ describe('database projection reads and initialization', () => {
 })
 
 describe('database projection JSON Patch commits', () => {
+    it.each(['personas', 'modelPresets'])('rejects duplicate %s IDs without applying any fields', field => {
+        const { store, service } = createService()
+        store.replaceFromProjection(sampleDatabase())
+        const before = service.getStartupProjection()
+        const incoming = {
+            ...before.database,
+            language: 'en',
+            [field]: [{ id: 'duplicate', name: 'First' }, { id: 'duplicate', name: 'Second' }],
+        }
+
+        const error = thrownBy(() => service.patchDatabase({ changes: createDelta(before.database, incoming) }))
+
+        expect(error).toBeInstanceOf(DatabaseProjectionValidationError)
+        expect(error.statusCode).toBe(400)
+        expect(service.getStartupProjection()).toEqual(before)
+    })
+
+    it('commits guarded deltas over unrelated canonical changes and rejects overlapping fields', () => {
+        const { store, service } = createService()
+        store.replaceFromProjection(sampleDatabase())
+        const base = service.getStartupProjection().database
+        const local = { ...base, language: 'en' }
+        store.syncStartupProjection({ ...base, localOnlyRoot: { secret: false } })
+        expect(service.patchDatabase({ changes: createDelta(base, local) }).success).toBe(true)
+        expect(service.getStartupProjection().database).toMatchObject({ language: 'en', localOnlyRoot: { secret: false } })
+        expect(service.patchDatabase({ changes: createDelta(base, local) }).success).toBe(true)
+        expect(() => service.patchDatabase({ changes: createDelta(base, { ...base, language: 'ja' }) }))
+            .toThrow(DatabaseProjectionConflictError)
+        expect(service.getStartupProjection().database.language).toBe('en')
+    })
     it.each([
         {
             change: 'root settings',

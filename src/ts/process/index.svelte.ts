@@ -67,7 +67,7 @@ import { readImage } from "../globalApi.svelte";
 import {
     createChatCommitSnapshot,
     fetchChatFromServer,
-    getChatServerEtag,
+    getFetchedChatState,
     setChatServerEtag,
 } from "../storage/chatStorage";
 import {
@@ -307,11 +307,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     // Workflow step metadata is a pre-merge projection. Install
                     // only the canonical body exposed by the chat storage API.
                     awaitChatGenerationCanonical(nowChatroom.chaId, outgoingChat.id)
-                    const runtimeCharacter = DBState.db.characters.find(character =>
+                    let runtimeCharacter = DBState.db.characters.find(character =>
                         character?.chaId === nowChatroom.chaId)
-                    const runtimeChatIndex = runtimeCharacter?.chats.findIndex(chat =>
+                    let runtimeChatIndex = runtimeCharacter?.chats.findIndex(chat =>
                         chat?.id === outgoingChat.id) ?? -1
-                    const localChat = runtimeCharacter?.chats[runtimeChatIndex]
                     const canonicalChat = runtimeChatIndex >= 0
                         ? await fetchChatFromServer(
                             nowChatroom.chaId,
@@ -319,16 +318,24 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             outgoingChat.id,
                         )
                         : null
-                    if(runtimeCharacter && localChat && canonicalChat){
+                    runtimeCharacter = DBState.db.characters.find(character => character?.chaId === nowChatroom.chaId)
+                    runtimeChatIndex = runtimeCharacter?.chats.findIndex(chat => chat?.id === outgoingChat.id) ?? -1
+                    const localChat = runtimeCharacter?.chats[runtimeChatIndex]
+                    const read = canonicalChat && getFetchedChatState(canonicalChat)
+                    if(runtimeCharacter && localChat && canonicalChat && read?.isCurrent()){
                         const appliedChat = normalizeChat(resolveChatGenerationCanonical(
                             nowChatroom.chaId,
                             localChat,
                             canonicalChat,
-                            getChatServerEtag(nowChatroom.chaId, outgoingChat.id),
+                            read.etag,
                         ))
                         runtimeCharacter.chats[runtimeChatIndex] = appliedChat
                         markChatSyncApplied(appliedChat)
                         runtimeCharacter.reloadKeys += 1
+                    } else if (localChat && canonicalChat) {
+                        window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
+                            detail: { characterId: nowChatroom.chaId, chatId: outgoingChat.id, terminalCanonical: true },
+                        }))
                     } else {
                         endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
                     }
@@ -1664,7 +1671,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 inputCommit: {
                     schemaVersion: 1,
                     chat: structuredClone(durableInputChat),
-                    expectedEtag: durableInputCommit.expectedEtag,
+                    changes: durableInputCommit.changes,
                 },
                 resume: {
                     schemaVersion: 1,

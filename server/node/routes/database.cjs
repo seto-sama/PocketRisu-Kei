@@ -27,6 +27,7 @@ function installDatabaseRoutes(app, {
         filterRemoteOnlyFolders,
         mergeRemoteFilteredDatabase,
         restoreGenerationOwnedMetadata,
+        findChatInternalFieldOps,
     });
 
     function sendDatabaseProjectionError(res, error) {
@@ -40,6 +41,7 @@ function installDatabaseRoutes(app, {
                 : {}),
             ...(error.currentHash ? { currentHash: error.currentHash } : {}),
             ...(error.hashDiagnostics ? { hashDiagnostics: error.hashDiagnostics } : {}),
+            ...(error.conflicts ? { conflicts: error.conflicts } : {}),
         });
         return true;
     }

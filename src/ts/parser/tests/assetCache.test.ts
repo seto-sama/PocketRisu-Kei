@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { character, Database } from '../../storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({
-    DBState: { db: { hideAllImages: false, legacyMediaFindings: true } as Database },
+    DBState: { db: { hideAllImages: false, assetMaxDifference: 0 } as Database },
     getFileSrc: vi.fn(async (path: string) => `/resolved/${path}`),
 }))
 vi.mock(import('../../storage/database.svelte'), () => ({

@@ -21,7 +21,7 @@ import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
 import { isSupportedTranslatorType, type TranslatorType } from '../translator/types'
-import { createEntityId } from 'src/ts/id';
+import { createEntityId, ensureDatabasePresetIds } from 'src/ts/id';
 import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
 import { emptyModelBinding } from '../preset/types';
@@ -37,7 +37,7 @@ import { normalizeTTSPresetState, type TTSPreset } from '../tts/presets';
 import { normalizeGenerationCount } from '../process/automaticReroll';
 import { OUTPUT_REPETITION_DISABLED } from '../process/request/repetitionDetector';
 import { normalizePresetTagFields, normalizePresetTagState, type PresetTag, type PresetTagFields } from '../preset/tags';
-import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem, ensurePresetIds } from '../preset/collection';
+import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem } from '../preset/collection';
 
 export { pocketKeiVer } from '../version'
 export let webAppSubVer = ''
@@ -103,7 +103,6 @@ export function normalizePersonaSelection(data: Database): void {
             largePortrait: false
         }]
     }
-    ensurePresetIds(data.personas)
     if(!Number.isInteger(data.selectedPersona)
         || data.selectedPersona < 0
         || data.selectedPersona >= data.personas.length){
@@ -250,6 +249,7 @@ function normalizePromptTemplate(
 }
 
 export function setDatabase(data:Database){
+    ensureDatabasePresetIds(data)
     data.trashRetentionDays = normalizeTrashRetentionDays(data.trashRetentionDays);
     normalizePresetTagState(data)
     delete (data as Database & { modelRegistrySeen?: unknown }).modelRegistrySeen
@@ -416,14 +416,10 @@ export function setDatabase(data:Database){
         defaultPreset.name = "Default"
         data.botPresets = [defaultPreset]
     }
-    // Ensure every botPreset has a stable string id (idempotent).
-    // Required for chat binding and new model preset system; physical store
-    // (db.botPresetsId index) remains the source of truth for active preset.
     if (Array.isArray(data.botPresets)) {
         for (const preset of data.botPresets) {
             preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
         }
-        ensurePresetIds(data.botPresets)
     }
     if(checkNullish(data.botPresetsId)){
         data.botPresetsId = 0
@@ -433,7 +429,6 @@ export function setDatabase(data:Database){
         defaultTheme.name = "Default"
         data.themePresets = [defaultTheme]
     }
-    ensurePresetIds(data.themePresets)
     if(checkNullish(data.themePresetsId)){
         data.themePresetsId = 0
     }
@@ -906,6 +901,7 @@ function installDatabase(data: Database) {
 }
 
 export function setDatabaseLite(data:Database){
+    ensureDatabasePresetIds(data)
     normalizePresetTagState(data)
     installDatabase(data)
 }
@@ -1513,7 +1509,6 @@ export interface Database{
     chatLoadAdditionalPages?: number
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
-    legacyMediaFindings?: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
     autoScrollToNewMessage?: boolean

@@ -4,13 +4,15 @@ const crypto = require('crypto');
 const API_ERROR_CODES = require('../../shared/apiErrorCodes.json');
 const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
+const { assertChatIdentity, chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
+const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
+const { stripChatCompatibility } = require('./bookmarkStore.cjs');
 const {
     ChatResultMergeConflict,
-    isStaleGenerationTargetWrite,
-    mergeConcurrentChatEdit,
     mergeGenerationChatResult,
 } = require('./revenant/chatResultMerge.cjs');
 const { resolveRevenantPostprocessRecipe } = require('./revenant/generation.cjs');
+const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../../shared/guardedDelta.mjs');
 
 const MISSING_CHAT_ETAG = 'missing';
 
@@ -69,21 +71,6 @@ function commitChatContent(store, characterId, chatId, incomingChat, expectedEta
     };
 }
 
-function chatToStub(chat) {
-    if (!chat) return chat;
-    if (chat._stub && !Array.isArray(chat.message)) return chat;
-    const stub = {
-        id: chat.id || '',
-        name: chat.name ?? '',
-        _stub: true,
-    };
-    // Key presence distinguishes an explicit clear from an absent update.
-    if ('lastDate' in chat) stub.lastDate = chat.lastDate;
-    if ('folderId' in chat) stub.folderId = chat.folderId;
-    if ('modules' in chat) stub.modules = chat.modules;
-    return stub;
-}
-
 function stripChatsFromDb(dbObj) {
     if (!dbObj?.characters) return dbObj;
     const stripped = { ...dbObj };
@@ -109,7 +96,7 @@ function mergeChatStubWithFullChat(stub, fullChat) {
     // Stub metadata is authoritative, including key absence. Keeping an old
     // value from the independently stored body when the stub omits a field
     // resurrects metadata that another client explicitly removed.
-    for (const field of ['lastDate', 'folderId', 'modules']) {
+    for (const field of optionalChatMetadataFields) {
         if (field in stub) merged[field] = stub[field];
         else delete merged[field];
     }
@@ -136,28 +123,6 @@ function reassembleFullDb(strippedDb, store) {
     return full;
 }
 
-function findStubFlagLossChats(fullDb) {
-    if (!fullDb?.characters) return [];
-    const losses = [];
-    for (let ci = 0; ci < fullDb.characters.length; ci++) {
-        const char = fullDb.characters[ci];
-        if (!char?.chats) continue;
-        for (let chi = 0; chi < char.chats.length; chi++) {
-            const chat = char.chats[chi];
-            if (!chat || typeof chat !== 'object') continue;
-            if (chat._stub !== true && !Array.isArray(chat.message)) {
-                losses.push({
-                    chaId: char.chaId,
-                    charIndex: ci,
-                    chatIndex: chi,
-                    chatId: chat.id || null,
-                });
-            }
-        }
-    }
-    return losses;
-}
-
 class CanonicalChatCommitError extends Error {
     constructor(status, message, options = {}) {
         super(message);
@@ -182,8 +147,6 @@ function createCanonicalChatService(options) {
         replaceChat,
         commitChatContent,
         computeChatEtag,
-        getActiveGenerationWorkflow,
-        getLatestGenerationWorkflow,
         getGenerationWorkflowInputChat,
         persistNow,
         schedulePersist,
@@ -203,28 +166,26 @@ function createCanonicalChatService(options) {
         chatId,
         candidate,
         expectedEtag,
-        acceptMatchingCurrent = false,
         persist,
         reason,
         originClientId,
         finalize,
     }) {
+        try { assertChatIdentity(candidate, chatId); }
+        catch (error) {
+            if (error instanceof EntityIdValidationError) {
+                throw new CanonicalChatCommitError(400, error.message);
+            }
+            throw error;
+        }
+        for (const field of runtimeOnlyChatFields) delete candidate[field];
+        stripChatCompatibility(candidate);
         const previous = getChat(characterId, chatId);
-        const previousEtag = computeChatEtag(previous);
-        // Prompt construction can outlive the browser's debounced autosave.
-        // If that autosave already committed this exact generation input, the
-        // captured ETag is stale but the intended compare-and-swap has already
-        // happened. Rebase only an identical payload; genuinely different
-        // canonical content must still conflict.
-        const commitEtag = acceptMatchingCurrent
-            && computeChatEtag(candidate) === previousEtag
-            ? previousEtag
-            : expectedEtag;
         const result = commitChatContent(
             characterId,
             chatId,
             candidate,
-            commitEtag,
+            expectedEtag,
             { requireExpected: true },
         );
         if (!result.success) {
@@ -265,15 +226,14 @@ function createCanonicalChatService(options) {
         return durableResult;
     }
 
-    async function commitGenerationInput({ characterId, chatId, chat, expectedEtag }) {
+    async function commitGenerationInput({ characterId, chatId, changes }) {
         return queueStorageOperation(async () => {
             await ensureChatStore(characterId, chatId);
+            const input = applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
                 characterId,
                 chatId,
-                candidate: chat,
-                expectedEtag,
-                acceptMatchingCurrent: true,
+                ...input,
                 reason: 'generation-input',
                 persist: chat => persistNow({
                     characterId,
@@ -342,88 +302,33 @@ function createCanonicalChatService(options) {
         });
     }
 
-    async function commitUserEdit({
-        characterId,
-        chatId,
-        chat,
-        expectedEtag,
-        originClientId,
-    }) {
+    function applyChatDelta(characterId, chatId, changes) {
+        const current = getChat(characterId, chatId);
+        let candidate;
+        try {
+            candidate = applyDelta(current ? normalizeJSON(current) : undefined, changes);
+        } catch (error) {
+            if (error instanceof DeltaConflictError) {
+                throw conflict('Chat content changed on another client', current, {
+                    conflicts: error.conflicts.map(item => item.change.path),
+                });
+            }
+            if (error instanceof DeltaValidationError) {
+                throw new CanonicalChatCommitError(400, error.message);
+            }
+            throw error;
+        }
+        return { candidate, expectedEtag: computeChatEtag(current) };
+    }
+
+    async function commitUserDelta({ characterId, chatId, changes, originClientId }) {
         return queueStorageOperation(async () => {
             await ensureChatStore(characterId, chatId);
-            const activeWorkflow = getActiveGenerationWorkflow(characterId, chatId, true);
-            const latestWorkflow = activeWorkflow
-                ?? getLatestGenerationWorkflow(characterId, chatId, true);
-            const inputChat = latestWorkflow
-                ? getGenerationWorkflowInputChat(latestWorkflow.workflowId)
-                : undefined;
-            const recipe = latestWorkflow
-                ? resolveRevenantPostprocessRecipe(latestWorkflow.context, inputChat)
-                : undefined;
-            const currentChat = getChat(characterId, chatId);
-            const staleTerminalProjection = !activeWorkflow
-                && latestWorkflow?.status !== 'active'
-                && isStaleGenerationTargetWrite(
-                    chat,
-                    currentChat,
-                    recipe,
-                );
-            const mergeWorkflow = activeWorkflow ?? (staleTerminalProjection
-                ? latestWorkflow
-                : undefined);
-            const inputStep = mergeWorkflow?.steps?.find(step =>
-                step.key === 'input.commit' && step.status === 'completed');
-            const inputEtag = inputStep?.metadata?.etag;
-            const currentEtag = computeChatEtag(currentChat);
-            let candidate = chat;
-            let candidateEtag = expectedEtag;
-
-            if (
-                mergeWorkflow
-                && typeof inputEtag === 'string'
-                && inputChat?.id === chatId
-                && Array.isArray(inputChat.message)
-                && currentChat
-            ) {
-                const mergeBase = expectedEtag === currentEtag
-                    ? currentChat
-                    : expectedEtag === inputEtag
-                        ? inputChat
-                        : undefined;
-                if (!mergeBase) {
-                    throw conflict('Chat content changed on another client', currentChat);
-                }
-                try {
-                    candidate = mergeConcurrentChatEdit(
-                        mergeBase,
-                        chat,
-                        currentChat,
-                        recipe,
-                    );
-                } catch (error) {
-                    if (!(error instanceof ChatResultMergeConflict)) throw error;
-                    throw conflict(error.message, currentChat, { conflicts: error.paths });
-                }
-                candidateEtag = currentEtag;
-            }
-
+            const { candidate, expectedEtag } = applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
-                characterId,
-                chatId,
-                candidate,
-                expectedEtag: candidateEtag,
-                // A lost HTTP response may cause the browser to retry the
-                // exact body with its previous ETag. Treat an already-current
-                // payload as an idempotent success; different content still
-                // conflicts at the same CAS boundary.
-                acceptMatchingCurrent: true,
-                reason: 'user-edit',
-                originClientId,
-                persist: committedChat => schedulePersist({
-                    characterId,
-                    chatId,
-                    chat: committedChat,
-                }),
+                characterId, chatId, candidate, expectedEtag,
+                reason: 'user-edit', originClientId,
+                persist: chat => schedulePersist({ characterId, chatId, chat }),
             });
         });
     }
@@ -476,7 +381,7 @@ function createCanonicalChatService(options) {
         commitGenerationInput,
         commitGenerationResult,
         commitServerMutation,
-        commitUserEdit,
+        commitUserDelta,
         publishCurrent,
     };
 }
@@ -490,7 +395,6 @@ module.exports = {
     stripChatsFromDb,
     mergeChatStubWithFullChat,
     reassembleFullDb,
-    findStubFlagLossChats,
     CanonicalChatCommitError,
     createCanonicalChatService,
 };

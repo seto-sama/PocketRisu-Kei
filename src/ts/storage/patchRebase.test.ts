@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { preparePatchConflictRebase } from './patchRebase'
+import { preparePatchConflictRebase, reconcilePendingChanges } from './patchRebase'
+import { applyDelta, createDelta, DeltaConflictError } from '../../../shared/guardedDelta.mjs'
 import { compare } from 'fast-json-patch'
 
 describe('patch conflict rebase', () => {
+    it('keeps local intent visible without silently rebasing an overlapping field onto a new pre-image', () => {
+        const base = { prompt: 'A', remoteOnly: 0 }
+        const local = { ...base, prompt: 'B' }
+        const server = { prompt: 'C', remoteOnly: 1 }
+        const reconciled = reconcilePendingChanges(base, local, server)
+        expect(reconciled.mergedValue).toEqual({ prompt: 'B', remoteOnly: 1 })
+        expect(() => applyDelta(server, createDelta(reconciled.baseline, reconciled.mergedValue)))
+            .toThrow(DeltaConflictError)
+    })
+
+    it('keeps message conflicts atomic while replaying an independent edit over a new image', () => {
+        const base = { message: [{ chatId: 'old', role: 'user', data: 'before' }] }
+        const local = { message: [{ ...base.message[0], data: 'local' }] }
+        const server = { message: [{ ...base.message[0], role: 'char' }, { chatId: 'image', data: 'image' }] }
+        const reconciled = reconcilePendingChanges(base, local, server, true)
+        expect(reconciled.mergedValue.message.map(message => message.chatId)).toEqual(['old', 'image'])
+        expect(() => applyDelta(server, createDelta(reconciled.baseline, reconciled.mergedValue)))
+            .toThrow(DeltaConflictError)
+    })
     it.each([
         { field: 'chats', key: 'id' },
         { field: 'characters', key: 'chaId' },

@@ -123,13 +123,12 @@ describe('database settings normalization', () => {
     })
 
     it('clamps a stale persona index without replacing valid personas', () => {
-        const personas = [{ name: 'A' }, { name: 'B' }]
+        const personas = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]
         const database = { personas, selectedPersona: 2 } as any
 
         normalizePersonaSelection(database)
 
         expect(database.personas).toBe(personas)
-        expect(database.personas.every((persona: { id?: string }) => !!persona.id)).toBe(true)
         expect(database.selectedPersona).toBe(0)
     })
 

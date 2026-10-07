@@ -1,8 +1,10 @@
 'use strict';
 
-const { applyPatch: applyJsonPatch } = require('fast-json-patch');
+const { applyPatch: applyJsonPatch, compare } = require('fast-json-patch');
+const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../../shared/guardedDelta.mjs');
 const { calculateHash, normalizeJSON } = require('./utils.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
+const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { createPatchHashDiagnostics } = require('../../shared/patchHashDiagnostics.mjs');
 const {
     classifiedPluginOwner,
@@ -45,6 +47,7 @@ class DatabaseProjectionConflictError extends DatabaseProjectionServiceError {
         this.currentRevision = options.currentRevision;
         this.currentHash = options.currentHash;
         this.hashDiagnostics = options.hashDiagnostics;
+        this.conflicts = options.conflicts;
     }
 }
 
@@ -214,6 +217,9 @@ function createDatabaseProjectionService(options = {}) {
     }
 
     function wrapStoreConflict(error, requestOptions, message = 'Database projection changed') {
+        if (error instanceof EntityIdValidationError) {
+            throw new DatabaseProjectionValidationError(error.message, { cause: error });
+        }
         if (!(error instanceof AppDataConflictError)
             && error?.name !== 'AppDataConflictError') {
             throw error;
@@ -314,16 +320,17 @@ function createDatabaseProjectionService(options = {}) {
         };
     }
 
-    /** Apply one optimistic JSON Patch commit to the startup projection. */
+    /** Apply a guarded delta or legacy JSON Patch to the startup projection. */
     function patchDatabase(request, requestOptions = {}) {
         if (!request || typeof request !== 'object' || Array.isArray(request)) {
             throw new DatabaseProjectionValidationError('Patch request must be an object');
         }
         const { patch, expectedHash } = request;
-        if (!Array.isArray(patch)) {
-            throw new DatabaseProjectionValidationError('patch must be an array');
+        const usesDelta = Object.hasOwn(request, 'changes');
+        if (usesDelta ? !Array.isArray(request.changes) : !Array.isArray(patch)) {
+            throw new DatabaseProjectionValidationError(usesDelta ? 'changes must be an array' : 'patch must be an array');
         }
-        if (typeof expectedHash !== 'string' || expectedHash.length === 0) {
+        if (!usesDelta && (typeof expectedHash !== 'string' || expectedHash.length === 0)) {
             throw new DatabaseProjectionValidationError('expectedHash is required');
         }
 
@@ -332,9 +339,8 @@ function createDatabaseProjectionService(options = {}) {
         const visible = projectionVisibleToRequest(snapshot, requestOptions);
         const currentHash = compositionalHash(visible);
 
-        // JSON Patch identity has no write intent. In particular, a stale
-        // expectedHash must not conflict with an unrelated server-owned write.
-        if (patch.length === 0) {
+        // Empty changes have no write intent, even when a legacy hash is stale.
+        if ((usesDelta ? request.changes : patch).length === 0) {
             return {
                 success: true,
                 changed: false,
@@ -345,7 +351,7 @@ function createDatabaseProjectionService(options = {}) {
             };
         }
 
-        if (expectedHash !== currentHash) {
+        if (!usesDelta && expectedHash !== currentHash) {
             throw new DatabaseProjectionConflictError(
                 'Hash mismatch - data out of sync',
                 {
@@ -362,9 +368,17 @@ function createDatabaseProjectionService(options = {}) {
         let appliedOperations;
         try {
             const patchTarget = structuredClone(visible);
-            const result = applyJsonPatch(patchTarget, patch, true);
-            appliedOperations = result.length;
-            incoming = normalizeProjection(result.newDocument);
+            const result = usesDelta
+                ? applyDelta(patchTarget, request.changes)
+                : applyJsonPatch(patchTarget, patch, true).newDocument;
+            appliedOperations = usesDelta ? request.changes.length : patch.length;
+            if (options.findChatInternalFieldOps?.(compare(visible, result)).length > 0) {
+                throw new DatabaseProjectionConflictError('Chat body changes require the chat endpoint', {
+                    code: 'CHAT_GUARD_REJECTED', currentEtag: snapshot.etag,
+                    currentRevision: snapshot.revision,
+                });
+            }
+            incoming = normalizeProjection(result);
             if (remote) {
                 incoming = normalizeProjection(
                     mergeRemoteProjection(snapshot.database, incoming),
@@ -375,6 +389,15 @@ function createDatabaseProjectionService(options = {}) {
                 restoreServerOwnedMetadata(incoming, snapshot.database),
             );
         } catch (error) {
+            if (error instanceof DeltaConflictError) {
+                throw new DatabaseProjectionConflictError('Database fields changed concurrently', {
+                    currentEtag: snapshot.etag, currentRevision: snapshot.revision,
+                    conflicts: error.conflicts.map(item => item.change.path),
+                });
+            }
+            if (error instanceof DeltaValidationError) {
+                throw new DatabaseProjectionValidationError(error.message);
+            }
             if (error instanceof DatabaseProjectionServiceError) throw error;
             throw new DatabaseProjectionApplyError(
                 `Patch application failed: ${error?.message ?? error}`,

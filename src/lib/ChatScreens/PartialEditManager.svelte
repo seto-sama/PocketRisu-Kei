@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { CheckIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/svelte';
+    import { CheckIcon, SaveIcon, Trash2Icon } from '@lucide/svelte';
     import { onDestroy, tick, untrack } from 'svelte';
     import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
@@ -9,7 +9,6 @@
     import Badge, { type BadgeVariant } from '../UI/components/Badge.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
     import Textarea from '../UI/components/Textarea.svelte';
-    import OverlayPortal from '../UI/components/overlay/OverlayPortal.svelte';
     import { isMobile } from 'src/ts/platform';
     import { layerZIndexes } from 'src/ts/gui/layers';
     import { getVisualViewportBounds } from 'src/ts/gui/visualViewport';
@@ -72,29 +71,12 @@
     let textareaWrapperRef: HTMLDivElement | null = $state(null);
     let isConfirmingDelete = $state(false);
     let showMatchFailedModal = $state(false);
-    let messageData = $state('');
 
-    type MatchingMode = 'edit' | 'delete' | null;
+    type EditAction = 'edit' | 'delete';
+    type MatchingMode = EditAction | null;
     type EditSource = 'original' | 'translation';
-    let matchingState = $state<{
-        mode: MatchingMode;
-        targetElement: HTMLElement | null;
-        originalHTML: string;
-        foundMatches: RangeResultWithContext[];
-        selectedRange: RangeResult | null;
-        sourceType: EditSource;
-        sourceData: string;
-        translationKey: string | null;
-    }>({
-        mode: null,
-        targetElement: null,
-        originalHTML: '',
-        foundMatches: [],
-        selectedRange: null,
-        sourceType: 'original',
-        sourceData: '',
-        translationKey: null,
-    });
+    let matchingState = $state(emptyMatchingState());
+    let matchingRequest: object | null = null;
 
     let activeTarget: PartialEditTarget | null = null;
     let blockButtonWrapper: HTMLDivElement | null = null;
@@ -110,8 +92,6 @@
     function emptyMatchingState() {
         return {
             mode: null as MatchingMode,
-            targetElement: null as HTMLElement | null,
-            originalHTML: '',
             foundMatches: [] as RangeResultWithContext[],
             selectedRange: null as RangeResult | null,
             sourceType: 'original' as EditSource,
@@ -138,14 +118,16 @@
 
     function createButton(
         className: string,
-        onEdit: () => void,
-        onDelete: () => void,
+        onAction: (action: EditAction) => void,
         onMouseLeave?: (e: MouseEvent) => void,
     ): HTMLDivElement {
         const wrapper = document.createElement('div');
         wrapper.className = className;
         wrapper.style.setProperty('--partial-edit-icon-size', `${PARTIAL_EDIT_ICON_SIZE}px`);
         wrapper.style.setProperty('--partial-edit-cell-size', `${PARTIAL_EDIT_BUTTON_CELL_SIZE}px`);
+        wrapper.style.position = 'fixed';
+        wrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
+        wrapper.style.zIndex = layerZIndexes.overlay;
         wrapper.innerHTML = `
             <button type="button" class="partial-edit-btn partial-edit-btn-edit">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -169,7 +151,7 @@
         editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             e.preventDefault();
-            onEdit();
+            onAction('edit');
         });
 
         const deleteBtn = wrapper.querySelector('.partial-edit-btn-delete')!;
@@ -177,10 +159,11 @@
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             e.preventDefault();
-            onDelete();
+            onAction('delete');
         });
 
         if (onMouseLeave) wrapper.addEventListener('mouseleave', onMouseLeave);
+        document.body.appendChild(wrapper);
         return wrapper;
     }
 
@@ -243,8 +226,8 @@
     }
 
     function setActiveTarget(target: PartialEditTarget) {
+        matchingRequest = null;
         activeTarget = target;
-        messageData = target.messageData;
     }
 
     function getLastRangeRect(range: Range): DOMRect | null {
@@ -321,19 +304,14 @@
         if (!blockButtonWrapper) {
             blockButtonWrapper = createButton(
                 'partial-edit-btn-wrapper',
-                startBlockEdit,
-                startBlockDelete,
+                action => findAndProcessMatches(action, currentHoveredBlock),
                 (e: MouseEvent) => {
                     const relatedTarget = e.relatedTarget as HTMLElement | null;
                     if (!relatedTarget || !currentHoveredBlock?.contains(relatedTarget)) hideBlockButton();
                 },
             );
-            document.body.appendChild(blockButtonWrapper);
         }
 
-        blockButtonWrapper.style.position = 'fixed';
-        blockButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        blockButtonWrapper.style.zIndex = layerZIndexes.overlay;
         positionBlockButtons(getLastContentRect(block), blockButtonWrapper);
     }
 
@@ -348,15 +326,10 @@
         if (!dragButtonWrapper) {
             dragButtonWrapper = createButton(
                 'partial-edit-btn-wrapper partial-edit-drag-btn-wrapper',
-                startDragEdit,
-                startDragDelete,
+                action => findAndProcessMatches(action, currentDragSelectedText),
             );
-            document.body.appendChild(dragButtonWrapper);
         }
 
-        dragButtonWrapper.style.position = 'fixed';
-        dragButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        dragButtonWrapper.style.zIndex = layerZIndexes.overlay;
         positionDragButtons(anchor, dragButtonWrapper);
     }
 
@@ -376,6 +349,7 @@
     }
 
     function resetInteraction(removeButtons = false) {
+        matchingRequest = null;
         clearTimers();
         hideBlockButton();
         hideDragButton();
@@ -385,7 +359,6 @@
         editText = '';
         matchingState = emptyMatchingState();
         activeTarget = null;
-        messageData = '';
         if (removeButtons) {
             blockButtonWrapper?.remove();
             dragButtonWrapper?.remove();
@@ -413,93 +386,88 @@
     }
 
     async function findAndProcessMatches(
-        mode: MatchingMode,
-        elementOrText: HTMLElement | string,
-        proceedCallback: (match: RangeResultWithContext) => void,
+        mode: EditAction,
+        elementOrText: HTMLElement | string | null,
     ) {
         if (!elementOrText || !ensureValidTarget()) return;
-        matchingState.mode = mode;
+        clearTimers();
         const options = mode === 'edit'
             ? { extendToEOL: false, snapStartToPrevEOL: false }
             : { extendToEOL: true, snapStartToPrevEOL: true };
 
         const target = activeTarget;
         if (!target) return;
+        const request = matchingRequest = {};
         const isTextSelection = typeof elementOrText === 'string';
-        const translationContext = target.translatedView
-            ? await getTranslationContext(target)
-            : null;
-        if (!validateTarget(target)) return;
-        const sourceType: EditSource = translationContext?.data ? 'translation' : 'original';
-        const sourceData = translationContext?.data ?? messageData;
-        const foundMatches = isTextSelection
-            ? findAllOriginalRangesFromText(sourceData, elementOrText as string, options)
-            : findAllOriginalRangesFromHtml(sourceData, elementOrText as HTMLElement, options);
+        const selection = isTextSelection ? elementOrText : elementOrText.outerHTML;
+        try {
+            const translationContext = target.translatedView
+                ? await getTranslationContext(target)
+                : null;
+            if (matchingRequest !== request || activeTarget !== target) return;
+            if (!ensureValidTarget()) return;
+            const sourceData = translationContext?.data ?? target.messageData;
+            const foundMatches = isTextSelection
+                ? findAllOriginalRangesFromText(sourceData, selection, options)
+                : findAllOriginalRangesFromHtml(sourceData, selection, options);
+            matchingState = {
+                ...emptyMatchingState(),
+                sourceType: translationContext ? 'translation' : 'original',
+                sourceData,
+                translationKey: translationContext?.key ?? null,
+                foundMatches,
+            };
 
-        matchingState.targetElement = isTextSelection ? null : elementOrText as HTMLElement;
-        matchingState.originalHTML = isTextSelection ? '' : (elementOrText as HTMLElement).innerHTML;
-        matchingState.sourceType = sourceType;
-        matchingState.sourceData = sourceData;
-        matchingState.translationKey = sourceType === 'translation' ? (translationContext?.key ?? null) : null;
-        matchingState.foundMatches = foundMatches;
-
-        if (matchingState.foundMatches.length === 0) {
-            matchingState.mode = null;
+            if (foundMatches.length === 0) {
+                showMatchFailedModal = true;
+            } else {
+                const highConfidenceMatches = foundMatches.filter(
+                    match => match.confidence >= HIGH_CONFIDENCE_THRESHOLD,
+                );
+                const candidates = highConfidenceMatches.length === 1 ? highConfidenceMatches : foundMatches;
+                if (candidates.length === 1) selectMatch(candidates[0], mode);
+                else matchingState.mode = mode;
+            }
+            hideBlockButton();
+            hideDragButton();
+        } catch {
+            if (matchingRequest !== request || activeTarget !== target) return;
+            resetInteraction();
             showMatchFailedModal = true;
-        } else {
-            const highConfidenceMatches = matchingState.foundMatches.filter(
-                match => match.confidence >= HIGH_CONFIDENCE_THRESHOLD,
-            );
-            if (highConfidenceMatches.length === 1) proceedCallback(highConfidenceMatches[0]);
-            else if (matchingState.foundMatches.length === 1) proceedCallback(matchingState.foundMatches[0]);
+        } finally {
+            if (matchingRequest === request) matchingRequest = null;
         }
-        hideBlockButton();
-        hideDragButton();
     }
 
-    function startBlockEdit() {
-        if (!currentHoveredBlock || !ensureValidTarget()) return;
-        findAndProcessMatches('edit', currentHoveredBlock, proceedWithEdit);
-    }
-
-    function startBlockDelete() {
-        if (!currentHoveredBlock || !ensureValidTarget()) return;
-        findAndProcessMatches('delete', currentHoveredBlock, proceedWithDelete);
-    }
-
-    function startDragEdit() {
-        if (!currentDragSelectedText || !ensureValidTarget()) return;
-        findAndProcessMatches('edit', currentDragSelectedText, proceedWithEdit);
-    }
-
-    function startDragDelete() {
-        if (!currentDragSelectedText || !ensureValidTarget()) return;
-        findAndProcessMatches('delete', currentDragSelectedText, proceedWithDelete);
-    }
-
-    function proceedWithEdit(match: RangeResultWithContext) {
+    function selectMatch(match: RangeResultWithContext, mode: EditAction) {
         if (!ensureValidTarget()) return;
         matchingState.selectedRange = match;
         matchingState.mode = null;
-        editText = matchingState.sourceData.slice(match.start, match.end);
-        isEditing = true;
-        focusTimer = setTimeout(() => {
-            textareaWrapperRef?.querySelector('textarea')?.focus();
-        }, 10);
+        if (mode === 'edit') {
+            editText = matchingState.sourceData.slice(match.start, match.end);
+            isEditing = true;
+            focusTimer = setTimeout(() => {
+                textareaWrapperRef?.querySelector('textarea')?.focus();
+            }, 10);
+        } else {
+            isConfirmingDelete = true;
+        }
     }
 
     function selectMatchAtIndex(index: number) {
-        if (!ensureValidTarget()) return;
         const match = matchingState.foundMatches[index];
-        if (!match) return;
-        if (matchingState.mode === 'edit') proceedWithEdit(match);
-        else if (matchingState.mode === 'delete') proceedWithDelete(match);
+        if (match && matchingState.mode) selectMatch(match, matchingState.mode);
     }
 
-    function cancelMatchSelection() {
-        matchingState = emptyMatchingState();
-        activeTarget = null;
-        messageData = '';
+    function cancelInteraction() {
+        resetInteraction();
+    }
+
+    function handlePendingMatchKeydown(e: KeyboardEvent) {
+        if (matchingRequest && e.key === 'Escape') {
+            e.preventDefault();
+            cancelInteraction();
+        }
     }
 
     async function preserveTargetPosition(target: PartialEditTarget, update: () => void) {
@@ -544,17 +512,6 @@
         saveNewData(replaceRange(matchingState.sourceData, matchingState.selectedRange, editText));
     }
 
-    function handleCancel() {
-        resetInteraction();
-    }
-
-    function proceedWithDelete(match: RangeResultWithContext) {
-        if (!ensureValidTarget()) return;
-        matchingState.selectedRange = match;
-        matchingState.mode = null;
-        isConfirmingDelete = true;
-    }
-
     function handleConfirmDelete() {
         if (!matchingState.selectedRange || !ensureValidTarget()) return;
         let newData = replaceRange(matchingState.sourceData, matchingState.selectedRange, '');
@@ -562,14 +519,10 @@
         saveNewData(newData);
     }
 
-    function handleCancelDelete() {
-        resetInteraction();
-    }
-
     function handleKeydown(e: KeyboardEvent) {
         if (e.key === 'Escape') {
             e.preventDefault();
-            handleCancel();
+            cancelInteraction();
         }
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSave();
     }
@@ -673,6 +626,7 @@
 
     $effect(() => {
         if (!screenRoot) return;
+        document.addEventListener('keydown', handlePendingMatchKeydown);
         if (blockEditEnabled) document.addEventListener('mousemove', handleMove);
         if (dragEditEnabled) {
             document.addEventListener('selectionchange', handleSelectionChange);
@@ -683,6 +637,7 @@
         window.visualViewport?.addEventListener('scroll', handleScroll);
         screenRoot.addEventListener('mouseleave', handleScreenLeave);
         return () => {
+            document.removeEventListener('keydown', handlePendingMatchKeydown);
             document.removeEventListener('mousemove', handleMove);
             document.removeEventListener('selectionchange', handleSelectionChange);
             document.removeEventListener('mousedown', handleMouseDown);
@@ -717,12 +672,20 @@
     onDestroy(() => resetInteraction(true));
 </script>
 
+{#snippet MatchConfidenceBadge(match: RangeResult | null, className = '')}
+    {#if match}
+        <Badge size="sm" variant={matchConfidenceVariant(match.confidence)} {className}>
+            {language.partialEdit.matchConfidence(Math.round(match.confidence * 100))}
+        </Badge>
+    {/if}
+{/snippet}
+
 {#snippet MatchSelectionModal(matches: RangeResultWithContext[], dialogTitle: string)}
     <Dialog
         open={true}
         size="lg"
         closable={false}
-        onRequestClose={cancelMatchSelection}
+        onRequestClose={cancelInteraction}
         contentClass="overflow-hidden"
         bodyClass="min-h-0 overflow-y-auto"
     >
@@ -739,13 +702,7 @@
                         <span class="text-sm text-subtext">
                             {language.partialEdit.lineNumber(match.lineNumber)}
                         </span>
-                        <Badge
-                            size="sm"
-                            variant={matchConfidenceVariant(match.confidence)}
-                            className="ml-auto"
-                        >
-                            {language.partialEdit.matchConfidence(Math.round(match.confidence * 100))}
-                        </Badge>
+                        {@render MatchConfidenceBadge(match, 'ml-auto')}
                     </div>
                     <div class="match-preview">{#if match.contextBefore}<span>{match.contextBefore} </span>{/if}<mark class="match-highlight">{matchedText.slice(0, MATCH_PREVIEW_MAX_LENGTH)}</mark>{matchedText.length > MATCH_PREVIEW_MAX_LENGTH ? '...' : ''}{#if match.contextAfter}<span> {match.contextAfter}</span>{/if}</div>
                 </button>
@@ -753,96 +710,66 @@
         </div>
 
         {#snippet footer()}
-            <Button variant="outline" onclick={cancelMatchSelection}>
+            <Button variant="outline" onclick={cancelInteraction}>
                 {language.cancel}
             </Button>
         {/snippet}
     </Dialog>
 {/snippet}
 
-<!-- Match failed modal -->
 {#if showMatchFailedModal}
-    <OverlayPortal>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) showMatchFailedModal = false; }}>
-        <div class="partial-match-failed-modal">
-            <div class="partial-match-failed-header">
-                <span class="partial-match-failed-title">{language.partialEdit.matchFailedTitle}</span>
-            </div>
-            <p class="partial-match-failed-message">{language.partialEdit.matchFailedMessage}</p>
-            <div class="partial-edit-buttons">
-                <Button variant="primary" size="sm" onclick={() => showMatchFailedModal = false}>
-                    <CheckIcon size={12} />
-                    <span>{language.confirm}</span>
-                </Button>
-            </div>
-        </div>
-    </div>
-    </OverlayPortal>
+    <Dialog open={true} closable={false} onRequestClose={cancelInteraction}>
+        {#snippet title()}{language.partialEdit.matchFailedTitle}{/snippet}
+        {#snippet description()}{language.partialEdit.matchFailedMessage}{/snippet}
+        {#snippet footer()}
+            <Button variant="primary" size="sm" onclick={cancelInteraction}>
+                <CheckIcon size={12} />
+                <span>{language.confirm}</span>
+            </Button>
+        {/snippet}
+    </Dialog>
 {/if}
 
-<!-- Delete confirmation modal -->
 {#if isConfirmingDelete}
-    <OverlayPortal>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) handleCancelDelete(); }}>
-        <div class="partial-delete-modal">
-            <div class="partial-delete-header">
-                <span class="partial-delete-title">{language.partialEdit.deleteModalTitle}</span>
-                <div class="partial-match-meta">
-                    <Badge
-                        size="sm"
-                        variant={matchConfidenceVariant(matchingState.selectedRange.confidence)}
-                    >
-                        {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
-                    </Badge>
-                </div>
-            </div>
-            <p class="partial-delete-message">{language.partialEdit.deleteConfirmMessage}</p>
+    <Dialog open={true} closable={false} onRequestClose={cancelInteraction} contentClass="gap-3">
+        {#snippet title()}{language.partialEdit.deleteModalTitle}{/snippet}
+        {#snippet description()}{language.partialEdit.deleteConfirmMessage}{/snippet}
+        {#snippet headerActions()}
+            {@render MatchConfidenceBadge(matchingState.selectedRange)}
+        {/snippet}
+        {#if matchingState.selectedRange}
+            {@const matchedText = matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end)}
             <div class="partial-delete-preview">
-                {matchingState.selectedRange ? matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end).slice(0, 200) : ''}{matchingState.selectedRange && matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end).length > 200 ? '...' : ''}
+                {matchedText.slice(0, 200)}{matchedText.length > 200 ? '...' : ''}
             </div>
-            <div class="partial-edit-buttons">
-                <Button variant="destructive" size="sm" onclick={handleConfirmDelete}>
-                    <Trash2Icon size={12} />
-                    <span>{language.partialEdit.deleteYes}</span>
-                </Button>
-                <Button variant="outline" size="sm" onclick={handleCancelDelete}>
-                    <XIcon size={12} />
-                    <span>{language.partialEdit.deleteNo}</span>
-                </Button>
-            </div>
-        </div>
-    </div>
-    </OverlayPortal>
+        {/if}
+        {#snippet footer()}
+            <Button variant="outline" size="sm" onclick={cancelInteraction}>
+                <span>{language.partialEdit.deleteNo}</span>
+            </Button>
+            <Button variant="destructive" size="sm" onclick={handleConfirmDelete}>
+                <Trash2Icon size={12} />
+                <span>{language.partialEdit.deleteYes}</span>
+            </Button>
+        {/snippet}
+    </Dialog>
 {/if}
 
-<!-- Match selection modal (shared for edit/delete) -->
-{#if matchingState.mode === 'edit'}
-    {@render MatchSelectionModal(matchingState.foundMatches, language.partialEdit.selectMatch)}
-{:else if matchingState.mode === 'delete'}
-    {@render MatchSelectionModal(matchingState.foundMatches, language.partialEdit.selectDeleteMatch)}
+{#if matchingState.mode}
+    {@render MatchSelectionModal(matchingState.foundMatches, matchingState.mode === 'edit' ? language.partialEdit.selectMatch : language.partialEdit.selectDeleteMatch)}
 {/if}
 
-<!-- Edit modal (shown only during edit) -->
 {#if isEditing}
     <Dialog
-        bind:open={isEditing}
+        open={true}
         size="default"
         closable={false}
-        onOpenChange={(open) => { if (!open) handleCancel(); }}
+        onRequestClose={cancelInteraction}
         contentClass="gap-3"
     >
         {#snippet title()}{language.partialEdit.editModalTitle}{/snippet}
         {#snippet headerActions()}
-            <Badge
-                size="sm"
-                variant={matchConfidenceVariant(matchingState.selectedRange.confidence)}
-            >
-                {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
-            </Badge>
+            {@render MatchConfidenceBadge(matchingState.selectedRange)}
         {/snippet}
         <div use:attachPartialEditTextarea>
             <Textarea
@@ -854,28 +781,24 @@
             />
         </div>
         {#snippet footer()}
-            <div class="partial-edit-footer">
-                <div class="partial-edit-buttons">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onclick={handleCancel}
-                        title={language.partialEdit.cancelShortcut}
-                    >
-                        <span>{language.partialEdit.cancel}</span>
-                    </Button>
-                    <Button
-                        variant="primary"
-                        size="sm"
-                        className="partial-edit-save-btn"
-                        onclick={handleSave}
-                        title={language.partialEdit.saveShortcut}
-                    >
-                        <SaveIcon />
-                        <span>{language.partialEdit.save}</span>
-                    </Button>
-                </div>
-            </div>
+            <Button
+                variant="outline"
+                size="sm"
+                onclick={cancelInteraction}
+                title={language.partialEdit.cancelShortcut}
+            >
+                <span>{language.partialEdit.cancel}</span>
+            </Button>
+            <Button
+                variant="primary"
+                size="sm"
+                className="partial-edit-save-btn"
+                onclick={handleSave}
+                title={language.partialEdit.saveShortcut}
+            >
+                <SaveIcon />
+                <span>{language.partialEdit.save}</span>
+            </Button>
         {/snippet}
     </Dialog>
 {/if}
@@ -918,69 +841,6 @@
         color: var(--risu-theme-danger);
     }
 
-    .partial-match-failed-modal {
-        background: var(--risu-theme-lightbg);
-        border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 6px;
-        padding: 16px;
-        width: calc(100vw - 32px);
-        max-width: 448px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        box-shadow: 0 8px 32px color-mix(in srgb, var(--risu-theme-darkbg) 70%, transparent);
-    }
-
-    .partial-match-failed-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .partial-match-failed-title {
-        font-weight: 600;
-        font-size: 16px;
-        color: var(--risu-theme-maintext);
-    }
-
-    .partial-match-failed-message {
-        font-size: 14px;
-        color: var(--risu-theme-subtext);
-        margin: 0;
-        line-height: 1.5;
-    }
-
-    .partial-delete-modal {
-        background: var(--risu-theme-lightbg);
-        border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 6px;
-        padding: 16px;
-        width: calc(100vw - 32px);
-        max-width: 448px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        box-shadow: 0 8px 32px color-mix(in srgb, var(--risu-theme-darkbg) 70%, transparent);
-    }
-
-    .partial-delete-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .partial-delete-title {
-        font-weight: 600;
-        font-size: 16px;
-        color: var(--risu-theme-maintext);
-    }
-
-    .partial-delete-message {
-        font-size: 14px;
-        color: var(--risu-theme-subtext);
-        margin: 0;
-    }
-
     .partial-delete-preview {
         padding: 12px;
         background: color-mix(in srgb, var(--risu-theme-darkbg) 60%, transparent);
@@ -991,41 +851,6 @@
         max-height: 100px;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .partial-edit-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 100dvh;
-        background: color-mix(in srgb, var(--risu-theme-darkbg) 60%, transparent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: var(--risu-z-blocking);
-    }
-
-    .partial-match-meta {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-    }
-
-    .partial-edit-footer {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        width: 100%;
-    }
-
-    .partial-edit-buttons {
-        display: flex;
-        gap: 8px;
-        justify-content: flex-end;
     }
 
     .match-list {

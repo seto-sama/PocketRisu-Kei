@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../alert', () => ({ alertInput: vi.fn(), waitAlert: vi.fn(), notifyError: vi.fn() }))
 vi.mock('./risuSave', () => ({
-    decodeRisuSave: vi.fn(), encodeRisuSaveLegacy: () => new Uint8Array([1]),
+    decodeRisuSave: vi.fn(),
 }))
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 
 import { changeLanguage } from 'src/lang'
 import { ConflictError, NodeStorage } from './nodeStorage'
 import { decodeAssetBatch, encodeAssetBatch } from './assetTransport'
+import { decodeRisuSave } from './risuSave'
+import { createDelta } from '../../../shared/guardedDelta.mjs'
 
 const bytes = new Uint8Array([1, 2, 3])
 const patch = { patch: [{ op: 'replace', path: '/language', value: 'ko' }], expectedHash: 'base' }
@@ -27,7 +29,75 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
+it('hands backups and assets to the browser after refreshing only the session cookie', async () => {
+    const downloads: { url: string, name: string }[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+        downloads.push({ url: this.getAttribute('href')!, name: this.download })
+    })
+    fetchMock.mockResolvedValue(new Response('{}'))
+    await storage.downloadBackupExport()
+    await storage.downloadBackupExport({ mode: 'settings', moduleAssets: false })
+    await storage.downloadBackupExport({ target: 'upstream' })
+    await storage.downloadServerBackup('risu-backup-1.bin')
+    await storage.downloadAsset('inlay/image', '한글.png')
+    expect(downloads).toEqual([
+        { url: '/api/backup/export', name: '' },
+        { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
+        { url: '/api/backup/export?target=upstream', name: '' },
+        { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
+        { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(downloads.length)
+    for (const [url, request] of fetchMock.mock.calls) {
+        expect(url).toBe('/api/session')
+        expect(request.method).toBe('POST')
+        const authHeaders = new Headers(request.headers)
+        expect(authHeaders.get('risu-auth')).toBe('auth-token')
+        expect(authHeaders.has('x-sync-client-id')).toBe(false)
+        expect(authHeaders.has('x-session-id')).toBe(false)
+    }
+})
+
+it('does not start a download when session refresh fails', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
+    expect(click).not.toHaveBeenCalled()
+})
+
 describe('storage request integration', () => {
+    it('sends the same guarded changes for database and chat saves', async () => {
+        const delta = { changes: createDelta({ note: 'before' }, { note: 'after' }) }
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, etag: 'db' })))
+        await storage.patchDatabase(delta)
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, etag: 'chat' })))
+        expect(await storage.patchChatContent('character', 99, 'stable-chat', delta)).toEqual({ etag: 'chat' })
+        for (const [, request] of fetchMock.mock.calls) {
+            expect(request.method).toBe('PATCH')
+            expect(JSON.parse(request.body)).toEqual(delta)
+            expect(new Headers(request.headers).get('content-type')).toBe('application/json')
+            expect(new Headers(request.headers).has('x-chat-if-match')).toBe(false)
+        }
+        expect(new Headers(fetchMock.mock.calls[1][1].headers).get('x-chat-id')).toBe('stable-chat')
+    })
+
+    it('pairs each fetched body with its own ETag when decoding completes out of order', async () => {
+        let release!: (chat: object) => void
+        vi.mocked(decodeRisuSave)
+            .mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+            .mockResolvedValueOnce({ id: 'chat', note: 'new' })
+        fetchMock
+            .mockResolvedValueOnce(new Response(bytes, { headers: { 'x-chat-etag': 'old-etag' } }))
+            .mockResolvedValueOnce(new Response(bytes, { headers: { 'x-chat-etag': 'new-etag' } }))
+        const old = storage.fetchChatState('c', 0, 'chat')
+        await vi.waitFor(() => expect(release).toBeDefined())
+        expect(await storage.fetchChatState('c', 0, 'chat')).toMatchObject({
+            chat: { note: 'new' }, baseline: { note: 'new' }, etag: 'new-etag',
+        })
+        release({ id: 'chat', note: 'old' })
+        expect(await old).toMatchObject({ chat: { note: 'old' }, baseline: { note: 'old' }, etag: 'old-etag' })
+    })
+
     it('uses the binary asset protocol for reads and writes', async () => {
         const entries = [{ key: 'assets/한글.png', value: Uint8Array.of(0, 128, 255) }]
         fetchMock.mockResolvedValueOnce(new Response('{}'))
@@ -45,7 +115,7 @@ describe('storage request integration', () => {
         ['asset', () => storage.setItem('assets/a.png', bytes)],
         ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],
         ['database patch', () => storage.patchDatabase(patch)],
-        ['chat', () => storage.saveChatContent('character', 0, 'chat', {})],
+        ['chat', () => storage.patchChatContent('character', 0, 'chat', { changes: [] })],
         ['initial database', () => storage.initializeDatabase({})],
         ['inlay encoding', () => storage.encodeInlayWebp(bytes, { lossy: true, quality: 80 })],
     ] as const)('surfaces HTTP 413 for %s without resending', async (_name, send) => {
@@ -67,10 +137,10 @@ describe('storage request integration', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    it('preserves ETag conflicts instead of retrying or turning them into generic failures', async () => {
+    it('preserves field conflicts instead of retrying or turning them into generic failures', async () => {
         fetchMock.mockImplementation(async () => new Response(JSON.stringify({ error: 'conflict', currentEtag: 'server' }), { status: 409 }))
         await expect(storage.patchDatabase(patch)).resolves.toMatchObject({ conflict: true, etag: 'server' })
-        await expect(storage.saveChatContent('character', 0, 'chat', {})).rejects.toBeInstanceOf(ConflictError)
+        await expect(storage.patchChatContent('character', 0, 'chat', { changes: [] })).rejects.toBeInstanceOf(ConflictError)
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
@@ -81,7 +151,7 @@ describe('storage request integration', () => {
                 code: 'CHAT_CONTENT_CHANGED',
                 error: 'Chat content changed on another client', currentEtag: 'server',
             }), { status: 409 }))
-            await expect(storage.saveChatContent('character', 0, 'chat', {}))
+            await expect(storage.patchChatContent('character', 0, 'chat', { changes: [] }))
                 .rejects.toMatchObject({
                     code: 'CHAT_CONTENT_CHANGED',
                     message: expect.stringContaining('다른 클라이언트에 의한 수정사항이 있습니다'),
@@ -189,7 +259,7 @@ it('ends a chat header timeout without replaying the request', async () => {
     vi.useFakeTimers()
     try {
         fetchMock.mockImplementation(() => new Promise(() => {}))
-        const failed = expect(storage.fetchChatContent('character', 2, 'chat-id'))
+        const failed = expect(storage.fetchChatState('character', 2, 'chat-id'))
             .rejects.toMatchObject({ name: 'TimeoutError' })
         await vi.advanceTimersByTimeAsync(30_000)
         await failed
@@ -207,7 +277,7 @@ it('bounds auth preflight without dispatching a late chat request', async () => 
     try {
         let finishAuth: () => void
         vi.mocked((storage as any).checkAuth).mockImplementation(() => new Promise<void>(resolve => { finishAuth = resolve }))
-        const failed = expect(storage.fetchChatContent('c', 0, 'chat')).rejects.toMatchObject({ name: 'TimeoutError' })
+        const failed = expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ name: 'TimeoutError' })
         await vi.advanceTimersByTimeAsync(30_000)
         await failed
         finishAuth!()
@@ -219,8 +289,8 @@ it('bounds auth preflight without dispatching a late chat request', async () => 
 
 it.each([503, 404])('does not retry chat HTTP %s responses', async status => {
     fetchMock.mockResolvedValue(new Response('unavailable', { status }))
-    if (status === 404) expect(await storage.fetchChatContent('c', 0, 'chat')).toBeNull()
-    else await expect(storage.fetchChatContent('c', 0, 'chat')).rejects.toMatchObject({ status })
+    if (status === 404) expect(await storage.fetchChatState('c', 0, 'chat')).toBeNull()
+    else await expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ status })
     expect(fetchMock).toHaveBeenCalledOnce()
 })
 

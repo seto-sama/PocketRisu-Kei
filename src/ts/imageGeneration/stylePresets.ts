@@ -1,4 +1,4 @@
-import { createEntityId } from '../id'
+import { createEntityId, ensureUniqueEntityIds } from '../id'
 import type { RisuModule } from '../process/modules'
 import type { loreBook } from '../storage/database.svelte'
 
@@ -41,11 +41,12 @@ function ensureImageStylePresetIds(
     db: Pick<ImageStylePresetDatabase, 'modules'>,
 ): void {
     for (const module of db.modules ?? []) {
-        for (const lorebook of module.lorebook ?? []) {
-            if (!isImageStylePresetLorebook(lorebook)
-                || (lorebook.secondkey ?? '').trim()
-                || !canUseSecondaryKeyAsPresetId(lorebook)) continue
-            lorebook.secondkey = createEntityId()
+        const presets = (module.lorebook ?? [])
+            .filter(lorebook => isImageStylePresetLorebook(lorebook) && canUseSecondaryKeyAsPresetId(lorebook))
+            .map(lorebook => ({ lorebook, secondkey: (lorebook.secondkey ?? '').trim() }))
+        ensureUniqueEntityIds(presets, createEntityId, 'secondkey')
+        for (const preset of presets) {
+            preset.lorebook.secondkey = preset.secondkey
         }
     }
 }

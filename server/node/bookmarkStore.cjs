@@ -152,27 +152,6 @@ function createBookmarkStore(db) {
         validTagIds(ids).forEach(id =>
             q.bind.run(entry.characterId, entry.chatId, entry.messageId, id));
     }
-    const replaceChatTx = db.transaction((characterId, chatId, rows) => {
-        const normalized = rows.map((row, index) => ({
-            messageId: row.messageId, customName: row.customName ?? null,
-            preview: normalizePreview(row.preview, row.messageId), sortOrder: index,
-            tagIds: validTagIds(row.tagIds),
-        }));
-        const current = chatRows(characterId, chatId)
-            .map(({ characterId: _c, chatId: _h, ...row }) => row);
-        if (JSON.stringify(current) === JSON.stringify(normalized)) return false;
-        q.delChatBindings.run(characterId, chatId);
-        q.delChat.run(characterId, chatId);
-        normalized.forEach(row => {
-            q.put.run(characterId, chatId, row.messageId, row.sortOrder, row.customName, row.preview);
-            replaceBindings({ characterId, chatId, messageId: row.messageId }, row.tagIds);
-        });
-        bump();
-        return true;
-    });
-    const replaceChatCompatibility = (characterId, chatId, rows) =>
-        Boolean(characterId && chatId && Array.isArray(rows)
-            && replaceChatTx(characterId, chatId, rows));
     const upsertTx = db.transaction(entry => {
         const current = q.get.get(entry.characterId, entry.chatId, entry.messageId);
         q.put.run(entry.characterId, entry.chatId, entry.messageId,
@@ -393,7 +372,7 @@ function createBookmarkStore(db) {
     }
     const deleteSnapshot = key => q.delSnapshot.run(key).changes > 0;
     return { catalog, upsertBookmarkEntry, patchBookmarkEntry, removeBookmarkEntry,
-        replaceChatCompatibility, replaceTags, mergeTags, compatibilityForTargets,
+        replaceTags, mergeTags, compatibilityForTargets,
         projectDatabaseCompatibility, projectSnapshotDatabaseCompatibility, pruneInvalid,
         pruneChatMessages, stripDatabaseCompatibility, needsLegacyMigration,
         migrateLegacyDatabase, replaceDatabaseCompatibility, saveSnapshot, restoreSnapshot,

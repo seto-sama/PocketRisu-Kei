@@ -1,3 +1,4 @@
+import { chatMetadataFields } from '../../../shared/chatShape.mjs'
 import { Buffer } from 'buffer'
 import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
 import * as fflate from "fflate";
@@ -1114,7 +1115,7 @@ export class RisuSavePatcher {
 // else is chat-internal data that lives server-side via /api/chat-content;
 // emitting such ops over /api/patch silently strips the `_stub` flag in the
 // server's dbCache and corrupts the on-disk DB. Keep in sync with chatToStub.
-const STUB_METADATA_FIELDS = new Set(['id', 'name', '_stub', 'lastDate', 'folderId', 'modules']);
+const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
 
 // Only these op types are legitimate on chat-internal paths. The patcher's
 // fast-json-patch.compare only emits add/replace/remove; move/copy/test would

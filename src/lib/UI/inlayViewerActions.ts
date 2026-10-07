@@ -1,9 +1,9 @@
 import { language } from 'src/lang'
-import { notifyError, notifySuccess } from 'src/ts/alert'
-import { downloadFile } from 'src/ts/globalApi.svelte'
+import { notifyError, notifySuccess, notifyInfo } from 'src/ts/alert'
+import { forageStorage } from 'src/ts/storage/autoStorage'
 import {
     buildInlayReference,
-    getInlayAssetBlob,
+    getInlayInfosBatch,
     getInlayDownloadFileName,
 } from 'src/ts/process/files/inlays'
 
@@ -23,20 +23,15 @@ export function downloadInlayAsset(id: string): Promise<void> {
     if (pending) return pending
     const task = (async () => {
         try {
-            const asset = await getInlayAssetBlob(id)
-            if (!asset) {
-                notifyError(language.inlayGallery.inlayMissing)
-                return
-            }
-            const bytes = new Uint8Array(await asset.data.arrayBuffer())
-            await downloadFile(getInlayDownloadFileName(asset.name, asset.ext), bytes)
-            notifySuccess(language.successExport)
+            const asset = (await getInlayInfosBatch([id]))[id]
+            await forageStorage.downloadAsset(`inlay/${id}`, asset
+                ? getInlayDownloadFileName(asset.name, asset.ext)
+                : undefined)
+            notifyInfo(language.browserDownloadStarted)
         } catch (error) {
             notifyError(`${error}`)
         }
-    })().finally(() => {
-        if (pendingDownloads.get(id) === task) pendingDownloads.delete(id)
-    })
+    })().finally(() => pendingDownloads.delete(id))
     pendingDownloads.set(id, task)
     return task
 }

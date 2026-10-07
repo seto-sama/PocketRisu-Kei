@@ -33,8 +33,7 @@ function createBackupRestoreService({
     decodeDataUri,
     ensureInlayDir,
     normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     logger,
     maxEntryNameBytes = DEFAULT_MAX_ENTRY_NAME_BYTES,
 }) {
@@ -347,13 +346,7 @@ function createBackupRestoreService({
                     } else if (!name.startsWith('inlay_thumb/')) {
                         const storageKey = resolveBackupStorageKey(name);
                         const storageValue = storageKey.startsWith('coldstorage/')
-                            ? encodeColdStorageCanonicalBuffer(
-                                parseColdStorageJsonBuffer(
-                                    data,
-                                    name,
-                                    { allowPlainJson: true },
-                                ).coldData,
-                            )
+                            ? normalizeColdStorageBackupBuffer(data, name)
                             : data;
                         if (seenStorageKeys.has(storageKey)) {
                             throw new Error(`Duplicate backup storage key: ${storageKey}`);
@@ -484,7 +477,7 @@ function createBackupRestoreService({
             );
             if (coldStorageFailed > 0) {
                 logger.error(
-                    `[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`,
+                    `[Backup Import] ${coldStorageFailed} cold storage reference(s) could not be restored`,
                 );
             }
             return { assetsRestored, bytesReceived, coldStorageFailed };

@@ -6,7 +6,7 @@ import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import DOMPurify from 'dompurify';
 import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
 import { automaticPluginSidebarMenuKey, pluginSidebarMenuKey, rememberPluginSidebarMenuItem, removeSidebarMenuKeys } from "src/ts/sidebarMenuOrder";
-import { createEntityId } from 'src/ts/id';
+import { createEntityId, ensureUniqueEntityIds } from 'src/ts/id';
 import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
 import { language } from "src/lang";
@@ -68,6 +68,18 @@ import {
 */
 
 const pluginChannels = new Map<string, Map<string, Function>>();
+
+function prepareDatabaseWrite(db: Record<string, any>): Record<string, any> {
+    const prepared = { ...db }
+    for (const field of ['modules', 'personas']) {
+        if (!Object.hasOwn(db, field)) continue
+        const items = $state.snapshot(db[field])
+        ensureUniqueEntityIds(items)
+        prepared[field] = items
+    }
+    return prepared
+}
+
 type DocumentEventListenerEntry = {
     pluginName: string;
     type: string;
@@ -924,8 +936,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             addPluginUnloadCallback(plugin.name, () => oldApis.removeRisuChatListener(mode, func as any));
         },
         removeRisuChatListener: oldApis.removeRisuChatListener,
-        setDatabaseLite: oldApis.setDatabaseLite,
-        setDatabase: oldApis.setDatabase,
+        setDatabaseLite: (db: Record<string, any>) => oldApis.setDatabaseLite(prepareDatabaseWrite(db)),
+        setDatabase: (db: Record<string, any>) => oldApis.setDatabase(prepareDatabaseWrite(db)),
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
         readInlay: async (id: string) => {

@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer'
 import { encodeInlayAsset, decodeInlayAsset } from '../../storage/inlayTransport'
+import { getAssetUrl } from '../../storage/assetTransport'
 import { scanDatabaseContent } from "../../storage/scanDatabaseContent";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "src/ts/media";
@@ -75,15 +76,15 @@ export const INLAY_IMAGE_SIZE_PIXELS = {
 export const INLAY_IMAGE_MAX_PIXELS = INLAY_IMAGE_SIZE_PIXELS['1k']
 
 export function getInlayAssetUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay/${id}`)
 }
 
 export function getInlayVideoThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay_video_thumb/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay_video_thumb/${id}`)
 }
 
 export function getInlayThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from(`inlay_thumb/${id}`, 'utf-8').toString('hex')}`
+    return getAssetUrl(`inlay_thumb/${id}`)
 }
 
 export function buildInlayReference(id: string): string {
@@ -268,25 +269,6 @@ class NodeInlayStorage {
         return allKeys.map(k => k.replace(INLAY_PREFIX, ''))
     }
 
-    async iterate<T, U>(callback: (value: T, key: string, iterationNumber: number) => U): Promise<U> {
-        const allKeys = await this.nodeStorage.keys(INLAY_PREFIX)
-        let result: U
-        let i = 0
-        for (const decodedKey of allKeys) {
-            const id = decodedKey.replace(INLAY_PREFIX, '')
-            try {
-                const buf = await this.nodeStorage.getItem(decodedKey)
-                if (buf && buf.length > 0) {
-                    const asset = this.deserializeAsset(buf)
-                    result = callback(asset as unknown as T, id, i)
-                    i++
-                }
-            } catch {
-                // skip corrupt entries
-            }
-        }
-        return result
-    }
 }
 
 // ── NodeInlayInfoStorage ──
@@ -533,14 +515,6 @@ export async function getInlayAssetBlob(id: string) {
     return { ...toCoreInlayAsset(img), data }
 }
 
-export async function listInlayAssets(): Promise<[id: string, InlayAsset][]> {
-    const assets: [id: string, InlayAsset][] = []
-    await getInlayStorage().iterate<InlayAsset, void>((value, key) => {
-        assets.push([key, toCoreInlayAsset(value)])
-    })
-    return assets
-}
-
 export async function listInlayKeys(): Promise<string[]> {
     return await getInlayStorage().keys()
 }
@@ -574,7 +548,7 @@ export function getCharacterChatIndex(): CharacterChatIndexItem[] {
 
 /**
  * Lightweight explorer list for the inlay gallery.
- * Use `getInlayAssetBlob(id)` on demand when the user opens or downloads the original file.
+ * Use `getInlayAssetBlob(id)` on demand when the user opens the original file.
  */
 // Gallery metadata cache — avoids re-fetching on gallery re-entry
 let _explorerItemsCache: InlayExplorerItem[] | null = null
@@ -627,21 +601,6 @@ export async function removeInlayAsset(id: string) {
     await getInlayInfoStorage().removeItem(id)
     await removeInlayMeta(id)
     _explorerItemsCache = null // invalidate gallery cache
-}
-
-export async function removeInlayAssets(ids: string[]): Promise<number> {
-    if (!Array.isArray(ids) || ids.length === 0) return 0
-    let removed = 0
-    for (const id of ids) {
-        if (!id) continue
-        try {
-            await removeInlayAsset(id)
-            removed++
-        } catch {
-            // best-effort bulk delete
-        }
-    }
-    return removed
 }
 
 export async function setInlayMetaFields(

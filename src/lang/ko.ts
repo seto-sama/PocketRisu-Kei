@@ -38,6 +38,9 @@ export const languageKorean = {
     invalidFilePath: "올바른 파일 경로가 필요합니다.",
     chatNotFound: "채팅을 찾을 수 없습니다.",
     chatRestoreFailed: "콜드 스토리지에서 채팅을 복원하지 못했습니다.",
+    chatBodyMissing: "서버에서 이 채팅 내용을 찾지 못했습니다. 남아 있을 수 있는 메시지를 빈 채팅으로 덮어쓰지 않도록 그대로 두었습니다. 다른 기기나 백업을 확인하세요.",
+    chatLoadFailed: "채팅을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.",
+    chatLoadRetry: "다시 불러오기",
     bookmarkNotFound: "북마크를 찾을 수 없습니다.",
     snapshotNotFound: "스냅샷을 찾을 수 없습니다.",
     invalidBackupFilename: "올바른 백업 파일명이 필요합니다.",
@@ -577,6 +580,31 @@ export const languageKorean = {
     calculating: "비교 결과 계산 중...",
     noChanges: "변경 사항 없음",
     unnamedPrompt: "{type} 프롬프트",
+  },
+  saveConflict: {
+    title: "저장 충돌 해결",
+    description: "이 기기와 서버에서 모두 수정된 항목입니다. 각 항목을 저장할 내용으로 선택하세요.",
+    server: "서버",
+    local: "내 수정",
+    useServer: "서버 내용 사용",
+    useLocal: "내 수정 사용",
+    save: "선택한 내용 저장",
+    cancel: "취소",
+    deleted: "삭제됨 / 없음",
+    empty: "빈 문자열",
+    changedOrder: "순서 변경",
+    item: "항목 {index}",
+    message: "메시지 {index}",
+    messages: "메시지",
+    data: "메시지 본문",
+    valueTypes: {
+      string: "텍스트",
+      number: "숫자",
+      boolean: "켜기/끄기",
+      list: "목록",
+      object: "객체",
+      null: "값 없음",
+    },
   },
   devToolPreview: {
     request: "요청 내용 미리보기",
@@ -1519,7 +1547,6 @@ export const languageKorean = {
   cleanupUnusedTranslationCacheDesc:
     "채팅이나 요약에서 더 이상 사용하지 않는 캐시를 삭제합니다.",
   exportTranslationCache: "번역 캐시 내보내기",
-  exportTranslationCacheSuccess: "번역 캐시를 내보냈습니다.",
   importTranslationCache: "번역 캐시 가져오기",
   importTranslationCacheConfirm:
     "번역 캐시에 항목을 병합합니다. 기존 키는 덮어씌워집니다. 계속하시겠습니까?",
@@ -2079,7 +2106,7 @@ export const languageKorean = {
   serverBackupDownload: "다운로드",
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
-  serverBackupDownloading: "백업 다운로드 중...",
+  browserDownloadStarted: "다운로드를 시작합니다.",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",
@@ -2608,7 +2635,6 @@ export const languageKorean = {
   backupSettingsOnly: "설정 내보내기",
   backupSettingsOnlyDesc: "채팅 및 캐릭터 등을 제외한 설정 백업만 내보냅니다.",
   backupSettingsOnlyEstimating: "설정 백업 용량 확인 중...",
-  backupSettingsOnlySaving: "설정 내보내는 중...",
   backupSettingsOnlyConfirm: (size: string) =>
     `채팅과 캐릭터를 제외한 설정 백업을 내보낼까요? 예상 용량은 ${size}입니다.`,
   backupSettingsOnlyBreakdown: (
@@ -2622,7 +2648,6 @@ export const languageKorean = {
   backupSettingsOnlyWithoutModuleAssets: (size: string) => `모듈 에셋 제외 (${size})`,
   backupSettingsOnlyModuleAssetsSkipped:
     "모듈 에셋을 제외하고 설정을 내보냈습니다. 모듈을 다시 다운로드하기 전까지 이미지가 비어 보일 수 있습니다.",
-  backupSettingsOnlyDone: "설정을 내보냈습니다.",
   backupSettingsOnlyFailed: "설정 내보내기 실패",
 
   relatedGithub: "GitHub",

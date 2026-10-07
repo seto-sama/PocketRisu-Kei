@@ -139,7 +139,7 @@ describe('image style presets', () => {
     it('ensures a missing secondary key before listing and keeps the preset ID stable', () => {
         const lorebook = {
             key: '',
-            secondkey: '',
+            secondkey: ' \t ',
             insertorder: 1000,
             comment: '프리셋 Ink',
             content: '[Positive]\nink\n\n[Negative]\n',
@@ -155,5 +155,42 @@ describe('image style presets', () => {
         lorebook.comment = '프리셋 Renamed'
 
         expect(loadImageStylePresets(db)[0].id).toBe(preset.id)
+    })
+
+    it('allows the same secondary key across modules and rejects duplicates within a module', () => {
+        const db = { modules: [], enabledModules: [] }
+        createImageStylePreset(db, 'First', 'ink', '')
+        const first = db.modules[0]
+        first.lorebook[0].secondkey = '006'
+        const second = { ...first, id: 'second', lorebook: structuredClone(first.lorebook) }
+        db.modules.push(second)
+
+        const presets = loadImageStylePresets(db)
+        expect(presets).toHaveLength(2)
+        expect(presets[0].id).not.toBe(presets[1].id)
+        expect(second.lorebook[0].secondkey).toBe('006')
+
+        first.lorebook.push({ ...first.lorebook[0], secondkey: ' 006 ' })
+        expect(() => loadImageStylePresets(db)).toThrow('Duplicate entity ID: 006')
+        expect(first.lorebook[1].secondkey).toBe(' 006 ')
+    })
+
+    it('preserves ordinary lorebooks and secondary keys used by search conditions', () => {
+        const db = { modules: [], enabledModules: [] }
+        createImageStylePreset(db, 'Ink', 'ink', '')
+        const module = db.modules[0]
+        const style = module.lorebook[0]
+        const otherLorebooks = [
+            { ...style, comment: 'Ordinary lorebook', secondkey: '' },
+            { ...style, key: 'trigger', secondkey: '' },
+            { ...style, selective: true, secondkey: ' condition ' },
+            { ...style, alwaysActive: true, secondkey: '' },
+        ]
+        const before = structuredClone(otherLorebooks)
+        module.lorebook.push(...otherLorebooks)
+
+        loadImageStylePresets(db)
+
+        expect(otherLorebooks).toEqual(before)
     })
 })

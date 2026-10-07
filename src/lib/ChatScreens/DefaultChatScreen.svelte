@@ -8,13 +8,18 @@
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
-    import { type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
+    import { loadTogglesFromChat, type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
     import { ensureMessageId } from 'src/ts/storage/messageIdentity';
     import { DBState, invalidateChatMessageRender, showPopupEditor } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
     import { shouldSuppressGenerationErrorModal } from '../../ts/process/generationErrorPresentation';
-    import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
+    import {
+        chatHydrationFailures,
+        chatHydrationKey,
+        ensureCurrentChatReady,
+        flushDirtyChatToServer,
+    } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { recoverAuxiliaryTranslationJobs } from "../../ts/translator/translator";
@@ -62,6 +67,7 @@ import { isMobile } from 'src/ts/platform'
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
     import Button from '../UI/components/Button.svelte';
+    import Alert from '../UI/components/Alert.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/components/overlay/Portal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
@@ -130,6 +136,11 @@ import { isMobile } from 'src/ts/platform'
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
+    let currentChatHydrationFailure = $derived(
+        currentCharacter?.chaId && currentChatSlot?.id
+            ? $chatHydrationFailures.get(chatHydrationKey(currentCharacter.chaId, currentChatSlot.id))
+            : undefined,
+    )
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     let loadPagesRoomKey = $state('')
@@ -633,6 +644,29 @@ import { isMobile } from 'src/ts/platform'
         if (!chat) return null
         if (!chat._placeholder) return chat
         return await ensureCurrentChatReady(char.chats, chatPage, char.chaId)
+    }
+
+    async function retryCurrentChatLoad(): Promise<void> {
+        const characterIndex = $selectedCharID
+        const character = DBState.db.characters[characterIndex]
+        const roomId = character?.chats[character.chatPage]?.id
+        const characterId = character?.chaId
+        if (!characterId || !roomId) return
+
+        try {
+            const chat = await ensureActiveChatReady(characterIndex, roomId)
+            const activeCharacter = DBState.db.characters[$selectedCharID]
+            if (
+                chat
+                && $selectedCharID === characterIndex
+                && activeCharacter?.chaId === characterId
+                && activeCharacter.chats[activeCharacter.chatPage]?.id === roomId
+            ) {
+                loadTogglesFromChat(chat)
+            }
+        } catch {
+            // The failed load keeps the retry message visible.
+        }
     }
 
     // A generation belongs to the server once submitted. If its originating
@@ -1806,9 +1840,24 @@ import { isMobile } from 'src/ts/platform'
             <div class="chat-scroll-phase" data-chat-scroll-phase aria-hidden="true"></div>
 
             {#if !currentChatReady}
-                <div class="w-full flex justify-center text-subtext italic mb-12">
-                    {language.loadingChatData}
-                </div>
+                {#if currentChatHydrationFailure}
+                    <div class="w-full flex justify-center mb-12">
+                        <Alert variant="destructive" className="w-full max-w-xl">
+                            {currentChatHydrationFailure === 'missing'
+                                ? language.errors.chatBodyMissing
+                                : language.errors.chatLoadFailed}
+                            {#snippet action()}
+                                <Button size="sm" variant="outline" onclick={() => void retryCurrentChatLoad()}>
+                                    {language.errors.chatLoadRetry}
+                                </Button>
+                            {/snippet}
+                        </Alert>
+                    </div>
+                {:else}
+                    <div class="w-full flex justify-center text-subtext italic mb-12">
+                        {language.loadingChatData}
+                    </div>
+                {/if}
             {:else}
 
             {#if chatFoldedStateMessageIndex.index !== -1}

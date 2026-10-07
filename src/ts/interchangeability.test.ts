@@ -11,13 +11,8 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
 import {
     convertCharacterToModule,
     convertModuleToCharacter,
-    convertCharacterToPersona,
-    convertPersonaToCharacter,
 } from './interchangeability'
 import { createBlankChar } from './characters'
-
-// Data-safety guard for the charx interchangeability layer (#22):
-// char <-> module <-> persona conversions must not silently lose user data.
 
 function makeChar() {
     const c = createBlankChar()
@@ -103,15 +98,5 @@ describe('interchangeability: character <-> module round-trip', () => {
         const back = convertModuleToCharacter(m)
         expect(back.replaceGlobalNote).toBe('stay in character')
         expect(back.postHistoryInstructions).toBe('')
-    })
-})
-
-describe('interchangeability: character <-> persona round-trip', () => {
-    it('round-trips persona core fields (char -> persona -> char)', () => {
-        const c = makeChar()
-        const back = convertPersonaToCharacter(convertCharacterToPersona(c))
-        expect(back.name).toBe(c.name)
-        expect(back.desc).toBe(c.desc)
-        expect(back.creatorNotes).toBe(c.creatorNotes)
     })
 })

@@ -421,6 +421,10 @@ interface DatabaseSubset {
     colorSchemeName?: string;
 }
 
+type DatabaseWriteSubset = Omit<DatabaseSubset, 'modules'> & {
+    modules?: (Omit<RisuModule, 'id'> & { id?: string })[];
+};
+
 // ============================================================================
 // Color Scheme & Text Theme Types
 // ============================================================================
@@ -1536,15 +1540,17 @@ interface RisuaiPluginAPI {
 
     /**
      * Sets the database (lightweight save)
-     * @param db - DatabaseSubset object to save
+     * Missing module and persona IDs receive UUID v4 values; duplicates reject the write.
+     * @param db - Database fields to save
      */
-    setDatabaseLite(db: DatabaseSubset): Promise<void>;
+    setDatabaseLite(db: DatabaseWriteSubset): Promise<void>;
 
     /**
      * Sets the database (full save with sync)
-     * @param db - DatabaseSubset object to save
+     * Missing module and persona IDs receive UUID v4 values; duplicates reject the write.
+     * @param db - Database fields to save
      */
-    setDatabase(db: DatabaseSubset): Promise<void>;
+    setDatabase(db: DatabaseWriteSubset): Promise<void>;
 
     // ========== Color Scheme APIs ==========
 

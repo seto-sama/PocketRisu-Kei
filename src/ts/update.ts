@@ -13,6 +13,8 @@ export interface UpdateInfo {
     deploymentType?: 'portable' | 'git' | 'docker'
     canSelfUpdate?: boolean
     manualOnly?: boolean
+    /** Dev panel preview: simulate update progress without server requests or reloads. */
+    simulation?: boolean
 }
 
 export interface SelfUpdateProgress {

@@ -16,6 +16,14 @@
     /** Closable iff idle, or the update reached its terminal state. */
     const canClose = $derived(!isUpdating || progress?.step === 'done' || progress?.step === 'error');
 
+    $effect(() => {
+        if (!info?.simulation || !isUpdating || canClose) return;
+        const timer = setTimeout(() => {
+            selfUpdateProgressStore.set({ step: 'done', progress: 100, message: '업데이트 완료 (시뮬레이션).' });
+        }, 2000);
+        return () => clearTimeout(timer);
+    });
+
     function getTitle(severity: string): string {
         if (severity === 'required') return language.updatePopupTitleRequired
         if (severity === 'outdated') return language.updatePopupTitleOutdated
@@ -23,11 +31,15 @@
     }
 
     function handleSelfUpdate() {
+        if (info?.simulation) {
+            selfUpdateProgressStore.set({ step: 'checking', progress: 0, message: '업데이트 정보 확인 중 (시뮬레이션)...' });
+            return;
+        }
         executeSelfUpdate()
     }
 
     function handleDone() {
-        const isDone = progress?.step === 'done'
+        const isDone = progress?.step === 'done' && !info?.simulation
         selfUpdateProgressStore.set(null)
         dismissUpdatePopup()
         if (isDone) {
@@ -36,7 +48,7 @@
     }
 
     /** Dialog.onOpenChange close path — routes through handleDone when an
-     *  update has finished (so reload fires) and through dismiss otherwise. */
+     *  update has finished and through dismiss otherwise. */
     function handleClose() {
         if (isUpdating) handleDone()
         else dismissUpdatePopup()

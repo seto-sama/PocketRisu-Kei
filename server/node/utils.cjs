@@ -1,6 +1,7 @@
 const { Packr, Unpackr, decode } = require('msgpackr');
 const fflate = require('fflate');
 const { randomUUID } = require('crypto');
+const { ensureDatabasePresetIds } = require('../../shared/entityIds.mjs');
 const { logger } = require('./logs/logs.cjs');
 const { apiErrorMessage, codes } = require('./apiErrors.cjs');
 
@@ -36,27 +37,7 @@ const unpackr = new Unpackr({
     useRecords: false
 });
 
-/**
- * Ensure every bot preset in a decoded database has a stable string id.
- * Mirrors the client-side setDatabase() migration so that any code path
- * which decodes a .bin and uses the result directly (without going through
- * the client's setDatabase) still sees id-populated presets. Idempotent.
- * @param {*} db - decoded database object (may be partial/legacy)
- * @returns {*} the same db, mutated in place
- */
-function ensureBotPresetIds(db) {
-    if (db && Array.isArray(db.botPresets)) {
-        for (const preset of db.botPresets) {
-            if (preset && !preset.id) {
-                preset.id = randomUUID();
-            }
-        }
-    }
-    return db;
-}
-
-// Preset template for bot presets — must match client-side presetTemplate in database.svelte.ts
-// `id` is filled in by createBotPresetTemplate() so each preset gets a fresh UUID.
+// Legacy bot preset defaults, matching database.svelte.ts.
 const presetTemplate = {
     id: '',
     name: "New Preset",
@@ -299,16 +280,10 @@ class RisuSaveDecoder {
         if(!Array.isArray(db.characters)){
             db.characters = [];
         }
-        // Fix botpreset bugs
         if (!Array.isArray(db.botPresets) || db.botPresets.length === 0) {
             db.botPresets = [{ ...presetTemplate, id: randomUUID() }];
             db.botPresetsId = 0;
         }
-        // Outer decodeRisuSave also normalizes ids across every decode path
-        // (raw/compressed/stream/risusave) — calling it here too keeps the
-        // invariant locally true even if a caller constructs a decoder by hand.
-        ensureBotPresetIds(db);
-
         return db;
     }
 }
@@ -319,11 +294,8 @@ class RisuSaveDecoder {
  * @returns {Promise<Object>} - The decoded database
  */
 async function decodeRisuSave(data) {
-    // Decode through the internal implementation, then normalize botPreset ids
-    // exactly once at the boundary so every header type (raw/compressed/stream/
-    // risusave) and the catch-fallback paths all guarantee id-populated presets.
     const result = await _decodeRisuSaveInternal(data);
-    return ensureBotPresetIds(result);
+    return ensureDatabasePresetIds(result);
 }
 
 async function _decodeRisuSaveInternal(data) {
@@ -491,9 +463,6 @@ function normalizeJSON(value) {
 }
 
 module.exports = {
-    // Classes
-    RisuSaveDecoder,
-
     // Functions
     decodeRisuSave,
     encodeRisuSaveLegacy,
@@ -507,5 +476,4 @@ module.exports = {
     magicCompressedHeader,
     magicStreamCompressedHeader,
     magicRisuSaveHeader,
-    presetTemplate
 };

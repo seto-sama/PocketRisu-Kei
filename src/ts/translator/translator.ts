@@ -400,11 +400,6 @@ async function jaTrans(text:string) {
     return await runTranslator(text, true, 'en','ja')
 }
 
-export function isExpTranslator(){
-    const db = getDatabase()
-    return db.translatorType === 'llm'
-}
-
 function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTranslationTarget | null {
     if (chatID < 0) return null
     const db = getDatabase()
@@ -421,6 +416,7 @@ function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTra
 
 export async function translateHTML(html: string, reverse:boolean, charArg:simpleCharacterArgument|string = '', chatID:number, regenerate = false, signal?:AbortSignal): Promise<string> {
     signal?.throwIfAborted()
+    if (!html) return ''
     let alwaysExistChar: character | simpleCharacterArgument;
     if(charArg !== ''){
         if(typeof(charArg) === 'string'){
@@ -472,7 +468,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         return applyEdittransRegex(result, charArg, alwaysExistChar)
     }
     const dom = new DOMParser().parseFromString(html, 'text/html');
-    console.log(html)
 
     let promises: Promise<void>[] = [];
     async function translateNodeText(node:Node, reprocessDisplayScript:boolean = false) {
@@ -497,14 +492,12 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
                 "editdisplay",
                 chatID
             );
-            // If the translation is the same, don't replace the node
             if (translated == processedTranslated) {
                 node.textContent = processedTranslated;
                 applyMarkdownToNode(node)
                 return;
             }
 
-            // Replace the old node with the new one
             const newNode = document.createElement(
                 node.nodeType === Node.TEXT_NODE ? "span" : node.nodeName
             );
@@ -514,10 +507,8 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         }
     }
 
-    // Recursive function to translate all text nodes
     async function translateNode(node: Node, parent?: Node): Promise<void> {
         if (node.nodeType === Node.TEXT_NODE) {
-            // Translate the text content of the node
             if(node.textContent && parent){
                 const parentName = parent.nodeName.toLowerCase();
                 if(parentName === 'script' || parentName === 'style'){
@@ -530,12 +521,9 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
                 promises.push(translateNodeText(node))
             }
         } else if(node.nodeType === Node.ELEMENT_NODE) {
-            // Translate child nodes
-            //skip if it's a script or style tag
             if(node.nodeName.toLowerCase() === 'script' || node.nodeName.toLowerCase() === 'style'){
                 return
             }
-            // combineTranslation feature
             if (
                 db.combineTranslation &&
                 node.nodeName.toLowerCase() === "p" &&
@@ -550,8 +538,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
                     const text = getNodetextToSentence(node);
                     const sentences = text.split("\n");
                     if (sentences.length > 1) {
-                        // Multiple sentences seperated by <br> tags
-                        // reconstruct the p tag
+                        // Restore the line breaks as separate spans before translating.
                         node.innerHTML = "";
                         for (const sentence of sentences) {
                             const newNode = document.createElement("span");
@@ -561,7 +548,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
                             node.appendChild(document.createElement("br"));
                         }
                     } else {
-                        // Single sentence
                         node.innerHTML = sentences[0];
                         await translateNodeText(node, true);
                     }
@@ -579,21 +565,15 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     
 
-    // Start translation from the body element
     await translateNode(dom.body);
 
     await Promise.all(promises)
-    // Serialize the DOM back to HTML
     const serializer = new XMLSerializer();
     let translatedHTML = serializer.serializeToString(dom);
-    // Remove the outer <html|body|head> tags
     translatedHTML = translatedHTML.replace(/<\/?(html|body|head)[^>]*>/g, '');
 
     translatedHTML = applyEdittransRegex(translatedHTML, charArg, alwaysExistChar);
 
-    // console.log(html)
-    // console.log(translatedHTML)
-    // Return the translated HTML, excluding the outer <body> tags if needed
     return translatedHTML
 }
 

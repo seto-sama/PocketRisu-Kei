@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { applyDelta, DeltaConflictError } from '../../../shared/guardedDelta.mjs'
 import {
     acknowledgeChatCommit,
     canApplyChatGenerationCanonical,
@@ -15,16 +16,18 @@ import {
     beginChatGenerationProjection,
     discardAllChatGenerationProjections,
     isChatGenerationProjectionActive,
-    isChatAwaitingGenerationCanonical,
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
     shouldPersistTrackedChat,
+    pruneChatServerStates,
+    recordChatServerState,
 } from './chatWorkingCopy'
 
 describe('chat working copies', () => {
     beforeEach(() => {
         discardAllChatWorkingCopies()
         discardAllChatGenerationProjections()
+        pruneChatServerStates([])
     })
 
     it('binds the first server etag to every later revision of a dirty body', () => {
@@ -132,13 +135,11 @@ describe('chat working copies', () => {
         })
 
         expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(false)
 
         awaitChatGenerationCanonical('character', 'room')
         expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(true)
         expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(true)
     })
@@ -224,7 +225,6 @@ describe('chat working copies', () => {
 
         expect(resolved.message[1]).toEqual(canonical.message[1])
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(false)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(false)
     })
 
     it('rebases a real earlier-message edit over the terminal canonical target', () => {
@@ -280,5 +280,24 @@ describe('chat working copies', () => {
         markChatWorkingCopyDirty('character', 'room', 'new-etag')
         expect(acknowledgeProjectionOnlyChatConflict('character', projection)).toBe(false)
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(true)
+    })
+
+    it('retains a same-message conflict through terminal generation handoff', () => {
+        const base = {
+            id: 'room', message: [{ chatId: 'earlier', role: 'user', data: 'before' }],
+        } as any
+        recordChatServerState('character', base, 'base')
+        beginChatGenerationProjection('character', base, { messageChatId: 'generated' })
+        const local = structuredClone(base)
+        local.message[0].data = 'local edit'
+        markChatWorkingCopyDirty('character', 'room', 'base')
+        awaitChatGenerationCanonical('character', 'room')
+        const canonical = structuredClone(base)
+        canonical.message[0].role = 'char'
+        canonical.message.push({ chatId: 'generated', role: 'char', data: 'result' })
+        const merged = resolveChatGenerationCanonical('character', local, canonical, 'canonical')
+        expect(merged.message).toEqual([local.message[0], canonical.message[1]])
+        expect(() => applyDelta(canonical, createChatCommitSnapshot('character', merged).changes))
+            .toThrow(DeltaConflictError)
     })
 })
