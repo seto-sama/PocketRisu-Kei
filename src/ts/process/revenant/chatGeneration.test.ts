@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createDelta } from '../../../../shared/guardedDelta.mjs'
 
 const mocks = vi.hoisted(() => ({
     awaitCanonical: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../../storage/chatStorage', () => ({
         chatId: chat.id,
         chat: structuredClone(chat),
         expectedEtag: 'base-etag',
+        changes: createDelta(undefined, chat),
     }),
 }))
 vi.mock('./workflow', () => ({

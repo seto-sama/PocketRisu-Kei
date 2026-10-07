@@ -181,8 +181,7 @@ export interface RevenantWorkflowInputCommit {
     schemaVersion: 1
     /** Canonical chat state at the submission boundary, before prompt-only transforms. */
     chat: Chat
-    expectedEtag?: string
-    changes?: DeltaPatch['changes']
+    changes: DeltaPatch['changes']
 }
 
 export interface RevenantPostprocessMutationPatch {

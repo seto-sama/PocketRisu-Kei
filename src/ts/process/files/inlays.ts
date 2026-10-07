@@ -269,25 +269,6 @@ class NodeInlayStorage {
         return allKeys.map(k => k.replace(INLAY_PREFIX, ''))
     }
 
-    async iterate<T, U>(callback: (value: T, key: string, iterationNumber: number) => U): Promise<U> {
-        const allKeys = await this.nodeStorage.keys(INLAY_PREFIX)
-        let result: U
-        let i = 0
-        for (const decodedKey of allKeys) {
-            const id = decodedKey.replace(INLAY_PREFIX, '')
-            try {
-                const buf = await this.nodeStorage.getItem(decodedKey)
-                if (buf && buf.length > 0) {
-                    const asset = this.deserializeAsset(buf)
-                    result = callback(asset as unknown as T, id, i)
-                    i++
-                }
-            } catch {
-                // skip corrupt entries
-            }
-        }
-        return result
-    }
 }
 
 // ── NodeInlayInfoStorage ──
@@ -534,14 +515,6 @@ export async function getInlayAssetBlob(id: string) {
     return { ...toCoreInlayAsset(img), data }
 }
 
-export async function listInlayAssets(): Promise<[id: string, InlayAsset][]> {
-    const assets: [id: string, InlayAsset][] = []
-    await getInlayStorage().iterate<InlayAsset, void>((value, key) => {
-        assets.push([key, toCoreInlayAsset(value)])
-    })
-    return assets
-}
-
 export async function listInlayKeys(): Promise<string[]> {
     return await getInlayStorage().keys()
 }
@@ -628,21 +601,6 @@ export async function removeInlayAsset(id: string) {
     await getInlayInfoStorage().removeItem(id)
     await removeInlayMeta(id)
     _explorerItemsCache = null // invalidate gallery cache
-}
-
-export async function removeInlayAssets(ids: string[]): Promise<number> {
-    if (!Array.isArray(ids) || ids.length === 0) return 0
-    let removed = 0
-    for (const id of ids) {
-        if (!id) continue
-        try {
-            await removeInlayAsset(id)
-            removed++
-        } catch {
-            // best-effort bulk delete
-        }
-    }
-    return removed
 }
 
 export async function setInlayMetaFields(

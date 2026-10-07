@@ -1,9 +1,5 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    // Inline server-backup list component (extracted from the legacy
-    // serverBackupManager modal). Renders the list with restore / download /
-    // delete actions but no modal chrome — embedded directly in pages.
-    //
     // Restore flow forces a full page reload because the in-memory db cache
     // is replaced; downloads are handled by the browser without relaying
     // the backup through this tab.

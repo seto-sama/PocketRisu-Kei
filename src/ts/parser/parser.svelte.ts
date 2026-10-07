@@ -585,11 +585,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         let match = assetPaths?.[name]
 
         if(!match){
-            // Legacy lookup uses exact names to avoid scanning all assets for every missing token.
-            if(DBState.db.legacyMediaFindings){
-                return ''
-            }
-
             if(assetPaths){
                 match = getClosestMatch(char, name, assetPaths)
             }

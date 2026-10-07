@@ -2122,8 +2122,6 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     return canonicalChatService.commitGenerationInput({
         characterId,
         chatId: roomId,
-        chat: input.chat,
-        expectedEtag: input.expectedEtag,
         changes: input.changes,
     });
 }

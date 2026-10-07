@@ -75,25 +75,14 @@ export async function SaveLocalBackupForUpstream(){
     await SaveLocalBackup({ target: 'upstream' })
 }
 
-/**
- * Saves a partial local backup with only critical assets.
- * 
- * Differences from SaveLocalBackup:
- * - Only includes profile images for characters/groups (excludes emotion images, additional assets, VITS files, CC assets)
- * - Additionally includes: persona icons, folder images, bot preset images
- * - Processes only assets in assetMap (selective) instead of all .png files in assets folder
- * - Faster and more efficient for quick backups
- * - Ideal for backing up core visual identity without bulk data
- */
+/** Saves database content and profile, persona, folder, and preset images. */
 export async function SavePartialLocalBackup(){
-    // First confirmation: Explain the difference from regular backup
     const firstConfirm = await alertConfirm(language.partialBackupFirstConfirm)
     
     if (!firstConfirm) {
         return
     }
     
-    // Second confirmation: Final warning about not saving assets
     const secondConfirm = await alertConfirm(language.partialBackupSecondConfirm)
     
     if (!secondConfirm) {

@@ -1509,7 +1509,6 @@ export interface Database{
     chatLoadAdditionalPages?: number
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
-    legacyMediaFindings?: boolean
     hideAllImages?: boolean
     preloadChatImages?: boolean
     autoScrollToNewMessage?: boolean

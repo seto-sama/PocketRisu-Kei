@@ -16,7 +16,6 @@ import {
     beginChatGenerationProjection,
     discardAllChatGenerationProjections,
     isChatGenerationProjectionActive,
-    isChatAwaitingGenerationCanonical,
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
     shouldPersistTrackedChat,
@@ -136,13 +135,11 @@ describe('chat working copies', () => {
         })
 
         expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(false)
 
         awaitChatGenerationCanonical('character', 'room')
         expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(true)
         expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
         expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(true)
     })
@@ -228,7 +225,6 @@ describe('chat working copies', () => {
 
         expect(resolved.message[1]).toEqual(canonical.message[1])
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(false)
-        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(false)
     })
 
     it('rebases a real earlier-message edit over the terminal canonical target', () => {

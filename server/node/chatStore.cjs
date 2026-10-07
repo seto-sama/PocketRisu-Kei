@@ -123,28 +123,6 @@ function reassembleFullDb(strippedDb, store) {
     return full;
 }
 
-function findStubFlagLossChats(fullDb) {
-    if (!fullDb?.characters) return [];
-    const losses = [];
-    for (let ci = 0; ci < fullDb.characters.length; ci++) {
-        const char = fullDb.characters[ci];
-        if (!char?.chats) continue;
-        for (let chi = 0; chi < char.chats.length; chi++) {
-            const chat = char.chats[chi];
-            if (!chat || typeof chat !== 'object') continue;
-            if (chat._stub !== true && !Array.isArray(chat.message)) {
-                losses.push({
-                    chaId: char.chaId,
-                    charIndex: ci,
-                    chatIndex: chi,
-                    chatId: chat.id || null,
-                });
-            }
-        }
-    }
-    return losses;
-}
-
 class CanonicalChatCommitError extends Error {
     constructor(status, message, options = {}) {
         super(message);
@@ -188,7 +166,6 @@ function createCanonicalChatService(options) {
         chatId,
         candidate,
         expectedEtag,
-        acceptMatchingCurrent = false,
         persist,
         reason,
         originClientId,
@@ -204,21 +181,11 @@ function createCanonicalChatService(options) {
         for (const field of runtimeOnlyChatFields) delete candidate[field];
         stripChatCompatibility(candidate);
         const previous = getChat(characterId, chatId);
-        const previousEtag = computeChatEtag(previous);
-        // Prompt construction can outlive the browser's debounced autosave.
-        // If that autosave already committed this exact generation input, the
-        // captured ETag is stale but the intended compare-and-swap has already
-        // happened. Rebase only an identical payload; genuinely different
-        // canonical content must still conflict.
-        const commitEtag = acceptMatchingCurrent
-            && computeChatEtag(candidate) === previousEtag
-            ? previousEtag
-            : expectedEtag;
         const result = commitChatContent(
             characterId,
             chatId,
             candidate,
-            commitEtag,
+            expectedEtag,
             { requireExpected: true },
         );
         if (!result.success) {
@@ -259,17 +226,14 @@ function createCanonicalChatService(options) {
         return durableResult;
     }
 
-    async function commitGenerationInput({ characterId, chatId, chat, expectedEtag, changes }) {
+    async function commitGenerationInput({ characterId, chatId, changes }) {
         return queueStorageOperation(async () => {
             await ensureChatStore(characterId, chatId);
-            const input = changes === undefined
-                ? { candidate: chat, expectedEtag }
-                : applyChatDelta(characterId, chatId, changes);
+            const input = applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
                 characterId,
                 chatId,
                 ...input,
-                acceptMatchingCurrent: true,
                 reason: 'generation-input',
                 persist: chat => persistNow({
                     characterId,
@@ -431,7 +395,6 @@ module.exports = {
     stripChatsFromDb,
     mergeChatStubWithFullChat,
     reassembleFullDb,
-    findStubFlagLossChats,
     CanonicalChatCommitError,
     createCanonicalChatService,
 };

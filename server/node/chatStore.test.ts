@@ -11,7 +11,6 @@ const {
     commitChatContent,
     stripChatsFromDb,
     reassembleFullDb,
-    findStubFlagLossChats,
     createCanonicalChatService,
     CanonicalChatCommitError,
 } = chatStorePkg as any
@@ -90,16 +89,6 @@ describe('full chat payload store', () => {
         const stripped = stripChatsFromDb(database)
         expect(stripped.characters[0]).not.toHaveProperty('reloadKeys')
         expect(database.characters[0].reloadKeys).toBe(17)
-    })
-
-    it('reports metadata-only chats that lost their stub marker', () => {
-        const malformed = {
-            characters: [{ chaId: 'character', chats: [{ id: 'room', name: 'Room' }] }],
-        }
-
-        expect(findStubFlagLossChats(malformed)).toEqual([{
-            chaId: 'character', charIndex: 0, chatIndex: 0, chatId: 'room',
-        }])
     })
 })
 
@@ -210,8 +199,8 @@ describe('canonical chat service', () => {
         const input = { ...base, message: [...base.message, { chatId: 'new', role: 'user', data: 'new prompt' }] }
         const harness = createServiceHarness(current)
         const result = await harness.service.commitGenerationInput({
-            characterId: 'character-1', chatId: 'room-1', chat: input,
-            expectedEtag: 'stale', changes: createDelta(base, input),
+            characterId: 'character-1', chatId: 'room-1',
+            changes: createDelta(base, input),
         })
         expect(result.chat.message.map(message => message.chatId)).toEqual(['old', 'new', 'image'])
         expect(harness.persistNow).toHaveBeenCalledWith(expect.objectContaining({ generationInput: true }))
@@ -251,8 +240,7 @@ describe('canonical chat service', () => {
         const result = await harness.service.commitGenerationInput({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: next,
-            expectedEtag: computeChatEtag(initial),
+            changes: createDelta(initial, next),
         })
 
         expect(result.chat).toEqual(next)
@@ -276,8 +264,7 @@ describe('canonical chat service', () => {
         const result = await harness.service.commitGenerationInput({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: submitted,
-            expectedEtag: computeChatEtag(beforeEdit),
+            changes: createDelta(beforeEdit, submitted),
         })
 
         expect(result.chat).toEqual(submitted)
@@ -293,19 +280,20 @@ describe('canonical chat service', () => {
     it('still rejects stale generation input when canonical content differs', async () => {
         const beforeEdit = { id: 'room-1', message: [] }
         const canonical = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'other edit' }] }
+        const submitted = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'my edit' }] }
         const harness = createServiceHarness(canonical)
 
         await expect(harness.service.commitGenerationInput({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'my edit' }] },
-            expectedEtag: computeChatEtag(beforeEdit),
+            changes: createDelta(beforeEdit, submitted),
         })).rejects.toBeInstanceOf(CanonicalChatCommitError)
         expect(harness.persistNow).not.toHaveBeenCalled()
     })
 
     it('rolls memory back when immediate persistence fails', async () => {
         const initial = { id: 'room-1', message: [] }
+        const next = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] }
         const failure = new Error('disk full')
         const harness = createServiceHarness(initial, {
             persistNow: vi.fn(async () => { throw failure }),
@@ -314,8 +302,7 @@ describe('canonical chat service', () => {
         await expect(harness.service.commitGenerationInput({
             characterId: 'character-1',
             chatId: 'room-1',
-            chat: { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] },
-            expectedEtag: computeChatEtag(initial),
+            changes: createDelta(initial, next),
         })).rejects.toBe(failure)
         expect(harness.chats.get('room-1')).toEqual(initial)
         expect(harness.publishChatCommitted).not.toHaveBeenCalled()

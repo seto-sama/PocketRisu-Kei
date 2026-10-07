@@ -1671,7 +1671,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 inputCommit: {
                     schemaVersion: 1,
                     chat: structuredClone(durableInputChat),
-                    expectedEtag: durableInputCommit.expectedEtag,
                     changes: durableInputCommit.changes,
                 },
                 resume: {

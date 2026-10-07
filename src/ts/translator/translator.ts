@@ -400,11 +400,6 @@ async function jaTrans(text:string) {
     return await runTranslator(text, true, 'en','ja')
 }
 
-export function isExpTranslator(){
-    const db = getDatabase()
-    return db.translatorType === 'llm'
-}
-
 function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTranslationTarget | null {
     if (chatID < 0) return null
     const db = getDatabase()

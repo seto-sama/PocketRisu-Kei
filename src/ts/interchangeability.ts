@@ -1,6 +1,6 @@
 import { createEntityId } from './id';
 import type { RisuModule} from './process/modules.ts'
-import type { character, RisuPersona } from './storage/database.svelte.js';
+import type { character } from './storage/database.svelte.js';
 import { createBlankChar } from "src/ts/characters";
 
 export function convertModuleToCharacter(m: RisuModule): character {
@@ -12,7 +12,7 @@ export function convertModuleToCharacter(m: RisuModule): character {
 
     char.name = m.name
     char.creatorNotes = m.description
-    // deep-clone: the @@indicator consumption below splices this array — must not strip entries from the source module (upstream 912ecbbd is entry-only and misses this)
+    // Clone the lorebook before consuming indicator entries.
     char.globalLore = structuredClone(m.lorebook || [])
     char.customscript = m.regex || []
     char.triggerscript = m.trigger || []
@@ -69,7 +69,7 @@ export function convertCharacterToModule(c: character): RisuModule {
         id: createEntityId(),
         icon: c.image
     }
-    // deep-clone so the @@indicator entries pushed below don't mutate the source character's globalLore (upstream 8e6d3761)
+    // Clone the lorebook before adding indicator entries.
     mod.lorebook = structuredClone(mod.lorebook || [])
 
 
@@ -119,30 +119,4 @@ export function convertCharacterToModule(c: character): RisuModule {
     }
 
     return structuredClone(mod)
-}
-
-export function convertPersonaToCharacter(p: RisuPersona): character {
-    let char = createBlankChar()
-
-    if(p.embeddedModule){
-        char = convertModuleToCharacter(p.embeddedModule)
-    }
-    char.name = p.name
-    char.image = p.icon
-    char.largePortrait = p.largePortrait || false
-    char.creatorNotes = p.note || ""
-    char.desc = p.personaPrompt
-    return structuredClone(char)
-}
-
-export function convertCharacterToPersona(c: character): RisuPersona {
-    const p: RisuPersona = {
-        id: createEntityId(),
-        name: c.name,
-        icon: c.image,
-        personaPrompt: c.desc,
-        note: c.creatorNotes,
-        embeddedModule: convertCharacterToModule(c)
-    }
-    return structuredClone(p)
 }

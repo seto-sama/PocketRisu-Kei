@@ -22,7 +22,7 @@ export type ChatCommitSnapshot = ChatWorkingCopyTarget & {
     baseChat?: Chat
     expectedEtag?: string
     revision?: number
-    changes?: ReturnType<typeof createDelta>
+    changes: ReturnType<typeof createDelta>
 }
 
 type DirtyChat = ChatWorkingCopyTarget & {
@@ -272,10 +272,6 @@ export function discardAllChatGenerationProjections() {
 export function awaitChatGenerationCanonical(characterId: string, chatId: string) {
     const projection = serverProjections.get(chatWorkingCopyKey(characterId, chatId))
     if (projection) projection.awaitingCanonical = true
-}
-
-export function isChatAwaitingGenerationCanonical(characterId: string, chatId: string) {
-    return serverProjections.get(chatWorkingCopyKey(characterId, chatId))?.awaitingCanonical === true
 }
 
 export function isChatGenerationProjectionActive(characterId: string, chatId: string) {

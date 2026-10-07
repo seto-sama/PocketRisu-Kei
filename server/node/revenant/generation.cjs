@@ -202,10 +202,7 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
             || value.inputCommit.schemaVersion !== 1
             || value.inputCommit.chat?.id !== roomId
             || !Array.isArray(value.inputCommit.chat?.message)
-            || (value.inputCommit.changes !== undefined && !Array.isArray(value.inputCommit.changes))
-            || (value.inputCommit.expectedEtag != null
-                && (typeof value.inputCommit.expectedEtag !== 'string'
-                    || !value.inputCommit.expectedEtag))
+            || !Array.isArray(value.inputCommit.changes)
         )
     ) return undefined;
     const postprocessChat = resolveRevenantPostprocessChat(value, value.inputCommit.chat);

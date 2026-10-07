@@ -377,7 +377,7 @@ describe('revenant workflow validation', () => {
         inputCommit: {
             schemaVersion: 1,
             chat: { id: 'room-1', message: [{ role: 'user', data: 'hello' }] },
-            expectedEtag: 'previous-etag',
+            changes: [],
         },
         resume: {
             schemaVersion: 1,
@@ -478,6 +478,14 @@ describe('revenant workflow validation', () => {
                     chat: { id: 'different-room', message: [] },
                 },
             },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+    })
+
+    it('requires a guarded delta for workflow input', () => {
+        expect(normalizeRevenantWorkflowContext(
+            { ...workflowContext, inputCommit: { ...workflowContext.inputCommit, changes: undefined } },
             'character-1',
             'room-1',
         )).toBeUndefined()

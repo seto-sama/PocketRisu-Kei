@@ -476,5 +476,4 @@ module.exports = {
     magicCompressedHeader,
     magicStreamCompressedHeader,
     magicRisuSaveHeader,
-    presetTemplate
 };
