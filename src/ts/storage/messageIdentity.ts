@@ -1,4 +1,4 @@
-import { createEntityId } from 'src/ts/id';
+import { createEntityId } from '../id';
 import type { Message } from './database.svelte';
 import { getActiveSwipeMetadata } from '../process/revenant/recovery/chatGenerationTarget';
 

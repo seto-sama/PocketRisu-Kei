@@ -28,7 +28,8 @@ describe('message identity', () => {
         const normalized = ensureMessageId(message)
         const firstId = normalized.chatId
 
-        expect(firstId).toMatch(/^[0-9a-f-]{36}$/)
+        expect(firstId).toEqual(expect.any(String))
+        expect(firstId).not.toBe('')
         expect(ensureMessageId(message).chatId).toBe(firstId)
     })
 

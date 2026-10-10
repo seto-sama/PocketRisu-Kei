@@ -1,4 +1,5 @@
 import type { Message } from '../storage/database.svelte'
+import { ensureMessageId } from '../storage/messageIdentity'
 
 export type LuaCoreMessage = Partial<Message>
 
@@ -162,16 +163,16 @@ export function registerLuaCoreApis(
     declare('addChat', (accessKey, role, value) => {
         const adapter = getAdapter()
         if (adapter.canMutate(String(accessKey))) {
-            adapter.getChat().message.push({ role: normalizeRole(role), data: String(value ?? '') })
+            adapter.getChat().message.push(ensureMessageId({ role: normalizeRole(role), data: String(value ?? '') }))
         }
     })
     declare('insertChat', (accessKey, index, role, value) => {
         const adapter = getAdapter()
         if (adapter.canMutate(String(accessKey))) {
-            adapter.getChat().message.splice(Number(index), 0, {
+            adapter.getChat().message.splice(Number(index), 0, ensureMessageId({
                 role: normalizeRole(role),
                 data: String(value ?? ''),
-            })
+            }))
         }
     })
     declare('getChatLength', () => getAdapter().getChat().message.length)
@@ -186,7 +187,7 @@ export function registerLuaCoreApis(
         const parsed = JSON.parse(String(value))
         if (!Array.isArray(parsed)) return
         const previousMessages = adapter.getChat().message
-        adapter.getChat().message = parsed.map((message, index) => ({
+        adapter.getChat().message = parsed.map((message, index) => ensureMessageId({
             ...previousMessages[index],
             role: normalizeRole(message?.role),
             data: String(message?.data ?? ''),
