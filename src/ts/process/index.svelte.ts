@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
@@ -63,7 +63,7 @@ import {
 } from './revenant/jobStatus';
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getMessagePromptIdentity } from '../storage/messageIdentity';
-import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
+import { getModuleAssets, getModuleRegexScripts, getModules, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
 import {
     createChatCommitSnapshot,
@@ -439,6 +439,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         doingChat.set(false)
         return false
     }
+    initializeToggleValues(DBState.db, nowChatroom, targetChat)
     targetChat.message = targetChat.message.map((v) => {
         v.chatId = v.chatId ?? createEntityId()
         return v
@@ -536,13 +537,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }[] = []
     if(DBState.db.promptInfoInsideChat){
         initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
-        initialPromptTogglesForPromptInfo = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
+        initialPromptTogglesForPromptInfo = parseToggleSyntax(getToggleTemplate(DBState.db, nowChatroom, outgoingChat))
             .flatMap(toggle => {
                 const raw = DBState.db.globalChatVariables[`toggle_${toggle.key}`]
-                if (toggle.type === 'select' || toggle.type === 'text') {
-                    return [{ key: toggle.value, value: toggle.options[raw] }];
+                if (toggle.type === 'select') {
+                    return [{ key: toggle.value, value: toggle.options[Number(raw)] ?? '' }];
                 }
-                if (raw === '1') {
+                if (toggle.type === 'text' || toggle.type === 'textarea') {
+                    return [{ key: toggle.value, value: raw ?? '' }];
+                }
+                if (toggle.type === undefined && raw === '1') {
                     return [{ key: toggle.value, value: 'ON' }];
                 }
                 return [];

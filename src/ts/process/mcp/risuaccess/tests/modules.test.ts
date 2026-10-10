@@ -4,6 +4,7 @@ import { DBState } from 'src/ts/stores.svelte'
 import { beforeEach, expect, test, vi } from 'vitest'
 import type { RPCToolCallContent, RPCToolCallTextContent } from '../../mcplib'
 import { ModuleHandler } from '../modules'
+import { alertConfirm } from 'src/ts/alert'
 
 //#region module mocks
 
@@ -80,6 +81,24 @@ const parseToolResponse = (response: RPCToolCallContent[]) => {
 
 beforeEach(() => {
   vi.resetAllMocks()
+})
+
+test('clears scoped connections when MCP enables a module globally', async () => {
+  const previous = DBState.db
+  try {
+    DBState.db = {
+      modules: [makeModule('target')], enabledModules: [],
+      characters: [{ modules: ['target'], chats: [{ modules: ['target'] }] }],
+    } as any
+    vi.mocked(alertConfirm).mockResolvedValue(true)
+
+    await new ModuleHandler().handle('risu-set-module-info', { id: 'target', data: { enabled: true } })
+    expect(DBState.db.enabledModules).toEqual(['target'])
+    expect(DBState.db.characters[0].modules).toEqual([])
+    expect(DBState.db.characters[0].chats[0].modules).toEqual([])
+  } finally {
+    DBState.db = previous
+  }
 })
 
 test('lists installed modules with pagination', async () => {

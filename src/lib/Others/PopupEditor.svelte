@@ -18,10 +18,9 @@
     import IconButton from '../UI/components/IconButton.svelte'
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte'
     import { risuChatParser } from 'src/ts/parser/parser.svelte'
-    import { getCurrentCharacter } from 'src/ts/storage/database.svelte'
+    import { getCurrentCharacter, getToggleTemplate } from 'src/ts/storage/database.svelte'
     import { getChatVar, getGlobalChatVar } from 'src/ts/parser/chatVar.svelte'
-    import { getModuleToggles } from 'src/ts/process/modules'
-    import { parseToggleSyntax, type sidebarToggle } from 'src/ts/util'
+    import { parseToggleSyntax } from 'src/ts/util'
     import { applyCBSPreviewValues, extractCBSPreviewReferences } from 'src/ts/parser/cbsPreview'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
     import { createPopupEditorCommitController } from 'src/ts/popupEditorCommit'
@@ -243,32 +242,16 @@
     }
 
     function getToggleDefinitions():Map<string, PreviewToggleDefinition> {
-        const character = getCurrentCharacter()
-        const parsed = parseToggleSyntax([
-            DBState.db.customPromptTemplateToggle,
-            getModuleToggles(),
-            character?.customModuleToggle ?? '',
-        ].join('\n'))
         const definitions = new Map<string, PreviewToggleDefinition>()
-
-        const addDefinitions = (items:sidebarToggle[]) => {
-            for (const item of items) {
-                if (item.type === 'group') {
-                    addDefinitions(item.children)
-                } else if (
-                    item.key && item.value &&
-                    item.type !== 'groupEnd' && item.type !== 'caption' && item.type !== 'divider'
-                ) {
-                    definitions.set(item.key, {
-                        key: item.key,
-                        value: item.value,
-                        type: item.type,
-                        options: item.options ?? [],
-                    })
-                }
-            }
+        for (const item of parseToggleSyntax(getToggleTemplate())) {
+            if (item.type === 'group' || item.type === 'groupEnd' || item.type === 'caption' || item.type === 'divider') continue
+            definitions.set(item.key, {
+                key: item.key,
+                value: item.value,
+                type: item.type,
+                options: item.options ?? [],
+            })
         }
-        addDefinitions(parsed)
         return definitions
     }
 
