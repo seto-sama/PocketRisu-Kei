@@ -398,24 +398,6 @@ export function endStatus(
     if (needFinalCount) trackTokenWork(finalRecount(id, recountBase))
 }
 
-export function abortStatusesForChat(chatId: string, now = Date.now()): void {
-    endStatusesForChat(chatId, 'aborted', now)
-}
-
-export function endStatusesForChat(
-    chatId: string,
-    outcome: 'done' | 'failed' | 'aborted',
-    now = Date.now(),
-    kind?: RequestKind,
-): void {
-    const ids = [...get(requestStatuses)]
-        .filter(([, entry]) => entry.chatId === chatId
-            && (kind === undefined || entry.kind === kind)
-            && !isTerminalPhase(entry.phase))
-        .map(([id]) => id)
-    for (const id of ids) endStatus(id, outcome, { now })
-}
-
 // One last native tokenization of the accumulated text after a request ends
 // without provider usage, so the frozen final counts are accurate (not up to
 // one tick stale). The only token write allowed onto a terminal entry.

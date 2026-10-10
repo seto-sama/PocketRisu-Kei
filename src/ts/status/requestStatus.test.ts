@@ -3,11 +3,9 @@ import { get } from 'svelte/store'
 import {
     addBadge,
     appendText,
-    abortStatusesForChat,
     computeTokPerSec,
     clearStatus,
     endStatus,
-    endStatusesForChat,
     isTerminalPhase,
     markPhase,
     observeText,
@@ -188,29 +186,6 @@ describe('publish API', () => {
         })
 
         expect(get(requestStatuses).get('g1')!.phase).toBe('aborted')
-    })
-
-    it('aborts every live recovered status scoped to a chat', () => {
-        startStatus('main', { kind: 'main', label: '', chatId: 'room-1', now: 0 })
-        startStatus('memory', { kind: 'memory', label: '', chatId: 'room-1', now: 0 })
-        startStatus('other', { kind: 'main', label: '', chatId: 'room-2', now: 0 })
-        endStatus('memory', 'done', { now: 5 })
-
-        abortStatusesForChat('room-1', 10)
-
-        expect(get(requestStatuses).get('main')!.phase).toBe('aborted')
-        expect(get(requestStatuses).get('memory')!.phase).toBe('done')
-        expect(get(requestStatuses).get('other')!.phase).toBe('connecting')
-    })
-
-    it('ends only the requested kind when a chat workflow becomes terminal', () => {
-        startStatus('main', { kind: 'main', label: '', chatId: 'room-1', now: 0 })
-        startStatus('translate', { kind: 'translate', label: '', chatId: 'room-1', now: 0 })
-
-        endStatusesForChat('room-1', 'done', 10, 'main')
-
-        expect(get(requestStatuses).get('main')!.phase).toBe('done')
-        expect(get(requestStatuses).get('translate')!.phase).toBe('connecting')
     })
 
     it('markPhase increments retryAttempt only on retrying', () => {

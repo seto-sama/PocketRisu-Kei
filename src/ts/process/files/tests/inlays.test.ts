@@ -123,7 +123,6 @@ vi.mock('src/ts/process/files/inlayMeta', () => ({
         createdAt: existing?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
     })),
-    listInlayMetaEntries: vi.fn(async () => [...inlayMetaMap.entries()]),
 }))
 
 vi.mock('uuid', () => ({

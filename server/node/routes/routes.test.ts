@@ -16,6 +16,7 @@ const { decodeRisuSave } = createRequire(import.meta.url)('../utils.cjs') as {
 describe('server route composition', () => {
     const characterId = 'route-character'
     const chatId = 'route-chat'
+    const inlayBytes = Uint8Array.of(0, 255, 128, 13, 10)
     let child: ChildProcess
     let directory: string
     let base: string
@@ -64,6 +65,17 @@ describe('server route composition', () => {
         })
         expect(login.status).toBe(200)
         headers = { 'risu-auth': (await login.json()).token, 'x-sync-client-id': 'route-test' }
+        const initialized = await fetch(base + '/api/database', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ database: { characters: [{
+                chaId: characterId,
+                chats: [{ id: chatId, message: [
+                    { chatId: 'route-message-1', role: 'user', data: 'hello' },
+                    { chatId: 'route-message-2', role: 'char', data: 'answer' },
+                ] }],
+            }] }, expectedRevision: 0 }),
+        })
+        expect(initialized.status, await initialized.text()).toBe(200)
     }, 30_000)
 
     afterAll(async () => {
@@ -75,6 +87,31 @@ describe('server route composition', () => {
         }
         if (directory) rmSync(directory, { recursive: true, force: true })
     })
+
+    const chatPath = () => `${base}/api/chat-content/${characterId}/0`
+    const chatHeaders = () => ({ ...headers, 'x-chat-id': chatId })
+
+    async function readChat() {
+        const response = await fetch(chatPath(), { headers: chatHeaders() })
+        expect(response.status).toBe(200)
+        return decodeRisuSave(new Uint8Array(await response.arrayBuffer()))
+    }
+
+    const patchChat = (before: any, after: any) => fetch(chatPath(), {
+        method: 'PATCH', headers: { ...chatHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ changes: createDelta(before, after) }),
+    })
+
+    async function writeInlay(id: string) {
+        const response = await fetch(base + '/api/write', {
+            method: 'POST', headers: {
+                ...headers, 'file-path': Buffer.from(`inlay/${id}`).toString('hex'),
+                'content-type': 'application/octet-stream',
+            },
+            body: encodeInlayAsset({ ext: 'png', name: '이미지', type: 'image', mime: 'image/png' }, inlayBytes),
+        })
+        expect(response.status, await response.text()).toBe(200)
+    }
 
     it('serves feature routes, retains authentication and exposes the same live auth state', async () => {
         const page = await fetch(base)
@@ -191,45 +228,36 @@ describe('server route composition', () => {
     })
 
     it('round-trips binary inlays through the mounted parser and filesystem', async () => {
-        const bytes = Uint8Array.of(0, 255, 128, 13, 10)
+        await writeInlay('route-test')
         const key = Buffer.from('inlay/route-test').toString('hex')
-        const write = await fetch(base + '/api/write', {
-            method: 'POST', headers: { ...headers, 'file-path': key, 'content-type': 'application/octet-stream' },
-            body: encodeInlayAsset({ ext: 'png', name: '이미지', type: 'image', mime: 'image/png' }, bytes),
-        })
-        expect(write.status, await write.text()).toBe(200)
         const read = await fetch(base + '/api/read', { headers: { ...headers, 'file-path': key } })
         expect(read.status).toBe(200)
         const decoded = decodeInlayAsset(new Uint8Array(await read.arrayBuffer()))
-        expect(decoded.bytes).toEqual(bytes)
+        expect(decoded.bytes).toEqual(inlayBytes)
         expect(decoded.metadata).toMatchObject({ name: '이미지', type: 'image', mime: 'image/png' })
     })
 
-    it('keeps backup uploads streaming through the mounted routes', async () => {
-        const initialized = await fetch(base + '/api/database', {
-            method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
-            body: JSON.stringify({ database: { characters: [{
-                chaId: characterId,
-                chats: [{ id: chatId, message: [
-                    { chatId: 'same', data: 'a' }, { chatId: 'same', data: 'b' }, { data: 'c' },
-                ] }],
-            }] }, expectedRevision: 0 }),
-        })
-        expect(initialized.status, await initialized.text()).toBe(200)
+    it('restores database and inlay data through the mounted backup routes', async () => {
+        await writeInlay('backup-test')
+        const chat = await readChat()
         const exported = await fetch(base + '/api/backup/export', { headers })
         expect(exported.status).toBe(200)
         const bytes = new Uint8Array(await exported.arrayBuffer())
+        expect((await patchChat(chat, { ...chat, message: [] })).status).toBe(200)
         const restored = await fetch(base + '/api/backup/import', {
             method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: bytes,
         })
         expect(restored.status, await restored.text()).toBe(200)
+        expect((await readChat()).message).toEqual(chat.message)
         const read = await fetch(base + '/api/read', {
-            headers: { ...headers, 'file-path': Buffer.from('inlay/route-test').toString('hex') },
+            headers: { ...headers, 'file-path': Buffer.from('inlay/backup-test').toString('hex') },
         })
-        expect(decodeInlayAsset(new Uint8Array(await read.arrayBuffer())).bytes).toEqual(Uint8Array.of(0, 255, 128, 13, 10))
+        expect(read.status).toBe(200)
+        expect(decodeInlayAsset(new Uint8Array(await read.arrayBuffer())).bytes).toEqual(inlayBytes)
     })
 
     it('serves backup and original asset downloads through the session cookie', async () => {
+        await writeInlay('download-test')
         const session = await fetch(base + '/api/session', {
             method: 'POST', headers: { 'risu-auth': headers['risu-auth'] },
         })
@@ -258,14 +286,14 @@ describe('server route composition', () => {
         expect(headerDownload.status).toBe(200)
         await headerDownload.arrayBuffer()
 
-        const assetPath = `/api/asset/${Buffer.from('inlay/route-test').toString('hex')}`
+        const assetPath = `/api/asset/${Buffer.from('inlay/download-test').toString('hex')}`
         const assetDownload = await fetch(base + assetPath + '?download=1&filename=' + encodeURIComponent('한글.png'), { headers: { cookie } })
         expect(assetDownload.status).toBe(200)
         expect(assetDownload.headers.get('content-disposition')).toContain(`filename*=UTF-8''${encodeURIComponent('한글.png')}`)
         expect(assetDownload.headers.get('content-type')).toContain('image/png')
-        expect(new Uint8Array(await assetDownload.arrayBuffer())).toEqual(Uint8Array.of(0, 255, 128, 13, 10))
+        expect(new Uint8Array(await assetDownload.arrayBuffer())).toEqual(inlayBytes)
         const fallbackDownload = await fetch(base + assetPath + '?download=1', { headers: { cookie } })
-        expect(fallbackDownload.headers.get('content-disposition')).toContain('route-test.png')
+        expect(fallbackDownload.headers.get('content-disposition')).toContain('download-test.png')
         await fallbackDownload.arrayBuffer()
         const preview = await fetch(base + assetPath, { headers: { cookie } })
         expect(preview.headers.get('content-disposition')).toBeNull()
@@ -312,53 +340,22 @@ describe('server route composition', () => {
         expect(response.status, await response.text()).toBe(status)
     })
 
-    it('assigns stable IDs to imported legacy messages before serving a delta baseline', async () => {
-        const path = `${base}/api/chat-content/${characterId}/99`
-        const chatHeaders = { ...headers, 'x-chat-id': chatId }
-        const read = async () => {
-            const response = await fetch(path, { headers: chatHeaders })
-            expect(response.status).toBe(200)
-            return decodeRisuSave(new Uint8Array(await response.arrayBuffer()))
-        }
-        const normalized = await read()
-        const ids = normalized.message.map((message: any) => message.chatId)
-        expect(ids.every((id: unknown) => typeof id === 'string' && id.length > 0)).toBe(true)
-        expect(new Set(ids).size).toBe(3)
-        expect(await read()).toEqual(normalized)
-        const edited = { ...normalized, message: normalized.message.slice(1) }
-        const patched = await fetch(path, {
-            method: 'PATCH', headers: { ...chatHeaders, 'content-type': 'application/json' },
-            body: JSON.stringify({ changes: createDelta(normalized, edited) }),
-        })
-        expect(patched.status, await patched.text()).toBe(200)
-        expect((await read()).message).toEqual(edited.message)
-    })
-
-    it('merges independent chat and database changes over HTTP and rejects overlapping edits', async () => {
-        const readChat = async () => {
-            const response = await fetch(`${base}/api/chat-content/${characterId}/99`, {
-                headers: { ...headers, 'x-chat-id': chatId },
-            })
-            expect(response.status).toBe(200)
-            return decodeRisuSave(new Uint8Array(await response.arrayBuffer()))
-        }
-        const patchChat = (before: any, after: any) => fetch(`${base}/api/chat-content/${characterId}/99`, {
-            method: 'PATCH', headers: { ...headers, 'x-chat-id': chatId, 'content-type': 'application/json' },
-            body: JSON.stringify({ changes: createDelta(before, after) }),
-        })
+    it('merges independent message changes and rejects overlapping edits over HTTP', async () => {
         const initial = await readChat()
         const chat = { ...initial, message: [{ chatId: 'old', role: 'user', data: 'original' }] }
         expect((await patchChat(initial, chat)).status).toBe(200)
-        const image = { chatId: 'image', role: 'char', kind: 'imageGeneration', data: 'image result' }
-        expect((await patchChat(chat, { ...chat, message: [...chat.message, image] })).status).toBe(200)
+        const reply = { chatId: 'reply', role: 'char', data: 'reply' }
+        expect((await patchChat(chat, { ...chat, message: [...chat.message, reply] })).status).toBe(200)
         expect((await patchChat(chat, { ...chat, message: [] })).status).toBe(200)
         const canonical = await readChat()
-        expect(canonical.message).toEqual([image])
-        expect((await patchChat(canonical, { ...canonical, message: [{ ...image, data: 'first edit' }] })).status).toBe(200)
-        const conflict = await patchChat(canonical, { ...canonical, message: [{ ...image, data: 'second edit' }] })
+        expect(canonical.message).toEqual([reply])
+        expect((await patchChat(canonical, { ...canonical, message: [{ ...reply, data: 'first edit' }] })).status).toBe(200)
+        const conflict = await patchChat(canonical, { ...canonical, message: [{ ...reply, data: 'second edit' }] })
         expect(conflict.status).toBe(409)
         expect(await conflict.json()).toMatchObject({ code: 'CHAT_CONTENT_CHANGED' })
+    })
 
+    it('merges independent database changes and rejects overlapping edits over HTTP', async () => {
         const projection = await (await fetch(base + '/api/database', { headers })).json()
         const db = projection.database
         const patchDb = (after: any) => fetch(base + '/api/database', {

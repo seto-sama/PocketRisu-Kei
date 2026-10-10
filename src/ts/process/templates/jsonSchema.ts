@@ -17,16 +17,6 @@ export function resolveRequestedJSONSchema(
     return undefined
 }
 
-export function getOpenAIJSONSchema(schema?:string){
-    const db = getDatabase()
-    return {
-        "name": "format",
-        "strict": db.strictJsonSchema,
-        "schema": convertInterfaceToSchema(schema ?? db.jsonSchema)
-    }
-}
-
-
 export function getGeneralJSONSchema(schema?:string, excludes:string[] = []){
     const db = getDatabase()
 

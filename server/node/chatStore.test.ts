@@ -7,9 +7,7 @@ import { createDelta } from '../../shared/guardedDelta.mjs'
 
 const {
     computeChatEtag,
-    createFullChatStore,
     commitChatContent,
-    stripChatsFromDb,
     reassembleFullDb,
     createCanonicalChatService,
     CanonicalChatCommitError,
@@ -61,34 +59,23 @@ function createServiceHarness(initialChat: any, overrides: Record<string, any> =
     }
 }
 
-describe('full chat payload store', () => {
-    it('round-trips full chats through a metadata-only database view', () => {
+describe('full chat export', () => {
+    it('reassembles full chat bodies under the current startup stubs', () => {
         const chat = {
             id: 'room', name: 'Room', folderId: null,
             message: [{ chatId: 'm1', role: 'char', data: 'hello' }],
         }
-        const database = { characters: [{ chaId: 'character', chats: [chat] }] }
-        const store = createFullChatStore(structuredClone(database))
-        const stripped = stripChatsFromDb(database)
-
-        expect(stripped.characters[0].chats[0]).toEqual({
-            id: 'room', name: 'Room', folderId: null, _stub: true,
-        })
-        expect(reassembleFullDb(stripped, store)).toEqual(database)
-    })
-
-    it('removes browser runtime fields from the server database view', () => {
-        const database = {
+        const startupProjection = {
             characters: [{
                 chaId: 'character',
-                reloadKeys: 17,
-                chats: [{ id: 'room', name: 'Room', message: [] }],
+                chats: [{ id: 'room', name: 'Room', folderId: null, _stub: true }],
             }],
         }
+        const store = new Map([['character', new Map([['room', chat]])]])
 
-        const stripped = stripChatsFromDb(database)
-        expect(stripped.characters[0]).not.toHaveProperty('reloadKeys')
-        expect(database.characters[0].reloadKeys).toBe(17)
+        expect(reassembleFullDb(startupProjection, store)).toEqual({
+            characters: [{ chaId: 'character', chats: [chat] }],
+        })
     })
 })
 

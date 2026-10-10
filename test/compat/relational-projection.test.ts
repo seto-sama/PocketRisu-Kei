@@ -1,10 +1,8 @@
 import { afterAll, describe, expect, test } from 'vitest'
+import { createDelta } from '../../shared/guardedDelta.mjs'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient, type RisuClient } from './helpers/client.js'
 import { decodeRisuDat, normalizeBackup } from './helpers/normalize.js'
-import utilsPkg from '../../server/node/utils.cjs'
-
-const { calculateHash } = utilsPkg as any
 
 const servers: ServerHandle[] = []
 afterAll(async () => {
@@ -53,27 +51,23 @@ async function readChat(client: RisuClient, index: number, id: string) {
     headers: { 'x-chat-id': id },
   })
   expect(response.status).toBe(200)
-  return {
-    etag: response.headers.get('x-chat-etag')!,
-    chat: decodeRisuDat(Buffer.from(await response.arrayBuffer())) as any,
-  }
+  return decodeRisuDat(Buffer.from(await response.arrayBuffer())) as any
 }
 
 async function writeChat(
   client: RisuClient,
   index: number,
   id: string,
-  value: unknown,
-  expectedEtag: string,
+  before: unknown,
+  after: unknown,
 ) {
   return client.fetch(`/api/chat-content/character-1/${index}`, {
-    method: 'POST',
+    method: 'PATCH',
     headers: {
       'content-type': 'application/json',
       'x-chat-id': id,
-      'x-chat-if-match': expectedEtag,
     },
-    body: JSON.stringify(value),
+    body: JSON.stringify({ changes: createDelta(before, after) }),
   })
 }
 
@@ -97,7 +91,7 @@ describe('relational projection boundary (real server)', () => {
     expect(projection.database.characters[0].chats[0]).not.toHaveProperty('message')
 
     const hydrated = await readChat(clients[2], 0, 'chat-a')
-    expect(hydrated.chat.message).toMatchObject([
+    expect(hydrated.message).toMatchObject([
       { chatId: 'chat-a-message-0', role: 'char', data: 'A0' },
     ])
     const stats = await (await clients[0].fetch('/api/db/stats')).json() as any
@@ -109,31 +103,9 @@ describe('relational projection boundary (real server)', () => {
       expect.objectContaining({ chaId: 'character-1', chatBytes: expect.any(Number) }),
     ]))
     expect(characterStats.characters[0].chatBytes).toBeGreaterThan(0)
-    expect(characterStats.chatBytesNote).toBe('relational msgpack payload bytes')
-
-    const filePath = Buffer.from('database/database.bin').toString('hex')
-    expect((await clients[0].fetch('/api/remove', {
-      headers: { 'file-path': filePath },
-    })).status).toBe(410)
-    expect((await clients[0].fetch('/api/write', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/octet-stream',
-        'file-path': filePath,
-      },
-      body: new Uint8Array([1]),
-    })).status).toBe(428)
-    expect((await clients[0].fetch('/api/patch', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'file-path': filePath,
-      },
-      body: JSON.stringify({ patch: [], expectedHash: 'legacy' }),
-    })).status).toBe(410)
   })
 
-  test('three clients can commit unrelated chats, while same-chat stale CAS conflicts', async () => {
+  test('three clients can commit unrelated chats while overlapping edits conflict', async () => {
     const { clients } = await bootClients(3)
     expect((await initialize(clients[0])).status).toBe(200)
 
@@ -144,14 +116,14 @@ describe('relational projection boundary (real server)', () => {
       clients[index],
       index,
       id,
+      current[index],
       {
-        ...current[index].chat,
+        ...current[index],
         message: [
-          ...current[index].chat.message,
+          ...current[index].message,
           { chatId: `${id}-message-1`, role: 'user', data: `from-client-${index + 1}` },
         ],
       },
-      current[index].etag,
     )))
     expect(writes.map(response => response.status)).toEqual([200, 200, 200])
 
@@ -159,20 +131,17 @@ describe('relational projection boundary (real server)', () => {
       readChat(clients[0], 0, 'chat-a'),
       readChat(clients[1], 0, 'chat-a'),
     ])
-    expect(sharedA[0].etag).toBe(sharedA[1].etag)
     const conflicting = await Promise.all([
-      writeChat(clients[0], 0, 'chat-a', {
-        ...sharedA[0].chat,
-        message: [...sharedA[0].chat.message, {
-          chatId: 'chat-a-race-1', role: 'user', data: 'race-one',
-        }],
-      }, sharedA[0].etag),
-      writeChat(clients[1], 0, 'chat-a', {
-        ...sharedA[1].chat,
-        message: [...sharedA[1].chat.message, {
-          chatId: 'chat-a-race-2', role: 'user', data: 'race-two',
-        }],
-      }, sharedA[1].etag),
+      writeChat(clients[0], 0, 'chat-a', sharedA[0], {
+        ...sharedA[0],
+        message: sharedA[0].message.map((message: any, index: number) =>
+          index === 0 ? { ...message, data: 'race-one' } : message),
+      }),
+      writeChat(clients[1], 0, 'chat-a', sharedA[1], {
+        ...sharedA[1],
+        message: sharedA[1].message.map((message: any, index: number) =>
+          index === 0 ? { ...message, data: 'race-two' } : message),
+      }),
     ])
     expect(conflicting.map(response => response.status).sort()).toEqual([200, 409])
 
@@ -187,106 +156,6 @@ describe('relational projection boundary (real server)', () => {
     expect(chats[2].message.map((message: any) => message.data)).toEqual(
       expect.arrayContaining(['from-client-3']),
     )
-    const raceMessages = chats[0].message.map((message: any) => message.data)
-    expect(raceMessages.filter((value: string) =>
-      value === 'race-one' || value === 'race-two')).toHaveLength(1)
-  })
-
-  test('metadata patches reconcile a loaded chat without dropping its hot body', async () => {
-    const { clients } = await bootClients(1)
-    const [client] = clients
-    expect((await initialize(client)).status).toBe(200)
-    expect((await readChat(client, 0, 'chat-a')).chat.name).toBe('chat-a')
-
-    const startup = await (await client.fetch('/api/database')).json() as any
-    const patched = await client.fetch('/api/database', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        expectedHash: calculateHash(startup.database).toString(16),
-        patch: [{
-          op: 'replace',
-          path: '/characters/0/chats/0/name',
-          value: 'renamed while cached',
-        }],
-      }),
-    })
-    const patchBody = await patched.text()
-    expect(patched.status, patchBody).toBe(200)
-
-    const hydrated = await readChat(client, 0, 'chat-a')
-    expect(hydrated.chat.name).toBe('renamed while cached')
-    expect(hydrated.chat.message[0].data).toBe('A0')
-  })
-
-  test('a newly imported character can persist its chat after the metadata row exists', async () => {
-    const { clients } = await bootClients(1)
-    const [client] = clients
-    expect((await initialize(client)).status).toBe(200)
-
-    const startup = await (await client.fetch('/api/database')).json() as any
-    const patched = await client.fetch('/api/database', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        expectedHash: calculateHash(startup.database).toString(16),
-        patch: [{
-          op: 'add',
-          path: '/characters/-',
-          value: {
-            chaId: 'realm-character',
-            name: 'Realm Character',
-            chats: [{ id: 'realm-chat', name: 'Chat 1', _stub: true }],
-          },
-        }],
-      }),
-    })
-    const patchBody = await patched.text()
-    expect(patched.status, patchBody).toBe(200)
-
-    const baselineResponse = await client.fetch('/api/chat-content/realm-character/0', {
-      headers: { 'x-chat-id': 'realm-chat' },
-    })
-    expect(baselineResponse.status).toBe(200)
-    const baselineEtag = baselineResponse.headers.get('x-chat-etag')!
-
-    const saved = await client.fetch('/api/chat-content/realm-character/0', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-chat-id': 'realm-chat',
-        'x-chat-if-match': baselineEtag,
-      },
-      body: JSON.stringify({
-        id: 'realm-chat',
-        name: 'Chat 1',
-        note: 'imported note',
-        localLore: [],
-        message: [],
-      }),
-    })
-    expect(saved.status, await saved.text()).toBe(200)
-
-    const persisted = await client.fetch('/api/chat-content/realm-character/0', {
-      headers: { 'x-chat-id': 'realm-chat' },
-    })
-    expect(persisted.status).toBe(200)
-    expect(decodeRisuDat(Buffer.from(await persisted.arrayBuffer()))).toMatchObject({
-      id: 'realm-chat',
-      note: 'imported note',
-    })
-
-    // The canonical projection returned after the chat commit must remain a
-    // valid baseline for the next metadata PATCH.
-    const afterChat = await (await client.fetch('/api/database')).json() as any
-    const followUpPatch = await client.fetch('/api/database', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        expectedHash: calculateHash(afterChat.database).toString(16),
-        patch: [{ op: 'replace', path: '/owner', value: 'after-realm-import' }],
-      }),
-    })
-    expect(followUpPatch.status, await followUpPatch.text()).toBe(200)
+    expect(['race-one', 'race-two']).toContain(chats[0].message[0].data)
   })
 })

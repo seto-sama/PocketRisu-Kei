@@ -175,18 +175,6 @@ describe('database projection reads and initialization', () => {
         })
     })
 
-    it('exports the startup projection only once per read', () => {
-        const { store } = createStore()
-        store.replaceFromProjection(sampleDatabase())
-        const exportProjection = vi.spyOn(store, 'exportProjection')
-        const service = createDatabaseProjectionService({ appDataStore: store })
-
-        const result = service.getStartupProjection()
-
-        expect(result.database.characters[0].chats[0]).not.toHaveProperty('message')
-        expect(exportProjection).toHaveBeenCalledTimes(1)
-    })
-
     it('allows exactly one conditional initialization', () => {
         const { store, service } = createService()
 

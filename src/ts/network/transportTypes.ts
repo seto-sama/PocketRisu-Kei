@@ -41,12 +41,6 @@ export const EPHEMERAL_SERVER_LLM_EXECUTION = Object.freeze({
     providerRoute: 'server',
 } as const satisfies LLMExecutionPolicy)
 
-export const EPHEMERAL_DIRECT_LLM_EXECUTION = Object.freeze({
-    kind: 'ephemeral',
-    durability: 'off',
-    providerRoute: 'direct',
-} as const satisfies LLMExecutionPolicy)
-
 export interface ServerProviderAuth {
     kind: 'google-service-account'
     serviceAccountJson: string

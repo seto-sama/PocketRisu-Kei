@@ -9,10 +9,7 @@ vi.mock('./nativeFetch', () => ({
 }))
 
 import { createLLMTransportFetch } from './llmTransport'
-import {
-    EPHEMERAL_DIRECT_LLM_EXECUTION,
-    WORKFLOW_LLM_EXECUTION,
-} from './transportTypes'
+import { WORKFLOW_LLM_EXECUTION } from './transportTypes'
 import type { RevenantGenerationRequest } from '../process/revenant'
 
 beforeEach(() => {
@@ -55,11 +52,12 @@ describe('createLLMTransportFetch', () => {
         )
     })
 
-    test('only selects browser-direct transport through explicit ephemeral policy', async () => {
+    test('passes an explicit execution policy to nativeFetch', async () => {
+        const directPolicy = { kind: 'ephemeral', durability: 'off', providerRoute: 'direct' } as const
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
             getGenerationRequest: () => undefined,
-            getExecutionPolicy: () => EPHEMERAL_DIRECT_LLM_EXECUTION,
+            getExecutionPolicy: () => directPolicy,
         })
 
         await fetchImpl('https://api.example.com/health', {
@@ -69,7 +67,7 @@ describe('createLLMTransportFetch', () => {
         expect(fetchNativeMock).toHaveBeenCalledWith(
             'https://api.example.com/health',
             expect.objectContaining({
-                llmExecutionPolicy: EPHEMERAL_DIRECT_LLM_EXECUTION,
+                llmExecutionPolicy: directPolicy,
             }),
         )
     })

@@ -99,19 +99,6 @@ export function getPersonaPrompt(){
     return db.personaPrompt ?? ''
 }
 
-export function getUserIconProtrait(){
-    try {
-        const bindedPersona = checkPersonaBinded()
-        if(bindedPersona){
-            return bindedPersona.largePortrait
-        }
-        const db = getDatabase()
-        return db.personas[db.selectedPersona].largePortrait       
-    } catch (error) {
-        return false
-    }
-}
-
 export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|'single' = 'single') {
     return new Promise<File[]>((resolve) => {
         const fileInput = document.createElement('input');

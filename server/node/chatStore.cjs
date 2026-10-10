@@ -3,7 +3,6 @@
 const crypto = require('crypto');
 const API_ERROR_CODES = require('../../shared/apiErrorCodes.json');
 const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
-const { characterToPersistentShape } = require('./persistenceShape.cjs');
 const { assertChatIdentity, chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
 const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { stripChatCompatibility } = require('./bookmarkStore.cjs');
@@ -20,30 +19,6 @@ function computeChatEtag(chat) {
     if (!chat) return MISSING_CHAT_ETAG;
     const encoded = Buffer.from(encodeRisuSaveLegacy(normalizeJSON(chat)));
     return crypto.createHash('sha256').update(encoded).digest('hex');
-}
-
-/**
- * Build the payload store used beside the stripped database cache. Hybrid
- * legacy chats (`_stub` plus messages) are repaired while being imported.
- */
-function createFullChatStore(dbObj) {
-    const store = new Map();
-    if (!dbObj?.characters) return store;
-    for (const char of dbObj.characters) {
-        if (!char?.chaId || !char.chats) continue;
-        const charChats = new Map();
-        for (const chat of char.chats) {
-            if (!chat) continue;
-            const isStub = chat._stub === true;
-            const hasMessage = Array.isArray(chat.message);
-            if (isStub && !hasMessage) continue;
-            if (isStub && hasMessage) delete chat._stub;
-            if (!chat.id) chat.id = crypto.randomUUID();
-            charChats.set(chat.id, chat);
-        }
-        if (charChats.size > 0) store.set(char.chaId, charChats);
-    }
-    return store;
 }
 
 /**
@@ -69,19 +44,6 @@ function commitChatContent(store, characterId, chatId, incomingChat, expectedEta
         chat: committedChat,
         etag: computeChatEtag(committedChat),
     };
-}
-
-function stripChatsFromDb(dbObj) {
-    if (!dbObj?.characters) return dbObj;
-    const stripped = { ...dbObj };
-    stripped.characters = dbObj.characters.map(char => {
-        if (!char?.chats) return characterToPersistentShape(char);
-        return {
-            ...characterToPersistentShape(char),
-            chats: char.chats.map(chatToStub),
-        };
-    });
-    return stripped;
 }
 
 function mergeChatStubWithFullChat(stub, fullChat) {
@@ -389,10 +351,8 @@ function createCanonicalChatService(options) {
 module.exports = {
     MISSING_CHAT_ETAG,
     computeChatEtag,
-    createFullChatStore,
     commitChatContent,
     chatToStub,
-    stripChatsFromDb,
     mergeChatStubWithFullChat,
     reassembleFullDb,
     CanonicalChatCommitError,

@@ -200,7 +200,6 @@ import { mount, tick, unmount } from 'svelte'
 import { createClassComponent } from 'svelte/legacy'
 import Chat from './Chat.svelte'
 import Chats from './Chats.svelte'
-import ChatsTestHarness from './Chats.test-harness.svelte'
 import { clearChatBodyRenderCache } from './chatBodyRenderCache'
 import { DBState } from 'src/ts/stores.svelte'
 import type { character, Message } from 'src/ts/storage/database.svelte'
@@ -462,16 +461,22 @@ describe('Chat editing', () => {
         currentCharacter.chats = [{ id: 'chat-1', message: messages } as any]
         DBState.db.characters[0] = currentCharacter
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
         })
+        mountedComponents.push(component)
         await waitForParserCalls(2)
 
         const rendered = target.querySelectorAll('.chat-message-container')
@@ -487,7 +492,6 @@ describe('Chat editing', () => {
                 .toBe('previous')
         })
 
-        component.$destroy()
     })
 
     it('allows rerolling a historical image without enabling historical text swipes', async () => {
@@ -515,15 +519,20 @@ describe('Chat editing', () => {
         DBState.db.showPreviousChatSwipeButtons = false
         const onReroll = vi.fn()
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
                 onReroll,
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
             },
         })
+        mountedComponents.push(component)
         await waitForParserCalls(4)
 
         const rendered = target.querySelectorAll('.chat-message-container')
@@ -534,7 +543,6 @@ describe('Chat editing', () => {
         imageRerollButtons[imageRerollButtons.length - 1].click()
         await vi.waitFor(() => expect(onReroll).toHaveBeenCalledWith(0))
 
-        component.$destroy()
     })
 
     it('locks the historical image that is currently rerolling', async () => {
@@ -559,15 +567,21 @@ describe('Chat editing', () => {
         currentCharacter.chats = [{ id: 'chat-1', message: messages } as any]
         DBState.db.characters[0] = currentCharacter
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 imageRerollingMessageId: 'image-message',
             },
         })
+        mountedComponents.push(component)
         await waitForParserCalls(3)
 
         const rendered = target.querySelectorAll('.chat-message-container')
@@ -578,7 +592,6 @@ describe('Chat editing', () => {
             .querySelector<HTMLButtonElement>('.button-icon-reroll')
             ?.closest('fieldset')?.disabled).toBe(false)
 
-        component.$destroy()
     })
 
     it('keeps another message editable while an LLM translation is pending', async () => {
@@ -764,11 +777,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [streamingMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -1937,11 +1956,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [initialMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -2007,11 +2032,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [initialMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -2030,67 +2061,4 @@ describe('Chat editing', () => {
         component.$destroy()
     })
 
-    it('publishes a new-message notification after a fast Echo response completes', async () => {
-        DBState.db.autoScrollToNewMessage = false
-        DBState.db.newMessageButtonStyle = 'bottom-center'
-        const userMessage: Message = {
-            role: 'user',
-            data: 'User message',
-            chatId: 'user-1',
-        }
-        const currentCharacter = {
-            ...DBState.db.characters[0],
-            chaId: 'character-1',
-            image: 'character.png',
-            largePortrait: false,
-            chats: [{ id: 'chat-1', message: [userMessage] }],
-        } as unknown as character
-        DBState.db.characters[0] = currentCharacter
-
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = createClassComponent({
-            component: ChatsTestHarness,
-            target,
-            props: {
-                messages: [userMessage],
-                currentCharacter,
-                roomIsStreaming: false,
-                roomIsResponding: false,
-            },
-        })
-        const scrollHost = target.querySelector<HTMLElement>('.chat-test-scroll-host')!
-        Object.defineProperties(scrollHost, {
-            scrollHeight: { configurable: true, value: 1000 },
-            clientHeight: { configurable: true, value: 200 },
-        })
-        scrollHost.scrollTop = 100
-
-        const echoPlaceholder: Message = {
-            role: 'char',
-            data: '',
-            chatId: 'echo-1',
-        }
-        component.$set({
-            messages: [userMessage, echoPlaceholder],
-            roomIsStreaming: true,
-            roomIsResponding: true,
-        })
-        await tick()
-        component.$set({
-            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
-            roomIsStreaming: false,
-            roomIsResponding: true,
-        })
-        await tick()
-        component.$set({
-            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
-            roomIsStreaming: false,
-            roomIsResponding: false,
-        })
-        await tick()
-
-        expect(target.querySelector('[data-new-message-state]')?.textContent).toBe('unread')
-        component.$destroy()
-    })
 })
