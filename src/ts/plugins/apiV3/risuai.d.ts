@@ -1385,6 +1385,9 @@ interface RisuaiPluginAPI {
 
     /**
      * Gets a chat by index
+     * Returns the full chat, fetching an unopened chat from the server without
+     * loading it into the app. Chat lists from getCharacter* / getDatabase may
+     * contain placeholders (`_placeholder: true`, empty `message`).
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
      * @returns Chat object or null if not found
@@ -1434,6 +1437,9 @@ interface RisuaiPluginAPI {
 
     /**
      * Saves a chat at a specific index
+     * Rejects placeholders; read the full chat with getChatFromIndex first.
+     * An omitted id keeps the target chat's id; a different id is rejected.
+     * A chat other than the open one is saved to the server before resolving.
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
      * @param chat - Chat object to save
