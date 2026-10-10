@@ -118,7 +118,7 @@ export function alertError(msg: unknown) {
         submsg = language.errors.networkFetch
     }
 
-    // Persist error to logs.db alongside the blocking modal. UX remains blocking;
+    // Persist error to system-logs.db alongside the blocking modal. UX remains blocking;
     // logging is a parallel concern.
     addLog({
         level: 'error',

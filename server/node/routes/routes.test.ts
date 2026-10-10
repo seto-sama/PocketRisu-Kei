@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
@@ -101,6 +101,93 @@ describe('server route composition', () => {
         const response = await fetch(base + '/api/provider-contexts/query', { ...request, headers: { ...headers, 'content-type': 'application/json' } })
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ records: [] })
+    })
+
+    it('clears request payloads separately from metadata', async () => {
+        execFileSync(process.execPath, ['-e', `
+            const logs = require(process.argv[1]);
+            logs.addRequestLog({
+                id: 'scoped-clear', timestamp: 100, date: 'test',
+                url: 'https://provider.test/chat/completions',
+                body: JSON.stringify({ model: 'gemini-test' }), header: '{}', response: 'answer',
+                success: true, chatId: 'response-id',
+            });
+        `, resolve('server/node/logs/requestLogs.cjs')], { cwd: directory })
+
+        const initial = await fetch(base + '/api/request-logs/scoped-clear', { headers })
+        expect(initial.status).toBe(200)
+        expect((await initial.json()).content).toMatchObject({
+            model: 'gemini-test', response: 'answer', payloadAvailable: true,
+        })
+
+        const withoutScope = await fetch(base + '/api/request-logs', { method: 'DELETE', headers })
+        expect(withoutScope.status).toBe(400)
+        const payloads = await fetch(base + '/api/request-logs?scope=payload', { method: 'DELETE', headers })
+        expect(payloads.status).toBe(200)
+        const retained = await fetch(base + '/api/request-logs/scoped-clear', { headers })
+        expect(retained.status).toBe(200)
+        expect((await retained.json()).content).toMatchObject({
+            id: 'scoped-clear', model: 'gemini-test', chatId: 'response-id',
+            body: '', header: '', response: '', payloadAvailable: false,
+        })
+        const list = await fetch(base + '/api/request-logs', { headers })
+        expect((await list.json()).content).toEqual([expect.objectContaining({ id: 'scoped-clear' })])
+
+        const all = await fetch(base + '/api/request-logs?scope=all', { method: 'DELETE', headers })
+        expect(all.status).toBe(200)
+        const removed = await fetch(base + '/api/request-logs/scoped-clear', { headers })
+        expect(removed.status).toBe(404)
+        const empty = await fetch(base + '/api/request-logs', { headers })
+        expect(await empty.json()).toMatchObject({ content: [], total: 0 })
+    })
+
+    it('authenticates and validates request script quota updates', async () => {
+        const mebibyte = 1024 * 1024
+        const defaultLimit = 256 * mebibyte
+        const limitUrl = base + '/api/request-logs/limits'
+        const initial = await fetch(base + '/api/request-logs', { headers })
+        expect(initial.status).toBe(200)
+        expect((await initial.json()).storage).toMatchObject({ maxBytes: defaultLimit })
+
+        const unauthorized = await fetch(limitUrl, {
+            method: 'PUT', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ maxBytes: 2 * mebibyte }),
+        })
+        expect(unauthorized.status).toBe(401)
+        const missingSyncClient = await fetch(limitUrl, {
+            method: 'PUT', headers: { 'risu-auth': headers['risu-auth'], 'content-type': 'application/json' },
+            body: JSON.stringify({ maxBytes: 2 * mebibyte }),
+        })
+        expect(missingSyncClient.status).toBe(400)
+
+        for (const maxBytes of [mebibyte - 1, Number.MAX_SAFE_INTEGER + 1]) {
+            const invalid = await fetch(limitUrl, {
+                method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+                body: JSON.stringify({ maxBytes }),
+            })
+            expect(invalid.status).toBe(400)
+        }
+        const afterInvalid = await fetch(base + '/api/request-logs', { headers })
+        expect((await afterInvalid.json()).storage).toMatchObject({ maxBytes: defaultLimit })
+
+        const changed = await fetch(limitUrl, {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ maxBytes: 2 * mebibyte }),
+        })
+        expect(changed.status).toBe(200)
+        expect(await changed.json()).toMatchObject({
+            maxBytes: 2 * mebibyte,
+            minBytes: mebibyte,
+            currentBytes: expect.any(Number),
+        })
+        const persisted = await fetch(base + '/api/request-logs', { headers })
+        expect((await persisted.json()).storage).toMatchObject({ maxBytes: 2 * mebibyte })
+
+        const restored = await fetch(limitUrl, {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ maxBytes: defaultLimit }),
+        })
+        expect(restored.status).toBe(200)
     })
 
     it('round-trips binary inlays through the mounted parser and filesystem', async () => {

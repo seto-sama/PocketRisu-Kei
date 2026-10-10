@@ -3,7 +3,7 @@
 //
 // Monkey-patches console.error / console.warn and registers window error
 // handlers so every error or warning — including those from libraries that
-// never hit the explicit notify* / alert* APIs — is persisted to logs.db.
+// never hit the explicit notify* / alert* APIs — is persisted to system-logs.db.
 // This is a deliberate observability pattern, matching what Sentry, Bugsnag,
 // LogRocket, and DataDog Browser Logs do. See .agent/notes/toast-alert-revamp.md
 // for design rationale.

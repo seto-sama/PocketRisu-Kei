@@ -2004,11 +2004,19 @@ export const languageKorean = {
   requestLogs: "리퀘스트 로그",
   requestLogsDesc:
     "서버에 보관된 리퀘스트 로그를 확인합니다.",
+  requestLogsStorage: "리퀘스트 로그 용량",
+  requestLogsStorageUsage: (currentMB: number, maxMB: number) =>
+    `현재 ${currentMB}MB · 최대 ${maxMB} MB`,
+  requestLogsStorageDesc: "용량이 가득 차면 오래된 리퀘스트 로그부터 삭제됩니다.",
   requestLogsEmptyDesc:
     "리퀘스트를 보내면 서버에 보관되어 여기에 표시됩니다.",
   requestLogsSearchPlaceholder: "URL, 기기, 상태, 채팅 ID 검색",
   requestLogsClearConfirm:
-    "서버에 보관된 모든 리퀘스트 로그를 삭제할까요? 되돌릴 수 없습니다.",
+    "서버에 보관된 모든 리퀘스트 로그의 응답 본문 및 메타데이터를 삭제할까요? 삭제 후에는 되돌릴 수 없으며, 채팅 화면에서도 해당 요청 정보를 확인할 수 없게 됩니다.",
+  requestLogsClearPayloadConfirm:
+    "서버에 보관된 모든 리퀘스트 로그의 응답 본문을 삭제할까요? 삭제 후에는 되돌릴 수 없습니다.",
+  requestLogsClearPayload: "원문만 삭제",
+  requestLogsClearAll: "메타데이터까지 삭제",
   requestLogsKept: (
     shown: number,
     filtered: number,

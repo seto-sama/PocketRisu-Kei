@@ -3,16 +3,21 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const directory = dirname(fileURLToPath(import.meta.url))
 const providerContextsModule = join(directory, 'providerContexts.cjs')
 const requestLogsModule = join(directory, 'requestLogs.cjs')
-const requestLogDbModule = join(directory, 'requestLogDb.cjs')
+const requestMetadataModule = join(directory, 'requestMetadata.cjs')
+const requestScriptsModule = join(directory, 'requestScripts.cjs')
+const requestLogLimitsModule = join(directory, 'requestLogLimits.cjs')
+const usageDbModule = join(directory, 'usageDb.cjs')
+const systemLogsModule = join(directory, 'logs.cjs')
+const logDatabasesModule = join(directory, 'logDatabases.cjs')
+const mainDatabaseModule = join(directory, '../db.cjs')
 const require = createRequire(import.meta.url)
 
 type ProviderContextStore = {
-    PROVIDER_CONTEXT_LIMIT: number
     recordProviderContext(arg: {
         responseId: string
         jobId: string
@@ -30,23 +35,34 @@ type ProviderContextStore = {
 }
 
 function resetStoreModules() {
-    for (const modulePath of [providerContextsModule, requestLogsModule, requestLogDbModule]) {
+    for (const modulePath of [
+        providerContextsModule, requestLogsModule, requestMetadataModule,
+        requestScriptsModule, requestLogLimitsModule, usageDbModule,
+        systemLogsModule, logDatabasesModule, mainDatabaseModule,
+    ]) {
         delete require.cache[require.resolve(modulePath)]
     }
 }
 
 function withIsolatedStore<T>(run: (store: ProviderContextStore) => T): T {
-    const previousWorkingDirectory = process.cwd()
     const workingDirectory = mkdtempSync(join(tmpdir(), 'risu-provider-contexts-'))
-    process.chdir(workingDirectory)
+    const workingDirectorySpy = vi.spyOn(process, 'cwd').mockReturnValue(workingDirectory)
     resetStoreModules()
     try {
         return run(require(providerContextsModule) as ProviderContextStore)
     } finally {
-        const database = require.cache[require.resolve(requestLogDbModule)]?.exports as { db?: { close(): void } } | undefined
-        database?.db?.close()
+        const databases = require.cache[require.resolve(logDatabasesModule)]?.exports as {
+            requestDb?: { close(): void }
+            systemDb?: { close(): void }
+        } | undefined
+        const mainDatabase = require.cache[require.resolve(mainDatabaseModule)]?.exports as {
+            db?: { close(): void }
+        } | undefined
+        databases?.requestDb?.close()
+        databases?.systemDb?.close()
+        mainDatabase?.db?.close()
         resetStoreModules()
-        process.chdir(previousWorkingDirectory)
+        workingDirectorySpy.mockRestore()
         rmSync(workingDirectory, { recursive: true, force: true })
     }
 }
@@ -121,11 +137,9 @@ describe.sequential('provider context persistence', () => {
             }
             return {
                 rows: store.queryProviderContexts(responseIds, 'google-gemini', 'gemini'),
-                limit: store.PROVIDER_CONTEXT_LIMIT,
             }
-        }) as { rows: Array<{ responseId: string, turns: unknown[] }>, limit: number }
+        }) as { rows: Array<{ responseId: string, turns: unknown[] }> }
 
-        expect(result.limit).toBe(100)
         expect(result.rows).toHaveLength(100)
         expect(result.rows[0].responseId).toBe('message-005')
         expect(result.rows.at(-1)).toEqual({
@@ -136,37 +150,4 @@ describe.sequential('provider context persistence', () => {
         })
     })
 
-    it('keeps contexts when request logs are cleared', () => {
-        const result = withIsolatedStore(store => {
-            const requestLogs = require(requestLogsModule) as {
-                addRequestLog(log: Record<string, unknown>): void
-                clearRequestLogs(): void
-                countRequestLogs(): number
-            }
-            requestLogs.addRequestLog({
-                id: 'request-1', timestamp: 10, date: '', url: 'https://example.test',
-                body: '', header: '', response: '', success: true, chatId: 'message-1',
-            });
-            store.recordProviderContext({
-                responseId: 'message-1', jobId: 'job-1', adapterKind: 'google-gemini',
-                model: 'gemini', context: { signature: 'opaque' }, createdAt: 10,
-            });
-            requestLogs.clearRequestLogs();
-            return {
-                requestLogCount: requestLogs.countRequestLogs(),
-                contexts: store.queryProviderContexts(['message-1'], 'google-gemini', 'gemini'),
-            }
-        }) as {
-            requestLogCount: number
-            contexts: Array<Record<string, unknown>>
-        }
-
-        expect(result.requestLogCount).toBe(0)
-        expect(result.contexts).toEqual([{
-            responseId: 'message-1',
-            adapterKind: 'google-gemini',
-            model: 'gemini',
-            turns: [{ signature: 'opaque' }],
-        }])
-    })
 })

@@ -1,163 +1,88 @@
 'use strict';
 
 const { maskSensitive } = require('./logs.cjs');
-const { db } = require('./requestLogDb.cjs');
+const { requestDb: db, scriptStore } = require('./logDatabases.cjs');
+const { extractRequestModel } = require('./requestMetadata.cjs');
+const { setRequestLogMaxBytes: saveRequestLogMaxBytes } = require('./requestLogLimits.cjs');
 
-const MAX_FIELD_BYTES = 4 * 1024 * 1024;
 const REQUEST_LOG_LIST_LIMIT = 100;
 
-db.exec(`
-    CREATE TABLE IF NOT EXISTS request_logs (
-        id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        url TEXT NOT NULL,
-        body TEXT NOT NULL,
-        header TEXT NOT NULL,
-        response TEXT NOT NULL,
-        success INTEGER NOT NULL,
-        response_type TEXT,
-        chat_id TEXT,
-        status INTEGER,
-        client_id TEXT,
-        platform TEXT,
-        duration_ms INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp DESC);
-    CREATE INDEX IF NOT EXISTS idx_request_logs_chat_id_timestamp
-        ON request_logs(chat_id, timestamp DESC);
-`);
-const requestLogColumns = new Set(
-    db.prepare(`PRAGMA table_info(request_logs)`).all().map(column => column.name)
-);
-if (!requestLogColumns.has('duration_ms')) {
-    db.exec(`ALTER TABLE request_logs ADD COLUMN duration_ms INTEGER`);
-}
-
 const stmtUpsert = db.prepare(`
-    INSERT INTO request_logs
-        (id, timestamp, date, url, body, header, response, success, response_type, chat_id, status, client_id, platform, duration_ms)
-    VALUES
-        (@id, @timestamp, @date, @url, @body, @header, @response, @success, @responseType, @chatId, @status, @clientId, @platform, @durationMs)
+    INSERT INTO metadata (
+        id, timestamp, date, url, success, response_type, chat_id,
+        status, client_id, platform, duration_ms, model
+    ) VALUES (
+        @id, @timestamp, @date, @url, @success, @responseType, @chatId,
+        @status, @clientId, @platform, @durationMs, @model
+    )
     ON CONFLICT(id) DO UPDATE SET
         timestamp = excluded.timestamp,
         date = excluded.date,
         url = excluded.url,
-        body = excluded.body,
-        header = excluded.header,
-        response = excluded.response,
         success = excluded.success,
         response_type = excluded.response_type,
         chat_id = excluded.chat_id,
         status = excluded.status,
         client_id = excluded.client_id,
         platform = excluded.platform,
-        duration_ms = excluded.duration_ms
+        duration_ms = excluded.duration_ms,
+        model = excluded.model
 `);
+function metadataColumns(alias) {
+    return `${alias}.id, ${alias}.timestamp, ${alias}.date, ${alias}.url, ${alias}.success,
+        ${alias}.response_type AS responseType, ${alias}.chat_id AS chatId, ${alias}.status,
+        ${alias}.client_id AS clientId, ${alias}.platform, ${alias}.duration_ms AS responseDurationMs,
+        ${alias}.model`;
+}
 
 const stmtQuery = db.prepare(`
-    SELECT
-        id,
-        timestamp,
-        date,
-        url,
-        success,
-        response_type AS responseType,
-        chat_id AS chatId,
-        status,
-        client_id AS clientId,
-        platform,
-        duration_ms AS responseDurationMs
-    FROM request_logs
-    ORDER BY timestamp DESC, rowid DESC
-    LIMIT ?
+    SELECT ${metadataColumns('log')} FROM metadata AS log
+    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT ?
 `);
 const stmtQueryBefore = db.prepare(`
-    SELECT
-        current.id,
-        current.timestamp,
-        current.date,
-        current.url,
-        current.success,
-        current.response_type AS responseType,
-        current.chat_id AS chatId,
-        current.status,
-        current.client_id AS clientId,
-        current.platform,
-        current.duration_ms AS responseDurationMs
-    FROM request_logs AS current
-    JOIN request_logs AS boundary ON boundary.id = ?
-    WHERE current.timestamp < boundary.timestamp
-        OR (current.timestamp = boundary.timestamp AND current.rowid < boundary.rowid)
-    ORDER BY current.timestamp DESC, current.rowid DESC
-    LIMIT ?
+    SELECT ${metadataColumns('log')}
+    FROM metadata AS log JOIN metadata AS boundary ON boundary.id = ?
+    WHERE log.timestamp < boundary.timestamp
+        OR (log.timestamp = boundary.timestamp AND log.rowid < boundary.rowid)
+    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT ?
 `);
-const stmtCount = db.prepare(`SELECT COUNT(*) AS total FROM request_logs`);
+const stmtCount = db.prepare('SELECT COUNT(*) AS total FROM metadata');
+const stmtMetadataById = db.prepare(`
+    SELECT ${metadataColumns('log')} FROM metadata AS log WHERE log.id = ?
+`);
+const detailColumns = `${metadataColumns('log')},
+    COALESCE(payload.body, '') AS body, COALESCE(payload.header, '') AS header,
+    COALESCE(payload.response, '') AS response, payload.id IS NOT NULL AS payloadAvailable`;
 const stmtQueryById = db.prepare(`
-    SELECT
-        id,
-        timestamp,
-        date,
-        url,
-        body,
-        header,
-        response,
-        success,
-        response_type AS responseType,
-        chat_id AS chatId,
-        status,
-        client_id AS clientId,
-        platform,
-        duration_ms AS responseDurationMs
-    FROM request_logs
-    WHERE id = ?
+    SELECT ${detailColumns} FROM metadata AS log
+    LEFT JOIN request_script.script AS payload ON payload.id = log.id WHERE log.id = ?
 `);
 const stmtQueryByChatId = db.prepare(`
-    SELECT
-        id,
-        timestamp,
-        date,
-        url,
-        body,
-        header,
-        response,
-        success,
-        response_type AS responseType,
-        chat_id AS chatId,
-        status,
-        client_id AS clientId,
-        platform,
-        duration_ms AS responseDurationMs
-    FROM request_logs
-    WHERE chat_id = ?
-    ORDER BY timestamp DESC, rowid DESC
-    LIMIT 1
+    SELECT ${detailColumns} FROM metadata AS log
+    LEFT JOIN request_script.script AS payload ON payload.id = log.id WHERE log.chat_id = ?
+    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT 1
 `);
-
-const stmtClearAll = db.prepare(`DELETE FROM request_logs`);
-const stmtDeleteById = db.prepare(`DELETE FROM request_logs WHERE id = ?`);
+const stmtClearAll = db.prepare('DELETE FROM metadata');
+const stmtDeleteById = db.prepare('DELETE FROM metadata WHERE id = ?');
 const stmtUpdateById = db.prepare(`
-    UPDATE request_logs
-    SET response = ?, success = ?, status = COALESCE(?, status), response_type = 'stream',
-        duration_ms = MAX(0, ? - timestamp)
-    WHERE id = ?
+    UPDATE metadata
+    SET success = @success, status = COALESCE(@status, status), response_type = 'stream',
+        duration_ms = MAX(0, @completedAt - timestamp)
+    WHERE id = @id
 `);
-
-function truncate(value) {
-    const text = maskSensitive(String(value ?? ''));
-    if (Buffer.byteLength(text, 'utf8') <= MAX_FIELD_BYTES) return text;
-    return Buffer.from(text, 'utf8').subarray(0, MAX_FIELD_BYTES).toString('utf8') + '...[truncated]';
+function sanitize(value) {
+    return maskSensitive(String(value ?? ''));
 }
 
 function normalizeLog(log) {
+    const payload = { body: sanitize(log.body), header: sanitize(log.header), response: sanitize(log.response) };
     return {
+        ...payload,
         id: String(log.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`).slice(0, 128),
         timestamp: typeof log.timestamp === 'number' ? log.timestamp : Date.now(),
         date: String(log.date ?? '').slice(0, 64),
-        url: truncate(log.url).slice(0, 4096),
-        body: truncate(log.body),
-        header: truncate(log.header),
-        response: truncate(log.response),
+        url: sanitize(log.url).slice(0, 4096),
+        model: extractRequestModel(log.body, log.url),
         success: log.success ? 1 : 0,
         responseType: log.responseType ? String(log.responseType).slice(0, 64) : null,
         chatId: log.chatId ? String(log.chatId).slice(0, 128) : null,
@@ -168,28 +93,58 @@ function normalizeLog(log) {
     };
 }
 
+const writeRequestLog = db.transaction(log => {
+    stmtUpsert.run(log);
+    scriptStore.upsert(log);
+});
+const updateResponse = db.transaction(log => {
+    if (stmtUpdateById.run(log).changes !== 1) return false;
+    scriptStore.updateResponse(log);
+    return true;
+});
+
 function addRequestLog(log) {
-    stmtUpsert.run(normalizeLog(log));
+    writeRequestLog.immediate(normalizeLog(log));
 }
 
-function clearRequestLogs() {
-    stmtClearAll.run();
+const trimScripts = db.transaction(() => scriptStore.trim());
+
+function getRequestLogStorage() {
+    return scriptStore.getStorage();
 }
+
+function setRequestLogMaxBytes(maxBytes) {
+    saveRequestLogMaxBytes(maxBytes);
+    trimScripts.immediate();
+    return getRequestLogStorage();
+}
+
+const clearLogs = db.transaction(scope => {
+    scriptStore.clear();
+    if (scope === 'all') stmtClearAll.run();
+});
+
+function clearRequestLogs(scope) {
+    clearLogs.immediate(scope);
+}
+
+const deleteLog = db.transaction(id => {
+    scriptStore.delete(id);
+    return stmtDeleteById.run(id).changes === 1;
+});
 
 function deleteRequestLog(id) {
-    return stmtDeleteById.run(String(id).slice(0, 128)).changes === 1;
+    return deleteLog.immediate(String(id).slice(0, 128));
 }
 
 function updateRequestLogResponseById(id, response, status, success = true, completedAt = Date.now()) {
     if (!id) return false;
-    const result = stmtUpdateById.run(
-        truncate(response),
-        success ? 1 : 0,
-        Number.isInteger(status) ? status : null,
-        Number.isFinite(completedAt) ? Math.round(completedAt) : Date.now(),
-        String(id).slice(0, 128),
-    );
-    return result.changes === 1;
+    const text = sanitize(response);
+    return updateResponse.immediate({
+        id: String(id).slice(0, 128), response: text,
+        success: success ? 1 : 0, status: Number.isInteger(status) ? status : null,
+        completedAt: Number.isFinite(completedAt) ? Math.round(completedAt) : Date.now(),
+    });
 }
 
 function mapRequestLog(row) {
@@ -197,15 +152,13 @@ function mapRequestLog(row) {
     return {
         ...row,
         success: row.success === 1,
+        ...(row.payloadAvailable !== undefined ? { payloadAvailable: row.payloadAvailable === 1 } : {}),
     };
 }
 
 function queryRequestLogs(options = {}) {
     if (typeof options === 'number') options = { limit: options };
-    const safeLimit = Math.min(
-        Math.max(Number(options.limit) || REQUEST_LOG_LIST_LIMIT, 1),
-        REQUEST_LOG_LIST_LIMIT,
-    );
+    const safeLimit = Math.min(Math.max(Number(options.limit) || REQUEST_LOG_LIST_LIMIT, 1), REQUEST_LOG_LIST_LIMIT);
     const rows = options.beforeId
         ? stmtQueryBefore.all(String(options.beforeId).slice(0, 128), safeLimit)
         : stmtQuery.all(safeLimit);
@@ -221,6 +174,11 @@ function queryRequestLogById(id) {
     return mapRequestLog(stmtQueryById.get(String(id).slice(0, 128)));
 }
 
+function queryRequestLogMetadataById(id) {
+    if (!id) return null;
+    return mapRequestLog(stmtMetadataById.get(String(id).slice(0, 128)));
+}
+
 function queryRequestLogByChatId(chatId) {
     if (!chatId) return null;
     return mapRequestLog(stmtQueryByChatId.get(String(chatId).slice(0, 128)));
@@ -229,27 +187,27 @@ function queryRequestLogByChatId(chatId) {
 function enrichRequestLogs(logs, getUsageByJobIds) {
     if (!getUsageByJobIds || logs.length === 0) return logs;
     const usageRows = getUsageByJobIds(logs.map(log => log.id));
-    const usageByJobId = new Map(
-        usageRows.map(usage => [usage.jobId, usage])
-    );
+    const usageByJobId = new Map(usageRows.map(usage => [usage.jobId, usage]));
     return logs.map(log => {
         const usage = usageByJobId.get(log.id);
         return {
             ...log,
             provider: usage?.provider ?? undefined,
-            model: usage?.model ?? undefined,
+            model: usage?.model ?? log.model ?? undefined,
             promptTokens: usage?.promptTokens ?? undefined,
             completionTokens: usage?.completionTokens ?? undefined,
         };
     });
 }
 
-
 module.exports = {
+    getRequestLogStorage,
+    setRequestLogMaxBytes,
     enrichRequestLogs,
     addRequestLog,
     queryRequestLogs,
     queryRequestLogById,
+    queryRequestLogMetadataById,
     queryRequestLogByChatId,
     countRequestLogs,
     clearRequestLogs,

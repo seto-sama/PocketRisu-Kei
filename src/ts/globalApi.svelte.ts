@@ -60,6 +60,7 @@ import { isLocalNetworkUrl } from "./network/localNetwork";
 import {
     createFetchLogEntry,
     clearServerFetchLogs as clearServerFetchLogsRequest,
+    setServerFetchLogLimit as setServerFetchLogLimitRequest,
     deleteServerFetchLog as deleteServerFetchLogRequest,
     formatFetchLogValue,
     getServerFetchLogByChatId as getServerFetchLogByChatIdRequest,
@@ -68,6 +69,7 @@ import {
     type FetchLog,
     type FetchLogPage,
     type FetchLogSummary,
+    type RequestLogClearScope,
 } from "./requestLogStore";
 import { type RevenantGenerationRequest } from "./process/revenant";
 import {
@@ -87,7 +89,7 @@ configureRevenantGenerationClient({
     getSyncClientId,
 })
 
-export type { FetchLog, FetchLogPage, FetchLogSummary } from "./requestLogStore";
+export type { FetchLog, FetchLogPage, FetchLogSummary, RequestLogStorage } from "./requestLogStore";
 
 let fetchLog: FetchLog[] = $state([])
 
@@ -1842,8 +1844,18 @@ export function getFetchLogs() {
     return fetchLog
 }
 
-export function clearFetchLogs() {
-    fetchLog = []
+export function clearFetchLogs(scope: RequestLogClearScope) {
+    if (scope === 'all') {
+        fetchLog = []
+        return
+    }
+    fetchLog = fetchLog.map(log => ({
+        ...log,
+        body: '',
+        header: '',
+        response: '',
+        payloadAvailable: false,
+    }))
 }
 
 export function deleteFetchLog(id: string) {
@@ -1858,8 +1870,12 @@ export async function getServerFetchLogById(id: string): Promise<FetchLog> {
     return getServerFetchLogByIdRequest(id, () => forageStorage.createAuth())
 }
 
-export async function clearServerFetchLogs() {
-    return clearServerFetchLogsRequest(() => forageStorage.createAuth())
+export async function clearServerFetchLogs(scope: RequestLogClearScope) {
+    return clearServerFetchLogsRequest(() => forageStorage.createAuth(), scope)
+}
+
+export async function setServerFetchLogLimit(maxBytes: number) {
+    return setServerFetchLogLimitRequest(() => forageStorage.createAuth(), maxBytes)
 }
 
 export async function deleteServerFetchLog(id: string) {

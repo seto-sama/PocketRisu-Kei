@@ -71,7 +71,6 @@ describe('generation job creation route', () => {
             vi.fn(),
         )
 
-        expect(repository.createGenerationJob.mock.calls[0][0].providerModel).toBe('gemini-test')
         expect([...runGenerationProviderJob.mock.calls[0][1].body]).toEqual([0, 255, 128, 10])
         expect(send).toHaveBeenCalledWith({
             jobId: 'job-1',

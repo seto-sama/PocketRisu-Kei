@@ -1,33 +1,18 @@
 'use strict';
 
-function resolveGenerationProviderModel(adapterKind, requestSpec) {
-    if (!requestSpec) return null;
-    try {
-        if (adapterKind === 'google-gemini') {
-            const match = /\/models\/([^/]+):(?:streamGenerateContent|generateContent)$/.exec(
-                new URL(requestSpec.targetUrl).pathname,
-            );
-            return match ? decodeURIComponent(match[1]) : null;
-        }
-        if (adapterKind === 'openai-compatible') {
-            const model = JSON.parse(Buffer.from(requestSpec.body).toString('utf8')).model;
-            return typeof model === 'string' && model ? model : null;
-        }
-    } catch {
-        // Requests with custom payloads can omit a model identity.
-    }
-    return null;
-}
+const { queryRequestLogMetadataById } = require('../logs/requestLogs.cjs');
 
 function recordGenerationProviderContext(job, context) {
-    if (!job.chatId || !job.providerModel) return;
+    if (!job.chatId) return;
     try {
+        const metadata = queryRequestLogMetadataById(job.jobId);
+        if (!metadata?.model) return;
         const { recordProviderContext } = require('../logs/providerContexts.cjs');
         recordProviderContext({
             responseId: job.chatId,
             jobId: job.jobId,
             adapterKind: job.adapterKind,
-            model: job.providerModel,
+            model: metadata.model,
             context,
             createdAt: job.createdAt,
         });
@@ -36,4 +21,4 @@ function recordGenerationProviderContext(job, context) {
     }
 }
 
-module.exports = { resolveGenerationProviderModel, recordGenerationProviderContext };
+module.exports = { recordGenerationProviderContext };

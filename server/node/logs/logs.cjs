@@ -1,43 +1,11 @@
 'use strict';
 
-const Database = require('../sqlite.cjs');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+const { systemDb: db } = require('./logDatabases.cjs');
 
 const MAX_ROWS = 5000;
 const MAX_DESCRIPTION_BYTES = 10 * 1024; // 10KB per entry
 const MAX_BATCH_SIZE = 1000;             // per addLogBatch / per /api/logs request
 const ROTATE_EVERY_N_ROWS = 100;         // amortize DELETE cost
-
-const saveDir = path.join(process.cwd(), 'save');
-if (!fs.existsSync(saveDir)) {
-    fs.mkdirSync(saveDir, { recursive: true });
-}
-const dbPath = path.join(saveDir, 'logs.db');
-const db = new Database(dbPath);
-
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
-db.pragma('busy_timeout = 5000');
-
-db.exec(`
-    CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp INTEGER NOT NULL,
-        level TEXT NOT NULL,
-        origin TEXT NOT NULL,
-        message TEXT NOT NULL,
-        description TEXT,
-        source TEXT,
-        count INTEGER NOT NULL DEFAULT 1,
-        platform TEXT,
-        client_id TEXT,
-        user_agent TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
-    CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
-`);
 
 const stmtInsert = db.prepare(`
     INSERT INTO logs

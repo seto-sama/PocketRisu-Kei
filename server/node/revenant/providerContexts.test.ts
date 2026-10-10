@@ -35,14 +35,36 @@ it('persists projected provider contexts through queue claim, request-log cleari
                         method: 'POST', body: Buffer.from(JSON.stringify({ model: 'google/gemini-2.5-flash', messages: [] })),
                     },
                 });
-                const nativeClaim = generation.claimQueuedGenerationDispatch(native.jobId);
-                const compatibleClaim = generation.claimQueuedGenerationDispatch(compatible.jobId);
+                const direct = generation.createSingleGenerationJob({
+                    jobId: 'direct-job', chatId: 'direct-response', jobType: 'model',
+                    adapterKind: 'openai-compatible',
+                });
+                const untracked = generation.createSingleGenerationJob({
+                    jobId: 'untracked-job', chatId: 'untracked-response', jobType: 'model',
+                    adapterKind: 'google-gemini',
+                });
 
                 logs.addRequestLog({
-                    id: 'request-log', timestamp: 1, date: '', url: 'https://example.test',
-                    body: '', header: '', response: '', success: true, chatId: 'native-response',
+                    id: native.jobId, timestamp: 1, date: '',
+                    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+                    body: '{}', header: '', response: '', success: true, chatId: native.chatId,
                 });
-                logs.clearRequestLogs();
+                logs.addRequestLog({
+                    id: compatible.jobId, timestamp: 2, date: '', url: 'https://openrouter.ai/api/v1/chat/completions',
+                    body: JSON.stringify({ model: 'google/gemini-2.5-flash', messages: [] }),
+                    header: '', response: '', success: true, chatId: compatible.chatId,
+                });
+                logs.addRequestLog({
+                    id: direct.jobId, timestamp: 3, date: '', url: 'https://openrouter.ai/api/v1/chat/completions',
+                    body: JSON.stringify({ model: 'direct/model', messages: [] }),
+                    header: '', response: '', success: true, chatId: direct.chatId,
+                });
+                logs.clearRequestLogs('payload');
+
+                const nativeClaim = generation.claimQueuedGenerationDispatch(native.jobId);
+                const compatibleClaim = generation.claimQueuedGenerationDispatch(compatible.jobId);
+                const directJob = generation.getGenerationJob(direct.jobId, false);
+                const untrackedJob = generation.getGenerationJob(untracked.jobId, false);
 
                 await projectGenerationJournal({
                     ...nativeClaim.job, responseStatus: 200, streaming: false,
@@ -60,25 +82,41 @@ it('persists projected provider contexts through queue claim, request-log cleari
                         reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-reasoning', format: 'google-gemini-v1' }],
                     } }],
                 })));
+                await projectGenerationJournal({
+                    ...directJob, responseStatus: 200, streaming: false,
+                    responseHeaders: { 'content-type': 'application/json' },
+                }, Buffer.from(JSON.stringify({
+                    choices: [{ message: { role: 'assistant', content: 'direct answer', extra_content: { google: { thought_signature: 'direct-opaque-signature' } } } }],
+                })));
 
                 const result = {
-                    identities: [nativeClaim.job.providerModel, compatibleClaim.job.providerModel],
+                    metadataModels: [native.jobId, compatible.jobId, direct.jobId].map(id =>
+                        logs.queryRequestLogMetadataById(id)?.model ?? null),
+                    payloadAvailability: [native.jobId, compatible.jobId, direct.jobId].map(id =>
+                        logs.queryRequestLogById(id)?.payloadAvailable ?? null),
                     records: contexts.queryProviderContexts(
-                        ['native-response', 'compatible-response'],
+                        ['native-response'],
                         'google-gemini', 'gemini-2.5-pro',
                     ).concat(contexts.queryProviderContexts(
                         ['compatible-response'], 'openai-compatible', 'google/gemini-2.5-flash',
+                    ), contexts.queryProviderContexts(
+                        ['direct-response'], 'openai-compatible', 'direct/model',
                     )),
                     remainingRequestLogs: logs.countRequestLogs(),
                 };
-                require(path.join(base, 'persistence/connection.cjs')).db.close();
-                require(path.join(base, '../logs/requestLogDb.cjs')).db.close();
-                const withoutStore = await projectGenerationJournal({
-                    ...nativeClaim.job, responseStatus: 200, streaming: false,
+                const withoutMetadata = await projectGenerationJournal({
+                    ...untrackedJob, responseStatus: 200, streaming: false,
                 }, Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [
                     { text: 'answer retained', thoughtSignature: 'opaque' },
                 ] } }] })));
-                result.contentWithoutStore = withoutStore.content;
+                result.contentWithoutMetadata = withoutMetadata.content;
+                result.untrackedContexts = contexts.queryProviderContexts(
+                    ['untracked-response'], 'google-gemini', 'unknown-model',
+                );
+                require(path.join(base, 'persistence/connection.cjs')).db.close();
+                const logDatabases = require(path.join(base, '../logs/logDatabases.cjs'));
+                logDatabases.requestDb.close();
+                logDatabases.systemDb.close();
                 process.stdout.write(JSON.stringify(result));
             })().catch(error => { console.error(error); process.exitCode = 1; });
         `, revenantDirectory], { cwd: directory, encoding: 'utf8' }))
@@ -91,14 +129,22 @@ it('persists projected provider contexts through queue claim, request-log cleari
                 ['native-response'], 'google-gemini', 'gemini-2.5-pro',
             ).concat(contexts.queryProviderContexts(
                 ['compatible-response'], 'openai-compatible', 'google/gemini-2.5-flash',
+            ), contexts.queryProviderContexts(
+                ['direct-response'], 'openai-compatible', 'direct/model',
             ));
             process.stdout.write(JSON.stringify(result));
-            require(path.join(base, '../logs/requestLogDb.cjs')).db.close();
+            const logDatabases = require(path.join(base, '../logs/logDatabases.cjs'));
+            logDatabases.requestDb.close();
+            logDatabases.systemDb.close();
         `, revenantDirectory], { cwd: directory, encoding: 'utf8' }))
 
-        expect(initial.identities).toEqual(['gemini-2.5-pro', 'google/gemini-2.5-flash'])
-        expect(initial.remainingRequestLogs).toBe(0)
-        expect(initial.contentWithoutStore).toBe('answer retained')
+        expect(initial.metadataModels).toEqual([
+            'gemini-2.5-pro', 'google/gemini-2.5-flash', 'direct/model',
+        ])
+        expect(initial.payloadAvailability).toEqual([false, false, false])
+        expect(initial.remainingRequestLogs).toBe(3)
+        expect(initial.contentWithoutMetadata).toBe('answer retained')
+        expect(initial.untrackedContexts).toEqual([])
         expect(initial.records).toEqual([
             {
                 responseId: 'native-response', adapterKind: 'google-gemini', model: 'gemini-2.5-pro',
@@ -110,6 +156,10 @@ it('persists projected provider contexts through queue claim, request-log cleari
                     extraContent: { google: { thought_signature: 'compatible-opaque-signature' } },
                     reasoningDetails: [{ type: 'reasoning.encrypted', data: 'opaque-reasoning', format: 'google-gemini-v1' }],
                 }],
+            },
+            {
+                responseId: 'direct-response', adapterKind: 'openai-compatible', model: 'direct/model',
+                turns: [{ extraContent: { google: { thought_signature: 'direct-opaque-signature' } } }],
             },
         ])
         expect(restarted).toEqual(initial.records)

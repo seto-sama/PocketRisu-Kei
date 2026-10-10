@@ -1,48 +1,36 @@
 'use strict';
 
-const { db } = require('./requestLogDb.cjs');
+const { requestDb: db } = require('./logDatabases.cjs');
 
 const PROVIDER_CONTEXT_LIMIT = 100;
 
-db.exec(`
-    CREATE TABLE IF NOT EXISTS provider_contexts (
-        response_id TEXT PRIMARY KEY,
-        adapter_kind TEXT NOT NULL,
-        model TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        turns_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_provider_contexts_created_at
-        ON provider_contexts(created_at DESC);
-`);
-
 const stmtByResponseId = db.prepare(`
     SELECT adapter_kind AS adapterKind, model, turns_json AS turnsJson
-    FROM provider_contexts
+    FROM thought_signatures
     WHERE response_id = ?
 `);
 const stmtUpsert = db.prepare(`
-    INSERT INTO provider_contexts
+    INSERT INTO thought_signatures
         (response_id, adapter_kind, model, created_at, turns_json)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(response_id) DO UPDATE SET
         adapter_kind = excluded.adapter_kind,
         model = excluded.model,
-        created_at = MIN(provider_contexts.created_at, excluded.created_at),
+        created_at = MIN(thought_signatures.created_at, excluded.created_at),
         turns_json = excluded.turns_json
 `);
 const stmtTrim = db.prepare(`
-    DELETE FROM provider_contexts
+    DELETE FROM thought_signatures
     WHERE response_id NOT IN (
         SELECT response_id
-        FROM provider_contexts
+        FROM thought_signatures
         ORDER BY created_at DESC, rowid DESC
         LIMIT ?
     )
 `);
 const stmtQuery = db.prepare(`
     SELECT response_id AS responseId, adapter_kind AS adapterKind, model, turns_json AS turnsJson
-    FROM provider_contexts
+    FROM thought_signatures
     WHERE response_id IN (SELECT value FROM json_each(?))
         AND adapter_kind = ?
         AND model = ?
@@ -126,7 +114,6 @@ function queryProviderContexts(responseIds, adapterKind, model) {
 }
 
 module.exports = {
-    PROVIDER_CONTEXT_LIMIT,
     recordProviderContext,
     queryProviderContexts,
 };

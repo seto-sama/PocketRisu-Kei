@@ -11,7 +11,7 @@
         ChevronDownIcon,
         ScrollTextIcon,
     } from '@lucide/svelte'
-    import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
+    import { alertConfirm, alertConfirmMulti, notifyError, notifySuccess, type AlertAction } from 'src/ts/alert'
     import {
         clearFetchLogs,
         clearServerFetchLogs,
@@ -27,6 +27,7 @@
     import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
     const LIST_LIMIT = 100
+    let { revision = 0 }: { revision?: number } = $props()
 
     let requestExpanded = $state<Record<string, boolean>>({})
     let serverRequestLogs = $state<FetchLogSummary[]>([])
@@ -34,6 +35,7 @@
     let requestLogDetails = $state<Record<string, FetchLog>>({})
     let requestDetailLoading = $state<Record<string, boolean>>({})
     let requestDetailErrors = $state<Record<string, string>>({})
+    let requestDetailRevision = 0
     let requestLogsLoading = $state(false)
     let requestLogsLoadingMore = $state(false)
     let requestLogsHasMore = $state(false)
@@ -88,17 +90,18 @@
     }
 
     async function loadServerRequestLogs() {
+        requestDetailRevision += 1
         requestLogsLoading = true
         requestLogsError = null
+        requestExpanded = {}
+        requestLogDetails = {}
+        requestDetailLoading = {}
+        requestDetailErrors = {}
         try {
             const page = await getServerFetchLogs({ limit: LIST_LIMIT })
             serverRequestLogs = page.content
             requestLogsTotal = page.total
             requestLogsHasMore = page.content.length > 0 && page.content.length < page.total
-            requestExpanded = {}
-            requestLogDetails = {}
-            requestDetailLoading = {}
-            requestDetailErrors = {}
         } catch (err) {
             requestLogsError = err instanceof Error ? err.message : String(err)
         } finally {
@@ -129,18 +132,22 @@
 
     async function loadRequestLogDetails(id: string) {
         if (requestLogDetails[id] || requestDetailLoading[id]) return
+        const revision = requestDetailRevision
         requestDetailLoading = { ...requestDetailLoading, [id]: true }
         const { [id]: _, ...remainingErrors } = requestDetailErrors
         requestDetailErrors = remainingErrors
         try {
             const detail = await getServerFetchLogById(id)
+            if (revision !== requestDetailRevision) return
             requestLogDetails = { ...requestLogDetails, [id]: detail }
         } catch (err) {
+            if (revision !== requestDetailRevision) return
             requestDetailErrors = {
                 ...requestDetailErrors,
                 [id]: err instanceof Error ? err.message : String(err),
             }
         } finally {
+            if (revision !== requestDetailRevision) return
             const { [id]: _, ...remainingLoading } = requestDetailLoading
             requestDetailLoading = remainingLoading
         }
@@ -152,18 +159,21 @@
     }
 
     async function handleClearRequestLogs() {
-        const ok = await alertConfirm(language.requestLogsClearConfirm)
-        if (!ok) return
+        const actions: AlertAction[] = [
+            { label: language.requestLogsClearPayload, variant: 'destructive' },
+            { label: language.requestLogsClearAll, variant: 'destructive' },
+        ]
+        const selection = await alertConfirmMulti(language.systemLogsClearAll, actions)
+        if (selection < 0) return
+        const scope = selection === 0 ? 'payload' : 'all'
+        const confirmation = scope === 'payload'
+            ? language.requestLogsClearPayloadConfirm
+            : language.requestLogsClearConfirm
+        if (!await alertConfirm(confirmation)) return
         try {
-            clearFetchLogs()
-            await clearServerFetchLogs()
-            serverRequestLogs = []
-            requestLogsTotal = 0
-            requestLogsHasMore = false
-            requestExpanded = {}
-            requestLogDetails = {}
-            requestDetailLoading = {}
-            requestDetailErrors = {}
+            await clearServerFetchLogs(scope)
+            clearFetchLogs(scope)
+            await loadServerRequestLogs()
         } catch (err) {
             notifyError(language.systemLogsFailedLoad, {
                 description: err instanceof Error ? err.message : String(err),
@@ -224,6 +234,7 @@
     }
 
     $effect(() => {
+        revision
         loadServerRequestLogs()
     })
 </script>
@@ -307,10 +318,12 @@
                         <div class="p-3 text-xs text-subtext space-y-4">
                             <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
-                                <Button variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
-                                    <CopyIcon />
-                                    <span>{language.systemLogsCopyEntry}</span>
-                                </Button>
+                                {#if detail.payloadAvailable !== false}
+                                    <Button variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
+                                        <CopyIcon />
+                                        <span>{language.systemLogsCopyEntry}</span>
+                                    </Button>
+                                {/if}
                                 <Button variant="destructive" size="sm" onclick={() => deleteRequestLog(log)}>
                                     <Trash2Icon />
                                     <span>{language.systemLogsDeleteEntry}</span>

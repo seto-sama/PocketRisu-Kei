@@ -1,11 +1,15 @@
 <script lang="ts">
     import { cn } from 'src/lib/utils';
     import Tooltip from './Tooltip.svelte';
+    import type { Snippet } from 'svelte';
+    import MiniSettingsPopup from './MiniSettingsPopup.svelte';
 
     interface Tab {
         label: string;
         value: number;
         description?: string;
+        contextMenu?: Snippet;
+        onContextMenuOpen?: () => void;
     }
 
     let {
@@ -18,6 +22,19 @@
         className?: string;
     } = $props();
 </script>
+
+{#snippet tabContent(tab: Tab)}
+    {#if tab.description}
+        <Tooltip>
+            {#snippet trigger(props)}
+                {@render tabButton(tab, props)}
+            {/snippet}
+            <span class="whitespace-pre-line">{tab.description}</span>
+        </Tooltip>
+    {:else}
+        {@render tabButton(tab)}
+    {/if}
+{/snippet}
 
 {#snippet tabButton(tab: Tab, props: Record<string, unknown> = {})}
         <button
@@ -39,15 +56,15 @@
 
 <div class={cn("setting-tabs flex w-full border-b border-darkborderc mb-4 overflow-x-auto", className)} role="tablist">
     {#each tabs as tab}
-        {#if tab.description}
-            <Tooltip>
-                {#snippet trigger(props)}
-                    {@render tabButton(tab, props)}
+        {#if tab.contextMenu}
+            <MiniSettingsPopup onOpen={tab.onContextMenuOpen}>
+                {#snippet trigger()}
+                    {@render tabContent(tab)}
                 {/snippet}
-                <span class="whitespace-pre-line">{tab.description}</span>
-            </Tooltip>
+                {@render tab.contextMenu()}
+            </MiniSettingsPopup>
         {:else}
-            {@render tabButton(tab)}
+            {@render tabContent(tab)}
         {/if}
     {/each}
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy } from "svelte";
-    import * as ContextMenu from "../UI/components/context-menu";
+    import MiniSettingsPopup from "../UI/components/MiniSettingsPopup.svelte";
     import SettingNumber from "../Setting/Wrappers/SettingNumber.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import { normalizeTrashRetentionDays } from "src/ts/trashRetention";
@@ -291,8 +291,8 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <ContextMenu.Root>
-                        <ContextMenu.Trigger class="inline-flex shrink-0">
+                    <MiniSettingsPopup>
+                        {#snippet trigger()}
                             <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
                                 <IconButton
                                     tone="destructive"
@@ -305,11 +305,9 @@
                                     <TrashIcon />
                                 </IconButton>
                             </IconButtonGroup>
-                        </ContextMenu.Trigger>
-                        <ContextMenu.Content side="bottom" align="end" sticky="always" class="w-96 max-w-[calc(100vw-2rem)] p-3 [&_[data-setting-id]]:border-0 [&_[data-setting-id]]:py-0">
-                            <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
-                        </ContextMenu.Content>
-                    </ContextMenu.Root>
+                        {/snippet}
+                        <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
+                    </MiniSettingsPopup>
                 {/if}
             </div>
         </header>
