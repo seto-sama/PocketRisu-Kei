@@ -8,6 +8,7 @@ import { encodeInlayAsset, decodeInlayAsset } from '../../../src/ts/storage/inla
 import { encodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
 import { MAX_GENERATION_BODY_BYTES } from '../../../src/ts/process/revenant/transport/protocol'
 import { createDelta } from '../../../shared/guardedDelta.mjs'
+import { pocketKeiVer } from '../../../src/ts/version'
 
 const { decodeRisuSave } = createRequire(import.meta.url)('../utils.cjs') as {
     decodeRisuSave(data: Uint8Array): Promise<any>
@@ -27,13 +28,14 @@ describe('server route composition', () => {
         directory = mkdtempSync(join(tmpdir(), 'risu-routes-'))
         mkdirSync(join(directory, 'save'))
         mkdirSync(join(directory, 'dist'))
+        writeFileSync(join(directory, 'package.json'), JSON.stringify({ version: pocketKeiVer }))
         writeFileSync(join(directory, 'dist', 'index.html'), '<html><head></head><body>route test</body></html>')
         const entry = resolve('server/node/server.cjs')
         child = spawn(process.execPath, ['-e', `
             const http = require('node:http');
             const nativeFetch = globalThis.fetch;
             globalThis.fetch = (input, init) => String(input) === 'https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest'
-                ? Promise.resolve(new Response(JSON.stringify({ tag_name: 'kei-v2.1.6' }), { status: 200 }))
+                ? Promise.resolve(new Response(JSON.stringify({ tag_name: ${JSON.stringify(`kei-v${pocketKeiVer}`)} }), { status: 200 }))
                 : nativeFetch(input, init);
             const listen = http.Server.prototype.listen;
             http.Server.prototype.listen = function (...args) {
