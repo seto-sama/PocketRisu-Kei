@@ -181,22 +181,21 @@
         <Button variant="outline" onclick={() => { open = false }}>
             {translating ? language.close : language.cancel}
         </Button>
-        {#if output && !translating}
-            <Button variant="primary" onclick={confirmOutput}>
+        <Button
+            variant="primary"
+            disabled={translating || (!output && (
+                !input.trim()
+                || !DBState.db.translatorPresets?.some(preset => preset.id === DBState.db.translationDialogPromptPresetId)
+            ))}
+            onclick={output ? confirmOutput : translateInput}
+        >
+            {#if output && !translating}
                 <CheckIcon />
                 {language.confirm}
-            </Button>
-        {:else}
-            <Button
-                variant="primary"
-                disabled={translating
-                    || !input.trim()
-                    || !DBState.db.translatorPresets?.some(preset => preset.id === DBState.db.translationDialogPromptPresetId)}
-                onclick={translateInput}
-            >
+            {:else}
                 <LanguagesIcon />
                 {translating ? language.loading : language.translate}
-            </Button>
-        {/if}
+            {/if}
+        </Button>
     {/snippet}
 </Dialog>

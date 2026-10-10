@@ -2,6 +2,8 @@
 set -euo pipefail
 
 REPO="seto-sama/PocketRisu-Kei"
+RELEASE_TAG_PREFIX="kei-v"
+SOURCE_ARCHIVE_PREFIX="PocketRisu-Kei-"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -11,7 +13,7 @@ error() { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*"; exit 1; }
 
 normalize_version() {
     local version="$1"
-    version="${version#kei-v}"
+    version="${version#"$RELEASE_TAG_PREFIX"}"
     version="${version#v}"
     printf '%s' "$version"
 }
@@ -39,6 +41,10 @@ RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2
 
 RELEASE_TAG=$(echo "$RELEASE_JSON" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
 [ -n "$RELEASE_TAG" ] || error "Could not determine latest version."
+case "$RELEASE_TAG" in
+    "${RELEASE_TAG_PREFIX}"*) ;;
+    *) error "Latest release tag is not a PocketRisu Kei release: $RELEASE_TAG" ;;
+esac
 LATEST=$(normalize_version "$RELEASE_TAG")
 
 if [ "$CURRENT" = "$LATEST" ]; then
@@ -77,12 +83,10 @@ fi
 
 info "Extracting..."
 tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
-# Match both PocketRisu-* (current) and Risuai-NodeOnly-* (legacy repo name)
-# in case an older script encounters a redirected source archive.
 # Use find rather than ls: ls exits non-zero when one branch has no match,
 # which `set -euo pipefail` would propagate and abort the script.
 EXTRACTED_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d \
-    \( -name 'PocketRisu-*' -o -name 'Risuai-NodeOnly-*' \) \
+    -name "${SOURCE_ARCHIVE_PREFIX}*" \
     -print -quit)
 [ -d "$EXTRACTED_DIR" ] || error "Extraction failed."
 

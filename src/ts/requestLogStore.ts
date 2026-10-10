@@ -22,12 +22,22 @@ export interface FetchLog extends FetchLogSummary {
     body: string
     header: string
     response: string
+    payloadAvailable?: boolean
 }
 
 export interface FetchLogPage {
     content: FetchLogSummary[]
     total: number
+    storage: RequestLogStorage | null
 }
+
+export interface RequestLogStorage {
+    currentBytes: number
+    maxBytes: number
+    minBytes: number
+}
+
+export type RequestLogClearScope = 'payload' | 'all'
 
 const CLIENT_ID_KEY = 'risu-client-id'
 
@@ -86,7 +96,7 @@ export async function getServerFetchLogs(
     options: { limit?: number; beforeId?: string } = {},
 ): Promise<FetchLogPage> {
     const auth = await createAuth()
-    if (!auth) return { content: [], total: 0 }
+    if (!auth) return { content: [], total: 0, storage: null }
     const params = new URLSearchParams()
     if (options.limit) params.set('limit', String(options.limit))
     if (options.beforeId) params.set('before_id', options.beforeId)
@@ -98,7 +108,24 @@ export async function getServerFetchLogs(
     return {
         content: (json.content ?? []) as FetchLogSummary[],
         total: Number(json.total) || 0,
+        storage: json.storage,
     }
+}
+
+export async function setServerFetchLogLimit(createAuth: CreateAuth, maxBytes: number): Promise<RequestLogStorage> {
+    const auth = await createAuth()
+    if (!auth) throw new Error('Node auth unavailable')
+    const res = await fetch('/api/request-logs/limits', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'risu-auth': auth,
+            'x-sync-client-id': getSyncClientId(),
+        },
+        body: JSON.stringify({ maxBytes }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.json() as RequestLogStorage
 }
 
 export async function getServerFetchLogById(
@@ -129,10 +156,11 @@ export async function getServerFetchLogByChatId(
     return (json.content ?? null) as FetchLog | null
 }
 
-export async function clearServerFetchLogs(createAuth: CreateAuth) {
+export async function clearServerFetchLogs(createAuth: CreateAuth, scope: RequestLogClearScope) {
     const auth = await createAuth()
     if (!auth) return
-    const res = await fetch('/api/request-logs', {
+    const params = new URLSearchParams({ scope })
+    const res = await fetch(`/api/request-logs?${params.toString()}`, {
         method: 'DELETE',
         headers: {
             'risu-auth': auth,
@@ -144,7 +172,7 @@ export async function clearServerFetchLogs(createAuth: CreateAuth) {
 
 export async function deleteServerFetchLog(id: string, createAuth: CreateAuth) {
     const auth = await createAuth()
-    if (!auth) return
+    if (!auth) throw new Error('Node auth unavailable')
     const res = await fetch(`/api/request-logs/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: {

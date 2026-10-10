@@ -4,19 +4,19 @@ function createGenerationStatements(db) {
     const stmtCreate = db.prepare(`
         INSERT INTO generation_jobs (
             job_id, chat_id, job_type, character_id, room_id,
-            is_continuation, continuation_prefix, generation_info, prompt_info, reroll_snapshot,
+            generation_info, prompt_info, reroll_snapshot,
             operation_context, workflow_id, workflow_step_key, step_execution_id,
             adapter_kind, streaming,
             dispatch_group, dispatch_max_concurrent,
-            dispatch_requests_per_minute, request_spec,
+            request_spec,
             status, created_at, updated_at
         ) VALUES (
             @jobId, @chatId, @jobType, @characterId, @roomId,
-            @isContinuation, @continuationPrefix, @generationInfo, @promptInfo, @rerollSnapshot,
+            @generationInfo, @promptInfo, @rerollSnapshot,
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
             @adapterKind, @streaming,
             @dispatchGroup, @dispatchMaxConcurrent,
-            @dispatchRequestsPerMinute, @requestSpec,
+            @requestSpec,
             'queued', @now, @now
         )
     `);
@@ -139,9 +139,7 @@ function createGenerationStatements(db) {
     `);
     const stmtDispatchState = db.prepare(`
         SELECT
-            COALESCE(SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END), 0) AS active,
-            COALESCE(SUM(CASE WHEN dispatched_at >= ? THEN 1 ELSE 0 END), 0) AS recent,
-            MIN(CASE WHEN dispatched_at >= ? THEN dispatched_at ELSE NULL END) AS oldest_recent
+            COALESCE(SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END), 0) AS active
         FROM generation_jobs
         WHERE dispatch_group = ?
     `);
@@ -173,7 +171,6 @@ function createGenerationStatements(db) {
             + length(CAST(COALESCE(reroll_snapshot, '') AS BLOB))
             + length(CAST(COALESCE(operation_context, '') AS BLOB))
             + length(CAST(COALESCE(response_headers, '') AS BLOB))
-            + length(CAST(COALESCE(continuation_prefix, '') AS BLOB))
             + length(CAST(COALESCE(error, '') AS BLOB))
         ), 0) AS total
         FROM generation_jobs
@@ -196,6 +193,13 @@ function createGenerationStatements(db) {
             plan_version, context, status, created_at, updated_at
         ) VALUES (?, ?, ?, 1, ?, 'active', ?, ?)
     `);
+    const stmtCreateWorkflowChatSnapshot = db.prepare(`
+        INSERT INTO workflowChatSnapshots (workflow_id, input_chat)
+        VALUES (?, ?)
+    `);
+    const stmtGetWorkflowChatSnapshot = db.prepare(`
+        SELECT input_chat FROM workflowChatSnapshots WHERE workflow_id = ?
+    `);
     const stmtCreateWorkflowStep = db.prepare(`
         INSERT INTO generation_workflow_steps (
             workflow_id, step_key, step_order, kind, recovery_policy,
@@ -213,6 +217,9 @@ function createGenerationStatements(db) {
         SELECT * FROM generation_workflows
         WHERE character_id = ? AND room_id = ? AND status = 'active'
         LIMIT 1
+    `);
+    const stmtCountActiveWorkflows = db.prepare(`
+        SELECT COUNT(*) AS count FROM generation_workflows WHERE status = 'active'
     `);
     const stmtGetLatestWorkflowForRoom = db.prepare(`
         SELECT * FROM generation_workflows
@@ -387,6 +394,13 @@ function createGenerationStatements(db) {
             WHERE status <> 'active' AND completed_at < ?
         )
     `);
+    const stmtDeleteCompletedWorkflowChatSnapshots = db.prepare(`
+        DELETE FROM workflowChatSnapshots
+        WHERE workflow_id IN (
+            SELECT workflow_id FROM generation_workflows
+            WHERE status <> 'active' AND completed_at < ?
+        )
+    `);
     const stmtDeleteCompletedWorkflows = db.prepare(`
         DELETE FROM generation_workflows
         WHERE status <> 'active' AND completed_at < ?
@@ -460,9 +474,12 @@ function createGenerationStatements(db) {
         stmtSetRawBytes,
         stmtExpiredTerminalJobs,
         stmtCreateWorkflow,
+        stmtCreateWorkflowChatSnapshot,
+        stmtGetWorkflowChatSnapshot,
         stmtCreateWorkflowStep,
         stmtGetWorkflow,
         stmtGetActiveWorkflowForRoom,
+        stmtCountActiveWorkflows,
         stmtGetLatestWorkflowForRoom,
         stmtListWorkflowSteps,
         stmtGetWorkflowStep,
@@ -490,6 +507,7 @@ function createGenerationStatements(db) {
         stmtFailActiveStepExecutions,
         stmtDeleteCompletedStepExecutions,
         stmtDeleteCompletedWorkflowSteps,
+        stmtDeleteCompletedWorkflowChatSnapshots,
         stmtDeleteCompletedWorkflows,
         stmtPutWorkflowExecution,
         stmtGetWorkflowExecution,

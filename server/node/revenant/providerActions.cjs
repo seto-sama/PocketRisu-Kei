@@ -16,6 +16,7 @@ const { parseChatMLCore } = source('parser/chatMLCore.ts');
 const { normalizeLuaLlmPrompt, extractLuaLlmInlays } = source('process/luaLlmCore.ts');
 const { renderRevenantTemplate } = source('process/revenant/postprocess/headlessParser.ts');
 const { GENERATION_REQUEST_DEFAULT_TIMEOUT_MS } = require('./generationConfig.cjs');
+const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
 
 const PROVIDER_ACTIONS = new Set([
     'provider.llm', 'provider.axllm', 'provider.simplellm', 'provider.igp',
@@ -46,7 +47,14 @@ function createServerProviderActionExecutor(options) {
 
     const tokenCache = options.tokenCache ?? createServerServiceAccountTokenCache();
 
-    return async function executeProviderAction({ workflow, action, chat, operationContext, dispatchPolicy }) {
+    return async function executeProviderAction({
+        workflow,
+        action,
+        chat,
+        recipe: suppliedRecipe,
+        operationContext,
+        dispatchPolicy,
+    }) {
         const controller = new AbortController();
         const signal = controller.signal;
         const checkActive = () => {
@@ -56,8 +64,8 @@ function createServerProviderActionExecutor(options) {
         };
         checkActive();
         const cancellationTimer = setInterval(checkActive, 100);
-        // A rate-limited Hypa batch can spend longer than a request timeout in
-        // the queue. Its provider timeout starts when the dispatcher runs it.
+        // A queued Hypa batch can spend longer than a request timeout waiting
+        // for a concurrency slot. Its timeout starts when the dispatcher runs it.
         const timeoutTimer = operationContext?.kind === 'hypav3-summary' ? null
             : setTimeout(() => controller.abort(new Error('Provider action timed out')),
                 GENERATION_REQUEST_DEFAULT_TIMEOUT_MS);
@@ -70,7 +78,11 @@ function createServerProviderActionExecutor(options) {
                 jsonSchemaRequested: database.jsonSchemaEnabled === true,
             });
             const preset = compiled.preset;
-            const recipe = workflow.context.postprocess;
+            const recipe = suppliedRecipe || resolveRevenantPostprocessRecipe(
+                workflow.context,
+                repository.getGenerationWorkflowInputChat(workflow.workflowId),
+            );
+            if (!recipe) throw new Error('Workflow postprocess context is invalid');
             const currentChat = chat || recipe.chat;
             const rawPrompt = payload.prompt;
             let prompt = action.kind === 'provider.simplellm'
@@ -121,7 +133,6 @@ function createServerProviderActionExecutor(options) {
                         ? `${workflow.workflowId}:hypa:${operationContext.batchId}`
                         : `${workflow.workflowId}:postprocess`,
                     dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent ?? 1,
-                    dispatchRequestsPerMinute: dispatchPolicy?.requestsPerMinute ?? 1000,
                     requestSpec: {
                         targetUrl, method: init.method || 'POST',
                         headers: Object.fromEntries(new Headers(init.headers).entries()),

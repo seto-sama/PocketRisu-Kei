@@ -4,8 +4,9 @@ import { getDatabase } from "src/ts/storage/database.svelte";
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
+import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
 
-import { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
+import { DEFAULT_HYPA_MODEL, HYPA_EMBEDDING_BATCH_SIZE, type HypaModel } from './embeddingModels';
 export { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
 
 // Shared embedding vector cache across all HypaProcesser instances
@@ -70,6 +71,7 @@ export class HypaProcesser{
     vectors:memoryVector[]
     model:HypaModel
     customEmbeddingUrl:string
+    concurrencyLimiter?:TaskConcurrencyLimiter
 
     constructor(model:HypaModel|'auto' = 'auto',customEmbeddingUrl?:string){
         this.vectors = []
@@ -84,18 +86,28 @@ export class HypaProcesser{
     }
 
     async embedDocuments(texts: string[]): Promise<VectorArray[]> {
-        const subPrompts = chunkArray(texts,50);
-    
+        const subPrompts = chunkArray(texts, HYPA_EMBEDDING_BATCH_SIZE);
+
         const embeddings: VectorArray[] = [];
-    
+
+        if (this.concurrencyLimiter) {
+          const batchResult = await this.concurrencyLimiter.executeBatch(
+            subPrompts.map(input => () => this.getEmbeds(input, 'document'))
+          );
+          const failed = batchResult.results.find(result => !result.success);
+          if (failed) throw failed.error;
+          for (const result of batchResult.results) embeddings.push(...result.data);
+          return embeddings;
+        }
+
         for (let i = 0; i < subPrompts.length; i += 1) {
           const input = subPrompts[i];
-    
+
           const data = await this.getEmbeds(input, 'document')
 
           embeddings.push(...data);
         }
-    
+
         return embeddings;
     }
     

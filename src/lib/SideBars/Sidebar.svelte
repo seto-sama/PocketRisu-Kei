@@ -95,7 +95,6 @@
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-    const sidebarSortingDisabled = $derived(isTouchDevice && DBState.db.disableMobileDragDrop);
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -146,7 +145,6 @@
     recentSearchQuery;
     recentChatsIncrementalList.reset();
   });
-  let IconRounded = $state(false)
   let sidebarMenuOrder = $derived(DBState.db.sidebarMenuOrder ?? DEFAULT_SIDEBAR_MENU_ORDER)
   let sidebarMenuHidden = $derived(DBState.db.sidebarMenuHidden ?? [])
   let sidebarMenuHiddenSet = $derived(new Set(sidebarMenuHidden))
@@ -202,7 +200,7 @@
   $effect(() => {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
-    const hiddenIds = new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])
+    const hiddenIds = new Set(DBState.db.hiddenCharacterIds ?? [])
     for (const id of DBState.db.characterOrder) {
       if(typeof(id) === 'string'){
         if (hiddenIds.has(id)) continue
@@ -245,9 +243,6 @@
     }
     if (!isEqual(charImages, newCharImages)) {
       charImages = newCharImages;
-    }
-    if(IconRounded !== DBState.db.roundIcons){
-      IconRounded = DBState.db.roundIcons
     }
   })
 
@@ -331,7 +326,7 @@
 
   function syncSidebarOrderUnlessDropping(_orderedKeys: string[], event: SortableEvent) {
     if (!sidebarSortElement || !sidebarDragController.shouldSyncOrder(event)) return
-    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder, new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? [])))
+    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder, new Set(DBState.db.hiddenCharacterIds ?? [])))
   }
 
   function finishSidebarDrag(sourceId: string, event: SortableEvent) {
@@ -586,7 +581,6 @@
     >
     <SortableList
       bind:element={sidebarSortElement}
-      disabled={sidebarSortingDisabled}
       className="sidebar-character-root flex w-full shrink-0 flex-col items-center gap-4 py-4"
       draggable="[data-sidebar-order-key]"
       dataAttribute="data-sidebar-order-key"
@@ -626,7 +620,6 @@
             <SidebarAvatar 
               src={char.img ? getCharImage(char.img, "plain") : ""}
               size={String(SIDEBAR_ROOT_ITEM_SIZE)}
-              rounded={IconRounded} 
               name={char.name}
               chaId={DBState.db.characters[char.index]?.chaId}
               selected={$selectedCharID === char.index && sideBarMode !== 1}
@@ -666,7 +659,6 @@
         <div class="mt-1 flex flex-col items-center">
           <SortableList
             containerKey={char.id}
-            disabled={sidebarSortingDisabled}
             className="sidebar-folder-characters flex flex-col items-center gap-3 py-2"
             draggable="[data-sidebar-order-key]"
             dataAttribute="data-sidebar-order-key"
@@ -702,7 +694,6 @@
                 <SidebarAvatar 
                   src={char2.img ? getCharImage(char2.img, "plain") : ""}
                   size={String(SIDEBAR_FOLDER_ITEM_SIZE)}
-                  rounded={IconRounded} 
                   name={char2.name}
                   chaId={DBState.db.characters[char2.index]?.chaId}
                   selected={$selectedCharID === char2.index && sideBarMode !== 1}
@@ -721,7 +712,7 @@
       <Button
         variant="outline"
         size="icon-lg"
-        className="size-14 border-dashed text-subtext opacity-75 {IconRounded ? 'rounded-full' : ''}"
+        className="size-14 border-dashed text-subtext opacity-75"
         onclick={() => addCharacter({reseter})}
       >
         <PlusIcon size={20} />
@@ -773,11 +764,11 @@
       <div class="flex items-center justify-between gap-2 mt-2">
         <span class="text-sm text-subtext">{language.hideRecentChats}</span>
         <Switch
-          checked={!!DBState.db.nodeOnlyHideRecentChats}
-          onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
+          checked={!!DBState.db.hideRecentChats}
+          onCheckedChange={(v) => (DBState.db.hideRecentChats = v)}
         />
       </div>
-      {#if DBState.db.nodeOnlyHideRecentChats}
+      {#if DBState.db.hideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
         <EmptyState title={language.noRecentChatsDesc} description="" className="mt-2" />

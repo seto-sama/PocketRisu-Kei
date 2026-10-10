@@ -17,6 +17,7 @@
     import { notifySuccess } from './ts/alert';
     import { language } from './lang';
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
+    import SaveConflictDialog from './lib/Others/SaveConflictDialog.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
     import QuickModelPresetPicker from './lib/UI/QuickModelPresetPicker.svelte';
     import RequestPreviewModal from './lib/Others/RequestPreviewModal.svelte';
@@ -40,9 +41,13 @@
     import sendSound from './etc/send.mp3'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
     import { mdViewport } from './ts/gui/breakpoints'
+    import { requestDialogCloseAction } from './ts/gui/escapeKey'
+    import { initializePwaInstall } from './ts/pwaInstall.svelte'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
+
+    $effect(() => initializePwaInstall())
 
     function openCharacterGrid() {
         gridOpen = true
@@ -51,6 +56,13 @@
 
     function closeCharacterGrid() {
         gridOpen = false
+    }
+
+    function handleDialogKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        if (!requestDialogCloseAction(event.currentTarget as HTMLElement)) return
+        event.preventDefault()
+        event.stopPropagation()
     }
 
     function focusOverlay(node: HTMLElement) {
@@ -160,6 +172,10 @@
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
                     use:focusOverlay
+                    onkeydown={handleDialogKeydown}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={language.characterList}
                 >
                     <GridChars endGrid={closeCharacterGrid} />
                 </div>
@@ -182,6 +198,10 @@
                 class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
                 use:focusOverlay
+                onkeydown={handleDialogKeydown}
+                role="dialog"
+                aria-modal="true"
+                aria-label={language.settings}
             >
                 <Settings />
             </div>
@@ -203,6 +223,7 @@
         {/if}
     {/if}
     <FolderSettingsDialog />
+    <SaveConflictDialog />
     <AlertComp />
     {#if $showRealmInfoStore}
         <RealmPopUp bind:openedData={$showRealmInfoStore} />

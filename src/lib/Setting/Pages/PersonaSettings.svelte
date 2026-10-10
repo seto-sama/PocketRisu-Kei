@@ -128,7 +128,6 @@
                             onclick={() => selectPersona(index)}
                         >
                             <SidebarAvatar
-                                rounded={false}
                                 src={persona.icon ? getCharImage(persona.icon, 'plain') : ''}
                                 name={persona.name || '—'}
                                 size={String(PERSONA_PICKER_ITEM_SIZE)}

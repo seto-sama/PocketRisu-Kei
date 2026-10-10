@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createDelta } from '../../../../shared/guardedDelta.mjs'
 
 const mocks = vi.hoisted(() => ({
     awaitCanonical: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../../storage/chatStorage', () => ({
         chatId: chat.id,
         chat: structuredClone(chat),
         expectedEtag: 'base-etag',
+        changes: createDelta(undefined, chat),
     }),
 }))
 vi.mock('./workflow', () => ({
@@ -41,8 +43,8 @@ describe('chat generation session', () => {
     it('owns workflow step updates and terminal handoff', async () => {
         const session = createChatGenerationSession(
             { characterId: 'character-1', roomId: 'room-1' },
-            'workflow-1',
         )
+        session.adopt('workflow-1')
 
         await session.setStep('model.main', 'running')
         await session.finish('cancelled')

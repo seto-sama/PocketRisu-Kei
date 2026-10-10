@@ -1,3 +1,4 @@
+const { chatMetadataFields } = require('../../shared/chatShape.mjs');
 const express = require('express');
 
 const app = express();
@@ -5,10 +6,13 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
+const { codes: API_ERROR_CODES, sendApiError } = require('./apiErrors.cjs');
+const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 
-const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
+const imagePromptFormattingPromise = import('./imagePromptFormatting.mjs')
 
 const { WebSocketServer } = require('ws')
 const { Worker } = require('worker_threads')
@@ -41,6 +45,7 @@ const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
 } = require('./upstreamRequest.cjs');
+const { REVENANT_CAPACITY } = require('./revenant/capacity.cjs');
 
 const {
     generationDb,
@@ -53,7 +58,6 @@ const {
     finishGenerationJob,
     finishGenerationWorkflow,
     getGenerationWorkflow,
-    getActiveGenerationWorkflow,
     cancelGenerationWorkflow,
     cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
@@ -106,7 +110,7 @@ const storageState = {
 const saveTimers = {};
 
 const MISSING_DATABASE_ETAG = '__missing_database__';
-let restoreColdStorageCharactersInDb;
+let restoreColdStorageInDb;
 let restoreColdStorageChat;
 let appDataMigration;
 let appDataReadyPromise = null;
@@ -357,7 +361,7 @@ function assignMissingPersistentIds(dbObj) {
             const messageIds = new Set();
             for (const message of chat.message) {
                 if (!message) continue;
-                if (!message.chatId || messageIds.has(message.chatId)) {
+                if (typeof message.chatId !== 'string' || !message.chatId || messageIds.has(message.chatId)) {
                     message.chatId = nodeCrypto.randomUUID();
                     changed = true;
                 }
@@ -396,18 +400,7 @@ function normalizeLegacyDatabaseProjection(dbObj) {
     assignMissingPersistentIds(normalized);
     normalizeOrphanFolderIds(normalized);
 
-    const coldRestoreResult = restoreColdStorageCharactersInDb(normalized);
-    if (Array.isArray(normalized?.characters)) {
-        for (const character of normalized.characters) {
-            for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
-                if (!restoreColdStorageChat(chat)) {
-                    throw new Error(
-                        `Cold storage chat restore failed for ${character?.chaId ?? 'unknown'}/${chat?.id ?? 'unknown'}`,
-                    );
-                }
-            }
-        }
-    }
+    const coldRestoreResult = restoreColdStorageInDb(normalized);
     return { database: normalized, coldRestoreResult };
 }
 
@@ -427,9 +420,20 @@ async function ensureChatStore(characterId, chatId) {
     if (!storageState.fullChatStore) storageState.fullChatStore = new Map();
     if (!appDataStore.getState().initialized || !characterId || !chatId) return;
     let chats = storageState.fullChatStore.get(characterId);
-    if (chats?.has(chatId)) return;
-    const chat = appDataStore.getChat(characterId, chatId);
+    let chat = chats?.get(chatId) ?? appDataStore.getChat(characterId, chatId);
     if (!chat) return;
+    const messageIds = new Set();
+    const needsIds = (chat.message ?? []).some(message => {
+        if (typeof message?.chatId !== 'string' || !message.chatId || messageIds.has(message.chatId)) return true;
+        messageIds.add(message.chatId);
+        return false;
+    });
+    if (needsIds) {
+        const normalized = structuredClone(chat);
+        assignMissingPersistentIds({ characters: [{ chaId: characterId, chats: [normalized] }] });
+        chat = appDataStore.commitChat(characterId, chatId, normalized, undefined, { requireExpected: false }).chat;
+        refreshCanonicalDatabaseCache();
+    }
     if (!chats) {
         chats = new Map();
         storageState.fullChatStore.set(characterId, chats);
@@ -441,7 +445,7 @@ async function ensureChatStore(characterId, chatId) {
 // entry. Anything else is a chat-internal field — those live in fullChatStore,
 // not in dbCache, and should never appear in a /api/patch payload. Keep in
 // intentionally limited to metadata that is part of the lazy chat stub.
-const STUB_METADATA_FIELDS = new Set(['id', 'name', '_stub', 'lastDate', 'folderId', 'modules']);
+const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
 
 // Only add/replace/remove are produced by the legitimate patcher. move/copy
 // could alias _stub or other chat-internal fields through `from`, bypassing
@@ -728,10 +732,11 @@ if(existsSync(passwordPath)){
     authState.password = readFileSync(passwordPath, 'utf-8')
 }
 
-// ── NodeOnly: server-side JWT (HMAC-SHA256) ─────────────────────────────────
+// Server-side JWT signing allows authentication over plain HTTP, where the
+// browser's crypto.subtle API is unavailable outside localhost.
 // Upstream uses client-side ECDSA JWT via crypto.subtle, which requires
-// Secure Context (HTTPS or localhost). NodeOnly needs HTTP remote access,
-// so we moved JWT signing/verification to the server using HMAC-SHA256.
+// Secure Context (HTTPS or localhost), so signing and verification use
+// HMAC-SHA256 on the server instead.
 // If upstream changes its auth flow, this section needs manual sync.
 // Related: createServerJwt(), checkAuth(), /api/login, /api/token/refresh
 const jwtSecretPath = path.join(savePath, '__jwt_secret')
@@ -742,20 +747,6 @@ if (existsSync(jwtSecretPath)) {
     jwtSecret = nodeCrypto.randomBytes(64).toString('hex')
     writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
 }
-
-// ── Instance ID for anonymous usage analytics ────────────────────────────────
-const instanceIdPath = path.join(savePath, '__instance_id')
-let instanceId
-if (existsSync(instanceIdPath)) {
-    instanceId = readFileSync(instanceIdPath, 'utf-8').trim()
-} else {
-    instanceId = nodeCrypto.randomUUID()
-    writeFileSync(instanceIdPath, instanceId, 'utf-8')
-}
-
-const inlayDir = path.join(savePath, 'inlays')
-const inlayVideoThumbnailDir = path.join(inlayDir, '.video-thumbnails')
-const inlayMigrationMarker = path.join(inlayDir, '.migrated_to_fs')
 
 // Minimum free disk space headroom multiplier: require 2× the backup size to be free
 
@@ -792,340 +783,6 @@ function stopTunnel() {
 
 // Re-read on each call so non-portable updates (docker/git pull) without a
 // process restart don't keep reporting the old version to the update worker.
-
-// ── Deployment type & self-update helpers ─────────────────────────────────────
-
-function isSafeInlayId(id) {
-    return typeof id === 'string' &&
-        id.length > 0 &&
-        !id.includes('\0') &&
-        !id.includes('/') &&
-        !id.includes('\\') &&
-        id !== '.' &&
-        id !== '..';
-}
-
-function normalizeInlayExt(ext) {
-    if (typeof ext !== 'string') return 'bin';
-    const normalized = ext.trim().toLowerCase().replace(/^\.+/, '').replace(/[\/\\\0]/g, '');
-    return normalized || 'bin';
-}
-
-const resolvedInlayDir = path.resolve(inlayDir) + path.sep;
-
-function assertInsideInlayDir(filePath) {
-    if (!path.resolve(filePath).startsWith(resolvedInlayDir)) {
-        throw new Error(`Path escapes inlay directory: ${filePath}`);
-    }
-}
-
-function getInlayFilePath(id, ext) {
-    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
-    const p = path.join(inlayDir, `${id}.${normalizeInlayExt(ext)}`);
-    assertInsideInlayDir(p);
-    return p;
-}
-
-function getInlaySidecarPath(id) {
-    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
-    const p = path.join(inlayDir, `${id}.meta.json`);
-    assertInsideInlayDir(p);
-    return p;
-}
-
-function getInlayVideoThumbnailPath(id) {
-    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
-    const filePath = path.join(inlayVideoThumbnailDir, `${id}.webp`);
-    assertInsideInlayDir(filePath);
-    return filePath;
-}
-
-async function deleteInlayVideoThumbnail(id) {
-    await fs.unlink(getInlayVideoThumbnailPath(id)).catch(() => {});
-}
-
-function deleteInlayVideoThumbnailSync(id) {
-    try {
-        unlinkSync(getInlayVideoThumbnailPath(id));
-    } catch {
-        // ignore
-    }
-}
-
-async function ensureInlayDir() {
-    await fs.mkdir(inlayDir, { recursive: true });
-}
-
-function ensureInlayDirSync() {
-    if (!existsSync(inlayDir)) {
-        mkdirSync(inlayDir, { recursive: true });
-    }
-}
-
-function getMimeFromExt(ext, buffer) {
-    return ASSET_EXT_MIME[normalizeInlayExt(ext)] || detectMime(buffer);
-}
-
-function decodeDataUri(dataUri) {
-    if (typeof dataUri !== 'string' || !dataUri.startsWith('data:')) {
-        throw new Error('Invalid data URI');
-    }
-    const commaIdx = dataUri.indexOf(',');
-    if (commaIdx === -1) {
-        throw new Error('Malformed data URI');
-    }
-    const meta = dataUri.substring(5, commaIdx);
-    return {
-        buffer: Buffer.from(dataUri.substring(commaIdx + 1), 'base64'),
-        mime: meta.split(';')[0] || 'application/octet-stream',
-    };
-}
-
-async function readInlaySidecar(id) {
-    try {
-        const raw = await fs.readFile(getInlaySidecarPath(id), 'utf-8');
-        const parsed = JSON.parse(raw);
-        return {
-            ext: normalizeInlayExt(parsed?.ext),
-            name: typeof parsed?.name === 'string' ? parsed.name : id,
-            type: typeof parsed?.type === 'string' ? parsed.type : 'image',
-            height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-            width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-        };
-    } catch {
-        return null;
-    }
-}
-
-async function resolveInlayFilePath(id) {
-    if (!isSafeInlayId(id)) return null;
-    const sidecar = await readInlaySidecar(id);
-    if (sidecar) {
-        const candidate = getInlayFilePath(id, sidecar.ext);
-        try { await fs.access(candidate); return candidate; } catch {}
-    }
-    // Fallback: scan directory (covers pre-sidecar files or mismatched ext)
-    try {
-        const entries = await fs.readdir(inlayDir, { withFileTypes: true });
-        const match = entries.find((entry) => (
-            entry.isFile() &&
-            entry.name.startsWith(`${id}.`) &&
-            entry.name !== `${id}.meta.json`
-        ));
-        return match ? path.join(inlayDir, match.name) : null;
-    } catch {
-        return null;
-    }
-}
-
-function resolveInlayFilePathSync(id) {
-    if (!isSafeInlayId(id)) return null;
-    try {
-        const raw = readFileSync(getInlaySidecarPath(id), 'utf-8');
-        const parsed = JSON.parse(raw);
-        const ext = normalizeInlayExt(parsed?.ext);
-        const candidate = getInlayFilePath(id, ext);
-        if (existsSync(candidate)) return candidate;
-    } catch {}
-    // Fallback: scan directory
-    try {
-        const entries = readdirSync(inlayDir, { withFileTypes: true });
-        const match = entries.find((entry) => (
-            entry.isFile() &&
-            entry.name.startsWith(`${id}.`) &&
-            entry.name !== `${id}.meta.json`
-        ));
-        return match ? path.join(inlayDir, match.name) : null;
-    } catch {
-        return null;
-    }
-}
-
-async function readInlayFile(id) {
-    const info = await getInlayFileInfo(id);
-    if (!info) return null;
-    const buffer = await fs.readFile(info.filePath);
-    return {
-        ...info,
-        buffer,
-        mime: getMimeFromExt(info.ext, buffer),
-    };
-}
-
-async function getInlayFileInfo(id) {
-    const filePath = await resolveInlayFilePath(id);
-    if (!filePath) return null;
-    const ext = normalizeInlayExt(path.extname(filePath).slice(1));
-    const stat = await fs.stat(filePath);
-    return {
-        ext,
-        filePath,
-        mtimeMs: stat.mtimeMs,
-        size: stat.size,
-    };
-}
-
-async function writeInlaySidecar(id, info) {
-    await ensureInlayDir();
-    const sidecar = {
-        ext: normalizeInlayExt(info?.ext),
-        name: typeof info?.name === 'string' ? info.name : id,
-        type: typeof info?.type === 'string' ? info.type : 'image',
-        height: typeof info?.height === 'number' ? info.height : undefined,
-        width: typeof info?.width === 'number' ? info.width : undefined,
-    };
-    await fs.writeFile(getInlaySidecarPath(id), JSON.stringify(sidecar));
-}
-
-function writeInlaySidecarSync(id, info) {
-    ensureInlayDirSync();
-    const sidecar = {
-        ext: normalizeInlayExt(info?.ext),
-        name: typeof info?.name === 'string' ? info.name : id,
-        type: typeof info?.type === 'string' ? info.type : 'image',
-        height: typeof info?.height === 'number' ? info.height : undefined,
-        width: typeof info?.width === 'number' ? info.width : undefined,
-    };
-    writeFileSync(getInlaySidecarPath(id), JSON.stringify(sidecar));
-}
-
-async function writeInlayFile(id, ext, buffer, info = null) {
-    await ensureInlayDir();
-    await deleteInlayRawFile(id);
-    await deleteInlayVideoThumbnail(id);
-    const normalizedExt = normalizeInlayExt(ext);
-    await fs.writeFile(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
-    await writeInlaySidecar(id, {
-        ...(info || {}),
-        ext: normalizedExt,
-    });
-}
-
-function writeInlayFileSync(id, ext, buffer, info = null) {
-    ensureInlayDirSync();
-    deleteInlayRawFileSync(id);
-    deleteInlayVideoThumbnailSync(id);
-    const normalizedExt = normalizeInlayExt(ext);
-    writeFileSync(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
-    writeInlaySidecarSync(id, {
-        ...(info || {}),
-        ext: normalizedExt,
-    });
-}
-
-async function deleteInlayRawFile(id) {
-    const filePath = await resolveInlayFilePath(id);
-    if (!filePath) return;
-    await fs.unlink(filePath).catch(() => {});
-}
-
-function deleteInlayRawFileSync(id) {
-    const filePath = resolveInlayFilePathSync(id);
-    if (!filePath) return;
-    try {
-        unlinkSync(filePath);
-    } catch {
-        // ignore
-    }
-}
-
-function deleteInlayFileSync(id) {
-    deleteInlayRawFileSync(id);
-    deleteInlayVideoThumbnailSync(id);
-    try {
-        unlinkSync(getInlaySidecarPath(id));
-    } catch {
-        // ignore
-    }
-}
-
-async function listInlayFiles() {
-    await ensureInlayDir();
-    const entries = await fs.readdir(inlayDir, { withFileTypes: true });
-    return entries
-        .filter((entry) => (
-            entry.isFile() &&
-            entry.name !== '.migrated_to_fs' &&
-            !entry.name.endsWith('.meta.json')
-        ))
-        .map((entry) => {
-            const ext = normalizeInlayExt(path.extname(entry.name).slice(1));
-            const id = entry.name.slice(0, -(ext.length + 1));
-            return { id, ext, filePath: path.join(inlayDir, entry.name) };
-        })
-        .filter((entry) => isSafeInlayId(entry.id));
-}
-
-async function readInlayLegacyInfo(id) {
-    const value = kvGet(`inlay_info/${id}`);
-    if (!value) return null;
-    try {
-        const parsed = JSON.parse(value.toString('utf-8'));
-        return {
-            ext: normalizeInlayExt(parsed?.ext),
-            name: typeof parsed?.name === 'string' ? parsed.name : id,
-            type: typeof parsed?.type === 'string' ? parsed.type : 'image',
-            height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-            width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-        };
-    } catch {
-        return null;
-    }
-}
-
-async function readInlayInfoPayload(id) {
-    const sidecar = await readInlaySidecar(id);
-    if (sidecar) return Buffer.from(JSON.stringify(sidecar));
-    const legacy = await readInlayLegacyInfo(id);
-    if (legacy) return Buffer.from(JSON.stringify(legacy));
-    return kvGet(`inlay_info/${id}`);
-}
-
-async function migrateInlaysToFilesystem() {
-    await ensureInlayDir();
-    if (existsSync(inlayMigrationMarker)) return;
-
-    const keys = kvList('inlay/');
-    for (const key of keys) {
-        const id = key.slice('inlay/'.length);
-        if (!isSafeInlayId(id)) continue;
-        const fileAlreadyExists = await readInlayFile(id);
-        if (fileAlreadyExists) {
-            kvDel(key);
-            kvDel(`inlay_thumb/${id}`);
-            kvDel(`inlay_info/${id}`);
-            continue;
-        }
-        const value = kvGet(key);
-        if (!value) continue;
-        try {
-            const parsed = JSON.parse(value.toString('utf-8'));
-            const type = typeof parsed?.type === 'string' ? parsed.type : 'image';
-            const ext = normalizeInlayExt(parsed?.ext);
-            let buffer;
-            if (type === 'signature') {
-                buffer = Buffer.from(typeof parsed?.data === 'string' ? parsed.data : '', 'utf-8');
-            } else {
-                buffer = decodeDataUri(parsed?.data).buffer;
-            }
-            const info = (await readInlayLegacyInfo(id)) || {
-                ext,
-                name: typeof parsed?.name === 'string' ? parsed.name : id,
-                type,
-                height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-                width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-            };
-            await writeInlayFile(id, ext, buffer, info);
-            kvDel(key);
-            kvDel(`inlay_thumb/${id}`);
-            kvDel(`inlay_info/${id}`);
-        } catch (error) {
-            logger.warn(`[InlayFS] Failed to migrate ${key}:`, error?.message || error);
-        }
-    }
-
-    await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
-}
 
 // ── Session store for direct asset URL auth (F-0) ──────────────────────────
 // <img src="/api/asset/..."> cannot send custom headers, so we use a session
@@ -1170,10 +827,18 @@ function parseSessionCookie(req) {
     return null
 }
 
-function sessionAuthMiddleware(req, res, next) {
+function hasValidSession(req) {
     const token = parseSessionCookie(req)
-    if (token && sessionExpiresAt(sessions.get(token)) > Date.now()) return next()
+    return !!token && sessionExpiresAt(sessions.get(token)) > Date.now()
+}
+
+function sessionAuthMiddleware(req, res, next) {
+    if (hasValidSession(req)) return next()
     res.status(401).end()
+}
+
+async function checkDownloadAuth(req, res) {
+    return hasValidSession(req) || await checkAuth(req, res)
 }
 
 // MIME detection by magic bytes (fallback when key has no extension)
@@ -1196,6 +861,36 @@ const ASSET_EXT_MIME = {
     mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
 }
 
+function getMimeFromExt(ext, buffer) {
+    return ASSET_EXT_MIME[normalizeInlayExt(ext)] || detectMime(buffer);
+}
+
+const inlayService = createInlayService({
+    inlayDir: path.join(savePath, 'inlays'),
+    getVips,
+    getMimeFromExt,
+    kvGet,
+    kvDel,
+    kvList,
+    logger,
+});
+const {
+    inlayDir,
+    inlayMigrationMarker,
+    isSafeInlayId,
+    normalizeInlayExt,
+    ensureInlayDir,
+    getInlaySidecarPath,
+    readInlayFile,
+    listInlayFiles,
+    writeInlayFile,
+    migrateInlaysToFilesystem,
+    sumInlayFsBytes,
+    normalizeInlayImageSettings,
+    encodeInlayImageBuffer,
+    decodeDataUri,
+} = inlayService;
+
 // Each page has an opaque client id. It is not a write lock: this is a
 // single-user server, so every authenticated page may submit mutations. The id
 // is retained to suppress self-echoes on the sync WebSocket.
@@ -1206,7 +901,7 @@ function getSyncClientIdFromRequest(req) {
 
 function requireSyncClientId(req, res) {
     if (!getSyncClientIdFromRequest(req)) {
-        res.status(400).json({ error: 'Sync client id required' })
+        sendApiError(res, 400, API_ERROR_CODES.SYNC_CLIENT_ID_REQUIRED)
         return false
     }
     return true
@@ -1273,13 +968,15 @@ const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
 const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
 const GENERATION_JOB_GC_INTERVAL_MS = 60000;
 const GENERATION_JOB_DONE_GRACE_MS = 30000;
-const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
 const generationRuntimeJobs = new Map();
+let imageGenerationJobService;
 
-function countActiveGenerationJobs() {
-    return Array.from(generationRuntimeJobs.values())
-        .filter(job => !job.done && !job.waitingDispatch)
-        .length;
+function countActiveProviderJobs() {
+    let count = imageGenerationJobService?.countActiveJobs() ?? 0;
+    for (const job of generationRuntimeJobs.values()) {
+        if (!job.done && !job.waitingDispatch) count += 1;
+    }
+    return count;
 }
 
 const LOGIN_FAILURE_WINDOW_MS = 5 * 60 * 1000;
@@ -1299,8 +996,6 @@ async function hashJSON(json){
     hash.update(JSON.stringify(json));
     return hash.digest('hex');
 }
-
-// NodeOnly: server-issued JWT (see jwt_secret comment above)
 
 // --- Generation: auth helpers ---
 
@@ -1494,8 +1189,8 @@ const generationWorkers = createGenerationWorkers({
     repository: generationDb,
     logger,
     generationRuntimeJobs,
-    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
-    countActiveGenerationJobs,
+    capacity: REVENANT_CAPACITY,
+    countActiveProviderJobs,
     createGenerationRuntimeJob,
     runGenerationProviderJob,
     markGenerationJobDone,
@@ -1528,13 +1223,16 @@ const canonicalChatService = createCanonicalChatService({
     commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
         commitChatContent(storageState.fullChatStore, characterId, chatId, chat, expectedEtag, options),
     computeChatEtag,
-    getActiveGenerationWorkflow,
-    getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
+    getGenerationWorkflowInputChat: generationDb.getGenerationWorkflowInputChat,
     persistNow: persistCanonicalChatState,
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
 });
-const imageGenerationJobService = createImageGenerationJobService({ logger });
+imageGenerationJobService = createImageGenerationJobService({
+    logger,
+    capacity: REVENANT_CAPACITY,
+    countActiveProviderJobs,
+});
 
 function currentServerImageGenerationSettings() {
     const database = appDataStore.exportProjection({ includeMessages: false });
@@ -1619,13 +1317,13 @@ async function prepareNovelAIDirectorReference(buffer) {
     }
 }
 
-async function executeServerImageAction({ workflow, action, projection = false }) {
+async function executeServerImageAction({ workflow, action }) {
     const payload = action?.payload || {};
     const target = payload.target || (workflow.context?.kind === 'image-generation'
         ? workflow.context.target
         : {
-            characterId: workflow.context?.postprocess?.character?.chaId,
-            roomId: workflow.context?.postprocess?.chat?.id,
+            characterId: workflow.characterId,
+            roomId: workflow.roomId,
         });
     if (!target?.characterId || !target?.roomId) throw new Error('Image generation target is missing');
     const config = currentServerImageGenerationSettings();
@@ -1654,12 +1352,14 @@ async function executeServerImageAction({ workflow, action, projection = false }
                 : {}),
         };
     }
+    const promptFormatting = await imagePromptFormattingPromise;
+    const rawPrompt = String(payload.prompt || '');
     const requestPrompt = provider === 'novelai'
-        ? String(payload.prompt || '')
-            .replaceAll('\\(', '♧').replaceAll('\\)', '♤')
-            .replaceAll('(', '{').replaceAll(')', '}')
-            .replaceAll('♧', '(').replaceAll('♤', ')')
-        : String(payload.prompt || '');
+        ? promptFormatting.formatNovelAIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
+        : provider === 'comfyui'
+            ? promptFormatting.formatComfyUIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
+            : rawPrompt;
+    const negativePrompt = String(payload.negativePrompt || '');
     const generated = await imageGenerationJobService.executeImageGeneration({
         jobId,
         settings: provider === 'comfyui' ? {
@@ -1668,7 +1368,7 @@ async function executeServerImageAction({ workflow, action, projection = false }
         } : config.settings,
         apiKey: config.apiKey,
         prompt: requestPrompt,
-        negativePrompt: String(payload.negativePrompt || ''),
+        negativePrompt,
         seed,
         references,
         bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,
@@ -1692,21 +1392,20 @@ async function executeServerImageAction({ workflow, action, projection = false }
         updatedAt: now,
         charId: target.characterId,
         chatId: target.roomId,
-        imageGeneration: {
-            prompt: String(payload.prompt || ''),
-            negativePrompt: String(payload.negativePrompt || ''),
-            seed,
-        },
+        imageGeneration: { prompt: requestPrompt, negativePrompt, seed },
     })));
     const reference = `{{inlayed::${inlayId}}}`;
-    if (projection) {
+    const projection = workflow.context?.kind === 'image-generation'
+        ? workflow.context.projection || 'append'
+        : undefined;
+    if (projection === 'append' || projection === 'reroll') {
         await canonicalChatService.commitServerMutation({
             characterId: target.characterId,
             chatId: target.roomId,
             reason: 'image-generation-result',
             mutate: chat => {
                 const messageId = String(payload.messageId || '');
-                if (payload.projection === 'reroll') {
+                if (projection === 'reroll') {
                     const message = chat.message.find(item => item?.chatId === messageId);
                     if (!message || message.kind !== 'imageGeneration') {
                         throw new Error('Image reroll target no longer exists');
@@ -1741,7 +1440,7 @@ function scheduleImageGenerationWorkflow(workflowId) {
         const action = step?.metadata?.action;
         if (!workflow || !step || !action) return;
         try {
-            const result = await executeServerImageAction({ workflow, action, projection: true });
+            const result = await executeServerImageAction({ workflow, action });
             generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
                 status: 'completed',
                 metadata: { ...step.metadata, schemaVersion: 1, result },
@@ -2239,9 +1938,10 @@ const {
     normalizeColdStorageStorageKey,
     parseColdStorageJsonBuffer,
     encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     readColdStorageJsonEntry,
     listColdStorageBackupEntries,
-    restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
+    restoreColdStorageInDb: restoreColdStorage,
     restoreColdStorageChat: restoreColdChat,
 } = createLegacyRestoreService({
     sqliteDb,
@@ -2250,7 +1950,7 @@ const {
     kvDel,
     logger,
 });
-restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
+restoreColdStorageInDb = restoreColdStorage;
 restoreColdStorageChat = restoreColdChat;
 
 appDataMigration = createAppDataMigration({
@@ -2356,15 +2056,10 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         const authHeader = req.headers['risu-auth'];
 
         if(!authHeader){
-            if(!returnOnlyStatus){
-                console.log('No auth header')
-            }
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'No auth header'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_REQUIRED);
             return false
         }
 
@@ -2385,26 +2080,20 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         if(!allowExpired){
             const now = Math.floor(Date.now() / 1000);
             if(jsonPayload.exp < now){
-                console.log('Token expired')
                 if(returnOnlyStatus){
                     return false;
                 }
-                res.status(400).send({
-                    error:'Token Expired'
-                });
+                sendApiError(res, 401, API_ERROR_CODES.AUTH_TOKEN_EXPIRED);
                 return false
             }
         }
 
         //check signature (HMAC-SHA256)
         if(jsonHeader.alg !== "HS256"){
-            console.log('Unsupported algorithm')
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'Unsupported Algorithm'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
             return false
         }
 
@@ -2414,24 +2103,18 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         const actualSig = Buffer.from(signatureB64, 'base64url')
 
         if(expectedSig.length !== actualSig.length || !nodeCrypto.timingSafeEqual(expectedSig, actualSig)){
-            console.log('Invalid signature')
             if(returnOnlyStatus){
                 return false;
             }
-            res.status(400).send({
-                error:'Invalid Signature'
-            });
+            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
             return false
         }
         return true
-    } catch (error) {
-        console.log(error)
+    } catch {
         if(returnOnlyStatus){
             return false;
         }
-        res.status(500).send({
-            error:'Internal Server Error'
-        });
+        sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
         return false
     }
 }
@@ -2441,8 +2124,7 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     return canonicalChatService.commitGenerationInput({
         characterId,
         chatId: roomId,
-        chat: input.chat,
-        expectedEtag: input.expectedEtag,
+        changes: input.changes,
     });
 }
 
@@ -2483,28 +2165,6 @@ function resolveAssetPayload(key, rawValue) {
 
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 
-// Sum the on-disk inlay payload (image files + sidecar JSONs in save/inlays).
-// Returns 0 if the directory is missing. Used by both the backup-size
-// estimator and the dashboard inlay total — kv inlay/* prefixes don't
-// reflect filesystem bytes after the inlay→fs migration.
-async function sumInlayFsBytes() {
-    let total = 0;
-    try {
-        const inlayFiles = await listInlayFiles();
-        await Promise.all(inlayFiles.map(async (entry) => {
-            try {
-                const st = await fs.stat(entry.filePath);
-                total += st.size;
-            } catch { /* missing — skip */ }
-            try {
-                const sst = await fs.stat(getInlaySidecarPath(entry.id));
-                total += sst.size;
-            } catch { /* sidecar may not exist */ }
-        }));
-    } catch { /* dir missing */ }
-    return total;
-}
-
 // Estimated server-backup size — mirrors the enumeration in
 // /api/backup/server/save without writing anything. Inlay files live on the
 // filesystem (post-migration), so we have to fs.stat them rather than read
@@ -2525,58 +2185,6 @@ async function estimateServerBackupSize(dbBytesOverride = null, inlayBytesOverri
         ? inlayBytesOverride
         : await sumInlayFsBytes();
     return total;
-}
-
-const INLAY_IMAGE_SIZE_PIXELS = Object.freeze({
-    '1k': 1024 * 1024,
-    '2k': 2048 * 2048,
-    '4k': 4096 * 4096,
-    'original': Number.POSITIVE_INFINITY,
-});
-const INLAY_WEBP_EFFORT = 5;
-
-function normalizeInlayImageSettings(input) {
-    const size = Object.hasOwn(INLAY_IMAGE_SIZE_PIXELS, input?.size) ? input.size : '1k';
-    const format = input?.format === 'png' ? 'png' : 'webp';
-    const lossy = input?.lossy !== false;
-    const rawQuality = Number(input?.quality);
-    const quality = Number.isFinite(rawQuality)
-        ? Math.min(1, Math.max(0.01, rawQuality > 1 ? rawQuality / 100 : rawQuality))
-        : 0.85;
-    return { size, format, lossy, quality };
-}
-
-async function encodeInlayImageBuffer(buffer, settings) {
-    const vips = await getVips();
-    const source = vips.Image.newFromBuffer(buffer);
-    let rotated = null;
-    let image = null;
-    try {
-        rotated = source.autorot();
-        const maxPixels = INLAY_IMAGE_SIZE_PIXELS[settings.size];
-        const currentPixels = rotated.width * rotated.height;
-        const scale = currentPixels > maxPixels ? Math.sqrt(maxPixels / currentPixels) : 1;
-        image = scale < 1
-            ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
-            : rotated;
-
-        const output = settings.format === 'png'
-            ? image.writeToBuffer('.png', { Q: 100 })
-            : image.writeToBuffer('.webp', settings.lossy
-                ? { Q: Math.round(settings.quality * 100), effort: INLAY_WEBP_EFFORT }
-                : { lossless: true, effort: INLAY_WEBP_EFFORT });
-
-        return {
-            buffer: Buffer.from(output),
-            ext: settings.format,
-            width: image.width,
-            height: image.height,
-        };
-    } finally {
-        if (image && image !== rotated) image.delete();
-        if (rotated) rotated.delete();
-        source.delete();
-    }
 }
 
 installImageGenerationJobRoutes(app, {
@@ -2600,8 +2208,8 @@ installRevenantGenerationRoutes(app, {
     commitWorkflowInput: generationWorkflowService.commitInput,
     cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,
-    countActiveGenerationJobs,
-    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    countActiveProviderJobs,
+    capacity: REVENANT_CAPACITY,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,
@@ -2636,19 +2244,8 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     queueStorageOperation,
     storageState,
     bookmarkStore,
-    ensureChatStore,
-    reassembleFullDb,
     appDataStore,
-    deleteInlayRawFile,
-    deleteInlayVideoThumbnail,
-    getInlaySidecarPath,
-    readInlayFile,
-    readInlaySidecar,
-    readInlayLegacyInfo,
-    getVips,
-    getInlayFileInfo,
-    getInlayVideoThumbnailPath,
-    inlayVideoThumbnailDir,
+    inlayService,
     sessionAuthMiddleware,
     getMimeFromExt,
     resolveAssetPayload,
@@ -2657,19 +2254,13 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     MISSING_DATABASE_ETAG,
     isCloudflareTunnelRequest,
     computeBufferEtag,
-    readInlayInfoPayload,
-    listInlayFiles,
     requireSyncClientId,
     computeDatabaseEtagFromObject,
-    normalizeInlayExt,
-    writeInlayFile,
-    writeInlaySidecar,
     normalizeLegacyDatabaseProjection,
     refreshCanonicalDatabaseCache,
     createBackupAndRotate,
     broadcastDatabaseInvalidated,
     enablePatchSync,
-    findChatInternalFieldOps,
     currentPersistWarning,
     getSyncClientIdFromRequest,
     clearPersistFailure,
@@ -2698,6 +2289,7 @@ require('./routes/logs.cjs').installLogsRoutes(app, {
 });
 
 require('./routes/backup.cjs').installBackupRoutes(app, {
+    checkDownloadAuth,
     deleteSnapshotStateRows,
     DB_BACKUP_PREFIX,
     storageState,
@@ -2718,8 +2310,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     decodeDataUri,
     ensureInlayDir,
     normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     ensureCanonicalStorage,
     checkAuth,
     listInlayFiles,
@@ -2790,18 +2381,13 @@ require('./routes/maintenance.cjs').installMaintenanceRoutes(app, {
     flushPendingDb,
 });
 
-require('./routes/inlays.cjs').installInlaysRoutes(app, {
+installInlaysRoutes(app, {
     sessionAuthMiddleware,
     requireSyncClientId,
-    normalizeInlayImageSettings,
-    encodeInlayImageBuffer,
-    listInlayFiles,
-    readInlaySidecar,
-    writeInlayFile,
+    inlayService,
 });
 
 require('./routes/system.cjs').installSystemRoutes(app, {
-    instanceId,
     checkAuth,
     stopTunnel,
     flushPendingDb,
@@ -2817,10 +2403,15 @@ require('./routes/tunnel.cjs').installTunnelRoutes(app, {
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    const unsupportedRemote = err?.code === 'UNSUPPORTED_REMOTE_SAVE';
-    res.status(unsupportedRemote ? 400 : 500).json({
+    const unsupportedRemote = err?.code === API_ERROR_CODES.UNSUPPORTED_REMOTE_SAVE;
+    const requestedStatus = err?.statusCode ?? err?.httpStatus;
+    const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus <= 599
+        ? requestedStatus
+        : unsupportedRemote ? 400 : 500;
+    res.status(status).json({
         error: err?.message || 'internal server error',
         ...(err?.code ? { code: err.code } : {}),
+        ...(err?.details ? { details: err.details } : {}),
     });
 });
 

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { assertChatIdentity } from '../../../shared/chatShape.mjs'
 import { invokeLuaMode, luaMayListenForEditMode, registerLuaCoreApis, type LuaCoreAdapter, type LuaCoreChat } from './luaCore'
 
 function apiHarness() {
     const functions: Record<string, (...args: any[]) => any> = {}
     let stopped = false
-    let chat: LuaCoreChat = { message: [{ role: 'char', data: 'hello' }], note: 'note' }
+    let chat: LuaCoreChat = { message: [{ role: 'char', data: 'hello', chatId: 'existing-message' }], note: 'note' }
     const character = { name: 'Alice', firstMessage: 'first' }
     const variables: Record<string, string> = {}
     const adapter: LuaCoreAdapter = {
@@ -31,21 +32,27 @@ describe('Lua core', () => {
         expect(luaMayListenForEditMode('local register = listenEdit', 'editDisplay')).toBe(true)
     })
 
-    it('binds deterministic APIs to the current invocation adapter', () => {
+    it('applies permitted mutations and creates messages with valid identities', () => {
         const harness = apiHarness()
         harness.functions.setChatVar('denied', 'mood', 'bad')
         harness.functions.setChatVar('allowed', 'mood', 'happy')
         harness.functions.addChat('allowed', 'user', 'next')
+        harness.functions.insertChat('allowed', 1, 'char', 'inserted')
         harness.functions.setName('allowed', 'Updated')
         harness.functions.stopChat('allowed')
 
         expect(harness.variables).toEqual({ mood: 'happy' })
-        expect(harness.chat.message.at(-1)).toEqual({ role: 'user', data: 'next' })
+        expect(harness.chat.message).toMatchObject([
+            { role: 'char', data: 'hello', chatId: 'existing-message' },
+            { role: 'char', data: 'inserted' },
+            { role: 'user', data: 'next' },
+        ])
+        expect(() => assertChatIdentity({ ...harness.chat, id: 'room' }, 'room')).not.toThrow()
         expect(harness.character.name).toBe('Updated')
         expect(harness.stopped).toBe(true)
     })
 
-    it('preserves message metadata when setFullChat rewrites Lua-visible fields', () => {
+    it('preserves existing message metadata and assigns identities to additions in setFullChat', () => {
         const harness = apiHarness()
         harness.chat.message = [{
             role: 'char',
@@ -59,6 +66,7 @@ describe('Lua core', () => {
 
         harness.functions.setFullChatMain('allowed', JSON.stringify([
             { role: 'char', data: 'after', time: 20 },
+            { role: 'user', data: 'added' },
         ]))
 
         expect(harness.chat.message[0]).toEqual({
@@ -70,6 +78,8 @@ describe('Lua core', () => {
             swipeId: 1,
             generationInfo: { model: 'model-a' },
         })
+        expect(harness.chat.message[1]).toMatchObject({ role: 'user', data: 'added' })
+        expect(() => assertChatIdentity({ ...harness.chat, id: 'room' }, 'room')).not.toThrow()
     })
 
     it('does not retain state from a previous cached-engine invocation', () => {
@@ -96,7 +106,7 @@ describe('Lua core', () => {
         expect(second.variables.value).toBe('second')
     })
 
-    it('dispatches normal and edit callbacks through one mode mapper', async () => {
+    it('invokes output and edit callbacks and preserves their results', async () => {
         const calls: unknown[][] = []
         const global = {
             get: (name: string) => name === 'onOutput'

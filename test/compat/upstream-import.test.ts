@@ -2,7 +2,7 @@
  * Upstream backup import tests.
  *
  * Verifies that a .bin backup exported from upstream RisuAI can be
- * imported into NodeOnly and that core data survives a round-trip.
+ * imported by this server and that core data survives a round-trip.
  *
  * Fixture: test/fixtures/upstream/upstream-backup.bin
  * Deterministic, synthetic, and tracked so this suite cannot silently skip.

@@ -44,7 +44,7 @@ export interface SummaryResultState {
     isProcessing: boolean;
     result: string | null;
     selectedIndices: number[];
-    mergedChatMemos: string[];
+    mergedChatMemos: (string | null)[];
     isTranslating: boolean;
     translation: string | null;
 }

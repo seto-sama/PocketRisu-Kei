@@ -28,6 +28,7 @@ const {
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
+    resolveRevenantPostprocessRecipe,
     resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
     isRevenantWorkflowClientActionJobAllowed: (input: Record<string, unknown>) => boolean
@@ -45,6 +46,7 @@ const {
     ) => any
     normalizeRevenantWorkflowPlan: (value: unknown) => unknown
     normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
+    resolveRevenantPostprocessRecipe: (context: unknown, inputChat: unknown) => any
     normalizeRevenantWorkflowDependency: (
         value: unknown,
         jobType: string,
@@ -107,13 +109,14 @@ describe('revenant durable dispatch validation', () => {
 
     it('derives a server-owned dispatch group from a validated Hypa batch', () => {
         const normalizedOperation = normalizeRevenantOperationContext('memory', operation)
+        expect(normalizeRevenantOperationContext('memory', {
+            ...operation, chatMemos: [null, 'message-1'],
+        })).toMatchObject({ chatMemos: [null, 'message-1'] })
         expect(normalizeRevenantDispatchPolicy({
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         }, normalizedOperation, 'workflow-1')).toEqual({
             dispatchGroup: 'workflow-1:hypa:batch-1',
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         })
     })
 
@@ -123,12 +126,7 @@ describe('revenant durable dispatch validation', () => {
             batchId: '../unsafe',
         })).toBeUndefined()
         expect(normalizeRevenantDispatchPolicy({
-            maxConcurrent: 4,
-            requestsPerMinute: 3,
-        }, operation, 'workflow-1')).toBeUndefined()
-        expect(normalizeRevenantDispatchPolicy({
             maxConcurrent: 3,
-            requestsPerMinute: 20,
         }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
     })
 
@@ -194,6 +192,11 @@ describe('manual image workflow validation', () => {
             'character-1',
             'image-generation:room-1',
         )).toMatchObject({ projection: 'reroll' })
+        expect(normalizeRevenantWorkflowContext(
+            { ...context, projection: 'return' },
+            'character-1',
+            'image-generation:room-1',
+        )).toMatchObject({ projection: 'return' })
         expect(normalizeRevenantWorkflowContext(
             { ...context, projection: 'replace-everything' },
             'character-1',
@@ -379,25 +382,23 @@ describe('revenant workflow validation', () => {
         inputCommit: {
             schemaVersion: 1,
             chat: { id: 'room-1', message: [{ role: 'user', data: 'hello' }] },
-            expectedEtag: 'previous-etag',
+            changes: [],
         },
         resume: {
             schemaVersion: 1,
             chatProcessIndex: -1,
             messageChatId: 'message-1',
-            isContinuation: false,
         },
         postprocess: {
             schemaVersion: 1,
             messageChatId: 'message-1',
-            isContinuation: false,
             providerBackend: 'http',
             modelPreset: {},
             auxProviders: {
                 emotion: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
             },
             character: { chaId: 'character-1' },
-            chat: { id: 'room-1', message: [] },
+            chatPatch: [{ op: 'remove', path: '/message/0' }],
             database: {},
             modules: [],
             moduleRegexScripts: [],
@@ -406,11 +407,20 @@ describe('revenant workflow validation', () => {
     }
 
     it('accepts a bounded chat workflow execution context', () => {
-        expect(normalizeRevenantWorkflowContext(
+        const normalized = normalizeRevenantWorkflowContext(
             workflowContext,
             'character-1',
             'room-1',
-        )).toEqual(workflowContext)
+        )
+        expect(normalized).toEqual(workflowContext)
+        expect(normalized.postprocess.chat).toBeUndefined()
+        expect(resolveRevenantPostprocessRecipe(
+            normalized,
+            normalized.inputCommit.chat,
+        )).toMatchObject({
+            chat: { id: 'room-1', message: [] },
+            character: { chats: [{ id: 'room-1', message: [] }], chatPage: 0 },
+        })
         expect(normalizeRevenantWorkflowContext(
             { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
             'character-1',
@@ -433,6 +443,32 @@ describe('revenant workflow validation', () => {
             'room-1',
         )).toBeUndefined()
         expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    chatPatch: undefined,
+                    chat: { id: 'room-1', message: [] },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    character: {
+                        ...workflowContext.postprocess.character,
+                        chats: [],
+                    },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
             workflowContext,
             'different-character',
             'room-1',
@@ -445,6 +481,14 @@ describe('revenant workflow validation', () => {
                     chat: { id: 'different-room', message: [] },
                 },
             },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+    })
+
+    it('requires a guarded delta for workflow input', () => {
+        expect(normalizeRevenantWorkflowContext(
+            { ...workflowContext, inputCommit: { ...workflowContext.inputCommit, changes: undefined } },
             'character-1',
             'room-1',
         )).toBeUndefined()
@@ -521,6 +565,10 @@ describe('revenant workflow validation', () => {
             schemaVersion: 1,
             batchId: 'batch-1',
             expectedOperationIds: ['operation-1'],
+            summaryProvider: { profileSnapshot: {} },
+            summaryDispatch: { maxConcurrent: 1 },
+            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: [null, 'memo-1'],
+                prompt: [{ role: 'user', content: 'summarize' }] }],
             embedding: { model: 'openai3small', apiKey: 'secret' },
             tokenizer: { tokenizer: 'tik', chatAdditionalTokens: 3, useName: 'name' },
             settings: {
@@ -540,21 +588,29 @@ describe('revenant workflow validation', () => {
             randomSeed: 'seed',
         }
         expect(normalizeRevenantHypaExecutionRecipe(recipe)).toEqual(recipe)
-        const planned = {
+        const firstMessageSummary = {
             ...recipe,
-            summaryProvider: { profileSnapshot: {} },
-            summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
-            summaryRequests: [{ operationId: 'operation-1', purpose: 'memory', chatMemos: ['memo-1'],
-                prompt: [{ role: 'user', content: 'summarize' }] }],
+            memory: { summaries: [{ text: 'First message', chatMemos: [null], isImportant: false }] },
         }
-        expect(normalizeRevenantHypaExecutionRecipe(planned)).toEqual(planned)
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned, summaryRequests: [] })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
-            expectedOperationIds: ['operation-1', 'operation-1'],
-            summaryRequests: [planned.summaryRequests[0], planned.summaryRequests[0]],
+        expect(normalizeRevenantHypaExecutionRecipe(firstMessageSummary)).toEqual(firstMessageSummary)
+        expect(normalizeRevenantHypaExecutionRecipe({
+            ...recipe,
+            memory: { summaries: [{ text: 'Invalid', chatMemos: [123], isImportant: false }] },
         })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...planned,
-            summaryDispatch: { maxConcurrent: 40, requestsPerMinute: 20 },
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: undefined })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
+            expectedOperationIds: [], summaryRequests: [],
+        })).toMatchObject({ summaryRequests: [] })
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [
+            { ...recipe.summaryRequests[0], chatMemos: [123] },
+        ] })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [] })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
+            expectedOperationIds: ['operation-1', 'operation-1'],
+            summaryRequests: [recipe.summaryRequests[0], recipe.summaryRequests[0]],
+        })).toBeUndefined()
+        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
+            summaryDispatch: { maxConcurrent: 40 },
         })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({
             ...recipe,

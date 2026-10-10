@@ -64,8 +64,8 @@ export async function runToolLoop(
             parts.push('[ModelPreset: follow-up request failed after tool execution]')
             return joinParts(parts)
         }
-        // Prepend this turn's reasoning (for display) to its text segment, matching
-        // the classic path where <Thoughts> precede the visible reply.
+        // Prepend this turn's reasoning (for display) so <Thoughts> precede the
+        // visible reply consistently.
         const head = deps.formatReasoning?.(response.reasoning) ?? ''
         const segment = head + (response.text ?? '')
         if (segment.length > 0) parts.push(segment)

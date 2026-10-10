@@ -47,6 +47,7 @@ export interface ImageGenerationPresetSettings {
     NAIImgSizePreset: NAIImageSizePreset
     NAIImgOrientation: NAIImageOrientation
     NAII2I: boolean
+    animaArtistTagCompatibility: boolean
     comfyUiUrl: string
     comfyConfig: Database['comfyConfig']
 }
@@ -181,6 +182,7 @@ export function captureImageGenerationPresetSettings(
         NAIImgSizePreset: 'custom',
         NAIImgOrientation: 'landscape',
         NAII2I: db.NAII2I,
+        animaArtistTagCompatibility: false,
         comfyUiUrl: db.comfyUiUrl,
         comfyConfig: structuredClone(db.comfyConfig),
     })

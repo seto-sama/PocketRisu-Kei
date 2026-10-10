@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     file: vi.fn(), save: vi.fn(),
 }))
 vi.mock(import('src/ts/stores.svelte'), () => ({ DBState: mocks.DBState as { db: Database } }))
-vi.mock(import('src/ts/util'), () => ({ selectSingleFile: mocks.file }))
+vi.mock(import('src/ts/util'), () => ({ selectSingleImageFile: mocks.file }))
 vi.mock(import('src/ts/globalApi.svelte'), () => ({ saveAsset: mocks.save }))
 
 import {
@@ -40,9 +40,9 @@ describe('sidebar folder settings', () => {
         openSidebarFolderMenu('a')
         expect(get(folderSettingsTarget)).toBe('a')
         mocks.DBState.db.characterOrder.reverse()
-        updateSidebarFolder('a', { name: 'renamed', nodeOnlyDisplay: 'name' })
+        updateSidebarFolder('a', { name: 'renamed', displayMode: 'name' })
         expect(mocks.DBState.db.characterOrder).toEqual([
-            makeFolder('b'), { ...makeFolder('a'), name: 'renamed', nodeOnlyDisplay: 'name' },
+            makeFolder('b'), { ...makeFolder('a'), name: 'renamed', displayMode: 'name' },
         ])
     })
 
@@ -80,14 +80,13 @@ describe('sidebar folder settings', () => {
         expect(mocks.DBState.db.characterOrder).toEqual([makeFolder('b')])
     })
 
-    it('preserves legacy display precedence until a folder explicitly chooses its mode', () => {
+    it('uses the folder image by default until a folder explicitly chooses its mode', () => {
         const target = makeFolder('a')
-        expect(folderDisplayMode(target, false)).toBe('icon')
-        expect(folderDisplayMode(target, true)).toBe('name')
+        expect(folderDisplayMode(target)).toBe('icon')
         target.imgFile = 'assets/old.png'
-        expect(folderDisplayMode(target, true)).toBe('image')
-        target.nodeOnlyDisplay = 'name'
-        expect(folderDisplayMode(target, false)).toBe('name')
+        expect(folderDisplayMode(target)).toBe('image')
+        target.displayMode = 'name'
+        expect(folderDisplayMode(target)).toBe('name')
     })
 
     it('updates and deletes chat folders by character and folder ID', () => {
@@ -101,8 +100,8 @@ describe('sidebar folder settings', () => {
 
         openChatFolderMenu('char-a', 'f1')
         expect(get(chatFolderSettingsTarget)).toEqual({ characterId: 'char-a', folderId: 'f1' })
-        updateChatFolder('char-a', 'f1', { name: 'renamed', nodeOnlyIcon: 'star' })
-        expect(character.chatFolders[0]).toEqual({ ...makeChatFolder('f1'), name: 'renamed', nodeOnlyIcon: 'star' })
+        updateChatFolder('char-a', 'f1', { name: 'renamed', icon: 'star' })
+        expect(character.chatFolders[0]).toEqual({ ...makeChatFolder('f1'), name: 'renamed', icon: 'star' })
 
         expect(deleteChatFolder('char-a', 'f1')).toBe(true)
         expect(character.chatFolders).toEqual([makeChatFolder('f2')])

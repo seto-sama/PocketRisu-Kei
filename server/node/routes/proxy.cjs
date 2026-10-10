@@ -30,20 +30,22 @@ function installProxyRoutes(app, {
         return timeoutMs;
     }
 
-    function createTimeoutController(timeoutMs) {
-        if (!timeoutMs) {
-            return {
-                signal: undefined,
-                cleanup: () => {}
-            };
-        }
-
+    function createProxyRequestController(res, timeoutMs) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const onClose = () => {
+            if (!res.writableEnded) controller.abort();
+        };
+        res.once('close', onClose);
+        // Authentication may have awaited while the client disconnected.
+        if (res.destroyed) onClose();
+        const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
 
         return {
             signal: controller.signal,
-            cleanup: () => clearTimeout(timer)
+            cleanup: () => {
+                clearTimeout(timer);
+                res.removeListener('close', onClose);
+            }
         };
     }
 
@@ -61,7 +63,7 @@ function installProxyRoutes(app, {
             return;
         }
         const timeoutMs = getRequestTimeoutMs(req.headers['risu-timeout-ms']);
-        const timeout = createTimeoutController(timeoutMs);
+        const requestController = createProxyRequestController(res, timeoutMs);
         let originalResponse;
         try {
         const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
@@ -100,7 +102,7 @@ function installProxyRoutes(app, {
                 method: req.method,
                 headers: header,
                 body: requestBody,
-                signal: timeout.signal,
+                signal: requestController.signal,
                 idleTimeoutMs: requestIdleTimeoutMs(timeoutMs),
             });
             res.header(originalResponse.headers);
@@ -110,6 +112,7 @@ function installProxyRoutes(app, {
 
         }
         catch (err) {
+            if (res.destroyed) return;
             if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
                 if (!res.headersSent) {
                     res.status(504).send({
@@ -129,7 +132,7 @@ function installProxyRoutes(app, {
             next(err);
             return;
         } finally {
-            timeout.cleanup();
+            requestController.cleanup();
         }
     }
 

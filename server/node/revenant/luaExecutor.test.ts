@@ -68,6 +68,25 @@ describe('revenant headless Lua executor', () => {
         })
     })
 
+    it('passes editDisplay as a raw string and ignores non-string listener results', async () => {
+        const input = 'quoted "text"\n한글'
+        const result = await executeRevenantLua({
+            code: `
+                listenEdit('editDisplay', function(id, value, meta)
+                    return value .. ':' .. meta.index
+                end)
+                listenEdit('editDisplay', function() return { invalid = true } end)
+            `,
+            mode: 'editDisplay',
+            data: input,
+            meta: { index: 3 },
+            recipe: recipe(),
+            chat: recipe().chat,
+        })
+
+        expect(result).toMatchObject({ status: 'completed', data: `${input}:3` })
+    })
+
     it('suspends plugin provider calls as a replayable client action', async () => {
         const code = `
             onOutput = async(function(id)

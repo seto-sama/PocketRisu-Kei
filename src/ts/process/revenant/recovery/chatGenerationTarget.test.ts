@@ -27,7 +27,6 @@ describe('ensureGenerationMessageTarget', () => {
         const target = beginGenerationMessageProjection(current, {
             messageChatId: 'generation-1',
             characterId: 'character-1',
-            isContinuation: false,
             rerollSnapshot: {
                 targetMessage: original,
                 targetIndex: 1,
@@ -59,31 +58,12 @@ describe('ensureGenerationMessageTarget', () => {
         const target = ensureGenerationMessageTarget(current, {
             messageChatId: 'generation-1',
             characterId: 'character-1',
-            isContinuation: false,
         })
 
         target.message.data = 'streamed answer'
         expect(current.message[1]).toMatchObject({
             role: 'char',
             data: 'streamed answer',
-            chatId: 'generation-1',
-        })
-    })
-
-    it('rebinds a refreshed continuation target to the generation id', () => {
-        const current = chat([
-            { role: 'char', data: 'original answer', chatId: 'assistant-1' },
-        ])
-
-        const target = ensureGenerationMessageTarget(current, {
-            messageChatId: 'generation-1',
-            characterId: 'character-1',
-            isContinuation: true,
-        })
-
-        expect(target.index).toBe(0)
-        expect(target.message).toMatchObject({
-            data: 'original answer',
             chatId: 'generation-1',
         })
     })
@@ -101,7 +81,6 @@ describe('ensureGenerationMessageTarget', () => {
         const target = ensureGenerationMessageTarget(current, {
             messageChatId: 'generation-1',
             characterId: 'character-1',
-            isContinuation: false,
             rerollSnapshot: {
                 targetMessage: original,
                 targetIndex: 1,
@@ -132,7 +111,6 @@ describe('ensureGenerationMessageTarget', () => {
         const target = ensureGenerationMessageTarget(current, {
             messageChatId: 'generation-1',
             characterId: 'character-1',
-            isContinuation: false,
             generationInfo: { generationId: 'generation-1', model: 'new-model' },
             promptInfo: { promptName: 'new-preset' },
             rerollSnapshot: {
@@ -184,7 +162,6 @@ describe('ensureGenerationMessageTarget', () => {
         ensureGenerationMessageTarget(current, {
             messageChatId: 'generation-3',
             characterId: 'character-1',
-            isContinuation: false,
             generationInfo: { generationId: 'generation-3' },
             rerollSnapshot: {
                 targetMessage: original,
@@ -214,7 +191,6 @@ describe('ensureGenerationMessageTarget', () => {
         ensureGenerationMessageTarget(current, {
             messageChatId: 'generation-3',
             characterId: 'character-1',
-            isContinuation: false,
             generationInfo: { generationId: 'generation-3', inputTokens: 300 },
             rerollSnapshot: {
                 targetMessage: original,

@@ -10,6 +10,7 @@
         getImageStylePresetId,
         IMAGE_STYLE_PRESET_PREFIX,
         listImageStylePresets,
+        loadImageStylePresets,
         normalizeImageStylePresetName,
         parseImageStylePresetContent,
         type ImageStylePresetEntry,
@@ -36,6 +37,7 @@
     } from 'src/ts/imageGeneration/presets'
     import { selectSingleImportFile } from 'src/ts/util'
     import { appendPresetItem, movePresetItem, removePresetItem } from 'src/ts/preset/collection'
+    import { onMount } from 'svelte'
 
     interface Props {
         compact?: boolean
@@ -101,6 +103,15 @@
     const boundImageGenerationPreset = $derived(
         imageGenerationPresets[boundImageGenerationPresetIndex],
     )
+
+    onMount(() => {
+        loadImageStylePresets(DBState.db)
+    })
+
+    function openPresetPicker() {
+        loadImageStylePresets(DBState.db)
+        open = true
+    }
 
     function orderPresets(entries: ImageStylePresetEntry[], order: string[]): ImageStylePresetEntry[] {
         const ranks = new Map(order.map((id, index) => [id, index]))
@@ -520,7 +531,7 @@
     {compact}
     label={language.imageStylePreset}
     activeName={selectedPreset?.name ?? language.imageStylePresetNone}
-    onOpen={() => { open = true }}
+    onOpen={openPresetPicker}
     onEdit={selectedPreset ? () => startEdit(selectedPreset) : undefined}
     state={selectedPreset ? 'selected' : 'empty'}
 />

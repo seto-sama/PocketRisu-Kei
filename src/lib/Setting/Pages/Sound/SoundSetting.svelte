@@ -4,7 +4,7 @@
     import { playSoundPreview } from 'src/ts/notificationSound';
     import Button from '../../../UI/components/Button.svelte';
     import { PlayIcon, Music2Icon } from '@lucide/svelte';
-    import SoundRow from './SoundRow.svelte';
+    import SettingRow from '../../Wrappers/SettingRow.svelte';
     import SoundPickerModal from './SoundPickerModal.svelte';
 
     interface Props {
@@ -33,26 +33,28 @@
     });
 </script>
 
-<SoundRow {label} {description}>
-    <div class="flex items-center gap-1 min-w-0">
-        <Button
-            variant="outline"
-            size="sm"
-            onclick={() => (pickerOpen = true)}
-            className="max-w-56"
-        >
-            <Music2Icon class="shrink-0" />
-            <span class="truncate">{soundName}</span>
-        </Button>
-        <Button
-            variant="outline"
-            size="icon-sm"
-            onclick={() => playSoundPreview(sound, volume)}
-            aria-label={language.preview}
-        >
-            <PlayIcon />
-        </Button>
-    </div>
-</SoundRow>
+<SettingRow title={label} {description}>
+    {#snippet control()}
+        <div class="flex items-center gap-1 min-w-0">
+            <Button
+                variant="outline"
+                size="sm"
+                onclick={() => (pickerOpen = true)}
+                className="max-w-56"
+            >
+                <Music2Icon class="shrink-0" />
+                <span class="truncate">{soundName}</span>
+            </Button>
+            <Button
+                variant="outline"
+                size="icon-sm"
+                onclick={() => playSoundPreview(sound, volume)}
+                aria-label={language.preview}
+            >
+                <PlayIcon />
+            </Button>
+        </div>
+    {/snippet}
+</SettingRow>
 
 <SoundPickerModal bind:open={pickerOpen} bind:value={sound} {volume} />

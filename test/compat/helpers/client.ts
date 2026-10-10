@@ -1,6 +1,3 @@
-/**
- * Thin HTTP helpers for talking to a RisuAI-NodeOnly server during tests.
- */
 import { randomUUID } from 'node:crypto'
 
 export interface RisuClient {

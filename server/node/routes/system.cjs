@@ -11,23 +11,17 @@ const { execSync, spawn } = require('child_process');
 const { checkpointWal } = require('../db.cjs');
 
 function installSystemRoutes(app, {
-    instanceId,
     checkAuth,
     stopTunnel,
     flushPendingDb,
 }) {
     const GITHUB_REPO = 'seto-sama/PocketRisu-Kei';
+    const RELEASE_TAG_PREFIX = 'kei-v';
+    const RELEASE_ASSET_PREFIX = 'PocketRisu-Kei';
+    const UPDATE_USER_AGENT = `${RELEASE_ASSET_PREFIX}-Updater`;
 
-    const UPDATE_CHECK_DISABLED = process.env.RISU_UPDATE_CHECK === 'false';
-
-    const CUSTOM_UPDATE_CHECK_URL = process.env.RISU_UPDATE_URL || '';
-
-    const UPDATE_CHECK_URL = CUSTOM_UPDATE_CHECK_URL || `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-
-    const PUBLIC_STATS_URL = UPDATE_CHECK_DISABLED
-        ? ''
-        : (CUSTOM_UPDATE_CHECK_URL || 'https://risu-update-worker.nodridan.workers.dev/check')
-            .replace(/\/check$/, '/api/public-stats');
+    const UPDATE_CHECK_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+    const PUBLIC_STATS_URL = 'https://risu-update-worker.nodridan.workers.dev/api/public-stats';
 
     function getCurrentVersion() {
         try {
@@ -38,7 +32,7 @@ function installSystemRoutes(app, {
 
     const deploymentType = (() => {
         // Only portable builds have the .portable marker (created by CI release workflow).
-        // Self-update is gated on this — all other types are inferred for analytics only.
+        // Self-update is gated on this; other values are returned to the local UI.
         // Wrapped in try/catch so unexpected filesystem errors can't crash server boot.
         try {
             if (existsSync(path.join(process.cwd(), '.portable'))) return 'portable';
@@ -59,36 +53,19 @@ function installSystemRoutes(app, {
         if (!platformName) return null;
         const arch = process.arch; // x64, arm64
         const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
-        const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
-        const url = `https://github.com/${GITHUB_REPO}/releases/download/kei-v${version}/${filename}`;
+        const filename = `${RELEASE_ASSET_PREFIX}-v${version}-${platformName}-${arch}.${ext}`;
+        const url = `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG_PREFIX}${version}/${filename}`;
         return { platformName, arch, ext, filename, url };
     }
 
-    async function fetchLatestRelease(lang) {
-        if (UPDATE_CHECK_DISABLED) return null;
+    async function fetchLatestRelease() {
         try {
             const currentVersion = getCurrentVersion();
-            let url = UPDATE_CHECK_URL;
-            const headers = { 'User-Agent': 'PocketRisu-Kei-Updater', Accept: 'application/vnd.github+json' };
-
-            if (CUSTOM_UPDATE_CHECK_URL) {
-                const params = new URLSearchParams({
-                    v: currentVersion,
-                    d: deploymentType,
-                    os: `${process.platform}-${process.arch}`,
-                    id: instanceId,
-                });
-                if (lang) params.set('l', String(lang).slice(0, 16));
-                url = `${UPDATE_CHECK_URL}?${params}`;
-            }
-
-            const res = await fetch(url, { headers });
+            const headers = { 'User-Agent': UPDATE_USER_AGENT, Accept: 'application/vnd.github+json' };
+            const res = await fetch(UPDATE_CHECK_URL, { headers });
             if (!res.ok) return null;
             const data = await res.json();
-
-            const updateInfo = CUSTOM_UPDATE_CHECK_URL
-                ? data
-                : normalizeGitHubRelease(data, currentVersion);
+            const updateInfo = normalizeGitHubRelease(data, currentVersion);
 
             if (updateInfo.hasUpdate) {
                 console.log(`[Update] New version available: v${updateInfo.latestVersion} (current: v${currentVersion}, ${updateInfo.severity})`);
@@ -124,11 +101,18 @@ function installSystemRoutes(app, {
     }
 
     function normalizeReleaseVersion(value) {
-        return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+        const normalized = String(value || '').trim();
+        if (normalized.toLowerCase().startsWith(RELEASE_TAG_PREFIX)) {
+            return normalized.slice(RELEASE_TAG_PREFIX.length);
+        }
+        return normalized.replace(/^v/i, '');
     }
 
     function normalizeGitHubRelease(release, currentVersion) {
-        const latestVersion = normalizeReleaseVersion(release?.tag_name);
+        const releaseTag = String(release?.tag_name || '').trim();
+        const latestVersion = releaseTag.toLowerCase().startsWith(RELEASE_TAG_PREFIX)
+            ? normalizeReleaseVersion(releaseTag)
+            : '';
         const hasUpdate = !!latestVersion && compareReleaseVersions(latestVersion, currentVersion) > 0;
         return {
             currentVersion,
@@ -144,10 +128,6 @@ function installSystemRoutes(app, {
     }
 
     app.get('/api/public-stats', async (req, res) => {
-        if (!PUBLIC_STATS_URL) {
-            res.status(204).end();
-            return;
-        }
         try {
             const r = await fetch(PUBLIC_STATS_URL);
             if (!r.ok) { res.status(r.status).json({ error: 'upstream error' }); return; }
@@ -160,11 +140,7 @@ function installSystemRoutes(app, {
 
     app.get('/api/update-check', async (req, res) => {
         const currentVersion = getCurrentVersion();
-        if (UPDATE_CHECK_DISABLED) {
-            res.json({ currentVersion, hasUpdate: false, severity: 'none', disabled: true, deploymentType, canSelfUpdate: false });
-            return;
-        }
-        const result = await fetchLatestRelease(req.query.lang);
+        const result = await fetchLatestRelease();
         const response = result || { currentVersion, hasUpdate: false, severity: 'none' };
         response.deploymentType = deploymentType;
         response.canSelfUpdate = deploymentType === 'portable'
@@ -227,7 +203,7 @@ function installSystemRoutes(app, {
             }
 
             // 2. Download
-            tmpDir = path.join(os.tmpdir(), `risu-update-${Date.now()}`);
+            tmpDir = path.join(os.tmpdir(), `${RELEASE_ASSET_PREFIX.toLowerCase()}-update-${Date.now()}`);
             await fs.mkdir(tmpDir, { recursive: true });
             const archivePath = path.join(tmpDir, assetInfo.filename);
 
@@ -313,7 +289,7 @@ function installSystemRoutes(app, {
             // Restore from a previous interrupted update only when its in-progress
             // marker is still there. A leftover backup/ alone is not proof of an
             // interrupted update: on Windows the running launcher exe keeps
-            // backup/PocketRisu.exe locked, so the restart script's rmdir leaves
+            // backup/PocketRisu-Kei.exe locked, so the restart script's rmdir leaves
             // the folder behind after a SUCCESSFUL update — restoring from it
             // would roll the app back to the previous version.
             const prevBackup = path.join(updateTmp, 'backup');

@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — Vietnamese help texts (`language.help`).
+ * Vietnamese help texts (`language.help`).
  *
  * Extracted from `src/lang/vi.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).
@@ -25,7 +25,7 @@ export const helpVi = {
         "regexScript": "Regex Script là tập lệnh tùy chỉnh thay thế chuỗi khớp IN với OUT.\n\nCó bốn lựa chọn loại.\n\n- **Sửa đổi đầu vào** sửa đổi đầu vào của người dùng\n\n- **Sửa đổi đầu ra** sửa đổi đầu ra của ký tự\n\n- **Sửa đổi dữ liệu yêu cầu** sửa đổi dữ liệu trò chuyện hiện tại khi được gửi.\n\n- **Sửa đổi hiển thị** chỉ sửa đổi văn bản khi được hiển thị mà không sửa đổi dữ liệu trò chuyện.\n\nIN phải là biểu thức chính quy không có cờ và không có dấu gạch chéo ở đầu và cuối.\n\nOUT là một chuỗi có thể bao gồm các mẫu thay thế. đây là những mẫu:\n\n- $$\n\n    - chèn $\n\n- $&\n\n    - chèn chuỗi con phù hợp.\n\n- $`\n\n    - chèn phần chuỗi đứng trước chuỗi con phù hợp.\n\n- 1$\n\n    - chèn nhóm phù hợp đầu tiên. làm việc với số khác như 2, 3...\n\n- $(tên)\n\n    - chèn nhóm được đặt tên\n\nNếu OUT bắt đầu bằng **@@**, nó không thay thế chuỗi mà thay vào đó tạo ra hiệu ứng đặc biệt nếu tìm thấy chuỗi trùng khớp.\n\n- @@emo (tên cảm xúc)\n\n    - nếu nhân vật ở chế độ Hình ảnh Cảm xúc, hãy đặt (tên cảm xúc) làm cảm xúc và ngăn mặc định.",
         "exampleMessage": "Các cuộc hội thoại ví dụ ảnh hưởng đến đầu ra của nhân vật. nó không sử dụng mã thông báo vĩnh viễn.\n\nĐịnh dạng ví dụ của cuộc hội thoại:\n\n```\n<BẮT ĐẦU>\n{{user}}: xin chào\n{{char}}: xin chào\n<BẮT ĐẦU>\n{{user}}: xin chào\nHaruhi: xin chào\n```\n\n```<START>``` Đánh dấu sự bắt đầu của một cuộc trò chuyện mới.",
         "creatorQuotes": "Lưu ý rằng xuất hiện trên đầu tin nhắn đầu tiên. Được sử dụng để thông báo cho người dùng về nhân vật này. Nó không đi vào dấu nhắc.",
-        "systemPrompt": "Lời nhắc này không còn được sử dụng và không được đưa vào yêu cầu.",
+        "systemPrompt": "Lời nhắc thay thế lời nhắc chính trong cài đặt nếu nó không trống.",
         "chatNote": "một lưu ý có ảnh hưởng mạnh mẽ đến hành vi của mô hình. được nhúng vào cuộc trò chuyện hiện tại. còn được gọi là bộ nhớ hoặc ujb.",
         "personality": "Mô tả ngắn gọn về tính cách nhân vật.\n\n**Không nên sử dụng tùy chọn này. Thay vào đó hãy mô tả nó bằng phần mô tả nhân vật.**",
         "scenario": "Một mô tả ngắn gọn về kịch bản của nhân vật.\n\n**Không nên sử dụng tùy chọn này. Thay vào đó hãy mô tả nó bằng phần mô tả nhân vật.**",
@@ -46,11 +46,8 @@ export const helpVi = {
         "requestretrys": "Tùy chọn này được sử dụng để đặt số lần thử lại yêu cầu khi yêu cầu thất bại.",
         "emotionPrompt": "Tùy chọn này được sử dụng để đặt lời nhắc được sử dụng để phát hiện cảm xúc. Nếu để trống, nó sẽ sử dụng lời nhắc mặc định.",
         "additionalParams": "Các tham số bổ sung sẽ được thêm vào phần thân yêu cầu. Nếu bạn muốn loại trừ một số tham số, bạn có thể đặt `{{none}}` vào giá trị. Nếu bạn muốn thêm tiêu đề thay vì phần thân, bạn có thể đặt `header::` ở trước khóa như `header::Authorization`. Nếu bạn muốn giá trị ở dạng json, bạn có thể đặt `json::` ở trước giá trị như `json::{\"key\":\"value\"}`. Nếu không, loại giá trị sẽ được xác định tự động.",
-        "antiClaudeOverload": "Nếu xảy ra quá tải Claude, PocketRisu Kei sẽ cố gắng ngăn chặn bằng cách tiếp tục với cùng một lời nhắc, giúp giảm khả năng xảy ra lỗi. Chỉ hoạt động với các phản hồi được truyền trực tuyến. Điều này có thể không hoạt động đối với các điểm cuối api không chính thức.",
         "triggerScript": "Trigger Script là tập lệnh tùy chỉnh chạy khi điều kiện được đáp ứng. Nó có thể được sử dụng để sửa đổi dữ liệu trò chuyện, chạy lệnh, thay đổi biến, v.v. Loại kích hoạt phụ thuộc vào thời điểm kích hoạt. Nó cũng có thể được chạy bằng các nút, có thể được sử dụng với {{button::Display::TriggerName}} hoặc các nút HTML có thuộc tính `risu-trigger=\"<TriggerName>\"`.",
         "combineTranslation": "Nếu được bật, văn bản là một câu nhưng bị tách bởi các thẻ HTML sẽ được kết hợp lại và dịch, sau đó tập lệnh Sửa đổi hiển thị sẽ được áp dụng lại cho đầu ra đã dịch.\nĐiều này giúp trình dịch thực hiện bản dịch chính xác.\nNếu giao diện người dùng trở nên kỳ lạ khi bạn bật tùy chọn này, hãy tắt tùy chọn và báo cáo.",
-        "dynamicAssets": "Nếu được bật, nếu tên tài sản không được tìm thấy khi xử lý dữ liệu, nó sẽ cố gắng tìm tên tài sản gần nhất bằng cách sử dụng tìm kiếm vector và thay thế nó bằng tên tài sản gần nhất.",
-        "dynamicAssetsEditDisplay": "Nếu được bật, tài sản động cũng sẽ được áp dụng cho giai đoạn Sửa đổi hiển thị. Tuy nhiên, điều này có thể gây ra vấn đề về hiệu suất.",
         "nickname": "Biệt danh sẽ được sử dụng trong {{char}} hoặc <char> trong cuộc trò chuyện thay vì tên nhân vật nếu được đặt.",
         "useRegexLorebook": "Nếu được bật, nó sẽ sử dụng regex để tìm kiếm lorebook, thay vì khớp chuỗi. Nó sử dụng định dạng /regex/flags.",
         "customChainOfThought": "Cảnh báo: chuyển đổi chuỗi suy nghĩ không còn được khuyến nghị sử dụng. Hãy đặt lời nhắc chuỗi suy nghĩ vào các mục lời nhắc khác.",
@@ -86,5 +83,5 @@ export const helpVi = {
         "promptInfoInsideChatDesc": "Khi được bật, tính năng này lưu trữ thông tin cài đặt trước lời nhắc trong siêu dữ liệu trò chuyện. Dữ liệu được lưu trữ bao gồm tên cài đặt trước, các chuyển đổi đang hoạt động và văn bản lời nhắc. Điều này có thể làm tăng nhẹ thời gian xử lý và dung lượng lưu trữ.",
         "settingsCloseButtonSize": "Điều chỉnh kích thước nút đóng (X) ở góc trên bên phải cửa sổ cài đặt. Mặc định là 24.",
         "hideAllImagesDesc": "Ẩn biểu tượng bot, tài nguyên hình ảnh bot và ảnh bìa RisuRealm.",
-        "embedding": "Mô hình nhúng được sử dụng cho tìm kiếm tương đồng trên nhiều tính năng:\n\n- **Bộ nhớ dài hạn**: HypaV2, HypaV3, Bộ nhớ Hanurai và SupaMemory (khi bật HypaMemory)\n- **Văn bản bổ sung**: Khớp thông tin bổ sung của nhân vật dựa trên ngữ cảnh\n- **Tài sản động**: Tìm tên tài sản tương tự khi không tìm thấy kết quả khớp chính xác\n- **Hình ảnh cảm xúc**: Khi phương pháp Cảm xúc được đặt thành 'embedding'\n- **Tập lệnh kích hoạt**: Các điều kiện tương đồng trong tập lệnh kích hoạt\n- **Tệp đính kèm**: Tìm kiếm trong các tệp đính kèm PDF/TXT/XML",
+        "embedding": "Mô hình nhúng được sử dụng cho tìm kiếm tương đồng trên nhiều tính năng:\n\n- **Bộ nhớ dài hạn**: HypaV3 (khi bật HypaMemory)\n- **Văn bản bổ sung**: Khớp thông tin bổ sung của nhân vật dựa trên ngữ cảnh\n- **Tài sản động**: Tìm tên tài sản tương tự khi không tìm thấy kết quả khớp chính xác\n- **Hình ảnh cảm xúc**: Khi phương pháp Cảm xúc được đặt thành 'embedding'\n- **Tập lệnh kích hoạt**: Các điều kiện tương đồng trong tập lệnh kích hoạt\n- **Tệp đính kèm**: Tìm kiếm trong các tệp đính kèm PDF/TXT/XML",
     }

@@ -376,6 +376,13 @@ export function updateColorScheme(){
         document.documentElement.style.setProperty("--risu-theme-primary", colorScheme.primary);
         document.documentElement.style.setProperty("--risu-theme-accent", colorScheme.accent);
         document.documentElement.style.setProperty("--risu-theme-scoped", colorScheme.scoped);
+        let themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        if (!themeColor) {
+            themeColor = document.createElement('meta')
+            themeColor.name = 'theme-color'
+            document.head.append(themeColor)
+        }
+        themeColor.content = colorScheme.lightbg
         cacheColorSchemeForNextLoad(colorScheme)
         ColorSchemeTypeStore.set(colorScheme.type)
     } catch (error) {}

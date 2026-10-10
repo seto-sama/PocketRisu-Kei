@@ -27,15 +27,6 @@ export function clonePresetWithNewId<T extends object>(source: T): T & { id: str
     return { ...structuredClone(source), id: createEntityId() }
 }
 
-export function ensurePresetIds<T extends { id?: string }>(
-    items: T[],
-    createId: () => string = createEntityId,
-): void {
-    for (const item of items) {
-        if (!item.id) item.id = createId()
-    }
-}
-
 export function appendPresetItem<T>(items: T[], item: T): PresetCollectionInsertResult<T> {
     const next = [...items, item]
     return {

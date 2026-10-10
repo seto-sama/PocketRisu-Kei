@@ -5,6 +5,7 @@ const {
     MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES, MAX_IMAGE_RESULT_MESSAGE_BYTES,
 } = require('../protocol.cjs');
 const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
+const { codes, sendApiError } = require('../../apiErrors.cjs');
 
 function installImageGenerationJobRoutes(app, { checkProxyAuth, requireSyncClientId, service }) {
     const { jobs, publicJob, createJob, setProgress, finishBridgeJob, completeBridgeJob } = service;
@@ -56,16 +57,8 @@ function installImageGenerationJobRoutes(app, { checkProxyAuth, requireSyncClien
             res.status(400).send({ error: 'Invalid ComfyUI image generation spec' });
             return;
         }
-        try {
-            const job = createJob({ jobId, provider, spec });
-            sendJob(req, res, job);
-        } catch (error) {
-            if (error?.code === 'IMAGE_JOB_LIMIT') {
-                res.status(429).send({ error: error.message });
-                return;
-            }
-            throw error;
-        }
+        const job = createJob({ jobId, provider, spec });
+        sendJob(req, res, job);
     });
 
     app.get('/api/image-generation/jobs/:jobId', async (req, res) => {
@@ -123,7 +116,7 @@ function installImageGenerationJobRoutes(app, { checkProxyAuth, requireSyncClien
         const job = getBridgeJob(req, res);
         if (!job) return;
         if (req.body?.promptId !== job.providerHandle?.promptId) {
-            res.status(409).send({ error: 'ComfyUI prompt does not match this job' });
+            sendApiError(res, 409, codes.COMFY_PROMPT_MISMATCH);
             return;
         }
         setProgress(job, Number(req.body?.value), Number(req.body?.max), req.body?.node);
@@ -139,7 +132,7 @@ function installImageGenerationJobRoutes(app, { checkProxyAuth, requireSyncClien
         const job = getBridgeJob(req, res);
         if (!job) return;
         if (req.body?.promptId !== job.providerHandle?.promptId) {
-            res.status(409).send({ error: 'ComfyUI prompt does not match this job' });
+            sendApiError(res, 409, codes.COMFY_PROMPT_MISMATCH);
             return;
         }
         if (job.status === 'completed') {

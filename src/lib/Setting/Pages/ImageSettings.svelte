@@ -193,7 +193,7 @@
                     </Select>
                 {/snippet}
             </SettingLayout>
-            <SettingRenderer items={emotionPromptItems} layout="row" />
+            <SettingRenderer items={emotionPromptItems} layout="row" hideFirstDivider={false} />
         </div>
     </SettingLayout>
 
@@ -222,6 +222,9 @@
             <SelectOption value="comfyui" >ComfyUI</SelectOption>
           </Select>
           {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="row" title={language.imageSettings.animaArtistTagCompatibility} description={language.help.animaArtistTagCompatibility}>
+          {#snippet control()}<Switch bind:checked={settings.animaArtistTagCompatibility}/>{/snippet}
         </SettingLayout>
 
         {#if settings.sdProvider === 'novelai'}

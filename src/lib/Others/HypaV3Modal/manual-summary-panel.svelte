@@ -193,7 +193,7 @@
     }
   }
 
-  async function buildManualSummaryInput(): Promise<{ oaiMessages: OpenAIChat[]; chatMemos: string[]; selectedIndices: number[] }> {
+  async function buildManualSummaryInput(): Promise<{ oaiMessages: OpenAIChat[]; chatMemos: (string | null)[]; selectedIndices: number[] }> {
     const shouldProcess = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.processRegexScript ?? false;
     const selectedMessages = getSortedSelectedManualSummaryMessages();
     const processedMessages: Message[] = [];
@@ -218,7 +218,7 @@
         role: (message.role === "char" ? "assistant" : message.role) as OpenAIChat["role"],
         content: message.data,
       })),
-      chatMemos: selectedMessages.map((message) => message.chatMemo) as string[],
+      chatMemos: selectedMessages.map((message) => message.chatMemo ?? null),
       selectedIndices: selectedMessages.map((message) => message.index),
     };
   }

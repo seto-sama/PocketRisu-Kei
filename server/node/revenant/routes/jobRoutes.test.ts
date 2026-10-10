@@ -49,8 +49,8 @@ describe('generation job creation route', () => {
             scheduleGenerationDispatch: vi.fn(),
             scheduleHypaWorkflowExecution: vi.fn(),
             generationRuntimeJobs: new Map(),
-            countActiveGenerationJobs: vi.fn(() => 0),
-            maxActiveJobs: 10,
+            countActiveProviderJobs: vi.fn(() => 0),
+            capacity: { maxActiveWorkflows: 5, maxActiveProviderJobs: 10 },
             randomUUID: vi.fn(() => 'job-1'),
             terminateGenerationWorkflow: vi.fn(),
             createGenerationJob: repository.createGenerationJob,
@@ -61,7 +61,8 @@ describe('generation job creation route', () => {
         await routes.get('/api/generation/jobs')?.(
             {
                 body: Buffer.from(encodeGenerationRequest({
-                    url: 'https://provider.example/v1/chat',
+                    url: 'https://provider.example/v1beta/models/gemini-test:generateContent',
+                    adapterKind: 'google-gemini',
                     body: Uint8Array.of(0, 255, 128, 10),
                 })),
                 headers: {},

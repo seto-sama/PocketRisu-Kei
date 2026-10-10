@@ -8,7 +8,7 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
-    import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess } from "src/ts/alert";
+    import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess, notifyInfo } from "src/ts/alert";
     import { clearLLMCache, deleteLLMCache, exportLLMCacheAsJSON, importLLMCacheFromJSON, setLLMCache } from "src/ts/translator/translator";
     import { listLLMCacheEntries, loadLLMCacheEntriesInBackground } from "./translationCacheEntries";
     import { downloadFile } from "src/ts/globalApi.svelte";
@@ -176,8 +176,8 @@
                 alertNormal(language.exportTranslationCacheEmpty);
                 return;
             }
-            await downloadFile("translation_cache.json", new TextEncoder().encode(JSON.stringify(cache, null, 2)));
-            alertNormal(language.exportTranslationCacheSuccess);
+            await downloadFile("translation_cache.json", JSON.stringify(cache, null, 2));
+            notifyInfo(language.browserDownloadStarted);
         } catch (error: any) {
             alertError(error?.message ?? String(error));
         }

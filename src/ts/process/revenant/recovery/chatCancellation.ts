@@ -5,7 +5,6 @@ import { buildRerollSwipeMetadata } from './chatGenerationTarget'
 export interface CancelledGenerationProjection {
     messageChatId: string
     content: string
-    isContinuation: boolean
     targetMessage?: Message
     rerollSnapshot?: RevenantRerollSnapshot
 }
@@ -38,7 +37,7 @@ export function applyCancelledGenerationProjection(
                 ...structuredClone(snapshot.trailingMessages),
             )
         }
-        else if (!projection.isContinuation) {
+        else {
             chat.message = chat.message.filter(message =>
                 message !== target && message?.chatId !== projection.messageChatId)
         }

@@ -21,6 +21,7 @@ import type {
     RevenantJobCreatedHandler,
 } from '../types'
 import { observeRevenantWorkflowRequests } from '../workflow/requestStatus'
+import { localizedApiErrorMessage, readApiErrorPayload } from 'src/ts/network/apiError'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
@@ -39,6 +40,7 @@ export class GenerationJobRegistrationError extends Error {
     constructor(
         readonly status: number,
         detail: string,
+        readonly code?: string,
     ) {
         super(`Failed to create generation job: ${status} ${detail}`)
         this.name = 'GenerationJobRegistrationError'
@@ -234,7 +236,16 @@ export async function fetchViaGenerationJob(url: string, arg: {
     })
 
     if (!jobRes.ok) {
-        throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
+        const payload = await readApiErrorPayload(jobRes)
+        throw new GenerationJobRegistrationError(
+            jobRes.status,
+            localizedApiErrorMessage({
+                code: payload.code,
+                message: payload.message,
+                status: jobRes.status,
+            }),
+            payload.code,
+        )
     }
 
     const { jobId, createdAt, workflowId } = await jobRes.json() as {

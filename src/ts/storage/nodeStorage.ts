@@ -1,21 +1,24 @@
-import { encodeAssetBatch, decodeAssetBatch } from './assetTransport'
+import { encodeAssetBatch, decodeAssetBatch, getAssetUrl } from './assetTransport'
+import { downloadUrl } from '../download'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
-// ── NodeOnly: server-side JWT ────────────────────────────────────────────────
 // Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
-// Context (HTTPS/localhost). NodeOnly needs HTTP remote access, so JWT
-// signing is moved to the server. The client only caches and forwards
-// server-issued tokens. If upstream changes its auth flow, sync manually.
+// Context (HTTPS/localhost). To support remote access over plain HTTP, signing
+// happens on the server; the client only caches and forwards issued tokens.
+// If upstream changes its auth flow, sync manually.
 // Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
 // /api/login, /api/token/refresh)
 import { language } from "src/lang"
-import { alertInput, waitAlert, notifyError } from "../alert"
-import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
+import { alertInput } from "../alert"
+import { decodeRisuSave } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
-import { CHAT_CONTENT_READ_POLICY, storageRequestError, StorageRequestError } from './storageRequest'
+import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../network/apiError'
+import { CHAT_CONTENT_READ_POLICY, ConflictError, storageRequestError, StorageRequestError } from './storageRequest'
+export { ConflictError } from './storageRequest'
 import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
 import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
+import { type createDelta } from '../../../shared/guardedDelta.mjs'
 import type {
     BookmarkCatalog,
     BookmarkCompatibilityResult,
@@ -26,24 +29,12 @@ const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
 function serverErrorMessage(body: any, fallback: string): string {
-    switch (body?.code) {
-        case 'BACKUP_ENCRYPTION_METADATA_INVALID': return language.errors.backupEncryptionMetadataInvalid
-        case 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE': return language.errors.backupEncryptionKeyUnavailable
-        case 'BACKUP_DECRYPTION_FAILED': return language.errors.backupDecryptionFailed
-        case 'UNSUPPORTED_REMOTE_SAVE': return language.unsupportedRemoteSave
-    }
-    return typeof body?.error === 'string' ? body.error
-        : typeof body?.message === 'string' ? body.message : fallback
-}
-
-// Custom error class for database conflict detection
-export class ConflictError extends Error {
-    currentEtag: string
-    constructor(message: string, currentEtag: string) {
-        super(message)
-        this.name = 'ConflictError'
-        this.currentEtag = currentEtag
-    }
+    return localizedApiErrorMessage({
+        code: typeof body?.code === 'string' ? body.code : undefined,
+        message: typeof body?.error === 'string' ? body.error
+            : typeof body?.message === 'string' ? body.message : '',
+        fallback,
+    })
 }
 
 // Warning the server attaches to /api/patch responses when the most recent
@@ -59,6 +50,7 @@ export interface PatchItemResult {
     conflictCode?: string
     currentHash?: string
     hashDiagnostics?: PatchHashDiagnostics
+    conflicts?: unknown[]
     success: boolean
     etag?: string
     revision?: number
@@ -67,6 +59,9 @@ export interface PatchItemResult {
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
 }
+
+export type DeltaPatch = { changes: ReturnType<typeof createDelta> }
+type ProjectionPatch = DeltaPatch | { patch: any[], expectedHash: string }
 
 export interface DatabaseProjection<T = unknown> {
     database: T | null
@@ -218,21 +213,8 @@ export class NodeStorage{
             }
         })
 
-        if(response.status === 429){
-            notifyError(`Too many attempts. Please wait and try again later.`)
-            await waitAlert()
-            throw new Error('Too many login attempts')
-        }
-
         if(response.status < 200 || response.status >= 300){
-            let message = 'Node login failed'
-            try {
-                const data = await response.json()
-                message = data.error ?? message
-            } catch {
-                // noop
-            }
-            throw new Error(message)
+            throw await apiRequestError(response, 'Node login failed')
         }
 
         const data = await response.json()
@@ -243,16 +225,14 @@ export class NodeStorage{
     }
 
     private async shouldRetryAuth(response: Response) {
-        if(response.status !== 400 && response.status !== 401){
-            return false
-        }
+        if(response.status !== 401) return false
 
         try {
             const data = await response.clone().json()
             return [
-                'Invalid Signature',
-                'Token Expired'
-            ].includes(data?.error)
+                apiErrorCodes.AUTH_INVALID_TOKEN,
+                apiErrorCodes.AUTH_TOKEN_EXPIRED,
+            ].includes(data?.code)
         } catch {
             return false
         }
@@ -299,14 +279,14 @@ export class NodeStorage{
         })
         if(da.status === 409){
             const data = await da.json()
-            throw new ConflictError(data.error, data.currentEtag)
+            throw new ConflictError(data.error, data.currentEtag, data.code)
         }
         if(da.status < 200 || da.status >= 300){
             throw await storageRequestError('setItem', da)
         }
         const data = await da.json()
         if(data.error){
-            throw new StorageRequestError('setItem', da.status, String(data.error))
+            throw new StorageRequestError('setItem', da.status, String(data.error), data.code)
         }
         const nextEtag = data.etag as string | undefined
         if (key === 'database/database.bin' && nextEtag) {
@@ -439,7 +419,7 @@ export class NodeStorage{
                 })
 
                 if(response.status < 200 || response.status >= 300){
-                    throw new Error('Failed to set node password')
+                    throw await apiRequestError(response, 'Failed to set node password')
                 }
 
                 await this.loginWithPassword(input)
@@ -554,6 +534,7 @@ export class NodeStorage{
         })
         if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
+            code?: string
             error?: string
             etag?: string
             currentEtag?: string
@@ -570,7 +551,7 @@ export class NodeStorage{
             return { success: false, conflict: true, etag, revision }
         }
         if (data.error) {
-            throw new StorageRequestError('initializeDatabase', response.status, data.error)
+            throw new StorageRequestError('initializeDatabase', response.status, data.error, data.code)
         }
         return {
             success: true,
@@ -581,7 +562,7 @@ export class NodeStorage{
     }
 
     /** Apply metadata changes to the relational database projection. */
-    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+    async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
         return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
     }
 
@@ -591,15 +572,13 @@ export class NodeStorage{
 
     private async sendPatch(
         endpoint: string,
-        patchData: { patch: any[], expectedHash: string },
+        patchData: ProjectionPatch,
         tracksDatabase: boolean,
         key?: string,
         method: 'POST' | 'PATCH' = 'POST',
     ): Promise<PatchItemResult> {
-        // An empty JSON Patch is the identity operation. It has no write intent,
-        // so it must not enter the network/CAS lane with a potentially stale
-        // hash while a server-owned generation commit is advancing the DB.
-        if (patchData.patch.length === 0) return { success: true }
+        // Empty changes have no write intent and need no network request.
+        if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
 
         const headers: Record<string, string> = {
@@ -627,12 +606,7 @@ export class NodeStorage{
             if (tracksDatabase && Number.isSafeInteger(currentRevision)) {
                 this._lastDbRevision = currentRevision as number
             }
-            // Server signals chat-guard rejection via explicit fields. The
-            // error string fallback is kept for forward-compat with deployed
-            // servers that haven't shipped the explicit fields yet.
-            const rejectedByChatGuard = data.chatGuardRejected === true
-                || data.code === 'CHAT_GUARD_REJECTED'
-                || (typeof data.error === 'string' && data.error.includes('chat-internal field ops'))
+            const rejectedByChatGuard = data.code === apiErrorCodes.CHAT_GUARD_REJECTED
             return {
                 success: false,
                 etag: currentEtag,
@@ -642,6 +616,7 @@ export class NodeStorage{
                 currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
                 hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
+                conflicts: Array.isArray(data.conflicts) ? data.conflicts : undefined,
             }
         }
         if (da.status < 200 || da.status >= 300) {
@@ -649,7 +624,7 @@ export class NodeStorage{
         }
         const data = await da.json()
         if (data.error) {
-            throw new StorageRequestError(operation, da.status, String(data.error))
+            throw new StorageRequestError(operation, da.status, String(data.error), data.code)
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
@@ -692,16 +667,30 @@ export class NodeStorage{
         }
     }
 
-    async exportBackup(opts?: ExportBackupOptions): Promise<Response> {
+    async downloadBackupExport(opts?: ExportBackupOptions): Promise<void> {
         const params = new URLSearchParams()
         if(opts?.target === 'upstream') params.set('target', 'upstream')
         if(opts?.mode === 'settings') params.set('mode', 'settings')
         if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
         const query = params.toString()
         const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
-        const da = await this.authFetch(url)
-        if (da.status < 200 || da.status >= 300) throw `backup export error: ${da.status}`
-        return da
+        await this.startCookieDownload(url)
+    }
+
+    private async startCookieDownload(url: string): Promise<void> {
+        // Refresh only the download cookie, without registering a sync client.
+        const response = await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'risu-auth': await this.createAuth() },
+        })
+        if (!response.ok) throw await storageRequestError('startCookieDownload', response)
+        downloadUrl(url)
+    }
+
+    async downloadAsset(key: string, filename?: string): Promise<void> {
+        const params = new URLSearchParams({ download: '1' })
+        if (filename) params.set('filename', filename)
+        await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
     }
 
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
@@ -716,14 +705,7 @@ export class NodeStorage{
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ size }),
         })
-        if (da.status === 409) throw new Error('Another import is already in progress')
-        if (da.status === 413) throw new Error('Backup file is too large')
-        if (da.status === 507) {
-            const body = await da.json().catch(() => ({}))
-            const avail = body.available != null ? ` (available: ${Math.round(body.available / 1024 / 1024)} MB)` : ''
-            throw new Error(`Insufficient disk space${avail}`)
-        }
-        if (da.status < 200 || da.status >= 300) throw new Error(`backup prepare error: ${da.status}`)
+        if (!da.ok) throw await storageRequestError('prepareImport', da)
     }
 
     async importBackup(
@@ -817,8 +799,7 @@ export class NodeStorage{
             body: JSON.stringify({ note }),
         })
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup save error: ${da.status}`)
+            throw await storageRequestError('saveServerBackup', da)
         }
 
         const reader = da.body!.getReader()
@@ -840,7 +821,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup save failed'))
                 }
             }
         }
@@ -866,11 +847,8 @@ export class NodeStorage{
             },
             body: JSON.stringify({ filename }),
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(serverErrorMessage(body, `server backup restore error: ${da.status}`))
+            throw await storageRequestError('restoreServerBackup', da)
         }
 
         const reader = da.body!.getReader()
@@ -921,11 +899,8 @@ export class NodeStorage{
             },
             body: JSON.stringify({ filename }),
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
-            const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup asset restore error: ${da.status}`)
+            throw await storageRequestError('restoreMissingServerBackupAssets', da)
         }
 
         const reader = da.body!.getReader()
@@ -956,7 +931,7 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(serverErrorMessage(msg, 'Server backup asset restore failed'))
                 }
             }
         }
@@ -968,15 +943,11 @@ export class NodeStorage{
         const da = await this.authFetch(`/api/backup/server/${encodeURIComponent(filename)}`, {
             method: 'DELETE',
         })
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status < 200 || da.status >= 300) throw new Error(`server backup delete error: ${da.status}`)
+        if (!da.ok) throw await storageRequestError('deleteServerBackup', da)
     }
 
-    async downloadServerBackup(filename: string): Promise<Response> {
-        const da = await this.authFetch(`/api/backup/server/download/${encodeURIComponent(filename)}`)
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status < 200 || da.status >= 300) throw new Error(`server backup download error: ${da.status}`)
-        return da
+    async downloadServerBackup(filename: string): Promise<void> {
+        await this.startCookieDownload(`/api/backup/server/download/${encodeURIComponent(filename)}`)
     }
 
     // ── Chat content (runtime lazy load) ────────────────────────────────────
@@ -1056,48 +1027,37 @@ export class NodeStorage{
         return await da.json() as BookmarkCompatibilityResult
     }
 
-    async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
+    async fetchChatState(chaId: string, chatIndex: number, chatId: string): Promise<{ chat: any, baseline: any, etag?: string } | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             headers: { 'x-chat-id': chatId },
         }, CHAT_CONTENT_READ_POLICY)
         if (da.status === 404) return null
-        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatContent', da)
+        if (da.status < 200 || da.status >= 300) throw await storageRequestError('fetchChatState', da)
         const etag = da.headers.get('x-chat-etag')
-        if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
         const buffer = new Uint8Array(await da.arrayBuffer())
-        return normalizeChat(await decodeRisuSave(buffer))
+        const decoded = await decodeRisuSave(buffer)
+        const baseline = JSON.parse(JSON.stringify(decoded))
+        const chat = normalizeChat(decoded)
+        if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
+        return { chat, baseline, etag: etag ?? undefined }
     }
 
-    async saveChatContent(
-        chaId: string,
-        chatIndex: number,
-        chatId: string,
-        chat: any,
-        commit?: { expectedEtag?: string },
-    ): Promise<void> {
-        const encoded = encodeRisuSaveLegacy(chat)
-        const chatKey = `${chaId}\u0000${chatId}`
-        const headers: Record<string, string> = {
-            'content-type': 'application/octet-stream',
-            'x-chat-id': chatId,
-        }
-        const expectedEtag = commit
-            ? commit.expectedEtag
-            : this.chatEtags.get(chatKey)
-        if (expectedEtag) headers['x-chat-if-match'] = expectedEtag
-        const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
-            method: 'POST',
-            headers,
-            body: encoded,
+    async patchChatContent(chaId: string, chatIndex: number, chatId: string, patch: DeltaPatch): Promise<{ etag: string }> {
+        const response = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json', 'x-chat-id': chatId },
+            body: JSON.stringify(patch),
         })
-        if (da.status === 409) {
-            const data = await da.json().catch(() => ({}))
-            throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '')
+        if (response.status === 409) {
+            const data = await response.json().catch(() => ({}))
+            throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '', data.code)
         }
-        if (da.status < 200 || da.status >= 300) throw await storageRequestError('saveChatContent', da)
-        const data = await da.json()
-        if (data.error) throw new StorageRequestError('saveChatContent', da.status, String(data.error))
-        if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
+        if (!response.ok) throw await storageRequestError('patchChatContent', response)
+        const result = await response.json()
+        if (result.error) throw new StorageRequestError('patchChatContent', response.status, String(result.error), result.code)
+        if (typeof result.etag !== 'string') throw new Error('Chat patch response has no ETag')
+        this.chatEtags.set(`${chaId}\u0000${chatId}`, result.etag)
+        return { etag: result.etag }
     }
 
     getChatEtag(chaId: string, chatId: string): string | undefined {
@@ -1121,7 +1081,7 @@ async function digestPassword(message:string) {
         method: "POST"
     })
     if(res.status < 200 || res.status >= 300){
-        throw new Error(`Password hashing failed (${res.status})`)
+        throw await apiRequestError(res, 'Password hashing failed')
     }
     return await res.text()
 }

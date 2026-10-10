@@ -86,11 +86,6 @@ export function buildGenerationRequest(
             streaming: arg.revenantStreaming,
             characterId,
             roomId,
-            isContinuation: arg.continue === true,
-            continuationPrefix: arg.continue
-                ? arg.revenantContinuationPrefix
-                    ?? activeChat?.message?.at(-1)?.data
-                : undefined,
             operationContext: arg.revenantOperationContext,
             dispatchPolicy: arg.revenantDispatchPolicy,
             ...usageIdentity,

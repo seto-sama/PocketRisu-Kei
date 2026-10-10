@@ -1,11 +1,11 @@
 import { type HypaModel, type memoryVector, HypaProcesser, DEFAULT_HYPA_MODEL, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
-import { TaskRateLimiter } from "./taskRateLimiter";
+import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
 import {
     type EmbeddingText,
     type EmbeddingResult,
-    HypaProcessorV2,
-} from "./hypamemoryv2";
+    HypaEmbeddingProcessor,
+} from "./hypaEmbeddingProcessor";
 import { type DisplayMode as ModalDisplayMode } from "src/lib/Others/HypaV3Modal/types";
 import { parseChatML } from "src/ts/parser/chatML";
 import {
@@ -17,7 +17,6 @@ import {
 import { type OpenAIChat } from "../index.svelte";
 import { requestChatData } from "../request/request";
 import {
-    resolveChatMaxResponseTokens,
     resolveChatModelBinding,
 } from "../request/modelPresetBinding";
 import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
@@ -36,11 +35,6 @@ import {
 } from "../revenant";
 import { createEntityId } from 'src/ts/id';
 import type { PresetTagFields } from "src/ts/preset/tags";
-import {
-    getRevenantHypaExecution,
-    prepareRevenantHypaExecution,
-    waitForRevenantHypaExecution,
-} from "../revenant/workflow";
 
 export interface HypaV3Preset extends PresetTagFields {
     id: string;
@@ -49,7 +43,6 @@ export interface HypaV3Preset extends PresetTagFields {
 }
 
 export interface HypaV3Settings {
-    summarizationModel: string;
     summarizationPrompt: string;
     reSummarizationPrompt: string;
     memoryTokensRatio: number;
@@ -62,11 +55,8 @@ export interface HypaV3Settings {
     processRegexScript: boolean;
     doNotSummarizeUserMessage: boolean;
     summaryChunkSeparator: string;
-    // Experimental
     useExperimentalImpl: boolean;
-    summarizationRequestsPerMinute: number;
     summarizationMaxConcurrent: number;
-    embeddingRequestsPerMinute: number;
     embeddingMaxConcurrent: number;
     alwaysToggleOn: boolean;
     queryChatCount: number;
@@ -75,7 +65,6 @@ export interface HypaV3Settings {
 interface HypaV3Data {
     summaries: Summary[];
     categories?: { id: string; name: string }[];
-    lastSelectedSummaries?: number[]; // legacy
     metrics?: {
         lastImportantSummaries: number[];
         lastRecentSummaries: number[];
@@ -98,14 +87,14 @@ export interface SerializableHypaV3Data extends Omit<HypaV3Data, "summaries"> {
 
 interface Summary {
     text: string;
-    chatMemos: Set<string>;
+    chatMemos: Set<string | undefined>;
     isImportant: boolean;
     categoryId?: string;
     tags?: string[];
 }
 
 export interface SerializableSummary extends Omit<Summary, "chatMemos"> {
-    chatMemos: string[];
+    chatMemos: (string | null)[];
 }
 
 interface SummaryChunk {
@@ -125,26 +114,29 @@ export interface HypaV3Result {
 export interface HypaV3ExecutionOptions {
     /** Placeholder used to pre-register main while server-side selection runs. */
     deferredMemoryPrompt?: string;
-    /** Called when prompt construction must wait for browser-side Lua. */
-    onRemoteSelectionRequiresClient?: () => Promise<void>;
-    workflowId?: string;
     planServerExecution?: boolean;
     signal?: AbortSignal;
 }
 
-interface RevenantHypaSelectionResult {
-    currentTokens: number;
-    memory: SerializableHypaV3Data;
-    chatSequence: Array<{
-        inputIndex?: number;
-        inputMemo?: string;
-        chat?: OpenAIChat;
-    }>;
-}
-
 const logPrefix = "[HypaV3]";
+export const HYPA_CONCURRENT_REQUEST_MIN = 1;
+export const HYPA_CONCURRENT_REQUEST_MAX = 12;
+export const HYPA_CHAT_COUNT_MIN = 1;
+export const HYPA_CHAT_COUNT_MAX = 12;
 const memoryPromptTag = "Past Events Summary";
 const summarySeparator = "\n\n";
+
+function getRecentHypaQueryChats(chats: OpenAIChat[], count: number): OpenAIChat[] {
+    const recentChats: OpenAIChat[] = [];
+    for (let index = chats.length - 1; index >= 0 && recentChats.length < count; index--) {
+        const chat = chats[index];
+        if (chat.memo === "NewChat" || chat.memo === "NewChatExample"
+            || chat.name === "example_user" || chat.name === "example_assistant"
+            || chat.content.trim().length === 0) continue;
+        recentChats.unshift(chat);
+    }
+    return recentChats;
+}
 
 function canUseDurableHypaDispatch(room: Chat): boolean {
     try {
@@ -211,11 +203,11 @@ function planServerHypaSelection(input: {
     const batchId = createEntityId();
     const summaryRequests = batches.map(batch => ({
         operationId: createEntityId(),
-        chatMemos: batch.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+        chatMemos: batch.map(chat => chat.memo ?? null),
         prompt: buildHypaSummaryPrompt(batch, settings),
         purpose: 'memory',
     }));
-    const recentChats = chats.slice(-settings.queryChatCount).filter(chat => chat.content.trim());
+    const recentChats = getRecentHypaQueryChats(chats, settings.queryChatCount);
     if (!settings.useExperimentalImpl && settings.enableSimilarityCorrection
         && settings.similarMemoryRatio > 0 && recentChats.length > 1
         && (data.summaries.length > 0 || batches.length > 0)) {
@@ -239,8 +231,7 @@ function planServerHypaSelection(input: {
             summaryRequests,
             summaryProvider: structuredClone(binding.preset),
             summaryDispatch: {
-                maxConcurrent: settings.useExperimentalImpl ? settings.summarizationMaxConcurrent : 1,
-                requestsPerMinute: settings.summarizationRequestsPerMinute,
+                maxConcurrent: settings.summarizationMaxConcurrent,
             },
             embedding: getRemoteEmbeddingConfig(getDatabase().hypaModel || DEFAULT_HYPA_MODEL),
             tokenizer: tokenizer.getRevenantSpec(),
@@ -249,6 +240,7 @@ function planServerHypaSelection(input: {
                 similarMemoryRatio: settings.similarMemoryRatio,
                 queryChatCount: settings.queryChatCount,
                 summaryChunkSeparator: settings.summaryChunkSeparator,
+                embeddingMaxConcurrent: settings.embeddingMaxConcurrent,
                 queryMode: settings.useExperimentalImpl ? 'paragraph' : 'chat',
             },
             memory,
@@ -264,29 +256,20 @@ function planServerHypaSelection(input: {
 
 async function executeDurableHypaBatch<T>(
     tasks: Array<(onRegistered: () => void) => Promise<T>>,
-    onAllRegistered?: () => Promise<boolean|void>,
-    detachAfterRegistration = false,
 ): Promise<{
     results: Array<{ success: boolean; data?: T; error?: Error }>;
-    successCount: number;
-    failureCount: number;
-    allSucceeded: boolean;
-    detached?: boolean;
 }> {
     const running: Promise<{ success: boolean; data?: T; error?: Error }>[] = [];
-    let allRegistered = true;
     // Compile and register each provider envelope in order, but do not wait for
     // its provider response. Once registered, the durable server dispatcher
-    // owns concurrency/rate limiting and the next envelope can be submitted.
+    // owns concurrency limiting and the next envelope can be submitted.
     for (const task of tasks) {
-        let jobRegistered = false;
         let registrationReleased = false;
         let releaseRegistration!: () => void;
         const registration = new Promise<void>(resolve => {
             releaseRegistration = resolve;
         });
         const markRegistered = () => {
-            jobRegistered = true;
             if (registrationReleased) return;
             registrationReleased = true;
             releaseRegistration();
@@ -304,26 +287,77 @@ async function executeDurableHypaBatch<T>(
         });
         running.push(result);
         await registration;
-        allRegistered &&= jobRegistered;
-    }
-    const canDetach = allRegistered && (await onAllRegistered?.()) !== false;
-    if (detachAfterRegistration && canDetach) {
-        void Promise.all(running);
-        return {
-            results: [],
-            successCount: 0,
-            failureCount: 0,
-            allSucceeded: true,
-            detached: true,
-        };
     }
     const results = await Promise.all(running);
-    const successCount = results.filter(result => result.success).length;
-    const failureCount = results.length - successCount;
-    return { results, successCount, failureCount, allSucceeded: failureCount === 0 };
+    return { results };
 }
 
-function sameMemoSet(left: string[], right: string[]): boolean {
+async function executeHypaSummaryBatches(
+    batches: OpenAIChat[][],
+    settings: HypaV3Settings,
+    char: character,
+    room: Chat,
+): Promise<string[]> {
+    if (batches.length === 0) return [];
+
+    const concurrencyLimiter = new TaskConcurrencyLimiter({
+        maxConcurrentTasks: settings.summarizationMaxConcurrent,
+    });
+    concurrencyLimiter.taskQueueChangeCallback = () => {
+        hypaV3ProgressStore.set({
+            open: true,
+            miniMsg: `${concurrencyLimiter.queuedTaskCount}`,
+            msg: `${logPrefix} Summarizing...`,
+            subMsg: `${concurrencyLimiter.queuedTaskCount} queued`,
+        });
+    };
+
+    const batchId = createEntityId();
+    const useDurableDispatch = canUseDurableHypaDispatch(room);
+    const operationIds = batches.map(() => createEntityId());
+    const tasks = batches.map(
+        (batch, index) => (onRegistered?: () => void) => summarize(batch, false, {
+            revenantTarget: {
+                characterId: char.chaId,
+                roomId: room.id,
+                batchId,
+                operationId: operationIds[index],
+                chatMemos: batch.map(chat => chat.memo ?? null),
+                dispatchPolicy: useDurableDispatch ? {
+                    maxConcurrent: settings.summarizationMaxConcurrent,
+                } : undefined,
+                onJobCreated: onRegistered,
+            },
+        })
+    );
+
+    console.log(logPrefix, `Starting ${batches.length} summarization.`);
+    const startedAt = performance.now();
+    try {
+        const batchResult = useDurableDispatch
+            ? await executeDurableHypaBatch<string>(tasks)
+            : await concurrencyLimiter.executeBatch<string>(
+                tasks.map(task => () => task())
+            );
+        console.debug(
+            `${logPrefix} summarization completed in ${performance.now() - startedAt}ms`
+        );
+        return batchResult.results.map(result => {
+            if (!result.success) throw result.error;
+            if (!result.data) throw new Error("Empty summary returned");
+            return result.data;
+        });
+    } finally {
+        hypaV3ProgressStore.set({
+            open: false,
+            miniMsg: "",
+            msg: "",
+            subMsg: "",
+        });
+    }
+}
+
+function sameMemoSet(left: (string | null)[], right: (string | null)[]): boolean {
     if (left.length !== right.length) return false;
     const rightSet = new Set(right);
     return left.every(memo => rightSet.has(memo));
@@ -441,31 +475,7 @@ export async function hypaMemoryV3(
     tokenizer: ChatTokenizer,
     options?: HypaV3ExecutionOptions,
 ): Promise<HypaV3Result> {
-    if (options?.workflowId) {
-        const existingExecution = await getRevenantHypaExecution<RevenantHypaSelectionResult>(
-            options.workflowId,
-            options.signal,
-        );
-        if (existingExecution) {
-            const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
-                options.workflowId,
-                options.signal,
-            );
-            room.hypaV3Data = remote.memory;
-            return {
-                currentTokens: remote.currentTokens,
-                chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
-                memory: remote.memory,
-            };
-        }
-    }
     const settings = getCurrentHypaV3Preset().settings;
-    if (settings.similarMemoryRatio > 0) {
-        const model = getDatabase().hypaModel || DEFAULT_HYPA_MODEL;
-        // Persist this boundary before waiting for detached summary jobs. If
-        // the page disappears during that wait, the server may finish those
-        // jobs but knows that embedding needs a browser before proceeding.
-    }
     await recoverHypaV3SummaryJobs(char, room);
 
     try {
@@ -533,10 +543,6 @@ async function hypaMemoryV3MainExp(
             error: `${logPrefix} The sum of Recent Memory Ratio and Similar Memory Ratio is greater than 1.`,
         };
     }
-
-    // Initial token correction — must match the output-token reservation the
-    // caller added (preset max-output for ModelPreset chats, else db.maxResponse).
-    currentTokens -= resolveChatMaxResponseTokens(room);
 
     // Load existing hypa data if available
     const data: HypaV3Data = room.hypaV3Data
@@ -726,235 +732,30 @@ async function hypaMemoryV3MainExp(
     });
     if (serverPlan) return serverPlan;
 
-    let remoteExecutionPrepared = false;
-    const prepareRemoteSelection = async (
-        batchId: string,
-        operationIds: string[],
-    ): Promise<boolean> => {
-        const embeddingModel = db.hypaModel || DEFAULT_HYPA_MODEL;
-        const remoteEmbedding = getRemoteEmbeddingConfig(embeddingModel);
-        const tokenizerSpec = tokenizer.getRevenantSpec();
-        const serverTokenizers = new Set([
-            'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-            'novellist', 'gemma', 'deepseek',
-        ]);
-        if (
-            !options?.workflowId
-            || !remoteEmbedding
-            || !tokenizerSpec.tokenizer
-            || !serverTokenizers.has(tokenizerSpec.tokenizer)
-        ) return false;
-        try {
-            await prepareRevenantHypaExecution(options.workflowId, {
-                schemaVersion: 1,
-                batchId,
-                expectedOperationIds: operationIds,
-                embedding: remoteEmbedding,
-                tokenizer: tokenizerSpec,
-                settings: {
-                    recentMemoryRatio: settings.recentMemoryRatio,
-                    similarMemoryRatio: settings.similarMemoryRatio,
-                    queryChatCount: settings.queryChatCount,
-                    summaryChunkSeparator: settings.summaryChunkSeparator,
-                },
-                memory: toSerializableHypaV3Data(data),
-                chats: chats.map(chat => ({
-                    role: chat.role,
-                    content: chat.content,
-                    ...(chat.name ? { name: chat.name } : {}),
-                    ...(chat.memo ? { memo: chat.memo } : {}),
-                })),
-                startIdx,
-                currentTokens,
-                maxContextTokens,
-                availableMemoryTokens,
-                memoryTokens,
-                shouldReserveMemoryTokens,
-                randomSeed: batchId,
-            });
-            remoteExecutionPrepared = true;
-            if (!options.deferredMemoryPrompt) {
-                await options.onRemoteSelectionRequiresClient?.();
-            }
-        }
-        catch (error) {
-            console.warn(`${logPrefix} Server selection unavailable; using client:`, error);
-        }
-        return remoteExecutionPrepared;
-    };
-    const consumeRemoteSelection = async (): Promise<HypaV3Result> => {
-        const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
-            options.workflowId,
-            options.signal,
-        );
-        room.hypaV3Data = remote.memory;
-        return {
-            currentTokens: remote.currentTokens,
-            chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
-            memory: remote.memory,
-        };
-    };
-    const deferredRemoteSelection = (): HypaV3Result => {
-        const deferredMemoryPrompt = options?.deferredMemoryPrompt;
-        if (!deferredMemoryPrompt) {
-            throw new Error('Deferred Hypa selection requires a memory placeholder');
-        }
-        return {
-            currentTokens,
-            chats: [
-                {
-                    role: 'system',
-                    content: deferredMemoryPrompt,
-                    memo: 'supaMemory',
-                },
-                ...chats.slice(startIdx),
-            ],
-            memory: toSerializableHypaV3Data(data),
-            deferredRemoteSelection: true,
-        };
-    };
-
     // Process all collected summarization tasks
     if (toSummarizeArray.length > 0) {
-        // Initialize rate limiter
-        // Local model must be processed sequentially
-        const rateLimiter = new TaskRateLimiter({
-            tasksPerMinute:
-                settings.summarizationModel === "subModel"
-                    ? settings.summarizationRequestsPerMinute
-                    : 1000,
-            maxConcurrentTasks:
-                settings.summarizationModel === "subModel"
-                    ? settings.summarizationMaxConcurrent
-                    : 1,
-        });
-
-        rateLimiter.taskQueueChangeCallback = (queuedCount) => {
-            hypaV3ProgressStore.set({
-                open: true,
-                miniMsg: `${rateLimiter.queuedTaskCount}`,
-                msg: `${logPrefix} Summarizing...`,
-                subMsg: `${rateLimiter.queuedTaskCount} queued`,
-            });
-        };
-
-        const batchId = createEntityId();
-        const useDurableDispatch = settings.summarizationModel === "subModel"
-            && canUseDurableHypaDispatch(room);
-        const operationIds = toSummarizeArray.map(() => createEntityId());
-        const summarizationTasks = toSummarizeArray.map(
-            (item, index) => (onRegistered?: () => void) => summarize(item, false, {
-                revenantTarget: {
-                    characterId: char.chaId,
-                    roomId: room.id,
-                    batchId,
-                    operationId: operationIds[index],
-                    chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
-                    dispatchPolicy: useDurableDispatch ? {
-                        maxConcurrent: settings.summarizationMaxConcurrent,
-                        requestsPerMinute: settings.summarizationRequestsPerMinute,
-                    } : undefined,
-                    onJobCreated: onRegistered,
-                },
-            })
-        );
-        const prepareRemoteExecution = useDurableDispatch
-            ? () => prepareRemoteSelection(batchId, operationIds)
-            : undefined;
-
-        // Start of performance measurement: summarize
-        console.log(
-            logPrefix,
-            `Starting ${toSummarizeArray.length} summarization.`
-        );
-        const summarizeStartTime = performance.now();
-
-        const batchResult = useDurableDispatch
-            ? await executeDurableHypaBatch<string>(
-                summarizationTasks,
-                prepareRemoteExecution,
-                !!options?.deferredMemoryPrompt,
-            )
-            : await rateLimiter.executeBatch<string>(
-                summarizationTasks.map(task => () => task())
+        try {
+            const summaryTexts = await executeHypaSummaryBatches(
+                toSummarizeArray, settings, char, room
             );
-
-        const summarizeEndTime = performance.now();
-        console.debug(
-            `${logPrefix} summarization completed in ${summarizeEndTime - summarizeStartTime
-            }ms`
-        );
-        // End of performance measurement: summarize
-
-        hypaV3ProgressStore.set({
-            open: false,
-            miniMsg: "",
-            msg: "",
-            subMsg: "",
-        });
-
-        if (
-            remoteExecutionPrepared
-            && 'detached' in batchResult
-            && batchResult.detached
-        ) {
-            return deferredRemoteSelection();
-        }
-
-        if (remoteExecutionPrepared) {
-            const failed = batchResult.results.find(result => !result.success || !result.data);
-            if (failed) {
-                return {
-                    currentTokens,
-                    chats,
-                    error: `${logPrefix} Summarization failed: ${failed.error || 'Empty summary returned'}`,
-                    memory: toSerializableHypaV3Data(data),
-                };
+            for (let i = 0; i < summaryTexts.length; i++) {
+                data.summaries.push({
+                    text: summaryTexts[i],
+                    chatMemos: new Set(toSummarizeArray[i].map(chat => chat.memo)),
+                    isImportant: false,
+                    categoryId: undefined,
+                });
             }
-            return consumeRemoteSelection();
-        }
-
-        // Note:
-        // We can't save some successful summaries to the DB temporarily
-        // because don't know the actual summarization model name.
-        // It is possible that the user can change the summarization model.
-        for (let i = 0; i < batchResult.results.length; i++) {
-            const result = batchResult.results[i];
-
-            // Push consecutive successes
-            if (!result.success || !result.data) {
-                const errorMessage = !result.success
-                    ? result.error
-                    : "Empty summary returned";
-
-                console.log(logPrefix, "Summarization failed:", `\n${errorMessage}`);
-
-                return {
-                    currentTokens,
-                    chats,
-                    error: `${logPrefix} Summarization failed: ${errorMessage}`,
-                    memory: toSerializableHypaV3Data(data),
-                };
-            }
-
-            const summaryText = result.data;
-
-            data.summaries.push({
-                text: summaryText,
-                chatMemos: new Set(toSummarizeArray[i].map((chat) => chat.memo)),
-                isImportant: false,
-                categoryId: undefined,
-            });
-        }
-        room.hypaV3Data = toSerializableHypaV3Data(data);
-        await recoverHypaV3SummaryJobs(char, room);
-    }
-
-    if (toSummarizeArray.length === 0 && data.summaries.length > 0) {
-        await prepareRemoteSelection(createEntityId(), []);
-        if (remoteExecutionPrepared) {
-            if (options?.deferredMemoryPrompt) return deferredRemoteSelection();
-            return consumeRemoteSelection();
+            room.hypaV3Data = toSerializableHypaV3Data(data);
+            await recoverHypaV3SummaryJobs(char, room);
+        } catch (error) {
+            console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            return {
+                currentTokens,
+                chats,
+                error: `${logPrefix} Summarization failed: ${error}`,
+                memory: toSerializableHypaV3Data(data),
+            };
         }
     }
 
@@ -1119,9 +920,8 @@ async function hypaMemoryV3MainExp(
         );
 
         // Initialize embedding processor
-        const processor = new HypaProcessorV2<Summary>({
-            rateLimiter: new TaskRateLimiter({
-                tasksPerMinute: settings.embeddingRequestsPerMinute,
+        const processor = new HypaEmbeddingProcessor<Summary>({
+            concurrencyLimiter: new TaskConcurrencyLimiter({
                 maxConcurrentTasks: settings.embeddingMaxConcurrent,
             }),
         });
@@ -1166,9 +966,7 @@ async function hypaMemoryV3MainExp(
             });
         }
 
-        const recentChats = chats
-            .slice(-settings.queryChatCount)
-            .filter((chat) => chat.content.trim().length > 0);
+        const recentChats = getRecentHypaQueryChats(chats, settings.queryChatCount);
 
         const queries = recentChats
             .map((chat, index) => {
@@ -1466,10 +1264,6 @@ async function hypaMemoryV3Main(
         };
     }
 
-    // Initial token correction — must match the output-token reservation the
-    // caller added (preset max-output for ModelPreset chats, else db.maxResponse).
-    currentTokens -= resolveChatMaxResponseTokens(room);
-
     // Load existing hypa data if available
     const data: HypaV3Data = room.hypaV3Data
         ? toHypaV3Data(room.hypaV3Data)
@@ -1528,7 +1322,7 @@ async function hypaMemoryV3Main(
     }
 
     const serverPlanning = canPlanServerHypaSelection(options, room, tokenizer);
-    const plannedBatches: OpenAIChat[][] = [];
+    const summarizationBatches: OpenAIChat[][] = [];
 
     // If summarization is needed
     const summarizationMode = currentTokens > maxContextTokens;
@@ -1636,46 +1430,9 @@ async function hypaMemoryV3Main(
             break;
         }
 
-        // Attempt summarization
-        if (toSummarize.length > 0 && serverPlanning) {
-            plannedBatches.push(toSummarize);
-        }
-        else if (toSummarize.length > 0) {
-            console.log(
-                logPrefix,
-                "Attempting summarization:",
-                "\nTarget:",
-                toSummarize
-            );
-
-            try {
-                const summarizeResult = await summarize(toSummarize, false, {
-                    revenantTarget: {
-                        characterId: char.chaId,
-                        roomId: room.id,
-                        batchId: createEntityId(),
-                        chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
-                    },
-                });
-
-                data.summaries.push({
-                    text: summarizeResult,
-                    chatMemos: new Set(toSummarize.map((chat) => chat.memo)),
-                    isImportant: false,
-                    categoryId: undefined,
-                });
-                room.hypaV3Data = toSerializableHypaV3Data(data);
-                await recoverHypaV3SummaryJobs(char, room);
-            } catch (error) {
-                console.log(logPrefix, "Summarization failed:", `\n${error}`);
-
-                return {
-                    currentTokens,
-                    chats,
-                    error: `${logPrefix} Summarization failed: ${error}`,
-                    memory: toSerializableHypaV3Data(data),
-                };
-            }
+        if (toSummarize.length > 0) {
+            console.log(logPrefix, "Collecting summarization batch:", "\nTarget:", toSummarize);
+            summarizationBatches.push(toSummarize);
         }
 
         currentTokens -= toSummarizeTokens;
@@ -1684,13 +1441,39 @@ async function hypaMemoryV3Main(
 
     if (serverPlanning) {
         const serverPlan = planServerHypaSelection({
-            options, room, tokenizer, settings, chats, data, batches: plannedBatches,
+            options, room, tokenizer, settings, chats, data, batches: summarizationBatches,
             startIdx, currentTokens, maxContextTokens, availableMemoryTokens,
             memoryTokens: shouldReserveEmptyMemoryTokens ? emptyMemoryTokens : memoryTokens,
             shouldReserveMemoryTokens: true,
         });
         if (serverPlan) return serverPlan;
         throw new Error('Hypa server plan became unavailable before dispatch');
+    }
+
+    if (summarizationBatches.length > 0) {
+        try {
+            const summaryTexts = await executeHypaSummaryBatches(
+                summarizationBatches, settings, char, room
+            );
+            for (let i = 0; i < summaryTexts.length; i++) {
+                data.summaries.push({
+                    text: summaryTexts[i],
+                    chatMemos: new Set(summarizationBatches[i].map(chat => chat.memo)),
+                    isImportant: false,
+                    categoryId: undefined,
+                });
+            }
+            room.hypaV3Data = toSerializableHypaV3Data(data);
+            await recoverHypaV3SummaryJobs(char, room);
+        } catch (error) {
+            console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            return {
+                currentTokens,
+                chats,
+                error: `${logPrefix} Summarization failed: ${error}`,
+                memory: toSerializableHypaV3Data(data),
+            };
+        }
     }
 
     console.log(
@@ -1867,6 +1650,9 @@ async function hypaMemoryV3Main(
         // Initialize embedding processor
         const processor = new HypaProcesserEx(db.hypaModel);
         processor.oaikey = db.supaMemoryKey;
+        processor.concurrencyLimiter = new TaskConcurrencyLimiter({
+            maxConcurrentTasks: settings.embeddingMaxConcurrent,
+        });
 
         // Add summaryChunks to processor for similarity search
         try {
@@ -1880,9 +1666,7 @@ async function hypaMemoryV3Main(
             };
         }
 
-        const recentChats = chats
-            .slice(-settings.queryChatCount)
-            .filter((chat) => chat.content.trim().length > 0);
+        const recentChats = getRecentHypaQueryChats(chats, settings.queryChatCount);
 
         if (recentChats.length > 0) {
             // Raw recent chat search
@@ -1917,14 +1701,7 @@ async function hypaMemoryV3Main(
             }
 
             try {
-                const scoredLists: [SummaryChunk, number][][] = [];
-
-                for (let i = 0; i < queries.length; i++) {
-                    const query = queries[i];
-                    const scoredChunks = await processor.similaritySearchScoredEx(query);
-
-                    scoredLists.push(scoredChunks);
-                }
+                const scoredLists = await processor.similaritySearchScoredBatchEx(queries);
 
                 const rankedChunks = simpleCC<SummaryChunk>(
                     scoredLists,
@@ -2138,11 +1915,8 @@ async function hypaMemoryV3Main(
 }
 
 function toHypaV3Data(serialData: SerializableHypaV3Data): HypaV3Data {
-    // Remove legacy property
-    const { lastSelectedSummaries, ...restData } = serialData;
-
     return {
-        ...restData,
+        ...serialData,
         summaries: serialData.summaries.map((summary) => ({
             ...summary,
             // Convert null back to undefined (JSON serialization converts undefined to null)
@@ -2158,7 +1932,7 @@ function toSerializableHypaV3Data(data: HypaV3Data): SerializableHypaV3Data {
         ...data,
         summaries: data.summaries.map((summary) => ({
             ...summary,
-            chatMemos: [...summary.chatMemos],
+            chatMemos: [...summary.chatMemos].map(memo => memo ?? null),
         })),
     };
 }
@@ -2180,7 +1954,7 @@ function cleanOrphanedSummary(chats: OpenAIChat[], data: HypaV3Data): void {
     }
 }
 
-function isSubset(subset: Set<string>, superset: Set<string>): boolean {
+function isSubset(subset: Set<string | undefined>, superset: Set<string | undefined>): boolean {
     for (const elem of subset) {
         if (!superset.has(elem)) {
             return false;
@@ -2204,8 +1978,8 @@ export interface HypaV3SummarizeOptions {
         roomId: string;
         batchId: string;
         operationId?: string;
-        chatMemos: string[];
-        dispatchPolicy?: { maxConcurrent: number; requestsPerMinute: number };
+        chatMemos: (string | null)[];
+        dispatchPolicy?: { maxConcurrent: number };
         onJobCreated?: () => void;
     };
     signal?: AbortSignal;
@@ -2315,7 +2089,6 @@ export function createHypaV3Preset(
     existingSettings = {}
 ): HypaV3Preset {
     const settings: HypaV3Settings = {
-        summarizationModel: "subModel",
         summarizationPrompt: "",
         reSummarizationPrompt: "",
         memoryTokensRatio: 0.2,
@@ -2328,11 +2101,8 @@ export function createHypaV3Preset(
         processRegexScript: false,
         doNotSummarizeUserMessage: false,
         summaryChunkSeparator: "\\n\\n",
-        // Experimental
         useExperimentalImpl: false,
-        summarizationRequestsPerMinute: 20,
         summarizationMaxConcurrent: 1,
-        embeddingRequestsPerMinute: 100,
         embeddingMaxConcurrent: 1,
         alwaysToggleOn: false,
         queryChatCount: 3,
@@ -2349,9 +2119,6 @@ export function createHypaV3Preset(
             }
         }
     }
-
-    // HypaMemory V3 summaries always use the configured auxiliary model.
-    settings.summarizationModel = "subModel";
 
     return {
         id: createEntityId(),
@@ -2569,5 +2336,19 @@ class HypaProcesserEx extends HypaProcesser {
             }))
             .sort((a, b) => b.similarity - a.similarity)
             .map((result) => [result.chunk, result.similarity]);
+    }
+
+    async similaritySearchScoredBatchEx(
+        queries: string[]
+    ): Promise<[SummaryChunk, number][][]> {
+        if (!this.concurrencyLimiter) {
+            return Promise.all(queries.map(query => this.similaritySearchScoredEx(query)));
+        }
+        const batchResult = await this.concurrencyLimiter.executeBatch(
+            queries.map(query => () => this.similaritySearchScoredEx(query))
+        );
+        const failed = batchResult.results.find(result => !result.success);
+        if (failed) throw failed.error;
+        return batchResult.results.map(result => result.data);
     }
 }

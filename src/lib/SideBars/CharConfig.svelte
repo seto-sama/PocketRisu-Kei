@@ -14,7 +14,6 @@
     import Help from "../Others/Help.svelte";
     import { exportChar } from "src/ts/characterCards";
     import Input from "../UI/components/Input.svelte";
-    import NumberInput from "../UI/components/NumberInput.svelte";
     import Textarea from "../UI/components/Textarea.svelte";
     import Button from "../UI/components/Button.svelte";
     import Select from "../UI/components/Select.svelte";
@@ -99,6 +98,10 @@
     }
 
 </script>
+
+{#snippet legacySettingsHelp()}
+    <Help key="legacySettings" name={language.legacySettings} />
+{/snippet}
 
 {#if $CharConfigSubMenu === 0}
     {#if licensed !== 'private'}
@@ -320,19 +323,6 @@
             {/if}
         {/if}
     {:else if viewSubMenu === 'assets'}
-
-            {#if DBState.db.newImageHandlingBeta}
-            <Checkbox card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
-
-            {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-
-            <span class="text-maintext mt-2">{language.assetStyle}</span>
-            <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                <SelectOption value="">{language.static}</SelectOption>
-                <SelectOption value="dynamic">{language.dynamic}</SelectOption>
-            </Select>
-            {/if}
-            {/if}
             <AdditionalAssetsEditor
                 assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}
                 onChange={(assets) => {
@@ -476,6 +466,29 @@
         <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
 
+        {#if DBState.db.newImageHandlingBeta}
+            <SettingsList spacing="none" className="mb-2">
+                <SettingsList variant="row">
+                    <span class="min-w-0 text-maintext">
+                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
+                    </span>
+                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
+                </SettingsList>
+
+                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+                    <SettingsList variant="row">
+                        <span class="min-w-0 text-maintext">
+                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
+                        </span>
+                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                            <SelectOption value="">{language.static}</SelectOption>
+                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+                        </Select>
+                    </SettingsList>
+                {/if}
+            </SettingsList>
+        {/if}
+
         <span class="text-maintext mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></Textarea>
 
@@ -511,88 +524,28 @@
             </SettingsList>
         </SettingsList>
 
-        <div class="w-full mt-4">
-        <Accordion class="mt-2" name={language.legacySettings}>
-            <span class="text-maintext">{language.systemPrompt}<Help key="systemPrompt"/></span>
+        <div class="mt-4 w-full shrink-0">
+        <Accordion name={language.legacySettings} extras={legacySettingsHelp}>
+            <div class="flex flex-col">
+            <span class="mt-2 block text-maintext">{language.systemPrompt}<Help key="systemPrompt"/></span>
             <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></Textarea>
 
-            <span class="text-maintext mt-2">{language.additionalText}<Help key="additionalText" /></span>
+            <span class="mt-2 block text-maintext">{language.additionalText}<Help key="additionalText" /></span>
             <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></Textarea>
 
-            <span class="text-maintext">{language.personality}<Help key="personality" unrecommended/></span>
+            <span class="mt-2 block text-maintext">{language.personality}<Help key="personality" unrecommended/></span>
             <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></Textarea>
 
-            <span class="text-maintext">{language.scenario}<Help key="scenario" unrecommended/></span>
+            <span class="mt-2 block text-maintext">{language.scenario}<Help key="scenario" unrecommended/></span>
             <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></Textarea>
 
-            <span class="text-maintext">{language.exampleMessage}<Help key="exampleMessage"/></span>
+            <span class="mt-2 block text-maintext">{language.exampleMessage}<Help key="exampleMessage"/></span>
             <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></Textarea>
 
-            <span class="text-maintext">{language.depthPrompt}</span>
-            <div class="flex justify-center items-center mb-4">
-                <NumberInput bind:value={DBState.db.characters[$selectedCharID].depth_prompt.depth} className="w-12"/>
-                <Input autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].depth_prompt.prompt} className="flex-1"/>
-            </div>
-
-            <span class="text-maintext mt-2">Bias<Help key="bias"/></span>
-            <div class="w-full max-w-full border border-selected rounded-md p-2">
-                <table class="w-full max-w-full tabler mt-2">
-                    <tbody>
-                    <tr>
-                        <th class="font-medium w-1/2">Bias</th>
-                        <th class="font-medium w-1/3">{language.value}</th>
-                        <th>
-                            <IconButton onclick={() => {
-                                if(DBState.db.characters[$selectedCharID].type === 'character'){
-                                    (DBState.db.characters[$selectedCharID] as character).bias.push(['', 0])
-                                }
-                            }}><PlusIcon /></IconButton>
-                        </th>
-                    </tr>
-                    {#if (DBState.db.characters[$selectedCharID] as character).bias.length === 0}
-                        <tr>
-                            <td colspan="3">{language.noBias}</td>
-                        </tr>
-                    {/if}
-                    {#each (DBState.db.characters[$selectedCharID] as character).bias as bias, i}
-                        <tr class="align-middle text-center">
-                            <td class="font-medium truncate w-1/2">
-                                <Input fullh fullwidth bind:value={(DBState.db.characters[$selectedCharID] as character).bias[i][0]} placeholder="string" />
-                            </td>
-                            <td class="font-medium truncate w-1/3">
-                                <NumberInput fullh fullwidth bind:value={(DBState.db.characters[$selectedCharID] as character).bias[i][1]} max={100} min={-100} />
-                            </td>
-                            <td>
-                                <IconButton tone="destructive" onclick={() => {
-                                    if(DBState.db.characters[$selectedCharID].type === 'character'){
-                                        (DBState.db.characters[$selectedCharID] as character).bias.splice(i, 1)
-                                    }
-                                }}><TrashIcon /></IconButton>
-                            </td>
-                        </tr>
-                    {/each}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="mt-4">
-                <span class="text-maintext">{language.charjs}<Help key="charjs" unrecommended/></span>
-                <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].virtualscript}></Textarea>
+            <span class="mt-2 block text-maintext">{language.depthPrompt}</span>
+            <Textarea className="mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].depth_prompt.prompt}/>
             </div>
         </Accordion>
         </div>
 
 {/if}
-
-<style>
-
-    .tabler {
-    table-layout: fixed;
-    }
-
-    .tabler td {
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-</style>

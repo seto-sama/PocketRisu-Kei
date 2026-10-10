@@ -4,7 +4,6 @@ import {
     characterToPersistentShape,
     initializeCharacterRuntimeState,
     isClientWritableCharacterField,
-    isRuntimeOnlyCharacterField,
     rootValueToClientWriteShape,
     visitClientWritableRootValues,
 } from './persistenceShape'
@@ -24,8 +23,6 @@ describe('character persistence shape', () => {
             lastInteraction: 123,
         })
         expect(character.reloadKeys).toBe(42)
-        expect(isRuntimeOnlyCharacterField('reloadKeys')).toBe(true)
-        expect(isRuntimeOnlyCharacterField('lastInteraction')).toBe(false)
     })
 
     it('omits server-owned metadata from browser writes', () => {

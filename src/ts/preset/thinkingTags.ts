@@ -3,9 +3,10 @@ export interface ExtractedThinking {
     reasoning?: string
 }
 
-export function extractThinkTags(source: string): ExtractedThinking {
+export function extractThinkTags(source: string, tag: 'think' | 'Thoughts' = 'think'): ExtractedThinking {
     const thoughts: string[] = []
-    const text = source.replace(/<think>([\s\S]*?)(?:<\/think>|$)/giu, (_match, thought: string) => {
+    const pattern = new RegExp(`<${tag}>([\\s\\S]*?)(?:</${tag}>|$)`, 'giu')
+    const text = source.replace(pattern, (_match, thought: string) => {
         if (thought.length > 0) thoughts.push(thought)
         return ''
     })

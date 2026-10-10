@@ -5,6 +5,20 @@ const { createRevenantPostprocessWorker } = workerPkg as {
     createRevenantPostprocessWorker: (options: any) => { pump: () => Promise<void> }
 }
 
+const workflowInputChat = { id: 'room-1', message: [] }
+
+function workflowContext(postprocess: any = {}) {
+    return {
+        kind: 'chat-generation',
+        postprocess: {
+            ...postprocess,
+            character: { chaId: 'character-1', ...postprocess.character },
+            database: { igpPrompt: '', ...postprocess.database },
+            chatPatch: postprocess.chatPatch ?? [],
+        },
+    }
+}
+
 describe('revenant postprocess worker', () => {
     it('executes image actions on the server without exposing waiting_client', async () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
@@ -13,7 +27,7 @@ describe('revenant postprocess worker', () => {
         const workflow = () => ({
             workflowId: 'workflow-image',
             status: 'active',
-            context: { kind: 'chat-generation', postprocess: {} },
+            context: workflowContext(),
             steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
         })
         const repository = {
@@ -21,6 +35,7 @@ describe('revenant postprocess worker', () => {
                 jobId: 'job-1', workflowId: 'workflow-image', projection: { content: 'result' },
             }],
             getGenerationWorkflow: workflow,
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
@@ -55,7 +70,6 @@ describe('revenant postprocess worker', () => {
         expect(executeImageAction).toHaveBeenCalledWith(expect.objectContaining({
             workflow: expect.objectContaining({ workflowId: 'workflow-image' }),
             action,
-            projection: false,
         }))
         expect(steps['output.transform'].status).not.toBe('waiting_client')
         await vi.waitFor(() => expect(steps['output.transform'].metadata?.responses).toEqual({
@@ -63,7 +77,7 @@ describe('revenant postprocess worker', () => {
         }))
     })
 
-    it('claims and transforms terminal model output exactly once', async () => {
+    it('claims and transforms terminal model output once', async () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'pending' },
             'trigger.output': { status: 'pending' },
@@ -75,16 +89,13 @@ describe('revenant postprocess worker', () => {
         const repository = {
             listReadyChatWorkflowJobs: () => [{
                 jobId: 'job-1', workflowId: 'workflow-1', projection: { content: ' result ' },
-                isContinuation: true, continuationPrefix: 'prefix:',
             }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
-                context: {
-                    kind: 'chat-generation',
-                    postprocess: { schemaVersion: 1, database: { igpPrompt: '' } },
-                },
+                context: workflowContext({ schemaVersion: 1 }),
                 steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
             }),
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
@@ -116,7 +127,7 @@ describe('revenant postprocess worker', () => {
 
         expect(transformOutput).toHaveBeenCalledOnce()
         expect(transformOutput).toHaveBeenCalledWith(
-            'prefix: result',
+            'result',
             expect.objectContaining({ schemaVersion: 1 }),
         )
         expect(updates.map(update => update.step)).toEqual([
@@ -141,9 +152,10 @@ describe('revenant postprocess worker', () => {
             }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
-                context: { kind: 'chat-generation', postprocess: {} },
+                context: workflowContext(),
                 steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
             }),
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
@@ -180,9 +192,10 @@ describe('revenant postprocess worker', () => {
             listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
-                context: { kind: 'chat-generation', postprocess: {} },
+                context: workflowContext(),
                 steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
             }),
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
@@ -227,9 +240,7 @@ describe('revenant postprocess worker', () => {
             listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
-                context: {
-                    kind: 'chat-generation',
-                    postprocess: {
+                context: workflowContext({
                         database: { igpPrompt: 'raw {{char}}' },
                         auxProviders: {
                             emotion: {
@@ -237,10 +248,10 @@ describe('revenant postprocess worker', () => {
                                 modelPreset: { id: 'aux-preset' },
                             },
                         },
-                    },
-                },
+                }),
                 steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
             }),
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
@@ -307,9 +318,7 @@ describe('revenant postprocess worker', () => {
             listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
             getGenerationWorkflow: () => ({
                 workflowId: 'workflow-1',
-                context: {
-                    kind: 'chat-generation',
-                    postprocess: {
+                context: workflowContext({
                         character: {
                             viewScreen: 'emotion', inlayViewScreen: false,
                             emotionImages: [['happy', 'asset']],
@@ -319,10 +328,10 @@ describe('revenant postprocess worker', () => {
                             ttsEnabled: true, ttsAutoSpeech: true,
                             emotionProcesser: 'embedding', emotionPrompt2: '',
                         },
-                    },
-                },
+                }),
                 steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
             }),
+            getGenerationWorkflowInputChat: () => workflowInputChat,
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'

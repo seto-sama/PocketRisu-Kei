@@ -9,6 +9,7 @@ import type {
 } from '../../storage/database.svelte'
 
 import type { RevenantOperationContext } from './operations'
+import type { DeltaPatch } from '../../storage/nodeStorage'
 export {
     createRevenantOperation,
     getRevenantOperationJobType,
@@ -139,8 +140,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
     selectedPersona: number
     personas: unknown[]
     showPersonaInSidebar?: boolean
-    dynamicAssets: boolean
-    dynamicAssetsEditDisplay: boolean
     igpPrompt: string
     notification: boolean
     ttsEnabled: boolean
@@ -152,7 +151,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
 export interface RevenantPostprocessRecipe {
     schemaVersion: 1
     messageChatId: string
-    isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
@@ -168,11 +166,21 @@ export interface RevenantPostprocessRecipe {
     moduleTriggers: triggerscript[]
 }
 
+export interface RevenantPostprocessSnapshot extends Omit<RevenantPostprocessRecipe, 'chat' | 'character'> {
+    character: Omit<character, 'chats' | 'chatPage'>
+    /** RFC 6902 changes from inputCommit.chat to the postprocess chat. */
+    chatPatch: Array<{
+        op: 'add' | 'remove' | 'replace'
+        path: string
+        value?: unknown
+    }>
+}
+
 export interface RevenantWorkflowInputCommit {
     schemaVersion: 1
     /** Canonical chat state at the submission boundary, before prompt-only transforms. */
     chat: Chat
-    expectedEtag?: string
+    changes: DeltaPatch['changes']
 }
 
 export interface RevenantPostprocessMutationPatch {
@@ -190,15 +198,14 @@ export interface RevenantChatWorkflowContext {
     schemaVersion: 1
     kind: 'chat-generation'
     comfyBridgeId?: string
-    inputCommit: RevenantWorkflowInputCommit
+    inputCommit?: RevenantWorkflowInputCommit
     resume: {
         schemaVersion: 1
         chatProcessIndex: number
         messageChatId: string
-        isContinuation: boolean
         rerollSnapshot?: RevenantRerollSnapshot
     }
-    postprocess: RevenantPostprocessRecipe
+    postprocess: RevenantPostprocessSnapshot
 }
 
 export interface RevenantImageWorkflowContext {
@@ -215,7 +222,7 @@ export interface RevenantImageWorkflowContext {
     negativePrompt: string
     seed?: number
     label: string
-    projection?: 'append' | 'reroll'
+    projection?: 'append' | 'reroll' | 'return'
 }
 
 export type RevenantWorkflowContext =
@@ -248,8 +255,6 @@ export interface RevenantProviderJobSpec {
     streaming?: boolean
     characterId?: string
     roomId?: string
-    isContinuation: boolean
-    continuationPrefix?: string
     operationContext?: RevenantOperationContext
     dispatchPolicy?: RevenantDispatchPolicy
     /** Canonical models.dev identity used by usage-cost accounting. */
@@ -296,7 +301,6 @@ export interface RevenantGenerationRequest {
 
 export interface RevenantDispatchPolicy {
     maxConcurrent: number
-    requestsPerMinute: number
 }
 
 export interface RevenantWorkflowDependency {
@@ -324,8 +328,6 @@ export interface RecoverableGenerationJob {
     workflowId?: string
     workflowStepKey?: string
     workflowStepExecutionId?: string
-    isContinuation?: boolean
-    continuationPrefix?: string
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot

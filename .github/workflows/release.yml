@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG_PREFIX: kei-v
+  RELEASE_ASSET_PREFIX: PocketRisu-Kei
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -103,8 +107,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_NAME" == kei-v* ]]; then
-            echo "version=${GITHUB_REF_NAME#kei-v}" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF_NAME" == "${RELEASE_TAG_PREFIX}"* ]]; then
+            echo "version=${GITHUB_REF_NAME#"$RELEASE_TAG_PREFIX"}" >> $GITHUB_OUTPUT
           else
             echo "version=$(node -e "console.log(require('./portable/package.json').version)")" >> $GITHUB_OUTPUT
           fi
@@ -181,7 +185,7 @@ jobs:
           cd scripts/portable
           GCC_DIR="$(dirname "$(which gcc)")"
           "$GCC_DIR/windres" launcher.rc -O coff -o launcher.res
-          gcc -municode -O2 -o ../../portable/PocketRisu.exe launcher.c launcher.res -lshell32
+          gcc -municode -O2 -o "../../portable/${RELEASE_ASSET_PREFIX}.exe" launcher.c launcher.res -lshell32
           rm -f launcher.res icon.ico
 
       - name: Create macOS app bundle
@@ -189,7 +193,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          APP="portable/PocketRisu.app"
+          APP="portable/${RELEASE_ASSET_PREFIX}.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           ICONSET="$(mktemp -d)/AppIcon.iconset"
           mkdir -p "$ICONSET"
@@ -208,11 +212,11 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>CFBundleExecutable</key>
-              <string>PocketRisu</string>
+              <string>${RELEASE_ASSET_PREFIX}</string>
               <key>CFBundleName</key>
-              <string>PocketRisu</string>
+              <string>${RELEASE_ASSET_PREFIX}</string>
               <key>CFBundleIdentifier</key>
-              <string>com.pocketrisu</string>
+              <string>io.github.seto-sama.pocketrisu-kei</string>
               <key>CFBundleVersion</key>
               <string>${VERSION}</string>
               <key>CFBundleShortVersionString</key>
@@ -226,13 +230,13 @@ jobs:
           </dict>
           </plist>
           PLIST
-          cat > "$APP/Contents/MacOS/PocketRisu" << 'LAUNCHER'
+          cat > "$APP/Contents/MacOS/${RELEASE_ASSET_PREFIX}" << 'LAUNCHER'
           #!/bin/bash
           PORTABLE_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
           cd "$PORTABLE_DIR"
           PORT="${PORT:-6001}"
           if [ ! -f "bin/node" ]; then
-              osascript -e 'display dialog "PocketRisu.app must remain inside the PocketRisu portable folder." buttons {"OK"} default button 1 with icon stop'
+              osascript -e 'display dialog "PocketRisu-Kei.app must remain inside the PocketRisu-Kei portable folder." buttons {"OK"} default button 1 with icon stop'
               exit 1
           fi
           (sleep 2 && open "http://localhost:$PORT") &
@@ -243,7 +247,7 @@ jobs:
           end tell
           ENDSCRIPT
           LAUNCHER
-          chmod +x "$APP/Contents/MacOS/PocketRisu"
+          chmod +x "$APP/Contents/MacOS/${RELEASE_ASSET_PREFIX}"
 
       - name: Add update script (Windows)
         if: matrix.platform == 'win'
@@ -287,37 +291,26 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          NAME="PocketRisu-v${VERSION}-win-x64"
-          LEGACY_NAME="RisuAI-NodeOnly-v${VERSION}-win-x64"
+          NAME="${RELEASE_ASSET_PREFIX}-v${VERSION}-win-x64"
           cd portable
           7z a -tzip "../${NAME}.zip" .
-          # Dual asset: legacy filename for v1.5.x in-app self-update.
-          # v1.5.x server.cjs has the old "RisuAI-NodeOnly-" prefix hardcoded;
-          # this copy lets that code path keep working through the transition.
-          cp "../${NAME}.zip" "../${LEGACY_NAME}.zip"
 
       - name: Package portable (Unix)
         if: matrix.platform != 'win'
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          NAME="PocketRisu-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
-          LEGACY_NAME="RisuAI-NodeOnly-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
+          NAME="${RELEASE_ASSET_PREFIX}-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
           mv portable "$NAME"
           tar -czf "${NAME}.tar.gz" "$NAME"
           rm -rf "$NAME"
-          # Dual asset: legacy filename for v1.5.x in-app self-update.
-          # v1.5.x server.cjs has the old "RisuAI-NodeOnly-" prefix hardcoded;
-          # this copy lets that code path keep working through the transition.
-          cp "${NAME}.tar.gz" "${LEGACY_NAME}.tar.gz"
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v7
         with:
           name: portable-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            PocketRisu-*
-            RisuAI-NodeOnly-*
+            ${{ env.RELEASE_ASSET_PREFIX }}-*
           retention-days: 1
 
   release:
@@ -339,5 +332,4 @@ jobs:
           generate_release_notes: true
           draft: false
           files: |
-            PocketRisu-*
-            RisuAI-NodeOnly-*
+            ${{ env.RELEASE_ASSET_PREFIX }}-*

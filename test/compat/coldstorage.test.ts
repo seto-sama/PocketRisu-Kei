@@ -2,7 +2,7 @@
  * Cold storage compatibility tests.
  *
  * Tests the one-time migration path: upstream backup with cold storage
- * characters → NodeOnly import → characters restored inline.
+ * characters → local import → characters restored inline.
  */
 import { describe, test, expect, afterAll } from 'vitest'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'

@@ -1,11 +1,12 @@
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
-import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess } from "../alert";
-import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
+import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess, notifyInfo } from "../alert";
+import { LocalWriter, forageStorage } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
-import { getSyncClientId } from "../storage/nodeStorage";
+import { getSyncClientId, type ExportBackupOptions } from "../storage/nodeStorage";
 import { language } from "src/lang";
+import { apiRequestError } from "../network/apiError";
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
@@ -14,44 +15,10 @@ function formatBytes(bytes: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-async function streamBackupToDisk(response: Response, fallbackName: string, progressLabel = 'Saving local backup...'){
-    const disposition = response.headers.get('content-disposition') ?? ''
-    const fileName = disposition.match(/filename=\"?([^"]+)\"?/)?.[1] ?? fallbackName
-    const totalBytes = Number(response.headers.get('content-length') ?? '0')
-
-    if (response.body) {
-        const streamSaver = await import('streamsaver')
-        const writableStream = streamSaver.createWriteStream(fileName)
-        const writer = writableStream.getWriter()
-        const reader = response.body.getReader()
-        let downloadedBytes = 0
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) {
-                break
-            }
-            downloadedBytes += value.length
-            if (totalBytes > 0) {
-                const progress = ((downloadedBytes / totalBytes) * 100).toFixed(2)
-                alertWait(`${progressLabel} (${progress}%)`)
-            } else {
-                alertWait(`${progressLabel} (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`)
-            }
-            await writer.write(value)
-        }
-        await writer.close()
-    } else {
-        await downloadFile(fileName, new Uint8Array(await response.arrayBuffer()))
-    }
-}
-
-export async function SaveLocalBackup(){
+export async function SaveLocalBackup(options?: ExportBackupOptions){
     try {
-        alertWait("Saving local backup...")
-        const response = await forageStorage.exportBackup()
-        await streamBackupToDisk(response, `risu-backup-${Date.now()}.bin`)
-        notifySuccess('Success')
+        await forageStorage.downloadBackupExport(options)
+        notifyInfo(language.browserDownloadStarted)
     } catch (error) {
         console.error(error)
         alertError('Failed')
@@ -89,22 +56,13 @@ export async function SaveSettingsOnlyBackup(){
             return
         }
 
-        alertWait(language.backupSettingsOnlySaving)
-        const response = await forageStorage.exportBackup({
+        await forageStorage.downloadBackupExport({
             mode: 'settings',
             moduleAssets: includeModuleAssets,
         })
-        await streamBackupToDisk(
-            response,
-            `risu-settings-${Date.now()}.bin`,
-            language.backupSettingsOnlySaving,
-        )
-        if(!includeModuleAssets){
-            alertMd(language.backupSettingsOnlyModuleAssetsSkipped)
-        }
-        else{
-            notifySuccess(language.backupSettingsOnlyDone)
-        }
+        notifyInfo(language.browserDownloadStarted, includeModuleAssets ? undefined : {
+            description: language.backupSettingsOnlyModuleAssetsSkipped,
+        })
     }
     catch(error){
         alertClear()
@@ -114,36 +72,17 @@ export async function SaveSettingsOnlyBackup(){
 }
 
 export async function SaveLocalBackupForUpstream(){
-    try {
-        alertWait("Saving local backup...")
-        const response = await forageStorage.exportBackup({ target: 'upstream' })
-        await streamBackupToDisk(response, `risu-backup-${Date.now()}-upstream.bin`)
-        notifySuccess('Success')
-    } catch (error) {
-        console.error(error)
-        alertError('Failed')
-    }
+    await SaveLocalBackup({ target: 'upstream' })
 }
 
-/**
- * Saves a partial local backup with only critical assets.
- * 
- * Differences from SaveLocalBackup:
- * - Only includes profile images for characters/groups (excludes emotion images, additional assets, VITS files, CC assets)
- * - Additionally includes: persona icons, folder images, bot preset images
- * - Processes only assets in assetMap (selective) instead of all .png files in assets folder
- * - Faster and more efficient for quick backups
- * - Ideal for backing up core visual identity without bulk data
- */
+/** Saves database content and profile, persona, folder, and preset images. */
 export async function SavePartialLocalBackup(){
-    // First confirmation: Explain the difference from regular backup
     const firstConfirm = await alertConfirm(language.partialBackupFirstConfirm)
     
     if (!firstConfirm) {
         return
     }
     
-    // Second confirmation: Final warning about not saving assets
     const secondConfirm = await alertConfirm(language.partialBackupSecondConfirm)
     
     if (!secondConfirm) {
@@ -251,7 +190,7 @@ export async function SavePartialLocalBackup(){
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
             if (chat._placeholder && chat.id) {
-                const full = await fetchChatFromServer(char.chaId, i, chat.id)
+                const full = await fetchChatFromServer(char.chaId, i, chat.id, { trackBaseline: false })
                 if (full) {
                     char.chats[i] = full as Chat
                 } else {
@@ -348,10 +287,10 @@ export async function SaveManualSnapshot(note = '') {
             headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
             body: JSON.stringify({ note }),
         })
-        const json = await res.json().catch(() => ({}))
         if (!res.ok) {
-            throw new Error(json?.error || `manual snapshot save error: ${res.status}`)
+            throw await apiRequestError(res, 'Manual snapshot failed')
         }
+        const json = await res.json().catch(() => ({}))
         notifySuccess(language.manualSnapshotSaveSuccess(json?.snapshot?.filename ?? 'snapshot'))
         return json
     } catch (error) {

@@ -122,7 +122,7 @@ Libere con: `termux-wake-unlock`
 Desde el directorio de PocketRisu:
 
 ```bash
-cd ~/PocketRisu
+cd ~/PocketRisu-Kei
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```

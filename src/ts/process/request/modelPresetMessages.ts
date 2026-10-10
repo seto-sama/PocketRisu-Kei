@@ -8,19 +8,14 @@ import type { OpenAIChat } from '../index.svelte'
 import type { toolCallData } from '../mcp/mcp'
 import type { RPCToolCallContent } from '../mcp/mcplib'
 
-// Restores a persisted tool-call marker into its full record. Injected so this
-// module stays free of the mcp → database import graph (and is unit-testable).
+// Inject tool decoding to avoid importing the MCP and database runtime here.
 export type DecodeToolCall = (text: string) => Promise<toolCallData | undefined>
 
-// Convert the classic OpenAIChat[] history into adapter messages.
-//
-// This is a 1→N async expansion (capabilities Stage 1): assistant turns that
-// persisted their tool use as `<tool_call>` markers (the regime-agnostic format
-// from mcp.ts encode/decodeToolCall) are restored into structured
-// assistant{toolCalls} + tool{toolCallId} pairs, so both the classic and preset
-// paths read the same history without corruption. Image restoration is gated
-// separately; saved reasoning is restored only for an explicitly enabled final
-// assistant prefill.
+export function getPromptResponseId(message: OpenAIChat): string | undefined {
+    return message.responseId ?? message.memo
+}
+
+// Expand saved tool markers into assistant calls and their results.
 export async function expandAdapterMessages(
     formated: OpenAIChat[],
     decode: DecodeToolCall,
@@ -33,7 +28,6 @@ export async function expandAdapterMessages(
     for (let index = 0; index < formated.length; index++) {
         const m = formated[index]
         if (m.role === 'assistant' && typeof m.content === 'string' && m.content.includes('<tool_call>')) {
-            // Tool-call assistant turns carry no image attachments; expand as-is.
             out.push(...await expandToolCallMessage(m, decode))
             continue
         }
@@ -48,9 +42,6 @@ export async function expandAdapterMessages(
     return out
 }
 
-// Parse the classic `data:<mime>;base64,<payload>` URL into the raw payload +
-// mime the adapters need. Falls back to treating the whole string as raw base64
-// (mime unknown) for the rare non-data-URL case.
 function parseImageData(src: string): AdapterImagePart {
     const match = /^data:([^;]+);base64,(.*)$/s.exec(src)
     if (match) return { kind: 'image', base64: match[2], mime: match[1] }
@@ -66,9 +57,6 @@ function parseMediaData(
     return { kind, base64: src }
 }
 
-// Collect image attachments from a message's multimodals (vision). Only images
-// are mapped; video/audio/signature multimodals are out of Stage 3 scope and
-// left untouched.
 function extractImages(m: OpenAIChat): AdapterImagePart[] | undefined {
     if (!m.multimodals || m.multimodals.length === 0) return undefined
     const images: AdapterImagePart[] = []
@@ -103,10 +91,6 @@ function extractMedia(
     return media.length > 0 ? media : undefined
 }
 
-// Split an assistant message that embeds `<tool_call>` markers into the
-// structured assistant/tool sequence the wire expects. Mirrors the classic
-// tool-call persistence so encoded history round-trips identically.
-// A marker that fails to decode is left as literal text (no data invented).
 async function expandToolCallMessage(
     m: OpenAIChat,
     decode: DecodeToolCall,
@@ -114,6 +98,7 @@ async function expandToolCallMessage(
     const segments = (m.content ?? '').split(/(<tool_call>.*?<\/tool_call>)/gms)
     const out: AdapterChatMessage[] = []
     let pending = ''
+    const responseId = getPromptResponseId(m)
     for (const segment of segments) {
         if (/^<tool_call>.*<\/tool_call>$/s.test(segment)) {
             const decoded = await decode(segment)
@@ -121,6 +106,7 @@ async function expandToolCallMessage(
             out.push({
                 role: 'assistant',
                 content: pending,
+                ...(responseId ? { responseId } : {}),
                 toolCalls: [{
                     id: decoded.call.id,
                     name: decoded.call.name,
@@ -130,6 +116,7 @@ async function expandToolCallMessage(
             out.push({
                 role: 'tool',
                 content: toolResponseText(decoded.response),
+                ...(responseId ? { responseId } : {}),
                 toolCallId: decoded.call.id,
                 name: decoded.call.name,
             })
@@ -139,10 +126,9 @@ async function expandToolCallMessage(
         }
     }
     if (pending.trim().length > 0) {
-        out.push({ role: 'assistant', content: pending })
+        out.push({ role: 'assistant', content: pending, ...(responseId ? { responseId } : {}) })
     }
-    // A cachePoint on the source message covers everything through it, so the
-    // boundary lands after the LAST message it expanded into.
+    // The cache boundary follows the last message produced from this turn.
     if (m.cachePoint && out.length > 0) {
         out[out.length - 1].cachePoint = true
     }
@@ -169,12 +155,10 @@ export function toAdapterMessage(
         ? extractThinkTags(m.content ?? '')
         : { text: m.content ?? '', reasoning: undefined }
     const msg: AdapterChatMessage = { role, content: fallback.text }
+    const responseId = getPromptResponseId(m)
+    if (role === 'assistant' && responseId) msg.responseId = responseId
     if (m.name) msg.name = m.name
-    // Preserve the native prompt-cache boundary flag (cache card /
-    // automaticCachePoint) so the google-gemini adapter can consume it.
     if (m.cachePoint) msg.cachePoint = true
-    // Vision: only attach images to user turns,
-    // so mirror that — assistant/system image parts are dropped.
     if (includeImages && role === 'user') {
         const images = extractImages(m)
         if (images) msg.images = images

@@ -12,14 +12,7 @@ if (!fs.existsSync(saveDir)) {
 
 const revenantDir = path.join(saveDir, 'revenant');
 fs.mkdirSync(revenantDir, { recursive: true });
-const legacyDbPath = path.join(saveDir, 'revenant-generation.db');
 const dbPath = path.join(revenantDir, 'revenant.db');
-if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
-    const legacyDb = new Database(legacyDbPath);
-    legacyDb.pragma('wal_checkpoint(TRUNCATE)');
-    legacyDb.close();
-    fs.renameSync(legacyDbPath, dbPath);
-}
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
@@ -34,8 +27,6 @@ db.exec(`
         job_type TEXT NOT NULL DEFAULT 'model',
         character_id TEXT,
         room_id TEXT,
-        is_continuation INTEGER NOT NULL DEFAULT 0,
-        continuation_prefix TEXT,
         generation_info TEXT,
         prompt_info TEXT,
         reroll_snapshot TEXT,
@@ -47,7 +38,6 @@ db.exec(`
         streaming INTEGER NOT NULL DEFAULT 0,
         dispatch_group TEXT,
         dispatch_max_concurrent INTEGER,
-        dispatch_requests_per_minute INTEGER,
         dispatched_at INTEGER,
         request_spec BLOB,
         status TEXT NOT NULL,
@@ -84,6 +74,10 @@ db.exec(`
         WHERE status = 'active';
     CREATE INDEX IF NOT EXISTS idx_generation_workflows_status
         ON generation_workflows(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS workflowChatSnapshots (
+        workflow_id TEXT PRIMARY KEY,
+        input_chat TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS generation_workflow_steps (
         workflow_id TEXT NOT NULL,
         step_key TEXT NOT NULL,
@@ -134,12 +128,6 @@ const generationColumns = new Set(
 );
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
-}
-if (!generationColumns.has('is_continuation')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN is_continuation INTEGER NOT NULL DEFAULT 0`);
-}
-if (!generationColumns.has('continuation_prefix')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN continuation_prefix TEXT`);
 }
 if (!generationColumns.has('generation_info')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN generation_info TEXT`);

@@ -14,8 +14,6 @@ import type {
     ModelPreset,
     ModelProfile,
     RegistryCache,
-    RegistryFieldSchema,
-    RegistryUiSchema,
     ResolvedModelProfileSnapshot,
 } from './types'
 
@@ -800,6 +798,7 @@ describe('applyProfileSnapshotUpdate', () => {
 
     test('resolved registry snapshot feeds applyProfileSnapshotUpdate end-to-end', () => {
         const preset = makePreset()
+        const presetBefore = structuredClone(preset)
         const registry = makeRegistry(
             [
                 makeProfile({
@@ -841,10 +840,6 @@ describe('applyProfileSnapshotUpdate', () => {
             'modelId',
             'reasoning',
         ])
+        expect(preset).toEqual(presetBefore)
     })
 })
-
-// Tiny smoke that imports the shared types compile cleanly; keeps unused-import lint quiet
-// when refactoring the test helpers.
-function _typeGuards(_field: RegistryFieldSchema, _ui: RegistryUiSchema): void {}
-void _typeGuards

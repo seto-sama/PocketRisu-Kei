@@ -75,7 +75,7 @@ describe('server HypaV3 selection executor', () => {
         expect(result.chatSequence[1]).toEqual({ inputIndex: 1, inputMemo: 'query' })
     })
 
-    it('keeps legacy chat queries intact and includes the similarity correction summary', async () => {
+    it('keeps each chat as one query and includes the similarity correction summary', async () => {
         const input = recipe()
         input.settings = { ...input.settings, queryMode: 'chat' } as any
         input.chats[1].content = 'first paragraph\n\nsecond paragraph'
@@ -87,6 +87,26 @@ describe('server HypaV3 selection executor', () => {
             embedder: { documents: async () => [[1, 0]], queries },
         })
         expect(queries).toHaveBeenCalledWith(['first paragraph\n\nsecond paragraph', 'query summary'])
+    })
+
+    it('excludes chat setup markers before selecting recent query chats', async () => {
+        const input = recipe()
+        input.settings = { ...input.settings, queryChatCount: 2, queryMode: 'chat' } as any
+        input.chats = [
+            { role: 'system', content: '[Start a new chat]', memo: 'NewChat' },
+            { role: 'assistant', content: 'greeting' },
+            { role: 'user', content: 'question' },
+        ]
+        const queries = vi.fn(async (items: string[]) => items.map(() => [1, 0]))
+
+        await selectHypaMemory(input, [
+            { text: 'matching', chatMemos: ['a'], isImportant: false },
+        ], {
+            tokenize: async () => 1,
+            embedder: { documents: async () => [[1, 0]], queries },
+        })
+
+        expect(queries).toHaveBeenCalledWith(['greeting', 'question'])
     })
 
     it('uses the OpenAI embeddings endpoint for every remote embedding phase', async () => {
@@ -112,5 +132,32 @@ describe('server HypaV3 selection executor', () => {
             expect(JSON.parse(String(init.body)).model).toBe('text-embedding-3-large')
             expect(init.signal).toBe(controller.signal)
         }
+    })
+
+    it('limits concurrent remote embedding batches', async () => {
+        let active = 0
+        let peak = 0
+        const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+            active++
+            peak = Math.max(peak, active)
+            await new Promise(resolve => setTimeout(resolve, 1))
+            active--
+            const body = JSON.parse(String(init.body))
+            return new Response(JSON.stringify({
+                data: body.input.map(() => ({ embedding: [1, 0] })),
+            }), { status: 200, headers: { 'content-type': 'application/json' } })
+        })
+        const embedder = createRemoteEmbedder(
+            { model: 'openai3small', apiKey: 'key', maxConcurrent: 2 },
+            { fetch: fetchMock },
+        )
+
+        await embedder.documents(Array.from({ length: 151 }, (_, index) => ({
+            content: `doc-${index}`,
+            summaryIndex: index,
+        })))
+
+        expect(fetchMock).toHaveBeenCalledTimes(4)
+        expect(peak).toBe(2)
     })
 })

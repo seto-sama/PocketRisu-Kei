@@ -4,37 +4,22 @@ const { installAssetBatchRoutes } = require('./batch.cjs');
 const { binaryBodyParser } = require('../../binaryHttp.cjs');
 
 const { logger } = require('../../logs/logs.cjs');
-const { createFullChatStore, findStubFlagLossChats } = require('../../chatStore.cjs');
 const { encodeRisuSaveLegacy, normalizeJSON, decodeRisuSave, calculateHash } = require('../../utils.cjs');
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
-const { encodeInlayAsset, decodeInlayAsset } = require('../../../../src/ts/storage/inlayTransport.ts');
-const path = require('path');
-const { existsSync, createReadStream } = require('fs');
-const { spawn } = require('child_process');
-const nodeCrypto = require('crypto');
+const { createReadStream } = require('fs');
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { applyPatch } = require('fast-json-patch');
+const { codes, sendApiError } = require('../../apiErrors.cjs');
 
 function installAssetRoutes(app, {
     saveTimers,
     queueStorageOperation,
     storageState,
     bookmarkStore,
-    ensureChatStore,
-    reassembleFullDb,
     appDataStore,
-    deleteInlayRawFile,
-    deleteInlayVideoThumbnail,
-    getInlaySidecarPath,
-    readInlayFile,
-    readInlaySidecar,
-    readInlayLegacyInfo,
-    getVips,
-    getInlayFileInfo,
-    getInlayVideoThumbnailPath,
-    inlayVideoThumbnailDir,
+    inlayService,
     sessionAuthMiddleware,
     getMimeFromExt,
     resolveAssetPayload,
@@ -43,23 +28,31 @@ function installAssetRoutes(app, {
     MISSING_DATABASE_ETAG,
     isCloudflareTunnelRequest,
     computeBufferEtag,
-    readInlayInfoPayload,
-    listInlayFiles,
     requireSyncClientId,
     computeDatabaseEtagFromObject,
-    normalizeInlayExt,
-    writeInlayFile,
-    writeInlaySidecar,
     normalizeLegacyDatabaseProjection,
     refreshCanonicalDatabaseCache,
     createBackupAndRotate,
     broadcastDatabaseInvalidated,
     enablePatchSync,
-    findChatInternalFieldOps,
     currentPersistWarning,
     getSyncClientIdFromRequest,
     clearPersistFailure,
 }) {
+    const {
+        deleteInlayFile,
+        decodeInlayAsset,
+        getInlaySidecarPath,
+        readInlayInfoPayload,
+        readInlayAssetPayload,
+        getInlayFileInfo,
+        ensureThumbnail,
+        listInlayFiles,
+        normalizeInlayExt,
+        writeInlayFile,
+        writeInlaySidecar,
+    } = inlayService;
+
     installAssetBatchRoutes(app, {
         checkAuth, requireSyncClientId, readInlayInfoPayload, kvGet, kvSet,
         transaction: callback => sqliteDb.transaction(callback),
@@ -82,9 +75,7 @@ function installAssetRoutes(app, {
     function recordPersistFailure(error, source) {
         const message = String(error?.message || error || 'unknown error');
         const attemptedSize = typeof error?.attemptedSize === 'number' ? error.attemptedSize : null;
-        // Preserve timestamp when the failure is identical to the last one — every
-        // debounce cycle re-records the same failure, and clients dedupe by ts.
-        // Without this guard a fresh ts every 5s would re-fire the toast.
+        // Keep identical failures at the same timestamp to avoid repeated notifications.
         if (storageState.lastPersistFailure
             && storageState.lastPersistFailure.source === source
             && storageState.lastPersistFailure.message === message
@@ -99,226 +90,10 @@ function installAssetRoutes(app, {
         };
     }
 
-    function pruneBookmarksToFullChatStore() {
-        if (!storageState.fullChatStore) return 0;
-        return bookmarkStore.pruneInvalid((entry) => storageState.fullChatStore
-            .get(entry.characterId)
-            ?.get(entry.chatId)
-            ?.message
-            ?.some(message => message?.chatId === entry.messageId));
-    }
-
-    function initChatStore(dbObj) {
-        const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(dbObj);
-        storageState.fullChatStore = createFullChatStore(dbObj);
-        if (bookmarkMigration.migrated) pruneBookmarksToFullChatStore();
-        return bookmarkMigration;
-    }
-
-    async function persistDbCacheWithChats(filePath, decodedKey) {
-        const strippedDb = storageState.dbCache[filePath];
-        if (!strippedDb) return;
-        if (decodedKey !== 'database/database.bin') {
-            const data = Buffer.from(encodeRisuSaveLegacy(strippedDb));
-            kvSet(decodedKey, data);
-            return;
-        }
-        await ensureChatStore();
-        const fullDb = reassembleFullDb(strippedDb);
-
-        // Disk protection guard: abort persist when reassemble produced metadata-only
-        // chats. Writing them would lock the loss in (next /api/read returns the
-        // stripped chat with no `_stub`, so hydration never re-merges fullChatStore).
-        // Invalidate dbCache so the next request re-reads from disk and rebuilds a
-        // consistent stub view; client receives 409 on next /api/patch via hash mismatch.
-        if (decodedKey === 'database/database.bin') {
-            const losses = findStubFlagLossChats(fullDb);
-            if (losses.length > 0) {
-                const sample = losses.slice(0, 3).map(l => `${l.chaId}/${l.chatId ?? l.chatIndex}`).join(', ');
-                const err = new Error(
-                    `persist aborted: ${losses.length} chat(s) lost _stub flag without upgrade — `
-                    + `would silently strip messages on disk. sample=[${sample}]`
-                );
-                recordPersistFailure(err, 'persistDbCacheWithChats:stub-flag-loss');
-                delete storageState.dbCache[filePath];
-                throw err;
-            }
-        }
-
-        try {
-            appDataStore.syncStartupProjection(strippedDb);
-        } catch (err) {
-            throw err;
-        }
-        // Refresh fullChatStore from the persisted snapshot so subsequent
-        // /api/chat-content GETs return the same metadata (folderId, modules)
-        // that just hit disk. Without this, PATCH-only clears of stub fields
-        // leave fullChatStore holding stale fullChat objects, and hydration
-        // would resurrect the cleared values until the next /api/read.
-        initChatStore(appDataStore.exportProjection({ includeMessages: true }));
-        storageState.dbCache[filePath] = appDataStore.exportProjection({ includeMessages: false });
-    }
-
     const hexRegex = /^[0-9a-fA-F]+$/;
-
-    async function deleteInlayFile(id) {
-        await deleteInlayRawFile(id);
-        await deleteInlayVideoThumbnail(id);
-        await fs.unlink(getInlaySidecarPath(id)).catch(() => {});
-    }
-
-    async function readInlayAssetPayload(id) {
-        const file = await readInlayFile(id);
-        if (!file) return null;
-        const sidecar = (await readInlaySidecar(id)) || (await readInlayLegacyInfo(id));
-        const info = {
-            ext: sidecar?.ext || file.ext,
-            name: sidecar?.name || id,
-            type: sidecar?.type || 'image',
-            height: sidecar?.height,
-            width: sidecar?.width,
-        };
-        return Buffer.from(encodeInlayAsset({ ...info, mime: file.mime }, file.buffer).buffer);
-    }
 
     function isHex(str) {
         return hexRegex.test(str.toUpperCase().trim()) || str === '__password';
-    }
-
-    const THUMB_SHORT_SIDE = 320;
-
-    const THUMB_LONG_SIDE = 640;
-
-    const THUMB_QUALITY = 75;
-
-    const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
-
-    const videoThumbnailJobs = new Map();
-
-    async function generateThumbnail(buffer) {
-        const vips = await getVips()
-        const source = vips.Image.newFromBuffer(buffer)
-        let rotated = null
-        let img = null
-        try {
-            rotated = source.autorot()
-            const landscape = rotated.width >= rotated.height
-            const targetWidth = landscape ? THUMB_LONG_SIDE : THUMB_SHORT_SIDE
-            const targetHeight = landscape ? THUMB_SHORT_SIDE : THUMB_LONG_SIDE
-            const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height, 1)
-            img = scale < 1
-                ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
-                : rotated
-            const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
-            return Buffer.from(out);
-        } finally {
-            if (img && img !== rotated) img.delete()
-            if (rotated) rotated.delete()
-            source.delete()
-        }
-    }
-
-    function extractVideoThumbnailFrame(inputPath, outputPath) {
-        const bundledExecutable = path.join(
-            process.cwd(),
-            'bin',
-            process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
-        )
-        const executable = process.env.RISU_FFMPEG_PATH || (
-            existsSync(bundledExecutable) ? bundledExecutable : 'ffmpeg'
-        )
-
-        return new Promise((resolve) => {
-            const child = spawn(executable, [
-                '-hide_banner',
-                '-loglevel', 'error',
-                '-ss', '0.1',
-                '-i', inputPath,
-                '-map', '0:v:0',
-                '-frames:v', '1',
-                '-an',
-                '-sn',
-                '-c:v', 'png',
-                '-y',
-                outputPath,
-            ], {
-                stdio: 'ignore',
-                windowsHide: true,
-            })
-            let settled = false
-            const finish = (success) => {
-                if (settled) return
-                settled = true
-                clearTimeout(timeout)
-                resolve(success)
-            }
-            const timeout = setTimeout(() => {
-                child.kill('SIGKILL')
-                finish(false)
-            }, 30_000)
-            child.once('error', () => finish(false))
-            child.once('close', (code) => finish(code === 0))
-        })
-    }
-
-    async function ensureInlayVideoThumbnail(id) {
-        const existingJob = videoThumbnailJobs.get(id)
-        if (existingJob) return await existingJob
-
-        const job = (async () => {
-            const [source, sidecar] = await Promise.all([
-                getInlayFileInfo(id),
-                readInlaySidecar(id),
-            ])
-            if (!source || sidecar?.type !== 'video') return null
-
-            const thumbnailPath = getInlayVideoThumbnailPath(id)
-            try {
-                const thumbnailStat = await fs.stat(thumbnailPath)
-                if (thumbnailStat.mtimeMs >= source.mtimeMs) {
-                    return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
-                }
-            } catch {
-                // Generate a missing or stale thumbnail below.
-            }
-
-            await fs.mkdir(inlayVideoThumbnailDir, { recursive: true })
-            const temporaryBase = `${id}.${process.pid}.${nodeCrypto.randomBytes(6).toString('hex')}`
-            const framePath = path.join(
-                inlayVideoThumbnailDir,
-                `${temporaryBase}.frame.png`,
-            )
-            const temporaryThumbnailPath = path.join(
-                inlayVideoThumbnailDir,
-                `${temporaryBase}.tmp.webp`,
-            )
-            const extracted = await extractVideoThumbnailFrame(source.filePath, framePath)
-            if (!extracted) {
-                await fs.unlink(framePath).catch(() => {})
-                return null
-            }
-
-            try {
-                const frame = await fs.readFile(framePath)
-                const thumbnail = await generateThumbnail(frame)
-                await fs.writeFile(temporaryThumbnailPath, thumbnail)
-                await fs.rename(temporaryThumbnailPath, thumbnailPath)
-                const thumbnailStat = await fs.stat(thumbnailPath)
-                return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
-            } catch {
-                return null
-            } finally {
-                await Promise.allSettled([
-                    fs.unlink(framePath),
-                    fs.unlink(temporaryThumbnailPath),
-                ])
-            }
-        })().finally(() => {
-            videoThumbnailJobs.delete(id)
-        })
-
-        videoThumbnailJobs.set(id, job)
-        return await job
     }
 
     function parseSingleByteRange(rangeHeader, size) {
@@ -362,11 +137,13 @@ function installAssetRoutes(app, {
 
     function pipeFileResponse(res, filePath, options) {
         const stream = createReadStream(filePath, options)
+        res.once('close', () => stream.destroy())
         stream.on('error', (error) => {
             if (res.headersSent) res.destroy(error)
             else {
                 res.removeHeader('Content-Length')
                 res.removeHeader('Content-Range')
+                res.removeHeader('Content-Disposition')
                 res.status(500).end()
             }
         })
@@ -376,11 +153,14 @@ function installAssetRoutes(app, {
     app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
         try {
             const key = Buffer.from(req.params.hexKey, 'hex').toString('utf-8')
+            const download = req.query.download === '1'
+            const filename = typeof req.query.filename === 'string' ? req.query.filename : ''
 
             if (key.startsWith('inlay/')) {
                 const id = key.slice('inlay/'.length)
                 const file = await getInlayFileInfo(id)
                 if (file) {
+                    if (download) res.attachment(filename || `${id}.${file.ext}`)
                     const etag = `"${Math.floor(file.mtimeMs)}"`
                     const cacheHeaders = {
                         'Content-Type': getMimeFromExt(file.ext),
@@ -428,41 +208,27 @@ function installAssetRoutes(app, {
                 return res.status(404).set('Cache-Control', 'no-store').end()
             }
 
-            if (key.startsWith('inlay_thumb/')) {
-                const id = key.slice('inlay_thumb/'.length)
-                const sidecar = await readInlaySidecar(id);
-                if (!sidecar || sidecar.type !== 'image' || !THUMB_IMAGE_EXTS.has(sidecar.ext)) {
-                    return res.status(404).end()
-                }
-                const file = await readInlayFile(id)
-                if (!file) return res.status(404).set('Cache-Control', 'no-store').end()
-                const etag = `"thumb-${Math.floor(file.mtimeMs)}"`
-                if (req.headers['if-none-match'] === etag) {
-                    return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
-                }
-                const thumb = await generateThumbnail(file.buffer)
-                res.set({
-                    'Content-Type': 'image/webp',
-                    'Cache-Control': 'public, max-age=31536000, immutable',
-                    'ETag': etag,
-                })
-                return res.send(thumb)
-            }
-
-            if (key.startsWith('inlay_video_thumb/')) {
-                const id = key.slice('inlay_video_thumb/'.length)
-                const thumbnail = await ensureInlayVideoThumbnail(id)
+            const thumbnailAsset = key.startsWith('inlay_thumb/')
+                ? { id: key.slice('inlay_thumb/'.length), type: 'image' }
+                : key.startsWith('inlay_video_thumb/')
+                    ? { id: key.slice('inlay_video_thumb/'.length), type: 'video' }
+                    : null
+            if (thumbnailAsset) {
+                const thumbnail = await ensureThumbnail(thumbnailAsset.id, thumbnailAsset.type)
                 if (!thumbnail) return res.status(404).set('Cache-Control', 'no-store').end()
+                if (download) res.attachment(filename || `${thumbnailAsset.id}.webp`)
 
-                const stat = await fs.stat(thumbnail.filePath)
-                const etag = `"video-thumb-${Math.floor(thumbnail.mtimeMs)}"`
+                const isVideo = thumbnailAsset.type === 'video'
+                const etagPrefix = isVideo ? 'video-thumb' : 'thumb'
                 const cacheHeaders = {
                     'Content-Type': 'image/webp',
-                    'Cache-Control': 'public, max-age=86400',
-                    'ETag': etag,
-                    'Content-Length': String(stat.size),
+                    'Cache-Control': isVideo
+                        ? 'public, max-age=86400'
+                        : 'public, max-age=31536000, immutable',
+                    'ETag': `"${etagPrefix}-${Math.floor(thumbnail.stat.mtimeMs)}"`,
+                    'Content-Length': String(thumbnail.stat.size),
                 }
-                if (req.headers['if-none-match'] === etag) {
+                if (req.headers['if-none-match'] === cacheHeaders.ETag) {
                     return res.status(304).set(cacheHeaders).end()
                 }
                 res.set(cacheHeaders)
@@ -470,7 +236,7 @@ function installAssetRoutes(app, {
                 return pipeFileResponse(res, thumbnail.filePath)
             }
 
-            // Fast-path 304: check updated_at BEFORE loading the blob.
+            // Avoid loading the blob when the client's cache is current.
             const updatedAt = kvGetUpdatedAt(key)
             if (updatedAt === null) return res.status(404).set('Cache-Control', 'no-store').end()
 
@@ -483,6 +249,7 @@ function installAssetRoutes(app, {
             if (!data) return res.status(404).set('Cache-Control', 'no-store').end()
 
             const { binary, contentType } = resolveAssetPayload(key, data)
+            if (download) res.attachment(filename || key.split('/').pop())
             res.set({
                 'Content-Type': contentType,
                 'Cache-Control': 'public, max-age=31536000, immutable',
@@ -512,17 +279,16 @@ function installAssetRoutes(app, {
         const filePath = req.headers['file-path'];
         if (!filePath) {
             console.log('no path')
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
             const key = Buffer.from(filePath, 'hex').toString('utf-8');
-            // database.bin is a virtual compatibility export. No live blob exists
-            // in KV after migration, and the browser hot path uses /api/database.
+            // database.bin is a compatibility projection of canonical storage.
             if (key === 'database/database.bin') {
                 await ensureCanonicalStorage();
                 if (!appDataStore.getState().initialized) {
@@ -549,8 +315,7 @@ function installAssetRoutes(app, {
                 value = await readInlayAssetPayload(key.slice('inlay/'.length));
             } else if (key.startsWith('inlay_info/')) {
                 value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-            }
-            if (value === null) {
+            } else {
                 value = kvGet(key);
             }
             if (value === null) return res.send();
@@ -567,11 +332,11 @@ function installAssetRoutes(app, {
         }
         const filePath = req.headers['file-path'];
         if (!filePath) {
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
@@ -621,11 +386,7 @@ function installAssetRoutes(app, {
                 : undefined;
             let data;
             if (keyPrefix === 'inlay/') {
-                const fileKeys = (await listInlayFiles()).map((entry) => `inlay/${entry.id}`);
-                data = [...new Set([
-                    ...fileKeys,
-                    ...kvList('inlay/'),
-                ])];
+                data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
             } else {
                 data = kvList(keyPrefix || undefined, listOptions);
             }
@@ -647,11 +408,11 @@ function installAssetRoutes(app, {
         const filePath = req.headers['file-path'];
         const fileContent = req.body;
         if (!filePath || !fileContent) {
-            res.status(400).send({ error:'File path required' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         if(!isHex(filePath)){
-            res.status(400).send({ error:'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
         try {
@@ -659,7 +420,6 @@ function installAssetRoutes(app, {
                 const key = Buffer.from(filePath, 'hex').toString('utf-8');
                 let databaseForEtag = null;
 
-                // ETag conflict detection for database.bin
                 if (key === 'database/database.bin') {
                     const ifMatch = req.headers['x-if-match'];
                     await ensureCanonicalStorage();
@@ -716,8 +476,7 @@ function installAssetRoutes(app, {
                     await writeInlaySidecar(id, parsed);
                     kvDel(key);
                 } else if (key === 'database/database.bin') {
-                    // Explicit compatibility import. Ordinary browser saves use
-                    // PATCH /api/database and never pass through this codec.
+                    // Compatibility import; ordinary saves use PATCH /api/database.
                     try {
                         let incomingDb = normalizeLegacyDatabaseProjection(
                             await decodeRisuSave(fileContent),
@@ -747,9 +506,7 @@ function installAssetRoutes(app, {
                             if (!isCloudflareTunnelRequest(req)) {
                                 bookmarkStore.replaceDatabaseCompatibility(incomingDb);
                             } else {
-                                // A remote compatibility import cannot alter the
-                                // server-owned bookmark catalog, and compatibility
-                                // fields must never leak into canonical chat bodies.
+                                // Remote imports cannot replace server-owned bookmarks.
                                 bookmarkStore.stripDatabaseCompatibility(incomingDb);
                             }
                             appDataStore.replaceFromProjection(incomingDb, {
@@ -760,7 +517,7 @@ function installAssetRoutes(app, {
                         bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
                     } catch (e) {
                         logger.error('[Write] Compatibility database import failed:', e);
-                        if (e?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+                        if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
                             res.status(400).json({ error: e.message, code: e.code });
                         } else {
                             res.status(500).json({ error: 'Database import failed' });
@@ -771,10 +528,8 @@ function installAssetRoutes(app, {
                     kvSet(key, fileContent);
                 }
 
-                // Update ETag, backup, and invalidate cache after database.bin write
                 if (key === 'database/database.bin') {
                     refreshCanonicalDatabaseCache({ invalidateChats: true });
-                    // ETag based on the stripped version visible to this client.
                     const visibleForEtag = isCloudflareTunnelRequest(req)
                         ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
                         : databaseForEtag;
@@ -811,7 +566,7 @@ function installAssetRoutes(app, {
             return;
         }
         if (!isHex(filePath)) {
-            res.status(400).send({ error: 'Invaild Path' });
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
 
@@ -827,8 +582,6 @@ function installAssetRoutes(app, {
                     return;
                 }
 
-                // Load database into memory if not already cached
-                // For database.bin, cache holds the STRIPPED version (stubs only)
                 if (!storageState.dbCache[filePath]) {
                     const fileContent = kvGet(decodedKey);
                     if (fileContent) {
@@ -838,62 +591,14 @@ function installAssetRoutes(app, {
                     }
                 }
 
-                // Reject patch ops that touch chat-internal fields. Lazy loading
-                // strips chats to stubs in dbCache; the only legitimate chat ops
-                // are allowlisted stub metadata (see STUB_METADATA_FIELDS)
-                // or whole-chat add/replace/remove. Field-level ops on chats —
-                // particularly remove of message/hypaV3Data/scriptstate/etc —
-                // strip the `_stub` flag and cause silent on-disk data loss when
-                // reassembleFullDb later sees the metadata-only chat. Reject as
-                // 409 so the client falls through to a full write and rebases its
-                // patcher baseline. See findStubFlagLossChats for the disk-side
-                // partner guard.
-                const chatInternalOps = decodedKey === 'database/database.bin'
-                    ? findChatInternalFieldOps(patch)
-                    : [];
-                if (chatInternalOps.length > 0) {
-                    const sample = chatInternalOps.slice(0, 5).map(v => `${v.op} ${v.path}`).join(', ');
-                    logger.warn(
-                        `[Patch] Rejected ${chatInternalOps.length} chat-internal field op(s) `
-                        + `(would corrupt lazy-loaded chats): ${sample}`
-                    );
-                    let currentEtag;
-                    try {
-                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(storageState.dbCache[filePath])));
-                        storageState.dbEtag = currentEtag;
-                    } catch {}
-                    res.status(409).send({
-                        error: 'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
-                        code: 'CHAT_GUARD_REJECTED',
-                        chatGuardRejected: true,
-                        currentEtag,
-                    });
-                    return;
-                }
-
-                const remoteFilteredDb = decodedKey === 'database/database.bin' && isCloudflareTunnelRequest(req)
-                    ? normalizeJSON(filterRemoteOnlyFolders(storageState.dbCache[filePath]))
-                    : null;
-                const patchBaseline = remoteFilteredDb ?? storageState.dbCache[filePath];
                 patchStage = 'hash';
-                const serverHash = calculateHash(patchBaseline).toString(16);
+                const serverHash = calculateHash(storageState.dbCache[filePath]).toString(16);
 
-                // JSON Patch identity: no operation means no compare-and-swap and
-                // no write. Older open clients may still submit these while a
-                // server-owned generation commit advances the database, so return
-                // the current view without manufacturing a hash conflict.
+                // Empty patches do not write or require a matching baseline.
                 if (Array.isArray(patch) && patch.length === 0) {
-                    let currentEtag;
-                    if (decodedKey === 'database/database.bin') {
-                        currentEtag = computeBufferEtag(Buffer.from(
-                            encodeRisuSaveLegacy(patchBaseline)
-                        ));
-                        storageState.dbEtag = currentEtag;
-                    }
                     const responsePayload = {
                         success: true,
                         appliedOperations: 0,
-                        etag: currentEtag,
                     };
                     const persistWarning = currentPersistWarning();
                     if (persistWarning) responsePayload.persistWarning = persistWarning;
@@ -912,94 +617,51 @@ function installAssetRoutes(app, {
                         + `client=${String(getSyncClientIdFromRequest(req) || 'none')}, `
                         + `ops=[${patchPaths.join(', ')}]`
                     );
-                    let currentEtag = undefined;
-                    if (decodedKey === 'database/database.bin') {
-                        const visibleDb = remoteFilteredDb ?? storageState.dbCache[filePath];
-                        // Keep a hash mismatch as a recoverable 409 even if the
-                        // best-effort current ETag cannot be encoded.
-                        try {
-                            currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                            storageState.dbEtag = currentEtag;
-                        } catch {}
-                    }
                     res.status(409).send({
                         error: 'Hash mismatch - data out of sync',
-                        currentEtag
                     });
                     return;
                 }
 
-                // A JSON round-trip builds one giant string and reaches V8's string
-                // size ceiling on large databases. The cached value is already a
-                // normalized plain-data graph, so structuredClone preserves the
-                // rollback boundary without that intermediate allocation.
+                // Clone before applying so failed patches leave the cache intact.
+                // structuredClone avoids the string-size limit of a JSON round-trip.
                 patchStage = 'clone';
-                const snapshot = structuredClone(patchBaseline);
+                const snapshot = structuredClone(storageState.dbCache[filePath]);
                 patchStage = 'apply';
                 let result;
                 try {
                     result = applyPatch(snapshot, patch, true);
                 } catch (patchErr) {
-                    // Invalidate corrupted cache entry to force reload on next request
                     delete storageState.dbCache[filePath];
                     throw patchErr;
                 }
-                storageState.dbCache[filePath] = remoteFilteredDb
-                    ? normalizeJSON(mergeRemoteFilteredDatabase(storageState.dbCache[filePath], snapshot))
-                    : snapshot;
+                storageState.dbCache[filePath] = snapshot;
 
-                // Schedule save to KV (debounced) — merge full chats back for database.bin
                 scheduleStorageOperation(filePath, async () => {
                     try {
-                        if (decodedKey === 'database/database.bin') {
-                            await persistDbCacheWithChats(filePath, decodedKey);
-                        } else {
-                            const data = Buffer.from(encodeRisuSaveLegacy(storageState.dbCache[filePath]));
-                            try {
-                                kvSet(decodedKey, data);
-                            } catch (err) {
-                                if (err && typeof err === 'object') {
-                                    try { err.attemptedSize = data.length; } catch {}
-                                }
-                                throw err;
+                        const data = Buffer.from(encodeRisuSaveLegacy(storageState.dbCache[filePath]));
+                        try {
+                            kvSet(decodedKey, data);
+                        } catch (err) {
+                            if (err && typeof err === 'object') {
+                                try { err.attemptedSize = data.length; } catch {}
                             }
+                            throw err;
                         }
-                        // Persist succeeded — clear before backup so a backup-only
-                        // failure isn't attributed to data loss.
                         clearPersistFailure();
-                        if (decodedKey === 'database/database.bin') {
-                            try {
-                                createBackupAndRotate();
-                            } catch (backupErr) {
-                                logger.warn(`[Patch] Backup rotation failed for ${decodedKey}:`, backupErr);
-                            }
-                        }
                     } catch (error) {
                         logger.error(`[Patch] Error saving ${decodedKey}:`, error);
                         recordPersistFailure(error, `patch:${decodedKey}`);
                     }
                 });
 
-                // Update ETag after successful patch (based on stripped version)
-                patchStage = 'etag';
-                if (decodedKey === 'database/database.bin') {
-                    const visibleDb = remoteFilteredDb
-                        ? normalizeJSON(filterRemoteOnlyFolders(storageState.dbCache[filePath]))
-                        : storageState.dbCache[filePath];
-                    storageState.dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                }
-
                 const responsePayload = {
                     success: true,
                     appliedOperations: result.length,
-                    etag: decodedKey === 'database/database.bin' ? storageState.dbEtag : undefined,
                 };
                 const persistWarning = currentPersistWarning();
                 if (persistWarning) {
                     responsePayload.persistWarning = persistWarning;
-                }
-                if (decodedKey === 'database/database.bin') {
-                    broadcastDatabaseInvalidated(req);
                 }
                 res.send(responsePayload);
             });

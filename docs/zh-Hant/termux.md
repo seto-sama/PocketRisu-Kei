@@ -122,7 +122,7 @@ Termux 通知列會顯示喚醒鎖指示器,即使螢幕關閉伺服器也會繼
 在 PocketRisu 目錄下執行:
 
 ```bash
-cd ~/PocketRisu
+cd ~/PocketRisu-Kei
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```

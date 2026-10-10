@@ -1,5 +1,8 @@
 'use strict';
 
+const { codes, createApiError } = require('../apiErrors.cjs');
+const { isInlayMediaType } = require('../../../shared/inlayTypes.mjs');
+
 // Full backup and selective asset restore engines.
 
 const nodeCrypto = require('crypto');
@@ -31,8 +34,7 @@ function createBackupRestoreService({
     decodeDataUri,
     ensureInlayDir,
     normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
+    normalizeColdStorageBackupBuffer,
     logger,
     maxEntryNameBytes = DEFAULT_MAX_ENTRY_NAME_BYTES,
 }) {
@@ -136,8 +138,7 @@ function createBackupRestoreService({
         let bytesReceived = 0;
         const seenEntryNames = new Set();
         const seenStorageKeys = new Set();
-        const importedInlayIds = new Set();
-        const importedSidecarIds = new Set();
+        const stagedInlayPaths = new Map();
         const explicitSidecarMap = new Map();
         const legacyInlayInfoMap = new Map();
 
@@ -188,7 +189,9 @@ function createBackupRestoreService({
         const stagingSidecarPath = (id) => path.join(stagingDir, `${id}.meta.json`);
         function writeStagingInlayFileSync(id, ext, buffer, info) {
             const normalizedExt = normalizeInlayExt(ext);
-            fsSync.writeFileSync(stagingInlayFilePath(id, normalizedExt), Buffer.from(buffer));
+            const filePath = stagingInlayFilePath(id, normalizedExt);
+            fsSync.writeFileSync(filePath, Buffer.from(buffer));
+            stagedInlayPaths.set(id, filePath);
             fsSync.writeFileSync(stagingSidecarPath(id), JSON.stringify({
                 ext: normalizedExt,
                 name: typeof info?.name === 'string' ? info.name : id,
@@ -233,7 +236,7 @@ function createBackupRestoreService({
             for await (const chunk of dataSource) {
                 bytesReceived += chunk.length;
                 if (maxBytes > 0 && bytesReceived > maxBytes) {
-                    throw new Error(`Backup exceeds max allowed size (${maxBytes} bytes)`);
+                    throw createApiError(codes.BACKUP_TOO_LARGE, 413, { maxBytes });
                 }
                 onProgress?.(bytesReceived, totalBytes);
                 pendingChunks.push(Buffer.from(chunk));
@@ -255,7 +258,6 @@ function createBackupRestoreService({
                     const inlaySidecar = parseInlaySidecarBackupName(name);
 
                     if (inlayRaw) {
-                        importedInlayIds.add(inlayRaw.id);
                         if (inlayRaw.ext) {
                             writeStagingInlayFileSync(
                                 inlayRaw.id,
@@ -269,13 +271,9 @@ function createBackupRestoreService({
                             const type = typeof parsed?.type === 'string'
                                 ? parsed.type
                                 : 'image';
+                            if (!isInlayMediaType(type)) return;
                             const ext = normalizeInlayExt(parsed?.ext);
-                            const buffer = type === 'signature'
-                                ? Buffer.from(
-                                    typeof parsed?.data === 'string' ? parsed.data : '',
-                                    'utf-8',
-                                )
-                                : decodeDataUri(parsed?.data).buffer;
+                            const buffer = decodeDataUri(parsed?.data).buffer;
                             writeStagingInlayFileSync(
                                 inlayRaw.id,
                                 ext,
@@ -303,21 +301,10 @@ function createBackupRestoreService({
                                     { ext: 'bin', name: inlayRaw.id, type: 'image' },
                             );
                         }
-                        if (explicitSidecarMap.has(inlayRaw.id)) {
-                            writeStagingSidecarSync(
-                                inlayRaw.id,
-                                explicitSidecarMap.get(inlayRaw.id),
-                            );
-                        } else if (!importedSidecarIds.has(inlayRaw.id)) {
-                            const legacyInfo = legacyInlayInfoMap.get(inlayRaw.id);
-                            if (legacyInfo) writeStagingSidecarSync(inlayRaw.id, legacyInfo);
-                        }
                         assetsRestored += 1;
                     } else if (inlaySidecar) {
                         const parsed = JSON.parse(data.toString('utf-8'));
                         explicitSidecarMap.set(inlaySidecar.id, parsed);
-                        writeStagingSidecarSync(inlaySidecar.id, parsed);
-                        importedSidecarIds.add(inlaySidecar.id);
                     } else if (name.startsWith('inlay_info/')) {
                         const id = name.slice('inlay_info/'.length);
                         if (!isSafeInlayId(id)) {
@@ -335,9 +322,6 @@ function createBackupRestoreService({
                                 ? parsed.width
                                 : undefined,
                         });
-                        if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
-                            writeStagingSidecarSync(id, legacyInlayInfoMap.get(id));
-                        }
                     } else if (name === 'encryption.risudat') {
                         encryptionMarker = Buffer.from(data);
                     } else if (name === 'database.risudat') {
@@ -345,13 +329,7 @@ function createBackupRestoreService({
                     } else if (!name.startsWith('inlay_thumb/')) {
                         const storageKey = resolveBackupStorageKey(name);
                         const storageValue = storageKey.startsWith('coldstorage/')
-                            ? encodeColdStorageCanonicalBuffer(
-                                parseColdStorageJsonBuffer(
-                                    data,
-                                    name,
-                                    { allowPlainJson: true },
-                                ).coldData,
-                            )
+                            ? normalizeColdStorageBackupBuffer(data, name)
                             : data;
                         if (seenStorageKeys.has(storageKey)) {
                             throw new Error(`Duplicate backup storage key: ${storageKey}`);
@@ -388,8 +366,16 @@ function createBackupRestoreService({
             if (databaseRaw === null) {
                 throw new Error('Backup does not contain database.risudat');
             }
-            for (const [id, info] of legacyInlayInfoMap.entries()) {
-                if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
+            const inlayMetadata = new Map([...legacyInlayInfoMap, ...explicitSidecarMap]);
+            for (const [id, info] of inlayMetadata) {
+                const filePath = stagedInlayPaths.get(id);
+                if (!isInlayMediaType(info?.type ?? 'image')) {
+                    if (filePath) {
+                        fsSync.rmSync(filePath, { force: true });
+                        assetsRestored -= 1;
+                    }
+                    fsSync.rmSync(stagingSidecarPath(id), { force: true });
+                } else if (filePath || explicitSidecarMap.has(id)) {
                     writeStagingSidecarSync(id, info);
                 }
             }
@@ -482,7 +468,7 @@ function createBackupRestoreService({
             );
             if (coldStorageFailed > 0) {
                 logger.error(
-                    `[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`,
+                    `[Backup Import] ${coldStorageFailed} cold storage reference(s) could not be restored`,
                 );
             }
             return { assetsRestored, bytesReceived, coldStorageFailed };
@@ -542,7 +528,7 @@ function validateHashedAsset(name, value) {
 }
 
 /**
- * Restore only currently-missing assets from a local PocketRisu server backup.
+ * Restore only currently-missing assets from a local server backup.
  *
  * The backup is scanned completely before any write. Target entries are then
  * hash-checked (for content-addressed names) and inserted in one SQLite

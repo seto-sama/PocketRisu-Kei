@@ -1,6 +1,6 @@
 /**
  * Curated lucide icons a folder can use instead of the default folder glyph
- * (`folder.nodeOnlyIcon`). Explicit imports keep the bundle to just these;
+ * (`folder.icon`). Explicit imports keep the bundle to just these;
  * an unknown name (e.g. from a newer version) falls back to the default.
  */
 import type { Component } from 'svelte'

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 const { decryptAccountBackup } = require('./accountBackup.cjs')
+const apiErrorMessages = require('../../../shared/apiErrorMessages.json')
 const marker = Buffer.from(JSON.stringify({ type: 'account', time: 1788710000000 }))
 afterEach(() => vi.useRealTimers())
 
@@ -11,10 +12,14 @@ describe('account backup key retrieval', () => {
         expect(fetchImpl).not.toHaveBeenCalled()
     })
 
-    it.each([403, 500])('reports HTTP %s without exposing the server response body', async status => {
+    it.each([403, 500])('reports HTTP %s structurally without exposing the response body', async status => {
         const fetchImpl = vi.fn(async () => new Response('private server response', { status }))
         const failed = decryptAccountBackup(Buffer.alloc(16), marker, { fetchImpl })
-        await expect(failed).rejects.toMatchObject({ code: 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE', message: expect.stringContaining(`HTTP ${status}`) })
+        await expect(failed).rejects.toMatchObject({
+            code: 'BACKUP_ENCRYPTION_KEY_UNAVAILABLE',
+            message: apiErrorMessages.BACKUP_ENCRYPTION_KEY_UNAVAILABLE,
+            details: { upstreamStatus: status },
+        })
         await expect(failed).rejects.not.toThrow('private server response')
         expect(fetchImpl).toHaveBeenCalledOnce()
         const [url, init] = fetchImpl.mock.calls[0] as any

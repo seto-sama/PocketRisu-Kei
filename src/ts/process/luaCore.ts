@@ -1,4 +1,5 @@
 import type { Message } from '../storage/database.svelte'
+import { ensureMessageId } from '../storage/messageIdentity'
 
 export type LuaCoreMessage = Partial<Message>
 
@@ -162,16 +163,16 @@ export function registerLuaCoreApis(
     declare('addChat', (accessKey, role, value) => {
         const adapter = getAdapter()
         if (adapter.canMutate(String(accessKey))) {
-            adapter.getChat().message.push({ role: normalizeRole(role), data: String(value ?? '') })
+            adapter.getChat().message.push(ensureMessageId({ role: normalizeRole(role), data: String(value ?? '') }))
         }
     })
     declare('insertChat', (accessKey, index, role, value) => {
         const adapter = getAdapter()
         if (adapter.canMutate(String(accessKey))) {
-            adapter.getChat().message.splice(Number(index), 0, {
+            adapter.getChat().message.splice(Number(index), 0, ensureMessageId({
                 role: normalizeRole(role),
                 data: String(value ?? ''),
-            })
+            }))
         }
     })
     declare('getChatLength', () => getAdapter().getChat().message.length)
@@ -186,7 +187,7 @@ export function registerLuaCoreApis(
         const parsed = JSON.parse(String(value))
         if (!Array.isArray(parsed)) return
         const previousMessages = adapter.getChat().message
-        adapter.getChat().message = parsed.map((message, index) => ({
+        adapter.getChat().message = parsed.map((message, index) => ensureMessageId({
             ...previousMessages[index],
             role: normalizeRole(message?.role),
             data: String(message?.data ?? ''),
@@ -251,6 +252,8 @@ type LuaGlobal = {
     get: (name: string) => ((...args: any[]) => unknown) | undefined
 }
 
+const LUA_EDIT_MODES = new Set(['editRequest', 'editDisplay', 'editInput', 'editOutput'])
+
 export function luaMayListenForEditMode(code: string, mode: string): boolean {
     if (!/\blistenEdit\b/.test(code)) return false
 
@@ -275,7 +278,7 @@ export async function invokeLuaMode(
     data: unknown,
     meta: unknown,
 ): Promise<{ result: unknown, data: unknown }> {
-    if (['editRequest', 'editDisplay', 'editInput', 'editOutput'].includes(mode)) {
+    if (LUA_EDIT_MODES.has(mode)) {
         // The wrapper has already executed the script and registered all edit
         // listeners. Avoid serializing a potentially huge chat message across
         // the JS/Lua boundary when this script does not listen to this mode.
@@ -285,8 +288,13 @@ export async function invokeLuaMode(
         }
         const listener = global.get('callListenMain')
         if (!listener) return { result: undefined, data }
-        const result = await listener(mode, accessKey, JSON.stringify(data), JSON.stringify(meta))
-        const nextData = JSON.parse(String(result))
+        // editDisplay is a string-only hot path that runs once per rendered
+        // message. Passing it through JSON adds an avoidable encode/decode on
+        // both sides of the JS/Lua boundary.
+        const directString = mode === 'editDisplay'
+        const value = directString ? data : JSON.stringify(data)
+        const result = await listener(mode, accessKey, value, JSON.stringify(meta))
+        const nextData = directString ? result : JSON.parse(String(result))
         return { result: nextData, data: nextData }
     }
 

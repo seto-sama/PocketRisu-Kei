@@ -1,6 +1,11 @@
+import { Buffer } from 'buffer'
 import { encodeBinaryMessage, decodeBinaryMessage } from '../network/binaryMessage'
 
 export const MAX_ASSET_BATCH_BYTES = 100 * 1024 * 1024
+
+export function getAssetUrl(key: string): string {
+    return `/api/asset/${Buffer.from(key, 'utf-8').toString('hex')}`
+}
 
 export interface AssetEntry {
     key: string

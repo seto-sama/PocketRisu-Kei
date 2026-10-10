@@ -264,14 +264,9 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Character data functions
     registerFunction({
         name: 'personality',
-        callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            const argChara = matcherArg.chara
-            const achara = (argChara && typeof(argChara) !== 'string') ? argChara : (db.characters[getSelectedCharID()])
-            return risuChatParser(achara.personality, matcherArg)
-        },
+        callback: () => '',
         alias: ['charpersona'],
-        description: 'Returns the personality field of the current character. The text is processed through the chat parser for variable substitution. Returns empty string for group chats.\n\nUsage:: {{personality}}',
+        description: 'Legacy character personality field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{personality}}',
     });
 
     registerFunction({
@@ -288,26 +283,16 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'scenario',
-        callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            const argChara = matcherArg.chara
-            const achara = (argChara && typeof(argChara) !== 'string') ? argChara : (db.characters[getSelectedCharID()])
-            return risuChatParser(achara.scenario, matcherArg)
-        },
+        callback: () => '',
         alias: [],
-        description: 'Returns the scenario field of the current character. The text is processed through the chat parser for variable substitution. Returns empty string for group chats.\n\nUsage:: {{scenario}}',
+        description: 'Legacy character scenario field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{scenario}}',
     });
 
     registerFunction({
         name: 'exampledialogue',
-        callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            const argChara = matcherArg.chara
-            const achara = (argChara && typeof(argChara) !== 'string') ? argChara : (db.characters[getSelectedCharID()])
-            return risuChatParser(achara.exampleMessage, matcherArg)
-        },
+        callback: () => '',
         alias: ['examplemessage', 'example_dialogue'],
-        description: 'Returns the example dialogue/message field of the current character. The text is processed through the chat parser for variable substitution. Returns empty string for group chats.\n\nUsage:: {{exampledialogue}}',
+        description: 'Legacy example dialogue field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{exampledialogue}}',
     });
 
     // Prompt and system functions

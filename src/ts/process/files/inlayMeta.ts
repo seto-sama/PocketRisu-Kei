@@ -76,12 +76,6 @@ class NodeInlayMetaStorage {
         }
     }
 
-    async entries(): Promise<[string, InlayAssetMeta][]> {
-        const allKeys = await this.nodeStorage.keys(INLAY_META_PREFIX)
-        const ids = allKeys.map((k) => k.replace(INLAY_META_PREFIX, ''))
-        const metas = await this.getItems(ids)
-        return Object.entries(metas)
-    }
 }
 
 function parseImageGenerationMeta(value: unknown): InlayAssetMeta['imageGeneration'] {
@@ -106,10 +100,6 @@ export async function setInlayMeta(id: string, meta: InlayAssetMeta): Promise<vo
 
 export async function removeInlayMeta(id: string): Promise<void> {
     await getStorage().removeItem(id)
-}
-
-export async function listInlayMetaEntries(): Promise<[string, InlayAssetMeta][]> {
-    return await getStorage().entries()
 }
 
 export async function getInlayMeta(id: string): Promise<InlayAssetMeta | null> {

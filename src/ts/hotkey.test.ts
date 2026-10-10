@@ -124,11 +124,39 @@ describe('application hotkeys', () => {
         QuickSettings.index = 1
     }
 
-    it('closes settings through the shared Escape request', () => {
-        settingsOpen.set(true)
+    it('routes Escape through the shared dialog close action', () => {
+        const closeButton = document.createElement('button')
+        closeButton.dataset.risuDialogClose = ''
+        const close = vi.fn()
+        closeButton.addEventListener('click', close)
+        document.body.appendChild(closeButton)
+
         expect(requestEscapeAction()).toBe(true)
-        expect(get(settingsOpen)).toBe(false)
+        expect(close).toHaveBeenCalledOnce()
+        closeButton.remove()
         expect(requestEscapeAction()).toBe(false)
+    })
+
+    it('blurs a focused input before a parent dialog can close', () => {
+        const layer = document.createElement('div')
+        const input = document.createElement('input')
+        const closeButton = document.createElement('button')
+        closeButton.dataset.risuDialogClose = ''
+        const close = vi.fn()
+        const closeLayer = vi.fn()
+        closeButton.addEventListener('click', close)
+        layer.addEventListener('keydown', closeLayer)
+        layer.append(input)
+        document.body.append(layer, closeButton)
+        input.focus()
+
+        expect(requestEscapeAction()).toBe(true)
+        expect(document.activeElement).not.toBe(input)
+        expect(closeLayer).not.toHaveBeenCalled()
+        expect(close).not.toHaveBeenCalled()
+
+        expect(requestEscapeAction()).toBe(true)
+        expect(close).toHaveBeenCalledOnce()
     })
 
     it('leaves settings open while a modal handles Escape', () => {

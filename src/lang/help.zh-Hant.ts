@@ -1,5 +1,5 @@
 /**
- * PocketRisu Kei NodeOnly — Traditional Chinese help texts (`language.help`).
+ * Traditional Chinese help texts (`language.help`).
  *
  * Extracted from `src/lang/zh-Hant.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via the language fallback (see `src/lang/index.ts`).
@@ -25,7 +25,7 @@ export const helpZhHant = {
         "regexScript": "正規表達式（Regex Script）是一個自訂工具，用於將符合條件的字串由 IN 替換為 OUT。\n\n有四種類型選項：\n\n- **修改輸入（Modify Input）**：修改使用者的輸入內容\n\n- **修改輸出（Modify Output）**：修改角色的輸出內容\n\n- **修改發送資料（Modify Request Data）**：修改發送給AI的對話資料\n\n- **修改顯示（Modify Display）**：僅修改顯示的文字，不更改發送內容\n\nIN 必須是不含旗標（flags）的正規表達式，且開頭和結尾不包含斜線。\n\nOUT 是一個可以包含替換模式的字串。這些替換模式如下：\n\n- $$\n\n  - 插入符號「$」\n\n- $&\n\n  - 插入匹配到的子字串\n\n- $`\n\n  - 插入匹配子字串前的部分\n\n- $1\n\n  - 插入第一個匹配群組，可以替換為其他數字（例如 2、3...）\n\n- $(name)\n\n  - 插入命名群組\n\n針對旗標（flags），除了原生支援的旗標之外，還可以使用下列專為進階使用者設計的旗標：\n\n- `<inject>`：將結果注入目前字串中\n- `<move_top>`：將結果移到字串的頂部\n- `<move_bottom>`：將結果移到字串的底部\n- `<repeat_back>`：如果找不到匹配，則使用上一個匹配的結果\n- `<order n>`：設定結果的順序，數值越高顯示越靠前。「n」代表一個數字（例如 `<order 1>`）。如果未設定，預設為 0。\n- `<cbs>`：解析 IN 中的大括號語法\n\n若要與原生旗標結合使用，可以像這樣使用：`gi<cbs><move_top>`。",
         "exampleMessage": "示範對話會影響角色的回應，但不會永久佔用 Token。\n\n對話格式示例：\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```\n\n```<START>``` 標記了一段新對話的開始。",
         "creatorQuotes": "說明將顯示在初始訊息之上，用於向使用者提供角色說明。此內容不會進入提示詞中。",
-        "systemPrompt": "此提示詞已不再使用，也不會包含在請求中。",
+        "systemPrompt": "此欄位不為空時，將替換設定中的主要提示詞為此內容。",
         "chatNote": "這是一個強烈影響模型行為的備註，嵌入於目前對話中，也稱為記憶或 UJB。",
         "personality": "對角色性格的簡要描述。\n\n**不建議使用此欄位，請填寫在角色描述中。**",
         "scenario": "對角色情境的簡要描述。\n\n**不建議使用此欄位，請填寫在角色描述中。**",
@@ -46,11 +46,8 @@ export const helpZhHant = {
         "requestretrys": "設定請求失敗時的重試次數。",
         "emotionPrompt": "此選項用於設定情緒檢測的提示詞。留空將使用預設提示詞。",
         "additionalParams": "此選項允許將附加的參數加入至請求主體（Request body）中。若要排除某些參數，可以將值設為 `{{none}}`。若要加入標頭（Request header）而非主體，可以在鍵前加上 `header::`，如 `header::Authorization`。若要將值作為 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情況下，系統將自動判定值的類型。",
-        "antiClaudeOverload": "當 Claude 發生過載時，PocketRisu Kei 會嘗試繼續發送相同的提示詞以防止請求中斷，藉此減少過載機率。此功能僅適用於串流回應 (Streamed Responses)，對非官方 API 端點可能無效。",
         "triggerScript": "觸發式（Trigger）是一個自訂腳本，在符合條件時執行。可用於修改對話資料、執行指令、更改變數等。類型取決於觸發時的情況，也可由按鈕觸發，如 {{button::Display::TriggerName}} 或帶有 risu-trigger=\"<TriggerName>\" 屬性的 HTML 按鈕。",
         "combineTranslation": "啟用後，將把被 HTML 標籤分隔但屬於同一句的文字合併後進行翻譯，並在翻譯結果上重新套用「修改顯示」（Modify Display）。這有助於提高翻譯的準確性。若啟用此功能後介面出現異常，請關閉此選項並回報問題。",
-        "dynamicAssets": "啟用後，若在處理資料時找不到資源名稱，系統將使用向量搜尋（Vector Search）嘗試尋找最接近的資源名稱並進行替換。",
-        "dynamicAssetsEditDisplay": "啟用後，動態資源將同樣套用於「修改顯示」階段，但這可能會影響效能。",
         "nickname": "設定後，將在對話中以此暱稱取代角色名稱，並顯示於 {{char}} 和 <char>。",
         "useRegexLorebook": "啟用後，Lorebook 將改用正規表達式（Regex）搜尋，而不再使用字串匹配。格式為 /regex/flags。",
         "customChainOfThought": "警告：不再建議使用思維鏈（CoT, Chain-of-Thought）切換功能。請將相關提示詞移至其他提示詞欄位。",
@@ -86,7 +83,7 @@ export const helpZhHant = {
         "promptInfoInsideChatDesc": "啟用後，將在對話中繼資料中儲存預設資訊。儲存的資料包括預設名稱、啟用的切換和提示詞文字。這可能會略微增加處理時間和儲存空間的使用。",
         "settingsCloseButtonSize": "調整設定視窗右上角關閉(X)按鈕的大小。預設值為24。",
         "hideAllImagesDesc": "隱藏角色頭像、角色圖片資源和RisuRealm封面圖片。",
-        "embedding": "嵌入模型用於多個功能中的相似度搜尋：\n\n- **長期記憶**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (啟用 HypaMemory 時)\n- **額外描述**: 基於上下文匹配角色附加資訊\n- **動態資源**: 當未找到精確匹配時尋找相似的資源名稱\n- **情緒立繪**: 當情緒方式設定為 'embedding' 時\n- **觸發式**: 觸發式中的相似度條件\n- **檔案附件**: 在 PDF/TXT/XML 附件中搜尋",
+        "embedding": "嵌入模型用於多個功能中的相似度搜尋：\n\n- **長期記憶**: HypaV3 (啟用 HypaMemory 時)\n- **額外描述**: 基於上下文匹配角色附加資訊\n- **動態資源**: 當未找到精確匹配時尋找相似的資源名稱\n- **情緒立繪**: 當情緒方式設定為 'embedding' 時\n- **觸發式**: 觸發式中的相似度條件\n- **檔案附件**: 在 PDF/TXT/XML 附件中搜尋",
         "reSummarizationPrompt": "批量編輯、將多個選定的總結合併為一個時使用的提示詞。如果留空將使用預設提示詞。總結輸出會以雙換行碼 (\\n\\n) 為基準分割成區塊，用於相似性搜尋。",
         "hypaV3MemoryTokensRatio": "提示詞中分配給長期記憶區塊 {{slot}} 的最大上下文比例。",
         "hypaV3ExtraSummarizationRatio": "降低總結停止的閾值。設為 0 時，在達到上下文限制前都不會進行總結。較高的值，會在達到上下文限制前便開始進行總結。",
@@ -99,11 +96,9 @@ export const helpZhHant = {
         "hypaV3ProcessRegexScript": "如果啟用，在 HypaV3 視窗中重新生成總結時，將對輸入的對話訊息套用正規表達式 (Regex) 腳本。",
         "hypaV3DoNotSummarizeUserMessage": "如果啟用，總結的最大訊息數將不計入使用者訊息。",
         "hypaV3EnableSimilarityCorrection": "如果啟用，最近對話的總結將額外作為查詢使用。不適用於實驗性的 HypaMemory V3。",
-        "hypaV3UseExperimentalImpl": "切換至實驗性的 HypaMemory V3 實作。這將啟用速率限制 (Rate limit) 設定並變更查詢方式。",
+        "hypaV3UseExperimentalImpl": "切換至實驗性的 HypaMemory V3 實作。這將啟用同時請求數設定並變更查詢方式。",
         "hypaV3AlwaysToggleOn": "如果啟用，選擇角色時將自動開啟 HypaMemory 開關。",
-        "hypaV3SummarizationRequestsPerMinute": "每分鐘最大總結模型請求數。僅在總結模型設為「輔助模型」時適用。",
         "hypaV3SummarizationMaxConcurrent": "最大同時發送的總結模型請求數。僅在總結模型設為「輔助模型」時適用。",
-        "hypaV3EmbeddingRequestsPerMinute": "用於相似性搜尋的每分鐘最大嵌入模型請求數。",
         "hypaV3EmbeddingMaxConcurrent": "用於相似性搜尋的最大同時嵌入模型請求數。",
         "allowV2Plugin": "警告：此選項允許安裝及執行已棄用且可能存在安全風險的 V2.0 與 V2.1 外掛。停用時，已安裝的 V2 外掛會關閉且無法重新啟用。僅限明確信任且尚無法遷移至 V3 的外掛使用。",
         "inlayImageCompression": "啟用後，新嵌入圖片會依照下方設定壓縮；關閉後則以原始尺寸的無損 PNG 儲存。",
@@ -114,11 +109,9 @@ export const helpZhHant = {
         "showModelInSidebar": "在側邊欄中顯示目前 AI 模型名稱，方便快速查看。",
         "showPresetInSidebar": "在側邊欄中顯示目前啟用的提示詞預設名稱，方便快速查看。",
         "showPersonaInSidebar": "在側邊欄中顯示目前啟用的人設名稱，方便快速查看。",
-        "disableMobileDragDrop": "停用行動裝置上的對話重新排序拖曳功能。若在滑動時發生意外拖曳，請啟用此選項。",
         "disableToggleBinding": "顯示將切換值綁定至個別對話的功能。",
         "keepSessionAlive": "透過播放靜音音訊讓分頁保持活躍，防止瀏覽器工作階段因閒置而過期。可能需要重新整理後才能生效。",
-        "nodeOnlyScrollButtonType": "聊天捲動按鈕的顯示方式。4 個按鈕會加入跳至頂部與底部的控制項；2 個按鈕僅保留上一則/下一則訊息導覽；停用則隱藏按鈕。",
-        "superMemory": "SupaMemory 透過向 AI 提供總結資料來增強角色的記憶能力。\n\nSupaMemory 是一項文字總結功能。不建議使用輔助模型，除非該模型無審查、最大上下文超過 2000 Token，且具有良好的總結能力。\n\nSupaMemory 提示詞決定了模型如何撰寫總結。留空將使用預設提示詞，建議保持留空。\n\n完成所有設定後，您可以在角色的設定中啟用此功能。",
+        "scrollButtonType": "聊天捲動按鈕的顯示方式。4 個按鈕會加入跳至頂部與底部的控制項；2 個按鈕僅保留上一則/下一則訊息導覽；停用則隱藏按鈕。",
         "lorePlus": "Lorebook+ 是一項實驗性功能。使用向量資料庫（VectorDB），而不僅是字串匹配。目的在於提供更好的建立角色體驗和更好的匹配效能。",
         "removePunctuationHypa": "啟用後，將在執行 HypaMemory 前移除標點符號。",
         "groupOtherBotRole": "用於定義群組對話中非發言者的角色。",

@@ -120,7 +120,7 @@ Termux 알림 영역에 wake lock 상태가 표시되며, 폰 화면이 꺼져�
 PocketRisu 디렉터리에서 다음을 실행합니다.
 
 ```bash
-cd ~/PocketRisu
+cd ~/PocketRisu-Kei
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```

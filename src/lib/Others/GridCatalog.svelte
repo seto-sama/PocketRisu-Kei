@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy } from "svelte";
-    import * as ContextMenu from "../UI/components/context-menu";
+    import MiniSettingsPopup from "../UI/components/MiniSettingsPopup.svelte";
     import SettingNumber from "../Setting/Wrappers/SettingNumber.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import { normalizeTrashRetentionDays } from "src/ts/trashRetention";
@@ -114,13 +114,13 @@
 
     const visibleCharacters = $derived(formatChars(search, DBState.db, section === 1));
 
-    const hiddenCharacterIds = $derived(new Set(DBState.db.nodeOnlyHiddenCharacterIds ?? []));
+    const hiddenCharacterIds = $derived(new Set(DBState.db.hiddenCharacterIds ?? []));
 
     function toggleCharacterHidden(id: string) {
         const next = new Set(hiddenCharacterIds);
         if (next.has(id)) next.delete(id);
         else next.add(id);
-        DBState.db.nodeOnlyHiddenCharacterIds = [...next];
+        DBState.db.hiddenCharacterIds = [...next];
     }
 
     let orderElement: HTMLDivElement | undefined = $state();
@@ -291,8 +291,8 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <ContextMenu.Root>
-                        <ContextMenu.Trigger class="inline-flex shrink-0">
+                    <MiniSettingsPopup>
+                        {#snippet trigger()}
                             <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
                                 <IconButton
                                     tone="destructive"
@@ -305,11 +305,9 @@
                                     <TrashIcon />
                                 </IconButton>
                             </IconButtonGroup>
-                        </ContextMenu.Trigger>
-                        <ContextMenu.Content side="bottom" align="end" sticky="always" class="w-96 max-w-[calc(100vw-2rem)] p-3 [&_[data-setting-id]]:border-0 [&_[data-setting-id]]:py-0">
-                            <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
-                        </ContextMenu.Content>
-                    </ContextMenu.Root>
+                        {/snippet}
+                        <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
+                    </MiniSettingsPopup>
                 {/if}
             </div>
         </header>
@@ -359,8 +357,8 @@
                     {#each listEntries as entry (entry.type === 'folder' ? `folder:${entry.folder.id}` : entry.character.chaId)}
                         {#if entry.type === 'folder'}
                             {@const expanded = !!search.trim() || !collapsedFolders.has(entry.folder.id)}
-                            {@const displayMode = folderDisplayMode(entry.folder, DBState.db.showFolderName)}
-                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.nodeOnlyIcon) : undefined}
+                            {@const displayMode = folderDisplayMode(entry.folder)}
+                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.icon) : undefined}
                             {@const FolderGlyph = CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon)}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
                                 <div class="risu-folder-header min-h-9 risu-selectable-row text-maintext">
@@ -446,7 +444,7 @@
 {/snippet}
 
 {#snippet characterInfo(char: CatalogCharacter)}
-    <SidebarAvatar src={char.image ? getCharImage(char.image, 'plain') : ''} name={char.name} size="40" rounded={DBState.db.roundIcons} interactive={false} showTooltip={false} />
+    <SidebarAvatar src={char.image ? getCharImage(char.image, 'plain') : ''} name={char.name} size="40" interactive={false} showTooltip={false} />
     <span class="flex min-w-0 grow flex-col">
         <span class="truncate text-sm font-medium">{char.name}</span>
         <span class="flex items-center gap-1 text-xs text-subtext">

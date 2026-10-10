@@ -1,11 +1,11 @@
 <script lang="ts">
-    // Button — vega-derived spec, sizes shifted +1 step for mixed
-    // desktop/mobile use (NodeOnly is also accessed via Tailscale on phones).
+    // Button — vega-derived spec, sizes shifted +1 step for mixed desktop/mobile use.
     // Sizes are coordinated with Input, Toggle, and Select.
     import type { Snippet } from 'svelte';
     import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
     import { cn } from 'src/lib/utils';
     import type { ButtonSize, ButtonVariant } from './Button.types';
+    import Tooltip from './Tooltip.svelte';
 
     type Props = (HTMLButtonAttributes & HTMLAnchorAttributes) & {
         variant?: ButtonVariant;
@@ -22,6 +22,8 @@
         className = '',
         disabled,
         type = 'button',
+        title,
+        'aria-label': ariaLabel,
         children,
         ...rest
     }: Props = $props();
@@ -65,27 +67,47 @@
     };
 
     const classes = $derived(cn(base, variantClasses[variant], sizeClasses[size], className));
+    const iconOnly = $derived(size.startsWith('icon'));
 </script>
 
-{#if href}
-    <a
-        href={disabled ? undefined : href}
-        aria-disabled={disabled}
-        tabindex={disabled ? -1 : undefined}
-        class={classes}
-        data-slot="button"
-        {...rest}
-    >
-        {@render children?.()}
-    </a>
+{#snippet button(tooltipProps: Record<string, unknown> = {})}
+    {#if href}
+        <a
+            {...tooltipProps}
+            href={disabled ? undefined : href}
+            aria-disabled={disabled}
+            aria-label={ariaLabel ?? (iconOnly ? title : undefined)}
+            tabindex={disabled ? -1 : undefined}
+            class={classes}
+            data-slot="button"
+            title={iconOnly ? undefined : title}
+            {...rest}
+        >
+            {@render children?.()}
+        </a>
+    {:else}
+        <button
+            {...tooltipProps}
+            {type}
+            {disabled}
+            aria-label={ariaLabel ?? (iconOnly ? title : undefined)}
+            class={classes}
+            data-slot="button"
+            title={iconOnly ? undefined : title}
+            {...rest}
+        >
+            {@render children?.()}
+        </button>
+    {/if}
+{/snippet}
+
+{#if iconOnly && title}
+    <Tooltip size="compact">
+        {#snippet trigger(props)}
+            {@render button(props)}
+        {/snippet}
+        <span class="whitespace-pre-line">{title}</span>
+    </Tooltip>
 {:else}
-    <button
-        {type}
-        {disabled}
-        class={classes}
-        data-slot="button"
-        {...rest}
-    >
-        {@render children?.()}
-    </button>
+    {@render button()}
 {/if}

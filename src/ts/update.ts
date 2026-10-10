@@ -1,6 +1,5 @@
 import { writable, get } from "svelte/store"
 import { forageStorage } from "./globalApi.svelte"
-import { DBState } from "./stores.svelte"
 
 export interface UpdateInfo {
     currentVersion: string
@@ -11,10 +10,11 @@ export interface UpdateInfo {
     releaseName: string
     publishedAt: string
     popupMessage?: string
-    disabled?: boolean
     deploymentType?: 'portable' | 'git' | 'docker'
     canSelfUpdate?: boolean
     manualOnly?: boolean
+    /** Dev panel preview: simulate update progress without server requests or reloads. */
+    simulation?: boolean
 }
 
 export interface SelfUpdateProgress {
@@ -34,8 +34,7 @@ export const selfUpdateProgressStore = writable<SelfUpdateProgress | null>(null)
 
 export async function checkRisuUpdate(): Promise<UpdateInfo | null> {
     try {
-        const lang = encodeURIComponent(DBState.db?.language || '')
-        const res = await fetch(`/api/update-check?lang=${lang}`)
+        const res = await fetch('/api/update-check')
         if (!res.ok) return null
         const data: UpdateInfo = await res.json()
         updateInfoStore.set(data)
@@ -50,7 +49,7 @@ export async function checkRisuUpdate(): Promise<UpdateInfo | null> {
     }
 }
 
-const DISMISSED_KEY = 'risuNodeOnly_dismissedUpdateVersion'
+const DISMISSED_KEY = 'pocketRisuKei_dismissedUpdateVersion'
 
 function showUpdatePopupOnce(info: UpdateInfo) {
     const dismissed = localStorage.getItem(DISMISSED_KEY)

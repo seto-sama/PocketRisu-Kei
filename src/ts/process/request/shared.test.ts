@@ -243,19 +243,16 @@ describe('buildGenerationRequest', () => {
                 // The UI has already moved away from the submitted room.
                 chatPage: 1,
                 chats: [
-                    { id: 'submitted-room', message: [{ role: 'char', data: 'submitted prefix' }] },
-                    { id: 'visible-room', message: [{ role: 'char', data: 'visible prefix' }] },
+                    { id: 'submitted-room', message: [{ role: 'char', data: 'old answer' }] },
+                    { id: 'visible-room', message: [{ role: 'char', data: 'other answer' }] },
                 ],
             },
-            continue: true,
             revenantRoomId: 'submitted-room',
-            revenantContinuationPrefix: 'submitted prefix',
         } as any)
 
         expect(request?.job).toMatchObject({
             characterId: 'character-1',
             roomId: 'submitted-room',
-            continuationPrefix: 'submitted prefix',
         })
     })
 

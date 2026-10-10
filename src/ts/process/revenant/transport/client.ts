@@ -2,6 +2,7 @@ import type {
     RevenantGenerationMetadata,
     RecoverableGenerationJob,
 } from '../types'
+import type { ProviderContextRecord } from '../../../preset/adapter/thoughtSignatures'
 
 interface RevenantGenerationClientDependencies {
     createAuth: () => Promise<string>
@@ -35,6 +36,22 @@ export async function createRevenantGenerationAuth(): Promise<string> {
     const auth = await requireDependencies().createAuth()
     if (!auth) throw new Error('Node auth unavailable')
     return auth
+}
+
+export async function queryRevenantProviderContexts(
+    responseIds: string[], adapterKind: string, model: string,
+): Promise<ProviderContextRecord[]> {
+    if (responseIds.length === 0) return []
+    const response = await fetch('/api/provider-contexts/query', {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            'risu-auth': await createRevenantGenerationAuth(),
+        },
+        body: JSON.stringify({ responseIds: [...new Set(responseIds)], adapterKind, model }),
+    })
+    if (!response.ok) throw new Error(`Provider context lookup failed (${response.status})`)
+    return (await response.json()).records
 }
 
 export function getRevenantGenerationSyncClientId(): string {

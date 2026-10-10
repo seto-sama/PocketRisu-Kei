@@ -9,10 +9,7 @@ vi.mock('./nativeFetch', () => ({
 }))
 
 import { createLLMTransportFetch } from './llmTransport'
-import {
-    EPHEMERAL_DIRECT_LLM_EXECUTION,
-    WORKFLOW_LLM_EXECUTION,
-} from './transportTypes'
+import { WORKFLOW_LLM_EXECUTION } from './transportTypes'
 import type { RevenantGenerationRequest } from '../process/revenant'
 
 beforeEach(() => {
@@ -26,7 +23,6 @@ describe('createLLMTransportFetch', () => {
             job: {
                 chatId: 'generation-1',
                 jobType: 'model',
-                isContinuation: false,
             },
         }
         const fetchImpl = createLLMTransportFetch({
@@ -56,11 +52,12 @@ describe('createLLMTransportFetch', () => {
         )
     })
 
-    test('only selects browser-direct transport through explicit ephemeral policy', async () => {
+    test('passes an explicit execution policy to nativeFetch', async () => {
+        const directPolicy = { kind: 'ephemeral', durability: 'off', providerRoute: 'direct' } as const
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
             getGenerationRequest: () => undefined,
-            getExecutionPolicy: () => EPHEMERAL_DIRECT_LLM_EXECUTION,
+            getExecutionPolicy: () => directPolicy,
         })
 
         await fetchImpl('https://api.example.com/health', {
@@ -70,7 +67,7 @@ describe('createLLMTransportFetch', () => {
         expect(fetchNativeMock).toHaveBeenCalledWith(
             'https://api.example.com/health',
             expect.objectContaining({
-                llmExecutionPolicy: EPHEMERAL_DIRECT_LLM_EXECUTION,
+                llmExecutionPolicy: directPolicy,
             }),
         )
     })
@@ -82,7 +79,6 @@ describe('createLLMTransportFetch', () => {
                 job: {
                     chatId: 'aux-1',
                     jobType: 'otherAx',
-                    isContinuation: false,
                 },
             }),
             localNetworkTimeoutMs: 123_000,
@@ -115,7 +111,6 @@ describe('createLLMTransportFetch', () => {
                 job: {
                     chatId,
                     jobType: 'model',
-                    isContinuation: false,
                 },
             }),
         })

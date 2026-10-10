@@ -2,6 +2,7 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
+    import { downloadFile } from "src/ts/download";
     import SelectOption from "../../UI/components/SelectOption.svelte";
     import Select from "../../UI/components/Select.svelte";
     import Input from "../../UI/components/Input.svelte";
@@ -560,15 +561,7 @@
     </IconButton>
     <IconButton aria-label={language.export} title={language.export} onclick={() => {
         const jsonData = JSON.stringify(value.slice(1), null, 2)
-        const blob = new Blob([jsonData], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const anchor = document.createElement('a')
-        anchor.href = url
-        anchor.download = `triggers-${new Date().getTime()}.json`
-        document.body.appendChild(anchor)
-        anchor.click()
-        anchor.remove()
-        URL.revokeObjectURL(url)
+        downloadFile(`triggers-${Date.now()}.json`, jsonData)
     }}>
         <DownloadIcon />
     </IconButton>

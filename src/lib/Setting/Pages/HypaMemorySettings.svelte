@@ -2,7 +2,6 @@
     import { Buffer } from "buffer";
     import { language } from "src/lang";
     import Help from "src/lib/Others/Help.svelte";
-    import Accordion from "../../UI/components/Accordion.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -18,7 +17,7 @@
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
-    import { createHypaV3Preset } from "src/ts/process/memory/hypav3";
+    import { createHypaV3Preset, HYPA_CHAT_COUNT_MAX, HYPA_CHAT_COUNT_MIN, HYPA_CONCURRENT_REQUEST_MAX, HYPA_CONCURRENT_REQUEST_MIN } from "src/ts/process/memory/hypav3";
     import { DBState } from "src/ts/stores.svelte";
     import { selectSingleImportFile } from "src/ts/util";
     import { normalizeTagIds, removePresetTag, togglePresetTag } from "src/ts/preset/tags";
@@ -171,6 +170,10 @@
         </SettingLayout>
 
         {#if DBState.db.hypaV3}
+            {#if settings}
+                <SettingLayout variant="row" title={language.hypaV3Settings.alwaysToggleOnLabel} description={help("hypaV3AlwaysToggleOn")}>{#snippet control()}<Switch bind:checked={settings.alwaysToggleOn}/>{/snippet}</SettingLayout>
+            {/if}
+
             <SettingLayout variant="row" title={language.presets} description={language.help.hypaV3Preset}>
                 {#snippet control()}
                     <PresetHeader
@@ -184,10 +187,10 @@
 
             {#if settings}
                 <SettingLayout variant="row" title={language.summarizationPrompt} description={help("summarizationPrompt")} stacked>
-                    <Textarea commitMode="debounce" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <Textarea commitMode="debounce" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.promptPlaceholder}/>
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.reSummarizationPrompt} description={help("reSummarizationPrompt")} stacked>
-                    <Textarea commitMode="debounce" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <Textarea commitMode="debounce" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.promptPlaceholder}/>
                 </SettingLayout>
 
                 <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.memoryConfigurationLabel}</h3>
@@ -198,29 +201,27 @@
                 <SettingLayout variant="row" title={language.hypaV3Settings.recentMemoryRatioLabel} description={help("hypaV3RecentMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} bind:value={settings.recentMemoryRatio}/></div>{/snippet}</SettingLayout>
                 <SettingLayout variant="row" title={language.hypaV3Settings.similarMemoryRatioLabel} description={help("hypaV3SimilarMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1 - settings.recentMemoryRatio} step={0.01} fixed={2} bind:value={settings.similarMemoryRatio}/></div>{/snippet}</SettingLayout>
                 <SettingLayout variant="row" title={language.hypaV3Settings.randomMemoryRatioLabel} description={help("hypaV3RandomMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} disabled value={Math.max(0, 1 - settings.recentMemoryRatio - settings.similarMemoryRatio)}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.maxChatsPerSummaryLabel} description={help("hypaV3MaxChatsPerSummary")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.maxChatsPerSummary}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.queryChatCountLabel} description={help("hypaV3QueryChatCount")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.queryChatCount}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
-
                 <SettingLayout variant="row" title={language.hypaV3Settings.preserveOrphanedMemoryLabel} description={help("hypaV3PreserveOrphanedMemory")}>{#snippet control()}<Switch bind:checked={settings.preserveOrphanedMemory}/>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.applyRegexScriptWhenRerollingLabel} description={help("hypaV3ProcessRegexScript")}>{#snippet control()}<Switch bind:checked={settings.processRegexScript}/>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.doNotSummarizeUserMessageLabel} description={help("hypaV3DoNotSummarizeUserMessage")}>{#snippet control()}<Switch bind:checked={settings.doNotSummarizeUserMessage}/>{/snippet}</SettingLayout>
                 </div>
 
-                <Accordion class="mt-2" name={language.hypaV3Settings.advancedSettingsLabel}>
-                    <div class="[&>*:first-child]:border-t-0">
-                    <SettingLayout variant="row" title={language.hypaV3Settings.useExperimentalImplLabel} description={help("hypaV3UseExperimentalImpl")}>{#snippet control()}<Switch bind:checked={settings.useExperimentalImpl}/>{/snippet}</SettingLayout>
-                    <SettingLayout variant="row" title={language.hypaV3Settings.alwaysToggleOnLabel} description={help("hypaV3AlwaysToggleOn")}>{#snippet control()}<Switch bind:checked={settings.alwaysToggleOn}/>{/snippet}</SettingLayout>
-                    {#if settings.useExperimentalImpl}
-                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationRequestsPerMinuteLabel} description={help("hypaV3SummarizationRequestsPerMinute")}>{#snippet control()}<div class="w-48"><Slider min={1} max={100} step={1} bind:value={settings.summarizationRequestsPerMinute}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationMaxConcurrentLabel} description={help("hypaV3SummarizationMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.summarizationMaxConcurrent}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingRequestsPerMinuteLabel} description={help("hypaV3EmbeddingRequestsPerMinute")}>{#snippet control()}<div class="w-48"><Slider min={1} max={100} step={1} bind:value={settings.embeddingRequestsPerMinute}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingMaxConcurrentLabel} description={help("hypaV3EmbeddingMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.embeddingMaxConcurrent}/></div>{/snippet}</SettingLayout>
-                    {:else}
-                        <SettingLayout variant="row" title={language.hypaV3Settings.enableSimilarityCorrectionLabel} description={help("hypaV3EnableSimilarityCorrection")}>{#snippet control()}<Switch bind:checked={settings.enableSimilarityCorrection}/>{/snippet}</SettingLayout>
-                    {/if}
-                    </div>
-                </Accordion>
+                <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.summaryCreationLabel}</h3>
+                <div class="[&>*:first-child]:border-t-0">
+                <SettingLayout variant="row" title={language.hypaV3Settings.summarizationMaxConcurrentLabel} description={help("hypaV3SummarizationMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={HYPA_CONCURRENT_REQUEST_MIN} max={HYPA_CONCURRENT_REQUEST_MAX} step={1} bind:value={settings.summarizationMaxConcurrent}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.maxChatsPerSummaryLabel} description={help("hypaV3MaxChatsPerSummary")}>{#snippet control()}<div class="w-48"><Slider min={HYPA_CHAT_COUNT_MIN} max={HYPA_CHAT_COUNT_MAX} step={1} bind:value={settings.maxChatsPerSummary}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.doNotSummarizeUserMessageLabel} description={help("hypaV3DoNotSummarizeUserMessage")}>{#snippet control()}<Switch bind:checked={settings.doNotSummarizeUserMessage}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.applyRegexScriptWhenRerollingLabel} description={help("hypaV3ProcessRegexScript")}>{#snippet control()}<Switch bind:checked={settings.processRegexScript}/>{/snippet}</SettingLayout>
+                </div>
+
+                <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.similaritySearchLabel}</h3>
+                <div class="[&>*:first-child]:border-t-0">
+                <SettingLayout variant="row" title={language.hypaV3Settings.embeddingMaxConcurrentLabel} description={help("hypaV3EmbeddingMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={HYPA_CONCURRENT_REQUEST_MIN} max={HYPA_CONCURRENT_REQUEST_MAX} step={1} bind:value={settings.embeddingMaxConcurrent}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.queryChatCountLabel} description={help("hypaV3QueryChatCount")}>{#snippet control()}<div class="w-48"><Slider min={HYPA_CHAT_COUNT_MIN} max={HYPA_CHAT_COUNT_MAX} step={1} bind:value={settings.queryChatCount}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.useExperimentalImplLabel} description={help("hypaV3UseExperimentalImpl")}>{#snippet control()}<Switch bind:checked={settings.useExperimentalImpl}/>{/snippet}</SettingLayout>
+                {#if !settings.useExperimentalImpl}
+                    <SettingLayout variant="row" title={language.hypaV3Settings.enableSimilarityCorrectionLabel} description={help("hypaV3EnableSimilarityCorrection")}>{#snippet control()}<Switch bind:checked={settings.enableSimilarityCorrection}/>{/snippet}</SettingLayout>
+                {/if}
+                </div>
             {/if}
         {/if}
         </div>

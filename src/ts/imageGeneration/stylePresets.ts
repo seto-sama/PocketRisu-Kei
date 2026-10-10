@@ -1,4 +1,4 @@
-import { createEntityId } from '../id'
+import { createEntityId, ensureUniqueEntityIds } from '../id'
 import type { RisuModule } from '../process/modules'
 import type { loreBook } from '../storage/database.svelte'
 
@@ -37,11 +37,23 @@ function isImageStylePresetLorebook(lorebook: loreBook): boolean {
         && (/\[Positive\]/i.test(lorebook.content ?? '') || /\[Negative\]/i.test(lorebook.content ?? ''))
 }
 
-export function getImageStylePresetId(module: RisuModule, lorebook: loreBook): string {
-    if (!(lorebook.secondkey ?? '').trim() && canUseSecondaryKeyAsPresetId(lorebook)) {
-        lorebook.secondkey = lorebook.id || createEntityId()
+function ensureImageStylePresetIds(
+    db: Pick<ImageStylePresetDatabase, 'modules'>,
+): void {
+    for (const module of db.modules ?? []) {
+        const presets = (module.lorebook ?? [])
+            .filter(lorebook => isImageStylePresetLorebook(lorebook) && canUseSecondaryKeyAsPresetId(lorebook))
+            .map(lorebook => ({ lorebook, secondkey: (lorebook.secondkey ?? '').trim() }))
+        ensureUniqueEntityIds(presets, createEntityId, 'secondkey')
+        for (const preset of presets) {
+            preset.lorebook.secondkey = preset.secondkey
+        }
     }
-    return JSON.stringify([module.id, lorebook.id || lorebook.secondkey || lorebook.comment])
+}
+
+export function getImageStylePresetId(module: RisuModule, lorebook: loreBook): string {
+    const secondaryKey = (lorebook.secondkey ?? '').trim()
+    return JSON.stringify([module.id, secondaryKey || lorebook.comment])
 }
 
 export function normalizeImageStylePresetName(name: string): string {
@@ -65,6 +77,14 @@ export function listImageStylePresets(db: Pick<ImageStylePresetDatabase, 'module
             lorebookFolder: lorebook.folder,
         }]
     }))
+}
+
+/** Loads style presets, assigning persisted IDs to legacy or manually-cleared entries first. */
+export function loadImageStylePresets(
+    db: Pick<ImageStylePresetDatabase, 'modules'>,
+): ImageStylePresetEntry[] {
+    ensureImageStylePresetIds(db)
+    return listImageStylePresets(db)
 }
 
 export function ensureImageStylePresetModule(db: ImageStylePresetDatabase): RisuModule {

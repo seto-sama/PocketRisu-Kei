@@ -3,7 +3,6 @@ import {
     appendPresetItem,
     clonePresetWithNewId,
     duplicatePresetItem,
-    ensurePresetIds,
     movePresetItem,
     reorderPresetSubset,
     removePresetItem,
@@ -20,18 +19,6 @@ describe('preset collection', () => {
         expect(copy.id).not.toBe(source.id)
         expect(copy.settings).toEqual(source.settings)
         expect(copy.settings).not.toBe(source.settings)
-    })
-
-    it('migrates missing stable ids without replacing existing ids', () => {
-        const items = [{ name: 'legacy' }, { id: 'existing', name: 'current' }]
-        let nextId = 0
-
-        ensurePresetIds(items, () => `generated-${++nextId}`)
-
-        expect(items).toEqual([
-            { id: 'generated-1', name: 'legacy' },
-            { id: 'existing', name: 'current' },
-        ])
     })
 
     it('selects appended and duplicated items', () => {

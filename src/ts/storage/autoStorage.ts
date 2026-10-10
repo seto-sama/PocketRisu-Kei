@@ -4,6 +4,7 @@ import {
     type DatabaseProjection,
     type ExportBackupOptions,
     type PatchItemResult,
+    type DeltaPatch,
 } from "./nodeStorage"
 
 export class AutoStorage{
@@ -42,9 +43,14 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
-    async exportBackup(opts?: ExportBackupOptions) {
+    async downloadBackupExport(opts?: ExportBackupOptions) {
         await this.Init()
-        return this.realStorage.exportBackup(opts)
+        return this.realStorage.downloadBackupExport(opts)
+    }
+
+    async downloadAsset(key: string, filename?: string) {
+        await this.Init()
+        return this.realStorage.downloadAsset(key, filename)
     }
     async settingsBackupEstimate() {
         await this.Init()
@@ -79,7 +85,7 @@ export class AutoStorage{
         return this.realStorage.initializeDatabase(database, expectedRevision)
     }
 
-    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+    async patchDatabase(patchData: DeltaPatch | { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
         await this.Init()
         return this.realStorage.patchDatabase(patchData)
     }

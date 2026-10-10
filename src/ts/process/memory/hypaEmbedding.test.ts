@@ -39,9 +39,10 @@ vi.mock('src/ts/util', () => ({
 }))
 
 import { hypaVectorCache, truncateErrorBody } from './hypamemory'
-import { HypaProcessorV2 } from './hypamemoryv2'
+import { HypaEmbeddingProcessor } from './hypaEmbeddingProcessor'
+import { TaskConcurrencyLimiter } from './taskConcurrencyLimiter'
 
-describe('HypaProcessorV2 shared cache', () => {
+describe('Hypa embedding infrastructure', () => {
     beforeEach(() => {
         hypaVectorCache.clear()
     })
@@ -49,7 +50,7 @@ describe('HypaProcessorV2 shared cache', () => {
     it('attaches metadata to a detached result instead of mutating the shared cache', async () => {
         const shared = { content: 'same text', embedding: [1, 0] }
         hypaVectorCache.set('same text|custom', shared)
-        const processor = new HypaProcessorV2<{ summary: string }>({ model: 'custom' })
+        const processor = new HypaEmbeddingProcessor<{ summary: string }>({ model: 'custom' })
 
         await processor.addTexts([{
             id: 'summary-vector',
@@ -64,7 +65,7 @@ describe('HypaProcessorV2 shared cache', () => {
 
         // A metadata-less query hitting the same shared entry must not clear
         // the metadata already held by the saved summary vector.
-        await processor.similaritySearchScored('same text')
+        await processor.similaritySearchScoredBatch(['same text'])
         expect(processor.vectors.get('summary-vector')?.metadata).toEqual({ summary: 'kept' })
         expect(shared).not.toHaveProperty('metadata')
     })
@@ -73,5 +74,21 @@ describe('HypaProcessorV2 shared cache', () => {
         const result = truncateErrorBody('x'.repeat(500))
         expect(result.length).toBeLessThan(340)
         expect(result).toContain('(500 chars)')
+    })
+
+    it('bounds concurrent tasks while preserving result order', async () => {
+        let active = 0
+        let peak = 0
+        const limiter = new TaskConcurrencyLimiter({ maxConcurrentTasks: 2 })
+        const batch = await limiter.executeBatch([3, 1, 2].map(value => async () => {
+            active++
+            peak = Math.max(peak, active)
+            await new Promise(resolve => setTimeout(resolve, value))
+            active--
+            return value
+        }))
+
+        expect(peak).toBe(2)
+        expect(batch.results.map(result => result.data)).toEqual([3, 1, 2])
     })
 })

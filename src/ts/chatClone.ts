@@ -28,7 +28,7 @@ export function reissueMessageIds(
     if (chat.hypaV3Data?.summaries) {
         const before = chat.hypaV3Data.summaries.length
         chat.hypaV3Data.summaries = chat.hypaV3Data.summaries.flatMap(summary => {
-            const chatMemos: string[] = []
+            const chatMemos: (string | null)[] = []
             for (const memo of summary.chatMemos ?? []) {
                 // null represents the character greeting, which is not stored
                 // in Chat.message and therefore has no id to reissue.
@@ -47,7 +47,6 @@ export function reissueMessageIds(
             // These fields contain summary indexes and become stale after a
             // branch drops summaries that refer to messages past the cut.
             delete chat.hypaV3Data.metrics
-            delete chat.hypaV3Data.lastSelectedSummaries
         }
     }
 

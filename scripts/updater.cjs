@@ -14,6 +14,10 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const REPO = 'seto-sama/PocketRisu-Kei';
+const RELEASE_TAG_PREFIX = 'kei-v';
+const RELEASE_ASSET_PREFIX = 'PocketRisu-Kei';
+const UPDATE_USER_AGENT = `${RELEASE_ASSET_PREFIX}-Updater`;
+const WINDOWS_LAUNCHER = `${RELEASE_ASSET_PREFIX}.exe`;
 const ROOT = path.resolve(__dirname, '..');
 
 const isWin = process.platform === 'win32';
@@ -26,7 +30,11 @@ function log(msg) { process.stdout.write(`[updater] ${msg}\n`); }
 function error(msg) { process.stderr.write(`[ERROR] ${msg}\n`); process.exit(1); }
 
 function normalizeVersion(value) {
-    return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+    const normalized = String(value || '').trim();
+    if (normalized.toLowerCase().startsWith(RELEASE_TAG_PREFIX)) {
+        return normalized.slice(RELEASE_TAG_PREFIX.length);
+    }
+    return normalized.replace(/^v/i, '');
 }
 
 function getCurrentVersion() {
@@ -74,7 +82,7 @@ function httpsGet(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         if (redirectCount > MAX_REDIRECTS) return reject(new Error('Too many redirects'));
         const get = url.startsWith('https') ? https.get : http.get;
-        get(url, { headers: { 'User-Agent': 'PocketRisu-Kei-Updater' } }, (res) => {
+        get(url, { headers: { 'User-Agent': UPDATE_USER_AGENT } }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 return httpsGet(res.headers.location, redirectCount + 1).then(resolve, reject);
             }
@@ -94,7 +102,7 @@ function downloadToFile(url, dest, redirectCount = 0) {
         if (redirectCount > MAX_REDIRECTS) return reject(new Error('Too many redirects'));
         const file = fs.createWriteStream(dest);
         const get = url.startsWith('https') ? https.get : http.get;
-        get(url, { headers: { 'User-Agent': 'PocketRisu-Kei-Updater' } }, (res) => {
+        get(url, { headers: { 'User-Agent': UPDATE_USER_AGENT } }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close();
                 fs.unlinkSync(dest);
@@ -216,6 +224,9 @@ async function main() {
 
     const data = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
     const release = JSON.parse(data.toString());
+    if (!String(release.tag_name || '').toLowerCase().startsWith(RELEASE_TAG_PREFIX)) {
+        error(`Latest release is not on the PocketRisu Kei channel: ${release.tag_name || 'unknown'}`);
+    }
     const latest = normalizeVersion(release.tag_name);
 
     if (!latest) error('Could not determine latest version.');
@@ -228,7 +239,9 @@ async function main() {
     log(`New version available: ${latest}`);
 
     const suffix = getPlatformSuffix();
-    const asset = (release.assets || []).find(a => a.name.includes(suffix));
+    const extension = isWin ? 'zip' : 'tar.gz';
+    const assetName = `${RELEASE_ASSET_PREFIX}-v${latest}-${suffix}.${extension}`;
+    const asset = (release.assets || []).find(a => a.name === assetName);
     if (!asset) {
         error(`No portable package found for ${suffix}. Download manually from:\n  ${release.html_url}`);
     }
@@ -376,7 +389,7 @@ async function main() {
     log(`Update complete! ${current} → ${latest}`);
     log('');
     if (isWin) {
-        log('Restart by running PocketRisu.exe');
+        log(`Restart by running ${WINDOWS_LAUNCHER}`);
     } else {
         log('Restart by running ./start.sh');
     }

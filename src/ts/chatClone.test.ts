@@ -26,7 +26,7 @@ function makeChat(): Chat {
                 lastSimilarSummaries: [],
                 lastRandomSummaries: [],
             },
-        } as any,
+        },
         bookmarks: ['m1', 'm3'],
         bookmarkNames: { m1: 'one', m3: 'three' },
         bookmarkTagIds: { m1: ['tag-a'], m3: ['tag-b'] },

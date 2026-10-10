@@ -10,6 +10,7 @@ vi.mock('src/ts/storage/database.svelte', () => ({
 
 import {
     resolveChatModelBinding,
+    resolveChatMaxContextTokens,
     resolvePresetMaxOutputTokens,
     resolveChatMaxResponseTokens,
     applyPromptPresetParams,
@@ -67,25 +68,14 @@ describe('resolveChatModelBinding — model-preset-only mode', () => {
         expect(resolveChatModelBinding(chat, 'translate')).toEqual({ kind: 'modelPreset', preset: PRESET })
     })
 
-    test('resolves the chat binding regardless of its legacy mode value', () => {
-        const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
-        chat.useModelPreset = false
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
-    })
-
-    test('an old chat without a binding resolves through the global default', () => {
-        // Both removed global settings may still be present in imported data;
-        // neither is allowed to affect runtime resolution.
-        mockDb.nodeOnlyModelModeLock = 'legacy'
-        mockDb.useModelPresetByDefault = false
+    test('a chat without its own binding resolves through the global default', () => {
         mockDb.defaultModelBinding = bindingWith('p-main')
-        const chat = { useModelPreset: false, modelBinding: undefined } as any
+        const chat = { modelBinding: undefined } as any
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
     })
 
     test('blocks when neither the chat nor the global default has a binding', () => {
-        const chat = { useModelPreset: false, modelBinding: undefined } as any
+        const chat = { modelBinding: undefined } as any
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'block', reason: 'main-unset' })
     })
 })
@@ -136,14 +126,56 @@ describe('resolveChatModelBinding — one-request override', () => {
     })
 })
 
-function presetWith(opts: { schema?: any[]; userValues?: any; defaults?: any } = {}) {
+function presetWith(opts: {
+    schema?: any[];
+    userValues?: any;
+    defaults?: any;
+    maxContext?: number;
+    contextWindowTokens?: number;
+} = {}) {
     return {
         id: 'p-main',
         name: 'Main',
-        profileSnapshot: { schema: opts.schema ?? [], defaults: opts.defaults },
+        maxContext: opts.maxContext,
+        profileSnapshot: {
+            schema: opts.schema ?? [],
+            defaults: opts.defaults,
+            limits: opts.contextWindowTokens
+                ? { contextWindowTokens: opts.contextWindowTokens }
+                : undefined,
+        },
         userValues: opts.userValues ?? {},
     } as any
 }
+
+describe('resolveChatMaxContextTokens — input budget comes from the bound preset', () => {
+    const chat = { modelBinding: bindingWith('p-main') } as any
+
+    test('uses the preset input budget independently from output settings', () => {
+        mockDb.maxContext = 4096
+        mockDb.maxResponse = 65535
+        mockDb.modelPresets = [presetWith({ maxContext: 32_000 })]
+        expect(resolveChatMaxContextTokens(chat)).toBe(32_000)
+    })
+
+    test('clamps the configured budget to the model context window', () => {
+        mockDb.modelPresets = [presetWith({ maxContext: 64_000, contextWindowTokens: 16_000 })]
+        expect(resolveChatMaxContextTokens(chat)).toBe(16_000)
+    })
+
+    test('uses the model-preset default before the built-in fallback', () => {
+        mockDb.modelPresetDefaultMaxContext = 24_000
+        mockDb.modelPresets = [presetWith()]
+        expect(resolveChatMaxContextTokens(chat)).toBe(24_000)
+    })
+
+    test('uses the prompt-preset budget only when explicitly preferred', () => {
+        mockDb.maxContext = 8192
+        mockDb.modelPresetPromptPresetFirst = true
+        mockDb.modelPresets = [presetWith({ maxContext: 32_000 })]
+        expect(resolveChatMaxContextTokens(chat)).toBe(8192)
+    })
+})
 
 describe('resolvePresetMaxOutputTokens — output cap comes from the preset, not db.maxResponse', () => {
     test('reads the userValue of the field that maps to body.max_tokens', () => {
@@ -256,29 +288,29 @@ describe('resolvePresetMaxOutputTokens — output cap comes from the preset, not
     })
 })
 
-describe('resolveChatMaxResponseTokens — the bug: stray legacy db.maxResponse must not leak into preset budgeting', () => {
+describe('resolveChatMaxResponseTokens — output limit comes from the bound preset', () => {
     test('an unresolved binding falls back to the global db.maxResponse', () => {
         mockDb.maxResponse = 300
-        const chat = { useModelPreset: false, modelBinding: undefined } as any
+        const chat = { modelBinding: undefined } as any
         expect(resolveChatMaxResponseTokens(chat)).toBe(300)
     })
 
-    test('preset chat uses the preset output cap, NOT the stray legacy db.maxResponse (65535)', () => {
+    test('preset chat uses the preset output cap instead of db.maxResponse', () => {
         // db.maxResponse carries a high value imported from a shared prompt
-        // preset; the budget must ignore it and reserve the preset's 8192.
+        // preset; the output limit must use the preset's 8192.
         mockDb.maxResponse = 65535
         mockDb.modelPresets = [presetWith({
             schema: [{ key: 'max_tokens', default: 4096, mapsTo: { target: 'body', path: 'max_tokens' } }],
             userValues: { max_tokens: 8192 },
         })]
-        const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
+        const chat = { modelBinding: bindingWith('p-main') } as any
         expect(resolveChatMaxResponseTokens(chat)).toBe(8192)
     })
 
     test('preset with no output-token field falls back to db.maxResponse', () => {
         mockDb.maxResponse = 500
         mockDb.modelPresets = [presetWith()]
-        const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
+        const chat = { modelBinding: bindingWith('p-main') } as any
         expect(resolveChatMaxResponseTokens(chat)).toBe(500)
     })
 })
@@ -291,7 +323,7 @@ describe('applyPromptPresetParams — prompt-preset sampling override', () => {
     ]
 
     beforeEach(() => {
-        // Classic prompt-preset params as mirrored into db.* by setPreset
+        // Prompt-preset params as mirrored into db.* by setPreset
         // (temperature / penalties are stored in hundredths).
         mockDb.temperature = 80
         mockDb.top_p = 0.9
@@ -368,7 +400,7 @@ describe('applyPromptPresetParams — prompt-preset sampling override', () => {
         expect(out.userValues.frequency_penalty).toBe(0.5) // 50 hundredths -> 0.5
     })
 
-    test('wire-flavored alias keys map to the same classic values (Gemini camelCase)', () => {
+    test('wire-flavored alias keys map to the same prompt-preset values (Gemini camelCase)', () => {
         const preset = presetWith({
             schema: [
                 { key: 'topP', mapsTo: { target: 'body', path: 'generationConfig.topP' } },

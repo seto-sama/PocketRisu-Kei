@@ -220,6 +220,36 @@ describe('normalizeHttpStatus', () => {
         expect(err.fallbackEligible).toBe(false)
     })
 
+    test('429 with unrecognized provider details is non-retryable', () => {
+        const err = normalizeHttpStatus(429, 'Account cannot process this request')!
+        expect(err.retryable).toBe(false)
+    })
+
+    test('429 with Retry-After remains retryable', () => {
+        const err = normalizeHttpStatus(429, 'Please wait', { retryAfterMs: 2_000 })!
+        expect(err.retryable).toBe(true)
+        expect(err.retryAfterMs).toBe(2_000)
+    })
+
+    test.each([
+        'Your project has exceeded its monthly spending cap. Please go to AI Studio to manage your project spend cap.',
+        'Resource has been exhausted (e.g. check quota).',
+    ])('quota 429 is non-retryable: %s', (message) => {
+        const err = normalizeHttpStatus(429, message)!
+        expect(err.kind).toBe('rate-limit')
+        expect(err.retryable).toBe(false)
+        expect(err.fallbackEligible).toBe(false)
+    })
+
+    test.each([
+        ['rate_limit_exceeded', 'Rate limit reached'],
+        ['ThrottlingException', 'Request rejected'],
+        ['RESOURCE_EXHAUSTED', 'Requests per minute exceeded'],
+    ])('transient request-rate code %s remains retryable', (providerCode, message) => {
+        const err = normalizeHttpStatus(429, message, { providerCode })!
+        expect(err.retryable).toBe(true)
+    })
+
     test('other 4xx -> invalid-request non-retryable', () => {
         const err = normalizeHttpStatus(422)!
         expect(err.kind).toBe('invalid-request')

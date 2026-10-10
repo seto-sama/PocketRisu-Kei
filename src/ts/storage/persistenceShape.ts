@@ -11,10 +11,6 @@ function getServerOwnedRootFields(key: string) {
         : undefined
 }
 
-export function isRuntimeOnlyCharacterField(key: string): boolean {
-    return runtimeOnlyCharacterFields.has(key)
-}
-
 /** Whether a character field belongs to browser-authored persistence. */
 export function isClientWritableCharacterField(key: string): boolean {
     return !runtimeOnlyCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)

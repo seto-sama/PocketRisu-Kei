@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     requestChatData: vi.fn(),
     completeRevenantTranslation: vi.fn(),
     readPersistentJsonBatch: vi.fn(async () => new Map()),
+    writePersistentJson: vi.fn(),
 }))
 
 vi.mock('../storage/database.svelte', () => ({
@@ -53,7 +54,6 @@ vi.mock('./presets', () => ({
     defaultTranslatorPrompt: 'Translate {{slot::content}} to {{slot}}',
     getCurrentTranslatorPresetFromState: () => ({
         prompt: '',
-        maxResponse: 1024,
     }),
 }))
 vi.mock('../parser/chatML', () => ({ parseChatML: () => null }))
@@ -69,27 +69,34 @@ vi.mock('../storage/persistentKv', () => ({
     readPersistentJson: vi.fn(async () => null),
     readPersistentJsonBatch: mocks.readPersistentJsonBatch,
     removePersistentKey: vi.fn(),
-    writePersistentJson: vi.fn(),
+    writePersistentJson: mocks.writePersistentJson,
 }))
 
-import { getLLMCache, runPromptTranslator, runTranslator } from './translator'
+import { getLLMCache, runPromptTranslator, runTranslator, translateHTML } from './translator'
 
-describe('LLM translation failure lifecycle', () => {
+describe('translation lifecycle', () => {
     beforeEach(() => {
-        mocks.notifyError.mockClear()
-        mocks.recoverRevenantTranslationJobs.mockClear()
+        vi.clearAllMocks()
         mocks.requestChatData.mockReset()
         mocks.completeRevenantTranslation.mockReset()
         mocks.readPersistentJsonBatch.mockReset()
         mocks.readPersistentJsonBatch.mockResolvedValue(new Map())
     })
 
+    it('skips model requests for empty HTML while still honoring cancellation', async () => {
+        await expect(translateHTML('', false, '', -1)).resolves.toBe('')
+        expect(mocks.requestChatData).not.toHaveBeenCalled()
+
+        const controller = new AbortController()
+        const reason = new Error('Cancelled')
+        controller.abort(reason)
+        await expect(translateHTML('', false, '', -1, false, controller.signal)).rejects.toBe(reason)
+    })
+
     it('delegates failure cleanup to the shared retain-success policy', async () => {
         let requestArg: Record<string, any> | undefined
         mocks.requestChatData.mockImplementationOnce(async (arg) => {
             requestArg = arg
-            arg.onRevenantJobCreated?.('failed-attempt-1', 1000)
-            arg.onRevenantJobCreated?.('failed-attempt-2', 2000)
             return {
                 type: 'fail',
                 noRetry: true,
@@ -117,10 +124,8 @@ describe('LLM translation failure lifecycle', () => {
                 id: 'dialog-preset',
                 name: 'Dialog preset',
                 prompt: 'Translate {{slot::content}}',
-                maxResponse: 1024,
             },
             modelPresetId: 'model-preset',
-            regenerate: true,
             cache: false,
         })).resolves.toBe('translated')
 
@@ -128,6 +133,8 @@ describe('LLM translation failure lifecycle', () => {
         expect(mocks.completeRevenantTranslation).not.toHaveBeenCalled()
         expect(requestArg?.revenantOperationContext).toBeUndefined()
         expect(requestArg?.revenantAuxiliaryResultPolicy).toBeUndefined()
+        expect(mocks.readPersistentJsonBatch).not.toHaveBeenCalled()
+        expect(mocks.writePersistentJson).not.toHaveBeenCalled()
     })
 
     it('falls back to the source when a successful request completes empty', async () => {

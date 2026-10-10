@@ -59,10 +59,8 @@ DOMPurify.addHook("uponSanitizeElement", (node: HTMLElement, data) => {
        }
     }
     if(data.tagName === 'img'){
-        // Hide external images when hideAllImages is enabled
         if(DBState.db?.hideAllImages){
             const src = node.getAttribute("src") || "";
-            // Replace with placeholder if it's an external/loaded image
             if(src && !src.startsWith('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP')){
                 node.setAttribute("src", "/none.webp");
                 node.setAttribute("alt", "?");
@@ -84,11 +82,8 @@ DOMPurify.addHook("uponSanitizeElement", (node: HTMLElement, data) => {
 DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
     switch(data.attrName){
         case 'style':{
-            // Remove background-image URLs when hideAllImages is enabled
             if(DBState.db?.hideAllImages && data.attrValue){
-                // Remove background-image property from inline styles
                 data.attrValue = data.attrValue.replace(/background(-image)?:\s*url\([^)]*\);?/gi, '')
-                // Also remove background property if it contains url()
                 data.attrValue = data.attrValue.replace(/background:\s*[^;]*url\([^)]*\)[^;]*;?/gi, '')
             }
             break
@@ -308,8 +303,7 @@ async function renderHighlightableMarkdown(data:string) {
             if (!lang || !code){
                 continue
             }
-            //import language if not already loaded
-            //we do not refactor this to a function because we want to keep vite to only import the languages that are needed
+            // Literal import paths let Vite bundle only the requested languages.
             let languageModule: typeof import('highlight.js/lib/languages/*')|null = null
             switch(lang){
                 case 'bash':{
@@ -562,10 +556,9 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         const displayName = name.trim()
         name = name.toLocaleLowerCase()
 
-        // Skip image-related assets when hideAllImages is enabled
-        // raw and path are also included as they're used in CSS background-image
+        // Include raw/path assets because CSS backgrounds can use them.
         if(DBState.db.hideAllImages && imageCBS.includes(type)){
-            return ''  // Hide the image asset
+            return ''
         }
 
         if(type === 'emotion'){
@@ -592,14 +585,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         let match = assetPaths?.[name]
 
         if(!match){
-            // Legacy media lookup intentionally accepts exact names only.
-            // Falling through to fuzzy matching scans every character asset
-            // for every missing media token; large cards can spend seconds
-            // here while merely opening a chat or rendering its preview.
-            if(DBState.db.legacyMediaFindings){
-                return ''
-            }
-
             if(assetPaths){
                 match = getClosestMatch(char, name, assetPaths)
             }
@@ -702,7 +687,6 @@ function getClosestMatch(char: simpleCharacterArgument|character, name:string, a
     return assetPaths[closest]
 }
 
-//Levenshtein distance, new with 1d array
 export function getDistance(a:string, b:string) {
     const h = a.length + 1
     const w = b.length + 1
@@ -1006,7 +990,6 @@ export function parseInlayAssets(data:string){
             const url = cached.url
             switch(cached.type){
                 case 'image':
-                    // Hide inlay images when hideAllImages is enabled
                     if(DBState.db.hideAllImages){
                         data = data.replace(inlay, '')
                         break
@@ -1027,7 +1010,6 @@ export function parseInlayAssets(data:string){
     return data
 }
 
-// Global resolve queue for inlay placeholders
 const resolveQueue: { el: HTMLElement, id: string }[] = []
 let isResolvingPlaceholders = false
 
@@ -1301,7 +1283,6 @@ export interface simpleCharacterArgument{
     customscript: customscript[]
     chaId: string,
     name?: string,
-    virtualscript?: string
     emotionImages?: [string, string][]
     triggerscript?: triggerscript[]
 }
@@ -1405,14 +1386,11 @@ const trimPurifyConfig = {
     ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
 }
 
-// LRU cache for sanitized HTML and decoded styles. Chat re-renders hit the
-// same message text repeatedly, so the DOM path below normally runs once.
 const trimCache = new Map<string, string>()
 const TRIM_CACHE_MAX = 200
 
 export function trimMarkdown(data:string){
-    // Both settings affect sanitizer/decoder output and therefore belong in
-    // the cache key. This keeps CSS parse-error reporting on the same path.
+    if (!data) return ''
     const cacheKey = `${DBState.db?.hideAllImages ? '1' : '0'}|${DBState.db?.returnCSSError ? '1' : '0'}|${data}`
     let cached = trimCache.get(cacheKey)
     if (cached !== undefined) {
@@ -1420,7 +1398,6 @@ export function trimMarkdown(data:string){
     }
     cached = trimMarkdownUncached(data)
     if (trimCache.size >= TRIM_CACHE_MAX) {
-        // evict oldest entry
         const firstKey = trimCache.keys().next().value
         if (firstKey !== undefined) trimCache.delete(firstKey)
     }
@@ -1540,8 +1517,6 @@ export function addMetadataToElement(
     }
 
     const encodedMetaCode = encodeMetadata(modelShortName)
-    console.log('Encoded metadata:', encodedMetaCode.length, 'characters')
-    console.log('This requires at least', Math.ceil(encodedMetaCode.length / 32), '<p> tags to store')
 
     let d =  data.replace(/\<p\>/g, (v) => {
         return '<p>' + encodedMetaCode
@@ -1640,9 +1615,7 @@ function decodeStyleContent(hexText:string):{css?:string, fallback?:string}{
     }
 }
 
-export async function hasher(data:Uint8Array){
-    return Buffer.from(await crypto.subtle.digest("SHA-256", data as any)).toString('hex');
-}
+export { sha256Hex as hasher } from '../hash'
 
 export type CbsConditions = {
     firstmsg?:boolean
@@ -2157,10 +2130,10 @@ function blockEndMatcher(p1:string,type:{type:blockMatch,type2?:string,mode?:str
             })
 
             if(elseLine !== -1 && type.type === 'newif'){
-                lines.splice(elseLine) //else line and everything after it is removed
+                lines.splice(elseLine)
             }
             if(elseLine !== -1 && type.type === 'newif-falsy'){
-                lines.splice(0, elseLine + 1) //everything before else line is removed
+                lines.splice(0, elseLine + 1)
             }
             if(elseLine === -1 && type.type === 'newif-falsy'){
                 return ''
@@ -2315,7 +2288,6 @@ export function risuChatParser(da:string, arg:{
                 break
             }
             case '#':{
-                //legacy if statement, deprecated
                 if(da[pointer + 1] !== '}' || nested.length === 1 || stackType[nested.length] !== 1){
                     nested[0] += da[pointer]
                     break
@@ -2379,7 +2351,7 @@ export function risuChatParser(da:string, arg:{
                             let sub = blockType.type2.substring(asIndex + 4).trim()
                             let array = parseArray(blockType.type2.substring(0, asIndex))
                             if(asIndex === -1){
-                                //compability mode
+                                // Handle the older `each` syntax without `as`.
                                 const subind = blockType.type2.lastIndexOf(' ')
                                 if(subind === -1){
                                     break
@@ -2395,7 +2367,6 @@ export function risuChatParser(da:string, arg:{
                             break
                         }
                         if(blockType.type === 'function'){
-                            console.log(matchResult)
                             functions.set(blockType.funcArg[0], {
                                 data: matchResult,
                                 arg: blockType.funcArg.slice(1)
@@ -2426,7 +2397,6 @@ export function risuChatParser(da:string, arg:{
                     const argData = dat.split('::').slice(1)
                     const funcName = argData[0]
                     const func = functions.get(funcName)
-                    console.log(func)
                     if(func){
                         let data = func.data
                         for(let i = 0;i < argData.length;i++){
@@ -2489,7 +2459,6 @@ export function applyMarkdownToNode(node: Node) {
                 const span = document.createElement('span');
                 span.innerHTML = markdown;
                 
-                // inherit inline style from the parent node
                 const parentStyle = (node.parentNode as HTMLElement)?.style;
                 if(parentStyle){
                     for(let i=0;i<parentStyle.length;i++){

@@ -10,12 +10,10 @@ export interface TranslatorPreset extends PresetTagFields {
     id: string;
     name: string;
     prompt: string;
-    maxResponse: number;
 }
 
 export interface TranslatorPresetStateLike {
     translatorPrompt?: string;
-    translatorMaxResponse?: number;
     translatorPresets?: unknown[];
     translatorPresetId?: number;
     translatorPresetTags?: { id: string; name: string }[];
@@ -47,8 +45,6 @@ function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput
         (value.id === undefined || typeof value.id === "string") &&
         typeof value.name === "string" &&
         typeof value.prompt === "string" &&
-        typeof value.maxResponse === "number" &&
-        Number.isFinite(value.maxResponse) &&
         (value.tagIds === undefined || (
             Array.isArray(value.tagIds) && value.tagIds.every(id => typeof id === "string")
         )) &&
@@ -86,7 +82,6 @@ function isEncryptedTranslatorPresetFile(value: unknown): value is EncryptedTran
 function getDefaultTranslatorPreset(state: TranslatorPresetStateLike): TranslatorPreset {
     return createTranslatorPreset("Default", {
         prompt: state.translatorPrompt ?? "",
-        maxResponse: state.translatorMaxResponse ?? 1000,
     });
 }
 
@@ -108,13 +103,10 @@ export function createTranslatorPreset(
     existing: Partial<TranslatorPreset> & { folderId?: unknown } = {}
 ): TranslatorPreset {
     return normalizePresetTagFields({
+        ...existing,
         id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : createEntityId(),
         name,
         prompt: typeof existing.prompt === "string" ? existing.prompt : "",
-        maxResponse:
-            typeof existing.maxResponse === "number" && Number.isFinite(existing.maxResponse)
-                ? existing.maxResponse
-                : 1000,
         tagIds: existing.tagIds,
         folderId: existing.folderId,
     });
@@ -124,7 +116,6 @@ type TranslatorPresetCollection = {
     translatorPresets: TranslatorPreset[];
     translatorPresetId: number;
     translatorPrompt?: string;
-    translatorMaxResponse?: number;
 };
 
 export function appendTranslatorPreset(
@@ -211,7 +202,6 @@ export function syncCurrentTranslatorPresetToLegacyFields<T extends TranslatorPr
     const preset = state.translatorPresets?.[state.translatorPresetId ?? 0] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
-    state.translatorMaxResponse = preset.maxResponse;
 
     return state;
 }
@@ -222,7 +212,6 @@ export function getCurrentTranslatorPresetFromState<T extends TranslatorPresetSt
     const preset = state.translatorPresets![state.translatorPresetId!] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
-    state.translatorMaxResponse = preset.maxResponse;
 
     return preset;
 }

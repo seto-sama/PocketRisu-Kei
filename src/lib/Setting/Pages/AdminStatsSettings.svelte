@@ -11,6 +11,7 @@
     import Tooltip from '../../UI/components/Tooltip.svelte'
     import { getSyncClientId } from 'src/ts/storage/nodeStorage'
     import RequestLogsPanel from './RequestLogsPanel.svelte'
+    import NumberInput from '../../UI/components/NumberInput.svelte'
     import UsagePanel from './UsagePanel.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import { AdminStatsSubmenuIndex } from 'src/ts/stores.svelte'
@@ -28,7 +29,7 @@
         ScrollTextIcon,
     } from '@lucide/svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
-    import { forageStorage } from 'src/ts/globalApi.svelte'
+    import { forageStorage, getServerFetchLogs, setServerFetchLogLimit, type RequestLogStorage } from 'src/ts/globalApi.svelte'
     import { language, getCurrentLocale } from 'src/lang'
 
     type LogLevel = 'error' | 'warning' | 'info'
@@ -49,6 +50,44 @@
     }
 
     const LIST_LIMIT = 100
+    let requestLogsRevision = $state(0)
+    const MB = 1024 * 1024
+    let requestStorage = $state<RequestLogStorage | null>(null)
+    let requestLimitMB = $state<number | undefined>()
+    let requestLimitSaving = $state(false)
+    let requestStorageError = $state<string | null>(null)
+
+    function applyRequestStorage(storage: RequestLogStorage | null) {
+        requestStorage = storage
+        requestLimitMB = storage ? storage.maxBytes / MB : undefined
+    }
+
+    async function loadRequestStorage() {
+        requestStorageError = null
+        try {
+            applyRequestStorage((await getServerFetchLogs({ limit: 1 })).storage)
+        } catch (err) {
+            requestStorageError = err instanceof Error ? err.message : String(err)
+        }
+    }
+
+    async function saveRequestLimit(value: number | undefined) {
+        if (value === undefined || !requestStorage) return
+        const previousLimit = requestStorage.maxBytes / MB
+        requestLimitSaving = true
+        try {
+            applyRequestStorage(await setServerFetchLogLimit(Math.round(value * MB)))
+            requestLogsRevision += 1
+        } catch (err) {
+            requestLimitMB = previousLimit
+            notifyError(language.backupSnapshotLimitsFailed, {
+                description: err instanceof Error ? err.message : String(err),
+                source: 'request-logs-page',
+            })
+        } finally {
+            requestLimitSaving = false
+        }
+    }
 
     // submenu lives in a store so other pages can deep-link via openSettings;
     // routing sends storage tabs and administration tabs to their respective page.
@@ -374,10 +413,29 @@
 
 </script>
 
+{#snippet requestLogSettings()}
+    <SettingLayout variant="row" title={language.requestLogsStorage}
+        description={requestStorageError ?? (requestStorage
+            ? language.requestLogsStorageUsage(Number((requestStorage.currentBytes / MB).toFixed(1)), requestStorage.maxBytes / MB)
+            : language.systemLogsLoading)} className="border-0 py-0">
+        {#snippet control()}
+            {#if requestStorage}
+                <div class="flex items-center gap-2">
+                    <NumberInput className="w-24" size="sm" min={requestStorage.minBytes / MB} step={1}
+                        bind:value={requestLimitMB} disabled={requestLimitSaving}
+                        ariaLabel={language.backupSnapshotLimitsBytes} onCommit={saveRequestLimit} />
+                    <span class="text-subtext text-xs shrink-0">MB</span>
+                </div>
+            {/if}
+        {/snippet}
+    </SettingLayout>
+    <p class="text-xs text-subtext mt-2">{language.requestLogsStorageDesc}</p>
+{/snippet}
+
 <SettingPage title={language.adminAndStats}>
     <SettingTabs tabs={[
         { label: language.systemLogs, value: 0 },
-        { label: language.requestLogs, value: 1 },
+        { label: language.requestLogs, value: 1, contextMenu: requestLogSettings, onContextMenuOpen: loadRequestStorage },
         { label: language.usage, value: 2 },
     ]} bind:selected={$AdminStatsSubmenuIndex} />
 
@@ -562,7 +620,7 @@
         </div>
     {/if}
     {:else if $AdminStatsSubmenuIndex === 1}
-    <RequestLogsPanel />
+    <RequestLogsPanel revision={requestLogsRevision} />
     {:else if $AdminStatsSubmenuIndex === 2}
     <UsagePanel />
     {/if}

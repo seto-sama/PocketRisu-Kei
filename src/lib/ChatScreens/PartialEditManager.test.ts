@@ -30,7 +30,6 @@ const storeMocks = vi.hoisted(() => {
 })
 
 vi.mock('src/ts/stores.svelte', () => storeMocks)
-vi.mock('src/ts/alert', () => ({ alertConfirm: vi.fn() }))
 vi.mock('src/ts/gui/guisize', async () => {
     const { writable } = await import('svelte/store')
     return {
@@ -44,6 +43,7 @@ import { get } from 'svelte/store'
 import PartialEditManager from './PartialEditManager.svelte'
 import { DBState, ReloadChatPointer } from 'src/ts/stores.svelte'
 import type { Message } from 'src/ts/storage/database.svelte'
+import { language } from 'src/lang'
 
 const mountedComponents: unknown[] = []
 
@@ -55,7 +55,6 @@ function createChatScreen(messages: Message[]) {
         const chatRoot = document.createElement('div')
         chatRoot.className = 'risu-chat'
         chatRoot.dataset.chatIndex = String(index)
-        chatRoot.dataset.chatId = message.chatId ?? ''
 
         const bodyRoot = document.createElement('span')
         bodyRoot.className = 'chattext'
@@ -90,21 +89,15 @@ function renderManager(screenRoot: HTMLElement, messages: Message[], options: {
         },
     })
     mountedComponents.push(mounted)
-    return { target, mounted }
 }
 
-function mockTextSelection(
-    textNode: Node,
-    selectedText: string,
-    rects: DOMRect[],
-    boundingRect = rects[0] ?? new DOMRect(),
-) {
+function mockTextSelection(textNode: Node, selectedText: string) {
     const range = {
         commonAncestorContainer: textNode,
         startContainer: textNode,
         endContainer: textNode,
-        getBoundingClientRect: () => boundingRect,
-        getClientRects: () => rects,
+        getBoundingClientRect: () => new DOMRect(20, 100, 100, 16),
+        getClientRects: () => [new DOMRect(20, 100, 100, 16)],
     } as unknown as Range
     vi.spyOn(window, 'getSelection').mockReturnValue({
         isCollapsed: false,
@@ -143,32 +136,6 @@ afterEach(async () => {
 })
 
 describe('PartialEditManager', () => {
-    it('registers one shared document listener set regardless of message count', async () => {
-        const messages: Message[] = Array.from({ length: 20 }, (_, index) => ({
-            role: 'char',
-            data: `message ${index}`,
-            chatId: `message-${index}`,
-        }))
-        DBState.db.characters[0].chats[0].message = messages
-        const screenRoot = createChatScreen(messages)
-        const addSpy = vi.spyOn(document, 'addEventListener')
-        const removeSpy = vi.spyOn(document, 'removeEventListener')
-
-        const { mounted } = renderManager(screenRoot, messages)
-        await tick()
-
-        for (const eventName of ['mousemove', 'selectionchange', 'mousedown', 'scroll']) {
-            expect(addSpy.mock.calls.filter(([name]) => name === eventName)).toHaveLength(1)
-        }
-
-        await unmount(mounted as never)
-        mountedComponents.splice(mountedComponents.indexOf(mounted), 1)
-
-        for (const eventName of ['mousemove', 'selectionchange', 'mousedown', 'scroll']) {
-            expect(removeSpy.mock.calls.some(([name]) => name === eventName)).toBe(true)
-        }
-    })
-
     it('edits the resolved message and increments only its reload pointer', async () => {
         const messages: Message[] = [
             { role: 'char', data: 'first message', chatId: 'message-0' },
@@ -179,7 +146,7 @@ describe('PartialEditManager', () => {
         const paragraph = screenRoot.querySelectorAll('p')[1] as HTMLParagraphElement
         vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
 
-        const { target } = renderManager(screenRoot, messages, { dragEditEnabled: false })
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
         await tick()
 
         document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
@@ -187,7 +154,11 @@ describe('PartialEditManager', () => {
 
         const editButton = document.body.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')
         expect(editButton).not.toBeNull()
-        editButton?.click()
+        const controls = editButton!.parentElement!
+        screenRoot.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: controls }))
+        controls.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: paragraph }))
+        expect(controls.style.display).not.toBe('none')
+        editButton!.click()
         await tick()
 
         const textarea = document.body.querySelector<HTMLTextAreaElement>('textarea')
@@ -203,7 +174,6 @@ describe('PartialEditManager', () => {
         expect(DBState.db.characters[0].chats[0].message[1].data).toBe('updated message')
         expect(DBState.db.characters[0].chats[0].message[1].swipes?.[0]).toBe('updated message')
         expect(get(ReloadChatPointer)).toEqual({ 1: 1 })
-        expect(target.querySelector('.partial-edit-overlay')).toBeNull()
     })
 
     it('does not treat the chat body root as an editable content block', async () => {
@@ -223,71 +193,6 @@ describe('PartialEditManager', () => {
         expect(document.body.querySelector('.partial-edit-btn-wrapper')).toBeNull()
     })
 
-    it('positions block controls immediately after the last rendered character', async () => {
-        const messages: Message[] = [
-            { role: 'char', data: 'message body', chatId: 'message-0' },
-        ]
-        DBState.db.characters[0].chats[0].message = messages
-        const screenRoot = createChatScreen(messages)
-        const paragraph = screenRoot.querySelector('p')!
-        const finalCharacterBounds = new DOMRect(100, 120, 8, 16)
-        vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
-        vi.spyOn(document, 'createRange').mockReturnValue({
-            selectNodeContents: vi.fn(),
-            getClientRects: () => [finalCharacterBounds],
-        } as unknown as Range)
-
-        renderManager(screenRoot, messages, { dragEditEnabled: false })
-        await tick()
-        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
-        await tick()
-
-        const controls = document.body.querySelector<HTMLElement>('.partial-edit-btn-wrapper')
-        expect(controls).not.toBeNull()
-        const left = Number.parseFloat(controls!.style.left)
-        const top = Number.parseFloat(controls!.style.top)
-
-        expect(left).toBeGreaterThanOrEqual(finalCharacterBounds.right)
-        expect(left).toBeLessThanOrEqual(window.innerWidth)
-        expect(top).toBeLessThanOrEqual(finalCharacterBounds.bottom)
-        expect(top).toBeGreaterThanOrEqual(0)
-        expect(top).toBeLessThanOrEqual(window.innerHeight)
-    })
-
-    it('positions drag-selection controls after the final selected line', async () => {
-        const messages: Message[] = [
-            { role: 'char', data: 'message body', chatId: 'message-0' },
-        ]
-        DBState.db.characters[0].chats[0].message = messages
-        const screenRoot = createChatScreen(messages)
-        const paragraph = screenRoot.querySelector('p')!
-        const textNode = paragraph.firstChild!
-        const finalSelectedLineBounds = new DOMRect(20, 120, 60, 16)
-        mockTextSelection(
-            textNode,
-            'message body',
-            [new DOMRect(20, 100, 160, 16), finalSelectedLineBounds],
-            new DOMRect(20, 100, 160, 36),
-        )
-
-        renderManager(screenRoot, messages, { blockEditEnabled: false })
-        await tick()
-        document.dispatchEvent(new Event('selectionchange'))
-        await vi.waitFor(() => {
-            expect(document.body.querySelector('.partial-edit-drag-btn-wrapper')).not.toBeNull()
-        })
-
-        const controls = document.body.querySelector<HTMLElement>('.partial-edit-drag-btn-wrapper')
-        expect(controls).not.toBeNull()
-        const left = Number.parseFloat(controls!.style.left)
-        const top = Number.parseFloat(controls!.style.top)
-
-        expect(left).toBeGreaterThanOrEqual(finalSelectedLineBounds.right)
-        expect(left).toBeLessThanOrEqual(window.innerWidth)
-        expect(top).toBeGreaterThanOrEqual(finalSelectedLineBounds.bottom)
-        expect(top).toBeLessThanOrEqual(window.innerHeight)
-    })
-
     it('edits the selected occurrence when a drag selection has multiple matches', async () => {
         const messages: Message[] = [
             { role: 'char', data: 'repeat phrase\nmiddle\nrepeat phrase', chatId: 'message-0' },
@@ -295,7 +200,7 @@ describe('PartialEditManager', () => {
         DBState.db.characters[0].chats[0].message = messages
         const screenRoot = createChatScreen(messages)
         const textNode = screenRoot.querySelector('p')!.firstChild!
-        mockTextSelection(textNode, 'repeat phrase', [new DOMRect(20, 100, 100, 16)])
+        mockTextSelection(textNode, 'repeat phrase')
 
         renderManager(screenRoot, messages, { blockEditEnabled: false })
         await tick()
@@ -330,82 +235,152 @@ describe('PartialEditManager', () => {
         expect(messages[0].data).toBe('repeat phrase\nmiddle\nupdated phrase')
     })
 
-    it('edits the active translation cache without mutating the original message', async () => {
+    it('ignores a cancelled translation match and edits only the newly selected translation', async () => {
         const messages: Message[] = [
-            { role: 'char', data: 'original message', chatId: 'message-0' },
+            { role: 'char', data: 'original first', chatId: 'message-0' },
+            { role: 'char', data: 'original second', chatId: 'message-1' },
         ]
         DBState.db.characters[0].chats[0].message = messages
         const screenRoot = createChatScreen(messages)
-        const chatRoot = screenRoot.querySelector<HTMLElement>('[data-chat-index="0"]')!
-        const paragraph = chatRoot.querySelector('p')!
-        paragraph.textContent = 'translated message'
-        chatRoot.dataset.partialEditTranslated = 'true'
-        vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
-
-        chatRoot.addEventListener('risu-partial-edit-translation-context', (event) => {
-            const detail = (event as CustomEvent<{
-                respond: (context: Promise<{ key: string; data: string } | null>) => void
-            }>).detail
-            detail.respond(Promise.resolve({ key: 'cache-key', data: 'translated message' }))
+        const roots = screenRoot.querySelectorAll<HTMLElement>('.risu-chat')
+        const paragraphs = screenRoot.querySelectorAll('p')
+        const requests = messages.map(() => {
+            let resolve!: (context: { key: string; data: string }) => void
+            const promise = new Promise<{ key: string; data: string }>(finish => { resolve = finish })
+            return { promise, resolve }
         })
-        const saveSpy = vi.fn()
-        chatRoot.addEventListener('risu-partial-edit-translation-save', saveSpy)
+        const saves = messages.map(() => vi.fn())
+        roots.forEach((root, index) => {
+            root.dataset.partialEditTranslated = 'true'
+            paragraphs[index].textContent = `translated ${index}`
+            root.addEventListener('risu-partial-edit-translation-context', event => {
+                (event as CustomEvent).detail.respond(requests[index].promise)
+            })
+            root.addEventListener('risu-partial-edit-translation-save', saves[index])
+        })
+        const hit = vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraphs[0])
 
         renderManager(screenRoot, messages, { dragEditEnabled: false })
         await tick()
         document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
         await tick()
         document.body.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')?.click()
+        await tick()
+        expect(document.querySelector('[role="dialog"]')).toBeNull()
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        hit.mockReturnValue(paragraphs[1])
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+        document.body.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')!.click()
+        requests[0].resolve({ key: 'first-cache', data: 'translated 0' })
+        await tick()
+        await tick()
+        expect(document.querySelector('textarea')).toBeNull()
+        requests[1].resolve({ key: 'second-cache', data: 'translated 1' })
         await vi.waitFor(() => {
             expect(document.body.querySelector('textarea')).not.toBeNull()
         })
 
         const textarea = document.body.querySelector<HTMLTextAreaElement>('textarea')!
-        expect(textarea.value).toBe('translated message')
+        expect(textarea.value).toBe('translated 1')
         textarea.value = 'updated translation'
         textarea.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
         document.body.querySelector<HTMLButtonElement>('.partial-edit-save-btn')?.click()
         await tick()
 
-        expect(messages[0].data).toBe('original message')
+        expect(messages.map(message => message.data)).toEqual(['original first', 'original second'])
         expect(get(ReloadChatPointer)).toEqual({})
-        expect(saveSpy).toHaveBeenCalledOnce()
-        expect((saveSpy.mock.calls[0][0] as CustomEvent).detail).toEqual({
-            key: 'cache-key',
+        expect(saves[0]).not.toHaveBeenCalled()
+        expect(saves[1]).toHaveBeenCalledOnce()
+        expect((saves[1].mock.calls[0][0] as CustomEvent).detail).toEqual({
+            key: 'second-cache',
             data: 'updated translation',
         })
     })
 
-    it('ignores the first greeting and cancels a stale edit target', async () => {
+    it('allows editing again after a translation lookup fails', async () => {
+        const messages: Message[] = [{ role: 'char', data: 'message', chatId: 'message-0' }]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const root = screenRoot.querySelector<HTMLElement>('.risu-chat')!
+        const paragraph = root.querySelector('p')!
+        root.dataset.partialEditTranslated = 'true'
+        const context = vi.fn()
+            .mockRejectedValueOnce(new Error('Cache read failed'))
+            .mockResolvedValue({ key: 'cache-key', data: 'message' })
+        root.addEventListener('risu-partial-edit-translation-context', event => {
+            (event as CustomEvent).detail.respond(context())
+        })
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+        document.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')!.click()
+        await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')?.textContent).toContain(language.partialEdit.matchFailedTitle))
+        const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === language.confirm)!
+        confirm.click()
+        await tick()
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+        document.querySelector<HTMLButtonElement>('.partial-edit-btn-edit')!.click()
+        await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull())
+        expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('message')
+        expect(context).toHaveBeenCalledTimes(2)
+        expect(messages[0].data).toBe('message')
+    })
+
+    it('deletes only the selected block after confirmation', async () => {
+        const messages: Message[] = [{ role: 'char', data: 'keep this\n\ndelete this', chatId: 'message-0' }]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const paragraph = screenRoot.querySelector('p')!
+        paragraph.textContent = 'delete this'
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+        document.querySelector<HTMLButtonElement>('.partial-edit-btn-delete')!.click()
+        await tick()
+
+        expect(messages[0].data).toBe('keep this\n\ndelete this')
+        const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === language.partialEdit.deleteYes)!
+        confirm.click()
+        await tick()
+
+        expect(messages[0].data).toBe('keep this')
+        expect(get(ReloadChatPointer)).toEqual({ 0: 1 })
+    })
+
+    it('does not offer partial editing for the first greeting', async () => {
         const messages: Message[] = [
             { role: 'char', data: 'editable message', chatId: 'message-0' },
         ]
         DBState.db.characters[0].chats[0].message = messages
         const screenRoot = createChatScreen(messages)
 
-        const greeting = document.createElement('div')
-        greeting.className = 'risu-chat'
-        greeting.dataset.chatIndex = '-1'
-        const greetingBody = document.createElement('span')
-        greetingBody.className = 'chattext'
-        const greetingParagraph = document.createElement('p')
-        greetingParagraph.textContent = 'greeting'
-        greetingBody.appendChild(greetingParagraph)
-        greeting.appendChild(greetingBody)
-        screenRoot.appendChild(greeting)
-
-        const elementFromPoint = vi.spyOn(document, 'elementFromPoint')
-        const { target } = renderManager(screenRoot, messages, { dragEditEnabled: false })
+        screenRoot.querySelector<HTMLElement>('.risu-chat')!.dataset.chatIndex = '-1'
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(screenRoot.querySelector('p'))
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
         await tick()
 
-        elementFromPoint.mockReturnValue(greetingParagraph)
         document.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 10 }))
         await tick()
         expect(document.body.querySelector('.partial-edit-btn-wrapper')).toBeNull()
+    })
 
-        const paragraph = screenRoot.querySelector<HTMLParagraphElement>('[data-chat-index="0"] p')!
-        paragraph.getBoundingClientRect = () => new DOMRect(20, 100, 240, 40)
+    it('does not overwrite a message changed while editing', async () => {
+        const messages: Message[] = [{ role: 'char', data: 'editable message', chatId: 'message-0' }]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const paragraph = screenRoot.querySelector('p')!
+        const elementFromPoint = vi.spyOn(document, 'elementFromPoint')
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
+        await tick()
         elementFromPoint.mockReturnValue(paragraph)
         document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
         await tick()

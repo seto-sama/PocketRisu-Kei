@@ -15,6 +15,7 @@
     richColors
     duration={3500}
     visibleToasts={8}
+    pauseWhenPageIsHidden
     toastOptions={{
         classes: {
             toast: 'risu-toast',

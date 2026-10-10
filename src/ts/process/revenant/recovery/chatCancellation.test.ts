@@ -20,7 +20,6 @@ describe('applyCancelledGenerationProjection', () => {
         applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: recovering.recoveryDisplayData!,
-            isContinuation: false,
             targetMessage: recovering,
         })
 
@@ -28,25 +27,6 @@ describe('applyCancelledGenerationProjection', () => {
             role: 'char', data: 'partial answer', chatId: 'generation-1',
         })
         expect(current.isStreaming).toBe(false)
-    })
-
-    it('keeps a partial continuation on the existing assistant message', () => {
-        const recovering = {
-            role: 'char', data: 'original', chatId: 'assistant-1',
-            isRecovering: true, recoveryDisplayData: 'original continued',
-        } as Message
-        const current = chat([recovering])
-
-        applyCancelledGenerationProjection(current, {
-            messageChatId: 'generation-1',
-            content: recovering.recoveryDisplayData!,
-            isContinuation: true,
-            targetMessage: recovering,
-        })
-
-        expect(current.message[0]).toEqual({
-            role: 'char', data: 'original continued', chatId: 'generation-1',
-        })
     })
 
     it('adds a cancelled reroll projection as the active swipe', () => {
@@ -70,7 +50,6 @@ describe('applyCancelledGenerationProjection', () => {
         applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: recovering.recoveryDisplayData!,
-            isContinuation: false,
             targetMessage: recovering,
             rerollSnapshot: {
                 targetMessage: original,
@@ -97,7 +76,6 @@ describe('applyCancelledGenerationProjection', () => {
         applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: '',
-            isContinuation: false,
             targetMessage: recovering,
         })
 
@@ -123,7 +101,6 @@ describe('applyCancelledGenerationProjection', () => {
         applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: '',
-            isContinuation: false,
             targetMessage: placeholder,
             rerollSnapshot: {
                 targetMessage: original,

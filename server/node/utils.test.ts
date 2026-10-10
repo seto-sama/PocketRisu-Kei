@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { decodeRisuSave, magicRisuSaveHeader } = require('./utils.cjs')
+const { decodeRisuSave, encodeRisuSaveLegacy, magicRisuSaveHeader } = require('./utils.cjs')
 
 function remoteSave(): Buffer {
     const name = Buffer.from('character-id', 'utf8')
@@ -22,6 +22,18 @@ function remoteSave(): Buffer {
 }
 
 describe('decodeRisuSave', () => {
+    it('assigns legacy preset IDs and rejects duplicate persona IDs during decode', async () => {
+        const decoded = await decodeRisuSave(encodeRisuSaveLegacy({
+            characters: [], botPresets: [{ name: 'Legacy' }], personas: [{ id: 'existing', name: 'Persona' }],
+        }))
+        expect(decoded.botPresets[0].id).toEqual(expect.any(String))
+        expect(decoded.personas[0].id).toBe('existing')
+
+        await expect(decodeRisuSave(encodeRisuSaveLegacy({
+            characters: [], personas: [{ id: 'duplicate' }, { id: 'duplicate' }],
+        }))).rejects.toThrow('personas: Duplicate entity ID: duplicate')
+    })
+
     it('rejects REMOTE saves with actionable conversion guidance', async () => {
         await expect(decodeRisuSave(remoteSave())).rejects.toMatchObject({
             code: 'UNSUPPORTED_REMOTE_SAVE',

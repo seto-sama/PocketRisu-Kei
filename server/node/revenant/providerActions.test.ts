@@ -31,7 +31,7 @@ function harness(model = preset(), executorOptions = {}) {
     const recipe: any = {
         providerBackend: 'http', modelPreset: model,
         auxProviders: { otherAx: { backend: 'http', modelPreset: model } },
-        character: { name: 'Alice', lowLevelAccess: true, triggerscript: [] },
+        character: { chaId: 'char-1', name: 'Alice', lowLevelAccess: true, triggerscript: [] },
         database: { globalChatVariables: {}, templateDefaultVariables: '', username: 'Bob', personas: [] },
         chat, modules: [], moduleTriggers: [], moduleRegexScripts: [],
     }
@@ -41,13 +41,17 @@ function harness(model = preset(), executorOptions = {}) {
     )
     const workflow = {
         workflowId: 'workflow-1', characterId: 'char-1', roomId: 'room-1', status: 'active',
-        context: { kind: 'chat-generation', postprocess: recipe },
+        context: {
+            kind: 'chat-generation',
+            postprocess: { ...recipe, chat: undefined, chatPatch: [] },
+        },
         get steps() { return Object.values(steps) },
     }
     const jobs: any[] = []
     const transitions: string[] = []
     const repository = {
         getGenerationWorkflow: () => workflow,
+        getGenerationWorkflowInputChat: () => chat,
         createGenerationJob: vi.fn((input: any) => {
             jobs.push({ ...input, status: 'queued' })
         }),
@@ -103,7 +107,11 @@ describe('server postprocess provider actions', () => {
             const { recipe, action } = JSON.parse(process.argv[2]);
             db.createGenerationWorkflow({
                 workflowId: 'workflow-1', characterId: 'char-1', roomId: 'room-1',
-                context: { kind: 'chat-generation', postprocess: recipe },
+                context: {
+                    kind: 'chat-generation',
+                    inputCommit: { chat: recipe.chat },
+                    postprocess: { ...recipe, chat: undefined, chatPatch: [] },
+                },
                 plan: [{ key: 'trigger.output', kind: 'postprocess.trigger.output',
                     recoveryPolicy: 'resume', status: 'pending', order: 0 }],
             });
@@ -140,6 +148,8 @@ describe('server postprocess provider actions', () => {
             expect(output.jobs[0]).toMatchObject({ status: 'generated', jobType: 'otherAx' })
             expect(output.jobs[0].materializedAt).toBeTypeOf('number')
             expect(output.workflow.steps[0].status).toBe('running')
+            expect(output.workflow.context.inputCommit).toBeUndefined()
+            expect(output.workflow.context.postprocess.chat).toBeUndefined()
             expect(output.workflow.steps[1]).toMatchObject({
                 key: 'client-action:trigger.0.provider', status: 'completed',
             })
@@ -198,10 +208,10 @@ describe('server postprocess provider actions', () => {
         const operationContext = { kind: 'hypav3-summary', operationId: 'operation-1',
             batchId: 'batch-1', characterId: 'char-1', roomId: 'room-1', chatMemos: ['memo-1'], purpose: 'memory' }
         await h.executeProviderAction({ workflow: h.workflow, action: h.action,
-            operationContext, dispatchPolicy: { maxConcurrent: 2, requestsPerMinute: 10 } })
+            operationContext, dispatchPolicy: { maxConcurrent: 2 } })
         expect(h.jobs[0]).toMatchObject({
             jobType: 'memory', operationContext,
-            dispatchGroup: 'workflow-1:hypa:batch-1', dispatchMaxConcurrent: 2, dispatchRequestsPerMinute: 10,
+            dispatchGroup: 'workflow-1:hypa:batch-1', dispatchMaxConcurrent: 2,
         })
     })
 

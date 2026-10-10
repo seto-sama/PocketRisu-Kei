@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { get_encoding } = require('@dqbd/tiktoken');
 
+const EMBEDDING_BATCH_SIZE = 50;
+const CONTEXTUAL_EMBEDDING_GROUP_BATCH_SIZE = 1000;
 const REMOTE_HYPA_MODELS = new Set([
     'custom', 'ada', 'openai3small', 'openai3large',
     'voyage4large', 'voyageContext3', 'voyageContext4',
@@ -146,10 +148,36 @@ function createRemoteEmbedder(config, deps = {}) {
     }
     const fetchImpl = deps.fetch || globalThis.fetch;
     const sanitizeUrl = deps.sanitizeUrl || (value => value);
+    const maxConcurrent = Number.isInteger(config.maxConcurrent)
+        ? Math.max(1, config.maxConcurrent)
+        : 1;
+    let activeRequests = 0;
+    const requestQueue = [];
+
+    function drainRequestQueue() {
+        while (activeRequests < maxConcurrent && requestQueue.length > 0) {
+            const { task, resolve, reject } = requestQueue.shift();
+            activeRequests++;
+            Promise.resolve()
+                .then(task)
+                .then(resolve, reject)
+                .finally(() => {
+                    activeRequests--;
+                    drainRequestQueue();
+                });
+        }
+    }
+
+    function runRequest(task) {
+        return new Promise((resolve, reject) => {
+            requestQueue.push({ task, resolve, reject });
+            drainRequestQueue();
+        });
+    }
 
     async function standard(contents, inputType) {
-        const output = [];
-        for (const batch of chunk(contents, 50)) {
+        const batches = chunk(contents, EMBEDDING_BATCH_SIZE);
+        const results = await Promise.all(batches.map(batch => runRequest(async () => {
             let url;
             let headers;
             let body;
@@ -176,17 +204,17 @@ function createRemoteEmbedder(config, deps = {}) {
             }
             const data = await requestJson(fetchImpl, url, headers, body, deps.signal);
             if (!Array.isArray(data.data)) throw new Error('Embedding response has no data array');
-            output.push(...data.data.map(item => item.embedding));
-        }
-        return output;
+            return data.data.map(item => item.embedding);
+        })));
+        return results.flat();
     }
 
     async function contextualDocuments(groups) {
         const model = config.model === 'voyageContext3'
             ? 'voyage-context-3'
             : 'voyage-context-4';
-        const output = [];
-        for (const batch of chunk(groups, 1000)) {
+        const batches = chunk(groups, CONTEXTUAL_EMBEDDING_GROUP_BATCH_SIZE);
+        const results = await Promise.all(batches.map(batch => runRequest(async () => {
             const data = await requestJson(
                 fetchImpl,
                 'https://api.voyageai.com/v1/contextualizedembeddings',
@@ -195,22 +223,22 @@ function createRemoteEmbedder(config, deps = {}) {
                 deps.signal,
             );
             if (!Array.isArray(data.data)) throw new Error('Contextual embedding response has no data array');
-            output.push(...data.data.map(group => group.data.map(item => item.embedding)));
-        }
-        return output;
+            return data.data.map(group => group.data.map(item => item.embedding));
+        })));
+        return results.flat();
     }
 
     async function contextualQueries(contents) {
         const model = config.model === 'voyageContext3'
             ? 'voyage-context-3'
             : 'voyage-context-4';
-        const data = await requestJson(
+        const data = await runRequest(() => requestJson(
             fetchImpl,
             'https://api.voyageai.com/v1/contextualizedembeddings',
             { authorization: `Bearer ${config.apiKey}` },
             { model, inputs: contents.map(value => [value]), input_type: 'query' },
             deps.signal,
-        );
+        ));
         return data.data.map(group => group.data[0].embedding);
     }
 
@@ -253,8 +281,11 @@ function createRemoteEmbedder(config, deps = {}) {
 
 async function selectHypaMemory(recipe, summaries, deps = {}) {
     const tokenize = deps.tokenize || await createSummaryTokenCounter(recipe.tokenizer);
-    const embedder = deps.embedder || createRemoteEmbedder(recipe.embedding, deps);
     const settings = recipe.settings;
+    const embedder = deps.embedder || createRemoteEmbedder({
+        ...recipe.embedding,
+        maxConcurrent: settings.embeddingMaxConcurrent,
+    }, deps);
     const selected = new Set();
     const selectedImportant = [];
     const selectedRecent = [];
@@ -297,8 +328,15 @@ async function selectHypaMemory(recipe, summaries, deps = {}) {
                 chunks.push({ content, summaryIndex });
             }
         }
-        const recentChats = recipe.chats.slice(-settings.queryChatCount)
-            .filter(chat => String(chat.content || '').trim());
+        const recentChats = [];
+        for (let index = recipe.chats.length - 1;
+            index >= 0 && recentChats.length < settings.queryChatCount; index--) {
+            const chat = recipe.chats[index];
+            if (chat.memo === 'NewChat' || chat.memo === 'NewChatExample'
+                || chat.name === 'example_user' || chat.name === 'example_assistant'
+                || !String(chat.content || '').trim()) continue;
+            recentChats.unshift(chat);
+        }
         const queryChats = recipe.querySummary
             ? [...recentChats, { content: recipe.querySummary }]
             : recentChats;

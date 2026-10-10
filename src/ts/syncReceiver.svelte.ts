@@ -171,7 +171,15 @@ function handleSyncMessage(message: SyncMessage) {
 
 export function startSyncReceiver() {
     const stopTransport = startSyncTransport(handleSyncMessage)
-    const refreshRequested = () => scheduleRefresh()
+    const refreshRequested = (event: Event) => {
+        const target = (event as CustomEvent).detail
+        if (target?.characterId && target?.chatId) {
+            const key = syncChatKey(target.characterId, target.chatId)
+            pendingChats.add(key)
+            if (target.terminalCanonical === true) pendingTerminalCanonicalChats.add(key)
+        }
+        scheduleRefresh()
+    }
     window.addEventListener('risu-sync-refresh-requested', refreshRequested)
     return () => {
         window.removeEventListener('risu-sync-refresh-requested', refreshRequested)

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'
+import { createThoughtSignatureCollector, restoreThoughtSignatures } from './thoughtSignatures'
+import { expandAdapterMessages } from '../../process/request/modelPresetMessages'
 import type { AdapterChatMessage } from './types'
 
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
@@ -446,7 +448,7 @@ describe('streamChatRequest', () => {
 
     test('classifies HTTP errors before streaming starts', async () => {
         const { fetchImpl } = captureFetch(
-            jsonResponse({ error: { message: 'limited' } }, { status: 429 }),
+            jsonResponse({ error: { message: 'Rate limit exceeded' } }, { status: 429 }),
         )
         const gen = streamChatRequest(
             makePreset(),
@@ -1121,4 +1123,36 @@ describe('previewChatRequest (no network)', () => {
         expect(prepared.headers.Authorization).toBe('Bearer bedrock-api-key')
         expect(prepared.body.model).toBe('openai.gpt-5.6-sol')
     })
+})
+
+
+test('replays stored Gemini reasoning and tool signatures with edited history', async () => {
+    const details = [
+        { type: 'reasoning.text', text: 'thinking', format: 'google-gemini-v1', index: 0 },
+        { type: 'reasoning.encrypted', data: 'opaque reasoning', format: 'google-gemini-v1', index: 1 },
+    ]
+    const collector = createThoughtSignatureCollector('openai-compatible')
+    collector.add({ choices: [{ delta: { reasoning_details: [details[0]], tool_calls: [
+        { index: 0, id: 'call', function: { name: 'search', arguments: '{"q":' } },
+    ] } }] })
+    collector.add({ choices: [{ delta: { reasoning_details: [details[1]], tool_calls: [
+        { index: 0, function: { arguments: '"x"}' }, extra_content: { google: { thought_signature: 'tool signature' } } },
+    ] } }] })
+    const final = createThoughtSignatureCollector('openai-compatible')
+    final.add({ choices: [{ message: { content: 'original answer', extra_content: { google: { thought_signature: 'final signature' } } } }] })
+    const messages = await expandAdapterMessages([
+        { role: 'assistant', memo: 'response', content: '<tool_call>call</tool_call>edited answer' },
+    ], async () => ({ call: { id: 'call', name: 'search', arg: { q: 'x' } }, response: [{ type: 'text', text: 'result' }] }))
+    const restored = restoreThoughtSignatures(messages, [{
+        responseId: 'response', adapterKind: 'openai-compatible', model: 'demo-fast',
+        turns: [collector.finish()!, final.finish()!],
+    }])
+    const prepared = await previewChatRequest(makePreset(), { messages: restored }, { apiKey: 'test' })
+    expect(prepared.body.messages).toEqual([
+        { role: 'assistant', content: '', reasoning_details: details, tool_calls: [
+            { id: 'call', type: 'function', function: { name: 'search', arguments: '{"q":"x"}' }, extra_content: { google: { thought_signature: 'tool signature' } } },
+        ] },
+        { role: 'tool', name: 'search', content: 'result', tool_call_id: 'call' },
+        { role: 'assistant', content: 'edited answer', extra_content: { google: { thought_signature: 'final signature' } } },
+    ])
 })

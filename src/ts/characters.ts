@@ -3,7 +3,7 @@ import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
-import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
 import { createEntityId } from 'src/ts/id';
@@ -26,6 +26,7 @@ import {
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 import { archiveCurrentCharacterIcon } from './characterAssets'
+import { importRisuChats } from './chatImport'
 
 const BOOKMARK_TAG_DATA_CLASS = 'bookmark-tag-data'
 
@@ -469,84 +470,9 @@ export async function importChat(){
         }
         else if(dat.name.endsWith('json')){
             const json = JSON.parse(Buffer.from(dat.data).toString('utf-8'))
-            if((json.type === 'risuAllChats' || json.type === 'risuChat') && json.ver === 2){
-                const folders = json.folders || []
-                const chats = Array.isArray(json.data) ? json.data : [json.data]
-                const selectedID = get(selectedCharID)
-                let db = getDatabase()
-                let folderIdMap = {}
-                folders.forEach(folder => {
-                    if(db.characters[selectedID].chatFolders?.some(f => f.id === folder.id)){
-                        const newId = createEntityId()
-                        folderIdMap[folder.id] = newId
-                        folder.id = newId
-                    } else {
-                        folderIdMap[folder.id] = folder.id
-                    }
-                })
-                if(db.characters[selectedID].chatFolders === undefined){
-                    db.characters[selectedID].chatFolders = []
-                }
-                db.characters[selectedID].chatFolders.push(...folders)
-                const bookmarkTagIdMap = await mergeBookmarkTagsForImport(json.bookmarkTags)
-                chats.forEach(chat => {
-                    if(chat.folderId && folderIdMap[chat.folderId]){
-                        chat.folderId = folderIdMap[chat.folderId]
-                    }
-                    remapBookmarkTags(chat, bookmarkTagIdMap)
-                    chat.id = createEntityId()
-                })
-                const importedChats = chats.map(c => normalizeChat(c))
-                db.characters[selectedID].chats.unshift(...importedChats)
-                await requestImmediateSave({
-                    characterIds: [db.characters[selectedID].chaId],
-                    chatTargets: importedChats.map(chat => ({
-                        characterId: db.characters[selectedID].chaId,
-                        chatId: chat.id,
-                    })),
-                })
-                await finalizeImportedBookmarks(importedChats)
-                notifySuccess(language.successImport)
-                return
-            }
-            if(json.type === 'risuAllChats' && json.ver === 1){
-                const chats = json.data
-                if(Array.isArray(chats) && chats.length > 0){
-                    db.characters[selectedID].chats.unshift(...(chats.map((v) => {
-                        if(!v.id){
-                            v.id = createEntityId()
-                        }
-                        if(!v.localLore){
-                            v.localLore = []
-                        }
-                        v.fmIndex ??= -1
-                        return normalizeChat(v)
-                    })))
-                    notifySuccess(language.successImport)
-                    return
-                } else {
-                    alertError(language.errors.noData)
-                    return
-                }
-            }
-            if(json.type === 'risuChat' && json.ver === 1){
-                const das:Chat = json.data
-                if(!(checkNullish(das.message) || checkNullish(das.note) || checkNullish(das.name) || checkNullish(das.localLore))){
-                    das.fmIndex ??= -1
-                    das.id = createEntityId()
-                    db.characters[selectedID].chats.unshift(normalizeChat(das))
-                    notifySuccess(language.successImport)
-                    return
-                }
-                else{
-                    alertError(language.errors.noData)
-                    return   
-                }
-            }
-            else{
-                alertError(language.errors.noData)
-                return
-            }
+            if (await importRisuChats(json, db.characters[selectedID])) notifySuccess(language.successImport)
+            else alertError(language.errors.noData)
+            return
         }
         else if(dat.name.endsWith('html')){
             const doc = new DOMParser().parseFromString(Buffer.from(dat.data).toString('utf-8'), 'text/html')
@@ -900,6 +826,7 @@ export function changeChar(index: number, arg:{
 } = {}) {
     const reseter = arg.reseter ?? (() => {})
     const char = getDatabase().characters[index]
+    if(char) dismissClaimedLoadingOverlay()
     reseter();
     chatDeselected.set(false)
     characterFormatUpdate(index);
@@ -913,11 +840,11 @@ export function changeChar(index: number, arg:{
             const capturedChatId = chat.id
             if(char){
                 let cancelled = false
-                loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+                const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
                     cancelled = true
                     chatDeselected.set(true)
-                    loadingOverlayStore.set({ active: false, text: '', onCancel: null })
-                }})
+                    releaseOverlay()
+                })
                 void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
                     if(cancelled) return
                     const currentChar = getDatabase().characters[capturedIndex]
@@ -928,7 +855,7 @@ export function changeChar(index: number, arg:{
                 }).catch((e) => {
                     console.error('[selectCharacter] hydration failed:', e)
                 }).finally(() => {
-                    if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                    if(!cancelled) releaseOverlay()
                 })
             }
         } else {

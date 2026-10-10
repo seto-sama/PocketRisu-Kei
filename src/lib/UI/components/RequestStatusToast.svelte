@@ -1,25 +1,4 @@
-<script lang="ts" module>
-    import { readable } from 'svelte/store'
-
-    // One clock shared by every mounted request toast. Svelte starts it for the
-    // first subscriber and stops it after the last toast is removed.
-    const requestStatusNow = readable(Date.now(), (set) => {
-        const timer = setInterval(() => set(Date.now()), 200)
-        return () => clearInterval(timer)
-    })
-</script>
-
 <script lang="ts">
-    // Body of a single request-status toast. Rendered as a sonner custom toast
-    // (one per generationId). Subscribes to the shared store and reads its own
-    // entry by id, so it re-renders live on each timer tick without the driver
-    // re-issuing the toast. Final left-bar design — see
-    // .agent/notes/request-status-toast-infra.md and the workspace mockup.
-    //
-    // Layout (left color bar = phase):
-    //   row1: ●dot  phase(bold)  [kind chip]  elapsed ........ output N (right)
-    //   row2: model · think N · tok/s   (dim detail; 0/empty hidden)
-    //   row3+: cache/search/tool badges (future)
     import { requestStatuses, isTerminalPhase, type RequestPhase, type RequestKind } from 'src/ts/status/requestStatus'
     import { language } from 'src/lang'
     import { RotateCwIcon } from '@lucide/svelte'
@@ -50,7 +29,6 @@
         image:     rs?.kindImage ?? 'Image',
     }
 
-    // Accent bar / phase text color by phase.
     function accentClass(phase: RequestPhase): string {
         if (phase === 'done') return 'rs-accent-success'
         if (phase === 'failed') return 'rs-accent-danger'
@@ -69,14 +47,10 @@
         return String(n)
     }
     function elapsedStr(e: NonNullable<typeof entry>): string {
-        // Once terminal, freeze at the recorded end time (endStatus sets endedAt);
-        // otherwise tick live. lastChunkAt is NOT used — non-streaming paths never
-        // update it, which made completed elapsed read 0.
-        const end = isTerminalPhase(e.phase) ? (e.endedAt ?? $requestStatusNow) : $requestStatusNow
+        const end = isTerminalPhase(e.phase) ? (e.endedAt ?? Date.now()) : Date.now()
         return ((Math.max(0, end - e.startedAt)) / 1000).toFixed(1) + 's'
     }
 
-    // Right-side single number: output tokens once any arrive, else thinking.
     const right = $derived.by(() => {
         const e = entry
         if (!e) return null
@@ -89,7 +63,6 @@
         return null
     })
 
-    // Second-row detail: model · think (when both present) · tok/s. Empty parts dropped.
     const detail = $derived.by(() => {
         const e = entry
         if (!e) return ''
@@ -104,14 +77,12 @@
 
     function openResponse(event: MouseEvent) {
         event.stopPropagation()
-        if(activateRequestStatus(id)) return
-        if(entry?.chatId) navigateToRequestStatusChat(entry.chatId)
+        if (activateRequestStatus(id)) return
+        if (entry?.chatId) navigateToRequestStatusChat(entry.chatId)
     }
 </script>
 
 {#if entry}
-    <!-- sonner skips its default chrome for custom-component toasts
-         (data-styled=false), so apply the app toast look + left accent bar. -->
     <button
         type="button"
         class="rs-card {accentClass(entry.phase)}"
@@ -167,6 +138,7 @@
         background: var(--risu-theme-darkbg);
         color: var(--risu-theme-maintext);
         border: 1px solid var(--risu-theme-darkborderc);
+        border-left-width: 4px;
         border-radius: 0.5rem;
         overflow: hidden;
         font-size: 0.875rem;
@@ -176,8 +148,6 @@
     }
     .rs-card:disabled { opacity: 1; }
     .rs-actionable { cursor: pointer; }
-    /* left accent bar via left border */
-    .rs-card { border-left-width: 4px; }
     .rs-accent-primary { border-left-color: var(--risu-theme-primary); }
     .rs-accent-success { border-left-color: var(--risu-theme-success); }
     .rs-accent-danger  { border-left-color: var(--risu-theme-danger); }

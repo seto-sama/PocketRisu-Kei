@@ -32,6 +32,7 @@
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import OrphanAssetCleanupCard from './OrphanAssetCleanupCard.svelte'
     import type { OrphanAssetStats } from 'src/ts/storage/orphanAssets'
+    import { apiErrorCodes } from 'src/ts/network/apiError'
 
     // ── Types ────────────────────────────────────────────────────────────────
     interface PrefixInfo { totalSize: number; count: number }
@@ -201,7 +202,7 @@
             const getFullChat = async (chat: Chat, charId: string, chatIndex: number) => {
                 if (!chat._placeholder) return chat
                 if (!chat.id) throw new Error(`Missing chat id while scanning ${charId} #${chatIndex}`)
-                const fullChat = await fetchChatFromServer(charId, chatIndex, chat.id)
+                const fullChat = await fetchChatFromServer(charId, chatIndex, chat.id, { trackBaseline: false })
                 if (!fullChat) throw new Error(`Failed to load chat while scanning ${charId}/${chat.id}`)
                 return fullChat
             }
@@ -272,8 +273,12 @@
             })
             const json = await res.json().catch(() => ({}))
             if (!res.ok) {
-                if (json?.error === 'Insufficient disk space for VACUUM' && json.required && json.free != null) {
-                    notifyError(language.storageOptimizeNeedsSpace(json.required, json.free))
+                if (json?.code === apiErrorCodes.INSUFFICIENT_STORAGE
+                    && json.details?.required && json.details.free != null) {
+                    notifyError(language.storageOptimizeNeedsSpace(
+                        json.details.required,
+                        json.details.free,
+                    ))
                 } else {
                     notifyError(language.storageOptimizeFailed + ': ' + (json?.error || `HTTP ${res.status}`))
                 }

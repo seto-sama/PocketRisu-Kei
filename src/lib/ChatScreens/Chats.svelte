@@ -151,7 +151,7 @@
             const displayName = message.role === 'user' ? currentUsername : currentCharacter.name
             const isComment = message.isComment ?? false
             const disabled = message.disabled ?? false
-            const rerollIcon = showSwipeControls ? 'force' : false
+            const rerollIcon = showSwipeControls
             const currentPage = showSwipeControls ? swipeId + 1 : 1
             const totalPages = showSwipeControls ? (swipes?.length ?? 1) : 1
             const inputs = {
@@ -205,7 +205,7 @@
                     onNextSwipe: showSwipeControls ? () => onNextSwipe(isRerollTarget ? undefined : i) : noop,
                     unReroll: showSwipeControls ? () => unReroll(isRerollTarget ? undefined : i) : noop,
                     onDeleteSwipe: showSwipeControls ? () => onDeleteSwipe(isRerollTarget ? undefined : i) : noop,
-                    rerollIcon: showSwipeControls ? 'force' : false,
+                    rerollIcon: showSwipeControls,
                     swipeNavigationOnly,
                     isStreamingDisplay: isStreamingMessage,
                     generationOwned,

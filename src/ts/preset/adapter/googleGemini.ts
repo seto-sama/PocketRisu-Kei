@@ -2,7 +2,7 @@ import { beginGeminiCacheTurn, type GeminiCacheTurn } from '../cache/geminiCache
 import type { ModelPreset } from '../types'
 import {
     ModelPresetAdapterError,
-    extractErrorMessage,
+    extractErrorDetails,
     normalizeFetchError,
     normalizeHttpStatus,
     parseRetryAfterMs,
@@ -24,6 +24,7 @@ import type {
     AdapterUsage,
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
+import { restoreGeminiParts } from './thoughtSignatures'
 import {
     hasCustomFlag,
     hasFixedImageOutput,
@@ -34,7 +35,7 @@ import {
 } from './customPreset'
 import { resolveThinkingBudget } from './thinkingBudget'
 
-interface GeminiPart {
+export interface GeminiPart {
     text?: string
     thought?: boolean
     thoughtSignature?: string
@@ -104,10 +105,8 @@ export async function sendGoogleChatRequest(
     let response: Response
     try {
         response = await send(cacheTurn ? cacheTurn.body : prepared.body)
-        // If an applied cachedContent was rejected (server evicted it before the
-        // local expiry), the cache — not the prompt — broke this turn. Drop the
-        // stale cache and retry once with the uncached body so caching never
-        // takes the chat down (spec §4-4).
+        // Drop rejected cache entries and retry once with the full prompt so caching never
+        // interrupts an otherwise valid request.
         if (!response.ok && cacheTurn?.appliedCache && isCacheRejection(response.status)) {
             cacheTurn.invalidateAppliedCache()
             response = await send(prepared.body)
@@ -449,11 +448,9 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
         }
         flush()
         if (message.role === 'assistant') {
-            // Verbatim re-send of the model's own parts (thoughtSignatures intact)
-            // when captured this request; reconstruct for history-restored turns.
             const parts = Array.isArray(message.providerEcho)
                 ? (message.providerEcho as GeminiPart[])
-                : toModelParts(message)
+                : restoreGeminiParts(message, parseToolArgs) ?? toModelParts(message)
             out.push({ role: 'model', parts })
         } else {
             out.push({ role: 'user', parts: toUserParts(message) })
@@ -507,11 +504,8 @@ function toModelParts(message: AdapterChatMessage): GeminiPart[] {
 
 function parseToolArgs(args: string): unknown {
     if (!args) return {}
-    try {
-        return JSON.parse(args)
-    } catch {
-        return {}
-    }
+    try { return JSON.parse(args) }
+    catch { return {} }
 }
 
 async function deriveHttpError(response: Response): Promise<ModelPresetAdapterError> {
@@ -521,11 +515,14 @@ async function deriveHttpError(response: Response): Promise<ModelPresetAdapterEr
     } catch {
         // ignore body read failures
     }
-    const message = extractErrorMessage(bodyText) ?? `HTTP ${response.status}`
-    return normalizeHttpStatus(response.status, message, {
+    const error = extractErrorDetails(bodyText)
+    return normalizeHttpStatus(response.status, error.message ?? undefined, {
         retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+        providerCode: error.code,
     })
-        ?? new ModelPresetAdapterError('unknown', message, { status: response.status })
+        ?? new ModelPresetAdapterError('unknown', error.message ?? `HTTP ${response.status}`, {
+            status: response.status,
+        })
 }
 
 export function parseGeminiResponse(raw: unknown): AdapterChatResponse {

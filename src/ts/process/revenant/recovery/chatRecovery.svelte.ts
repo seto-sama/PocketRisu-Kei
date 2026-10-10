@@ -80,7 +80,6 @@ const recoveryStreamSubscriptions = new Map<string, {
     roomId: string
     workflowId?: string
     messageChatId: string
-    isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
 }>()
 
@@ -93,7 +92,6 @@ function resolveCurrentRecoveryTarget(options: {
     characterId: string
     roomId: string
     messageChatId: string
-    isContinuation: boolean
     rerollTargetChatId?: string
     rerollTargetIndex?: number
 }): { character: character, chat: Chat, message: Message, messageIndex: number } | undefined {
@@ -105,10 +103,6 @@ function resolveCurrentRecoveryTarget(options: {
 
     let currentMessage = currentChat.message.find(item =>
         item?.chatId === options.messageChatId)
-    if (!currentMessage && options.isContinuation) {
-        currentMessage = currentChat.message.slice().reverse().find(item =>
-            item?.role === 'char')
-    }
     if (!currentMessage && options.rerollTargetChatId) {
         currentMessage = currentChat.message.find(item =>
             item?.chatId === options.rerollTargetChatId)
@@ -153,7 +147,6 @@ export function clearRevenantRecoveryForChat(
                 characterId: character.chaId,
                 roomId: chat.id,
                 messageChatId: subscription.messageChatId,
-                isContinuation: subscription.isContinuation,
                 rerollTargetChatId: subscription.rerollSnapshot?.targetMessage.chatId,
                 rerollTargetIndex: subscription.rerollSnapshot?.targetIndex,
             })
@@ -161,7 +154,6 @@ export function clearRevenantRecoveryForChat(
             applyCancelledGenerationProjection(chat, {
                 messageChatId: subscription.messageChatId,
                 content: targetMessage?.recoveryDisplayData ?? '',
-                isContinuation: subscription.isContinuation,
                 targetMessage,
                 rerollSnapshot: subscription.rerollSnapshot,
             })
@@ -356,7 +348,6 @@ async function restoreStoppedReroll(
     applyCancelledGenerationProjection(currentChat, {
         messageChatId: context.messageChatId,
         content: '',
-        isContinuation: context.continue,
         rerollSnapshot: snapshot,
     })
     // The durable workflow input already contains the pre-reroll chat. Keep
@@ -561,14 +552,13 @@ export async function recoverRevenantGenerationsForChat(
                 recovered++
                 continue
             }
-            const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat
+            const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat ?? chat
             if (
                 workflowBaseChat?.id === chat.id
                 && Array.isArray(workflowBaseChat.message)
             ) {
                 beginChatGenerationProjection(character.chaId, workflowBaseChat, {
                     messageChatId,
-                    isContinuation: job.isContinuation,
                     rerollSnapshot: job.rerollSnapshot,
                 })
                 if (!isActiveGeneration) {
@@ -594,10 +584,7 @@ export async function recoverRevenantGenerationsForChat(
                     )
                 }
             }
-            const continuationTarget = job.isContinuation
-                ? chat.message.slice().reverse().find(message => message?.role === 'char')
-                : undefined
-            const targetMessage = continuationTarget ?? snapshotTarget ?? existingMessage
+            const targetMessage = snapshotTarget ?? existingMessage
             const msgIndex = targetMessage
                 ? chat.message.indexOf(targetMessage)
                 : chat.message.length
@@ -611,15 +598,9 @@ export async function recoverRevenantGenerationsForChat(
                 // boundary, then acknowledge it through the shared consume
                 // route so a reload cannot leave this message locked.
                 const recoveredContent = await readRecoverableGenerationContent(job)
-                const projectedContent = job.isContinuation
-                    && job.continuationPrefix
-                    && !recoveredContent.startsWith(job.continuationPrefix)
-                    ? job.continuationPrefix + recoveredContent
-                    : recoveredContent
                 applyCancelledGenerationProjection(chat, {
                     messageChatId,
-                    content: projectedContent,
-                    isContinuation: job.isContinuation === true,
+                    content: recoveredContent,
                     targetMessage,
                     rerollSnapshot,
                 })
@@ -638,15 +619,9 @@ export async function recoverRevenantGenerationsForChat(
             }
             if (job.status === 'cancelled') {
                 const recoveredContent = await readRecoverableGenerationContent(job)
-                const projectedContent = job.isContinuation
-                    && job.continuationPrefix
-                    && !recoveredContent.startsWith(job.continuationPrefix)
-                    ? job.continuationPrefix + recoveredContent
-                    : recoveredContent
                 applyCancelledGenerationProjection(chat, {
                     messageChatId,
-                    content: projectedContent,
-                    isContinuation: job.isContinuation === true,
+                    content: recoveredContent,
                     targetMessage,
                     rerollSnapshot,
                 })
@@ -677,10 +652,10 @@ export async function recoverRevenantGenerationsForChat(
                 },
                 promptInfo: job.promptInfo,
             })
-            // A continuation/reroll displays its live projection over the old
+            // A reroll displays its live projection over the old
             // message without replacing that message's durable identity. The
             // new generation id is committed only after successful completion.
-            if (!continuationTarget && !snapshotTarget) message.chatId = messageChatId
+            if (!snapshotTarget) message.chatId = messageChatId
             if (!targetMessage) chat.message.push(message)
             if (
                 !wasRecovering
@@ -702,11 +677,6 @@ export async function recoverRevenantGenerationsForChat(
                             observeRevenantJobRequestText(job.jobId, progress)
                         },
                         onContent: content => {
-                            const displayContent = job.isContinuation
-                                && job.continuationPrefix
-                                && !content.startsWith(job.continuationPrefix)
-                                ? job.continuationPrefix + content
-                                : content
                             // Chat hydration/database invalidation can replace the
                             // objects captured when the socket was attached. Resolve
                             // the currently displayed objects for every event so the
@@ -715,7 +685,6 @@ export async function recoverRevenantGenerationsForChat(
                                 characterId: character.chaId,
                                 roomId: chat.id,
                                 messageChatId,
-                                isContinuation: job.isContinuation,
                                 rerollTargetChatId: rerollSnapshot?.targetMessage.chatId,
                                 rerollTargetIndex: rerollSnapshot?.targetIndex,
                             })
@@ -723,8 +692,8 @@ export async function recoverRevenantGenerationsForChat(
                             const liveChat = currentTarget?.chat ?? chat
                             const liveMessage = currentTarget?.message ?? message
                             const liveMessageIndex = currentTarget?.messageIndex ?? msgIndex
-                            if (liveMessage.recoveryDisplayData === displayContent) return
-                            liveMessage.recoveryDisplayData = displayContent
+                            if (liveMessage.recoveryDisplayData === content) return
+                            liveMessage.recoveryDisplayData = content
                             liveMessage.isRecovering = true
                             liveChat.isStreaming = true
                             // Publish raw recovery-object mutations through the
@@ -761,7 +730,6 @@ export async function recoverRevenantGenerationsForChat(
                         roomId: chat.id,
                         workflowId: job.workflowId,
                         messageChatId,
-                        isContinuation: job.isContinuation === true,
                         rerollSnapshot,
                     })
                 }

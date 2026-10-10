@@ -6,7 +6,6 @@ function recipe(): RevenantPostprocessRecipe {
     return {
         schemaVersion: 1,
         messageChatId: 'message-2',
-        isContinuation: false,
         providerBackend: 'http',
         modelPreset: {},
         character: {
@@ -27,8 +26,7 @@ function recipe(): RevenantPostprocessRecipe {
                 type: 'editoutput', in: '\\[happy\\]', out: '@@emo happy', ableFlag: true, flag: 'g', comment: '',
             }],
             templateDefaultVariables: '', globalChatVariables: {}, username: 'Bob', userIcon: '',
-            personaPrompt: '', selectedPersona: 0, personas: [], dynamicAssets: false,
-            dynamicAssetsEditDisplay: false, igpPrompt: '',
+            personaPrompt: '', selectedPersona: 0, personas: [], igpPrompt: '',
             notification: false, ttsEnabled: false, ttsAutoSpeech: false,
             emotionProcesser: 'submodel', emotionPrompt2: '',
         },

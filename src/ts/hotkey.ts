@@ -25,6 +25,7 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
 import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
 import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
+import { isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
 
 let hotkeyInitialized = false
 
@@ -32,17 +33,29 @@ export function initHotkey() {
     if (hotkeyInitialized) return
     hotkeyInitialized = true
 
-    document.addEventListener('keydown', async (event) => {
-        if (event.defaultPrevented) return
+    // Text entry is the innermost navigation layer. Handle it during capture
+    // so local full-screen and overlay Escape handlers cannot close their
+    // parent before a focused field gets a chance to blur.
+    window.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || event.isComposing) return
         const activeElement = document.activeElement as HTMLElement | null
+        if (!isTextEntryElement(activeElement)) return
+        const focusReturnTarget = activeElement.closest<HTMLElement>('[role="dialog"][tabindex]')
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        activeElement.blur()
+        focusReturnTarget?.focus({ preventScroll: true })
+    }, true)
+
+    document.addEventListener('keydown', async (event) => {
+        const activeElement = document.activeElement as HTMLElement | null
+        const focusedTextEntry = isTextEntryElement(activeElement)
+        if (event.defaultPrevented) return
         if (
             !event.ctrlKey &&
             !event.altKey &&
             !event.shiftKey &&
-            !!activeElement &&
-            (activeElement.tagName === 'INPUT' ||
-                activeElement?.tagName === 'TEXTAREA' ||
-                activeElement.isContentEditable)
+            focusedTextEntry
         ) {
             return
         }
@@ -173,9 +186,8 @@ export function initHotkey() {
                 event.preventDefault()
                 return
             }
-            if (get(settingsOpen)) {
+            if (requestDialogCloseAction()) {
                 event.preventDefault()
-                settingsOpen.set(false)
             }
         }
         if (event.key === 'Enter') {

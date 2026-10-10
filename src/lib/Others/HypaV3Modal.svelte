@@ -100,7 +100,6 @@
       ].hypaV3Data ??= {
         summaries: [],
         categories: [{ id: "", name: language.hypaV3Modal.unclassified }],
-        lastSelectedSummaries: [],
       };
 
       expandedMessageState = null;
@@ -224,7 +223,7 @@
 
   function buildResummaryInput(selectedIndices: number[]): {
     oaiMessages: OpenAIChat[];
-    chatMemos: string[];
+    chatMemos: (string | null)[];
   } {
     const oaiMessages = selectedIndices.map((index) => ({
       role: "user" as const,

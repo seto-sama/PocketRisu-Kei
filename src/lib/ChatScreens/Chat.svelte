@@ -44,7 +44,7 @@
 
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
-    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
+    import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
@@ -127,7 +127,7 @@
         img?: string|Promise<string>;
         idx?: number;
         messageGenerationInfo?: MessageGenerationInfo|null;
-        rerollIcon?: boolean|'dynamic'|'force';
+        rerollIcon?: boolean;
         role?: string;
         totalLength?: number;
         onReroll?: () => void;
@@ -242,7 +242,7 @@
         && isLastMessage
     )
     const showFloatingToolbarDetails = $derived(Boolean(
-        messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
+        messageGenerationInfo && DBState.db.requestInfoInsideChat
         || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
     ))
     const translationTaskKey = $derived(renderCacheKey
@@ -696,9 +696,9 @@
 
     let blankMessage = $derived((message === '{{none}}' || message === '{{blank}}' || message === '') && idx === -1 && !altGreeting || isComment)
     const isBranchedFromComment = $derived(Boolean(isComment && message?.startsWith('{{specialcomment::branchedfrom::')))
-    let nodeOnlyWidthClass = $derived(
-        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
+    let chatWidthClass = $derived(
+        DBState.db.standardChatWidth === 'full' ? 'max-w-full' :
+        DBState.db.standardChatWidth === 'wide' ? 'max-w-6xl' :
         'max-w-3xl'
     )
 
@@ -916,7 +916,7 @@
         className={`chat-generation-info flex-wrap gap-1 ${generationInfoAlignsLeft ? 'justify-start' : 'chat-width w-full justify-end'}`}
         style="min-height:var(--icon-cell-size)"
     >
-        {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
+        {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
             {@const diagnosticMessage = idx >= 0
                 ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
                 : undefined}
@@ -1480,15 +1480,13 @@
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
                 <ArrowLeftIcon />
             </IconButton>
-            {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
-            {/if}
+            <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
             <IconButton size="lg" className="button-icon-reroll" onclick={() => changeSwipe(onReroll)}>
                 <ArrowRightIcon />
             </IconButton>
         {:else}
             <!-- Normal messages: ← counter → ↻ -->
-            <IconButton size="lg" className={'button-icon-unreroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
+            <IconButton size="lg" className="button-icon-unreroll" onclick={async () => {
                 if (swipeNavigationOnly) {
                     if (totalPages > 1) changeSwipe(unReroll)
                 } else if (totalPages <= 1) {
@@ -1499,10 +1497,8 @@
             }}>
                 <ArrowLeftIcon />
             </IconButton>
-            {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
-            {/if}
-            <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
+            <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
+            <IconButton size="lg" className="button-icon-reroll" onclick={async () => {
                 if (swipeNavigationOnly) {
                     if (totalPages > 1) changeSwipe(onNextSwipe)
                 } else if (totalPages <= 1) {
@@ -1514,7 +1510,7 @@
                 <ArrowRightIcon />
             </IconButton>
             {#if !swipeNavigationOnly}
-                <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
+                <IconButton size="lg" className="button-icon-reroll" onclick={async () => {
                     if (!DBState.db.confirmReroll || await alertConfirm(language.rerollConfirm)) onReroll()
                 }}>
                     <RefreshCcwIcon />
@@ -1624,24 +1620,21 @@
     {/if}
 {/snippet}
 
-{#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
+{#snippet senderIcon(options:{styleFix?:string} = {})}
     {#if !blankMessage && !$HideIconStore && !hideSender}
         {#await img}
-            <div class="shadow-lg bg-button" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
-            class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+            <div class="shadow-lg bg-button rounded-md" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}></div>
         {:then m}
             {#if !m}
                 <AvatarFallback
-                    className="shadow-lg {options?.rounded ? 'rounded-full' : 'rounded-md'}"
+                    className="shadow-lg rounded-md"
                     style={options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
                     iconSize={DBState.db.iconsize * 0.3}
                 />
-            {:else if largePortrait && (!options?.rounded)}
-                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+            {:else if largePortrait}
+                <div class="shadow-lg bg-subtext rounded-md" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}></div>
             {:else}
-                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+                <div class="shadow-lg bg-subtext rounded-md" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}></div>
             {/if}
         {/await}
     {/if}
@@ -1792,7 +1785,6 @@
 <div class="w-full border-t-2 border-dashed border-primary"></div>
 {/if}
 {#if DBState.db.theme === ''}
-<!-- NodeOnly Standard: 전용 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      bind:this={partialEditRoot}
      data-chat-index={idx}
@@ -1807,13 +1799,13 @@
     >
         {#if !blankMessage}
             <div
-                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg md:[--chat-shell-inline-padding:2rem]"
+                class="chat-message-shell flex flex-col w-full min-w-0 {chatWidthClass} mx-auto bg-lightbg sm:rounded-lg md:[--chat-shell-inline-padding:2rem]"
                 class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
             >
                 {#if !hideSender}
                     <!-- Header: icon + name -->
                     <div class="flex items-center gap-3 mb-4">
-                        {@render senderIcon({rounded: DBState.db.roundIcons})}
+                        {@render senderIcon()}
                         {#if !$HideIconStore}
                             <span class="text-lg sm:text-xl text-maintext">{name}</span>
                         {/if}
@@ -1838,7 +1830,7 @@
                 {/if}
             </div>
         {:else if isComment}
-            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
+            <div class="flex flex-col w-full min-w-0 {chatWidthClass} mx-auto px-4 sm:px-8">
                 {#if isBranchedFromComment}
                     {@render branchedFromCommentRow()}
                 {:else}
@@ -1868,7 +1860,7 @@
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
                 {#if role !== 'user'}
-                    {@render senderIcon({rounded: DBState.db.roundIcons})}
+                    {@render senderIcon()}
                 {/if}
                 <div
                     class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
@@ -1890,13 +1882,13 @@
                     {/if}
                 </div>
                 {#if role === 'user'}
-                    {@render senderIcon({rounded: DBState.db.roundIcons})}
+                    {@render senderIcon()}
                 {/if}
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage && renderedGuiHtml}
             {@render renderGuiHtmlPart(renderedGuiHtml)}
         {:else if stickyChatToolbarVariant === 'floating' && !blankMessage}
-            {@render senderIcon({rounded: DBState.db.roundIcons})}
+            {@render senderIcon()}
             <span
                 class="chat-toolbar-message flex flex-col ml-4 w-full max-w-full min-w-0"
                 style:--chat-toolbar-row-height={chatToolbarRowHeight}
@@ -1926,7 +1918,7 @@
                 {@render branchedFromCommentRow()}
             </span>
         {:else}
-            {@render senderIcon({rounded: DBState.db.roundIcons})}
+            {@render senderIcon()}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
                     {#if !blankMessage && !$HideIconStore && !hideSender}

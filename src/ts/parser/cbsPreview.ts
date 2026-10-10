@@ -110,13 +110,6 @@ export function extractCBSPreviewReferences(text:string):CBSPreviewReference[] {
         .map(item => item.reference)
 }
 
-/** Collect unique direct CBS expressions that can be overridden in a preview. */
-export function extractCBSPreviewExpressions(text:string):string[] {
-    return extractCBSPreviewReferences(text)
-        .filter((reference):reference is Extract<CBSPreviewReference, {kind:'expression'}> => reference.kind === 'expression')
-        .map(reference => reference.expression)
-}
-
 export function applyCBSPreviewValues(
     text:string,
     values:ReadonlyArray<{ expression:string, value:string }>,

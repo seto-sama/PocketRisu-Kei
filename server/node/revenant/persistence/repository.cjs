@@ -4,6 +4,10 @@ const { encodeGenerationRequest, decodeGenerationRequest } = require('../protoco
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
 const { createGenerationStatements } = require('./statements.cjs');
+const {
+    REVENANT_CAPACITY,
+    createWorkflowCapacityError,
+} = require('../capacity.cjs');
 
 const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
@@ -33,9 +37,12 @@ const {
     stmtSetRawBytes,
     stmtExpiredTerminalJobs,
     stmtCreateWorkflow,
+    stmtCreateWorkflowChatSnapshot,
+    stmtGetWorkflowChatSnapshot,
     stmtCreateWorkflowStep,
     stmtGetWorkflow,
     stmtGetActiveWorkflowForRoom,
+    stmtCountActiveWorkflows,
     stmtGetLatestWorkflowForRoom,
     stmtListWorkflowSteps,
     stmtGetWorkflowStep,
@@ -63,6 +70,7 @@ const {
     stmtFailActiveStepExecutions,
     stmtDeleteCompletedStepExecutions,
     stmtDeleteCompletedWorkflowSteps,
+    stmtDeleteCompletedWorkflowChatSnapshots,
     stmtDeleteCompletedWorkflows,
     stmtPutWorkflowExecution,
     stmtGetWorkflowExecution,
@@ -131,6 +139,11 @@ function rowToWorkflow(row, includeSteps = true) {
             ? { steps: stmtListWorkflowSteps.all(row.workflow_id).map(rowToWorkflowStep) }
             : {}),
     };
+}
+
+function getGenerationWorkflowInputChat(workflowId) {
+    const snapshot = stmtGetWorkflowChatSnapshot.get(workflowId);
+    return snapshot?.input_chat ? JSON.parse(snapshot.input_chat) : undefined;
 }
 
 function getGenerationWorkflow(workflowId, includeSteps = true) {
@@ -292,16 +305,41 @@ function consumeGenerationWorkflowClientActionJobs(workflowId, actionId) {
 
 function createGenerationWorkflow(input) {
     const now = Date.now();
+    const inputChat = input.context?.inputCommit?.chat;
+    let context = input.context;
+    if (inputChat) {
+        const { inputCommit: _inputCommit, ...workflowContext } = input.context;
+        context = workflowContext;
+    }
+    let activeWorkflowId;
     try {
         db.transaction(() => {
+            const activeWorkflow = stmtGetActiveWorkflowForRoom.get(
+                input.characterId,
+                input.roomId,
+            );
+            if (activeWorkflow) {
+                activeWorkflowId = activeWorkflow.workflow_id;
+                return;
+            }
+            const activeCount = Number(stmtCountActiveWorkflows.get()?.count) || 0;
+            if (activeCount >= REVENANT_CAPACITY.maxActiveWorkflows) {
+                throw createWorkflowCapacityError();
+            }
             stmtCreateWorkflow.run(
                 input.workflowId,
                 input.characterId,
                 input.roomId,
-                input.context ? JSON.stringify(input.context) : null,
+                context ? JSON.stringify(context) : null,
                 now,
                 now,
             );
+            if (inputChat) {
+                stmtCreateWorkflowChatSnapshot.run(
+                    input.workflowId,
+                    JSON.stringify(inputChat),
+                );
+            }
             for (const step of input.plan) {
                 stmtCreateWorkflowStep.run({
                     workflowId: input.workflowId,
@@ -319,6 +357,12 @@ function createGenerationWorkflow(input) {
             };
         }
         throw error;
+    }
+    if (activeWorkflowId) {
+        return {
+            busy: true,
+            workflow: getGenerationWorkflow(activeWorkflowId),
+        };
     }
     return { busy: false, workflow: getGenerationWorkflow(input.workflowId) };
 }
@@ -601,8 +645,6 @@ function rowToJob(row, includeRaw = true) {
         jobType: row.job_type || 'model',
         characterId: row.character_id,
         roomId: row.room_id,
-        isContinuation: row.is_continuation === 1,
-        continuationPrefix: row.continuation_prefix || '',
         generationInfo: row.generation_info ? JSON.parse(row.generation_info) : undefined,
         promptInfo: row.prompt_info ? JSON.parse(row.prompt_info) : undefined,
         rerollSnapshot: row.reroll_snapshot ? JSON.parse(row.reroll_snapshot) : undefined,
@@ -690,8 +732,6 @@ function createGenerationJob(input) {
                 jobType: input.jobType || 'model',
                 characterId: input.characterId || null,
                 roomId: input.roomId || null,
-                isContinuation: input.isContinuation ? 1 : 0,
-                continuationPrefix: input.continuationPrefix || null,
                 generationInfo: input.generationInfo ? JSON.stringify(input.generationInfo) : null,
                 promptInfo: input.promptInfo ? JSON.stringify(input.promptInfo) : null,
                 rerollSnapshot: input.rerollSnapshot ? JSON.stringify(input.rerollSnapshot) : null,
@@ -703,7 +743,6 @@ function createGenerationJob(input) {
                 streaming: input.streaming ? 1 : 0,
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
-                dispatchRequestsPerMinute: input.dispatchRequestsPerMinute || null,
                 requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
                 now,
             });
@@ -745,17 +784,14 @@ function listQueuedGenerationDispatches(limit = 500) {
         job: rowToJob(row, false),
         dispatchGroup: row.dispatch_group,
         maxConcurrent: Math.max(1, Number(row.dispatch_max_concurrent) || 1),
-        requestsPerMinute: Math.max(1, Number(row.dispatch_requests_per_minute) || 1),
         requestSpec: decodeGenerationRequest(row.request_spec),
     }));
 }
 
-function getGenerationDispatchState(dispatchGroup, since) {
-    const row = stmtDispatchState.get(since, since, dispatchGroup);
+function getGenerationDispatchState(dispatchGroup) {
+    const row = stmtDispatchState.get(dispatchGroup);
     return {
         active: Math.max(0, Number(row?.active) || 0),
-        recent: Math.max(0, Number(row?.recent) || 0),
-        oldestRecent: row?.oldest_recent || undefined,
     };
 }
 
@@ -931,6 +967,7 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
         stmtDeleteCompletedWorkflowExecutions.run(cutoff);
         stmtDeleteCompletedStepExecutions.run(cutoff);
         stmtDeleteCompletedWorkflowSteps.run(cutoff);
+        stmtDeleteCompletedWorkflowChatSnapshots.run(cutoff);
         workflowsDeleted = stmtDeleteCompletedWorkflows.run(cutoff).changes;
     })();
     if (deletedJobs.length > 0) db.pragma('wal_checkpoint(PASSIVE)');
@@ -950,6 +987,7 @@ module.exports = {
     createSingleGenerationJob,
     createGenerationWorkflow,
     getGenerationWorkflow,
+    getGenerationWorkflowInputChat,
     getActiveGenerationWorkflow,
     getLatestGenerationWorkflow,
     listReadyChatWorkflowJobs,

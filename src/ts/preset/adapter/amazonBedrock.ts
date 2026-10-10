@@ -8,6 +8,7 @@ import {
 } from './bedrockEndpoint'
 import {
     ModelPresetAdapterError,
+    extractErrorDetails,
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
@@ -564,19 +565,22 @@ function bedrockStreamError(message: AwsEventMessage): ModelPresetAdapterError {
 }
 
 async function deriveHttpError(response: Response): Promise<ModelPresetAdapterError> {
-    let payload: unknown
     let bodyText = ''
     try {
         bodyText = await response.text()
-        payload = bodyText ? JSON.parse(bodyText) : undefined
     } catch {
-        payload = bodyText
+        // Status alone is enough to classify a failed HTTP response.
     }
     const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'))
-    const normalized = normalizeHttpStatus(response.status, undefined, { retryAfterMs })
+    const error = extractErrorDetails(bodyText)
+    const providerCode = response.headers.get('x-amzn-errortype') ?? error.code
+    const normalized = normalizeHttpStatus(response.status, error.message ?? undefined, {
+        retryAfterMs,
+        providerCode: providerCode ?? undefined,
+    })
     return new ModelPresetAdapterError(
         normalized.kind,
-        messageFromPayload(payload, `Amazon Bedrock request failed (${response.status})`),
+        error.message ?? `Amazon Bedrock request failed (${response.status})`,
         {
             status: response.status,
             retryAfterMs,

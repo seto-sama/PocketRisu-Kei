@@ -6,7 +6,10 @@ const statusMocks = vi.hoisted(() => ({
     setStatusProgress: vi.fn(),
     endStatus: vi.fn(),
 }))
-const workflowMocks = vi.hoisted(() => ({ getRevenantWorkflow: vi.fn() }))
+const workflowMocks = vi.hoisted(() => ({
+    beginImageGenerationWorkflow: vi.fn(),
+    getRevenantWorkflow: vi.fn(),
+}))
 
 vi.mock('../../../storage/database.svelte', () => ({
     getDatabase: () => ({ showRequestStatus: true }),
@@ -20,7 +23,10 @@ vi.mock('../transport/client', () => ({
 }))
 vi.mock('./workflow', () => workflowMocks)
 
-import { observeRevenantImageGenerationWorkflow } from './imageWorkflow'
+import {
+    generateImageThroughWorkflow,
+    observeRevenantImageGenerationWorkflow,
+} from './imageWorkflow'
 
 function imageWorkflow(status: 'active' | 'completed' = 'active'): RevenantWorkflow {
     return {
@@ -89,5 +95,40 @@ describe('server-owned image workflow observer', () => {
             { value: 4, max: 28 },
         )
         expect(statusMocks.endStatus).toHaveBeenCalledWith('operation-1', 'done', expect.any(Object))
+    })
+
+    it('returns the generated inlay reference from a return-mode workflow', async () => {
+        const prompt = String.raw`portrait \(group\)`
+        const completed = imageWorkflow('completed')
+        completed.steps[0].metadata = {
+            ...completed.steps[0].metadata,
+            result: { reference: '{{inlayed::asset-id}}' },
+        }
+        workflowMocks.beginImageGenerationWorkflow.mockResolvedValue(completed)
+
+        await expect(generateImageThroughWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            prompt,
+        })).resolves.toBe('{{inlayed::asset-id}}')
+
+        expect(workflowMocks.beginImageGenerationWorkflow).toHaveBeenCalledWith({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            prompt,
+            negativePrompt: '',
+            label: 'NovelAI',
+            messageId: 'room-1',
+            projection: 'return',
+        })
+    })
+
+    it('rejects image generation when the active chat has no ID', async () => {
+        await expect(generateImageThroughWorkflow({
+            characterId: 'character-1',
+            roomId: undefined,
+            prompt: 'portrait',
+        })).rejects.toThrow('Image generation requires a chat ID')
+        expect(workflowMocks.beginImageGenerationWorkflow).not.toHaveBeenCalled()
     })
 })

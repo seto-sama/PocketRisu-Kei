@@ -4,9 +4,10 @@ import { type character, type Chat, getCurrentCharacter } from "./storage/databa
 import type { MultiModal, OpenAIChat } from "./process/index.svelte";
 import { supportsInlayImage } from "./process/files/inlays";
 import { risuChatParser } from "./parser/parser.svelte";
-import { getGenerationModelPreset, getModelPresetTokenizer } from "./process/models/modelString";
-import type { RegistryTokenizer } from "./preset/types";
+import { getGenerationModelPreset, getModelPresetMetadata, getModelPresetTokenizer } from "./process/models/modelString";
+import type { ModelPreset, RegistryTokenizer } from "./preset/types";
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
+import { getRecentChatToken } from "./chatContextTokens";
 
 const MAX_CACHE_SIZE = 1500;
 type EncodedTokens = number[] | Uint32Array | Int32Array;
@@ -270,6 +271,20 @@ export class ChatTokenizer {
     
 }
 
+export function getModelPresetChatTokenizerConfig(preset: ModelPreset | undefined): {
+    chatAdditionalTokens: number;
+    useName: 'name' | 'noName';
+    tokenizer: RegistryTokenizer;
+} {
+    const format = getModelPresetMetadata(preset).format
+    const openAIStyle = format === 'openai-compatible' || format === 'openai-responses'
+    return {
+        chatAdditionalTokens: openAIStyle ? 5 : 3,
+        useName: openAIStyle ? 'noName' : 'name',
+        tokenizer: getModelPresetTokenizer(preset),
+    }
+}
+
 export async function tokenizeNum(data:string) {
     const encoded = await encode(data)
     return encoded
@@ -365,8 +380,6 @@ export async function getCharToken(char?:character|null){
     }
 
     persistant += await basicTokenize(char.desc)
-    persistant += await basicTokenize(char.personality ?? '')
-    persistant += await basicTokenize(char.scenario ?? '')
     for(const lore of char.globalLore){
         let cont = lore.content.split('\n').filter((line) => {
             if(line.startsWith('@@')){
@@ -384,18 +397,11 @@ export async function getCharToken(char?:character|null){
 }
 
 export async function getChatToken(chat:Chat) {
-    let persistant = 0
-
-    const chatTokenizer = new ChatTokenizer(0, 'name')
-    const chatf = chat.message.map((d) => {
-        return {
-            role: d.role === 'user' ? 'user' : 'assistant',
-            content: d.data,
-        } as OpenAIChat
-    })
-    for(const chat of chatf){
-        persistant += await chatTokenizer.tokenizeChat(chat)
-    }
-
-    return persistant
+    const preset = getGenerationModelPreset('model')
+    const config = getModelPresetChatTokenizerConfig(preset)
+    return getRecentChatToken(
+        chat,
+        chat.message.length,
+        new ChatTokenizer(config.chatAdditionalTokens, config.useName, config.tokenizer),
+    )
 }

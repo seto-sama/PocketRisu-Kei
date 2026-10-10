@@ -200,7 +200,6 @@ import { mount, tick, unmount } from 'svelte'
 import { createClassComponent } from 'svelte/legacy'
 import Chat from './Chat.svelte'
 import Chats from './Chats.svelte'
-import ChatsTestHarness from './Chats.test-harness.svelte'
 import { clearChatBodyRenderCache } from './chatBodyRenderCache'
 import { DBState } from 'src/ts/stores.svelte'
 import type { character, Message } from 'src/ts/storage/database.svelte'
@@ -258,6 +257,7 @@ async function waitForParserCalls(expected: number) {
     while (parserMocks.ParseMarkdown.mock.calls.length < expected && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 20))
     }
+    expect(parserMocks.ParseMarkdown.mock.calls.length).toBeGreaterThanOrEqual(expected)
 }
 
 async function waitForTranslationButtonState(target: HTMLElement, active: boolean) {
@@ -278,6 +278,36 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
 }
 
 describe('Chat editing', () => {
+    it('shows request information only when the setting is enabled', async () => {
+        const renderChat = (requestInfoInsideChat: boolean) => {
+            DBState.db.requestInfoInsideChat = requestInfoInsideChat
+            const target = document.createElement('div')
+            document.body.appendChild(target)
+            const component = mount(Chat, {
+                target,
+                props: {
+                    message: 'AI response',
+                    name: 'Character',
+                    role: 'char',
+                    idx: -1,
+                    firstMessage: true,
+                    messageGenerationInfo: { model: 'test-model' },
+                    totalLength: 1,
+                },
+            })
+            mountedComponents.push(component)
+            return target
+        }
+
+        const disabledTarget = renderChat(false)
+        await tick()
+        expect(disabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).toBeNull()
+
+        const enabledTarget = renderChat(true)
+        await tick()
+        expect(enabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).not.toBeNull()
+    })
+
     it('keeps user translation toggles while retaining cached room restores', async () => {
         DBState.db.translator = 'google'
         DBState.db.translatorType = 'google'
@@ -404,11 +434,6 @@ describe('Chat editing', () => {
         const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
         expect(editor).not.toBeNull()
         expect(editor?.value).toBe('User message')
-        const editorField = editor?.closest('.risu-field-border')
-        expect(editorField?.classList.contains('risu-local-stack')).toBe(true)
-        expect(editorField?.classList.contains('risu-local-stack-focus')).toBe(true)
-        expect(editorField?.classList.contains('z-20')).toBe(false)
-        expect(editorField?.classList.contains('focus-within:z-40')).toBe(false)
         editor!.value = 'Edited user message'
         editor!.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
@@ -436,17 +461,23 @@ describe('Chat editing', () => {
         currentCharacter.chats = [{ id: 'chat-1', message: messages } as any]
         DBState.db.characters[0] = currentCharacter
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
         })
-        await waitForParserCalls(3)
+        mountedComponents.push(component)
+        await waitForParserCalls(2)
 
         const rendered = target.querySelectorAll('.chat-message-container')
         expect(rendered[0].querySelector<HTMLButtonElement>('.button-icon-edit')?.disabled).toBe(false)
@@ -461,7 +492,6 @@ describe('Chat editing', () => {
                 .toBe('previous')
         })
 
-        component.$destroy()
     })
 
     it('allows rerolling a historical image without enabling historical text swipes', async () => {
@@ -489,15 +519,20 @@ describe('Chat editing', () => {
         DBState.db.showPreviousChatSwipeButtons = false
         const onReroll = vi.fn()
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
                 onReroll,
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
             },
         })
+        mountedComponents.push(component)
         await waitForParserCalls(4)
 
         const rendered = target.querySelectorAll('.chat-message-container')
@@ -508,7 +543,6 @@ describe('Chat editing', () => {
         imageRerollButtons[imageRerollButtons.length - 1].click()
         await vi.waitFor(() => expect(onReroll).toHaveBeenCalledWith(0))
 
-        component.$destroy()
     })
 
     it('locks the historical image that is currently rerolling', async () => {
@@ -533,15 +567,21 @@ describe('Chat editing', () => {
         currentCharacter.chats = [{ id: 'chat-1', message: messages } as any]
         DBState.db.characters[0] = currentCharacter
 
-        const component = createClassComponent({
-            component: ChatsTestHarness,
+        const component = mount(Chats, {
             target,
             props: {
                 messages,
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 imageRerollingMessageId: 'image-message',
             },
         })
+        mountedComponents.push(component)
         await waitForParserCalls(3)
 
         const rendered = target.querySelectorAll('.chat-message-container')
@@ -552,7 +592,6 @@ describe('Chat editing', () => {
             .querySelector<HTMLButtonElement>('.button-icon-reroll')
             ?.closest('fieldset')?.disabled).toBe(false)
 
-        component.$destroy()
     })
 
     it('keeps another message editable while an LLM translation is pending', async () => {
@@ -738,11 +777,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [streamingMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -1658,17 +1703,9 @@ describe('Chat editing', () => {
         await tick()
 
         const floatingToolbar = target.querySelector('.chat-toolbar-sticky-layer')
-        const floatingCard = floatingToolbar?.querySelector('.chat-toolbar-floating-card')
         expect(floatingToolbar).not.toBeNull()
         expect(floatingToolbar?.querySelector('.chat-generation-info')).not.toBeNull()
         expect(floatingToolbar?.querySelector('.chat-message-actions')).not.toBeNull()
-        expect(floatingCard?.firstElementChild?.classList.contains('chat-toolbar-actions')).toBe(true)
-        expect(floatingCard?.lastElementChild?.classList.contains('chat-toolbar-generation-info')).toBe(true)
-        if (theme === 'waifu') {
-            expect(floatingCard?.getAttribute('style')).toContain('#34567880')
-        } else {
-            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-lightbg)')
-        }
     })
 
     it('keeps the floating toolbar to one row when model and translation details are absent', async () => {
@@ -1792,9 +1829,7 @@ describe('Chat editing', () => {
         expect(stickyFooter).not.toBeNull()
         expect(stickyFooter?.querySelector('.chat-generation-info')).not.toBeNull()
         expect(stickyFooter?.querySelector('.chat-message-actions')).not.toBeNull()
-        expect(stickyFooter?.classList.contains('chat-toolbar-floating-card')).toBe(false)
-        const stickyFooterLayer = target.querySelector('.chat-message-body')?.nextElementSibling
-        expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
+        const stickyFooterLayer = target.querySelector('.chat-toolbar-sticky-footer-layer')
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
     })
 
@@ -1902,45 +1937,6 @@ describe('Chat editing', () => {
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(60)
     })
 
-    it('renders auto-translated history without an intermediate original parse', async () => {
-        DBState.db.autoTranslate = true
-        DBState.db.translatorType = 'llm'
-        const messages: Message[] = Array.from({ length: 60 }, (_, index) => ({
-            role: index % 2 === 0 ? 'user' : 'char',
-            data: `Translated message ${index}`,
-            chatId: `translated-message-${index}`,
-        }))
-        const currentCharacter = {
-            ...DBState.db.characters[0],
-            image: 'character.png',
-            largePortrait: false,
-            chats: [{ id: 'chat-1', message: messages }],
-        } as unknown as character
-        DBState.db.characters[0] = currentCharacter
-
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(Chats, {
-            target,
-            props: {
-                messages,
-                currentCharacter,
-                chatRoomId: 'chat-1',
-                onReroll: () => {},
-                unReroll: () => {},
-                currentUsername: 'User',
-                userIcon: 'user.png',
-                loadPages: 30,
-            },
-        })
-        mountedComponents.push(component)
-        await tick()
-        await waitForParserCalls(30)
-
-        expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
-        expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
-    })
-
     it('keeps stable streaming blocks mounted and performs a full final parse', async () => {
         DBState.db.useStreaming = true
         const initialMessage: Message = {
@@ -1960,11 +1956,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [initialMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -2030,11 +2032,17 @@ describe('Chat editing', () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = createClassComponent({
-            component: ChatsTestHarness,
+            component: Chats,
             target,
             props: {
                 messages: [initialMessage],
                 currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 30,
                 roomIsStreaming: true,
                 roomIsResponding: true,
             },
@@ -2053,67 +2061,4 @@ describe('Chat editing', () => {
         component.$destroy()
     })
 
-    it('publishes a new-message notification after a fast Echo response completes', async () => {
-        DBState.db.autoScrollToNewMessage = false
-        DBState.db.newMessageButtonStyle = 'bottom-center'
-        const userMessage: Message = {
-            role: 'user',
-            data: 'User message',
-            chatId: 'user-1',
-        }
-        const currentCharacter = {
-            ...DBState.db.characters[0],
-            chaId: 'character-1',
-            image: 'character.png',
-            largePortrait: false,
-            chats: [{ id: 'chat-1', message: [userMessage] }],
-        } as unknown as character
-        DBState.db.characters[0] = currentCharacter
-
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = createClassComponent({
-            component: ChatsTestHarness,
-            target,
-            props: {
-                messages: [userMessage],
-                currentCharacter,
-                roomIsStreaming: false,
-                roomIsResponding: false,
-            },
-        })
-        const scrollHost = target.querySelector<HTMLElement>('.chat-test-scroll-host')!
-        Object.defineProperties(scrollHost, {
-            scrollHeight: { configurable: true, value: 1000 },
-            clientHeight: { configurable: true, value: 200 },
-        })
-        scrollHost.scrollTop = 100
-
-        const echoPlaceholder: Message = {
-            role: 'char',
-            data: '',
-            chatId: 'echo-1',
-        }
-        component.$set({
-            messages: [userMessage, echoPlaceholder],
-            roomIsStreaming: true,
-            roomIsResponding: true,
-        })
-        await tick()
-        component.$set({
-            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
-            roomIsStreaming: false,
-            roomIsResponding: true,
-        })
-        await tick()
-        component.$set({
-            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
-            roomIsStreaming: false,
-            roomIsResponding: false,
-        })
-        await tick()
-
-        expect(target.querySelector('[data-new-message-state]')?.textContent).toBe('unread')
-        component.$destroy()
-    })
 })

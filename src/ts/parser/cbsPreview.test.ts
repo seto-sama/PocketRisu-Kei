@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { applyCBSPreviewValues, extractCBSPreviewExpressions, extractCBSPreviewReferences } from './cbsPreview'
+import { applyCBSPreviewValues, extractCBSPreviewReferences } from './cbsPreview'
 
 describe('CBS preview helpers', () => {
-    it('collects unique leaf value expressions', () => {
-        expect(extractCBSPreviewExpressions('{{char}} {{getvar::mood}} {{char}} <user>')).toEqual([
-            '{{char}}',
-            '{{user}}',
+    it('collects unique editable values and skips control and mutation expressions', () => {
+        expect(extractCBSPreviewReferences(
+            '{{char}} {{getvar::mood}} {{char}} {{#if condition}}{{setvar::mood::happy}}<user>{{/if}}',
+        )).toEqual([
+            { kind: 'expression', expression: '{{char}}' },
+            { kind: 'expression', expression: '{{user}}' },
+            { kind: 'chat', key: 'mood' },
         ])
-    })
-
-    it('skips block controls and variable mutations', () => {
-        expect(extractCBSPreviewExpressions(
-            '{{#if condition}}{{setvar::mood::happy}}{{user}}{{/if}}',
-        )).toEqual(['{{user}}'])
     })
 
     it('collects only the leaf expression from nested CBS', () => {
@@ -59,7 +56,7 @@ describe('CBS preview helpers', () => {
         ])
     })
 
-    it('applies temporary values without changing the source map', () => {
+    it('applies temporary preview overrides', () => {
         expect(applyCBSPreviewValues('{{user}} feels {{getvar::mood}}', [
             { expression: '{{user}}', value: 'Alice' },
             { expression: '{{getvar::mood}}', value: 'happy' },

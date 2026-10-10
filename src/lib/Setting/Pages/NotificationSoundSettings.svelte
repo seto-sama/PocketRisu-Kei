@@ -32,7 +32,7 @@
 
 {#snippet content()}
     <SettingLayout variant="section" title={language.groupNotification} first>
-        <div class="divide-y divide-darkborderc">
+        <div class="[&>*:first-child]:border-t-0">
             <NotificationToggle />
             <SoundSetting
                 label={language.groupMessageNotification}

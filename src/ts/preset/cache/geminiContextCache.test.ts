@@ -34,7 +34,7 @@ import {
 } from './geminiCacheWiring'
 import type { AdapterCacheContext } from '../adapter/types'
 
-const STORAGE_KEY = 'nodeOnlyGeminiCacheState'
+const STORAGE_KEY = 'pocketRisuGeminiCacheState'
 const NOW = 1_750_000_000_000
 
 function makeContents(count: number): unknown[] {

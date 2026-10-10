@@ -12,30 +12,26 @@
         className?:string
     } = $props()
 
-    const iconPurify = (icon:string) => {
-        
-        return DOMPurify.sanitize(icon, {
-            FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
-            FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'style', 'class']
-        });
-    }
+    const allowedIconProtocols = ['http:', 'https:', 'data:', 'blob:'];
 
-    const isSafeSchema = (url:string) => {
+    const sanitizeIconHtml = (icon:string) => DOMPurify.sanitize(icon, {
+        FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
+        FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'style', 'class']
+    });
+
+    const getSafeIconUrl = (url:string) => {
         try {
-            const parsedUrl = new URL(url);
-            const allowedProtocols = ['http:', 'https:', 'data:', 'blob:'];
-            if (allowedProtocols.includes(parsedUrl.protocol)) {
-                return url;
-            } else {
+            const parsedUrl = new URL(url, document.baseURI);
+            if (!allowedIconProtocols.includes(parsedUrl.protocol)) {
                 console.warn(`Blocked URL with unsafe protocol: ${parsedUrl.protocol}`);
                 return '';
             }
-        } catch (e) {
+            return url;
+        } catch {
             console.warn(`Invalid URL: ${url}`);
             return '';
         }
     }
-
 </script>
 
 <div
@@ -43,9 +39,9 @@
     style="width: var(--icon-size, 20px); height: var(--icon-size, 20px);"
 >
     {#if ico.iconType === 'html'}
-        {@html iconPurify(ico.icon)}
+        {@html sanitizeIconHtml(ico.icon)}
     {:else if ico.iconType === 'img'}
-        <img src={isSafeSchema(ico.icon)} alt="icon" />
+        <img src={getSafeIconUrl(ico.icon)} alt="icon" />
     {/if}
 </div>
 

@@ -123,9 +123,7 @@
         </div>
         <ModelPresetList compact warnIfEmpty bind:value={defaultBinding.sub} />
     </div>
-    <div class="border-t border-darkborderc">
-        <SettingRenderer items={separateAuxItems} target={defaultBinding} layout="row" />
-    </div>
+    <SettingRenderer items={separateAuxItems} target={defaultBinding} layout="row" hideFirstDivider={false} />
     {#if defaultBinding.separateAux}
         {#each [
             { label: language.axModelMemory, key: 'memory' as const },

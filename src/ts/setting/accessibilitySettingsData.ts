@@ -59,14 +59,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['partial', 'edit', 'block', 'hover']
     },
     {
-        id: 'acc.longPressToPopupEditor',
-        type: 'check',
-        labelKey: 'longPressToPopupEditor',
-        bindKey: 'longPressToPopupEditor',
-        helpKey: 'longPressToPopupEditor',
-        keywords: ['long', 'press', 'popup', 'editor']
-    },
-    {
         id: 'acc.showInputActionBar',
         type: 'check',
         labelKey: 'showInputActionBar',
@@ -192,11 +184,11 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['left', 'bar', 'collapse', 'toggle', 'mobile', 'sidebar', 'hide'],
     },
     {
-        id: 'acc.nodeOnlyScrollButtonType',
+        id: 'acc.scrollButtonType',
         type: 'select',
-        labelKey: 'nodeOnlyScrollButtonType',
-        bindKey: 'nodeOnlyScrollButtonType',
-        helpKey: 'nodeOnlyScrollButtonType',
+        labelKey: 'scrollButtonType',
+        bindKey: 'scrollButtonType',
+        helpKey: 'scrollButtonType',
         options: {
             selectOptions: [
                 { value: 'four', labelKey: 'scrollButtonTypeFour' },
@@ -237,14 +229,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         bindKey: 'showModuleSidebar',
         helpKey: 'showModuleSidebar',
         keywords: ['sidebar', 'module', 'show', 'select'],
-    },
-    {
-        id: 'acc.disableMobileDragDrop',
-        type: 'check',
-        labelKey: 'disableMobileDragDrop',
-        bindKey: 'disableMobileDragDrop',
-        helpKey: 'disableMobileDragDrop',
-        keywords: ['mobile', 'drag', 'drop', 'character', 'disable'],
     },
     {
         id: 'acc.keepSessionAlive',
@@ -294,14 +278,13 @@ export const accessibilityEditingItems = pick([
     'acc.clickToEdit',
     'acc.enableBlockPartialEdit',
     'acc.enableDragPartialEdit',
-    'acc.longPressToPopupEditor',
     'acc.showInputActionBar',
 ]);
 
 export const accessibilityScrollItems = pick([
     'acc.autoScrollToNewMessage',
     'acc.newMessageButtonStyle',
-    'acc.nodeOnlyScrollButtonType',
+    'acc.scrollButtonType',
     'acc.stickyChatToolbar',
     'acc.fixedChatTextarea',
     'acc.chatLoadInitialPages',
@@ -332,5 +315,4 @@ export const accessibilityOtherItems = pick([
     'acc.createFolderOnBranch',
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
-    'acc.disableMobileDragDrop',
 ]);

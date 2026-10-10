@@ -123,7 +123,6 @@ vi.mock('src/ts/process/files/inlayMeta', () => ({
         createdAt: existing?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
     })),
-    listInlayMetaEntries: vi.fn(async () => [...inlayMetaMap.entries()]),
 }))
 
 vi.mock('uuid', () => ({
@@ -239,15 +238,6 @@ describe('getInlayAsset', () => {
         expect(result!.data).toMatch(/^data:/)
         expect(result!.name).toBe('blob-asset.png')
     })
-
-    test('preserves signature JSON through server storage', async () => {
-        const data = JSON.stringify({ text: '서명' })
-        await setInlayAsset('signature-id', { data, ext: 'json', name: 'signature', type: 'signature' })
-        __resetInlayStorageForTest()
-        expect((await getInlayAsset('signature-id'))!.data).toBe(data)
-        expect(await (await getInlayAssetBlob('signature-id'))!.data.text()).toBe(data)
-    })
-
 })
 
 describe('getInlayAssetBlob', () => {

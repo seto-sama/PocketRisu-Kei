@@ -1,6 +1,7 @@
 'use strict';
 
 const { canExecuteServerProviderAction } = require('./providerActions.cjs');
+const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
 
 const {
     runRevenantOutputStage,
@@ -10,12 +11,19 @@ const {
 } = require('./postprocessPipeline.cjs');
 
 function recipeWithMutations(recipe, ...patches) {
-    const result = structuredClone(recipe);
+    let character = recipe.character;
+    let database = recipe.database;
     for (const patch of patches) {
-        if (patch?.character) Object.assign(result.character, structuredClone(patch.character));
-        if (patch?.database) Object.assign(result.database, structuredClone(patch.database));
+        if (patch?.character) {
+            character = { ...character, ...structuredClone(patch.character) };
+        }
+        if (patch?.database) {
+            database = { ...database, ...structuredClone(patch.database) };
+        }
     }
-    return result;
+    return character === recipe.character && database === recipe.database
+        ? recipe
+        : { ...recipe, character, database };
 }
 
 function createRevenantPostprocessWorker(options) {
@@ -23,6 +31,7 @@ function createRevenantPostprocessWorker(options) {
     const {
         claimGenerationWorkflowStep,
         getGenerationWorkflow,
+        getGenerationWorkflowInputChat,
         finishGenerationWorkflow,
         listReadyChatWorkflowJobs,
         updateGenerationWorkflowStep,
@@ -73,7 +82,7 @@ function createRevenantPostprocessWorker(options) {
         }, Math.max(0, Number(delayMs) || 0));
     }
 
-    function startServerAction(workflow, stepKey, metadata, action, chat) {
+    function startServerAction(workflow, stepKey, metadata, action, chat, recipe) {
         const providerAction = typeof executeProviderAction === 'function'
             && canExecuteServerProviderAction(action);
         if (!providerAction && (action?.kind !== 'image.generate' || typeof executeImageAction !== 'function')) return false;
@@ -83,8 +92,8 @@ function createRevenantPostprocessWorker(options) {
         });
         onWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
         const execution = providerAction
-            ? executeProviderAction({ workflow, action, chat })
-            : executeImageAction({ workflow, action, projection: false });
+            ? executeProviderAction({ workflow, action, chat, recipe })
+            : executeImageAction({ workflow, action });
         void execution
             .then(result => {
                 const latest = getGenerationWorkflow(workflow.workflowId)?.steps
@@ -131,14 +140,23 @@ function createRevenantPostprocessWorker(options) {
             for (const job of listReadyChatWorkflowJobs(20)) {
                 const workflow = getGenerationWorkflow(job.workflowId);
                 if (workflow?.context?.kind !== 'chat-generation') continue;
+                const recipe = resolveRevenantPostprocessRecipe(
+                    workflow.context,
+                    getGenerationWorkflowInputChat(workflow.workflowId),
+                );
+                if (!recipe) {
+                    finishGenerationWorkflow(workflow.workflowId, 'failed');
+                    logger.error(`[Revenant] Invalid postprocess context for ${workflow.workflowId}`);
+                    notifyActionableWorkflowState(workflow.workflowId);
+                    continue;
+                }
                 let outputStep = workflow.steps.find(step => step.key === 'output.transform');
                 if (outputStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')) {
                     try {
-                        const prefix = job.isContinuation ? job.continuationPrefix || '' : '';
                         const result = await runOutputStage({
-                            text: `${prefix}${job.projection.content}`.trim(),
-                            recipe: workflow.context.postprocess,
+                            text: job.projection.content.trim(),
+                            recipe,
                             job,
                             responses: outputStep.metadata?.responses,
                             transformOutput,
@@ -150,6 +168,7 @@ function createRevenantPostprocessWorker(options) {
                                 outputStep.metadata,
                                 result.action,
                                 result.chat,
+                                recipe,
                             )) {
                             outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
                                 ?.find(step => step.key === 'output.transform');
@@ -188,11 +207,12 @@ function createRevenantPostprocessWorker(options) {
                 if (triggerStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) {
                     try {
+                        const triggerRecipe = recipeWithMutations(
+                            recipe,
+                            outputStep.metadata.mutations,
+                        );
                         const result = await runTriggerStage({
-                            recipe: recipeWithMutations(
-                                workflow.context.postprocess,
-                                outputStep.metadata.mutations,
-                            ),
+                            recipe: triggerRecipe,
                             text: outputStep.metadata.text,
                             chat: outputStep.metadata.chat,
                             responses: triggerStep.metadata?.responses,
@@ -204,6 +224,7 @@ function createRevenantPostprocessWorker(options) {
                                 triggerStep.metadata,
                                 result.action,
                                 result.chat,
+                                triggerRecipe,
                             )) {
                             triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
                                 ?.find(step => step.key === 'trigger.output');
@@ -246,10 +267,10 @@ function createRevenantPostprocessWorker(options) {
                 if (igpStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'igp', 'pending')) {
                     const rawPrompt = String(
-                        workflow.context.postprocess.database?.igpPrompt || '',
+                        recipe.database?.igpPrompt || '',
                     ).trim();
                     const effectiveRecipe = recipeWithMutations(
-                        workflow.context.postprocess,
+                        recipe,
                         outputStep.metadata.mutations,
                         triggerStep.metadata.mutations,
                     );
@@ -292,7 +313,14 @@ function createRevenantPostprocessWorker(options) {
                                     },
                                 },
                             };
-                            if (!startServerAction(workflow, 'igp', metadata, metadata.action, currentChat)) {
+                            if (!startServerAction(
+                                workflow,
+                                'igp',
+                                metadata,
+                                metadata.action,
+                                currentChat,
+                                effectiveRecipe,
+                            )) {
                                 updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
                                     status: 'waiting_client', metadata,
                                 });
@@ -337,35 +365,35 @@ function createRevenantPostprocessWorker(options) {
                     .reverse()
                     .find(message => message?.role === 'char');
                 if (
-                    workflow.context.postprocess.character?.inlayViewScreen
+                    recipe.character?.inlayViewScreen
                     && finalMessage?.data
                 ) {
                     foregroundEffects.push({ kind: 'inlay.screen' });
                 }
                 const explicitEmotion = foregroundEffects.some(effect => effect?.kind === 'emotion');
-                const emotionProvider = workflow.context.postprocess.auxProviders?.emotion;
+                const emotionProvider = recipe.auxProviders?.emotion;
                 if (
-                    !workflow.context.postprocess.character?.inlayViewScreen
-                    && workflow.context.postprocess.character?.viewScreen === 'emotion'
+                    !recipe.character?.inlayViewScreen
+                    && recipe.character?.viewScreen === 'emotion'
                     && !explicitEmotion
                     && finalMessage?.data
-                    && (workflow.context.postprocess.database?.emotionProcesser === 'embedding'
+                    && (recipe.database?.emotionProcesser === 'embedding'
                         || emotionProvider)
                 ) {
                     foregroundEffects.push({
                         kind: 'emotion.auto',
                         text: finalMessage.data,
-                        processor: workflow.context.postprocess.database?.emotionProcesser || 'submodel',
-                        prompt: workflow.context.postprocess.database?.emotionPrompt2 || '',
+                        processor: recipe.database?.emotionProcesser || 'submodel',
+                        prompt: recipe.database?.emotionPrompt2 || '',
                         ...(emotionProvider ? { provider: emotionProvider } : {}),
                     });
                 }
-                if (workflow.context.postprocess.database?.notification && finalMessage?.data) {
+                if (recipe.database?.notification && finalMessage?.data) {
                     foregroundEffects.push({ kind: 'notification', text: finalMessage.data });
                 }
                 if (
-                    workflow.context.postprocess.database?.ttsEnabled
-                    && workflow.context.postprocess.database?.ttsAutoSpeech
+                    recipe.database?.ttsEnabled
+                    && recipe.database?.ttsAutoSpeech
                     && finalMessage?.data
                 ) {
                     foregroundEffects.push({ kind: 'tts', text: finalMessage.data });

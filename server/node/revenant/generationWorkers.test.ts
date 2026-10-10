@@ -21,8 +21,8 @@ function baseOptions(repository: Record<string, unknown>) {
         },
         logger: { error: vi.fn() },
         generationRuntimeJobs: new Map(),
-        maxActiveJobs: 4,
-        countActiveGenerationJobs: () => 0,
+        capacity: { maxActiveWorkflows: 2, maxActiveProviderJobs: 4 },
+        countActiveProviderJobs: () => 0,
         createGenerationRuntimeJob: vi.fn(),
         runGenerationProviderJob: vi.fn(),
         markGenerationJobDone: vi.fn(),
@@ -36,8 +36,12 @@ describe('generation workers', () => {
         const workflow = { workflowId: 'workflow-1', characterId: 'char-1', roomId: 'room-1', status: 'active' }
         const execution: any = { workflowId: workflow.workflowId, kind: 'hypav3-selection', status: 'queued', recipe: {
             embedding: { model: 'voyageContext3' }, batchId: 'batch-1', expectedOperationIds: ['one', 'two'], memory: { summaries: [] },
-            summaryProvider: {}, summaryDispatch: { maxConcurrent: 1, requestsPerMinute: 20 },
-            summaryRequests: ['one', 'two'].map(operationId => ({ operationId, purpose: 'memory', chatMemos: [operationId], prompt: [] })),
+            summaryProvider: {}, summaryDispatch: { maxConcurrent: 1 },
+            summaryRequests: ['one', 'two'].map(operationId => ({
+                operationId, purpose: 'memory',
+                chatMemos: operationId === 'one' ? [null, operationId] : [operationId],
+                prompt: [],
+            })),
         } }
         const main: any = { jobId: 'main', workflowId: workflow.workflowId, workflowStepKey: 'model.main', status: 'queued' }
         const jobs: any[] = []
@@ -71,8 +75,8 @@ describe('generation workers', () => {
                 finishGenerationWorkflowExecution: (_id: string, status: string, result: any) => Object.assign(execution, { status, result }),
                 updateGenerationWorkflowStep: vi.fn(),
                 listQueuedGenerationDispatches: () => main.status === 'queued'
-                    ? [{ job: main, requestSpec, dispatchGroup: 'main', maxConcurrent: 1, requestsPerMinute: 1000 }] : [],
-                getGenerationDispatchState: () => ({ active: 0, recent: 0 }),
+                    ? [{ job: main, requestSpec, dispatchGroup: 'main', maxConcurrent: 1 }] : [],
+                getGenerationDispatchState: () => ({ active: 0 }),
                 claimQueuedGenerationDispatch: () => ({ job: main, requestSpec }),
             }),
             executeSummaryAction, selectMemory, runGenerationProviderJob,
@@ -86,6 +90,7 @@ describe('generation workers', () => {
         workers.scheduleHypaWorkflowExecution()
         await vi.advanceTimersByTimeAsync(1)
         expect(executeSummaryAction).toHaveBeenCalledTimes(2)
+        expect(executeSummaryAction.mock.calls[0][0].operationContext.chatMemos).toEqual([null, 'one'])
         expect(runGenerationProviderJob).not.toHaveBeenCalled()
         workers.scheduleHypaWorkflowExecution()
         await vi.advanceTimersByTimeAsync(1)
@@ -102,39 +107,11 @@ describe('generation workers', () => {
             return
         }
         expect(selectMemory).toHaveBeenCalledTimes(1)
+        expect(selectMemory.mock.calls[0][1].map((summary: any) => summary.chatMemos))
+            .toEqual([[null, 'one'], ['two']])
         expect(runGenerationProviderJob).toHaveBeenCalledTimes(1)
         const body = JSON.parse(Buffer.from(runGenerationProviderJob.mock.calls[0][1].body).toString())
         expect(body.messages[0].content).toBe('summary-one\nsummary-two')
-    })
-
-    it('preserves a rate-limit wake delay instead of immediately polling again', async () => {
-        vi.useFakeTimers()
-        vi.setSystemTime(100_000)
-        const listQueuedGenerationDispatches = vi.fn(() => [{
-            job: { jobId: 'job-1' },
-            requestSpec: {},
-            dispatchGroup: 'provider/model',
-            maxConcurrent: 1,
-            requestsPerMinute: 1,
-        }])
-        const workers = createGenerationWorkers(baseOptions({
-            listQueuedGenerationDispatches,
-            getGenerationDispatchState: () => ({
-                active: 0,
-                recent: 1,
-                oldestRecent: 100_000,
-            }),
-        }))
-
-        workers.scheduleGenerationDispatch()
-        await vi.advanceTimersByTimeAsync(0)
-        expect(listQueuedGenerationDispatches).toHaveBeenCalledTimes(1)
-
-        await vi.advanceTimersByTimeAsync(59_999)
-        expect(listQueuedGenerationDispatches).toHaveBeenCalledTimes(1)
-
-        await vi.advanceTimersByTimeAsync(1)
-        expect(listQueuedGenerationDispatches).toHaveBeenCalledTimes(2)
     })
 
     it('aborts server-side embedding selection at the configured generation timeout', async () => {
@@ -154,11 +131,13 @@ describe('generation workers', () => {
                     workflowId: 'workflow-1',
                     recipe: {
                         expectedOperationIds: [],
+                        summaryRequests: [],
                         memory: { summaries: [] },
                         embedding: { model: 'openai3large' },
                     },
                 }],
-                listGenerationWorkflowJobs: () => [],
+                getGenerationWorkflow: () => ({ status: 'active' }),
+                listGenerationWorkflowJobs: () => [{ workflowStepKey: 'model.main', status: 'queued' }],
                 claimGenerationWorkflowExecution: () => true,
                 finishGenerationWorkflowExecution,
                 updateGenerationWorkflowStep: vi.fn(),

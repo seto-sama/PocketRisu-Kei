@@ -1,5 +1,6 @@
 import { forageStorage } from 'src/ts/globalApi.svelte'
 import { getSyncClientId } from 'src/ts/storage/nodeStorage'
+import { apiRequestError } from 'src/ts/network/apiError'
 
 export type BackupNoteKind = 'server' | 'manual'
 
@@ -14,8 +15,8 @@ async function backupNoteRequest(path: string, method: 'PUT' | 'POST', body: obj
         },
         body: JSON.stringify(body),
     })
+    if (!response.ok) throw await apiRequestError(response)
     const json = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`)
     return json
 }
 

@@ -32,7 +32,6 @@ describe('generation workflow step executions', () => {
                 workflowId: 'workflow-1',
                 workflowStepKey: 'model.main',
                 stepExecutionId,
-                isContinuation: false,
             });
             create('job-1', 'execution-1');
             db.finishGenerationJob('job-1', 'generated', 'provider_complete');

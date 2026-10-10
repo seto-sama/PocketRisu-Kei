@@ -61,14 +61,6 @@ function applyGeneratedMessage(chat, recipe, job, text) {
     const result = structuredClone(chat);
     const snapshot = recipe.rerollSnapshot;
     let targetIndex = result.message.findIndex(message => message?.chatId === recipe.messageChatId);
-    if (targetIndex < 0 && recipe.isContinuation) {
-        for (let index = result.message.length - 1; index >= 0; index--) {
-            if (result.message[index]?.role === 'char') {
-                targetIndex = index;
-                break;
-            }
-        }
-    }
 
     if (snapshot) {
         const previousSwipes = Array.isArray(snapshot.targetMessage?.swipes)
@@ -152,32 +144,6 @@ async function runRevenantOutputStage(options) {
     const transformed = await options.transformOutput(text, recipe, chat);
     foregroundEffects.push(...transformed.foregroundEffects);
     errors.push(...transformed.errors);
-    const assetNames = [
-        ...(recipe.character.additionalAssets || []).map(asset => asset?.[0]),
-        ...(recipe.modules || []).flatMap(module => (
-            Array.isArray(module?.assets) ? module.assets.map(asset => asset?.[0]) : []
-        )),
-    ].filter(name => typeof name === 'string' && name.length > 0);
-    if (recipe.database.dynamicAssets && assetNames.length > 0) {
-        const actionId = 'output.dynamic-assets';
-        const response = responses[actionId];
-        if (response === undefined) {
-            return {
-                status: 'waiting_client',
-                action: {
-                    schemaVersion: 1,
-                    actionId,
-                    kind: 'utility.dynamic-assets',
-                    payload: { text: transformed.text, assetNames },
-                },
-                foregroundEffects,
-                errors,
-                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
-            };
-        }
-        if (typeof response === 'string') transformed.text = response;
-        else throw new Error('Dynamic asset resolver returned an invalid response');
-    }
     chat = applyGeneratedMessage(transformed.chat, recipe, options.job, transformed.text);
     return {
         status: 'completed',

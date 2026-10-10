@@ -15,7 +15,7 @@ it('persists provider bytes as a BLOB and preserves them through queue claim', (
             const body = Buffer.from([0, 255, 128, 0xea, 0xb0]);
             repository.createSingleGenerationJob({
                 jobId: 'binary', jobType: 'otherAx', dispatchGroup: 'group',
-                dispatchMaxConcurrent: 1, dispatchRequestsPerMinute: 100,
+                dispatchMaxConcurrent: 1,
                 requestSpec: { targetUrl: 'https://example.test', method: 'POST', body },
             });
             const stored = db.prepare('SELECT typeof(request_spec) AS type FROM generation_jobs WHERE job_id = ?').get('binary');

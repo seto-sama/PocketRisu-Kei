@@ -7,15 +7,15 @@ export function convertInterfaceToSchema(int:string){
     return convertInterfaceToSchemaCore(int, risuChatParser)
 }
 
-export function getOpenAIJSONSchema(schema?:string){
-    const db = getDatabase()
-    return {
-        "name": "format",
-        "strict": db.strictJsonSchema,
-        "schema": convertInterfaceToSchema(schema ?? db.jsonSchema)
-    }
+export function resolveRequestedJSONSchema(
+    explicitSchema: string | undefined,
+    globalEnabled: boolean,
+    globalSchema: string,
+): string | undefined {
+    if (explicitSchema?.trim()) return explicitSchema
+    if (globalEnabled && globalSchema.trim()) return globalSchema
+    return undefined
 }
-
 
 export function getGeneralJSONSchema(schema?:string, excludes:string[] = []){
     const db = getDatabase()

@@ -11,7 +11,8 @@ import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
-import { getInlayAssetBlob, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
+import { getInlayAssetBlob, setInlayAsset, getInlayInfosBatch } from './process/files/inlays'
+import { isInlayMediaType } from '../../shared/inlayTypes.mjs'
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
 import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
@@ -345,7 +346,9 @@ async function importInlays(
         const id = lastDot > 0 ? fileName.substring(0, lastDot) : fileName
         const ext = lastDot > 0 ? fileName.substring(lastDot + 1) : 'png'
 
-        if (existingInfos[id]) {
+        const meta = metaMap[id]
+        const type = meta?.type || 'image'
+        if (existingInfos[id] || !isInlayMediaType(type)) {
             skipped++
             continue
         }
@@ -356,15 +359,13 @@ async function importInlays(
             submsg: String(((importCurrentStep + (processed - skipped) / (manifest.inlays.files.length - skipped || 1)) / importTotalSteps * 100).toFixed(0))
         })
 
-        const meta = metaMap[id]
         const blob = new Blob([new Uint8Array(fileBytes)], { type: `image/${ext}` })
 
         await setInlayAsset(id, {
             ext: meta?.ext || ext,
             name: meta?.name || id,
-            ...(meta?.type === 'signature'
-                ? { type: 'signature' as const, data: new TextDecoder().decode(fileBytes) }
-                : { type: (meta?.type as Exclude<InlayAsset['type'], 'signature'>) || 'image', data: blob }),
+            type,
+            data: blob,
             width: meta?.width,
             height: meta?.height,
         })
@@ -406,7 +407,7 @@ export async function exportCharacterPackage(
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
             if (chat._placeholder && chat.id) {
-                const full = await fetchChatFromServer(char.chaId, i, chat.id)
+                const full = await fetchChatFromServer(char.chaId, i, chat.id, { trackBaseline: false })
                 if (full) {
                     char.chats[i] = full as Chat
                 } else {

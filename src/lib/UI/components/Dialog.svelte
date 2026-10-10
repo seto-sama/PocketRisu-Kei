@@ -9,6 +9,7 @@
     import { Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
+    import { wasLastInteractionKeyboard } from 'src/ts/gui/inputModality';
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
 
     interface Props {
@@ -59,6 +60,7 @@
         ariaLabel,
     }: Props = $props();
     let contentRef = $state<HTMLElement | null>(null);
+    let restoreFocusOnClose = false;
 
     const overlayLayer = provideOverlayLayer(() => open);
     const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
@@ -84,6 +86,7 @@
     }
 
     function handleOpenAutoFocus(event: Event) {
+        restoreFocusOnClose = wasLastInteractionKeyboard(contentRef?.ownerDocument ?? document);
         if (onOpenAutoFocus) {
             onOpenAutoFocus(event);
             return;
@@ -97,6 +100,12 @@
             return true;
         };
         if (!focusFirst()) queueMicrotask(focusFirst);
+    }
+
+    function handleCloseAutoFocus(event: Event) {
+        if (!restoreFocusOnClose) event.preventDefault();
+        onCloseAutoFocus?.(event);
+        restoreFocusOnClose = false;
     }
 
     function handleTabKeydown(event: KeyboardEvent) {
@@ -137,6 +146,15 @@
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
 
+    function requestClose() {
+        if (onRequestClose) {
+            onRequestClose();
+            return;
+        }
+        open = false;
+        onOpenChange?.(false);
+    }
+
     function handleInteractOutside(event: PointerEvent) {
         const target = event.target
         if (target instanceof Element && target.closest('[data-sonner-toaster]')) {
@@ -149,10 +167,9 @@
             event.preventDefault()
             return
         }
-        if (onRequestClose && dismissible) {
-            event.preventDefault()
-            onRequestClose()
-        }
+        if (!dismissible) return
+        event.preventDefault()
+        requestClose()
     }
 
     function handleEscapeKeydown(event: KeyboardEvent) {
@@ -161,9 +178,9 @@
             event.preventDefault()
             return
         }
-        if (!onRequestClose || !dismissible) return
+        if (!dismissible) return
         event.preventDefault()
-        onRequestClose()
+        requestClose()
     }
 </script>
 
@@ -183,7 +200,7 @@
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
             onOpenAutoFocus={handleOpenAutoFocus}
-            {onCloseAutoFocus}
+            onCloseAutoFocus={handleCloseAutoFocus}
         >
             {#if title || description || closable || headerActions}
                 <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
@@ -205,25 +222,15 @@
                         </Dialog.Description>
                     {/if}
                     {#if closable}
-                        {#if onRequestClose}
-                            <button
-                                type="button"
-                                data-risu-dialog-close
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
-                                aria-label="Close"
-                                onclick={onRequestClose}
-                            >
-                                <XIcon size={18} />
-                            </button>
-                        {:else}
-                            <Dialog.Close
-                                data-risu-dialog-close
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
-                                aria-label="Close"
-                            >
-                                <XIcon size={18} />
-                            </Dialog.Close>
-                        {/if}
+                        <button
+                            type="button"
+                            data-risu-dialog-close
+                            class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
+                            aria-label="Close"
+                            onclick={requestClose}
+                        >
+                            <XIcon size={18} />
+                        </button>
                     {/if}
                 </div>
             {/if}

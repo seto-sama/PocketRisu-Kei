@@ -28,12 +28,6 @@
     const activePreset = $derived(DBState.db.translatorPresets?.[DBState.db.translatorPresetId]);
     const activePresetItems = $derived.by((): SettingItem[] => activePreset ? [
         {
-            id: 'translatorPreset.maxResponse', type: 'slider', labelKey: 'translationResponseSize', helpKey: 'translationResponseSize',
-            bindPath: 'maxResponse',
-            onChange: sync,
-            options: { min: 1, max: 64000, step: 1 },
-        },
-        {
             id: 'translatorPreset.prompt', type: 'textarea', labelKey: 'translatorPrompt', helpKey: 'translatorPrompt',
             bindPath: 'prompt',
             onChange: sync,
@@ -115,7 +109,7 @@
 </div>
 
 {#if activePreset}
-    <SettingRenderer items={activePresetItems} target={activePreset} layout="row" />
+    <SettingRenderer items={activePresetItems} target={activePreset} layout="row" hideFirstDivider={false} />
 {/if}
 
 {#if pickerOpen}

@@ -670,9 +670,7 @@
                 </div>
             {/snippet}
         </SettingItemRow>
-        <div class="border-t border-darkborderc">
-            <SettingRenderer items={backupScheduleItems} target={backupScheduleTarget} layout="row" />
-        </div>
+        <SettingRenderer items={backupScheduleItems} target={backupScheduleTarget} layout="row" hideFirstDivider={false} />
     </div>
 
     <!-- Path control -->

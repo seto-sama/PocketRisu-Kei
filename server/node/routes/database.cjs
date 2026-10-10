@@ -4,6 +4,7 @@ const { createDatabaseProjectionService, DatabaseProjectionServiceError } = requ
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../../shared/contentReferences.mjs');
+const { apiErrorMessage, codes } = require('../apiErrors.cjs');
 
 function installDatabaseRoutes(app, {
     appDataStore,
@@ -26,6 +27,7 @@ function installDatabaseRoutes(app, {
         filterRemoteOnlyFolders,
         mergeRemoteFilteredDatabase,
         restoreGenerationOwnedMetadata,
+        findChatInternalFieldOps,
     });
 
     function sendDatabaseProjectionError(res, error) {
@@ -39,6 +41,7 @@ function installDatabaseRoutes(app, {
                 : {}),
             ...(error.currentHash ? { currentHash: error.currentHash } : {}),
             ...(error.hashDiagnostics ? { hashDiagnostics: error.hashDiagnostics } : {}),
+            ...(error.conflicts ? { conflicts: error.conflicts } : {}),
         });
         return true;
     }
@@ -136,12 +139,11 @@ function installDatabaseRoutes(app, {
                         ...projectionOptions,
                     });
                     const error = new DatabaseProjectionServiceError(
-                        'Patch rejected: chat-internal field ops not allowed for lazy-loaded chats',
-                        { code: 'CHAT_GUARD_REJECTED', statusCode: 409 },
+                        apiErrorMessage(codes.CHAT_GUARD_REJECTED),
+                        { code: codes.CHAT_GUARD_REJECTED, statusCode: 409 },
                     );
                     error.currentEtag = current.etag;
                     error.currentRevision = current.revision;
-                    error.chatGuardRejected = true;
                     throw error;
                 }
                 const patched = databaseProjectionService.patchDatabase(req.body, {
@@ -157,15 +159,6 @@ function installDatabaseRoutes(app, {
             });
             res.json(result);
         } catch (error) {
-            if (error?.code === 'CHAT_GUARD_REJECTED') {
-                return res.status(409).json({
-                    error: error.message,
-                    code: error.code,
-                    chatGuardRejected: true,
-                    currentEtag: error.currentEtag,
-                    currentRevision: error.currentRevision,
-                });
-            }
             if (!sendDatabaseProjectionError(res, error)) next(error);
         }
     });

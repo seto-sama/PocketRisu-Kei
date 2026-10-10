@@ -35,6 +35,12 @@
               document.documentElement.style.setProperty(property, value);
             }
           }
+          if (typeof cachedTheme.lightbg === 'string' && CSS.supports('color', cachedTheme.lightbg)) {
+            const themeColor = document.createElement('meta');
+            themeColor.name = 'theme-color';
+            themeColor.content = cachedTheme.lightbg;
+            document.head.append(themeColor);
+          }
         }
       } catch (_) {
         // Storage can be unavailable or contain an obsolete value. In that case
@@ -46,7 +52,7 @@
     <link rel="icon" type="image/png" sizes="256x256" href="/logo_256.png" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
     <link rel="stylesheet" href="/src/styles.css" />
-    <link rel="stylesheet" href="/src/styles/nodeonly-standard.css" />
+    <link rel="stylesheet" href="/src/styles/pocketrisu-standard.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css" integrity="sha384-Pu5+C18nP5dwykLJOhd2U4Xen7rjScHN/qusop27hdd2drI+lL5KvX7YntvT8yew" crossorigin="anonymous">
     <meta name="description" content="PocketRisu Kei — a nightly self-hosted AI roleplay chat frontend.">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

@@ -1,135 +1,13 @@
 'use strict';
 
 const { encoding_for_model, get_encoding } = require('@dqbd/tiktoken');
-const path = require('path');
-const fs = require('fs');
-const { db, saveDir } = require('./requestLogDb.cjs');
+const { requestDb: db } = require('./logDatabases.cjs');
+const { extractRequestModel } = require('./requestMetadata.cjs');
 
 const USAGE_LIST_LIMIT = 100;
 
-db.exec(`
-    CREATE TABLE IF NOT EXISTS generation_usage (
-        job_id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        chat_id TEXT,
-        provider TEXT,
-        model TEXT,
-        prompt_tokens INTEGER,
-        completion_tokens INTEGER,
-        total_tokens INTEGER,
-        cached_tokens INTEGER,
-        cache_read_tokens INTEGER,
-        cache_creation_tokens INTEGER,
-        reasoning_tokens INTEGER,
-        service_tier TEXT,
-        gateway_cost REAL,
-        usage_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_generation_usage_timestamp
-        ON generation_usage(timestamp DESC);
-`);
-const usageColumns = new Set(
-    db.prepare(`PRAGMA table_info(generation_usage)`).all().map(column => column.name)
-);
-if (!usageColumns.has('reasoning_tokens')) {
-    db.exec(`ALTER TABLE generation_usage ADD COLUMN reasoning_tokens INTEGER`);
-}
-if (!usageColumns.has('service_tier')) {
-    db.exec(`ALTER TABLE generation_usage ADD COLUMN service_tier TEXT`);
-}
-if (!usageColumns.has('gateway_cost')) {
-    db.exec(`ALTER TABLE generation_usage ADD COLUMN gateway_cost REAL`);
-}
-
-db.exec(`
-    CREATE TABLE IF NOT EXISTS request_log_migrations (
-        key TEXT PRIMARY KEY,
-        completed_at INTEGER NOT NULL
-    )
-`);
-
-const LEGACY_USAGE_MIGRATION_KEY = 'legacy-usage-db-v1';
-
-function migrateLegacyUsageDb() {
-    const migrated = db.prepare(`
-        SELECT 1 FROM request_log_migrations WHERE key = ?
-    `).get(LEGACY_USAGE_MIGRATION_KEY);
-    if (migrated) return;
-
-    const legacyPath = path.join(saveDir, 'usage.db');
-    const markMigrated = db.prepare(`
-        INSERT OR IGNORE INTO request_log_migrations (key, completed_at) VALUES (?, ?)
-    `);
-    if (!fs.existsSync(legacyPath)) {
-        markMigrated.run(LEGACY_USAGE_MIGRATION_KEY, Date.now());
-        return;
-    }
-
-    let attached = false;
-    try {
-        db.prepare(`ATTACH DATABASE ? AS legacy_usage`).run(legacyPath);
-        attached = true;
-        const hasUsageTable = db.prepare(`
-            SELECT 1
-            FROM legacy_usage.sqlite_master
-            WHERE type = 'table' AND name = 'generation_usage'
-        `).get();
-        if (!hasUsageTable) {
-            markMigrated.run(LEGACY_USAGE_MIGRATION_KEY, Date.now());
-            return;
-        }
-
-        const legacyColumns = new Set(
-            db.prepare(`PRAGMA legacy_usage.table_info(generation_usage)`)
-                .all()
-                .map(column => column.name)
-        );
-        const source = (column, fallback = 'NULL') => legacyColumns.has(column)
-            ? column
-            : fallback;
-        const migrate = db.transaction(() => {
-            db.exec(`
-                INSERT OR IGNORE INTO generation_usage (
-                    job_id, timestamp, chat_id, provider, model,
-                    prompt_tokens, completion_tokens, total_tokens,
-                    cached_tokens, cache_read_tokens, cache_creation_tokens,
-                    reasoning_tokens, service_tier, gateway_cost, usage_json
-                )
-                SELECT
-                    ${source('job_id', "''")},
-                    ${source('timestamp', '0')},
-                    ${source('chat_id')},
-                    ${source('provider')},
-                    ${source('model')},
-                    ${source('prompt_tokens')},
-                    ${source('completion_tokens')},
-                    ${source('total_tokens')},
-                    ${source('cached_tokens')},
-                    ${source('cache_read_tokens')},
-                    ${source('cache_creation_tokens')},
-                    ${source('reasoning_tokens')},
-                    ${source('service_tier')},
-                    ${source('gateway_cost')},
-                    ${source('usage_json', "'[]'")}
-                FROM legacy_usage.generation_usage
-                WHERE ${source('job_id', "''")} <> ''
-            `);
-            markMigrated.run(LEGACY_USAGE_MIGRATION_KEY, Date.now());
-        });
-        migrate();
-    } catch (error) {
-        console.warn('[Usage] Failed to migrate legacy usage.db:', error);
-    } finally {
-        if (attached) {
-            try { db.exec(`DETACH DATABASE legacy_usage`); } catch {}
-        }
-    }
-}
-
-migrateLegacyUsageDb();
-
 const stmtUpsert = db.prepare(`
-    INSERT INTO generation_usage (
+    INSERT INTO usage (
         job_id, timestamp, chat_id, provider, model,
         prompt_tokens, completion_tokens, total_tokens,
         cached_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens,
@@ -177,7 +55,7 @@ const stmtList = db.prepare(`
         cache_creation_tokens AS cacheCreationTokens,
         reasoning_tokens AS reasoningTokens,
         service_tier AS serviceTier, gateway_cost AS gatewayCost
-    FROM generation_usage
+    FROM usage
     WHERE timestamp >= ? AND timestamp <= ?
         AND ${usageValuePredicate()}
     ORDER BY timestamp DESC, rowid DESC
@@ -196,8 +74,8 @@ const stmtListBefore = db.prepare(`
         current.reasoning_tokens AS reasoningTokens,
         current.service_tier AS serviceTier,
         current.gateway_cost AS gatewayCost
-    FROM generation_usage AS current
-    JOIN generation_usage AS boundary ON boundary.job_id = ?
+    FROM usage AS current
+    JOIN usage AS boundary ON boundary.job_id = ?
     WHERE current.timestamp >= ? AND current.timestamp <= ?
         AND ${usageValuePredicate('current.')}
         AND (
@@ -209,7 +87,7 @@ const stmtListBefore = db.prepare(`
 `);
 const stmtCountRange = db.prepare(`
     SELECT COUNT(*) AS total
-    FROM generation_usage
+    FROM usage
     WHERE timestamp >= ? AND timestamp <= ?
         AND ${usageValuePredicate()}
 `);
@@ -225,7 +103,7 @@ const stmtSummaryRange = db.prepare(`
         reasoning_tokens AS reasoningTokens,
         service_tier AS serviceTier,
         gateway_cost AS gatewayCost
-    FROM generation_usage
+    FROM usage
     WHERE timestamp >= ? AND timestamp <= ?
         AND ${usageValuePredicate()}
     ORDER BY timestamp ASC, rowid ASC
@@ -240,11 +118,11 @@ const stmtTotals = db.prepare(`
         COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens,
         COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
         COALESCE(SUM(reasoning_tokens), 0) AS reasoningTokens
-    FROM generation_usage
+    FROM usage
     WHERE ${usageValuePredicate()}
 `);
-const stmtClear = db.prepare(`DELETE FROM generation_usage`);
-const stmtDelete = db.prepare(`DELETE FROM generation_usage WHERE job_id = ?`);
+const stmtClear = db.prepare(`DELETE FROM usage`);
+const stmtDelete = db.prepare(`DELETE FROM usage WHERE job_id = ?`);
 const fallbackOpenAIEncoding = get_encoding('o200k_base');
 
 function getUsageByJobIds(jobIds) {
@@ -260,7 +138,7 @@ function getUsageByJobIds(jobIds) {
             job_id AS jobId, provider, model,
             prompt_tokens AS promptTokens,
             completion_tokens AS completionTokens
-        FROM generation_usage
+        FROM usage
         WHERE job_id IN (${placeholders})
     `).all(...ids);
 }
@@ -393,21 +271,6 @@ function inferProvider(targetUrl) {
     }
 }
 
-function extractModel(body, targetUrl) {
-    try {
-        const parsed = JSON.parse(Buffer.from(body || '').toString('utf-8'));
-        if (typeof parsed?.model === 'string') return parsed.model.slice(0, 256);
-    } catch {
-        // Some providers, notably Gemini, carry the model in the URL.
-    }
-    try {
-        const match = new URL(targetUrl).pathname.match(/\/models\/([^:/?]+)/);
-        return match?.[1] ? decodeURIComponent(match[1]).slice(0, 256) : null;
-    } catch {
-        return null;
-    }
-}
-
 function extractServiceTier(body) {
     try {
         const parsed = JSON.parse(Buffer.from(body || '').toString('utf-8'));
@@ -420,7 +283,7 @@ function extractServiceTier(body) {
 function recordGenerationUsage(arg) {
     try {
         const provider = arg.usageProviderId || inferProvider(arg.targetUrl);
-        const model = arg.usageModelId || extractModel(arg.body, arg.targetUrl);
+        const model = arg.usageModelId || extractRequestModel(arg.body, arg.targetUrl);
         const usage = extractUsage(arg.rawResponse) ?? { rawUsage: [] };
         if (usage.completionTokens === undefined
             && usage.promptTokens !== undefined

@@ -7,7 +7,6 @@ function recipe(): RevenantPostprocessRecipe {
     return {
         schemaVersion: 1,
         messageChatId: 'message-2',
-        isContinuation: false,
         providerBackend: 'http',
         modelPreset: {},
         character: {
@@ -36,8 +35,6 @@ function recipe(): RevenantPostprocessRecipe {
             personaPrompt: '',
             selectedPersona: 0,
             personas: [],
-            dynamicAssets: false,
-            dynamicAssetsEditDisplay: false,
             igpPrompt: '',
             notification: false,
             ttsEnabled: false,

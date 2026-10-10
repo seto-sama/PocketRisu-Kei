@@ -71,7 +71,7 @@
             <div class="text-maintext text-sm">{language.storageOrphanAutoClean}</div>
             <div class="text-subtext text-xs leading-relaxed">{language.storageOrphanAutoCleanDesc}</div>
         </div>
-        <Switch bind:checked={DBState.db.nodeOnlyAutoCleanAssets} />
+        <Switch bind:checked={DBState.db.autoCleanAssets} />
     </div>
 
     <div class="flex justify-end">

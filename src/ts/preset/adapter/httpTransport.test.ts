@@ -56,6 +56,29 @@ describe('adapter HTTP transport', () => {
         })
     })
 
+    test('retries an explicit OpenAI-compatible rate-limit code', async () => {
+        const fetchImpl: typeof fetch = async () => new Response(
+            JSON.stringify({
+                error: {
+                    message: 'Request rejected.',
+                    code: 'rate_limit_exceeded',
+                },
+            }),
+            { status: 429 },
+        )
+
+        await expect(sendPreparedJsonRequest(
+            prepared,
+            { fetchImpl },
+            'invalid JSON',
+        )).rejects.toMatchObject({
+            kind: 'rate-limit',
+            status: 429,
+            retryable: true,
+            fallbackEligible: false,
+        })
+    })
+
     test('wraps response JSON parse failures with the adapter label', async () => {
         const fetchImpl: typeof fetch = async () => new Response('not-json', { status: 200 })
 

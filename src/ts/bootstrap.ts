@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
-import { fetchPublicStats } from "./publicStats";
+import { syncPublicStatsVisibility } from "./publicStats";
 import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
@@ -176,15 +176,6 @@ export async function loadData() {
             try {
                 await loadPlugins()
             } catch (error) { }
-            try {
-                //@ts-expect-error navigator.standalone is iOS Safari non-standard property, not in Navigator interface
-                const isInStandaloneMode = (window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone) || document.referrer.includes('android-app://');
-                if (isInStandaloneMode) {
-                    await navigator.storage.persist()
-                }
-            } catch (error) {
-
-            }
             LoadingStatusState.text = "Checking For Format Update..."
             await checkNewFormat()
 
@@ -243,7 +234,7 @@ export async function loadData() {
                 cleanChunks().catch(console.error)
             }, 5_000)
             checkRisuUpdate()
-            fetchPublicStats()
+            syncPublicStatsVisibility(db.hidePublicStats)
             if (import.meta.env.VITE_RISU_TOS === 'TRUE') {
                 alertTOS().then((a) => {
                     if (a === false) {
@@ -599,7 +590,7 @@ async function checkNewFormat(): Promise<void> {
  */
 async function cleanChunks() {
     const db = getDatabase()
-    if(db.nodeOnlyAutoCleanAssets === true){
+    if(db.autoCleanAssets === true){
         try {
             await purgeOrphanAssets()
         }
