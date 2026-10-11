@@ -1,6 +1,7 @@
 import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginProviderRequestContextKey, pluginV2, type PluginProviderRequestContext, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
 import { getRpcAbortSignalMetadata, SandboxHost, setRpcAbortSignalMetadata } from "./factory";
-import { getDatabase, normalizeChat } from "src/ts/storage/database.svelte";
+import { getDatabase } from "src/ts/storage/database.svelte";
+import { getChatFromIndex, setChatToIndex } from './chatAccess.svelte';
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import DOMPurify from 'dompurify';
@@ -1064,18 +1065,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 DBState.db.characters[charId] = char
             }
         },
-        getChatFromIndex: (characterIndex:number, chatIndex:number) => {
-            const db = DBState.db
-            const charIds = Object.keys(db.characters);
-            const charId = charIds[characterIndex];
-            if(charId){
-                const chats = db.characters[charId].chats;
-                if(chats && chats[chatIndex]){
-                    return $state.snapshot(chats[chatIndex]);
-                }
-            }
-            return null;
-        },
+        getChatFromIndex,
         parseRisuChat: async (text:string, options?:{
             messageIndex?: number
             role?: string
@@ -1119,17 +1109,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
             return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
-        setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
-            const db = DBState.db
-            const charIds = Object.keys(db.characters);
-            const charId = charIds[characterIndex];
-            if(charId){
-                const chats = db.characters[charId].chats;
-                if(chats && chats[chatIndex]){
-                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(chat)
-                }
-            }
-        },
+        setChatToIndex,
         getCurrentCharacterIndex: () => {
             return get(selectedCharID)
         },

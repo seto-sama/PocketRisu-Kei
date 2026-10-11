@@ -1,10 +1,10 @@
 import { Buffer } from 'buffer'
 import { normalizeTrashRetentionDays } from '../trashRetention';
-import { getChatBoundPersona } from '../chatBindingState';
+import { getEnabledModules } from '../process/moduleSelection';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleImportFiles, selectSingleImportFile } from '../util';
+import { checkNullish, decryptBuffer, encryptBuffer, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
@@ -968,55 +968,6 @@ export function newChatModelDefaults(): Pick<Chat, 'modelBinding'> {
     }
 }
 
-// ── Prompt Option State (per-chat toggle sync) ──────────────────────
-
-function parseToggleKeysFromTemplate(template:string){
-    const keys = new Set<string>()
-    for(const rawLine of template.split('\n')){
-        const line = rawLine.trim()
-        if(!line){
-            continue
-        }
-        const parts = line.split('=')
-        const key = parts[0]?.trim()
-        const type = parts[2]?.trim()
-        if(!key || type === 'group' || type === 'groupEnd' || type === 'divider' || type === 'caption'){
-            continue
-        }
-        keys.add(`toggle_${key}`)
-    }
-    return Array.from(keys)
-}
-
-function getEnabledModuleDefinitions(db:Database, char:character, chat:Chat){
-    const persona = getChatBoundPersona(db, chat) ?? db.personas?.[db.selectedPersona]
-    const ids = [
-        ...(db.enabledModules ?? []),
-        ...((persona?.id && db.personaEnabledModules?.[persona.id]) ? db.personaEnabledModules[persona.id] : []),
-        ...(char.modules ?? []),
-        ...(chat.modules ?? []),
-        ...(db.moduleIntergration ? db.moduleIntergration.split(',').map((value) => value.trim()).filter(Boolean) : [])
-    ]
-    const idSet = new Set(ids)
-    const seen = new Set<string>()
-    const modules:RisuModule[] = []
-    for(const module of db.modules ?? []){
-        if(!module){
-            continue
-        }
-        if(!idSet.has(module.id) && !(module.namespace && idSet.has(module.namespace))){
-            continue
-        }
-        if(seen.has(module.id)){
-            continue
-        }
-        seen.add(module.id)
-        modules.push(module)
-    }
-    return modules
-}
-
-
 // ─────────────────────────────────────────────────────────────────────
 // Toggle Preset
 // ─────────────────────────────────────────────────────────────────────
@@ -1027,16 +978,28 @@ export interface TogglePreset {
     promptPresetName?: string        // name of the prompt preset active when saved
 }
 
-export function getToggleKeys(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string[]{
-    const moduleToggleTemplate = getEnabledModuleDefinitions(db, char, chat)
+export function getToggleTemplate(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string{
+    const moduleToggleTemplate = getEnabledModules(db, char, chat)
         .map((module) => module.customModuleToggle ?? '')
         .filter(Boolean)
         .join('\n')
-    return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
+    return `${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}\n${char?.customModuleToggle ?? ''}`
 }
 
-export function snapshotToggleValues(db:Database = getDatabase()):Record<string, string>{
-    const values:Record<string, string> = {}
+function getToggleDefaults(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):Record<string, string>{
+    return Object.fromEntries(parseToggleSyntax(getToggleTemplate(db, char, chat))
+        .filter(toggle => toggle.type === undefined || toggle.type === 'select' || toggle.type === 'text' || toggle.type === 'textarea')
+        .map(toggle => [`toggle_${toggle.key}`, toggle.type === 'text' || toggle.type === 'textarea' ? '' : '0']))
+}
+
+export function initializeToggleValues(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):void{
+    for(const [key, value] of Object.entries(getToggleDefaults(db, char, chat))){
+        db.globalChatVariables[key] ??= value
+    }
+}
+
+function snapshotToggleValues(db:Database):Record<string, string>{
+    const values = getToggleDefaults(db)
     for(const [key, value] of Object.entries(db.globalChatVariables)){
         if(key.startsWith('toggle_') && value !== undefined){
             values[key] = value
@@ -1046,47 +1009,29 @@ export function snapshotToggleValues(db:Database = getDatabase()):Record<string,
 }
 
 export function snapshotCurrentToggleValues(db:Database = getDatabase()):Record<string, string>{
-    const keys = getToggleKeys(db)
-    const values:Record<string, string> = {}
-    for(const key of keys){
-        const value = db.globalChatVariables[key]
-        if(value !== undefined){
-            values[key] = value
-        }
-    }
-    return values
+    return Object.fromEntries(Object.entries(getToggleDefaults(db))
+        .map(([key, value]) => [key, db.globalChatVariables[key] ?? value]))
 }
 
 export function applyToggleValues(values:Record<string, string>, db:Database = getDatabase()):void{
-    const keys = getToggleKeys(db)
-    // Apply current preset's keys (reset if not in saved values)
-    for(const key of keys){
-        const value = values[key]
-        if(value === undefined){
-            delete db.globalChatVariables[key]
-            continue
-        }
-        db.globalChatVariables[key] = value
-    }
-    // Restore orphan toggle values from other presets
-    for(const [key, value] of Object.entries(values)){
-        if(!keys.includes(key)){
-            db.globalChatVariables[key] = value
-        }
-    }
+    Object.assign(db.globalChatVariables, getToggleDefaults(db), values)
 }
 
 export function saveTogglesToChat():void{
-    if(getDatabase().disableToggleBinding) return
+    const db = getDatabase()
+    if(db.disableToggleBinding) return
     const chat = getCurrentChat()
     if(!chat) return
-    chat.savedToggleValues = snapshotToggleValues()
+    const values = snapshotToggleValues(db)
+    Object.assign(db.globalChatVariables, values)
+    chat.savedToggleValues = values
 }
 
 export function loadTogglesFromChat(chat:Chat):void{
-    if(getDatabase().disableToggleBinding) return
-    if(!chat?.savedToggleValues) return
-    applyToggleValues(chat.savedToggleValues)
+    const db = getDatabase()
+    if(db.disableToggleBinding || !chat?.savedToggleValues) return
+    Object.assign(db.globalChatVariables, chat.savedToggleValues)
+    initializeToggleValues(db, getCurrentCharacter(), chat)
 }
 
 // ─────────────────────────────────────────────────────────────────────

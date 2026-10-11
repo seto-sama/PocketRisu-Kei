@@ -14,6 +14,7 @@ import { convertCharacterToModule, convertModuleToCharacter } from "../interchan
 import { exportCharacterCard, importCharacterProcess } from "../characterCards"
 import { readDefaultAvatarImage } from "../avatarImage"
 import { normalizePresetTagFields, type PresetTagFields } from "../preset/tags"
+import { getEnabledModules } from './moduleSelection'
 
 export interface MCPModule{
     url: string
@@ -378,59 +379,8 @@ function getModuleById(id:string){
     return null
 }
 
-function getModuleByIds(ids:string[]){
-    const db = getDatabase()
-    const idSet = new Set(ids)
-    const modules = db.modules.filter(m => 
-        idSet.has(m.id) || (m.namespace && idSet.has(m.namespace))
-    )
-    return deduplicateModuleById(modules)
-}
-
-function deduplicateModuleById(modules:RisuModule[]){
-    const ids = new Set<string>()
-    return modules.filter(module => {
-        if (ids.has(module.id)) return false
-        ids.add(module.id)
-        return true
-    })
-}
-
-let lastModules = ''
-let lastModuleData:RisuModule[] = []
 export function getModules(){
-    const currentChat = getCurrentChat()
-    const character = getCurrentCharacter()
-    const db = getDatabase()
-    const persona = checkPersonaBinded()
-    const activePersona = persona ?? db.personas?.[db.selectedPersona]
-    let ids = db.enabledModules ?? []
-    if(activePersona?.id && db.personaEnabledModules?.[activePersona.id]){
-        ids = ids.concat(db.personaEnabledModules[activePersona.id])
-    }
-    if (currentChat){
-        ids = ids.concat(currentChat.modules ?? [])
-    }
-    if(character && character.modules){
-        ids = ids.concat(character.modules)
-    }
-    if(persona && persona.embeddedModule){
-        ids = ids.concat([persona.embeddedModule?.id])
-    }
-    if(db.moduleIntergration){
-        const intList = db.moduleIntergration.split(',').map((s) => s.trim())
-        ids = ids.concat(intList)
-    }
-    const idsJoined = ids.join('-')
-    if(lastModules === idsJoined){
-        return lastModuleData
-    }
-
-    let modules:RisuModule[] = getModuleByIds(ids)
-    lastModules = idsJoined
-    lastModuleData = modules
-    return modules
-
+    return getEnabledModules(getDatabase(), getCurrentCharacter(), getCurrentChat())
 }
 
 
@@ -494,20 +444,6 @@ export function getModuleRegexScripts() {
         }
     }
     return customscripts
-}
-
-export function getModuleToggles() {
-    const modules = getModules()
-    let costomModuleToggles: string = ''
-    for (const module of modules) {
-        if(!module){
-            continue
-        }
-        if (module.customModuleToggle) {
-            costomModuleToggles += '\n' + module.customModuleToggle + '\n'
-        }
-    }
-    return costomModuleToggles
 }
 
 export function getModuleMcps() {
@@ -577,9 +513,4 @@ export function moduleUpdate(){
     }
     HideIconStore.set(getCurrentCharacter()?.hideChatIcon || moduleHideIcon)
 
-}
-
-export function refreshModules(){
-    lastModules = ''
-    lastModuleData = []
 }

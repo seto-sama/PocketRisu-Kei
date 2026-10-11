@@ -9,11 +9,11 @@
     import Switch from "../../../UI/components/Switch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
-    import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
+    import { exportModule, exportModuleLegacy, importModule, type RisuModule } from "src/ts/process/modules";
+    import { clearCharacterModuleConnections, setGlobalModuleEnabled } from "src/ts/process/moduleSelection";
     import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import Input from "../../../UI/components/Input.svelte";
-    import { onDestroy } from "svelte";
     import { builtInMCPIds, importMCPModule, type BuiltInMCPId } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
@@ -78,11 +78,7 @@
 
     function toggleGlobalModule(event: MouseEvent, moduleId: string) {
         event.stopPropagation()
-        const enabledModules = DBState.db.enabledModules ?? []
-        DBState.db.enabledModules = enabledModules.includes(moduleId)
-            ? enabledModules.filter((id) => id !== moduleId)
-            : [...enabledModules, moduleId]
-        refreshModules()
+        setGlobalModuleEnabled(DBState.db, moduleId, !DBState.db.enabledModules.includes(moduleId))
         void requestImmediateSave()
     }
 
@@ -245,16 +241,7 @@
         delete modelBindings[rmodule.id]
         DBState.db.moduleModelBindings = modelBindings
 
-        for (const character of DBState.db.characters) {
-            if (character.modules?.includes(rmodule.id)) {
-                character.modules = character.modules.filter((id) => id !== rmodule.id)
-            }
-            for (const chat of character.chats) {
-                if (chat.modules?.includes(rmodule.id)) {
-                    chat.modules = chat.modules.filter((id) => id !== rmodule.id)
-                }
-            }
-        }
+        clearCharacterModuleConnections(DBState.db, rmodule.id)
 
         const result = removePresetItem(DBState.db.modules, -1, index, 0)
         if (!result.changed) return
@@ -270,7 +257,6 @@
     }
 
     function finishEditingModule() {
-        refreshModules()
         void requestImmediateSave()
         mode = 0
     }
@@ -304,9 +290,6 @@
         }
     }
 
-    onDestroy(() => {
-        refreshModules()
-    })
 </script>
 {#if mode === 0}
     <SettingPage title={embedded ? undefined : view === 'mcp' ? 'MCP' : language.modules}>

@@ -208,7 +208,6 @@
                 created.id,
             ]
             DBState.db.modules = [...DBState.db.modules]
-            DBState.db.enabledModules = [...DBState.db.enabledModules]
             DBState.db.imageStylePresetId = created.id
         } else {
             const preset = presets.find(item => item.id === editingPresetId)

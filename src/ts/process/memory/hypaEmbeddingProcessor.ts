@@ -1,10 +1,7 @@
-import { type HypaModel, DEFAULT_HYPA_MODEL, getPersistedHypaVector, setPersistedHypaVector, contextHash, truncateErrorBody } from "./hypamemory";
+import { type HypaModel, DEFAULT_HYPA_MODEL, getPersistedHypaVectors, hypaVectorCache, setPersistedHypaVector, HypaProcesser, chunkEmbeddingInputs, type VectorArray } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskConcurrencyLimiter, TaskCanceledError } from "./taskConcurrencyLimiter";
-import { globalFetch } from "src/ts/globalApi.svelte";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { appendLastPath } from "src/ts/util";
-import { HYPA_EMBEDDING_BATCH_SIZE } from "./embeddingModels";
 
 export interface HypaEmbeddingProcessorOptions {
   model?: HypaModel;
@@ -20,10 +17,8 @@ export interface EmbeddingText<TMetadata> {
 }
 
 export interface EmbeddingResult<TMetadata> extends EmbeddingText<TMetadata> {
-  embedding: EmbeddingVector;
+  embedding: VectorArray;
 }
-
-export type EmbeddingVector = number[] | Float32Array;
 
 export class HypaEmbeddingProcessor<TMetadata> {
   public readonly options: HypaEmbeddingProcessorOptions;
@@ -53,10 +48,8 @@ export class HypaEmbeddingProcessor<TMetadata> {
       return [];
     }
 
-    // Remove duplicate queries
     const uniqueQueries = [...new Set(queries)];
 
-    // Convert queries to EmbeddingText array
     const ebdTexts: EmbeddingText<TMetadata>[] = uniqueQueries.map(
       (query, index) => ({
         id: `query-${index}`,
@@ -64,7 +57,6 @@ export class HypaEmbeddingProcessor<TMetadata> {
       })
     );
 
-    // Get query embeddings (don't save to memory)
     const ebdResults = await this.getEmbeds(ebdTexts, false);
 
     const scoredResultsMap = new Map<
@@ -72,7 +64,6 @@ export class HypaEmbeddingProcessor<TMetadata> {
       [EmbeddingResult<TMetadata>, number][]
     >();
 
-    // Calculate similarity for each unique query
     for (let i = 0; i < uniqueQueries.length; i++) {
       const ebdResult = ebdResults[i];
 
@@ -117,40 +108,31 @@ export class HypaEmbeddingProcessor<TMetadata> {
       }
     }
 
-    // Load cache
-    const loadPromises = ebdTexts.map(async (item) => {
-      const { id, content, metadata } = item;
+    const cacheItems = ebdTexts.filter(item => {
+      if (!this.vectors.has(item.id)) return true;
+      resultMap.set(item.id, this.vectors.get(item.id));
+      return false;
+    });
+    const cacheKeys = cacheItems.map(item => this.getCacheKey(item.content, ctxGroups.get(item.id)));
+    const cachedVectors = await getPersistedHypaVectors(cacheKeys)
+      .catch(() => cacheKeys.map(key => hypaVectorCache.get(key)));
 
-      // Use if already in memory
-      if (this.vectors.has(id)) {
-        resultMap.set(id, this.vectors.get(id));
-        return;
-      }
+    cacheItems.forEach((item, index) => {
+      const { id, metadata } = item;
+      const cached = cachedVectors[index];
+      if (cached) {
+        // Keep request metadata separate from the shared cached vector.
+        const ebdResult: EmbeddingResult<TMetadata> = { ...cached, id, metadata };
 
-      try {
-        const cached = await getPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id))) as EmbeddingResult<TMetadata> | undefined;
-
-        if (cached) {
-          // The persisted cache is shared by every processor. Keep request
-          // metadata on a detached result so a metadata-less query cannot
-          // erase the summary metadata held by another processor.
-          const ebdResult: EmbeddingResult<TMetadata> = { ...cached, id, metadata };
-
-          // Save to memory
-          if (saveToMemory) {
-            this.vectors.set(id, ebdResult);
-          }
-
-          resultMap.set(id, ebdResult);
-        } else {
-          toEmbed.push(item);
+        if (saveToMemory) {
+          this.vectors.set(id, ebdResult);
         }
-      } catch (error) {
+
+        resultMap.set(id, ebdResult);
+      } else {
         toEmbed.push(item);
       }
     });
-
-    await Promise.all(loadPromises);
 
     if (ctxProvider && toEmbed.length > 0 && saveToMemory) {
       const missMetadatas = new Set(
@@ -167,9 +149,7 @@ export class HypaEmbeddingProcessor<TMetadata> {
 
       for (const item of additionalItems) {
         resultMap.delete(item.id);
-        if (this.vectors.has(item.id)) {
-          this.vectors.delete(item.id);
-        }
+        this.vectors.delete(item.id);
       }
 
       toEmbed.push(...additionalItems);
@@ -178,8 +158,6 @@ export class HypaEmbeddingProcessor<TMetadata> {
     if (toEmbed.length === 0) {
       return ebdTexts.map((item) => resultMap.get(item.id));
     }
-
-    const chunks = this.chunkArray(toEmbed, HYPA_EMBEDDING_BATCH_SIZE);
 
     if (ctxProvider && saveToMemory) {
       const metadataGroups = new Map<TMetadata, EmbeddingText<TMetadata>[]>();
@@ -213,37 +191,30 @@ export class HypaEmbeddingProcessor<TMetadata> {
             content, embedding
           });
 
-          if (saveToMemory) {
-            this.vectors.set(id, ebdResult);
-          }
-
+          this.vectors.set(id, ebdResult);
           resultMap.set(id, ebdResult);
         }
       }
     } else {
-      // API model: Parallel processing
+      const chunks = chunkEmbeddingInputs(toEmbed);
+      const processor = new HypaProcesser(this.options.model, this.options.customEmbeddingUrl);
+      processor.oaikey = this.options.oaiKey;
       const embeddingTasks = chunks.map((chunk) => {
         const contents = chunk.map((item) => item.content);
 
-        return () => this.getAPIEmbeds(contents, saveToMemory ? "document" : "query");
+        return () => processor.getEmbeds(contents, saveToMemory ? "document" : "query");
       });
 
-      // Progress callback
       this.options.concurrencyLimiter.taskQueueChangeCallback = this.progressCallback;
 
       const batchResult = await this.options.concurrencyLimiter.executeBatch<
-        EmbeddingVector[]
+        VectorArray[]
       >(embeddingTasks);
       const errors: Error[] = [];
 
       const chunksSavePromises = batchResult.results.map(async (result, i) => {
         if (!result.success) {
           errors.push(result.error);
-          return;
-        }
-
-        if (!result.data) {
-          errors.push(new Error("No embeddings found in the response."));
           return;
         }
 
@@ -258,13 +229,11 @@ export class HypaEmbeddingProcessor<TMetadata> {
             metadata,
           };
 
-          // Save to DB
           await setPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id)), {
             content,
             embedding,
-          } as any);
+          });
 
-          // Save to memory
           if (saveToMemory) {
             this.vectors.set(id, ebdResult);
           }
@@ -277,7 +246,6 @@ export class HypaEmbeddingProcessor<TMetadata> {
 
       await Promise.all(chunksSavePromises);
 
-      // Throw major error if there are errors
       if (errors.length > 0) {
         const majorError =
           errors.find((error) => !(error instanceof TaskCanceledError)) ||
@@ -290,7 +258,7 @@ export class HypaEmbeddingProcessor<TMetadata> {
     return ebdTexts.map((item) => resultMap.get(item.id));
   }
 
-  private similarity(a: EmbeddingVector, b: EmbeddingVector): number {
+  private similarity(a: VectorArray, b: VectorArray): number {
     let dot = 0;
     let magA = 0;
     let magB = 0;
@@ -317,103 +285,5 @@ export class HypaEmbeddingProcessor<TMetadata> {
       : "";
 
     return `${content}|${this.options.model}${suffix}${ctxSuffix}`;
-  }
-
-  private chunkArray<T>(array: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-
-    for (let i = 0; i < array.length; i += size) {
-      chunks.push(array.slice(i, i + size));
-    }
-
-    return chunks;
-  }
-
-  private async getAPIEmbeds(
-    contents: string[],
-    inputType: "query" | "document" = "query"
-  ): Promise<EmbeddingVector[]> {
-    const db = getDatabase();
-    let response = null;
-
-    if (this.options.model === "custom") {
-      if (!this.options.customEmbeddingUrl) {
-        throw new Error("Custom model requires a Custom Server URL");
-      }
-
-      const replaceUrl = this.options.customEmbeddingUrl.endsWith("/embeddings")
-        ? this.options.customEmbeddingUrl
-        : appendLastPath(this.options.customEmbeddingUrl, "embeddings");
-
-      const fetchArgs = {
-        headers: {
-          ...(db.hypaCustomSettings?.key?.trim()
-            ? { Authorization: "Bearer " + db.hypaCustomSettings.key.trim() }
-            : {}),
-        },
-        body: {
-          input: contents,
-          ...(db.hypaCustomSettings?.model?.trim()
-            ? { model: db.hypaCustomSettings.model.trim() }
-            : {}),
-        },
-      };
-
-      response = await globalFetch(replaceUrl, fetchArgs);
-    } else if (
-      ["ada", "openai3small", "openai3large"].includes(this.options.model)
-    ) {
-      const models = {
-        ada: "text-embedding-ada-002",
-        openai3small: "text-embedding-3-small",
-        openai3large: "text-embedding-3-large",
-      };
-
-      const fetchArgs = {
-        headers: {
-          Authorization:
-            "Bearer " +
-            (this.options.oaiKey?.trim() || db.supaMemoryKey?.trim()),
-        },
-        body: {
-          input: contents,
-          model: models[this.options.model],
-        },
-      };
-
-      response = await globalFetch(
-        "https://api.openai.com/v1/embeddings",
-        fetchArgs
-      );
-    } else if (this.options.model === "voyage4large") {
-      const models = {
-        voyage4large: "voyage-4-large",
-      };
-      response = await globalFetch("https://api.voyageai.com/v1/embeddings", {
-        headers: { Authorization: "Bearer " + db.voyageApiKey.trim() },
-        body: { input: contents, model: models[this.options.model], input_type: inputType },
-      });
-    } else if (isContextModel(this.options.model)) {
-      const provider = getContextProvider(this.options.model);
-      return await provider.embedQueries(contents);
-    } else {
-      throw new Error(`Unsupported model: ${this.options.model}`);
-    }
-
-    if (!response.ok || !response.data?.data) {
-      throw new Error(truncateErrorBody(response.data));
-    }
-
-    const embeddings: EmbeddingVector[] = response.data.data.map(
-      (item: { embedding: EmbeddingVector }) => {
-        if (!item.embedding) {
-          throw new Error("No embeddings found in the response.");
-        }
-
-        return item.embedding;
-      }
-    );
-
-    return embeddings;
   }
 }

@@ -1,6 +1,7 @@
 import { language } from 'src/lang'
 import { alertConfirm } from 'src/ts/alert'
 import { DBState } from 'src/ts/stores.svelte'
+import { setGlobalModuleEnabled } from 'src/ts/process/moduleSelection'
 import { pickHashRand } from 'src/ts/util'
 import { type MCPTool, MCPToolHandler, type RPCToolCallContent } from '../mcplib'
 
@@ -443,13 +444,7 @@ export class ModuleHandler extends MCPToolHandler {
       if (!allowedFields.includes(key)) continue
 
       if (key === 'enabled') {
-        const enabledModules = new Set(DBState.db.enabledModules || [])
-        if (value) {
-          enabledModules.add(id)
-        } else {
-          enabledModules.delete(id)
-        }
-        DBState.db.enabledModules = Array.from(enabledModules)
+        setGlobalModuleEnabled(DBState.db, id, Boolean(value))
       } else {
         // @ts-ignore
         module[key] = value

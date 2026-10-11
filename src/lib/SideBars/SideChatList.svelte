@@ -377,7 +377,7 @@
             {#if DBState.db.showPersonaInSidebar}
                 <PersonaBind />
             {/if}
-            <Toggles bind:chara={chara} noContainer />
+            <Toggles />
             {#if DBState.db.showModuleSidebar}
                 <Button className="w-full mt-2" onclick={() => {
                     const char = DBState.db.characters[$selectedCharID]
