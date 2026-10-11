@@ -120,9 +120,9 @@
     }
 
     isTranslating = true;
-    translation = "Loading...";
+    translation = language.loading;
 
-    // Focus on translation element after it's rendered
+    // Let Svelte render the translation field before focusing it.
     await tick();
 
     if (summaryItemState.translationRef) {
@@ -133,7 +133,6 @@
       });
     }
 
-    // Translate
     const result = await translate(summary.text, regenerate);
 
     translation = result;
@@ -158,7 +157,6 @@
 
     for (const chatMemo of summary.chatMemos) {
       if (chatMemo == null) {
-        // Check first message exists
         if (!getFirstMessage()) return true;
       } else {
         if (chat.message.findIndex((m) => m.chatId === chatMemo) === -1)
@@ -174,7 +172,7 @@
     if (isOrphan()) return;
 
     isRerolling = true;
-    rerolled = "Loading...";
+    rerolled = language.loading;
 
     try {
       const toSummarize: OpenAIChat[] = await Promise.all(
@@ -264,9 +262,9 @@
     if (!rerolled) return;
 
     isTranslatingRerolled = true;
-    rerolledTranslation = "Loading...";
+    rerolledTranslation = language.loading;
 
-    // Focus on rerolled translation element after it's rendered
+    // Let Svelte render the translation field before focusing it.
     await tick();
 
     if (summaryItemState.rerolledTranslationRef) {
@@ -277,7 +275,6 @@
       });
     }
 
-    // Translate
     const result = await translate(rerolled, regenerate);
 
     rerolledTranslation = result;
@@ -313,9 +310,9 @@
     if (!message) return;
 
     expandedMessageState.isTranslating = true;
-    expandedMessageState.translation = "Loading...";
+    expandedMessageState.translation = language.loading;
 
-    // Focus on translation element after it's rendered
+    // Let Svelte render the translation field before focusing it.
     await tick();
 
     if (expandedMessageState.translationRef) {
@@ -326,7 +323,6 @@
       });
     }
 
-    // Translate
     const result = await translate(message.data, regenerate);
 
     expandedMessageState.translation = result;
@@ -370,11 +366,8 @@
 <div
   class="flex flex-col rounded-md border bg-lightbg/50 p-3 text-maintext {isSelected() ? 'border-lightborderc' : 'border-darkborderc'}"
 >
-  <!-- Original Summary Header -->
   <div class="flex items-center justify-between">
-    <!-- Summary Number / Metrics Container -->
     <div class="flex min-w-0 flex-wrap items-center gap-2">
-      <!-- Bulk Edit Checkbox -->
       {#if resummarySelectionState.isEnabled}
         <Checkbox
           card
@@ -454,9 +447,7 @@
       {/if}
     </div>
 
-    <!-- Buttons Container -->
     <IconButtonGroup>
-      <!-- Translate Button -->
       <span
         class="inline-flex"
         use:handleDualAction={{
@@ -469,7 +460,6 @@
         </IconButton>
       </span>
 
-      <!-- Important Button -->
       <IconButton
         active={summary.isImportant}
         tabindex={-1}
@@ -478,7 +468,6 @@
         <StarIcon />
       </IconButton>
 
-      <!-- Reroll Button -->
       <IconButton
         tabindex={-1}
         disabled={isOrphan()}
@@ -487,7 +476,6 @@
         <RefreshCwIcon />
       </IconButton>
 
-      <!-- Delete This Button -->
       <IconButton
         tone="destructive"
         tabindex={-1}
@@ -496,7 +484,6 @@
         <Trash2Icon />
       </IconButton>
 
-      <!-- Delete After Button -->
       <IconButton
         tone="destructive"
         tabindex={-1}
@@ -507,12 +494,10 @@
     </IconButtonGroup>
   </div>
 
-  <!-- Original Summary -->
   <div class="mt-3">
     <Textarea
       fullwidth
       actionBar
-      commitMode="input"
       className="bg-darkbg"
       bind:textareaRef={summaryItemState.originalRef}
       bind:value={summary.text}
@@ -524,7 +509,6 @@
     />
   </div>
 
-  <!-- Original Summary Translation -->
   {#if translation}
     <div class="mt-3">
       <div class="mb-3 text-sm text-subtext">
@@ -544,14 +528,12 @@
   {/if}
 
   {#if rerolled}
-    <!-- Rerolled Summary Header -->
     <div class="mt-3">
       <div class="flex items-center justify-between">
         <span class="text-sm text-subtext"
           >{language.hypaV3Modal.rerolledSummaryLabel}</span
         >
         <IconButtonGroup>
-          <!-- Translate Rerolled Button -->
           <span
             class="inline-flex"
             use:handleDualAction={{
@@ -564,7 +546,6 @@
             </IconButton>
           </span>
 
-          <!-- Cancel Button -->
           <IconButton
             tabindex={-1}
             onclick={cancelRerolled}
@@ -572,7 +553,6 @@
             <XIcon />
           </IconButton>
 
-          <!-- Apply Button -->
           <IconButton
             active
             activeColor="primary"
@@ -585,19 +565,16 @@
       </div>
     </div>
 
-    <!-- Rerolled Summary -->
     <div class="mt-3">
       <Textarea
         fullwidth
         actionBar
-        commitMode="input"
         className="bg-darkbg"
         tabindex={-1}
         bind:value={rerolled}
       />
     </div>
 
-    <!-- Rerolled Summary Translation -->
     {#if rerolledTranslation}
       <div class="mt-3">
         <div class="mb-3 text-sm text-subtext">
@@ -617,7 +594,6 @@
     {/if}
   {/if}
 
-  <!-- Connected Messages Header -->
   <div class="mt-3">
     <div class="flex items-center justify-between">
       <button
@@ -637,7 +613,6 @@
       </button>
 
       <IconButtonGroup>
-        <!-- Translate Message Button -->
         <span
           class="inline-flex"
           use:handleDualAction={{
@@ -654,7 +629,6 @@
   </div>
 
   {#if !isCollapsed()}
-    <!-- Connected Message IDs -->
     <div class="mt-3 flex flex-wrap gap-2">
       {#key summary.chatMemos.length}
         {#each summary.chatMemos as chatMemo, memoIndex (chatMemo)}
@@ -677,11 +651,9 @@
     </div>
 
     {#if expandedMessageState?.summaryIndex === summaryIndex}
-      <!-- Expanded Message -->
       <div class="mt-3">
         {#await getMessageFromChatMemo(expandedMessageState.selectedChatMemo) then expandedMessage}
           {#if expandedMessage}
-            <!-- Role -->
             <div class="mb-3 text-sm text-subtext">
               {language.hypaV3Modal.connectedMessageRoleLabel.replace(
                 "{0}",
@@ -689,7 +661,6 @@
               )}
             </div>
 
-            <!-- Content -->
             <Textarea
               fullwidth
               actionBar
@@ -713,7 +684,6 @@
         {/await}
       </div>
 
-      <!-- Expanded Message Translation -->
       {#if expandedMessageState.translation}
         <div class="mt-3">
           <div class="mb-3 text-sm text-subtext">

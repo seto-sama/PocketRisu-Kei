@@ -8,6 +8,7 @@
         open?: boolean
         onOpenChange?: (open: boolean) => void
         dismissible?: boolean
+        keepMounted?: boolean
         onRequestClose?: () => void
         children: Snippet
     }
@@ -16,11 +17,17 @@
         open = $bindable(true),
         onOpenChange,
         dismissible = true,
+        keepMounted = false,
         onRequestClose,
         children,
         ...attributes
     }: Props = $props()
     const layer = getContext<OverlayLayerGetter>(overlayLayerContext)
+    let hasOpened = $state(false)
+
+    $effect.pre(() => {
+        if (open) hasOpened = true
+    })
 
     function close() {
         if (onRequestClose) onRequestClose()
@@ -32,8 +39,7 @@
 
     $effect(() => {
         if (!open || attributes.inert || attributes.hidden || attributes['aria-hidden'] === true || attributes['aria-hidden'] === 'true') return
-        // Blocking windows still consume Escape so it cannot close a parent or
-        // fall through to mobile page navigation.
+        // Blocking overlays consume Escape to protect parent overlays and page navigation.
         return listenForOverlayEscape(() => { if (dismissible) close() }, layer)
     })
 
@@ -43,9 +49,15 @@
     }
 </script>
 
-<!-- Background clicks and Escape always share the same dismissal callback. -->
-{#if open}
-    <div {...attributes} role="presentation" onclick={handleClick}>
+{#if open || (keepMounted && hasOpened)}
+    <div
+        {...attributes}
+        hidden={!open || attributes.hidden}
+        inert={!open || attributes.inert}
+        aria-hidden={!open ? true : attributes['aria-hidden']}
+        role="presentation"
+        onclick={handleClick}
+    >
         {@render children()}
     </div>
 {/if}

@@ -1,6 +1,4 @@
 <script lang="ts" module>
-    // shadcn-svelte Dialog — ported to RisuAI theme and layer tokens.
-    // See _reference/shadcn-components/dialog/* for source patterns.
     export type DialogSize = 'sm' | 'default' | 'lg' | 'xl';
 </script>
 
@@ -8,9 +6,12 @@
     import type { Snippet } from 'svelte';
     import { Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
+    import { language } from 'src/lang';
     import { cn } from 'src/lib/utils';
     import { wasLastInteractionKeyboard } from 'src/ts/gui/inputModality';
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
+    import IconButton from './IconButton.svelte';
+    import IconButtonGroup from './IconButtonGroup.svelte';
 
     interface Props {
         open?: boolean;
@@ -19,8 +20,7 @@
         closable?: boolean;
         /** Escape and backdrop dismissal; disable only for blocking workflows. */
         dismissible?: boolean;
-        /** Intercepts user-initiated close actions (Escape, backdrop, close
-         * button) so callers can confirm before actually changing `open`. */
+        /** Lets callers confirm a user-initiated close before changing `open`. */
         onRequestClose?: () => void;
         contentClass?: string;
         bodyClass?: string;
@@ -32,11 +32,7 @@
         description?: Snippet;
         footer?: Snippet;
         children?: Snippet;
-        /** Fallback aria-label for the dialog when no `title` snippet is
-         *  provided. bits-ui sets aria-labelledby pointing to Dialog.Title;
-         *  if no Title is rendered, the labelledby reference is broken.
-         *  This prop is rendered as a visually-hidden Dialog.Title in that
-         *  case. Defaults to "Dialog" for callers that don't specify. */
+        /** Accessible title used when no visible `title` snippet is provided. */
         ariaLabel?: string;
     }
 
@@ -136,8 +132,6 @@
         xl: 'max-w-4xl',
     };
 
-    // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any
-    // viewport (size class supplies max-width upper bound on desktop).
     const contentBase =
         'risu-modal-content-viewport fixed left-1/2 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 ' +
         'bg-darkbg border border-darkborderc rounded-md shadow-lg ' +
@@ -158,8 +152,7 @@
     function handleInteractOutside(event: PointerEvent) {
         const target = event.target
         if (target instanceof Element && target.closest('[data-sonner-toaster]')) {
-            // Toasts live in their own portal. They are intentionally usable
-            // above dialogs and must not be treated as backdrop interaction.
+            // Keep portaled toasts interactive while the dialog is open.
             event.preventDefault()
             return
         }
@@ -203,16 +196,27 @@
             onCloseAutoFocus={handleCloseAutoFocus}
         >
             {#if title || description || closable || headerActions}
-                <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
-                    {#if title || headerActions}
+                <div class="flex flex-col gap-1">
+                    {#if title || headerActions || closable}
                         <div class="flex items-center justify-between gap-2">
                             {#if title}
                                 <Dialog.Title class="text-lg font-semibold text-maintext leading-tight">
                                     {@render title()}
                                 </Dialog.Title>
                             {/if}
-                            {#if headerActions}
-                                <div class="ml-auto shrink-0 self-start">{@render headerActions()}</div>
+                            {#if headerActions || closable}
+                                <IconButtonGroup className="ml-auto shrink-0 self-start">
+                                    {@render headerActions?.()}
+                                    {#if closable}
+                                        <IconButton
+                                            data-risu-dialog-close
+                                            aria-label={language.close}
+                                            onclick={requestClose}
+                                        >
+                                            <XIcon />
+                                        </IconButton>
+                                    {/if}
+                                </IconButtonGroup>
                             {/if}
                         </div>
                     {/if}
@@ -221,23 +225,9 @@
                             {@render description()}
                         </Dialog.Description>
                     {/if}
-                    {#if closable}
-                        <button
-                            type="button"
-                            data-risu-dialog-close
-                            class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
-                            aria-label="Close"
-                            onclick={requestClose}
-                        >
-                            <XIcon size={18} />
-                        </button>
-                    {/if}
                 </div>
             {/if}
             {#if !title}
-                <!-- A11y: bits-ui's aria-labelledby points to Dialog.Title.
-                     When the caller omits the title snippet, render a sr-only
-                     fallback so screen readers always have a name to announce. -->
                 <Dialog.Title class="sr-only">{ariaLabel ?? 'Dialog'}</Dialog.Title>
             {/if}
 

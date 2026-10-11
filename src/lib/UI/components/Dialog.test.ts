@@ -243,7 +243,7 @@ describe('Dialog', () => {
         expect(onRequestClose).toHaveBeenCalledTimes(1)
         expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 
-        document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
+        document.querySelector<HTMLButtonElement>('button[data-risu-dialog-close]')!.click()
         await tick()
 
         expect(onRequestClose).toHaveBeenCalledTimes(2)

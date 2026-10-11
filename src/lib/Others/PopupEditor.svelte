@@ -4,7 +4,7 @@
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
-    import { DBState, popUpEditorStore } from 'src/ts/stores.svelte'
+    import { popUpEditorStore } from 'src/ts/stores.svelte'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
     import * as DropdownMenu from '../UI/components/dropdown-menu';
@@ -396,6 +396,19 @@
         </span>
     {/snippet}
 
+    {#snippet headerActions()}
+        {#if popUpEditorStore.mode === 'cbs'}
+            <IconButton
+                title={language.cbsDocumentationMenu}
+                data-risu-help
+                disabled={saving}
+                onclick={() => (documentationOpen = true)}
+            >
+                <BookOpenIcon />
+            </IconButton>
+        {/if}
+    {/snippet}
+
     <div class="flex min-h-0 flex-1 flex-col gap-2">
         {#if popUpEditorStore.metadata.length > 0}
             <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs">
@@ -625,10 +638,6 @@
                             <DropdownMenu.Item onSelect={togglePreview} disabled={saving}>
                                 {#if previewing}<SquarePenIcon />{:else}<EyeIcon />{/if}
                                 <span>{previewing ? language.popupEditorEdit : language.popupEditorPreview}</span>
-                            </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={() => (documentationOpen = true)} disabled={saving}>
-                                <BookOpenIcon />
-                                <span>{language.cbsDocumentationMenu}</span>
                             </DropdownMenu.Item>
                         {/if}
                         <DropdownMenu.Item onSelect={() => (wordWrap = !wordWrap)} disabled={saving}>

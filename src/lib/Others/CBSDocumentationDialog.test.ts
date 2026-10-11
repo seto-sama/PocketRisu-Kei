@@ -34,7 +34,7 @@ describe('CBS documentation dialog', () => {
         expect(getCBSDocumentation).toHaveBeenCalledOnce()
         expect(document.querySelector('[role="dialog"] input')).not.toBeNull()
 
-        document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
+        document.querySelector<HTMLButtonElement>('button[data-risu-dialog-close]')!.click()
         await tick()
 
         expect(document.querySelector('[role="dialog"]')?.getAttribute('data-state')).toBe('closed')

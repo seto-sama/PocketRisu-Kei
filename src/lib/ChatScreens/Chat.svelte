@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, LanguagesIcon, LinkIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
@@ -304,9 +304,7 @@
         }
         const action = selectedAction.id
         if(action === 'swipe'){
-            // Deleting the selected swipe also navigates to the response that
-            // takes its place. Use the same transition as the arrow controls
-            // so cached-only auto translation inspects the new source text.
+            // Reuse swipe navigation so auto translation checks the replacement response.
             changeSwipe(onDeleteSwipe)
             return
         }
@@ -351,9 +349,7 @@
     }
 
     async function enterEditMode() {
-        // Keep the editor independent from streaming/recovery prop updates.
-        // Otherwise a parent refresh can replace every keystroke with the
-        // latest server-owned display value.
+        // Isolate the edit draft so streaming and recovery cannot overwrite typing.
         await preserveMessagePosition(() => {
             editDraft = message
             editTranslationKeyMode = false
@@ -556,11 +552,8 @@
 
         if (cached === null && revenantTranslationRecoverySnapshot.pending) return
 
-        // Mobile browsers can suspend Svelte's DOM flush after the request has
-        // durably populated the cache. Reconcile from that durable boundary on
-        // resume. A missing result is also terminal once no local/shared or
-        // recoverable task owns it; return to the original instead of leaving
-        // loading markup stranded forever.
+        // Mobile suspension can delay DOM updates after cache writes.
+        // On resume, settle completed tasks and restore the original for missing results.
         activeTranslationTasks = 0
         translating = false
         cancelTranslationRequest = null
@@ -578,10 +571,8 @@
         retranslate = false
     }
 
-    // Local controls and remote canonical sync both eventually replace this
-    // message source. Reset at that shared boundary so a translated old swipe
-    // cannot initiate a translation for the new one. Cached-only auto
-    // translation may then inspect and restore the new swipe's existing cache.
+    // Reset translation when local edits or canonical sync replace the source,
+    // so an old swipe cannot trigger translation of the new one.
     $effect.pre(() => {
         const nextSource = {
             identity: translationSourceIdentity,
@@ -660,9 +651,7 @@
     }
 
     async function editOppositeText(event: MouseEvent) {
-        // Only LLM translations have an editable translation cache. Preserve
-        // the browser context menu for translators whose output cannot be
-        // edited independently from the source message.
+        // Preserve the browser context menu when translation has no editable LLM cache.
         if (DBState.db.translatorType !== 'llm') return
         event.preventDefault()
         if (isTranslationBusy()) return
@@ -811,9 +800,7 @@
         const triggerId = origin.getAttribute('risu-id')
         const btnEvent = origin.getAttribute('risu-btn')
 
-        // A trigger may update reactive Lua/CBS state before its promise
-        // returns. Disable translation first so an intermediate render cannot
-        // start a new automatic translation request.
+        // Reset translation before the trigger's reactive updates can start another request.
         resetTranslationState()
 
         const triggerResult =
@@ -999,6 +986,7 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
         class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
+        class:chat-toolbar-streaming-layer={isStreamingDisplay}
     >
         <div class="chat-toolbar-sticky-footer md:rounded-b-lg">
             <div class="chat-toolbar-sticky-footer-content">
@@ -1053,9 +1041,7 @@
             {language.noMessage}
         </div>
     {:else}
-        <!-- Streaming content is already propagated through the reactive message
-             prop. Remounting ChatBody for every chunk resets the browser's scroll
-             anchor and pulls a user who is reading history back to the bottom. -->
+        <!-- Preserve ChatBody during streaming to keep the reader's scroll anchor. -->
         {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
         {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1476,7 +1462,6 @@
     {#if (rerollIcon || altGreeting) && role !== 'user'}
         <fieldset class="contents" disabled={controlDisabled.swipe}>
         {#if altGreeting}
-            <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
                 <ArrowLeftIcon />
             </IconButton>
@@ -1485,7 +1470,6 @@
                 <ArrowRightIcon />
             </IconButton>
         {:else}
-            <!-- Normal messages: ← counter → ↻ -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={async () => {
                 if (swipeNavigationOnly) {
                     if (totalPages > 1) changeSwipe(unReroll)
@@ -1803,7 +1787,6 @@
                 class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
             >
                 {#if !hideSender}
-                    <!-- Header: icon + name -->
                     <div class="flex items-center gap-3 mb-4">
                         {@render senderIcon()}
                         {#if !$HideIconStore}
@@ -1811,11 +1794,9 @@
                         {/if}
                     </div>
                 {/if}
-                <!-- Body: message text -->
                 <div class="chat-message-body mb-3 leading-relaxed">
                     {@render textBox()}
                 </div>
-                <!-- Footer: geninfo + buttons -->
                 {#if DBState.db.stickyChatToolbar}
                     {@render stickyChatFooter()}
                 {:else}
@@ -1844,7 +1825,6 @@
     </div>
 </div>
 {:else}
-<!-- 기존 테마: 공유 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      bind:this={partialEditRoot}
      data-chat-index={idx}
@@ -1964,8 +1944,10 @@
         width: calc(100% + var(--chat-shell-inline-padding) + var(--chat-shell-inline-padding));
         max-width: none;
         margin: 0 calc(0px - var(--chat-shell-inline-padding));
-        /* Keep the footer on one compositor surface in Firefox so its
-           one-pixel separator retains the same raster phase after scrolling. */
+    }
+
+    /* Firefox's transform rounding can shift the footer at the bottom. */
+    :global(.default-chat-screen[data-chat-history-read]) .chat-toolbar-sticky-footer-layer.chat-toolbar-streaming-layer {
         transform: translateZ(0);
     }
 
