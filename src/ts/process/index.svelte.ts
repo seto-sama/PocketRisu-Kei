@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
 import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate } from "../storage/database.svelte";
@@ -426,7 +427,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     selectedChat = arg.generationTarget
         ? nowChatroom.chats.findIndex(chat =>
             chat?.id === arg.generationTarget?.roomId)
-        : nowChatroom.chatPage
+        : getChatPage(nowChatroom)
     const targetChat = nowChatroom.chats[selectedChat]
     if(!targetChat){
         alertError('The generation chat is no longer available.')
@@ -1638,7 +1639,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             })
             const {
                 chats: _postprocessChats,
-                chatPage: _postprocessChatPage,
                 ...postprocessCharacterState
             } = nowChatroom
             const postprocessCharacter = structuredClone(postprocessCharacterState)

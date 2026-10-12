@@ -1,6 +1,7 @@
 // @vitest-environment node
 import Database from './sqlite.cjs'
 import { afterEach, describe, expect, it } from 'vitest'
+import { Packr, Unpackr } from 'msgpackr'
 import appDataStorePkg from './appDataStore.cjs'
 import chatStorePkg from './chatStore.cjs'
 
@@ -66,6 +67,30 @@ afterEach(() => {
 })
 
 describe('relational app data projection', () => {
+    it('excludes device selection from writes and previously stored character rows', () => {
+        const { sqlite, store } = createStore()
+        const source = sampleDatabase()
+        Object.assign(source.characters[0], { chatPage: 1, reloadKeys: 42 })
+        store.replaceFromProjection(source)
+        const packr = new Packr({ useRecords: false })
+        const unpackr = new Unpackr({ useRecords: false })
+        const row = sqlite.prepare('SELECT payload FROM app_characters').get() as { payload: Buffer }
+        const metadata = unpackr.unpack(row.payload)
+        expect(metadata).not.toHaveProperty('chatPage')
+        const etag = store.projectionEtag({ includeMessages: false })
+        const incoming = store.exportProjection({ includeMessages: false })
+        incoming.characters[0].chatPage = 2
+        expect(store.syncStartupProjection(incoming).changed).toBe(false)
+
+        sqlite.prepare('UPDATE app_characters SET payload = ?').run(
+            packr.pack({ ...metadata, chatPage: 2, reloadKeys: 42 }),
+        )
+        expect(store.exportProjection().characters[0]).not.toHaveProperty('chatPage')
+        expect(store.exportProjection({ includeMessages: false }).characters[0]).not.toHaveProperty('chatPage')
+        expect(store.listCharacterStorage()[0].character).not.toHaveProperty('chatPage')
+        expect(store.projectionEtag({ includeMessages: false })).toBe(etag)
+    })
+
     function auditWrites(sqlite: any, table: string, key: string) {
         sqlite.exec(`CREATE TEMP TABLE writes (operation TEXT, item_key TEXT)`)
         for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {

@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
@@ -69,7 +70,7 @@ export function selectSingleImageFile() {
 export function checkPersonaBinded(){
     const db = getDatabase()
     const character = db.characters?.[get(selectedCharID)]
-    return getChatBoundPersona(db, character?.chats?.[character.chatPage])
+    return getChatBoundPersona(db, character?.chats?.[getChatPage(character)])
 }
 
 export function getUserName(){

@@ -31,7 +31,6 @@ function setup(opts: {
         personas: opts.personas ?? [],
         characters: [
             {
-                chatPage: 0,
                 chats: [
                     { bindedPersona: opts.bindedPersona ?? '' },
                 ],

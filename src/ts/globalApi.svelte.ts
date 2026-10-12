@@ -1,3 +1,4 @@
+import { getChatPage, setChatPage } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { checkNullish, sleep } from "./util"
 import { createEntityId } from 'src/ts/id';
@@ -701,7 +702,7 @@ export async function saveDb() {
         })
         $effect(() => {
             const activeChar = DBState?.db?.characters?.[selIdState]
-            const activeChat = activeChar?.chats?.[activeChar?.chatPage]
+            const activeChat = activeChar?.chats?.[getChatPage(activeChar)]
             if (activeChat) {
                 deepTouch(activeChat)
             }
@@ -2398,7 +2399,7 @@ $effect.root(() => {
             return
         }
         const char = DBState.db.characters[selIdState.selId]
-        const chat = char.chats[char.chatPage]
+        const chat = char.chats[getChatPage(char)]
         if(chatFoldedState.data.targetCharacterId !== char.chaId){
             chatFoldedState.data = null
         }
@@ -2413,7 +2414,7 @@ $effect.root(() => {
             return
         }
         const char = DBState.db.characters[selIdState.selId]
-        const chat = char.chats[char.chatPage]
+        const chat = char.chats[getChatPage(char)]
         const messageIndex = chat.message.findIndex((v) => {
             return chatFoldedState.data?.targetMessageId === v.chatId
         })
@@ -2430,7 +2431,7 @@ export function foldChatToMessage(targetMessageIdOrIndex: string | number) {
     let targetMessageId = ''
     if (typeof targetMessageIdOrIndex === 'number') {
         const char = getCurrentCharacter()
-        const chat = char.chats[char.chatPage]
+        const chat = char.chats[getChatPage(char)]
         const message = chat.message[targetMessageIdOrIndex]
         targetMessageId = message.chatId
     }
@@ -2438,7 +2439,7 @@ export function foldChatToMessage(targetMessageIdOrIndex: string | number) {
         targetMessageId = targetMessageIdOrIndex
     }
     const char = getCurrentCharacter()
-    const chat = char.chats[char.chatPage]
+    const chat = char.chats[getChatPage(char)]
     chatFoldedState.data = {
         targetCharacterId: char.chaId,
         targetChatId: chat.id,
@@ -2466,7 +2467,7 @@ export function changeChatTo(IdOrIndex: string | number) {
     chatDeselected.set(false)
     const char = DBState.db.characters[selIdState.selId]
     const newChat = char.chats[index]
-    char.chatPage = index
+    setChatPage(char, index)
     if(newChat){
         dismissClaimedLoadingOverlay()
         if(newChat._placeholder){
@@ -2482,7 +2483,7 @@ export function changeChatTo(IdOrIndex: string | number) {
             void ensureChatHydrated(char.chats, capturedIndex, char.chaId).then((hydrated) => {
                 if(cancelled) return
                 const activeCharacter = DBState.db.characters[get(selectedCharID)]
-                const activeChat = activeCharacter?.chats[activeCharacter.chatPage]
+                const activeChat = activeCharacter?.chats[getChatPage(activeCharacter)]
                 if (
                     hydrated
                     && activeCharacter?.chaId === capturedCharacterId

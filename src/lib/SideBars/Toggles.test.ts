@@ -23,7 +23,7 @@ const mounted: ReturnType<typeof mount>[] = []
 beforeEach(() => {
     selectedCharID.set(0)
     DBState.db = {
-        characters: [{ chatPage: 0, chats: [{
+        characters: [{ chats: [{
             message: [],
         }] }],
         globalChatVariables: {},

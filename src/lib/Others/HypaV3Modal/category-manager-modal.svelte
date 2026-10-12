@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import {
     PlusIcon,
     XIcon,
@@ -34,7 +36,7 @@
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
-      DBState.db.characters[$selectedCharID].chatPage
+      getChatPage(DBState.db.characters[$selectedCharID])
     ].hypaV3Data
   );
 

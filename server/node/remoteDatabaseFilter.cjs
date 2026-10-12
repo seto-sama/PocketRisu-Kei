@@ -86,23 +86,13 @@ function filterRemoteOnlyFolders(dbObj) {
                 );
                 if (hiddenChatFolderIds.size === 0) return char;
 
-                const currentChat = Array.isArray(char.chats) ? char.chats[char.chatPage] : null;
                 const nextChats = (char.chats ?? [])
                     .filter(chat => !chat?.folderId || !hiddenChatFolderIds.has(chat.folderId));
-                const nextChar = {
+                return {
                     ...char,
                     chatFolders: (char.chatFolders ?? []).filter(folder => !isLocalOnlyFolder(folder)),
                     chats: nextChats,
-                    chatPage: 0,
                 };
-                if (currentChat && nextChats.length > 0) {
-                    const currentId = currentChat.id;
-                    const nextIndex = currentId
-                        ? nextChats.findIndex(chat => chat?.id === currentId)
-                        : nextChats.indexOf(currentChat);
-                    nextChar.chatPage = nextIndex >= 0 ? nextIndex : 0;
-                }
-                return nextChar;
             });
     }
 
@@ -138,7 +128,7 @@ function mergeRemoteChatFolders(originalFolders = [], remoteFolders = []) {
     return merged;
 }
 
-function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolderIds = new Set(), remoteChatPage = 0) {
+function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolderIds = new Set()) {
     const remoteById = new Map();
     const usedRemote = new Set();
     for (const chat of remoteChats ?? []) {
@@ -161,14 +151,7 @@ function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolder
         if (!usedRemote.has(remoteChat)) merged.push(cloneJson(remoteChat));
     }
 
-    const selectedRemote = remoteChats?.[remoteChatPage];
-    const chatPage = selectedRemote?.id
-        ? Math.max(0, merged.findIndex(chat => chat?.id === selectedRemote.id))
-        : 0;
-    return {
-        chats: merged,
-        chatPage: chatPage >= 0 ? chatPage : 0,
-    };
+    return merged;
 }
 
 function mergeRemoteCharacter(originalChar, remoteChar) {
@@ -185,14 +168,11 @@ function mergeRemoteCharacter(originalChar, remoteChar) {
 
     const merged = cloneJson(remoteChar);
     merged.chatFolders = mergeRemoteChatFolders(originalChar.chatFolders, remoteChar.chatFolders);
-    const chatMerge = mergeRemoteChats(
+    merged.chats = mergeRemoteChats(
         originalChar.chats ?? [],
         remoteChar.chats ?? [],
-        hiddenChatFolderIds,
-        remoteChar.chatPage ?? 0
+        hiddenChatFolderIds
     );
-    merged.chats = chatMerge.chats;
-    merged.chatPage = chatMerge.chatPage;
     return merged;
 }
 

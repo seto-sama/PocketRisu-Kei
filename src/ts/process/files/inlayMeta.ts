@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { getCurrentCharacter } from "../../storage/database.svelte";
 import { NodeStorage } from "../../storage/nodeStorage";
 
@@ -114,7 +115,7 @@ export function buildInlayMeta(existingMeta?: InlayAssetMeta | null): InlayAsset
     const now = Date.now()
     const currentChar = getCurrentCharacter()
     const currentCharId = typeof currentChar?.chaId === 'string' ? currentChar.chaId : undefined
-    const currentChat = currentChar?.chats?.[currentChar?.chatPage ?? 0]
+    const currentChat = currentChar?.chats?.[getChatPage(currentChar)]
     const currentChatId = typeof currentChat?.id === 'string' ? currentChat.id : undefined
 
     return {

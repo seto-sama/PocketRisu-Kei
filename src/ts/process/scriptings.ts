@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { asBuffer } from 'src/ts/util';
 import { getChatVar, getGlobalChatVar, setChatVar } from "../parser/chatVar.svelte";
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
@@ -611,7 +612,7 @@ export async function runScripted(code:string, arg:{
                 }
 
                 const loreSources = [
-                    selectedChar.chats[selectedChar.chatPage]?.localLore ?? [],
+                    selectedChar.chats[getChatPage(selectedChar)]?.localLore ?? [],
                     selectedChar.globalLore,
                     getModuleLorebooks()
                 ]
@@ -650,7 +651,7 @@ export async function runScripted(code:string, arg:{
                     secondKey = '',
                 } = options
 
-                const currentChat = activeCharacter.chats[activeCharacter.chatPage]
+                const currentChat = activeCharacter.chats[getChatPage(activeCharacter)]
 
                 const newLocalLoreBooks = currentChat.localLore.filter((book) => book.comment !== name)
                 newLocalLoreBooks.push({

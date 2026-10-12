@@ -1,5 +1,7 @@
 <script lang="ts">
     import { ImageIcon } from '@lucide/svelte'
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from 'src/lang'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
@@ -82,7 +84,7 @@
     }
 
     async function recoverActiveWorkflow() {
-        const roomId = character.chats?.[character.chatPage]?.id
+        const roomId = character.chats?.[getChatPage(character)]?.id
         if (!character.chaId || !roomId || generating || recovering) return
         recovering = true
         try {
@@ -102,7 +104,7 @@
 
     $effect(() => {
         character.chaId
-        character.chats?.[character.chatPage]?.id
+        character.chats?.[getChatPage(character)]?.id
         // Recovery changes `generating`/`recovering` itself. Keep those state
         // writes out of this effect's dependency graph so a failed/busy claim
         // cannot create a self-sustaining recovery loop.
@@ -116,7 +118,7 @@
             notifyError(language.imageProviderNotConfigured)
             return
         }
-        const targetChat = character.chats[character.chatPage]
+        const targetChat = character.chats[getChatPage(character)]
         if(!targetChat?.id) return
         const target = { characterId: character.chaId, chatId: targetChat.id }
 

@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createEntityId } from 'src/ts/id';
 import { get } from 'svelte/store'
 import { alertConfirm, alertError, alertInput, alertNormal, alertSelect } from '../../../alert'
@@ -234,7 +235,7 @@ async function executeClientAction(
                 else if (effect.kind === 'reload.chat') {
                     invalidateChatMessageRender(Number.isInteger(effect.index)
                         ? Number(effect.index)
-                        : character.chatPage)
+                        : getChatPage(character))
                 }
                 else if (effect.kind === 'log') console.log(effect.value)
                 else if (effect.kind === 'tts') {

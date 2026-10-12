@@ -535,7 +535,6 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
             id: createEntityId(),
             ...newChatModelDefaults()
         }],
-        chatPage: 0,
         image: imgp,
         emotionImages: [],
         bias: [],
@@ -796,7 +795,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             id: createEntityId(),
             ...newChatModelDefaults()
         }],
-        chatPage: 0,
         image: im,
         emotionImages: emotions,
         bias: bias,

@@ -639,7 +639,7 @@ function createAppDataStore(db) {
 
     function readCharacters(includeMessages) {
         return selectCharacters.all().map(row => ({
-            ...decodeValue(row.payload),
+            ...characterMetadata(decodeValue(row.payload)),
             chaId: row.character_id,
             chats: selectChats.all(row.character_id)
                 .map(chat => assembleChat(chat, row.character_id, includeMessages)),
@@ -694,7 +694,7 @@ function createAppDataStore(db) {
 
     function listCharacterStorage() {
         return selectCharacterStorage.all().map(row => ({
-            character: { ...decodeValue(row.payload), chaId: row.character_id },
+            character: { ...characterMetadata(decodeValue(row.payload)), chaId: row.character_id },
             cardBytes: Number(row.card_bytes ?? 0),
             chatBytes: Number(row.chat_bytes ?? 0),
         }));

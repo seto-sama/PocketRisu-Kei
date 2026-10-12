@@ -1,5 +1,7 @@
 <script lang="ts">
     import { DBState, selectedCharID } from "src/ts/stores.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { parseToggleSyntax, type sidebarToggle, type sidebarToggleGroup } from "src/ts/util";
     import { language } from "src/lang";
     import type { PromptItem } from "src/ts/process/prompt";
@@ -18,7 +20,7 @@
     import Tooltip from "../UI/components/Tooltip.svelte";
 
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
-    let currentChat = $derived(currentCharacter?.chats?.[currentCharacter.chatPage])
+    let currentChat = $derived(currentCharacter?.chats?.[getChatPage(currentCharacter)])
     let isPinned = $derived(!DBState.db.disableToggleBinding && !!currentChat?.savedToggleValues)
     let parsedToggles = $derived(parseToggleSyntax(getToggleTemplate(DBState.db, currentCharacter, currentChat)))
     $effect(() => {

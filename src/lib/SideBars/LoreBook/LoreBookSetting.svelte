@@ -1,6 +1,8 @@
 <script lang="ts">
     
     import { DBState } from 'src/ts/stores.svelte';
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "../../../lang";
     import { DownloadIcon, UploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon } from "@lucide/svelte";
     import { addLorebook, addLorebookFolder, exportLoreBook, importLoreBook } from "../../../ts/process/lorebook.svelte";
@@ -21,7 +23,7 @@
         const character = DBState.db.characters[$selectedCharID];
         const lore = submenu === 'character'
             ? character?.globalLore
-            : submenu === 'chat' ? character?.chats[character.chatPage]?.localLore : [];
+            : submenu === 'chat' ? character?.chats[getChatPage(character)]?.localLore : [];
         return (lore ?? []).filter(book => book.mode !== 'folder');
     });
     const allLoreAlwaysActive = $derived(currentLoreEntries.length > 0

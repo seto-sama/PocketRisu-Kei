@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
@@ -30,7 +31,7 @@ export function addLorebook(type:number) {
         })
     }
     else{
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         DBState.db.characters[selectedID].chats[page].localLore.push({
             key: '',
             comment: `New Lore ${DBState.db.characters[selectedID].chats[page].localLore.length + 1}`,
@@ -60,7 +61,7 @@ export function addLorebookFolder(type:number) {
         })
     }
     else{
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         DBState.db.characters[selectedID].chats[page].localLore.push({
             key: '\uf000folder:' + id,
             comment: `New Folder`,
@@ -80,7 +81,7 @@ export async function loadLoreBookV3Prompt(options: {
 } = {}){
     const selectedID = get(selectedCharID)
     const char = DBState.db.characters[selectedID]
-    const page = char.chatPage
+    const page = getChatPage(char)
     const characterLore = char.globalLore ?? []
     const chatLore = char.chats[page].localLore ?? []
     const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
@@ -656,7 +657,7 @@ export async function importLoreBook(mode:'global'|'local'){
     const initialCharacter = DBState.db.characters[get(selectedCharID)]
     if (!initialCharacter || initialCharacter.trashTime) return
     const characterId = initialCharacter.chaId
-    const chatId = mode === 'local' ? initialCharacter.chats[initialCharacter.chatPage]?.id : undefined
+    const chatId = mode === 'local' ? initialCharacter.chats[getChatPage(initialCharacter)]?.id : undefined
     if (mode === 'local' && !chatId) return
     const getTargetCharacter = () => DBState.db.characters.find(character =>
         character.chaId === characterId && !character.trashTime)
@@ -742,7 +743,7 @@ export function convertExternalLorebook(entries:{[key:string]:CCLorebook}){
 export async function exportLoreBook(mode:'global'|'local'){
     try {
         const selectedID = get(selectedCharID)
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         const lore = 
             mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
             DBState.db.characters[selectedID].chats[page].localLore        

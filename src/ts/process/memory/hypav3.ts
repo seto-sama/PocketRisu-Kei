@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { type HypaModel, type memoryVector, HypaProcesser, DEFAULT_HYPA_MODEL, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
@@ -2023,7 +2024,7 @@ export async function summarize(
     const formated = buildHypaSummaryPrompt(oaiMessages, settings, isResummarize);
 
     const currentCharacter = getCurrentCharacter()
-    const currentRoom = currentCharacter?.chats[currentCharacter.chatPage]
+    const currentRoom = currentCharacter?.chats[getChatPage(currentCharacter)]
     const subBinding = resolveChatModelBinding(currentRoom, 'submodel')
     const subModelName = subBinding.kind === 'modelPreset' ? subBinding.preset.name : ''
     console.log(logPrefix, `Using ax model ${subModelName} for summarization.`);

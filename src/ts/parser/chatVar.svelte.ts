@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from 'svelte/store'
 import { DBState, selectedCharID } from '../stores.svelte'
 import { parseKeyValue } from '../util'
@@ -8,7 +9,7 @@ export function getChatVar(key:string): string {
     if(!char){
         return ''
     }
-    const chat = char.chats[char.chatPage]
+    const chat = char.chats[getChatPage(char)]
     chat.scriptstate ??= {}
     const state = (chat.scriptstate['$' + key])
     if(state === undefined || state === null){
@@ -26,10 +27,10 @@ export function getChatVar(key:string): string {
 
 export function setChatVar(key:string, value:string): void {
     const selectedChar = get(selectedCharID)
-    if(!DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].scriptstate){
-        DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].scriptstate = {}
-    }
-    DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].scriptstate['$' + key] = value
+    const char = DBState.db.characters[selectedChar]
+    const chat = char.chats[getChatPage(char)]
+    chat.scriptstate ??= {}
+    chat.scriptstate['$' + key] = value
 }
 
 export function getGlobalChatVar(key:string): string {

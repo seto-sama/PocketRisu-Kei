@@ -22,6 +22,7 @@ import { language } from 'src/lang';
 import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
+import { getChatPage } from '../storage/chatSelection.svelte';
 import cssSelectorParser from 'postcss-selector-parser'
 import {
     CHAT_SCROLL_ROOT_SELECTOR,
@@ -1648,6 +1649,7 @@ function initMatcher(){
             }
         },
         getDatabase: getDatabase,
+        getChatPage,
         getUserName: getUserName,
         getTriggerId: () => get(CurrentTriggerIdStore),
         getPersonaPrompt: getPersonaPrompt,

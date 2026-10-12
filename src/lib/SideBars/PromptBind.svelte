@@ -1,5 +1,7 @@
 <script lang="ts">
     import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { DBState, selectedCharID, openPresetList, presetSelectCallback } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { changeToPreset } from "src/ts/storage/database.svelte";
@@ -9,7 +11,7 @@
     import Help from "../Others/Help.svelte";
     import { bindPromptPresetToCurrentChat } from "src/ts/chatBindings";
 
-    let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
+    let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])])
 
     let paramsExpanded = $state(false);
     let globalPromptParamsOn = $derived(DBState.db.modelPresetPromptParamsFirst === true);

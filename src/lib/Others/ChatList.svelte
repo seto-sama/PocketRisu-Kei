@@ -1,5 +1,7 @@
 <script lang="ts">
     import { createEntityId } from 'src/ts/id';
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "src/lang";
     import { alertConfirm, notifyError } from "src/ts/alert";
     import { exportChat, importChat } from "src/ts/characters";
@@ -67,7 +69,7 @@
         if (!character || fromIndex === toIndex) return;
         const chats = [...character.chats];
         if (fromIndex < 0 || toIndex < 0 || fromIndex >= chats.length || toIndex > chats.length) return;
-        const activeChatId = chats[character.chatPage]?.id;
+        const activeChatId = chats[getChatPage(character)]?.id;
         const [moved] = chats.splice(fromIndex, 1);
         if (!moved) return;
         chats.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, moved);
@@ -91,7 +93,7 @@
         const chat = character.chats[index];
         if (!chat || !(await alertConfirm(`${language.removeConfirm}${chat.name}`))) return;
 
-        const activeChat = character.chats[character.chatPage];
+        const activeChat = character.chats[getChatPage(character)];
         const nextChats = character.chats.filter((_, chatIndex) => chatIndex !== index);
         const nextActive = activeChat === chat
             ? nextChats[Math.min(index, nextChats.length - 1)]
@@ -134,7 +136,7 @@
         folderDeleteConfirm={language.chatFolderDeleteConfirm}
         folderEmptyMessage={language.chatFolderEmpty}
         folderEmptySize="sm"
-        selectedItemIndex={character.chatPage}
+        selectedItemIndex={getChatPage(character)}
         allowFolderAssignmentDrag
         bind:open
         onFoldersChange={updateFolders}

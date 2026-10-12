@@ -1,6 +1,8 @@
 <script lang="ts">
     import { getChatBoundPersona } from "src/ts/chatBindingState";
 
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
@@ -132,7 +134,7 @@ import { isMobile } from 'src/ts/platform'
     } | null = null
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '', portalTarget }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
-    let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
+    let currentChatSlot = $derived(currentCharacter?.chats[getChatPage(currentCharacter)])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChatHydrationFailure = $derived(
         currentCharacter?.chaId && currentChatSlot?.id
@@ -142,7 +144,7 @@ import { isMobile } from 'src/ts/platform'
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     let loadPagesRoomKey = $state('')
-    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter ? getChatPage(currentCharacter) : -1}:${currentChatSlot?.id ?? ''}`)
     let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
     let inlayViewerOpen = $state(false)
     let inlayViewerEntries: ChatInlayViewerEntry[] = $state([])
@@ -627,7 +629,7 @@ import { isMobile } from 'src/ts/platform'
         if (!char) return null
         const chatPage = roomId
             ? char.chats.findIndex(chat => chat?.id === roomId)
-            : char.chatPage
+            : getChatPage(char)
         if (chatPage < 0) return null
         const chat = char.chats[chatPage]
         if (!chat) return null
@@ -638,7 +640,7 @@ import { isMobile } from 'src/ts/platform'
     async function retryCurrentChatLoad(): Promise<void> {
         const characterIndex = $selectedCharID
         const character = DBState.db.characters[characterIndex]
-        const roomId = character?.chats[character.chatPage]?.id
+        const roomId = character?.chats[getChatPage(character)]?.id
         const characterId = character?.chaId
         if (!characterId || !roomId) return
 
@@ -649,7 +651,7 @@ import { isMobile } from 'src/ts/platform'
                 chat
                 && $selectedCharID === characterIndex
                 && activeCharacter?.chaId === characterId
-                && activeCharacter.chats[activeCharacter.chatPage]?.id === roomId
+                && activeCharacter.chats[getChatPage(activeCharacter)]?.id === roomId
             ) {
                 loadTogglesFromChat(chat)
             }
@@ -664,7 +666,7 @@ import { isMobile } from 'src/ts/platform'
     $effect(() => {
         const selectedChar = $selectedCharID
         const char = DBState.db.characters[selectedChar]
-        const chatId = char?.chats?.[char.chatPage]?.id
+        const chatId = char?.chats?.[getChatPage(char)]?.id
         if (!char?.chaId || !chatId) return
         let recoveryInFlight = false
         let recoveryRequested = false
@@ -947,7 +949,7 @@ import { isMobile } from 'src/ts/platform'
         }
 
         const generationCharacter = DBState.db.characters[selectedChar]
-        const generationChat = generationCharacter?.chats[generationCharacter.chatPage]
+        const generationChat = generationCharacter?.chats[getChatPage(generationCharacter)]
         if(!generationCharacter?.chaId || !generationChat?.id) return
         const generationTarget = {
             characterId: generationCharacter.chaId,
@@ -1075,13 +1077,13 @@ import { isMobile } from 'src/ts/platform'
         if (messageInput !== '' || fileInput.length > 0) return false
         const cha = DBState.db.characters[$selectedCharID]
         if (!cha) return false
-        const msgs = cha.chats?.[cha.chatPage]?.message
+        const msgs = cha.chats?.[getChatPage(cha)]?.message
         if (!msgs || msgs.length === 0) return false
         return msgs[msgs.length - 1].role === 'user'
     })
 
     function getLastCharMsg() {
-        const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
+        const msgs = DBState.db.characters[$selectedCharID]?.chats[getChatPage(DBState.db.characters[$selectedCharID])]?.message
         if (!msgs || msgs.length === 0) return null
         for (let i = msgs.length - 1; i >= 0; i--) {
             if (msgs[i].role === 'char' && !msgs[i].isComment && !msgs[i].disabled) return msgs[i]
@@ -1090,7 +1092,7 @@ import { isMobile } from 'src/ts/platform'
     }
 
     function getSwipeTargetMsg(idx?: number) {
-        const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
+        const msgs = DBState.db.characters[$selectedCharID]?.chats[getChatPage(DBState.db.characters[$selectedCharID])]?.message
         if (idx === undefined) return getLastCharMsg()
         if (!msgs?.[idx]) return null
         const msg = msgs[idx]
@@ -1118,7 +1120,7 @@ import { isMobile } from 'src/ts/platform'
         if(idx !== undefined) return failedGenerationAttempt()
         const selectedChar = $selectedCharID
         const rerollCharacter = DBState.db.characters[selectedChar]
-        const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
+        const rerollChat = rerollCharacter?.chats?.[getChatPage(rerollCharacter)]
         if (!rerollCharacter?.chaId || !rerollChat?.id) return failedGenerationAttempt()
         // Let the edit effect pin its canonical base, then settle that edit
         // before the reroll swaps the live body for a temporary placeholder.
@@ -1128,7 +1130,7 @@ import { isMobile } from 'src/ts/platform'
         try {
             await flushDirtyChatToServer(
                 rerollCharacter.chaId,
-                rerollCharacter.chatPage,
+                getChatPage(rerollCharacter),
                 rerollChat,
             )
         } catch (error) {
@@ -1349,7 +1351,7 @@ import { isMobile } from 'src/ts/platform'
 
     const boundPersona = $derived(getChatBoundPersona(
         DBState.db,
-        DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage],
+        DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])],
     ))
 
     let { userIconPortrait, currentUsername, userIcon } = $derived.by(() => {
@@ -1634,7 +1636,7 @@ import { isMobile } from 'src/ts/platform'
                                     <LanguagesIcon /><span>{language.translate}</span>
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Item onSelect={() => {
-                                    DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
+                                    DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].modules ??= []
                                     openModuleList = true
                                 }}>
                                     <PackageIcon /><span>{language.modules}</span>
@@ -1839,7 +1841,7 @@ import { isMobile } from 'src/ts/platform'
                     screenRoot={chatScreenRoot}
                     messages={currentChat}
                     characterIndex={$selectedCharID}
-                    chatPage={currentCharacter.chatPage}
+                    chatPage={getChatPage(currentCharacter)}
                     chatId={currentChatSlot?.id ?? null}
                     blockEditEnabled={DBState.db.enableBlockPartialEdit}
                     dragEditEnabled={DBState.db.enableDragPartialEdit}
@@ -1848,7 +1850,7 @@ import { isMobile } from 'src/ts/platform'
             {/if}
 
             {#if currentChat.length <= loadPages}
-                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
+                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message.length === 0)}
                     <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-subtext italic max-w-2/3 wrap-break-word text-center">
                         {language.generatedByAIDisclaimer}
                     </div>
@@ -1868,27 +1870,27 @@ import { isMobile } from 'src/ts/platform'
                     role='char'
                     img={getCharImage(DBState.db.characters[$selectedCharID].image, 'css')}
                     idx={-1}
-                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0 && (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0 || DBState.db.showPreviousChatSwipeButtons)}
-                    disabled={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].firstMessageDisabled === true}
+                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0 && (DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message.length === 0 || DBState.db.showPreviousChatSwipeButtons)}
+                    disabled={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].firstMessageDisabled === true}
                     largePortrait={DBState.db.characters[$selectedCharID].largePortrait}
                     firstMessage={true}
                     onReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
-                        const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+                        const chat = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])]
                         if (chat._placeholder) return
                         const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
                         chat.fmIndex = (cur >= cha.alternateGreetings.length - 1) ? -1 : cur + 1
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
+                        DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])] = chat
                     }}
                     unReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
-                        const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+                        const chat = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])]
                         if (chat._placeholder) return
                         const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
                         chat.fmIndex = (cur === -1) ? cha.alternateGreetings.length - 1 : cur - 1
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
+                        DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])] = chat
                     }}
-                    currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
+                    currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
                     renderCacheKey={`${currentChatRoomKey}:first-message`}
                     translationRecoveryScope={currentCharacter.chaId && currentChatSlot?.id

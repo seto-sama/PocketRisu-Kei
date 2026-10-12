@@ -1,5 +1,7 @@
 <script lang="ts">
     import { Buffer } from 'buffer'
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
@@ -257,8 +259,8 @@
         <BookmarkList />
     {/if}
     <!-- Keep the modal mounted while a chat is selected so work/results survive closing it. -->
-    {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID].chatPage]}
-        {#key `${$selectedCharID}:${DBState.db.characters[$selectedCharID].chatPage}:${DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].id ?? ''}`}
+    {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]}
+        {#key `${$selectedCharID}:${getChatPage(DBState.db.characters[$selectedCharID])}:${DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].id ?? ''}`}
             <HypaV3Modal />
         {/key}
     {/if}

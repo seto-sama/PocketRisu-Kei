@@ -420,7 +420,6 @@ async function checkNewFormat(): Promise<void> {
         }
         v.chaId ??= createEntityId();
         v.type ??= 'character';
-        v.chatPage ??= 0;
         v.chats ??= [];
         v.customscript ??= [];
         v.firstMessage ??= '';

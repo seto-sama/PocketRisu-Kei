@@ -7,7 +7,6 @@ function databaseWithTargets(): Database {
         characters: [
             {
                 chaId: 'character-1',
-                chatPage: 0,
                 chats: [
                     {
                         id: 'room-1',
@@ -25,7 +24,6 @@ function databaseWithTargets(): Database {
             },
             {
                 chaId: 'character-2',
-                chatPage: 0,
                 chats: [
                     {
                         id: 'room-2',

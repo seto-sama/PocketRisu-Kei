@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from "svelte/store"
 import { parseChatML } from "../parser/chatML";
 import { getDatabase, type character, type customscript } from "../storage/database.svelte"
@@ -404,7 +405,7 @@ function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTra
     if (chatID < 0) return null
     const db = getDatabase()
     const character = db.characters[get(selectedCharID)]
-    const message = character?.chats?.[character.chatPage]?.message?.[chatID]
+    const message = character?.chats?.[getChatPage(character)]?.message?.[chatID]
     if (!message) return null
     return {
         kind: 'chat-message',

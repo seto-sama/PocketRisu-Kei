@@ -44,6 +44,8 @@
 
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, LanguagesIcon, LinkIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
@@ -192,7 +194,7 @@
 
     function toggleMessageRole() {
         const currentCharacter = DBState.db.characters[selIdState.selId]
-        const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
+        const currentMessage = currentCharacter?.chats[getChatPage(currentCharacter)]?.message?.[idx]
         if (!currentMessage) return
         currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
         invalidateChatMessageRender(idx)
@@ -204,7 +206,7 @@
         if (addingImageGenerationAsset) return
         const currentCharacter = DBState.db.characters[selIdState.selId]
         if (currentCharacter?.type !== 'character') return
-        const currentMessage = currentCharacter.chats[currentCharacter.chatPage]?.message?.[idx]
+        const currentMessage = currentCharacter.chats[getChatPage(currentCharacter)]?.message?.[idx]
         if (!currentMessage || currentMessage.kind !== 'imageGeneration') return
 
         addingImageGenerationAsset = true
@@ -272,7 +274,7 @@
 
     async function rm(){
         if (generationOwned) return
-        const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
+        const messages = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message
         const cascadeCount = messages.length - idx
 
         const actions: (AlertAction & { id: 'swipe' | 'message' | 'cascade' })[] = []
@@ -308,7 +310,7 @@
             changeSwipe(onDeleteSwipe)
             return
         }
-        let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
+        let msg = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message
         if(action === 'cascade'){
             msg = msg.slice(0, idx)
             notifySuccess(language.messagesRemoved.replace('{}', cascadeCount.toString()))
@@ -317,11 +319,11 @@
             msg.splice(idx, 1)
             notifySuccess(language.messageRemoved)
         }
-        DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
+        DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message = msg
     }
 
     async function edit(nextMessage:string){
-        const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
+        const msg = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx]
         const canonicalMessage = canonicalizeInlayTokens(nextMessage)
         msg.data = canonicalMessage
         if (msg.swipes && msg.swipeId !== undefined) {
@@ -423,7 +425,7 @@
         try{
             const cbsConditions:CbsConditions = {
                 firstmsg: firstMessage ?? false,
-                chatRole: DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]?.message?.[idx]?.role ?? role ?? null,
+                chatRole: DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])]?.message?.[idx]?.role ?? role ?? null,
             }
             return cbsConditions
         }
@@ -448,7 +450,7 @@
         }
         if (idx < 0) return null
         const currentCharacter = DBState.db.characters[selIdState.selId]
-        const message = currentCharacter?.chats?.[currentCharacter.chatPage]?.message?.[idx]
+        const message = currentCharacter?.chats?.[getChatPage(currentCharacter)]?.message?.[idx]
         if (!message) return null
         return {
             kind: 'chat-message',
@@ -834,7 +836,7 @@
 
     let bookmarkTarget = $derived.by(() => {
         const character = DBState.db.characters[selIdState.selId]
-        const chat = character?.chats[character.chatPage]
+        const chat = character?.chats[getChatPage(character)]
         const messageId = chat?.message[idx]?.chatId
         return character?.chaId && chat?.id && messageId
             ? { characterId: character.chaId, chatId: chat.id, messageId }
@@ -844,7 +846,7 @@
 
     async function toggleBookmark() {
         await ensureBookmarkCatalog()
-        const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage];
+        const chat = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])];
         
         if(!chat.message[idx]) return;
 
@@ -905,7 +907,7 @@
     >
         {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
             {@const diagnosticMessage = idx >= 0
-                ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
+                ? DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message[idx]
                 : undefined}
             {@const diagnosticGenerationInfo = diagnosticMessage
                 ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
@@ -1142,7 +1144,7 @@
                 {#if firstMessage}
                     <IconButton className={disabled === true ? 'text-danger' : ''} onclick={async () => {
                         await sleep(1)
-                        const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
+                        const chat = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])]
                         if(chat.firstMessageDisabled){
                             chat.firstMessageDisabled = false
                         } else if(await alertConfirm(language.disableFirstMessageConfirm)){
@@ -1525,7 +1527,7 @@
         </DropdownMenuItem>
 
     <DropdownMenuItem disabled={generationOwned} onSelect={async () => {
-        const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
+        const currentChat = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
             const folderId = createEntityId()
@@ -1564,8 +1566,8 @@
     </DropdownMenuItem>
 
     <DropdownMenuItem disabled={generationOwned} onSelect={() => {
-        const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = !currentMessage.disabled
+        const currentMessage = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx]
+        DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx].disabled = !currentMessage.disabled
     }}>
         {#if disabled === true}
             <MessageSquarePlusIcon />
@@ -1576,8 +1578,8 @@
     </DropdownMenuItem>
 
     <DropdownMenuItem disabled={generationOwned} onSelect={() => {
-        const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
+        const currentMessage = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx]
+        DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
     }}>
         <ScissorsIcon />
         <span>{language.disableAbove}</span>
@@ -1772,7 +1774,7 @@
 <div class="flex max-w-full justify-center risu-chat"
      bind:this={partialEditRoot}
      data-chat-index={idx}
-     data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
+     data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState.db.characters?.[selIdState.selId])]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
@@ -1828,7 +1830,7 @@
 <div class="flex max-w-full justify-center risu-chat"
      bind:this={partialEditRoot}
      data-chat-index={idx}
-     data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
+     data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState.db.characters?.[selIdState.selId])]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
@@ -1848,7 +1850,7 @@
                     class:rounded-tr-none={role === 'user'}
                 >
                     <p class="text-maintext">{@render textBox()}</p>
-                    {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
+                    {#if DBState.db.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState.db.characters?.[selIdState.selId])]?.message?.[idx]?.time}
                         <span class="text-xs text-subtext mt-1 block">
                             {new Intl.DateTimeFormat(undefined, {
                                 hour: '2-digit',
@@ -1857,7 +1859,7 @@
                                 month: '2-digit',
                                 day: '2-digit',
                                 hour12: false
-                            }).format(DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].time)}
+                            }).format(DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx].time)}
                         </span>
                     {/if}
                 </div>

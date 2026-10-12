@@ -1,6 +1,7 @@
 import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginProviderRequestContextKey, pluginV2, type PluginProviderRequestContext, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
 import { getRpcAbortSignalMetadata, SandboxHost, setRpcAbortSignalMetadata } from "./factory";
 import { getDatabase } from "src/ts/storage/database.svelte";
+import { getChatPage, initializeChatSelection, withChatSelection } from 'src/ts/storage/chatSelection.svelte';
 import { getChatFromIndex, setChatToIndex } from './chatAccess.svelte';
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
@@ -961,7 +962,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 if(includeOnly !== 'all' && !includeOnly.includes(key)){
                     continue;
                 }
-                (liteDB as any)[key] = $state.snapshot((db as any)[key]);
+                const value = $state.snapshot((db as any)[key]);
+                (liteDB as any)[key] = key === 'characters' ? value.map(withChatSelection) : value;
             }
             return liteDB;
         },
@@ -1053,7 +1055,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
-                return $state.snapshot(db.characters[charId]);
+                return withChatSelection($state.snapshot(db.characters[charId]));
             }
             return null;
         },
@@ -1062,6 +1064,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
+                initializeChatSelection(char, true)
                 DBState.db.characters[charId] = char
             }
         },
@@ -1080,7 +1083,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(!char){
                 throw new Error('No character selected');
             }
-            const chat = char.chats?.[char.chatPage];
+            const chat = char.chats?.[getChatPage(char)];
             if(!chat){
                 throw new Error('No active chat found');
             }
@@ -1116,7 +1119,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         getCurrentChatIndex: () => {
             const db = DBState.db
             const charId = get(selectedCharID)
-            return db.characters[charId].chatPage
+            return getChatPage(db.characters[charId])
         },
         getCurrentLorebookEntries: () => {
             const charId = get(selectedCharID)
@@ -1124,7 +1127,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(!char){
                 return []
             }
-            const page = char.chatPage
+            const page = getChatPage(char)
             const characterLore = char.globalLore ?? []
             const chatLore = char.chats?.[page]?.localLore ?? []
             const moduleLore = getModuleLorebooks()
@@ -1548,7 +1551,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 throw new Error("No character selected");
             }
 
-            const chat = char.chats[char.chatPage];
+            const chat = char.chats[getChatPage(char)];
             if(!chat){
                 throw new Error("No active chat found");
             }

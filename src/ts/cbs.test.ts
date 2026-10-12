@@ -2,6 +2,26 @@ import { describe, expect, it } from 'vitest'
 import { defaultCBSRegisterArg, getCBSCompletionNames, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
+    it('reads chat macros from the room selected by the calling runtime', () => {
+        const character = { chats: [
+            { message: [{ data: 'First room' }] },
+            { message: [{ data: 'Selected room' }] },
+        ] }
+        let lastMessage: RegisterCallback | undefined
+        registerCBS({
+            ...defaultCBSRegisterArg,
+            getDatabase: () => ({ characters: [character] }) as any,
+            getChatPage: () => 1,
+            registerFunction: definition => {
+                if (definition.name === 'lastmessage' && definition.callback !== 'doc_only') {
+                    lastMessage = definition.callback
+                }
+            },
+        })
+
+        expect(lastMessage!('', {} as any, [], null)).toBe('Selected room')
+    })
+
     it('keeps built-in primary names unique', () => {
         const names:string[] = []
         registerCBS({

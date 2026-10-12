@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
@@ -203,7 +204,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     }
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
                         const selchar = db.characters[get(selectedCharID)]
-                        const targetMessage = selchar?.chats?.[selchar.chatPage]?.message?.[chatID]
+                        const targetMessage = selchar?.chats?.[getChatPage(selchar)]?.message?.[chatID]
                         // Chat sync may replace the message array while prompt
                         // scripts are awaiting async work. Injection is a side
                         // effect on the live UI message, so skip it if that old
@@ -255,7 +256,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     if((outScript.startsWith('@@repeat_back') || pscript.actions.includes('repeat_back'))  && chatID !== -1){
                         const v = outScript.split(' ', 2)[1]
                         const selchar = db.characters[get(selectedCharID)]
-                        const chat = selchar.chats[selchar.chatPage]
+                        const chat = selchar.chats[getChatPage(selchar)]
                         let lastChat = chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
                         let pointer = chatID - 1
                         while(pointer >= 0){

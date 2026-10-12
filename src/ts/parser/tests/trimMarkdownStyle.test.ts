@@ -6,7 +6,7 @@ import type { Database, character } from '../../storage/database.svelte'
 const storeMocks = vi.hoisted(() => ({
     DBState: {
         db: {
-            characters: [{ chatPage: 0, chats: [{}], defaultVariables: '' }],
+            characters: [{ chats: [{}], defaultVariables: '' }],
             globalChatVariables: {},
             hideAllImages: false,
             returnCSSError: false,

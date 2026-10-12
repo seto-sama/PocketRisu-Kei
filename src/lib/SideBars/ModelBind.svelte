@@ -1,5 +1,7 @@
 <script lang="ts">
     import { DBState, selectedCharID } from "src/ts/stores.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "src/lang";
     import { ChevronDownIcon } from "@lucide/svelte";
     import ModelPresetList from "../UI/ModelPresetList.svelte";
@@ -8,7 +10,7 @@
     import { emptyModelBinding } from "src/ts/preset/types";
 
     let currentChat = $derived(
-        DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]
+        DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]
     );
 
     let auxExpanded = $state(false);

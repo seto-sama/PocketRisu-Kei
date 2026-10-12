@@ -344,7 +344,6 @@ function renderTemplate(input: string, state: TemplateState, depth = 0): string 
 function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateState {
     const character = structuredClone(recipe.character)
     character.chats = [chat]
-    character.chatPage = 0
     const database = {
         ...structuredClone(recipe.database),
         characters: [character],
@@ -367,6 +366,7 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
             }
         },
         getDatabase: () => state.database as any,
+        getChatPage: () => 0,
         getUserName: () => persona()?.name ?? recipe.database.username ?? 'User',
         getTriggerId: () => state.triggerId ?? null,
         getPersonaPrompt: () => persona()?.personaPrompt ?? recipe.database.personaPrompt ?? '',

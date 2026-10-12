@@ -16,7 +16,6 @@ function recipe(): RevenantPostprocessRecipe {
             nickname: 'Al',
             defaultVariables: 'mood=calm',
             chats: [],
-            chatPage: 0,
         } as any,
         chat: {
             id: 'room-1',

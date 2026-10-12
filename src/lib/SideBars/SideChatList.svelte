@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { createEntityId } from 'src/ts/id';
     import { DownloadIcon, UploadIcon, TrashIcon, FolderPlusIcon, FolderIcon, FolderOpenIcon, PackageIcon, CopyIcon, PencilIcon, SettingsIcon } from "@lucide/svelte";
 
@@ -69,7 +71,7 @@
 
     function syncChatOrderFromDom() {
         if (!listEle) return
-        const activeChat = chara.chats[chara.chatPage]
+        const activeChat = chara.chats[getChatPage(chara)]
         const chatsById = new Map(chara.chats.map(chat => [chat.id, chat]))
         const nextChats: Chat[] = []
         const includedChats = new Set<Chat>()
@@ -315,7 +317,7 @@
                             event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                    }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === getChatPage(chara) && !$chatDeselected}>
                         <InlineEditableName size="row" controller={renameController} bind:value={chat.name} editorLeadingInset="row" onActivate={() => changeChatTo(chatIdx)} />
                         {@render chatActions(chat, renameController)}
                     </div>
@@ -344,7 +346,7 @@
                 }
             }}
             class="risu-selectable-row flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer"
-            data-selected={i === chara.chatPage && !$chatDeselected}>
+            data-selected={i === getChatPage(chara) && !$chatDeselected}>
                 <InlineEditableName size="row" controller={renameController} bind:value={chara.chats[i].name} editorLeadingInset="row" onActivate={() => changeChatTo(i)} />
                 {@render chatActions(chat, renameController)}
             </div>
@@ -382,7 +384,7 @@
                 <Button className="w-full mt-2" onclick={() => {
                     const char = DBState.db.characters[$selectedCharID]
                     if (!char) return
-                    char.chats[char.chatPage].modules ??= []
+                    char.chats[getChatPage(char)].modules ??= []
                     openModuleListStore.set(true)
                 }}>
                     <PackageIcon class="shrink-0" />

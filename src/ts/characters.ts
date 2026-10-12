@@ -1,3 +1,4 @@
+import { getChatPage, setChatPage, initializeChatSelection } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
@@ -547,6 +548,8 @@ function formatTavernChat(chat:string, charName:string){
 
 export function characterFormatUpdate(indexOrCharacter:number|character){
     let cha = typeof(indexOrCharacter) === 'number' ? getCharacterByIndex(indexOrCharacter) : indexOrCharacter
+    if (!cha.chaId) cha.chaId = createEntityId()
+    initializeChatSelection(cha)
     if(cha.chats.length === 0){
         cha.chats = [{
             message: [],
@@ -556,17 +559,14 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
             ...newChatModelDefaults()
         }]
     }
-    if(!cha.chats[cha.chatPage]){
-        cha.chatPage = 0
+    if(!cha.chats[getChatPage(cha)]){
+        setChatPage(cha, 0)
     }
-    if(!cha.chats[cha.chatPage].message){
-        cha.chats[cha.chatPage].message = []
+    if(!cha.chats[getChatPage(cha)].message){
+        cha.chats[getChatPage(cha)].message = []
     }
     if(!cha.type){
         cha.type = 'character'
-    }
-    if(!cha.chaId){
-        cha.chaId = createEntityId()
     }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
@@ -588,8 +588,8 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         character_version: ''
     }
     if(cha.postHistoryInstructions){
-        cha.chats[cha.chatPage].note += "\n" + cha.postHistoryInstructions
-        cha.chats[cha.chatPage].note = cha.chats[cha.chatPage].note.trim()
+        cha.chats[getChatPage(cha)].note += "\n" + cha.postHistoryInstructions
+        cha.chats[getChatPage(cha)].note = cha.chats[getChatPage(cha)].note.trim()
         cha.postHistoryInstructions = null
     }
     cha.additionalText ??= ''
@@ -656,7 +656,6 @@ export function createBlankChar():character{
             ...newChatModelDefaults()
         }],
         chatFolders: [],
-        chatPage: 0,
         emotionImages: [],
         bias: [],
         viewScreen: 'none',
@@ -845,10 +844,10 @@ export function changeChar(index: number, arg:{
                     chatDeselected.set(true)
                     releaseOverlay()
                 })
-                void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
+                void ensureChatHydrated(char.chats, getChatPage(char), char.chaId).then((hydrated) => {
                     if(cancelled) return
                     const currentChar = getDatabase().characters[capturedIndex]
-                    const activeChatId = currentChar?.chats?.[currentChar.chatPage]?.id
+                    const activeChatId = currentChar?.chats?.[getChatPage(currentChar)]?.id
                     if(hydrated && get(selectedCharID) === capturedIndex && activeChatId === capturedChatId) {
                         loadTogglesFromChat(hydrated)
                     }

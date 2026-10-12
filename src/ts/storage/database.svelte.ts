@@ -8,6 +8,7 @@ import { checkNullish, decryptBuffer, encryptBuffer, parseToggleSyntax, selectMu
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
+import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
@@ -892,6 +893,7 @@ export function setDatabase(data:Database){
 function installDatabase(data: Database) {
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
+        initializeChatSelection(character)
         for (const chat of character.chats ?? []) {
             if (!isChatStub(chat)) normalizeChat(chat)
         }
@@ -926,6 +928,7 @@ export function getCurrentCharacter(options:getDatabaseOptions = {}):character{
 }
 
 export function setCurrentCharacter(char:character){
+    initializeChatSelection(char, true)
     if(!DBState.db.characters){
         DBState.db.characters = []
     }
@@ -942,6 +945,7 @@ export function getCharacterByIndex(index:number,options:getDatabaseOptions = {}
 }
 
 export function setCharacterByIndex(index:number,char:character){
+    initializeChatSelection(char, true)
     if(!DBState.db.characters){
         DBState.db.characters = []
     }
@@ -950,12 +954,12 @@ export function setCharacterByIndex(index:number,char:character){
 
 export function getCurrentChat(){
     const char = getCurrentCharacter()
-    return char?.chats[char.chatPage]
+    return char?.chats[getChatPage(char)]
 }
 
 export function setCurrentChat(chat:Chat){
     const char = getCurrentCharacter()
-    char.chats[char.chatPage] = normalizeChat(chat)
+    char.chats[getChatPage(char)] = normalizeChat(chat)
     setCurrentCharacter(char)
 }
 
@@ -1541,7 +1545,6 @@ export interface character{
     notes:string
     chats:Chat[]
     chatFolders: ChatFolder[]
-    chatPage: number
     viewScreen: 'emotion'|'none',
     bias: [string, number][]
     emotionImages: [string, string][]

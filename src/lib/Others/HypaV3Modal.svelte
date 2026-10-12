@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import { onDestroy, untrack } from "svelte";
   import { 
     type SerializableSummary, 
@@ -42,7 +44,7 @@
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
-      DBState.db.characters[$selectedCharID].chatPage
+      getChatPage(DBState.db.characters[$selectedCharID])
     ].hypaV3Data
   );
 
@@ -96,7 +98,7 @@
 
     untrack(() => {
       DBState.db.characters[$selectedCharID].chats[
-        DBState.db.characters[$selectedCharID].chatPage
+        getChatPage(DBState.db.characters[$selectedCharID])
       ].hypaV3Data ??= {
         summaries: [],
         categories: [{ id: "", name: language.hypaV3Modal.unclassified }],
@@ -373,7 +375,7 @@
       )
     ) {
       DBState.db.characters[$selectedCharID].chats[
-        DBState.db.characters[$selectedCharID].chatPage
+        getChatPage(DBState.db.characters[$selectedCharID])
       ].hypaV3Data = {
         summaries: [],
       };

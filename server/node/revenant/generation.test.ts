@@ -419,7 +419,7 @@ describe('revenant workflow validation', () => {
             normalized.inputCommit.chat,
         )).toMatchObject({
             chat: { id: 'room-1', message: [] },
-            character: { chats: [{ id: 'room-1', message: [] }], chatPage: 0 },
+            character: { chats: [{ id: 'room-1', message: [] }] },
         })
         expect(normalizeRevenantWorkflowContext(
             { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },

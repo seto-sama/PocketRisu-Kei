@@ -19,6 +19,7 @@ const {
     normalizePersonaSelection,
     normalizeSystemRoleReplacement,
     setDatabaseLite,
+    getCurrentChat,
     loadTogglesFromChat,
     saveTogglesToChat,
     initializeToggleValues,
@@ -26,6 +27,7 @@ const {
 } = await import('./database.svelte')
 const { isChatStub } = await import('./chatStub')
 const { DBState } = await import('../stores.svelte')
+const { setChatPage } = await import('./chatSelection.svelte')
 
 describe('persona module toggles', () => {
     it('uses the selected persona modules while chat binding is hidden', () => {
@@ -62,7 +64,7 @@ describe('hidden chat toggle binding', () => {
             DBState.db = {
                 disableToggleBinding: true,
                 globalChatVariables: { toggle_test: 'current' },
-                characters: [{ chatPage: 0, chats: [chat] }],
+                characters: [{ chats: [chat] }],
             } as unknown as Database
 
             loadTogglesFromChat(chat)
@@ -88,7 +90,7 @@ describe('chat toggle pins', () => {
             DBState.db = {
                 customPromptTemplateToggle: 'value=Value=text\nflag=Flag\nchoice=Choice=select=First,Second\ntext=Text=text\nheading=Heading=caption',
                 globalChatVariables: { toggle_value: 'pinned', toggle_orphan: 'orphan', other: 'untouched' },
-                characters: [{ customModuleToggle: 'character=Character', chatPage: 0, chats: [chat] }],
+                characters: [{ customModuleToggle: 'character=Character', chats: [chat] }],
             } as unknown as Database
 
             saveTogglesToChat()
@@ -131,6 +133,22 @@ describe('chat toggle pins', () => {
 })
 
 describe('database chat normalization', () => {
+    it('keeps the current chat across database replacement and reordering', () => {
+        const previous = DBState.db
+        const database = (ids: string[]) => ({
+            characters: [{ chaId: 'selection-test', chats: ids.map(id => ({ id, _stub: true })) }],
+        }) as any
+        try {
+            setDatabaseLite(database(['a', 'c', 'b']))
+            setChatPage(DBState.db.characters[0], 1)
+            setDatabaseLite(database(['b', 'a', 'c']))
+            expect(getCurrentChat().id).toBe('c')
+            expect(DBState.db.characters[0]).not.toHaveProperty('chatPage')
+        } finally {
+            DBState.db = previous
+        }
+    })
+
     it('preserves server stubs while assigning ids to hydrated messages', () => {
         const stub = { id: 'stub-chat', name: 'Stub', _stub: true }
         const full: {

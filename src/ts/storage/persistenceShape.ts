@@ -1,7 +1,10 @@
 import persistenceShape from '../../../shared/persistenceShape.json'
 
 /** One ownership manifest is consumed by both browser and Node persistence. */
-const runtimeOnlyCharacterFields = new Set(persistenceShape.runtimeOnlyCharacterFields)
+const nonPersistentCharacterFields = new Set([
+    ...persistenceShape.runtimeOnlyCharacterFields,
+    ...persistenceShape.legacyCharacterFields,
+])
 const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields)
 const serverOwnedRootFields = persistenceShape.serverOwnedRootFields as Record<string, string[]>
 
@@ -13,13 +16,12 @@ function getServerOwnedRootFields(key: string) {
 
 /** Whether a character field belongs to browser-authored persistence. */
 export function isClientWritableCharacterField(key: string): boolean {
-    return !runtimeOnlyCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
+    return !nonPersistentCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
 }
 
-/** Remove browser-local runtime state before hashing or serializing a character. */
-export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'reloadKeys'> {
+export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'reloadKeys' | 'chatPage'> {
     const persistent = { ...character }
-    for (const key of runtimeOnlyCharacterFields) delete persistent[key]
+    for (const key of nonPersistentCharacterFields) delete persistent[key]
     return persistent
 }
 

@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from 'svelte/store'
 import { DBState, selectedCharID } from 'src/ts/stores.svelte'
 import { getCharacterByIndex, normalizeChat, type Chat } from 'src/ts/storage/database.svelte'
@@ -31,7 +32,7 @@ export async function setChatToIndex(characterIndex: number, chatIndex: number, 
     const saved = normalizeChat({ ...chat, id: slot.id })
     markChatWorkingCopyDirty(character.chaId, saved.id)
     character.chats[chatIndex] = saved
-    const isOpen = characterIndex === get(selectedCharID) && character.chatPage === chatIndex
+    const isOpen = characterIndex === get(selectedCharID) && getChatPage(character) === chatIndex
     if (!isOpen) {
         const characterId = character.chaId
         const chatId = saved.id

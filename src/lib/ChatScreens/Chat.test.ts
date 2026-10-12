@@ -235,7 +235,6 @@ beforeEach(() => {
         zoomsize: 100,
         lineHeight: 1.25,
         characters: [{
-            chatPage: 0,
             name: 'Character',
             chats: [{
                 message: [{ role: 'user', data: 'User message', chatId: 'message-0' }],

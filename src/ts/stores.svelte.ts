@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get, writable } from "svelte/store";
 import type { character, Database } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
@@ -347,8 +348,8 @@ $effect.root(() => {
         if (DBState?.db?.characters?.[selIdState.selId]) {
             if (DBState.db.hypaV3 && DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.alwaysToggleOn) {
                 const char = DBState.db.characters[selIdState.selId]
-                if (char?.chats?.[char.chatPage]) {
-                    char.chats[char.chatPage].supaMemory = true
+                if (char?.chats?.[getChatPage(char)]) {
+                    char.chats[getChatPage(char)].supaMemory = true
                 }
             }
         }
@@ -363,8 +364,8 @@ $effect.root(() => {
         DBState?.db?.personaEnabledModules
         DBState?.db?.showPersonaInSidebar
         DBState?.db?.selectedPersona
-        DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.bindedPersona
-        DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.modules?.length
+        DBState?.db?.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState?.db?.characters?.[selIdState.selId])]?.bindedPersona
+        DBState?.db?.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState?.db?.characters?.[selIdState.selId])]?.modules?.length
         DBState?.db?.characters?.[selIdState.selId]?.hideChatIcon
         DBState?.db?.characters?.[selIdState.selId]?.backgroundHTML
         DBState?.db?.moduleIntergration

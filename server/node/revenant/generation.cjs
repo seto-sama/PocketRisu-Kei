@@ -68,7 +68,6 @@ function resolveRevenantPostprocessRecipe(context, inputChat) {
         character: {
             ...snapshot.character,
             chats: [chat],
-            chatPage: 0,
         },
         chat,
     };

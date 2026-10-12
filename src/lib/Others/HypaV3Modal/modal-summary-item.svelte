@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
+  import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import {
     LanguagesIcon,
     StarIcon,
@@ -153,7 +155,7 @@
 
   function isOrphan(): boolean {
     const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[DBState.db.characters[$selectedCharID].chatPage];
+    const chat = char.chats[getChatPage(DBState.db.characters[$selectedCharID])];
 
     for (const chatMemo of summary.chatMemos) {
       if (chatMemo == null) {
@@ -207,7 +209,7 @@
     chatMemo: string | null
   ): Promise<Message | null> {
     const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[DBState.db.characters[$selectedCharID].chatPage];
+    const chat = char.chats[getChatPage(DBState.db.characters[$selectedCharID])];
     const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
 
     let msg = null;

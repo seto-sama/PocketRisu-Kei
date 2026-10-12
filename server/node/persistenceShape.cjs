@@ -2,7 +2,10 @@
 
 const persistenceShape = require('../../shared/persistenceShape.json');
 
-const runtimeOnlyCharacterFields = new Set(persistenceShape.runtimeOnlyCharacterFields);
+const runtimeOnlyCharacterFields = new Set([
+    ...persistenceShape.runtimeOnlyCharacterFields,
+    ...persistenceShape.legacyCharacterFields,
+]);
 const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields);
 const serverOwnedRootFields = persistenceShape.serverOwnedRootFields;
 

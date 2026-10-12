@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { OpenAIChat } from '../index.svelte'
+import { setChatPage } from 'src/ts/storage/chatSelection.svelte'
 
 const { workflowState } = vi.hoisted(() => ({
     workflowState: { workflow: undefined as undefined | { workflowId: string } },
@@ -128,7 +129,6 @@ describe('buildGenerationRequest', () => {
             mode: 'memory' as const,
             currentChar: {
                 chaId: 'character-1',
-                chatPage: 0,
                 chats: [{ id: 'submitted-room', message: [] }],
             },
         } as any
@@ -195,7 +195,6 @@ describe('buildGenerationRequest', () => {
             chatId: 'message-1',
             currentChar: {
                 chaId: 'character-1',
-                chatPage: 0,
                 chats: [{ id: 'room-1', message: [] }],
             },
         } as any
@@ -220,7 +219,6 @@ describe('buildGenerationRequest', () => {
             chatId: 'message-1',
             currentChar: {
                 chaId: 'character-1',
-                chatPage: 0,
                 chats: [{ id: 'room-1', message: [] }],
             },
             revenantWorkflowId: 'submitted-workflow',
@@ -233,25 +231,26 @@ describe('buildGenerationRequest', () => {
     })
 
     test('keeps main generation ownership on the submitted room after navigation', () => {
+        const currentChar = {
+            chaId: 'character-navigation-test',
+            chats: [
+                { id: 'submitted-room', message: [{ role: 'char', data: 'old answer' }] },
+                { id: 'visible-room', message: [{ role: 'char', data: 'other answer' }] },
+            ],
+        }
+        // The UI has already moved away from the submitted room.
+        setChatPage(currentChar, 1)
         const request = buildGenerationRequest({
             formated: [],
             bias: {},
             mode: 'model',
             chatId: 'message-1',
-            currentChar: {
-                chaId: 'character-1',
-                // The UI has already moved away from the submitted room.
-                chatPage: 1,
-                chats: [
-                    { id: 'submitted-room', message: [{ role: 'char', data: 'old answer' }] },
-                    { id: 'visible-room', message: [{ role: 'char', data: 'other answer' }] },
-                ],
-            },
+            currentChar,
             revenantRoomId: 'submitted-room',
         } as any)
 
         expect(request?.job).toMatchObject({
-            characterId: 'character-1',
+            characterId: 'character-navigation-test',
             roomId: 'submitted-room',
         })
     })
@@ -261,7 +260,7 @@ describe('buildGenerationRequest', () => {
         const request = buildGenerationRequest({
             formated: [], bias: {}, mode: 'model',
             currentChar: {
-                chaId: 'character-1', chatPage: 0,
+                chaId: 'character-1',
                 chats: [{ id: 'room-1', message: [] }],
             },
             revenantClientAction: {
@@ -288,7 +287,7 @@ describe('buildGenerationRequest', () => {
         const request = buildGenerationRequest({
             formated: [], bias: {}, mode: 'model', chatId: 'message-1',
             currentChar: {
-                chaId: 'character-1', chatPage: 0,
+                chaId: 'character-1',
                 chats: [{ id: 'room-1', message: [] }],
             },
             revenantClientAction: {

@@ -37,7 +37,7 @@ describe('sidebar binding buttons', () => {
         Object.assign(DBState.db, {
             showPresetInSidebar: shown,
             showPersonaInSidebar: shown,
-            characters: [{ chatPage: 0, chats: [{
+            characters: [{ chats: [{
                 bindedBotPreset: 'bound-prompt', bindedPersona: 'bound-persona',
             }] }],
             botPresets: [{ id: 'global-prompt', name: 'Global Prompt' }, { id: 'bound-prompt', name: 'Bound Prompt' }],
@@ -64,7 +64,7 @@ describe('sidebar binding buttons', () => {
         Object.assign(DBState.db, {
             showPresetInSidebar: true,
             showPersonaInSidebar: true,
-            characters: [{ chatPage: 0, chats: [{
+            characters: [{ chats: [{
                 bindedBotPreset: bound ? 'prompt-id' : '',
                 bindedPersona: bound ? 'persona-id' : '',
             }] }],

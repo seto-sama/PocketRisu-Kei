@@ -1,3 +1,4 @@
+import { getChatPage, setChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from 'svelte/store'
 import { changeChar } from './characters'
 import { changeChatTo } from './globalApi.svelte'
@@ -37,11 +38,11 @@ export function navigateToChatMessage(target: ChatMessageNavigationTarget): bool
 
     if (get(selectedCharID) !== target.characterIndex) {
         // Select the destination room before character activation so changeChar
-        // hydrates only that room instead of briefly loading the old chatPage.
-        character.chatPage = target.chatIndex
+        // hydrates only that room instead of briefly loading the previous room.
+        setChatPage(character, target.chatIndex)
         changeChar(target.characterIndex)
     }
-    else if (character.chatPage !== target.chatIndex) {
+    else if (getChatPage(character) !== target.chatIndex) {
         changeChatTo(target.chatIndex)
     }
     return true

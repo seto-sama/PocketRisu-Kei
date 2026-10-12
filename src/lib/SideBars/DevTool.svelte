@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
     import Input from "../UI/components/Input.svelte";
     import NumberInput from "../UI/components/NumberInput.svelte";
@@ -86,12 +88,12 @@
             for (let i = 0; i < $devToolAutopilotStore.length; i++) {
                 const db = DBState.db
                 const currentChar = db.characters[$selectedCharID]
-                const currentChat = currentChar.chats[currentChar.chatPage]
+                const currentChat = currentChar.chats[getChatPage(currentChar)]
                 currentChat.message.push({
                     role: 'user',
                     data: $devToolAutopilotStore[i],
                 })
-                currentChar.chats[currentChar.chatPage] = currentChat
+                currentChar.chats[getChatPage(currentChar)] = currentChat
                 db.characters[$selectedCharID] = currentChar
 
                 const generated = await sendChat(i)
@@ -117,8 +119,8 @@
 <div class="w-full min-w-0 shrink-0">
 <Accordion name={language.chatVariables}>
     <SettingsList spacing="none">
-        {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate).length > 0}
-            {#each Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate) as key}
+        {#if DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate).length > 0}
+            {#each Object.keys(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate) as key}
                 <SettingsList
                     variant="row"
                     size="compact"
@@ -127,12 +129,12 @@
                 >
                     <span class="min-w-0 truncate pl-1 text-sm">{key}</span>
                     <div class="min-w-0 flex-1">
-                        {#if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "object"}
+                        {#if typeof DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key] === "object"}
                             <div class="text-center text-sm text-subtext">Object</div>
-                        {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "string"}
-                            <Input size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
-                        {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "number"}
-                            <NumberInput size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as number} />
+                        {:else if typeof DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key] === "string"}
+                            <Input size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key] as string} />
+                        {:else if typeof DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key] === "number"}
+                            <NumberInput size="sm" className={variableInputClass} bind:value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key] as number} />
                         {/if}
                     </div>
                     <button
@@ -142,7 +144,7 @@
                         title={language.remove}
                         onclick={async () => {
                             if (!await alertConfirm(`${language.removeConfirm}${key}`)) return
-                            delete DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key]
+                            delete DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].scriptstate[key]
                         }}
                     >
                         <TrashIcon size={16} />
@@ -167,7 +169,7 @@
         {:then token}
             {@render tokenRow(language.devToolTokens.activeLorebook, `${token} ${language.tokens}`)}
         {/await}
-        {#await getChatToken(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage])}
+        {#await getChatToken(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])])}
             {@render tokenRow(language.devToolTokens.currentChat, language.devToolTokens.loading)}
         {:then token}
             {@render tokenRow(language.devToolTokens.currentChat, `${token} ${language.tokens}`)}

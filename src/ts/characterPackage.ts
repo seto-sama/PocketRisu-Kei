@@ -1,3 +1,4 @@
+import { setChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import * as fflate from 'fflate'
 import { createEntityId } from 'src/ts/id';
@@ -303,7 +304,7 @@ async function importChatsToCharacter(
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
             targetChar.chatFolders = chatsJson.folders
         }
-        targetChar.chatPage = 0
+        setChatPage(targetChar, 0)
     }
     return importedChats
 }

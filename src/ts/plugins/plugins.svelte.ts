@@ -2,6 +2,7 @@ import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
 import { language } from "../../lang";
 import { getCurrentCharacter, getDatabase, setDatabase, setDatabaseLite } from "../storage/database.svelte";
+import { initializeChatSelection, pluginCharacterSelections, withChatSelection } from '../storage/chatSelection.svelte';
 import { alertConfirm, alertError } from "../alert";
 import { selectSingleImportFile, sleep } from "../util";
 import type { OpenAIChat } from "../process/index.svelte";
@@ -587,9 +588,10 @@ export const getV2PluginAPIs = () => {
             }
         },
         getChar: () => {
-            return getCurrentCharacter({ snapshot: true })
+            return withChatSelection(getCurrentCharacter({ snapshot: true }))
         },
         setChar: (char: any) => {
+            initializeChatSelection(char, true)
             const db = getDatabase()
             const charid = get(selectedCharID)
             db.characters[charid] = char
@@ -747,6 +749,7 @@ export const getV2PluginAPIs = () => {
             }
             return new Proxy(db, {
                 get(target, prop) {
+                    if (prop === 'characters') return pluginCharacterSelections(target.characters)
                     if (typeof prop === 'string' && allowedDbKeys.includes(prop)) {
                         return (target as any)[prop];
                     }
@@ -757,6 +760,7 @@ export const getV2PluginAPIs = () => {
                     return undefined;
                 },
                 set(target, prop, value) {
+                    if (prop === 'characters') value.forEach(character => initializeChatSelection(character, true))
                     if (typeof prop === 'string' && allowedDbKeys.includes(prop)) {
                         (target as any)[prop] = value;
                         return true;
@@ -822,6 +826,7 @@ export const getV2PluginAPIs = () => {
             }
         },
         setDatabaseLite: (newDb: any) => {
+            newDb.characters?.forEach(character => initializeChatSelection(character, true))
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
             for (const key of Object.keys(newDb)) {
@@ -835,6 +840,7 @@ export const getV2PluginAPIs = () => {
             DBState.db = db;
         },
         setDatabase: async (newDb: any) => {
+            newDb.characters?.forEach(character => initializeChatSelection(character, true))
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
             for (const key of Object.keys(newDb)) {

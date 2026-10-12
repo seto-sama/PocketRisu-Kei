@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from "svelte/store";
 import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeChat, setDatabase } from "../storage/database.svelte";
 import { selectedCharID } from "../stores.svelte";
@@ -42,7 +43,7 @@ export async function processMultiCommand(command:string) {
 async function processCommand(command:string, pipe:string):Promise<false | string>{
     const db = getDatabase()
     const currentChar = db.characters[get(selectedCharID)]
-    const currentChat = currentChar.chats[currentChar.chatPage]
+    const currentChat = currentChar.chats[getChatPage(currentChar)]
     let {commandName, arg, namedArg} = commandParser(command, pipe)
 
     if(!arg){
@@ -179,12 +180,12 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = arg
             console.log(chat.scriptstate)
 
-            char.chats[char.chatPage] = chat
+            char.chats[getChatPage(char)] = chat
             db.characters[selectedChar] = char
             setDatabase(db)
             return ''
@@ -193,11 +194,11 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = (Number(chat.scriptstate['$' + namedArg['key']]) + Number(arg)).toString()
 
-            char.chats[char.chatPage] = chat
+            char.chats[getChatPage(char)] = chat
             db.characters[selectedChar] = char
             setDatabase(db)
             return ''
@@ -206,7 +207,7 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             pipe = (chat.scriptstate['$' + namedArg['key']]).toString() ?? 'null'
             return pipe

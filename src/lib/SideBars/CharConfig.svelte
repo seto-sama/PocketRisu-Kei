@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "../../lang";
     import { type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
@@ -117,10 +119,10 @@
     <Textarea
         margin="both"
         autocomplete="off"
-        bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note}
+        bind:value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].note}
         placeholder={getAuthorNoteDefaultText()}
     />
-    <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
+    <TokenCount value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-maintext">{language.firstMessage}<Help key="charFirstMessage"/></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></Textarea>
@@ -156,7 +158,7 @@
                         </button>
                         <button class="p-1 risu-interactive-danger" onclick={() => {
                             if(DBState.db.characters[$selectedCharID].type === 'character'){
-                                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex = -1
+                                DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex = -1
                                 let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
                                 alternateGreetings.splice(i, 1)
                                 DBState.db.characters[$selectedCharID].alternateGreetings = alternateGreetings
@@ -330,7 +332,7 @@
                 }}
                 onDelete={() => {
                     const char = DBState.db.characters[$selectedCharID] as character
-                    char.chats[char.chatPage].fmIndex = -1
+                    char.chats[getChatPage(char)].fmIndex = -1
                 }}
                 showExclusionToggle={!!DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
                 excludedPaths={DBState.db.characters[$selectedCharID].prebuiltAssetExclude ?? []}

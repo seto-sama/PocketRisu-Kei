@@ -2,13 +2,14 @@ import { Buffer } from 'buffer'
 import { writable } from 'svelte/store'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { character, Chat, loreBook } from '../storage/database.svelte'
+import { setChatPage } from 'src/ts/storage/chatSelection.svelte'
 
 const mocks = vi.hoisted(() => ({
     DBState: { db: { characters: [] as character[] } },
     selectFile: vi.fn(), save: vi.fn(), hydrate: vi.fn(), dirty: vi.fn(), error: vi.fn(),
 }))
 vi.mock(import('../stores.svelte'), () => ({ DBState: mocks.DBState as { db: import('../storage/database.svelte').Database }, selectedCharID: writable(0) }))
-vi.mock(import('../util'), () => ({ selectSingleFile: mocks.selectFile }))
+vi.mock(import('../util'), () => ({ selectSingleImportFile: mocks.selectFile }))
 vi.mock(import('../globalApi.svelte'), () => ({ requestImmediateSave: mocks.save }))
 vi.mock(import('../storage/chatStorage'), () => ({
     ensureChatHydrated: mocks.hydrate, getChatServerEtag: () => 'current-etag',
@@ -25,7 +26,7 @@ import { importLoreBook } from './lorebook.svelte'
 const entry = (content: string) => ({ key: content, content } as loreBook)
 const chat = (id: string) => ({ id, message: [], localLore: [entry(id)] } as Chat)
 const character = (id: string) => ({
-    chaId: id, chatPage: 0, chats: [chat(`${id}-1`), chat(`${id}-2`)], globalLore: [entry(id)],
+    chaId: id, chats: [chat(`${id}-1`), chat(`${id}-2`)], globalLore: [entry(id)],
 } as character)
 const importedFile = () => ({ data: Buffer.from(JSON.stringify({ type: 'risu', data: [entry('imported')] })) })
 
@@ -34,6 +35,7 @@ describe('lorebook import target', () => {
         vi.resetAllMocks()
         selectedCharID.set(0)
         mocks.DBState.db.characters = [character('a'), character('b')]
+        setChatPage(mocks.DBState.db.characters[0], 0)
         mocks.selectFile.mockResolvedValue(importedFile())
         mocks.hydrate.mockImplementation(async (chats: Chat[], index: number) => chats[index])
     })
@@ -62,8 +64,8 @@ describe('lorebook import target', () => {
         mocks.hydrate.mockImplementation(async () => {
             const target = character('a')
             target.chats[0].localLore.push(entry('remote'))
-            target.chatPage = 1
             mocks.DBState.db.characters = [character('b'), target]
+            setChatPage(target, 1)
             return target.chats[0]
         })
         await importLoreBook('local')

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { ChevronDownIcon, ScrollTextIcon } from "@lucide/svelte";
+  import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import { language } from "src/lang";
   import { alertNormalWait } from "src/ts/alert";
   import type { OpenAIChat } from "src/ts/process/index.svelte";
@@ -61,7 +63,7 @@
 
   function getManualSummaryCutoffIndex(): number {
     const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[char.chatPage];
+    const chat = char.chats[getChatPage(char)];
     const lastSummary = hypaV3Data?.summaries?.at(-1);
     const lastChatMemo = lastSummary?.chatMemos?.at(-1);
 
@@ -74,7 +76,7 @@
 
   function getManualSummaryMessages(): ManualSummaryMessage[] {
     const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[char.chatPage];
+    const chat = char.chats[getChatPage(char)];
     const messages: ManualSummaryMessage[] = [];
     const firstMessage = getFirstMessage();
     const cutoffIndex = getManualSummaryCutoffIndex();

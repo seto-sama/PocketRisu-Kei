@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "src/lang";
     import { type loreBook } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
@@ -63,8 +65,7 @@
                     // Use externally passed lorebook array
                     currentArray = externalLoreBooks;
                 } else if (submenu === 1) {
-                    // Use local chat lorebook
-                    currentArray = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore;
+                    currentArray = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore;
                 } else {
                     // Use character global lorebook (default)
                     currentArray = DBState.db.characters[$selectedCharID].globalLore;
@@ -81,7 +82,7 @@
                     // Arrays passed as props must be modified internally to reflect in parent
                     externalLoreBooks.splice(0, externalLoreBooks.length, ...newArray);
                 } else if (submenu === 1) {
-                    DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore = newArray;
+                    DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore = newArray;
                 } else {
                     DBState.db.characters[$selectedCharID].globalLore = newArray;
                 }
@@ -204,15 +205,15 @@
                 {/each}
             {/if}
         {:else if submenu === 1}
-            {@const visibleItems = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
+            {@const visibleItems = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if visibleItems.length === 0}
                 <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
-            {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.length > 0}
-                {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore as book, i}
+            {#if DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore.length > 0}
+                {#each DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
-                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore[i]} idx={i} bind:openedRefs
+                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore[i]} idx={i} bind:openedRefs
                         isOpen={openedRefs.has(book)}
                         isLastInContainer={book === lastVisibleItem}
                         onRemove={() => {
@@ -223,13 +224,13 @@
                                 onClose(false, book)
                             }
                             
-                            let lore  = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore
+                            let lore  = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore
                             removeFromLoreBooks(lore, book)
-                            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore = lore
+                            DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore = lore
                         }} 
                         onOpen={(isDetail = true) => onOpen(isDetail, book)}
                         onClose={(isDetail = true) => onClose(isDetail, book)}
-                        bind:externalLoreBooks={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore}/>
+                        bind:externalLoreBooks={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore}/>
                     {:else}
                         <!-- Hidden marker for filtered items (for SortableJS) -->
                         <div data-risu-idx={i} data-risu-idgroup={idgroup} data-risu-hidden="true" style="display: none;"></div>

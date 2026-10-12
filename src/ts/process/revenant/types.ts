@@ -167,7 +167,7 @@ export interface RevenantPostprocessRecipe {
 }
 
 export interface RevenantPostprocessSnapshot extends Omit<RevenantPostprocessRecipe, 'chat' | 'character'> {
-    character: Omit<character, 'chats' | 'chatPage'>
+    character: Omit<character, 'chats'>
     /** RFC 6902 changes from inputCommit.chat to the postprocess chat. */
     chatPatch: Array<{
         op: 'add' | 'remove' | 'replace'

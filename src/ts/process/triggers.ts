@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { parseChatML } from "../parser/chatML";
 import { risuChatParser } from "../parser/parser.svelte";
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type Chat, type character } from "../storage/database.svelte";
@@ -1072,7 +1073,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     ])
     const db = getDatabase()
     const defaultVariables = parseKeyValue(char.defaultVariables).concat(parseKeyValue(db.templateDefaultVariables))
-    let chat = arg.displayMode ? arg.chat : structuredClone(arg.chat ?? char.chats[char.chatPage])
+    let chat = arg.displayMode ? arg.chat : structuredClone(arg.chat ?? char.chats[getChatPage(char)])
     
     const previousTriggerId = get(CurrentTriggerIdStore)
     const shouldSetTriggerId = !arg.displayMode && mode !== 'display'
@@ -1204,8 +1205,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         chat.scriptstate ??= {}
         chat.scriptstate['$' + key] = value
         currentChat.scriptstate = chat.scriptstate
-        currentCharacter.chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
-        db.characters[selectedCharId].chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
+        currentCharacter.chats[getChatPage(currentCharacter)].scriptstate = chat.scriptstate
+        db.characters[selectedCharId].chats[getChatPage(currentCharacter)].scriptstate = chat.scriptstate
     }
     
     

@@ -1,4 +1,6 @@
 import { get } from "svelte/store";
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
 import { processScriptFull, risuChatParser } from "src/ts/process/scripts";
 import { type Message } from "src/ts/storage/database.svelte";
 import { alertConfirm } from "src/ts/alert";
@@ -92,7 +94,7 @@ export function handleDualAction(
 
 export function getFirstMessage(): string | null {
   const char = DBState.db.characters[get(selectedCharID)];
-  const chat = char.chats[DBState.db.characters[get(selectedCharID)].chatPage];
+  const chat = char.chats[getChatPage(DBState.db.characters[get(selectedCharID)])];
 
   return chat.fmIndex === -1
     ? char.firstMessage
@@ -158,7 +160,7 @@ export async function getNextSummarizationTarget(
   hypaV3Data: SerializableHypaV3Data
 ): Promise<Message | null> {
   const char = DBState.db.characters[get(selectedCharID)];
-  const chat = char.chats[char.chatPage];
+  const chat = char.chats[getChatPage(char)];
   const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
 
   const lastSummary = hypaV3Data.summaries.at(-1);
