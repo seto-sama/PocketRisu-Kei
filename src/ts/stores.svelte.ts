@@ -38,7 +38,7 @@ export const sidebarDevTool = writable(false)
 export const devToolAutopilotStore = writable<string[]>([])
 export const CurrentTriggerIdStore = writable<string | null>(null)
 export const CharEmotion = writable({} as {[key:string]: [string, string, number][]})
-export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 }); // Default width and height in pixels
+export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 });
 export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
@@ -62,9 +62,6 @@ export const personaSelectCallback = writable<((index: number) => void) | null>(
 export const openHypaV3PresetList = writable(false)
 export const bookmarkListOpen = writable(false)
 export const SettingsMenuIndex = writable(-1)
-// Boot-time backup reminder prompt — set by bootstrap and rendered by
-// BootBackupPrompt. The component resolves the user's choice (proceed/skip)
-// back via the resolve callback. See src/ts/bootstrap.ts.
 export interface BootBackupPromptData {
     estimate: number | null
     free: number | null
@@ -78,9 +75,7 @@ export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 export const AddonSubmenuIndex = writable(0)
 export const SystemSubmenuIndex = writable(0)
 export const AdminStatsSubmenuIndex = writable(0)
-// Sub-tab index inside the Accessibility settings page. A store so the model-
-// mode gear button can deep-link to the Sidebar tab — see src/ts/routing
-// (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
+// Shared tab state allows the model settings button to open the Sidebar tab.
 export const AccessibilitySubmenuIndex = writable(0)
 export const HotkeySubmenuIndex = writable(0)
 // Shared tab state lets settings search deep-link into pages that previously
@@ -211,11 +206,7 @@ export const loadingOverlayStore = writable<{
     onCancel: null,
 })
 
-/**
- * Show the overlay for one operation. The returned function hides it only
- * while that operation still owns it, so a slow earlier load finishing late
- * cannot hide the overlay of the load that replaced it.
- */
+/** A late completion must not hide the overlay claimed by a newer operation. */
 export function claimLoadingOverlay(text: string, onCancel: (() => void) | null = null): () => void {
     const owner = Symbol('loading-overlay')
     loadingOverlayStore.set({ active: true, text, onCancel, owner })
@@ -226,7 +217,6 @@ export function claimLoadingOverlay(text: string, onCancel: (() => void) | null 
     }
 }
 
-/** Dismiss a claimed overlay when its chat or character transition is replaced. */
 export function dismissClaimedLoadingOverlay(): void {
     if (get(loadingOverlayStore).owner !== undefined) {
         loadingOverlayStore.set({ active: false, text: '', onCancel: null })

@@ -247,14 +247,12 @@
     </div>
 
     <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
-        <!-- folder div -->
         <SortableList
             className="flex flex-col"
             handle=".chat-folder-header"
             dragPreviewText={(folderId) => chara.chatFolders.find(folder => folder.id === folderId)?.name}
             onReorder={reorderFolders}
         >
-            <!-- chat folder -->
             {#each chara.chatFolders as folder, i (folder.id)}
             {@const folderColorStyle = getFolderColorStyle(folder.color)}
             {@const folderChats = chatsByFolder.get(folder.id) ?? []}
@@ -262,7 +260,6 @@
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="risu-folder-section flex flex-col mb-1"
                 style:--risu-folder-color={folderColorStyle.accent}>
-                <!-- folder header -->
                 <div
                     role="button"
                     tabindex="0"
@@ -296,7 +293,6 @@
                         <SettingsIcon />
                     </IconButton>
                 </div>
-                <!-- chats in folder -->
                 <SortableList
                     className="risu-sidebar-chat-list risu-folder-children risu-tree-list flex flex-col gap-1 mt-1 text-maintext cursor-pointer {folder.folded ? 'hidden' : ''}"
                     draggable="[data-sortable-chat-id]"
@@ -327,7 +323,6 @@
             </div>
             {/each}
         </SortableList>
-        <!-- chat without folder div -->
         <SortableList
             className="risu-sidebar-chat-list flex flex-col gap-1"
             draggable="[data-sortable-chat-id]"

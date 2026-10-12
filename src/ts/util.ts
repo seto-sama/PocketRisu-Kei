@@ -137,7 +137,7 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
     
         document.body.appendChild(fileInput);
         fileInput.click();
-        fileInput.style.display = 'none'; // Hide the file input element
+        fileInput.style.display = 'none';
     });
 }
 
@@ -247,7 +247,7 @@ export function getAuthorNoteDefaultText(){
 }
 
 export async function encryptBuffer(data:Uint8Array, keys:string){
-    // hash the key to get a fixed length key value
+    // Derive a fixed-length AES-GCM key from the supplied password.
     const keyArray = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(keys))
 
     const key = await window.crypto.subtle.importKey(
@@ -258,7 +258,6 @@ export async function encryptBuffer(data:Uint8Array, keys:string){
         ["encrypt", "decrypt"]
     )
 
-    // use web crypto api to encrypt the data
     const result = await window.crypto.subtle.encrypt(
         {
             name: "AES-GCM",
@@ -272,7 +271,7 @@ export async function encryptBuffer(data:Uint8Array, keys:string){
 }
 
 export async function decryptBuffer(data:Uint8Array, keys:string){
-    // hash the key to get a fixed length key value
+    // Derive the same fixed-length AES-GCM key used during encryption.
     const keyArray = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(keys))
 
     const key = await window.crypto.subtle.importKey(
@@ -283,7 +282,6 @@ export async function decryptBuffer(data:Uint8Array, keys:string){
         ["encrypt", "decrypt"]
     )
 
-    // use web crypto api to encrypt the data
     const result = await window.crypto.subtle.decrypt(
         {
             name: "AES-GCM",
@@ -392,48 +390,14 @@ export function uuidtoNumber(uuid:string){
     return result
 }
 
-/**
- * Appends the given last path to the provided URL.
- *
- * @param {string} url - The base URL to which the last path will be appended.
- * @param {string} lastPath - The path to be appended to the URL.
- * @returns {string} The modified URL with the last path appended.
- * 
- * @example
- * appendLastPath("https://github.com/kwaroran/Risuai","/commits/main")
- * return 'https://github.com/kwaroran/Risuai/commits/main'
- * 
- * @example
- * appendLastPath("https://github.com/kwaroran/Risuai/","/commits/main")
- * return 'https://github.com/kwaroran/Risuai/commits/main
- * 
- * @example
- * appendLastPath("http://127.0.0.1:7997","embeddings")
- * return 'http://127.0.0.1:7997/embeddings'
- */
+/** Join a URL and path after trimming their boundary slashes. */
 export function appendLastPath(url, lastPath) {
-    // Remove trailing slash from url if exists
     url = url.replace(/\/$/, '');
-    
-    // Remove leading slash from lastPath if exists
     lastPath = lastPath.replace(/^\//, '');
-
-    // Concat the url and lastPath
     return url + '/' + lastPath;
 }
 
-/**
- * Converts the text content of a given Node object, including HTML elements, into a plain text sentence.
- *
- * @param {Node} node - The Node object from which the text content will be extracted.
- * @returns {string} The plain text sentence representing the content of the Node object.
- *
- * @example
- * const div = document.createElement('div');
- * div.innerHTML = 'Hello<br>World<del>Deleted</del>';
- * const sentence = getNodetextToSentence(div);
- * console.log(sentence); // Output: "Hello\nWorld~Deleted~"
- */
+/** Convert text and basic formatting elements to markdown-like plain text. */
 export function getNodetextToSentence(node: Node): string {
     let result = '';
     for (const child of node.childNodes) {
@@ -1071,15 +1035,7 @@ export function asBuffer(arr: Uint8Array<ArrayBufferLike> | ArrayBufferLike): Ui
     }
 }
 
-/**
- * Semaphore: Concurrency control mechanism
- *
- * Limits the number of operations that can run simultaneously.
- * When max concurrent operations are running, new operations wait in queue.
- *
- * Example: If max=3, only 3 asset saves can run at once.
- * The 4th save waits until one of the first 3 completes.
- */
+/** Queue acquisitions that exceed the configured concurrency limit. */
 export class Semaphore {
     private available: number
     private readonly max: number

@@ -499,7 +499,6 @@ export function setDatabase(data:Database){
             image:"",
             base64image:"",
             InfoExtracted:1,
-            //add 4
             autoSmea:false,
             legacy_uc:false,
             use_coords:false,
@@ -528,7 +527,6 @@ export function setDatabase(data:Database){
             reference_fidelity: 1,
         }
     }
-    //add NAI v4 (사용중인 사람용 추가 DB Init)
     if(checkNullish(data.NAIImgConfig.v4_prompt)){
         data.NAIImgConfig.autoSmea = false;
         data.NAIImgConfig.use_coords = false;
@@ -654,7 +652,7 @@ export function setDatabase(data:Database){
     }
     data.top_p ??= 1
     if(typeof(data.top_p) !== 'number'){
-        //idk why type changes, but it does so this is a fix
+        // Restore the supported numeric default for malformed persisted values.
         data.top_p = 1
     }
     //@ts-expect-error data.google has required fields (accessToken, projectId), but we use empty object as default and populate below
@@ -1839,20 +1837,16 @@ export interface NAIImgConfig{
     image:string,
     base64image:string,
     InfoExtracted:number,
-    //add 4
     autoSmea:boolean,
     use_coords:boolean,
     legacy_uc: boolean,
     v4_prompt:NAIImgConfigV4Prompt,
     v4_negative_prompt:NAIImgConfigV4NegativePrompt,
-    //add vibe
     reference_image_multiple?:string[],
     reference_strength_multiple?:number[],
     vibe_data?:NAIVibeData,
     vibe_model_selection?:string
-    //add variety+ option
     variety_plus:boolean,
-    //add character reference
     reference_mode:string,
     character_image:string,
     character_base64image:string,
@@ -1862,23 +1856,19 @@ export interface NAIImgConfig{
     reference_fidelity:number,
 }
 
-//add 4
 interface NAIImgConfigV4Prompt{
     caption: NAIImgConfigV4Caption,
     use_coords: boolean,
     use_order: boolean
 }
-//add 4
 interface NAIImgConfigV4NegativePrompt{
     caption: NAIImgConfigV4Caption,
     legacy_uc: boolean
 }
-//add 4
 interface NAIImgConfigV4Caption{
     base_caption: string,
     char_captions: NAIImgConfigV4CharCaption[]
 }
-//add 4
 interface NAIImgConfigV4CharCaption{
     char_caption: string,
     centers:
@@ -2375,7 +2365,6 @@ export function saveCurrentPreset(){
     if(!Array.isArray(pres)){
         pres = []
     }
-    //if out of bounds, create a new preset
     if(db.botPresetsId >= pres.length){
         pres.push(savedPreset)
     }

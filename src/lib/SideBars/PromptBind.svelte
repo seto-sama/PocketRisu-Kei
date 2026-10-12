@@ -25,10 +25,8 @@
             : DBState.db.botPresets[DBState.db.botPresetsId]
     )
 
-    // Data-sync (옵션 A): when entering a chat whose bindedBotPreset resolves
-    // to a valid preset, flip the global active preset so the rest of the
-    // codebase — which only reads db.botPresetsId — automatically uses the
-    // bound one. No-op when no binding or when already active.
+    // The prompt pipeline reads db.botPresetsId, so activate the bound preset
+    // while this chat is selected.
     $effect(() => {
         if (boundPresetIndex >= 0 && DBState.db.botPresetsId !== boundPresetIndex) {
             changeToPreset(boundPresetIndex)

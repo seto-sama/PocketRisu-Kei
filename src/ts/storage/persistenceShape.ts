@@ -14,7 +14,6 @@ function getServerOwnedRootFields(key: string) {
         : undefined
 }
 
-/** Whether a character field belongs to browser-authored persistence. */
 export function isClientWritableCharacterField(key: string): boolean {
     return !nonPersistentCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
 }
@@ -25,14 +24,12 @@ export function characterToPersistentShape<T extends Record<string, any>>(charac
     return persistent
 }
 
-/** Fields a browser may send when replacing a character block. */
 export function characterToClientWriteShape<T extends Record<string, any>>(character: T) {
     const writable = characterToPersistentShape(character) as Record<string, any>
     for (const key of serverOwnedCharacterFields) delete writable[key]
     return writable
 }
 
-/** Root fields a browser may send in a full database write. */
 export function rootValueToClientWriteShape(key: string, value: any) {
     const serverOwned = getServerOwnedRootFields(key)
     if (!serverOwned || !value || typeof value !== 'object') return value
@@ -84,7 +81,6 @@ export function characterWithServerBaseline(character: any, baseline: any) {
     return next
 }
 
-/** Restore browser-local defaults after a persisted database is loaded. */
 export function initializeCharacterRuntimeState<T>(character: T & { reloadKeys?: number }): T & { reloadKeys?: number } {
     if (!Number.isFinite(character.reloadKeys)) character.reloadKeys = 0
     return character

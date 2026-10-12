@@ -56,7 +56,6 @@ export class ChatHandler extends MCPToolHandler {
 
     const reversedMessages = [...char.chats[getChatPage(char)].message].reverse()
 
-    // Now that the array is sorted from newest to oldest, we can slice it
     const history = reversedMessages.slice(offset, offset + count)
 
     const ordered = history.map((entry) => ({

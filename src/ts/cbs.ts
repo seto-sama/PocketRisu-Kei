@@ -79,8 +79,6 @@ export type matcherArg = {
     getNested?: () => string[]
     setNestedRoot?: (val:string) => void
 }
-"a".toLowerCase().split('::')
-
 export type RegisterCallback = (str: string, matcherArg: matcherArg, args:string[], vars: { [key: string]: string } | null) => {
     text: string,
     var: { [key: string]: string }
@@ -535,7 +533,6 @@ export function registerCBS(arg:CBSRegisterArg) {
         description: 'Returns the current UTC date in YYYY-MM-DD format (month not zero-padded). Useful for timezone-independent date references.\n\nUsage:: {{isodate}}',
     });
 
-    // Continue with remaining utility functions
     registerFunction({
         name: 'messageidleduration',
         callback: (str, matcherArg, args, vars) => {

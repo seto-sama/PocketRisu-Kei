@@ -264,9 +264,8 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
     while (Date.now() < deadline) {
         const button = target.querySelector<HTMLButtonElement>('.button-icon-translate')
         if (button?.classList.contains('text-primary') === active) {
-            // Cache-state publication is intentionally deferred until after
-            // the rendered HTML commits. Require the state to remain stable
-            // so this catches a stale render cache undoing the user's click.
+            // Cache writes can finish after the button updates; wait for its
+            // state to survive the resulting render.
             await new Promise(resolve => setTimeout(resolve, 30))
             const settledButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')
             if (settledButton?.classList.contains('text-primary') === active) return settledButton

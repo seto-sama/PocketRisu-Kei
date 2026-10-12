@@ -146,12 +146,7 @@ function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number |
     }
 }
 
-/**
- * Gets the source URL of a file.
- * 
- * @param {string} loc - The location of the file.
- * @returns {Promise<string>} - A promise that resolves to the source URL of the file.
- */
+/** Resolve an asset path to a browser-usable source. */
 export async function getFileSrc(loc: string) {
     // A direct server URL lets the browser cache the response using HTTP headers,
     // so repeated renders (sidebar, chat) cost zero network after first load.
@@ -184,24 +179,12 @@ export async function getFileSrc(loc: string) {
     }
 }
 
-/**
- * Reads an image file and returns its data.
- * 
- * @param {string} data - The path to the image file.
- * @returns {Promise<Uint8Array>} - A promise that resolves to the data of the image file.
- */
+/** Read image bytes from asset storage. */
 export async function readImage(data: string) {
     return (await forageStorage.getItem(data) as unknown as Uint8Array)
 }
 
-/**
- * Saves an asset file with the given data, custom ID, and file name.
- * 
- * @param {Uint8Array} data - The data of the asset file.
- * @param {string} [customId=''] - The custom ID for the asset file.
- * @param {string} [fileName=''] - The name of the asset file.
- * @returns {Promise<string>} - A promise that resolves to the path of the saved asset file.
- */
+/** Save asset bytes under their content hash or a supplied ID. */
 export async function saveAsset(data: Uint8Array, customId: string = '', fileName: string = '') {
     let id = ''
     if (customId !== '') {
@@ -226,12 +209,7 @@ export async function saveAsset(data: Uint8Array, customId: string = '', fileNam
     return form
 }
 
-/**
- * Loads an asset file with the given ID.
- * 
- * @param {string} id - The ID of the asset file to load.
- * @returns {Promise<Uint8Array>} - A promise that resolves to the data of the loaded asset file.
- */
+/** Load asset bytes by storage path. */
 export async function loadAsset(id: string) {
     return await forageStorage.getItem(id) as unknown as Uint8Array
 }
@@ -241,11 +219,6 @@ export let saving = $state({
     state: false
 })
 
-/**
- * Saves the current state of the database.
- * 
- * @returns {Promise<void>} - A promise that resolves when the database has been saved.
- */
 export let requiresFullEncoderReload = $state({
     state: false
 })
@@ -1133,13 +1106,7 @@ export async function saveDb() {
                 showChatGuardToastThrottled('client')
 
                 if (isChatGuardDebugEnabled()) {
-                // ── Diagnostic dump for unknown root cause ────────────────
-                // chatToStub is supposed to strip every chat down to metadata
-                // fields before the diff. If non-stub fields end
-                // up in patch ops, something slipped past it. Dump enough
-                // shape info to figure out which side of the diff carries
-                // the contraband (baseline vs current) and what flags the
-                // chat object has.
+                // Compare baseline/current shapes and replay chatToStub to locate leaked fields.
                 const affectedChats: Record<string, any> = {}
                 const seen = new Set<string>()
                 const baselineCharsLen = (patcher as any).lastSyncedDb?.characters?.length ?? -1
@@ -1148,7 +1115,6 @@ export async function saveDb() {
                 const summarize = (c: any) => {
                     if (c == null) return null
                     const keys = Object.keys(c)
-                    // Per-key shape: which fields are strings vs arrays vs objects vs primitives
                     const keyShapes: Record<string, string> = {}
                     for (const k of keys) {
                         const v = c[k]
@@ -1158,8 +1124,8 @@ export async function saveDb() {
                         else keyShapes[k] = `${typeof v}=${typeof v === 'string' && v.length > 30 ? v.slice(0, 30) + '…' : JSON.stringify(v)}`
                     }
                     return {
-                        keys,                                  // full key list, not just length
-                        keyShapes,                             // per-key type/preview
+                        keys,
+                        keyShapes,
                         classification: classifyChat(c),
                         _stub: c._stub,
                         _placeholder: c._placeholder,
@@ -1167,18 +1133,12 @@ export async function saveDb() {
                         messageLen: Array.isArray(c.message) ? c.message.length : null,
                         id: c.id,
                         name: c.name,
-                        // Type fingerprints help identify Svelte $state proxies
-                        // or other wrapper objects that might bypass deep clone.
                         ctor: c?.constructor?.name,
                         isFrozen: Object.isFrozen(c),
                         isProxy: typeof c === 'object' && c !== null && (c as any)?.[Symbol.toStringTag] !== undefined,
                     }
                 }
 
-                // Re-run chatToStub on the current chat to see what the patcher
-                // would have produced. If this still has non-stub fields, the
-                // bug is INSIDE chatToStub's isChatStub short-circuit (chat
-                // already has `_stub: true` but isn't actually a stub).
                 const stubReplay = (c: any) => {
                     if (c == null) return null
                     try {
@@ -1202,7 +1162,6 @@ export async function saveDb() {
                     const baselineChat = baselineChar?.chats?.[chi]
                     const currentChat = currentChar?.chats?.[chi]
                     const opsForThisChat = dangerous.filter(d => d.path.startsWith(`/characters/${ci}/chats/${chi}/`))
-                    // Reference identity: same object? same chats array? same chat slot?
                     const refIdentity = {
                         sameCharacter: baselineChar === currentChar,
                         sameChatsArray: baselineChar?.chats === currentChar?.chats,
@@ -1219,18 +1178,13 @@ export async function saveDb() {
                         },
                         baselineChat: summarize(baselineChat),
                         currentChat: summarize(currentChat),
-                        // The crucial diagnostic: if this still leaks message etc,
-                        // chatToStub's isChatStub fast-path was the offender.
                         currentAfterChatToStub: stubReplay(currentChat),
                         baselineAfterChatToStub: stubReplay(baselineChat),
                         opsForThisChat,
                     }
                 }
 
-                // Distribution of stub/placeholder flags across the affected
-                // characters' chats — useful to spot wholesale corruption
-                // (e.g. a plugin replacing the entire chats array with
-                // _stub-tagged objects).
+                // Compare stub/placeholder states across affected chat arrays.
                 const charsDistribution: Record<string, any> = {}
                 for (const k of Array.from(seen).slice(0, 3)) {
                     const ci = +k.split('/')[0]
@@ -1499,11 +1453,7 @@ export async function saveDb() {
     }
 }
 
-/**
- * Retrieves the database backups.
- * 
- * @returns {Promise<number[]>} - A promise that resolves to an array of backup timestamps.
- */
+/** Prune old local backups and return the remaining timestamps. */
 export async function getDbBackups(currentDbSize?: number) {
     const keys = await forageStorage.keys()
 
@@ -1524,12 +1474,7 @@ export async function getDbBackups(currentDbSize?: number) {
     return backups
 }
 
-/**
- * Retrieves fetch data for a given chat ID.
- * 
- * @param {string} id - The chat ID to search for in the fetch log.
- * @returns {fetchLog | null} - The fetch log entry if found, otherwise null.
- */
+/** Look up a fetch log by chat ID, falling back to persistent storage. */
 export async function getFetchData(id: string): Promise<FetchLog | null> {
     for (const log of fetchLog) {
         if (log.chatId === id) {
@@ -1549,19 +1494,6 @@ export async function getFetchData(id: string): Promise<FetchLog | null> {
 
 const knownHostes = ["localhost", "127.0.0.1", "0.0.0.0"];
 
-/**
- * Interface representing the arguments for the global fetch function.
- * 
- * @interface GlobalFetchArgs
- * @property {boolean} [plainFetchForce] - Whether to force plain fetch.
- * @property {any} [body] - The body of the request.
- * @property {{ [key: string]: string }} [headers] - The headers of the request.
- * @property {boolean} [rawResponse] - Whether to return the raw response.
- * @property {'POST' | 'GET'} [method] - The HTTP method to use.
- * @property {AbortSignal} [abortSignal] - The abort signal to cancel the request.
- * @property {boolean} [useRisuToken] - Whether to use the Risu token.
- * @property {string} [chatId] - The chat ID associated with the request.
- */
 interface GlobalFetchArgs {
     plainFetchForce?: boolean;
     plainFetchDeforce?: boolean;
@@ -1579,14 +1511,6 @@ interface GlobalFetchArgs {
     llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy;
 }
 
-/**
- * Interface representing the result of the global fetch function.
- * 
- * @interface GlobalFetchResult
- * @property {boolean} ok - Whether the request was successful.
- * @property {any} data - The data returned from the request.
- * @property {{ [key: string]: string }} headers - The headers returned from the request.
- */
 interface GlobalFetchResult {
     ok: boolean;
     data: any;
@@ -1594,13 +1518,7 @@ interface GlobalFetchResult {
     status: number;
 }
 
-/**
- * Performs a global fetch request.
- * 
- * @param {string} url - The URL to fetch.
- * @param {GlobalFetchArgs} [arg={}] - The arguments for the fetch request.
- * @returns {Promise<GlobalFetchResult>} - The result of the fetch request.
- */
+/** Route a request through native, proxy, or plain fetch according to its options. */
 export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promise<GlobalFetchResult> {
     try {
         if (arg.abortSignal?.aborted) { return { ok: false, data: 'aborted', headers: {}, status: 400 }; }
@@ -1674,13 +1592,6 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
     }
 }
 
-/**
- * Performs a fetch request using plain fetch.
- * 
- * @param {string} url - The URL to fetch.
- * @param {GlobalFetchArgs} arg - The arguments for the fetch request.
- * @returns {Promise<GlobalFetchResult>} - The result of the fetch request.
- */
 async function fetchWithPlainFetch(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
     try {
         const headers = { 'Content-Type': 'application/json', ...arg.headers };
@@ -1693,13 +1604,6 @@ async function fetchWithPlainFetch(url: string, arg: GlobalFetchArgs): Promise<G
     }
 }
 
-/**
- * Performs a fetch request using a proxy.
- * 
- * @param {string} url - The URL to fetch.
- * @param {GlobalFetchArgs} arg - The arguments for the fetch request.
- * @returns {Promise<GlobalFetchResult>} - The result of the fetch request.
- */
 async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
     try {
         const furl = `/proxy2`;
@@ -1746,26 +1650,12 @@ async function createRequiredNodeAuth() {
     return auth
 }
 
-/**
- * Regular expression to match backslashes.
- * 
- * @constant {RegExp}
- */
-/**
- * Gets the basename of a given path.
- * 
- * @param {string} data - The path to get the basename from.
- * @returns {string} - The basename of the path.
- */
 export function getBasename(data: string) {
     return data.replace(/\\/g, '/').split('/').pop() ?? '';
 }
 
 
-/**
- * Checks and updates the character order in the database.
- * Ensures that all characters are properly ordered and removes any invalid entries.
- */
+/** Normalize character order against the current character list. */
 export function checkCharOrder() {
     const db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
@@ -1836,11 +1726,6 @@ export function checkCharOrder() {
 
 }
 
-/**
- * Retrieves the fetch logs array.
- *
- * @returns {FetchLog[]} The fetch logs array.
- */
 export function getFetchLogs() {
     return fetchLog
 }
@@ -1883,21 +1768,10 @@ export async function deleteServerFetchLog(id: string) {
     return deleteServerFetchLogRequest(id, () => forageStorage.createAuth())
 }
 
-/**
- * Opens a URL in the appropriate environment.
- * 
- * @param {string} url - The URL to open.
- */
 export function openURL(url: string) {
     window.open(url, "_blank")
 }
 
-/**
- * Converts FormData to a URL-encoded string.
- * 
- * @param {FormData} formData - The FormData to convert.
- * @returns {string} The URL-encoded string.
- */
 function formDataToString(formData: FormData): string {
     const params: string[] = [];
 
@@ -1908,31 +1782,17 @@ function formDataToString(formData: FormData): string {
     return params.join('&');
 }
 
-/**
- * Class representing a local writer.
- */
+/** Write backup data to a browser-managed file stream. */
 export class LocalWriter {
     writer: WritableStreamDefaultWriter
 
-    /**
-     * Initializes the writer.
-     * 
-     * @param {string} [name='Binary'] - The name of the file.
-     * @param {string[]} [ext=['bin']] - The file extensions.
-     * @returns {Promise<boolean>} - A promise that resolves to a boolean indicating success.
-     */
     async init(name = 'Binary', ext = ['bin']): Promise<boolean> {
         const writableStream = streamSaver.createWriteStream(name + '.' + ext[0])
         this.writer = writableStream.getWriter()
         return true
     }
 
-    /**
-     * Writes backup data to the file.
-     * 
-     * @param {string} name - The name of the backup.
-     * @param {Uint8Array} data - The data to write.
-     */
+    /** Append one named backup entry to the archive. */
     async writeBackup(name: string, data: Uint8Array): Promise<void> {
         const encodedName = new TextEncoder().encode(getBasename(name))
         const nameLength = new Uint32Array([encodedName.byteLength])
@@ -1943,43 +1803,25 @@ export class LocalWriter {
         await this.writer.write(data)
     }
 
-    /**
-     * Writes data to the file.
-     * 
-     * @param {Uint8Array} data - The data to write.
-     */
     async write(data: Uint8Array): Promise<void> {
         await this.writer.write(data)
     }
 
-    /**
-     * Closes the writer.
-     */
     async close(): Promise<void> {
         await this.writer.close()
     }
 }
 
-/**
- * Class representing a virtual writer.
- */
+/** Collect backup output in memory instead of opening a file. */
 export class VirtualWriter {
     buf = new AppendableBuffer()
 
-    /**
-     * Writes data to the buffer.
-     * 
-     * @param {Uint8Array} data - The data to write.
-     */
     write(data: Uint8Array): void {
         this.buf.append(data)
     }
 
-    /**
-     * Closes the writer. (No operation for VirtualWriter)
-     */
+    /** Closing is a no-op so this matches the writer interface. */
     close(): void {
-        // do nothing
     }
 }
 
@@ -1995,20 +1837,12 @@ let fetchIndex = 0
  */
 let nativeFetchData: { [key: string]: StreamedFetchChunk[] } = {}
 
-/**
- * Interface representing a streamed fetch chunk data.
- * @interface
- */
 interface StreamedFetchChunkData {
     type: 'chunk',
     body: string,
     id: string
 }
 
-/**
- * Interface representing a streamed fetch header data.
- * @interface
- */
 interface StreamedFetchHeaderData {
     type: 'headers',
     body: { [key: string]: string },
@@ -2016,42 +1850,16 @@ interface StreamedFetchHeaderData {
     status: number
 }
 
-/**
- * Interface representing a streamed fetch end data.
- * @interface
- */
 interface StreamedFetchEndData {
     type: 'end',
     id: string
 }
 
-/**
- * Type representing a streamed fetch chunk.
- * @typedef {StreamedFetchChunkData | StreamedFetchHeaderData | StreamedFetchEndData} StreamedFetchChunk
- */
 type StreamedFetchChunk = StreamedFetchChunkData | StreamedFetchHeaderData | StreamedFetchEndData
 
-/**
- * Interface representing a streamed fetch plugin.
- * @interface
- */
 interface StreamedFetchPlugin {
-    /**
-     * Performs a streamed fetch operation.
-     * @param {Object} options - The options for the fetch operation.
-     * @param {string} options.id - The ID of the fetch operation.
-     * @param {string} options.url - The URL to fetch.
-     * @param {string} options.body - The body of the fetch request.
-     * @param {{ [key: string]: string }} options.headers - The headers of the fetch request.
-     * @returns {Promise<{ error: string, success: boolean }>} - The result of the fetch operation.
-     */
     streamedFetch(options: { id: string, url: string, body: string, headers: { [key: string]: string } }): Promise<{ "error": string, "success": boolean }>;
 
-    /**
-     * Adds a listener for the specified event.
-     * @param {string} eventName - The name of the event.
-     * @param {(data: StreamedFetchChunk) => void} listenerFunc - The function to call when the event is triggered.
-     */
     addListener(eventName: 'streamed_fetch', listenerFunc: (data: StreamedFetchChunk) => void): void;
 }
 
@@ -2068,17 +1876,12 @@ let streamedFetchListening = false
 let capStreamedFetch: StreamedFetchPlugin | undefined
 
 
-/**
- * A class to manage a buffer that can be appended to and deappended from.
- */
+/** Buffer that supports absolute-offset reads after discarding leading bytes. */
 export class AppendableBuffer {
     deapended: number = 0
     #buffer: Uint8Array
     #byteLength: number = 0
 
-    /**
-     * Creates an instance of AppendableBuffer.
-     */
     constructor() {
         this.#buffer = new Uint8Array(128)
     }
@@ -2087,12 +1890,7 @@ export class AppendableBuffer {
         return this.#buffer.slice(0, this.#byteLength)
     }
 
-    /**
-     * Appends data to the buffer.
-     * @param {Uint8Array} data - The data to append.
-     */
     append(data: Uint8Array) {
-        // New way (faster)
         const requiredLength = this.#byteLength + data.length
         if (this.#buffer.byteLength < requiredLength) {
             let newLength = this.#buffer.byteLength * 2
@@ -2107,37 +1905,22 @@ export class AppendableBuffer {
         this.#byteLength += data.length
     }
 
-    /**
-     * Deappends a specified length from the buffer.
-     * @param {number} length - The length to deappend.
-     */
+    /** Discard leading bytes while preserving absolute offsets for slice(). */
     deappend(length: number) {
         this.#buffer = this.#buffer.slice(length)
         this.deapended += length
         this.#byteLength -= length
     }
 
-    /**
-     * Slices the buffer from start to end.
-     * @param {number} start - The start index.
-     * @param {number} end - The end index.
-     * @returns {Uint8Array} - The sliced buffer.
-     */
+    /** Slice using absolute offsets, including bytes already deappended. */
     slice(start: number, end: number) {
         return this.buffer.slice(start - this.deapended, end - this.deapended)
     }
 
-    /**
-     * Gets the total length of the buffer including deappended length.
-     * @returns {number} - The total length.
-     */
     length() {
         return this.#byteLength + this.deapended
     }
 
-    /**
-     * Clears the buffer.
-     */
     clear() {
         this.#buffer = new Uint8Array(128)
         this.#byteLength = 0
@@ -2145,43 +1928,18 @@ export class AppendableBuffer {
     }
 }
 
-/**
- * A class that provides a blank writer implementation.
- * 
- * This class is used to provide a no-op implementation of a writer, making it compatible with other writer interfaces.
- */
+/** No-op writer for APIs that require the common writer interface. */
 export class BlankWriter {
     constructor() {
     }
 
-    /**
-     * Initializes the writer.
-     * 
-     * This method does nothing and is provided for compatibility with other writer interfaces.
-     */
     async init() {
-        //do nothing, just to make compatible with other writer
     }
 
-    /**
-     * Writes data to the writer.
-     * 
-     * This method does nothing and is provided for compatibility with other writer interfaces.
-     * 
-     * @param {string} key - The key associated with the data.
-     * @param {Uint8Array|string} data - The data to be written.
-     */
     async write(key: string, data: Uint8Array | string) {
-        //do nothing, just to make compatible with other writer
     }
 
-    /**
-     * Ends the writing process.
-     * 
-     * This method does nothing and is provided for compatibility with other writer interfaces.
-     */
     async end() {
-        //do nothing, just to make compatible with other writer
     }
 }
 

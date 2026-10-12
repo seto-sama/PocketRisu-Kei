@@ -937,7 +937,6 @@ async function hypaMemoryV3MainExp(
         };
 
         try {
-            // Start of performance measurement: addTexts
             console.log(
                 `${logPrefix} Starting addTexts with ${ebdTexts.length} chunks`
             );
@@ -950,7 +949,6 @@ async function hypaMemoryV3MainExp(
             console.debug(
                 `${logPrefix} addTexts completed in ${addEndTime - addStartTime}ms`
             );
-            // End of performance measurement: addTexts
         } catch (error) {
             return {
                 currentTokens,
@@ -988,7 +986,6 @@ async function hypaMemoryV3MainExp(
 
         if (queries.length > 0) {
             try {
-                // Start of performance measurement: similarity search
                 console.log(
                     `${logPrefix} Starting similarity search with ${recentChats.length} queries`
                 );
@@ -998,38 +995,11 @@ async function hypaMemoryV3MainExp(
                     queries.map((query) => query.content)
                 );
 
-                /*
-                // Hybrid search may be implemented in the future
-                await keywordEngine.addDocuments(
-                  Array.from(processor.vectors.values())
-                );
-        
-                const batchkeywordResults = [];
-                for (const query of queries) {
-                  batchkeywordResults.push(await keywordEngine.search(query));
-                }
-        
-                const batchHybridResults = [];
-                for (let i = 0; i < queries.length; i++) {
-                  const [semanticResults] = batchScoredResults[i];
-                  const keywordResults = batchkeywordResults[i];
-        
-                  batchHybridResults.push(
-                    simpleRRF<EmbeddingResult<Summary>>([
-                      semanticResults,
-                      keywordResults,
-                    ])
-                  );
-                }
-                */
-
                 const searchEndTime = performance.now();
                 console.debug(
                     `${logPrefix} Similarity search completed in ${searchEndTime - searchStartTime
                     }ms`
                 );
-                // End of performance measurement: similarity search
-
                 const rankedChunks = simpleCC<EmbeddingResult<Summary>>(
                     batchScoredResults,
                     (listIndex) => queries[listIndex].weight
@@ -2150,26 +2120,6 @@ function simpleCC<T>(
         .map(([item]) => item);
 }
 
-function simpleRRF<T>(rankedLists: T[][], k: number = 60): T[] {
-    const scores = new Map<T, number>();
-
-    for (let listIndex = 0; listIndex < rankedLists.length; listIndex++) {
-        const list = rankedLists[listIndex];
-
-        for (let itemIndex = 0; itemIndex < list.length; itemIndex++) {
-            const item = list[itemIndex];
-            const rank = itemIndex + 1;
-            const rrfTerm = 1 / (k + rank);
-
-            scores.set(item, (scores.get(item) || 0) + rrfTerm);
-        }
-    }
-
-    return Array.from(scores.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([item]) => item);
-}
-
 function childToParentRRF<C, P>(
     rankedChildren: C[],
     parentFunc: (child: C) => P,
@@ -2189,29 +2139,6 @@ function childToParentRRF<C, P>(
     return Array.from(scores.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([parent]) => parent);
-}
-
-function normalizeScores<T>(scoredList: [T, number][]): [T, number][] {
-    if (scoredList.length === 0) {
-        return [];
-    }
-
-    const scores = scoredList.map(([, score]) => score);
-    const minScore = Math.min(...scores);
-    const maxScore = Math.max(...scores);
-
-    if (minScore === maxScore) {
-        if (minScore === 0) {
-            return scoredList.map(([item]) => [item, 0]);
-        }
-
-        return scoredList.map(([item]) => [item, 1]);
-    }
-
-    return scoredList.map(([item, score]) => {
-        const normalizedScore = (score - minScore) / (maxScore - minScore);
-        return [item, normalizedScore];
-    });
 }
 
 interface SummaryChunkVector {

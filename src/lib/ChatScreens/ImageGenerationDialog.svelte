@@ -49,7 +49,7 @@
             seed?: number | string
             draft?: ImageGenerationDraft
         }) | null
-        // `draft` supports the short-lived wrapper shape used by an earlier build.
+        // Accept the wrapper shape stored by an earlier version of the draft.
         const draft = cached?.draft ?? cached
         if(typeof draft?.prompt === 'string') prompt = draft.prompt
         if(typeof draft?.negativePrompt === 'string') negativePrompt = draft.negativePrompt

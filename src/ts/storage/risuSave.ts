@@ -232,7 +232,6 @@ export class RisuSaveEncoder {
         }
         if(toSave.character.length > 0){
             console.log(`Deleting character data: ${toSave.character.join(', ')}`);
-            //probably deleted characters
             for(const chaId of toSave.character){
                 if(!savedId.has(chaId)){
                     delete this.blocks[chaId];
@@ -391,7 +390,6 @@ export class RisuSaveDecoder {
                 offset += length;
 
                 if (compression) {
-                    //decode using DecompressionStream
                     const cs = new DecompressionStream('gzip');
                     const writer = cs.writable.getWriter();
                     writer.write(blockData as any);
@@ -470,7 +468,6 @@ export class RisuSaveDecoder {
                     break;
                 }
                 case RisuSaveType.CONFIG:{
-                    //ignore for now
                     break;
                 }
                 case RisuSaveType.PLUGINS:{
@@ -512,7 +509,6 @@ export class RisuSaveDecoder {
                 }
             }
         }
-        //to fix botpreset bugs
         if(!Array.isArray(db.botPresets) || db.botPresets.length === 0){
             db.botPresets = [createBotPresetTemplate()]
             db.botPresetsId = 0
@@ -615,7 +611,6 @@ function checkHeader(data: Uint8Array) {
         }
     }
 
-    // All bytes matched
     return header;
 }
 
@@ -717,20 +712,9 @@ export function normalizeJSON(value: any, seen?: WeakSet<object>): any {
     return result;
 }
 
-// Compare two arrays element-wise, but emit a single `replace` op covering the
-// whole array when structure changes (add, remove, reorder). Element-wise diff
-// via fast-json-patch is dangerous on arrays of deep objects: deleting one
-// entry shifts every following index, each shifted slot deep-diffs "old item N
-// vs new item N+1", and the resulting op list can balloon past V8's function
-// argument limit (~125k) — `patch.push(...ops)` then throws
-// `RangeError: Maximum call stack size exceeded`. Callers MUST iterate the
-// returned ops with `for (const op of ops) patch.push(op)` rather than spread,
-// to stay safe even when a single item's internal diff is large.
-//
-// Detect structural changes by id equality at each index, forcing `replace`
-// when ids are falsy or duplicated (defensive against corrupted backups or
-// backups predating the id field).
-export function diffArrayWithIdGuard(
+// Index shifts in deeply nested arrays can generate enormous elementwise diffs.
+// Replace structural changes or invalid IDs as a unit; append returned ops without spreading.
+function diffArrayWithIdGuard(
     compare: (a: any, b: any) => any[],
     path: string,
     lastArr: any[] | undefined,
@@ -1039,7 +1023,6 @@ export class RisuSavePatcher {
             const normChars = normalizeJSON(curCharacters.map((character: any) =>
                 withStubs(character, lastById.get(character?.chaId))))
             patch.push({ op: 'replace', path: '/characters', value: normChars })
-            // Update all character hashes
             for (const lastId of lastIds) {
                 if (lastId) delete this.hashBlocks[lastId];
             }

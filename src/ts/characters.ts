@@ -58,7 +58,6 @@ async function importCharactersAndPackages() {
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
     const db = getDatabase()
     
-    // Return placeholder when hideAllImages is enabled
     if(db.hideAllImages){
         if(type === 'plain'){
             return '/none.webp'
@@ -190,7 +189,7 @@ export async function exportChat(page:number){
         const selectedID = get(selectedCharID)
         const db = getDatabase()
         const char = db.characters[selectedID]
-        // Ensure chat is hydrated before export
+        // Export needs the full chat body, not a server placeholder.
         if(char.chats[page]?._placeholder){
             await ensureChatHydrated(char.chats, page, char.chaId)
         }
@@ -212,7 +211,6 @@ export async function exportChat(page:number){
             }
 
             if(anonymous){
-                //case insensitive match, replace all
                 const excapedName = char.name.replace(/[-\/\\^$*+\?\.()|[\]{}]/g, '\\$&')
 
                 v = v.replace(new RegExp(`${excapedName}`, 'gi'), '×××')
@@ -354,7 +352,6 @@ export async function exportChat(page:number){
         else if(mode === '3'){
             const theme = getCurrentExportTheme()
             const cellStyle = `padding: 0.75rem; border: 1px solid ${theme.border}; vertical-align: top; text-align: left;`
-            //create a html table
             let chatContentHTML = ''
 
             let i = 0
@@ -383,8 +380,6 @@ export async function exportChat(page:number){
                 <p style="color: ${theme.mutedText};">Chat from ${PRODUCT_NAME}</p>
                 </div>
             `
-
-            //copy to clipboard
 
             const item = new ClipboardItem({
                 'text/html': new Blob([template], { type: 'text/html' }),
@@ -542,7 +537,6 @@ export async function exportAllChats() {
 }
 
 function formatTavernChat(chat:string, charName:string){
-    const db = getDatabase()
     return chat.replace(/<([Uu]ser)>|\{\{([Uu]ser)\}\}/g, getUserName()).replace(/((\{\{)|<)([Cc]har)(=.+)?((\}\})|>)/g, charName)
 }
 

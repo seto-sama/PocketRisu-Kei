@@ -31,7 +31,7 @@
     }: Props = $props();
     let ele: HTMLDivElement = $state()
     let sorted = $state(0)
-    let idgroup = 'a' + createEntityId() //make should it starts with alphabetic character
+    let idgroup = 'a' + createEntityId() // Ensure the group identifier starts with a letter.
     
     $effect(() => {
         if (!ele) return;
@@ -44,10 +44,10 @@
             onMove: (event) => !(event.dragged.dataset.loreMode === 'folder' && event.to.dataset.showFolder),
             handle: '[data-disclosure-toggle]',
             swapThreshold: 0.9,      // More sensitive drag response
-            animation: 150, // Animation
-            chosenClass: "risu-chosen-item", // Class for the item being dragged
-            dragClass: "risu-drag-item", // Class applied only after dragging starts
-            ghostClass: "risu-ghost-item",  // Class for the drop placeholder
+            animation: 150,
+            chosenClass: "risu-chosen-item",
+            dragClass: "risu-drag-item",
+            ghostClass: "risu-ghost-item",
 
             onStart: (event) => {
                 dragOrigin = { item: event.item, parent: event.from, nextSibling: event.item.nextSibling };
@@ -59,15 +59,13 @@
                     return;
                 }
 
-                // Select the correct data array based on component props and state
+                // Resolve the backing list before applying the DOM reorder.
                 let currentArray: loreBook[];
                 if (externalLoreBooks) {
-                    // Use externally passed lorebook array
                     currentArray = externalLoreBooks;
                 } else if (submenu === 1) {
                     currentArray = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore;
                 } else {
-                    // Use character global lorebook (default)
                     currentArray = DBState.db.characters[$selectedCharID].globalLore;
                 }
 

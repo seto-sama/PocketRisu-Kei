@@ -101,9 +101,7 @@
                 if (!generated) return
             }
         } finally {
-            // sendChat's normal UI caller clears this flag, but DevTool invokes
-            // it directly. Always release it so the next autopilot turn and the
-            // chat composer can proceed, including after an exception.
+            // DevTool bypasses the UI caller that normally clears doingChat.
             doingChat.set(false)
         }
     }

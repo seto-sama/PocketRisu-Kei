@@ -51,23 +51,11 @@ import {
 } from "./pluginPermissionState";
 
 /*
-    V3 API for RisuAI Plugins
-
-    Before adding new APIs here, please check the limitations
-
-    - APIs must be a functions
-        - If you want nested objects, first add as a plain function, `_getPluginStorage` for example
-            And add it too _getAliases function ({'pluginStorage':{'getItem': '_getPluginStorage', ... }})
-            This will make pluginStorage.getItem() work in plugins
-        - If you need constants, use _getPropertiesForInitialization to set them up
-            For example apiVersion and apiVersionCompatibleWith are set this way,
-            Accessable in plugins as risuai.apiVersion
-    - APIs must return, or accept as parameters, only the following types:
-        - Serializable data (string, number, boolean, null, array, object)
-        - Class instances marked with __classType = 'REMOTE_REQUIRED'
-        - Callback functions (only as parameters)
-        - Note that Class or Callbacks inside arrays or objects are not supported
-*/
+ * Sandbox RPC exposes functions only. Build nested APIs with _getAliases and
+ * constants with _getPropertiesForInitialization. Arguments/results must be
+ * serializable data or REMOTE_REQUIRED instances; callbacks are input-only.
+ * Remote instances and callbacks cannot be nested in arrays or objects.
+ */
 
 const pluginChannels = new Map<string, Map<string, Function>>();
 
@@ -199,11 +187,9 @@ class SafeElement {
         this.#element.setAttribute('style', value);
     }
     public addClass(className: string) {
-        // 
         this.#element.classList.add(className);
     }
     public removeClass(className: string) {
-        // 
         this.#element.classList.remove(className);
     }
     public setClassName(className: string){
@@ -213,7 +199,6 @@ class SafeElement {
         return this.#element.className
     }
     public hasClass(className: string): boolean {
-        //We don't need to check the className here since we're just checking
         return this.#element.classList.contains(className);
     }
     public focus() {
@@ -565,14 +550,13 @@ const unloadV3Plugin = async (pluginName: string) => {
 
         await Promise.race([
             Promise.all(promises),
-            sleep(1000) //timeout after 1 second
+            sleep(1000)
         ])
     }
     for(const [id, entry] of documentEventListeners){
         if(entry.pluginName === pluginName) removeDocumentEventListener(id, pluginName);
     }
-    // Keep the callback-driven ordering used by upstream, then remove any
-    // channels left behind by a plugin that did not finish registering.
+    // Failed registration may leave channels without an unload callback.
     pluginChannels.delete(pluginName);
     try {
         instance?.host?.terminate();        
@@ -581,10 +565,7 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
 }
 
-// Plugin names are free text (the //@name directive), so `${name}_${desc}` keys
-// can collide — both across permissions and with a legacy name-only entry that
-// happens to read like "name_desc". JSON-encoding the pair makes every key
-// unambiguous: ["foo","db"] can never equal a plain "foo_db" or ["foo_db","x"].
+// Encoded (plugin name, permission) pairs avoid collisions with free-text plugin names.
 const permissionGivenPlugins: Set<string> = new Set();
 const permissionDeniedPlugins: Set<string> = new Set();
 const permissionCache = new Map<string, boolean | number>();
@@ -629,10 +610,6 @@ export async function resetAllPluginPermissions() {
 
 export async function resetPluginPermission(pluginName: string) {
     await ensurePluginPermissionStateLoaded()
-    // Permission descs are a fixed enum, so we delete the exact key for each
-    // one rather than prefix-matching (which would also wipe another plugin's
-    // keys). `pluginName` alone covers legacy name-only entries from older
-    // versions, which JSON keys never collide with but reset should still clear.
     clearPluginPermissionStateFor({
         given: permissionGivenPlugins,
         denied: permissionDeniedPlugins,
@@ -666,11 +643,7 @@ type PluginV3ProviderOptions = PluginV2ProviderOptions & {
 // registering providers asynchronously after their UI has already mounted.
 export const customV3ProviderMetaStore:LLMModel[] = $state([])
 
-// Serializes permission dialogs. Every plugin shares the single global
-// alertStore, so when several plugins request permission at boot they would
-// otherwise overwrite each other's dialog — only the last one stays clickable
-// and a single click resolves all of them. The chain makes each dialog wait
-// for the previous one to finish, showing them one at a time.
+// Plugins share alertStore, so concurrent permission dialogs would overwrite each other.
 const pluginPermissionDialogQueue = new PluginPermissionDialogQueue()
 
 const isPermissionResolved = async (
@@ -703,9 +676,7 @@ const isPermissionResolved = async (
 const getPluginPermission = async (pluginName: string, permissionDesc: PluginPermissionDesc, reconfirm: boolean|'periodically' = false) => {
     await ensurePluginPermissionStateLoaded()
 
-    // Recomputed (not captured) so a periodic reconfirm reflects the latest
-    // lastGrantTime: when several identical requests queue together, an earlier
-    // one may refresh it, making the reconfirm no longer due for the rest.
+    // A preceding queued request may renew permission before this one runs.
     const computeRequiresReconfirm = () => {
         if(reconfirm === 'periodically'){
             const lastGrantTime = permissionCache.get(permissionLastGrantKeyOf(pluginName, permissionDesc)) as number | undefined;
@@ -798,8 +769,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         }
     }
     return {
-
-        //Old APIs from v2.1
         risuFetch: (url, options) => {
             console.error(`[DEPRECATION WARNING] risuFetch is deprecated and will be removed in future versions. Please use nativeFetch instead.`)
             for(const blocked of urlBlacklist){
@@ -807,8 +776,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     throw new Error(`Requests to ${blocked} are blocked for security reasons.`);
                 }
             }
-
-            //scan headers
             const headers = options?.headers || {};
             for(const headerName in headers){
                 if(authorizationHeaders.includes(headerName.toLowerCase())){
@@ -834,8 +801,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     throw new Error(`Requests to ${blocked} are blocked for security reasons.`);
                 }
             }
-
-            //scan headers
             const headers = options?.headers || {};
             for(const headerName in headers){
                 if(authorizationHeaders.includes(headerName.toLowerCase())){
@@ -862,8 +827,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                if(!conf){
                    return { success: false, content: `Provider permission denied for plugin '${plugin.name}'` };
                }
-               //mode is overridden to v3, due to vulnerabilities using mode.
-               //Alternative to mode will be added in future
+               // Sandbox providers must not access the privileged legacy mode.
                arg.mode = 'v3'
                const requestContext = arg[pluginProviderRequestContextKey]
                if (!requestContext || !abortSignal) {
@@ -925,7 +889,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         addRisuScriptHandler: oldApis.addRisuScriptHandler,
         removeRisuScriptHandler: oldApis.removeRisuScriptHandler,
         addRisuReplacer: async (name:string,func:Function) => {
-            //permission check for replacer
             const conf = await getPluginPermission(plugin.name, 'replacer', 'periodically');
             if(!conf){
                 return;
@@ -950,7 +913,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return await getInlayAsset(id);
         },
         saveAsset: oldApis.saveAsset,
-        //Same functionality, but new implementation
         getDatabase: async (includeOnly:string[]|'all' = 'all') => {
             const conf = await getPluginPermission(plugin.name, 'db', 'periodically');
             if(!conf){
@@ -1032,8 +994,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         //Use getArgument / setArgument instead if possible
         getArg: oldApis.getArg,
         setArg: oldApis.setArg,
-
-        //New APIs for v3
         getArgument: async (key:string) => {
             const db = getDatabase()
             for (const p of db.plugins) {
@@ -1133,24 +1093,19 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const moduleLore = getModuleLorebooks()
             return $state.snapshot(characterLore.concat(chatLore).concat(moduleLore))
         },
-        //New names for character APIs, to match API naming conventions
         getCharacter: oldApis.getChar,
         setCharacter: oldApis.setChar,
 
         showContainer: (
-            //more types may be added in future
             type: 'fullscreen' = 'fullscreen'
         ) => {
             iframe.style.display = "block";
             
             switch(type) {
                 case 'fullscreen': {
-                    //move iframe to body if not already there
                     if(iframe.parentElement !== document.body) {
                         document.body.appendChild(iframe);
                     }
-
-                    //Make iframe cover whole screen
                     iframe.style.position = "fixed";
                     iframe.style.top = "0";
                     iframe.style.left = "0";
@@ -1453,8 +1408,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return v;
         },
         _getPluginStorage: oldApis.pluginStorage.getItem,
-        // Wrapped (not aliased) so we can record the originating plugin into the
-        // sidecar meta map. The value write is unchanged; reads stay aliased.
+        // Track storage ownership for plugin management.
         _setPluginStorage: (key: string, value: any) => {
             oldApis.pluginStorage.setItem(key, value)
             recordOwner('save', key, plugin.name)
@@ -1521,13 +1475,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 formated: options.messages,
                 bias: {},
 
-                // Calls into plugin-provided models are blocked by default to
-                // guard against accidental IPC loops between provider plugins.
-                // Plugin authors who need to reach the user's plugin-supplied
-                // main or auxiliary model (e.g. a TTS preprocessor that
-                // rewrites text with the configured otherAx model) can opt in
-                // explicitly with `allowPlugins: true`, accepting responsibility
-                // for avoiding provider-to-provider call loops.
+                // Require explicit opt-in to avoid recursive calls between provider plugins.
                 blockPlugins: !options.allowPlugins,
             }, options.mode)
         },
@@ -1623,8 +1571,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
         },
         saveSecretHeader: async (key: string, value: string|string[]) => {
-            //TODO: Implement server-side secret storage with write-only access for plugins, to enhance security when handling sensitive information like API keys.
-            //This will have rate-limit, to prevent saving it publicly and writing as secret every time before using it.
             console.warn(`[RisuAI Plugin: ${plugin.name}] saveServerSecret is not implemented yet. This API is intended for securely storing sensitive information like API keys with write-only access for plugins. Please avoid using this API until it is implemented.`);
         }
     }
@@ -1641,8 +1587,7 @@ export async function loadV3Plugins(plugins:RisuPlugin[]){
     await Promise.all([...v3PluginInstances].map(async (instance) => {
         await unloadV3Plugin(instance.name);
     }));
-    // Match upstream's full-reload safety net for resources whose plugin
-    // failed before its runtime instance was recorded.
+    // Failed startup may leave resources without a recorded runtime instance.
     for(const [id, entry] of documentEventListeners){
         removeDocumentEventListener(id, entry.pluginName);
     }

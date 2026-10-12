@@ -127,7 +127,6 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     })
     await sleep(10)
     
-    // const readed = PngChunk.read(img, ['chara'])?.['chara']
     let readedChara = ''
     let readedCCv3 = ''
     let img:Uint8Array
@@ -705,7 +704,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                     }
                 }
                 else if(data.assets[i].uri.startsWith('data:')){
-                    //data uri
                     const b64 = data.assets[i].uri.split(',')[1]
                     if(b64.length < 50 * 1024 * 1024){
                         imgp = await saveAsset(Buffer.from(b64, 'base64'))
@@ -798,7 +796,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         image: im,
         emotionImages: emotions,
         bias: bias,
-        globalLore: lorebook, //lorebook
+        globalLore: lorebook,
         viewScreen: viewScreen,
         chaId: createEntityId(),
         utilityBot: utilityBot,
@@ -831,7 +829,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         triggerscript: data?.extensions?.risuai?.triggerscript ?? [],
         private: data?.extensions?.risuai?.private ?? false,
         additionalText: data?.extensions?.risuai?.additionalText ?? '',
-        virtualscript: '', //removed dude to security issue
+        virtualscript: '', // Character scripts are intentionally not imported for security.
         extentions: ext ?? {},
         largePortrait: data?.extensions?.risuai?.largePortrait ?? (!data?.extensions?.risuai),
         inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
@@ -1039,17 +1037,15 @@ function createBaseV2(char:character) {
             character_version: `${char.additionalData?.character_version}` || '',
             extensions: {
                 risuai: {
-                    // emotions: char.emotionImages,
                     bias: char.bias,
                     viewScreen: char.viewScreen,
                     customScripts: char.customscript,
                     utilityBot: char.utilityBot,
-                    // additionalAssets: char.additionalAssets,
                     backgroundHTML: char.backgroundHTML,
                     license: char.license,
                     triggerscript: char.triggerscript,
                     additionalText: char.additionalText,
-                    virtualscript: '', //removed dude to security issue
+                    virtualscript: '', // Character scripts are intentionally not exported for security.
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
                     newGenData: char.newGenData
@@ -1326,7 +1322,6 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
     }
 }
 
-// Extended LorebookEntry with Risuai specific fields
 type RisuLorebookEntry = LorebookEntry & {
     mode?: string;
     folder?: string;
@@ -1442,7 +1437,7 @@ export function createBaseV3(char:character){
                     license: char.license,
                     triggerscript: char.triggerscript,
                     additionalText: char.additionalText,
-                    virtualscript: '', //removed dude to security issue
+                    virtualscript: '', // Character scripts are intentionally not exported for security.
                     largePortrait: char.largePortrait,
                     inlayViewScreen: char.inlayViewScreen,
                     newGenData: char.newGenData,

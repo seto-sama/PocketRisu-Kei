@@ -43,17 +43,15 @@ export function handleDualAction(
     const tapLength = currentTime - state.lastTap;
 
     if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
-      // Double tap detected
       event.preventDefault();
-      window.clearTimeout(state.tapTimeout); // Cancel the first tap timeout
+      window.clearTimeout(state.tapTimeout);
       params.onAlternativeAction?.();
-      state.lastTap = 0; // Reset state
+      state.lastTap = 0;
     } else {
-      state.lastTap = currentTime; // First tap
-      // Delayed single tap execution
+      state.lastTap = currentTime;
+      // Defer the main action so a second tap can trigger the alternative.
       state.tapTimeout = window.setTimeout(() => {
         if (state.lastTap === currentTime) {
-          // If no double tap occurred
           params.onMainAction?.();
         }
       }, DOUBLE_TAP_DELAY);
@@ -69,10 +67,8 @@ export function handleDualAction(
   };
 
   if ("ontouchend" in window) {
-    // Mobile environment
     element.addEventListener("touchend", handleTouch);
   } else {
-    // Desktop environment
     element.addEventListener("click", handleClick);
   }
 
@@ -84,7 +80,7 @@ export function handleDualAction(
         element.removeEventListener("click", handleClick);
       }
 
-      window.clearTimeout(state.tapTimeout); // Cleanup timeout
+      window.clearTimeout(state.tapTimeout);
     },
     update(newParams: DualActionParams) {
       params = newParams;

@@ -110,7 +110,6 @@
   }
 </script>
 
-<!-- Category Manager Modal -->
 <Dialog
   bind:open={categoryManagerState.isOpen}
   size="default"
@@ -183,7 +182,6 @@
           </div>
         {/each}
 
-        <!-- Empty State -->
         {#if categories.filter(c => c.id !== "").length === 0 && !categoryManagerState.editingCategory}
           <EmptyState title={language.hypaV3Modal.noCategoriesYet} description={language.hypaV3Modal.addNewCategoryHint} layout="section" />
         {/if}

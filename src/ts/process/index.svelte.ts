@@ -400,7 +400,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    let isDoing = get(doingChat)
+    const isDoing = get(doingChat)
 
     // `doingChat` is a legacy process-wide activity signal. A UI submission
     // with an explicit room target is instead guarded by that room's local
@@ -692,7 +692,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return {text: result, replaced}
     }
 
-    // maxDepth controls how many levels of nesting are resolved. Currently set to 5, adjust if needed.
     const resolvePosition = (text:string, maxDepth:number = 5) => {
         let result = text
         for(let i=0; i<maxDepth;i++) {
@@ -783,11 +782,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
     }
 
-    //await tokenize currernt
     let currentTokens = 0
     let supaMemoryCardUsed = false
     
-    //for unexpected error
+    // Leave a small buffer for token accounting differences.
     currentTokens += 50
     
     const positionParser = (text:string, loc:string) => {
@@ -1341,8 +1339,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     
-    //make into one
-
     let formated:OpenAIChat[] = []
 
     function pushPrompts(cha:OpenAIChat[]){
@@ -2126,7 +2122,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const msgs = (req.type === 'success') ? [['char',req.result]] as const 
                     : (req.type === 'multiline') ? req.result
                     : []
-        let mrerolls:string[] = []
         for(let i=0;i<msgs.length;i++){
             let msg = msgs[i]
             let mess = msg[1]
@@ -2160,10 +2155,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(!refreshedTarget) throw new Error('Generation target is missing')
                     setGenerationMessageContent(refreshedTarget.message, p)
                 }
-                mrerolls.push(result)
-            }
-            else{
-                mrerolls.push(result)
             }
             DBState.db.characters[selectedChar].reloadKeys += 1
             if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
@@ -2314,10 +2305,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     return v
                 })
 
-                //give panaltys
                 for(let i =0;i<tempEmotion.length;i++){
                     const emo = tempEmotion[i]
-                    //give panalty index
                     const index = searched.findIndex((v) => {
                         return v[0] === emo[0]
                     })
@@ -2329,7 +2318,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
                 }
 
-                //make a sorted array by score
                 const emoresult = searched.sort((a,b) => {
                     return b[1] - a[1]
                 }).map((v) => {

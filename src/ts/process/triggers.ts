@@ -1212,7 +1212,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     
     for(const trigger of triggers){
         if(trigger.effect[0]?.type === 'triggercode' || trigger.effect[0]?.type === 'triggerlua'){
-            //
+            // Code triggers can run in any mode.
         }
         else if(arg.manualName){
             if(trigger.comment !== arg.manualName){

@@ -244,7 +244,6 @@ export async function importPlugin(code:string|null = null, argu:{
                 }
                 const hoverText = line.split(' ').slice(2).join(' ').trim()
                 if (hoverText === '') {
-                    // OK, no hover text. It's fine.
                     customLink.push({
                         link: link,
                         hoverText: undefined
@@ -372,8 +371,6 @@ export async function importPlugin(code:string|null = null, argu:{
             if(!safety.isSafe){
                 pluginAlertModalStore.errors = safety.errors
                 pluginAlertModalStore.open = true
-                
-                //I can use event but lazy
                 while(pluginAlertModalStore.open){
                     await sleep(100)
                 }
@@ -462,9 +459,7 @@ export async function loadPlugins() {
     console.log('Loading plugins...')
     const db = getDatabase()
 
-    // The legacy API permission is also the source of truth for each plugin's
-    // power state. Keep legacy plugins off until the user explicitly allows
-    // the API and then enables individual plugins again.
+    // Revoking legacy API permission also disables individual legacy plugins.
     let disabledLegacyPlugin = false
     if(!db.allowV2Plugin){
         for(const plugin of db.plugins ?? []){
@@ -478,9 +473,7 @@ export async function loadPlugins() {
         void requestImmediateSave()
     }
 
-    // addProvider registrations are rebuilt from enabled plugins on every load.
-    // Clear the display list with the provider maps so disabled/hot-reloaded
-    // plugins cannot leave duplicate or stale models in either model picker.
+    // Provider registrations are rebuilt on load; clear stale entries from the pickers too.
     customProviderStore.set([])
 
     const enabledPlugins = structuredClone((db.plugins ?? []).filter((p: RisuPlugin) => (
@@ -661,7 +654,6 @@ export const getV2PluginAPIs = () => {
             if(Object.keys(globalThis.__pluginApis__.safeGlobalThis).length > 0){
                 return globalThis.__pluginApis__.safeGlobalThis;
             }
-            //safeGlobalThis
             const keys = Object.keys(globalThis);
             const safeGlobal: any = {};
             const allowedKeys = [
@@ -678,8 +670,6 @@ export const getV2PluginAPIs = () => {
             }
 
             //compatibility layer with old unsafe APIs
-
-            //from PBV2
             safeGlobal.showDirectoryPicker = globalThis.showDirectoryPicker
 
             safeGlobal.DBState = {
@@ -864,8 +854,6 @@ export const getV2PluginAPIs = () => {
                     return globalThis.__pluginApis__.getSafeGlobalThis();
                 }
             },
-            
-            //call too
             apply(target, thisArg, args) {
                 return function() {
                     return globalThis.__pluginApis__.getSafeGlobalThis();
@@ -876,13 +864,11 @@ export const getV2PluginAPIs = () => {
         loadPlugins: loadPlugins,
         readImage: (path:string) => {
             if(path.startsWith('assets/')){
-                //trim assets/ prefix temporarily
                 path = path.slice(7);
             }
             if(path.includes('/') || path.includes('\\')){
                 throw new Error("readImage path cannot contain '/' or '\\' for security reasons, except assets/ prefix.");
             }
-            //re-add assets/ prefix
             return readImage('assets/' + path);
         },
         saveAsset: (data:Uint8Array) => {
@@ -989,24 +975,6 @@ export async function loadV2Plugin(plugins: LegacyV2Plugin[]) {
         else{
             console.warn(`Plugin 2.0 support is deprecated. Please update plugin "${plugin.name}" to API version 3.0`)
         }
-    }
-}
-
-export async function translatorPlugin(text: string, from: string, to: string) {
-    return false
-}
-
-export async function pluginProcess(arg: {
-    prompt_chat: OpenAIChat,
-    temperature: number,
-    max_tokens: number,
-    presence_penalty: number
-    frequency_penalty: number
-    bias: { [key: string]: string }
-} | {}) {
-    return {
-        success: false,
-        content: language.pluginProviderNotFound
     }
 }
 

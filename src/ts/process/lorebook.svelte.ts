@@ -620,7 +620,7 @@ export async function loadLoreBookV3Prompt(options: {
         return !act?.inject?.lore
     })
 
-    //I know this will make token count wrong, but performance is more important here
+    // Apply lore injection after budgeting to avoid another token-count pass.
 
     console.log('loreinjectionLores', loreinjectionLores)
     for(const lore of loreinjectionLores){

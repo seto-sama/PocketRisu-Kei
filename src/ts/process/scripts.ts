@@ -93,7 +93,7 @@ export function resetScriptCache(){
 }
 
 export async function processScriptFull(char:character|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}){
-    let db = getDatabase()
+    const db = getDatabase()
     let emoChanged = false
     if (mode !== 'editprocess' && hasLuaEditListener(char, mode)) {
         data = await runLuaEditTrigger(char, mode, data, { index:chatID })
@@ -156,15 +156,14 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                 flag = script.flag || 'g'
             }
             if(outScript.startsWith('@@move_top') || outScript.startsWith('@@move_bottom') || pscript.actions.includes('move_top') || pscript.actions.includes('move_bottom')){
-                flag = flag.replace('g', '') //temperary fix
+                // Positioning directives are applied to one match at a time.
+                flag = flag.replace('g', '')
             }
             if(outScript.endsWith('>') && !pscript.actions.includes('no_end_nl')){
                 outScript += '\n'
             }
-            //remove unsupported flag
             flag = flag.trim().replace(/[^dgimsuvy]/g, '')
 
-            //remove repeated flags
             flag = flag.split('').filter((v, i, a) => a.indexOf(v) === i).join('')
             
             if(flag.length === 0){

@@ -187,7 +187,6 @@ async function importPersonas(
     progress(language.characterPackageProgressImportPersona)
     const db = getDatabase()
 
-    // Parse all persona PNGs first
     const parsed: { entry: typeof manifest.personas[0], pngBytes: Uint8Array, card: { name: string, personaPrompt: string, note?: string } }[] = []
     for (const personaEntry of manifest.personas) {
         const pngBytes = unzipped[personaEntry.file]
@@ -217,7 +216,7 @@ async function importPersonas(
         })
     }
 
-    // Apply: skip exact duplicates (all 6 fields match), add new ones
+    // Reuse exact matches to avoid duplicating personas on reimport.
     for (const { entry, pngBytes, card } of parsed) {
         const existing = db.personas.find(p =>
             p.id === entry.originalId
@@ -229,7 +228,6 @@ async function importPersonas(
         )
 
         if (existing) {
-            // Exact duplicate — reuse existing, skip import
             personaIdMap[entry.originalId] = existing.id
             continue
         }
@@ -277,7 +275,7 @@ async function importChatsToCharacter(
     }
 
     if (mode === 'append') {
-        // Remap folder IDs that collide with existing ones
+        // Remap folders before chats so imported folder references stay valid.
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
             const importedFolders = chatsJson.folders as ChatFolder[]
             const existingFolders = targetChar.chatFolders ?? []
@@ -404,7 +402,7 @@ export async function exportCharacterPackage(
 
         const charName = sanitizeFilename(char.name || 'character')
 
-        // Hydrate placeholder chats from server before any scan/export
+        // Hydrate placeholders before export to avoid omitting unloaded chat data.
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
             if (chat._placeholder && chat.id) {
@@ -418,7 +416,6 @@ export async function exportCharacterPackage(
             }
         }
 
-        // Confirm
         let summary = `${language.characterPackage}\n\n`
         if (options.includeCharacter) {
             summary += `• ${language.characterPackageCharacter}: ${char.name}\n`
@@ -440,7 +437,6 @@ export async function exportCharacterPackage(
         const confirmed = await alertConfirm(summary)
         if (!confirmed) return
 
-        // Count total steps for progress
         const totalSteps =
             (options.includeCharacter ? 1 : 0)
             + (options.includeChats && char.chats.length > 0 ? 1 : 0)
@@ -457,7 +453,6 @@ export async function exportCharacterPackage(
             })
         }
 
-        // 2. Open outer package ZIP via streaming
         const localWriter = new LocalWriter()
         await localWriter.init(`${charName}_package`, ['zip'])
         const zipWriter = new CharXWriter(localWriter)
@@ -469,7 +464,7 @@ export async function exportCharacterPackage(
             character: { name: char.name, file: '', isEmpty: !options.includeCharacter },
         }
 
-        // 1. Build and write charx (only if character included)
+        // Write the character when requested.
         if (options.includeCharacter) {
             progress(language.characterPackageProgressCharacter)
             const virtualWriter = new VirtualWriter()
@@ -494,7 +489,7 @@ export async function exportCharacterPackage(
             manifest.character.file = charxPath
         }
 
-        // 4. Write chats
+        // Write chats.
         if (options.includeChats && char.chats.length > 0) {
             progress(language.characterPackageProgressChats)
             const bookmarkExport = await prepareBookmarkCompatibleChats(char.chaId, char.chats)
@@ -510,7 +505,7 @@ export async function exportCharacterPackage(
             manifest.chats = { count: char.chats.length, file: chatsPath }
         }
 
-        // 5. Write personas
+        // Write bound personas.
         if (options.includePersona && boundPersonas.length > 0) {
             progress(language.characterPackageProgressPersona)
             manifest.personas = []
@@ -538,7 +533,7 @@ export async function exportCharacterPackage(
             }
         }
 
-        // 6. Write inlays
+        // Write referenced inlays.
         if (options.includeInlays && inlayIds.size > 0) {
             const ids = [...inlayIds]
             const metaMap: Record<string, InlayMetaEntry> = {}
@@ -596,7 +591,7 @@ export async function exportCharacterPackage(
             }
         }
 
-        // 7. Write manifest (last)
+        // Write the manifest last so it describes completed package entries.
         progress(language.characterPackageProgressFinalizing)
         await zipWriter.write('manifest.json', JSON.stringify(manifest, null, 2), 6)
         await zipWriter.end()
@@ -618,7 +613,6 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
         if (!parsed) return
         const { unzipped, manifest } = parsed
 
-        // Warn if character is empty
         let summary = buildImportSummary(manifest)
         if (manifest.character.isEmpty) {
             summary += `\n⚠ ${language.characterPackageEmptyWarning}`
@@ -643,7 +637,6 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
             })
         }
 
-        // Import character
         let newCharIndex: number
         if (manifest.character.isEmpty || !manifest.character.file) {
             importProgress(language.characterPackageProgressImportChar)
@@ -723,13 +716,11 @@ export async function importPackageToCharacter(charIndex: number): Promise<void>
             return
         }
 
-        // Warn if character names differ
         if (!manifest.character.isEmpty && manifest.character.name !== targetChar.name) {
             const nameConfirmed = await alertConfirm(language.characterPackageNameMismatch)
             if (!nameConfirmed) return
         }
 
-        // Show summary
         const summary = buildImportSummary(manifest)
         const confirmed = await alertConfirm(summary)
         if (!confirmed) return
