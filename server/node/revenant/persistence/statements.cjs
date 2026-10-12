@@ -9,6 +9,7 @@ function createGenerationStatements(db) {
             adapter_kind, streaming,
             dispatch_group, dispatch_max_concurrent,
             request_spec,
+            normalized_projection,
             status, created_at, updated_at
         ) VALUES (
             @jobId, @chatId, @jobType, @characterId, @roomId,
@@ -17,10 +18,33 @@ function createGenerationStatements(db) {
             @adapterKind, @streaming,
             @dispatchGroup, @dispatchMaxConcurrent,
             @requestSpec,
+            @normalizedProjection,
             'queued', @now, @now
         )
     `);
     const stmtGet = db.prepare(`SELECT * FROM generation_jobs WHERE job_id = ?`);
+    const stmtGetPendingProviderProjectionForExecution = db.prepare(`
+        SELECT adapter_kind
+        FROM generation_jobs AS jobs
+        WHERE workflow_id = ?
+          AND workflow_step_key = ?
+          AND step_execution_id = ?
+          AND job_type = 'model'
+          AND status = 'generated'
+          AND materialized_at IS NULL
+          AND json_valid(normalized_projection)
+          AND json_extract(normalized_projection, '$.source') = 'server'
+          AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+          AND EXISTS (
+              SELECT 1 FROM generation_workflows AS workflows
+              WHERE workflows.workflow_id = jobs.workflow_id
+                AND workflows.status = 'active'
+                AND json_valid(workflows.context)
+                AND json_extract(workflows.context, '$.kind') = 'chat-generation'
+          )
+        ORDER BY rowid DESC
+        LIMIT 1
+    `);
     const stmtSetGenerating = db.prepare(`
         UPDATE generation_jobs
         SET status = 'generating', dispatched_at = COALESCE(dispatched_at, ?), updated_at = ?
@@ -42,17 +66,37 @@ function createGenerationStatements(db) {
         SET normalized_projection = ?, projection_error = NULL,
             projected_at = ?, updated_at = ?
         WHERE job_id = ?
+          AND json_extract(?1, '$.source') = 'server'
+          AND CASE
+            WHEN json_valid(normalized_projection)
+                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+            ELSE ''
+          END <> 'provider'
     `);
     const stmtSetClientProjection = db.prepare(`
         UPDATE generation_jobs
         SET normalized_projection = ?, projection_error = NULL,
             projected_at = ?, updated_at = ?
         WHERE job_id = ?
-          AND CASE
-            WHEN json_valid(normalized_projection)
-                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-            ELSE ''
-          END <> 'server'
+          AND (
+            (
+              json_valid(normalized_projection)
+              AND json_extract(normalized_projection, '$.source') = 'server'
+              AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+              AND json_extract(?1, '$.source') = 'provider'
+              AND status = 'generated'
+              AND materialized_at IS NULL
+              AND COALESCE(json_extract(?1, '$.awaitingProviderResult'), 0) <> 1
+            )
+            OR (
+              CASE
+                WHEN json_valid(normalized_projection)
+                    THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+                ELSE ''
+              END NOT IN ('server', 'provider')
+              AND json_extract(?1, '$.source') = 'client'
+            )
+          )
     `);
     const stmtSetProjectionError = db.prepare(`
         UPDATE generation_jobs
@@ -126,6 +170,11 @@ function createGenerationStatements(db) {
                 ELSE ''
             END <> 'server'
           )
+          AND CASE
+            WHEN json_valid(normalized_projection)
+                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+            ELSE ''
+          END <> 'provider'
           AND status IN ('generated', 'interrupted', 'cancelled', 'failed_partial', 'failed')
         ORDER BY updated_at ASC
         LIMIT ?
@@ -246,6 +295,14 @@ function createGenerationStatements(db) {
           AND workflow_step_key = 'model.main'
           AND status = 'generated'
           AND normalized_projection IS NOT NULL
+          AND COALESCE(
+            CASE
+                WHEN json_valid(normalized_projection)
+                    THEN json_extract(normalized_projection, '$.awaitingProviderResult')
+                ELSE 0
+            END,
+            0
+          ) <> 1
           AND materialized_at IS NULL
         ORDER BY completed_at ASC, created_at ASC
         LIMIT ?
@@ -452,6 +509,7 @@ function createGenerationStatements(db) {
     return {
         stmtCreate,
         stmtGet,
+        stmtGetPendingProviderProjectionForExecution,
         stmtSetGenerating,
         stmtSetHeaders,
         stmtFinish,

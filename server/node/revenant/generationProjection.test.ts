@@ -5,6 +5,7 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
     createClientGenerationProjection: (
         job: Record<string, unknown>,
         content: string,
+        providerResult?: boolean,
     ) => {
         schemaVersion: number
         source: string
@@ -21,6 +22,7 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
         adapterKind: string
         content: string
         journalBytes: number
+        awaitingProviderResult?: boolean
     }>
 }
 
@@ -72,6 +74,34 @@ describe('generation normalized projection', () => {
         ].join('\n')))
 
         expect(projection.content).toBe('summary')
+    })
+
+    it.each([false, true])('waits for processed provider output on a tool-call turn (streaming=%s)', async streaming => {
+        const turn = {
+            choices: [{
+                message: { content: null, tool_calls: [{
+                    id: 'call-1', type: 'function',
+                    function: { name: 'reply', arguments: '{"text":"Synthetic reply"}' },
+                }] },
+                finish_reason: 'tool_calls',
+            }],
+        }
+        const journal = Buffer.from(streaming
+            ? `data: ${JSON.stringify({ choices: [{ delta: turn.choices[0].message }] })}\n\n`
+                + 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n'
+            : JSON.stringify(turn))
+        const job = { adapterKind: 'openai-compatible', streaming, responseStatus: 200 }
+        const projection = await projectGenerationJournal(job, journal)
+
+        expect(projection).toMatchObject({ content: '', awaitingProviderResult: true })
+        expect(createClientGenerationProjection({ ...job, projection }, 'Processed reply', true)).toMatchObject({
+            source: 'provider', content: 'Processed reply', journalBytes: journal.length,
+        })
+
+        const followup = await projectGenerationJournal({ ...job, streaming: false, projection }, Buffer.from(JSON.stringify({
+            choices: [{ message: { content: 'Raw follow-up' }, finish_reason: 'stop' }],
+        })))
+        expect(followup).toMatchObject({ content: 'Raw follow-up', awaitingProviderResult: true })
     })
 
     it('keeps an interrupted journal recoverable up to its last complete event', async () => {

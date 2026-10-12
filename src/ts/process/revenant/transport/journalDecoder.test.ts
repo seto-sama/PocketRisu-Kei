@@ -24,6 +24,21 @@ function job(overrides: Partial<RecoverableGenerationJob>): RecoverableGeneratio
 }
 
 describe('decodeRevenantGenerationJournal', () => {
+    it('recovers the completed provider result instead of reinterpreting its tool-call journal', async () => {
+        const content = await decodeRevenantGenerationJournal(
+            job({
+                adapterKind: 'openai-compatible', streaming: false, responseStatus: 200,
+                projection: { schemaVersion: 1, source: 'provider', adapterKind: 'openai-compatible', content: 'Processed reply' },
+            }),
+            streamText(JSON.stringify({ choices: [{
+                message: { content: null, reasoning_content: 'Intermediate thought' },
+                finish_reason: 'tool_calls',
+            }] })),
+        )
+
+        expect(content).toBe('Processed reply')
+    })
+
     it('replays OpenAI-compatible SSE through the client adapter parser', async () => {
         const onContent = vi.fn()
         const onProgress = vi.fn()

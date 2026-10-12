@@ -336,3 +336,158 @@ describe('generation job cancellation route', () => {
         expect(send).toHaveBeenCalledWith({ success: true })
     })
 })
+
+describe('provider generation projection route', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    function installProjectionRoute(job: any, workflow: any, generationRuntimeJobs = new Map()) {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn(), post: vi.fn(),
+            put: vi.fn((path: string, ...handlers: Function[]) => routes.set(path, handlers.at(-1)!)),
+            delete: vi.fn(),
+        }
+        repository.getGenerationJob.mockReturnValue(job)
+        repository.getGenerationWorkflow.mockReturnValue(workflow)
+        const scheduleRevenantPostprocess = vi.fn()
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            generationRuntimeJobs,
+            terminateGenerationWorkflow: vi.fn(),
+            getGenerationJob: repository.getGenerationJob,
+            getGenerationWorkflow: repository.getGenerationWorkflow,
+            setGenerationJobClientProjection: repository.setGenerationJobClientProjection,
+            scheduleRevenantPostprocess,
+        })
+        return { handler: routes.get('/api/generation/jobs/:jobId/projection'), scheduleRevenantPostprocess }
+    }
+
+    const pendingJob = {
+        jobId: 'job-1',
+        jobType: 'model',
+        workflowId: 'workflow-1',
+        workflowStepKey: 'model.main',
+        status: 'generated',
+        materializedAt: null,
+        adapterKind: 'openai-compatible',
+        rawBytes: 123,
+        projection: {
+            source: 'server',
+            adapterKind: 'openai-compatible',
+            journalBytes: 123,
+            awaitingProviderResult: true,
+        },
+    }
+    const providerWorkflow = {
+        workflowId: 'workflow-1',
+        status: 'active',
+        context: {
+            kind: 'chat-generation',
+            postprocess: { providerBackend: 'http' },
+        },
+    }
+
+    it('waits for the final journal before persisting provider output and scheduling postprocessing', async () => {
+        repository.setGenerationJobClientProjection.mockReturnValue(true)
+        let finishProvider!: () => void
+        const runPromise = new Promise<void>(resolve => { finishProvider = resolve })
+        const { handler, scheduleRevenantPostprocess } = installProjectionRoute(
+            { ...pendingJob, status: 'generating', projection: undefined },
+            providerWorkflow,
+            new Map([['job-1', { runPromise }]]),
+        )
+        const send = vi.fn()
+        const response: any = { send, status: vi.fn(() => response) }
+
+        const completion = handler?.(
+            { params: { jobId: 'job-1' }, body: { content: 'final provider text', providerResult: true } },
+            response,
+        )
+
+        await vi.waitFor(() => expect(repository.getGenerationJob).toHaveBeenCalled())
+        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        repository.getGenerationJob.mockReturnValue(pendingJob)
+        finishProvider()
+        await completion
+
+        expect(repository.setGenerationJobClientProjection).toHaveBeenCalledWith('job-1', {
+            schemaVersion: 1,
+            source: 'provider',
+            adapterKind: 'openai-compatible',
+            content: 'final provider text',
+            journalBytes: 123,
+        })
+        expect(scheduleRevenantPostprocess).toHaveBeenCalledOnce()
+        expect(send).toHaveBeenCalledWith({ success: true })
+    })
+
+    it('ignores a final provider result after a normal server projection completed the workflow', async () => {
+        const { handler, scheduleRevenantPostprocess } = installProjectionRoute(
+            {
+                ...pendingJob,
+                status: 'generated',
+                materializedAt: 1234,
+                projection: { ...pendingJob.projection, content: 'server text', awaitingProviderResult: false },
+            },
+            { ...providerWorkflow, status: 'completed' },
+        )
+        const send = vi.fn()
+        const response: any = { send, status: vi.fn(() => response) }
+
+        await handler?.(
+            { params: { jobId: 'job-1' }, body: { content: 'late provider text', providerResult: true } },
+            response,
+        )
+
+        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        expect(scheduleRevenantPostprocess).not.toHaveBeenCalled()
+        expect(send).toHaveBeenCalledWith({ success: true, ignored: true })
+    })
+
+    it('rejects blank pending results, wrong workflows, and finalized pending workflows', async () => {
+        const blank = installProjectionRoute(pendingJob, providerWorkflow)
+        const blankStatus = vi.fn()
+        const blankResponse: any = {
+            send: vi.fn(),
+            status: vi.fn((code: number) => { blankStatus(code); return blankResponse }),
+        }
+        await blank.handler?.(
+            { params: { jobId: 'job-1' }, body: { content: '  ', providerResult: true } },
+            blankResponse,
+        )
+        expect(blankStatus).toHaveBeenCalledWith(400)
+
+        const finalized = installProjectionRoute(pendingJob, { ...providerWorkflow, status: 'completed' })
+        const finalStatus = vi.fn()
+        const finalResponse: any = {
+            send: vi.fn(),
+            status: vi.fn((code: number) => { finalStatus(code); return finalResponse }),
+        }
+        await finalized.handler?.(
+            { params: { jobId: 'job-1' }, body: { content: 'late text', providerResult: true } },
+            finalResponse,
+        )
+        expect(finalStatus).toHaveBeenCalledWith(409)
+        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+
+        const wrongWorkflow = installProjectionRoute(pendingJob, {
+            ...providerWorkflow,
+            context: { kind: 'llm-request', postprocess: { providerBackend: 'http' } },
+        })
+        const wrongWorkflowStatus = vi.fn()
+        const wrongWorkflowResponse: any = {
+            send: vi.fn(),
+            status: vi.fn((code: number) => {
+                wrongWorkflowStatus(code)
+                return wrongWorkflowResponse
+            }),
+        }
+        await wrongWorkflow.handler?.(
+            { params: { jobId: 'job-1' }, body: { content: 'text', providerResult: true } },
+            wrongWorkflowResponse,
+        )
+        expect(wrongWorkflowStatus).toHaveBeenCalledWith(409)
+        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+    })
+})

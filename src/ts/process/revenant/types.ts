@@ -376,10 +376,11 @@ export interface RecoverableAuxiliaryJob {
 }
 
 export interface RevenantNormalizedProjection {
-    // Rebuildable view of the append-only provider journal. The journal, not
-    // this object, remains the recovery source of truth.
+    // Tool output is finalized at the shared request boundary; other projections are
+    // rebuildable views of the append-only provider journal.
     schemaVersion: 1
-    source: 'server' | 'client'
+    source: 'server' | 'client' | 'provider'
     adapterKind: string
     content: string
+    awaitingProviderResult?: boolean
 }

@@ -15,6 +15,7 @@ const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
 const {
     stmtCreate,
     stmtGet,
+    stmtGetPendingProviderProjectionForExecution,
     stmtSetGenerating,
     stmtSetHeaders,
     stmtFinish,
@@ -679,9 +680,11 @@ function parseNormalizedProjection(value) {
         const projection = JSON.parse(value);
         if (
             projection?.schemaVersion !== 1
-            || !['server', 'client'].includes(projection.source)
+            || !['server', 'client', 'provider'].includes(projection.source)
             || typeof projection.adapterKind !== 'string'
             || typeof projection.content !== 'string'
+            || (projection.awaitingProviderResult !== undefined
+                && typeof projection.awaitingProviderResult !== 'boolean')
         ) return undefined;
         return projection;
     } catch {
@@ -726,6 +729,28 @@ function createGenerationJob(input) {
     generationJournalStore.create(input.workflowId || null, input.jobId);
     try {
         db.transaction(() => {
+            const pendingProviderRound =
+                (input.jobType || 'model') === 'model'
+                && input.workflowStepKey === 'model.main'
+                && input.workflowId
+                && input.stepExecutionId
+                ? stmtGetPendingProviderProjectionForExecution.get(
+                    input.workflowId,
+                    input.workflowStepKey,
+                    input.stepExecutionId,
+                )
+                : undefined;
+            const normalizedProjection = pendingProviderRound
+                ? JSON.stringify({
+                    schemaVersion: 1,
+                    source: 'server',
+                    adapterKind: typeof input.adapterKind === 'string'
+                        ? input.adapterKind.slice(0, 64)
+                        : pendingProviderRound.adapter_kind || 'openai-compatible',
+                    content: '',
+                    awaitingProviderResult: true,
+                })
+                : null;
             stmtCreate.run({
                 jobId: input.jobId,
                 chatId: input.chatId || null,
@@ -744,6 +769,7 @@ function createGenerationJob(input) {
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
                 requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
+                normalizedProjection,
                 now,
             });
             linkGenerationJobToWorkflow(input);

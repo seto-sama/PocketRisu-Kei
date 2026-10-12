@@ -52,6 +52,7 @@ function installRevenantJobRoutes(app, deps) {
         randomUUID,
         terminateGenerationWorkflow,
         notifyRevenantWorkflowUpdated = () => {},
+        scheduleRevenantPostprocess = () => {},
     } = deps;
     const cancellationRepository = {
         getGenerationJob: deps.getGenerationJob ?? getGenerationJob,
@@ -68,6 +69,9 @@ function installRevenantJobRoutes(app, deps) {
     });
     const journalStore = deps.generationJournalStore ?? generationJournalStore;
     const routeGetGenerationJob = deps.getGenerationJob ?? getGenerationJob;
+    const routeGetGenerationWorkflow = deps.getGenerationWorkflow ?? getGenerationWorkflow;
+    const routeSetGenerationJobClientProjection = deps.setGenerationJobClientProjection
+        ?? setGenerationJobClientProjection;
     const routeCreateGenerationJob = deps.createGenerationJob ?? createGenerationJob;
     const sendJobNotFound = res => sendApiError(res, 404, codes.REVENANT_JOB_NOT_FOUND);
 
@@ -447,12 +451,62 @@ function installRevenantJobRoutes(app, deps) {
             res.status(400).send({ error: 'content is required' });
             return;
         }
-        const job = getGenerationJob(req.params.jobId, false);
+        let job = routeGetGenerationJob(req.params.jobId, false);
         if (!job) {
             sendJobNotFound(res);
             return;
         }
-        setGenerationJobClientProjection(
+        if (req.body?.providerResult === true) {
+            let workflow = job.workflowId
+                ? routeGetGenerationWorkflow(job.workflowId)
+                : undefined;
+            if (
+                job.jobType !== 'model'
+                || job.workflowStepKey !== 'model.main'
+                || workflow?.context?.kind !== 'chat-generation'
+            ) {
+                res.status(409).send({ error: 'Provider result is not pending for this generation job' });
+                return;
+            }
+            const providerRun = generationRuntimeJobs.get(job.jobId)?.runPromise;
+            // A provider can finish parsing its last chunk before the journal is flushed.
+            if (isRevenantJobActive(job.status) && providerRun) {
+                await providerRun;
+                job = routeGetGenerationJob(req.params.jobId, false);
+                if (!job) {
+                    sendJobNotFound(res);
+                    return;
+                }
+                workflow = routeGetGenerationWorkflow(job.workflowId);
+            }
+            if (job.projection?.awaitingProviderResult !== true) {
+                res.send({ success: true, ignored: true });
+                return;
+            }
+            if (
+                job.status !== 'generated'
+                || job.materializedAt != null
+                || workflow?.status !== 'active'
+            ) {
+                res.status(409).send({ error: 'Provider result is no longer pending for this generation job' });
+                return;
+            }
+            if (!content.trim()) {
+                res.status(400).send({ error: 'Provider result must contain generated content' });
+                return;
+            }
+            if (!routeSetGenerationJobClientProjection(
+                req.params.jobId,
+                createClientGenerationProjection(job, content, true),
+            )) {
+                res.status(409).send({ error: 'Provider result is no longer pending for this generation job' });
+                return;
+            }
+            scheduleRevenantPostprocess();
+            res.send({ success: true });
+            return;
+        }
+        routeSetGenerationJobClientProjection(
             req.params.jobId,
             createClientGenerationProjection(job, content),
         );

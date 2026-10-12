@@ -119,12 +119,10 @@ async function executeProviderAction(
                 : 'Plugin provider completed without dispatching a durable model request'
             return { success: false, result: detail }
         }
-        // The plugin may expose a stream that API v3 never closes. Once the
-        // durable job exists, detach that browser projection if it surfaces;
-        // cancelling this ReadableStream only closes the journal observer, not
-        // the server-owned provider job.
+        // Tool-call responses need the processed provider result, so keep
+        // consuming it after durable registration while the server waits.
         void coordinated.result.then(response => {
-            if (response.type === 'streaming') return response.result.cancel()
+            if (response.type === 'streaming') return collectStreamingText(response.result)
         }).catch(error => {
             if (!signal?.aborted) console.warn('[Revenant] Detached plugin provider failed:', error)
         })

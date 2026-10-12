@@ -37,14 +37,16 @@ function createProjection(job, content, source, journalBytes) {
     };
 }
 
-function createClientGenerationProjection(job, content) {
-    return createProjection(job, content, 'client');
+function createClientGenerationProjection(job, content, providerResult = false) {
+    return createProjection(job, content, providerResult ? 'provider' : 'client',
+        providerResult ? job.projection?.journalBytes ?? job.rawBytes : undefined);
 }
 
 async function projectGenerationJournal(job, rawResponse) {
     const journal = Buffer.from(rawResponse || Buffer.alloc(0));
     const response = new Response(journal);
     if (!response.body) throw new Error('Generation journal has no readable body');
+    let awaitingProviderResult = job.projection?.awaitingProviderResult === true;
     const content = await decodeRevenantGenerationJournal(
         {
             ...job,
@@ -55,16 +57,19 @@ async function projectGenerationJournal(job, rawResponse) {
         },
         response.body,
         undefined,
-        undefined,
+        progress => { awaitingProviderResult ||= progress.awaitingProviderResult === true; },
         job.jobId && job.jobType === 'model'
             ? context => recordGenerationProviderContext(job, context)
             : undefined,
     );
-    return createProjection(job, content, 'server', journal.length);
+    return {
+        ...createProjection(job, content, 'server', journal.length),
+        ...(awaitingProviderResult ? { awaitingProviderResult: true } : {}),
+    };
 }
 
 function isGenerationProjectionCurrent(projection, journalBytes) {
-    return projection?.source === 'server'
+    return ['server', 'provider'].includes(projection?.source)
         && Number.isSafeInteger(journalBytes)
         && journalBytes >= 0
         && projection.journalBytes === journalBytes;

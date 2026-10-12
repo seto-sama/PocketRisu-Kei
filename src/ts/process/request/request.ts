@@ -74,7 +74,7 @@ import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
 import { restoreThoughtSignatures, supportsThoughtSignatures, type ProviderContextRecord } from '../../preset/adapter/thoughtSignatures';
 import { resolveWireModelId } from '../../preset/adapter/wireInvariants';
-import { queryRevenantProviderContexts } from '../revenant/transport/client';
+import { checkpointRevenantGeneration, queryRevenantProviderContexts } from '../revenant/transport/client';
 
 export type ToolCall = {
     name: string;
@@ -386,13 +386,31 @@ async function executeModelPresetRequest(
     }
 
     const response = await requestModelPreset(targ, preset, abortSignal, model)
-    if (response.type === 'streaming' && resultPolicy === 'automatic') {
+    const completesMainResult = !targ.previewBody && model === 'model' && targ.chatId
+        && (targ.revenantWorkflowId || targ.revenantClientAction?.workflowId)
+    const completeMainResult = (content: string) => checkpointRevenantGeneration(
+        targ.chatId, content, true, { providerResult: true },
+    )
+    if (response.type === 'streaming' && (resultPolicy === 'automatic' || completesMainResult)) {
         return {
             ...response,
             result: consumeOnStreamCompletion(
                 response.result,
-                () => consumeCreatedJobs(createdJobIds),
+                async last => {
+                    if (completesMainResult) await completeMainResult(last?.['0'] ?? '')
+                    if (resultPolicy === 'automatic') await consumeCreatedJobs(createdJobIds)
+                },
             ),
+        }
+    }
+    if (completesMainResult && (response.type === 'success' || response.type === 'multiline')) {
+        try {
+            await completeMainResult(response.type === 'multiline'
+                ? response.result.map(message => message[1]).join('\n') : response.result)
+        } catch (error) {
+            // Replaying the provider could execute completed tools twice.
+            return { type: 'fail', noRetry: true, model: response.model,
+                result: error instanceof Error ? error.message : String(error) }
         }
     }
     await consumeCreatedJobs(auxiliaryResultJobIdsToConsume(
@@ -718,7 +736,7 @@ async function requestPluginPresetProvider(
         console.error(error)
         return {
             type: 'fail',
-            result: `Plugin Error from ${modelId}: ${JSON.stringify(error)}`,
+            result: `Plugin Error from ${modelId}: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
             model: modelId,
         }
     }

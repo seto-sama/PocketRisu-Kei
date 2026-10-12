@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { get } from 'svelte/store'
 
 const { mockDb } = vi.hoisted(() => ({
@@ -30,11 +30,20 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     setDatabase: vi.fn(),
     setDatabaseLite: vi.fn(),
 }))
+vi.mock('src/ts/network/llmTransport', () => ({
+    createLLMTransportFetch: () => (url: RequestInfo | URL, options?: RequestInit) => fetch(url, options),
+}))
+vi.mock('src/ts/process/mcp/mcp', async importOriginal => ({
+    ...await importOriginal<any>(),
+    callTool: vi.fn(async () => [{ type: 'text', text: 'Synthetic tool result' }]),
+    encodeToolCall: async () => '<tool_call>Synthetic saved tool result</tool_call>',
+}))
 
 import { pluginProviderRequestContextKey, pluginV2 } from 'src/ts/plugins/plugins.svelte'
 import { customV3ProviderMetaStore } from 'src/ts/plugins/apiV3/v3.svelte'
 import {
     modelPresetRequestFailurePolicy,
+    requestModelPresetData,
     resolvePresetStreaming,
     testModelPreset,
 } from './request'
@@ -42,6 +51,9 @@ import { ModelPresetAdapterError } from 'src/ts/preset/adapter'
 import type { ModelPreset } from 'src/ts/preset/types'
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer } from 'src/ts/model/types'
 import { requestStatuses, stopStatusTimer } from 'src/ts/status/requestStatus'
+import { configureRevenantGenerationClient, trackRevenantGenerationJob } from '../revenant/transport/client'
+import { collectStreamingText } from './shared'
+import { callTool } from '../mcp/mcp'
 
 function pluginPreset(): ModelPreset {
     return {
@@ -80,7 +92,9 @@ function pluginPreset(): ModelPreset {
 }
 
 describe('plugin-backed ModelPreset dispatch', () => {
+    afterEach(() => vi.unstubAllGlobals())
     beforeEach(() => {
+        vi.clearAllMocks()
         pluginV2.providers.clear()
         pluginV2.providerOptions.clear()
         customV3ProviderMetaStore.length = 0
@@ -224,5 +238,89 @@ describe('plugin-backed ModelPreset dispatch', () => {
             ok: true,
             message: 'plugin reply',
         })
+    })
+
+    test.each([false, true])('checkpoints the completed plugin reply for tool-call processing (streaming=%s)', async streaming => {
+        mockDb.showRequestStatus = false
+        customV3ProviderMetaStore.push({
+            id: 'pluginmodel:::test-provider', name: 'Test provider',
+            provider: LLMProvider.AsIs, format: LLMFormat.Plugin,
+            flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+            parameters: [], tokenizer: LLMTokenizer.Unknown,
+        })
+        pluginV2.providers.set('test-provider', async () => ({
+            success: true,
+            content: streaming ? new ReadableStream<string>({
+                start(controller) {
+                    controller.enqueue('Processed ')
+                    controller.enqueue('reply')
+                    controller.close()
+                },
+            }) : 'Processed reply',
+        }))
+        configureRevenantGenerationClient({ createAuth: async () => 'auth', getSyncClientId: () => 'client' })
+        trackRevenantGenerationJob('plugin-message', 'tool-round')
+        const fetch = vi.fn(async (_url: string, _options: RequestInit) => new Response('{}'))
+        vi.stubGlobal('fetch', fetch)
+        const preset = pluginPreset()
+        preset.useStreaming = true
+        preset.profileSnapshot.capabilities = ['streaming']
+        const result = await requestModelPresetData({
+            formated: [{ role: 'user', content: 'Synthetic prompt' }], bias: {},
+            chatId: 'plugin-message', useStreaming: streaming, revenantWorkflowId: 'plugin-workflow',
+        }, preset, 'model')
+
+        const text = result.type === 'streaming' ? await collectStreamingText(result.result) : result.result
+        expect(text).toBe('Processed reply')
+        expect(fetch).toHaveBeenCalledOnce()
+        expect(fetch.mock.calls[0][0]).toBe('/api/generation/jobs/tool-round/projection')
+        expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ content: 'Processed reply', providerResult: true })
+    })
+})
+
+describe('HTTP ModelPreset completion', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    test.each([200, 409])('completes the entire tool loop through the shared result checkpoint (HTTP %s)', async checkpointStatus => {
+        vi.clearAllMocks()
+        mockDb.showRequestStatus = false
+        configureRevenantGenerationClient({ createAuth: async () => 'auth', getSyncClientId: () => 'client' })
+        trackRevenantGenerationJob('http-message', 'http-round')
+        let round = 0
+        let checkpoint: Record<string, unknown> | undefined
+        vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+            if (url.startsWith('/api/generation/jobs/')) {
+                checkpoint = JSON.parse(options.body as string)
+                return new Response(JSON.stringify({ error: 'Completion refused' }), { status: checkpointStatus })
+            }
+            const message = round++ === 0
+                ? { content: 'Checking', tool_calls: [{
+                    id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{}' },
+                }] }
+                : { content: 'Final answer' }
+            return new Response(JSON.stringify({ choices: [{ message }] }))
+        }))
+        const preset = pluginPreset()
+        preset.profileSnapshot = {
+            ...preset.profileSnapshot,
+            profileId: 'http-profile', providerBaseId: 'test-http',
+            adapterKind: 'openai-compatible', modelId: 'test-model',
+            endpoint: { kind: 'static', url: 'https://provider.test/v1/chat/completions' },
+            capabilities: ['tools'],
+        }
+        preset.toolUse = true
+        const result = await requestModelPresetData({
+            formated: [{ role: 'user', content: 'Synthetic prompt' }], bias: {},
+            chatId: 'http-message', revenantWorkflowId: 'http-workflow',
+            tools: [{ name: 'lookup', description: '', inputSchema: {} }], rememberToolUsage: true,
+        }, preset, 'model')
+
+        const text = 'Checking\n\n<tool_call>Synthetic saved tool result</tool_call>\n\nFinal answer'
+        expect(checkpoint).toEqual({ content: text, providerResult: true })
+        expect(round).toBe(2)
+        expect(callTool).toHaveBeenCalledOnce()
+        expect(result).toMatchObject(checkpointStatus === 200
+            ? { type: 'success', result: text, toolExecuted: true }
+            : { type: 'fail', noRetry: true, result: 'HTTP 409: Completion refused' })
     })
 })

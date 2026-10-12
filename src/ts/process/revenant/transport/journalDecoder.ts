@@ -38,6 +38,7 @@ export interface RevenantJournalProgress {
     thinking: string
     response: string
     usage?: AdapterUsage
+    awaitingProviderResult?: boolean
 }
 
 function projectedContent(job: RecoverableJournalJob): string {
@@ -116,6 +117,14 @@ export async function decodeRevenantGenerationJournal(
         throw new Error(`Provider request failed with HTTP ${job.responseStatus}`)
     }
 
+    if (job.projection?.source === 'provider') {
+        await stream.cancel()
+        const content = projectedContent(job)
+        onContent?.(content)
+        onProgress?.({ thinking: '', response: content })
+        return content
+    }
+
     if (!isStreamingJournal(job)) {
         const text = await new Response(stream).text()
         if (!text.trim()) return projectedContent(job)
@@ -126,6 +135,8 @@ export async function decodeRevenantGenerationJournal(
             thinking: statusReasoning(parsed.reasoning),
             response: parsed.text,
             ...(parsed.usage ? { usage: parsed.usage } : {}),
+            ...(parsed.toolCalls?.length || parsed.finishReason === 'tool_calls'
+                ? { awaitingProviderResult: true } : {}),
         })
         const content = formatReasoning(parsed.reasoning) + parsed.text
         finish()
@@ -136,15 +147,24 @@ export async function decodeRevenantGenerationJournal(
     let output = ''
     let reasoning = ''
     let usage: AdapterUsage | undefined
+    let awaitingProviderResult = false
     const publish = () => {
         onProgress?.({
             thinking: reasoning,
             response: output,
             ...(usage ? { usage } : {}),
+            ...(awaitingProviderResult ? { awaitingProviderResult: true } : {}),
         })
         const content = (reasoning ? formatReasoning([{ text: reasoning }]) : '') + output
         if (content) onContent?.(content)
         return content
+    }
+    const appendDelta = (delta: AdapterChatStreamDelta) => {
+        output += delta.textDelta
+        if (delta.reasoningDelta) reasoning += delta.reasoningDelta
+        if (delta.usage) usage = delta.usage
+        if (delta.finishReason === 'tool_calls' || delta.finishReason === 'tool_use') awaitingProviderResult = true
+        publish()
     }
 
     if (job.adapterKind === 'amazon-bedrock') {
@@ -156,10 +176,7 @@ export async function decodeRevenantGenerationJournal(
             const raw = JSON.parse(new TextDecoder().decode(message.payload))
             const delta = parseAmazonBedrockStreamEvent(message.headers[':event-type'], raw)
             if (!delta) continue
-            output += delta.textDelta
-            if (delta.reasoningDelta) reasoning += delta.reasoningDelta
-            if (delta.usage) usage = delta.usage
-            publish()
+            appendDelta(delta)
         }
     } else {
         for await (const event of parseSseStream(stream)) {
@@ -176,10 +193,7 @@ export async function decodeRevenantGenerationJournal(
                 throw error
             }
             if (!delta) continue
-            output += delta.textDelta
-            if (delta.reasoningDelta) reasoning += delta.reasoningDelta
-            if (delta.usage) usage = delta.usage
-            publish()
+            appendDelta(delta)
         }
     }
 
