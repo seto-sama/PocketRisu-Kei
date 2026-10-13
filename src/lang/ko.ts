@@ -820,7 +820,7 @@ export const languageKorean = {
   imageGenerationPresetDefault: "기본 이미지 생성 세팅",
   imageGenerationPresetName: "세팅 이름",
   imageGenerationPresetInvalid: "올바른 이미지 생성 세팅값이 아닙니다.",
-  imageStylePreset: "그림체 프리셋",
+  imageStylePreset: "그림체&캐릭터 프리셋",
   imageStylePresetNone: "프리셋 사용 안 함",
   imageStylePresetNew: "새 그림체 프리셋",
   imageStylePresetName: "프리셋 이름",
@@ -833,6 +833,7 @@ export const languageKorean = {
   imageStylePresetFolderView: "폴더별 보기",
   imageStylePresetTagView: "태그별 보기",
   imageStylePresetModuleView: "모듈별 보기",
+  imageCharacterPreset: "캐릭터 프리셋",
   imageTagAutocomplete: {
     label: "단부루 태그",
     loading: "단부루 태그 목록을 다운로드하는 중입니다.",

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeftRightIcon, SquarePenIcon } from '@lucide/svelte'
+    import { ArrowLeftRightIcon, ContactIcon, SquarePenIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, alertError, notifyError, notifySuccess } from 'src/ts/alert'
     import {
@@ -15,7 +15,8 @@
         parseImageStylePresetContent,
         type ImageStylePresetEntry,
     } from 'src/ts/imageGeneration/stylePresets'
-    import { DBState } from 'src/ts/stores.svelte'
+    import { DBState, showPopupEditor } from 'src/ts/stores.svelte'
+    import { getImageTagBundleLorebook, saveImageTagBundleLorebook } from 'src/ts/imageGeneration/tagBundles'
     import IconButton from './components/IconButton.svelte'
     import PresetBindingTrigger from './PresetBindingTrigger.svelte'
     import PresetPickerActions from './PresetPickerActions.svelte'
@@ -461,6 +462,16 @@
         selectedGroup = 'all'
     }
 
+    function editTagBundles() {
+        const moduleId = selectedModuleTarget?.moduleId ?? selectedPreset?.moduleId
+        showPopupEditor({
+            title: language.imageCharacterPreset,
+            mode: 'plain',
+            value: getImageTagBundleLorebook(DBState.db, moduleId)?.content ?? '',
+            onCommit: content => saveImageTagBundleLorebook(DBState.db, content, moduleId),
+        })
+    }
+
 </script>
 
 {#if open}
@@ -522,7 +533,11 @@
                 <SquarePenIcon />
             </IconButton>
         {/snippet}
-        <PresetPickerActions onCreate={startCreate} />
+        <PresetPickerActions onCreate={startCreate}>
+            <IconButton onclick={editTagBundles} title={language.imageCharacterPreset}>
+                <ContactIcon />
+            </IconButton>
+        </PresetPickerActions>
     </PresetPickerLayout>
 {/if}
 

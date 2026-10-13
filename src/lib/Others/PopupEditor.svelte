@@ -4,7 +4,7 @@
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
-    import { popUpEditorStore } from 'src/ts/stores.svelte'
+    import { DBState, popUpEditorStore } from 'src/ts/stores.svelte'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
     import * as DropdownMenu from '../UI/components/dropdown-menu';
@@ -28,6 +28,7 @@
     import { onDestroy, tick } from 'svelte'
     import CBSDocumentationDialog from './CBSDocumentationDialog.svelte'
     import { createImageTagCompletionSource, type ImageTagStatus } from 'src/ts/imageGeneration/imageTags'
+    import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
 
     type PreviewToggleDefinition = {
         key:string
@@ -66,6 +67,7 @@
     const imageTagCompletion = $derived(popUpEditorStore.imageTags
         ? createImageTagCompletionSource({
             onStatus: status => { imageTagStatus = status },
+            getBundles: () => listImageTagBundles(DBState.db, getCurrentCharacter()),
         }) : undefined)
     const commitController = createPopupEditorCommitController(
         async (value) => popUpEditorStore.onCommit?.(value),

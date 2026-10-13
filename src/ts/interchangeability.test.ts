@@ -23,11 +23,13 @@ function makeChar() {
     c.creatorNotes = 'note text'
     c.replaceGlobalNote = 'stay in character'
     c.moduleNamespace = 'test.namespace'
+    c.loreExt = { risu_imageTagBundleLorebookId: 'a2b8d6c0-73ee-4320-9c6b-36e0ff204dd0' }
     c.hideChatIcon = true
     c.customscript = [{ comment: 'c1', in: 'a', out: 'b', type: 'editinput' }] as any
     c.globalLore = [{
         key: 'k', secondkey: '', insertorder: 1, comment: 'real lore',
         content: 'lore body', mode: 'normal', alwaysActive: false, selective: false,
+        extentions: { risu_case_sensitive: false, risu_imageTagBundleId: c.loreExt.risu_imageTagBundleLorebookId },
     }] as any
     c.lowLevelAccess = true
     c.image = 'asset://icon.png'
@@ -43,6 +45,7 @@ describe('interchangeability: character <-> module round-trip', () => {
         expect(m.regex).toEqual(c.customscript)
         expect(m.lowLevelAccess).toBe(true)
         expect(m.namespace).toBe(c.moduleNamespace)
+        expect(m.imageTagBundleLorebookId).toBe(c.loreExt.risu_imageTagBundleLorebookId)
         expect(m.hideIcon).toBe(true)
         // Description, first message and global note are encoded as indicator entries.
         const contents = (m.lorebook ?? []).map((l) => l.content)
@@ -62,6 +65,8 @@ describe('interchangeability: character <-> module round-trip', () => {
         expect(back.alternateGreetings).toEqual(c.alternateGreetings)
         expect(back.replaceGlobalNote).toBe(c.replaceGlobalNote)
         expect(back.moduleNamespace).toBe(c.moduleNamespace)
+        expect(back.loreExt).toEqual(c.loreExt)
+        expect(back.globalLore.find(lore => lore.content === 'lore body')?.extentions).toEqual(c.globalLore[0].extentions)
         expect(back.hideChatIcon).toBe(c.hideChatIcon)
         expect(back.customscript).toEqual(c.customscript)
         expect(back.lowLevelAccess).toBe(c.lowLevelAccess)

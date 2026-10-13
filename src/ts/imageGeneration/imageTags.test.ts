@@ -41,6 +41,23 @@ it('keeps Korean search results visible and exposes their descriptions and categ
     expect(status).not.toHaveBeenCalledWith('loading')
 })
 
+it('completes a weighted local bundle reference without requesting Danbooru tags', async () => {
+    const search = vi.fn()
+    const source = createImageTagCompletionSource({
+        search,
+        getBundles: () => [{ name: 'Miku', content: 'boy, black hair', source: 'Hatsune Miku' }],
+    })
+    const doc = '{{{### Mik}}}, outdoors'
+    const cursor = doc.indexOf('Mik') + 3
+    const state = EditorState.create({ doc })
+    const result = await source(new CompletionContext(state, cursor, false))
+    expect(result!.options[0]).toMatchObject({
+        label: '### Miku', detail: 'Hatsune Miku', description: 'boy, black hair',
+    })
+    expect(doc.slice(0, result!.from) + result!.options[0].apply + doc.slice(result!.to!)).toBe('{{{### Miku}}}, outdoors')
+    expect(search).not.toHaveBeenCalled()
+})
+
 it('reports a failed search without throwing or changing the prompt', async () => {
     const status = vi.fn()
     const state = EditorState.create({ doc: '장발' })

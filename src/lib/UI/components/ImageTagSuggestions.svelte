@@ -4,17 +4,18 @@
     import { language } from 'src/lang'
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte'
     import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit'
-    import { searchImageTags, getImageTagDetail, getImageTagRange, type ImageTag, type ImageTagStatus } from 'src/ts/imageGeneration/imageTags'
+    import { searchImagePromptSuggestions, getImageTagRange, type ImageTagStatus } from 'src/ts/imageGeneration/imageTags'
+    import type { ImageTagBundle } from 'src/ts/imageGeneration/tagBundles'
     import { getTextareaCaretRect } from 'src/ts/gui/textareaCaret'
-    import { completionContent } from 'src/ts/gui/completionContent'
+    import { completionContent, type CompletionContent } from 'src/ts/gui/completionContent'
     import { registerTextEntryEscapeHandler } from 'src/ts/gui/escapeKey'
     import { getCompletionAnchor, getCompletionBounds, getCompletionViewport } from 'src/ts/gui/completionPlacement'
     import OverlayLayerRoot from './overlay/OverlayLayerRoot.svelte'
 
-    let { target }: { target: HTMLTextAreaElement } = $props()
+    let { target, getBundles }: { target: HTMLTextAreaElement, getBundles: () => ImageTagBundle[] } = $props()
     const listId = $props.id()
     let open = $state(false)
-    let tags = $state<ImageTag[]>([])
+    let suggestions = $state<CompletionContent[]>([])
     let selected = $state(0)
     let status = $state<ImageTagStatus>('idle')
     let caretRect = $state<DOMRect>()
@@ -58,7 +59,7 @@
     function close() {
         cancelSearch()
         open = false
-        tags = []
+        suggestions = []
         status = 'idle'
         lastQuery = undefined
     }
@@ -73,7 +74,7 @@
             return
         }
         cancelSearch()
-        tags = []
+        suggestions = []
         open = false
         status = 'idle'
         lastQuery = range.query
@@ -82,22 +83,22 @@
             const pending = new AbortController()
             controller = pending
             try {
-                const result = await searchImageTags(range.query, pending.signal, next => {
+                const result = await searchImagePromptSuggestions(range.query, pending.signal, next => {
                     if (sequence === request) status = next
-                })
+                }, { getBundles })
                 if (sequence !== request) return
-                tags = result
+                suggestions = result
                 selected = 0
-                open = tags.length > 0
+                open = suggestions.length > 0
                 reposition()
             } catch {}
         }, INPUT_COMMIT_DEBOUNCE_MS)
     }
 
-    function choose(tag: ImageTag) {
+    function choose(suggestion: CompletionContent) {
         const range = getImageTagRange(target.value, target.selectionStart)
         if (!range || target.selectionStart !== target.selectionEnd || composing) return
-        const insert = tag.name + range.suffix
+        const insert = suggestion.label + range.suffix
         target.setRangeText(insert, range.from, range.to, 'end')
         const cursor = range.from + insert.length
         target.focus()
@@ -117,9 +118,9 @@
         if (event.isComposing || composing || !open) return
         if (event.key === 'Escape') dismissCompletion()
         else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) + tags.length) % tags.length
+            selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length
             void tick().then(() => document.getElementById(`${listId}-${selected}`)?.scrollIntoView({ block: 'nearest' }))
-        } else if (event.key === 'Enter') choose(tags[selected])
+        } else if (event.key === 'Enter') choose(suggestions[selected])
         else return
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -202,19 +203,19 @@
                     class="risu-completion-list risu-layer-overlay z-[var(--risu-overlay-z)] max-h-[var(--bits-popover-content-available-height)]"
                 >
                     <div id={listId} role="listbox" aria-label={language.imageTagAutocomplete.label} class="risu-completion-scroll">
-                        {#each tags as tag, index (tag.name)}
+                        {#each suggestions as suggestion, index (suggestion.label)}
                             <button
                                 id={`${listId}-${index}`}
                                 type="button"
                                 role="option"
-                                aria-label={tag.name}
+                                aria-label={suggestion.label}
                                 aria-selected={index === selected}
                                 tabindex={-1}
                                 class="risu-completion-option"
                                 onpointerdown={event => event.preventDefault()}
-                                onclick={() => choose(tag)}
+                                onclick={() => choose(suggestion)}
                             >
-                                <span use:completionContent={{ label: tag.name, detail: getImageTagDetail(tag), description: tag.description }}></span>
+                                <span use:completionContent={suggestion}></span>
                             </button>
                         {/each}
                     </div>

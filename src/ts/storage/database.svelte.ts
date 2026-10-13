@@ -1522,6 +1522,7 @@ export interface loreBook{
     role?: 'system'|'user'|'assistant'
     extentions?:{
         risu_case_sensitive:boolean
+        risu_imageTagBundleId?:string
     }
     activationPercent?:number
     loreCache?:{

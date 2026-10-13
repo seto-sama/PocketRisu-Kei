@@ -16,6 +16,7 @@
     import ImageStylePresetList from 'src/lib/UI/ImageStylePresetList.svelte'
     import NovelAIUsageGauge from 'src/lib/UI/NovelAIUsageGauge.svelte'
     import { applyImageStylePreset, loadImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
+    import { expandImageTagBundles, listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
     import NumberInput from '../UI/components/NumberInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
     import {
@@ -130,13 +131,14 @@
             const requestPrompt = stylePreset
                 ? applyImageStylePreset(stylePreset.content, trimmedPrompt, trimmedNegativePrompt)
                 : { prompt: trimmedPrompt, negativePrompt: trimmedNegativePrompt }
+            const bundles = listImageTagBundles(DBState.db, character)
             void draftStore.flush({ prompt, negativePrompt, seed })
             const currentPreset = getCurrentImageGenerationPreset(DBState.db)
             const workflow = await beginImageGenerationWorkflow({
                 characterId: target.characterId,
                 roomId: target.chatId,
-                prompt: requestPrompt.prompt,
-                negativePrompt: requestPrompt.negativePrompt,
+                prompt: expandImageTagBundles(requestPrompt.prompt, bundles),
+                negativePrompt: expandImageTagBundles(requestPrompt.negativePrompt, bundles),
                 seed: Number.isFinite(seed) ? seed : undefined,
                 label: currentPreset.name,
             })

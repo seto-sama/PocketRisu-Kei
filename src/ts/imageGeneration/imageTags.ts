@@ -4,12 +4,14 @@ import type { CompletionSource } from '@codemirror/autocomplete'
 import { language } from 'src/lang'
 import { forageStorage } from '../storage/autoStorage'
 import { INPUT_COMMIT_DEBOUNCE_MS } from '../inputCommit'
+import type { CompletionContent } from '../gui/completionContent'
+import { isImageTagBundleQuery, searchImageTagBundles, type ImageTagBundle } from './tagBundles'
 
 const imageTagCategories = [
     [0, 'general'], [1, 'artist'], [3, 'copyright'], [4, 'character'], [5, 'meta'],
 ] as const
 
-export interface ImageTag {
+interface ImageTag {
     name: string
     category: number
     count: number
@@ -18,6 +20,11 @@ export interface ImageTag {
 
 export type ImageTagStatus = 'idle' | 'loading' | 'error'
 type SearchTags = (query: string, signal: AbortSignal) => Promise<ImageTag[]>
+
+interface ImagePromptSearchOptions {
+    search?: SearchTags
+    getBundles?: () => ImageTagBundle[]
+}
 
 const numericWeight = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)'
 const weightPrefix = new RegExp(`^${numericWeight}::\\s*`)
@@ -38,8 +45,6 @@ export function getImageTagRange(text: string, cursor: number) {
     while (from > 0 && !isSeparator(from - 1)) from -= 1
     while (to < text.length && !isSeparator(to)) to += 1
     let segment = text.slice(from, to)
-    // Leave CBS expressions to the editor's existing completion source.
-    if (segment.includes('{{') || segment.includes('}}')) return null
     from += segment.length - segment.trimStart().length
     to -= segment.length - segment.trimEnd().length
     const segmentEnd = to
@@ -54,6 +59,8 @@ export function getImageTagRange(text: string, cursor: number) {
     const wrappers = opening.trim().length
     for (let index = 0; index < wrappers && /[}\])]$/.test(text.slice(from, to)); index += 1) to -= 1
     if (wrappers) to -= text.slice(from, to).match(weightSuffix)?.[0].length ?? 0
+    // Leave CBS expressions to their source, allowing weighted bundle references.
+    if ((segment.includes('{{') || segment.includes('}}')) && !isImageTagBundleQuery(text.slice(from, to))) return null
     from += text.slice(from, to).match(/^(?:artist:|@)\s*/)?.[0].length ?? 0
     while (to > from && /\s/.test(text[to - 1])) to -= 1
     if (cursor < from || (cursor > to && text.slice(to, cursor).trim())) return null
@@ -66,12 +73,12 @@ export function getImageTagRange(text: string, cursor: number) {
     return { from, to: end + following.length, query, suffix }
 }
 
-export function getImageTagDetail(tag: ImageTag): string {
+function getImageTagDetail(tag: ImageTag): string {
     const category = imageTagCategories.find(([id]) => id === tag.category)?.[1] ?? 'general'
     return `${language.imageTagAutocomplete.categories[category]} · ${tag.count.toLocaleString()}`
 }
 
-export async function fetchImageTags(query: string, signal: AbortSignal): Promise<ImageTag[]> {
+async function fetchImageTags(query: string, signal: AbortSignal): Promise<ImageTag[]> {
     const auth = await forageStorage.createAuth()
     signal.throwIfAborted()
     const params = new URLSearchParams({ q: query })
@@ -80,14 +87,19 @@ export async function fetchImageTags(query: string, signal: AbortSignal): Promis
     return (await response.json()).tags
 }
 
-export async function searchImageTags(
+export async function searchImagePromptSuggestions(
     query: string,
     signal: AbortSignal,
     onStatus: (status: ImageTagStatus) => void,
-    search: SearchTags = fetchImageTags,
-): Promise<ImageTag[]> {
+    { search = fetchImageTags, getBundles = () => [] }: ImagePromptSearchOptions = {},
+): Promise<CompletionContent[]> {
     signal.throwIfAborted()
     onStatus('idle')
+    if (isImageTagBundleQuery(query)) {
+        return searchImageTagBundles(query, getBundles()).map(bundle => ({
+            label: `### ${bundle.name}`, detail: bundle.source, description: bundle.content,
+        }))
+    }
     const timer = setTimeout(() => onStatus('loading'), INPUT_COMMIT_DEBOUNCE_MS)
     const cancelTimer = () => clearTimeout(timer)
     signal.addEventListener('abort', cancelTimer, { once: true })
@@ -95,7 +107,7 @@ export async function searchImageTags(
         const tags = await search(query, signal)
         signal.throwIfAborted()
         onStatus('idle')
-        return tags
+        return tags.map(tag => ({ label: tag.name, detail: getImageTagDetail(tag), description: tag.description }))
     } catch (error) {
         if (!signal.aborted) onStatus('error')
         throw error
@@ -107,10 +119,9 @@ export async function searchImageTags(
 
 export function createImageTagCompletionSource({
     onStatus = () => {},
-    search = fetchImageTags,
-}: {
+    ...searchOptions
+}: ImagePromptSearchOptions & {
     onStatus?: (status: ImageTagStatus) => void
-    search?: SearchTags
 } = {}): CompletionSource {
     let sequence = 0
     return async context => {
@@ -126,20 +137,18 @@ export function createImageTagCompletionSource({
             if (sequence === request) onStatus('idle')
         }, { onDocChange: true })
         try {
-            const tags = await searchImageTags(range.query, controller.signal, status => {
+            const suggestions = await searchImagePromptSuggestions(range.query, controller.signal, status => {
                 if (sequence === request) onStatus(status)
-            }, search)
-            if (context.aborted || !tags.length) return null
+            }, searchOptions)
+            if (context.aborted || !suggestions.length) return null
             return {
                 from: range.from,
                 to: range.to,
-                // Korean matches and popularity order already come from the server.
+                // Both sources return filtered results in display order.
                 filter: false,
-                options: tags.map(tag => ({
-                    label: tag.name,
-                    detail: getImageTagDetail(tag),
-                    description: tag.description,
-                    apply: tag.name + range.suffix,
+                options: suggestions.map(suggestion => ({
+                    ...suggestion,
+                    apply: suggestion.label + range.suffix,
                 })),
             }
         } catch { return null }

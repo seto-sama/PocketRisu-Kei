@@ -1,8 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { mount, tick, unmount } from 'svelte'
 import Textarea from './Textarea.svelte'
+import { DBState, selectedCharID } from 'src/ts/stores.svelte'
 
-vi.mock('src/ts/stores.svelte', () => ({ DBState: { db: {} }, showPopupEditor: vi.fn() }))
+vi.mock('src/ts/stores.svelte', async () => {
+    const { writable } = await import('svelte/store')
+    return { DBState: { db: {} }, selectedCharID: writable(-1), showPopupEditor: vi.fn() }
+})
 vi.mock('src/ts/gui/guisize', async () => {
     const { writable } = await import('svelte/store')
     return { textAreaSize: writable(0), textAreaTextSize: writable(0) }
@@ -29,6 +33,8 @@ afterEach(async () => {
     await Promise.all(mounted.splice(0).map(component => unmount(component as never)))
     vi.unstubAllGlobals()
     document.body.replaceChildren()
+    Object.assign(DBState.db, { characters: [], modules: [] })
+    selectedCharID.set(-1)
 })
 
 it('shows Korean descriptions and commits the completed prefix while preserving following prompt text', async () => {
@@ -48,6 +54,29 @@ it('shows Korean descriptions and commits the completed prefix while preserving 
     expect(oncommit).toHaveBeenLastCalledWith(input.value)
     expect(input.selectionStart).toBe(input.value.indexOf('out'))
     expect(document.querySelector('[role="listbox"]')).toBeNull()
+})
+
+it('offers current-character bundles after the marker and inserts a name without downloading or expanding tags', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    Object.assign(DBState.db, {
+        modules: [],
+        characters: [{ name: 'Hatsune Miku', globalLore: [{
+            comment: 'lb-xnai.lb.extra', mode: 'normal', alwaysActive: false,
+            content: '### Miku\nboy, black hair',
+        }] }],
+    })
+    selectedCharID.set(0)
+    const { input } = await render('###')
+    input.focus()
+    input.setSelectionRange(3, 3)
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await vi.waitFor(() => expect(document.querySelector('[role="option"]')?.textContent).toContain('### Miku'))
+    expect(document.querySelector('.risu-completion-detail')?.textContent).toBe('Hatsune Miku')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await tick()
+    expect(input.value).toBe('### Miku, ')
+    expect(fetch).not.toHaveBeenCalled()
 })
 
 it('keeps focus when using the list, dismisses with Escape, navigates and accepts a pointer selection', async () => {

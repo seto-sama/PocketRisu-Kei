@@ -761,7 +761,7 @@ export const languageEnglish = {
     imageGenerationPresetDefault: "Default Image Preset",
     imageGenerationPresetName: "Preset Name",
     imageGenerationPresetInvalid: "This is not a valid image generation preset.",
-    imageStylePreset: "Art Style Preset",
+    imageStylePreset: "Art Style & Character Presets",
     imageStylePresetNone: "Don't Use a Preset",
     imageStylePresetNew: "New Art Style Preset",
     imageStylePresetName: "Preset Name",
@@ -774,6 +774,7 @@ export const languageEnglish = {
     imageStylePresetFolderView: "View by Folder",
     imageStylePresetTagView: "View by Tag",
     imageStylePresetModuleView: "View by Module",
+    imageCharacterPreset: "Character Presets",
     imageTagAutocomplete: {
         label: "Danbooru tags",
         loading: "Downloading the Danbooru tag list.",
