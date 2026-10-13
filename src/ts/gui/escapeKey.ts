@@ -1,4 +1,14 @@
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
+const textEntryEscapeHandlers = new WeakMap<HTMLElement, () => boolean>()
+
+export function registerTextEntryEscapeHandler(element: HTMLElement, handler: () => boolean): () => void {
+    textEntryEscapeHandlers.set(element, handler)
+    return () => { textEntryEscapeHandlers.delete(element) }
+}
+
+export function handleTextEntryEscape(element: HTMLElement): boolean {
+    return textEntryEscapeHandlers.get(element)?.() ?? false
+}
 
 /**
  * Sends Escape through the normal focused-element event path.

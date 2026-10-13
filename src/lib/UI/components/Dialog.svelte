@@ -127,15 +127,15 @@
 
     const sizeClasses: Record<DialogSize, string> = {
         sm: 'max-w-sm',
-        default: 'max-w-md',
+        default: 'max-w-[var(--risu-dialog-default-width)]',
         lg: 'max-w-2xl',
         xl: 'max-w-4xl',
     };
 
     const contentBase =
-        'risu-modal-content-viewport fixed left-1/2 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 ' +
-        'bg-darkbg border border-darkborderc rounded-md shadow-lg ' +
-        'p-4 flex flex-col gap-4 overflow-y-auto outline-none ' +
+        'risu-modal-content-viewport fixed left-1/2 w-[calc(100vw-var(--risu-dialog-viewport-inset))] -translate-x-1/2 -translate-y-1/2 ' +
+        'bg-darkbg border-[length:var(--risu-dialog-border-width)] border-darkborderc rounded-md shadow-lg ' +
+        'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none ' +
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';

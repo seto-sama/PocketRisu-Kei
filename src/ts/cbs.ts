@@ -89,6 +89,7 @@ export type CBSDefinition = {
     callback: RegisterCallback|'doc_only',
     alias: string[]
     description: string
+    hint?: string
     deprecated?: {
         message: string,
         since?: string,
@@ -172,6 +173,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Basic character/user variables
     registerFunction({
         name: 'char',
+        hint: "Returns the selected character's nickname or name, or botname in consistent-character mode.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.consistantChar){
                 return 'botname'
@@ -199,6 +201,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'user',
+        hint: "Returns the current user's name, or username in consistent-character mode.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.consistantChar){
                 return 'username'
@@ -212,6 +215,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'trigger_id',
+        hint: "Returns the manual trigger's element ID, or null if none is available.",
         callback: (str, matcherArg, args, vars) => {
             const currentTriggerId = getTriggerId()
             return currentTriggerId ?? 'null'
@@ -222,6 +226,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'previouscharchat',
+        hint: "Returns the previous character message, falling back to the selected greeting.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -241,6 +246,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     
     registerFunction({
         name: 'previoususerchat',
+        hint: "Searches backward for a user message; falls back to the selected greeting when none is found.",
         callback: (str, matcherArg, args, vars) => {
             const chatID = matcherArg.chatID
             if(chatID !== -1){
@@ -265,6 +271,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Character data functions
     registerFunction({
         name: 'personality',
+        hint: "Legacy field that always returns an empty string.",
         callback: () => '',
         alias: ['charpersona'],
         description: 'Legacy character personality field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{personality}}',
@@ -272,6 +279,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'description',
+        hint: "Returns the selected character's parsed description.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const argChara = matcherArg.chara
@@ -284,6 +292,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'scenario',
+        hint: "Legacy field that always returns an empty string.",
         callback: () => '',
         alias: [],
         description: 'Legacy character scenario field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{scenario}}',
@@ -291,6 +300,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'exampledialogue',
+        hint: "Legacy field that always returns an empty string.",
         callback: () => '',
         alias: ['examplemessage', 'example_dialogue'],
         description: 'Legacy example dialogue field. It is no longer included in requests and always returns an empty string.\n\nUsage:: {{exampledialogue}}',
@@ -299,6 +309,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Prompt and system functions
     registerFunction({
         name: 'persona',
+        hint: "Returns the parsed user persona prompt.",
         callback: (str, matcherArg, args, vars) => {
             return risuChatParser(getPersonaPrompt(), matcherArg)
         },
@@ -308,6 +319,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'mainprompt',
+        hint: "Returns the parsed main prompt.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             return risuChatParser(db.mainPrompt, matcherArg)
@@ -318,6 +330,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'lorebook',
+        hint: "Returns character, chat, and module lorebook entries as a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const argChara = matcherArg.chara
@@ -337,6 +350,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'userhistory',
+        hint: "Returns user messages as a JSON array of serialized message objects.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -355,6 +369,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'charhistory',
+        hint: "Returns character messages as a JSON array of serialized message objects.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -373,6 +388,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'jb',
+        hint: "Returns the parsed jailbreak prompt.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             return risuChatParser(db.jailbreak, matcherArg)
@@ -383,6 +399,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'globalnote',
+        hint: "Returns the parsed global note.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             return risuChatParser(db.globalNote, matcherArg)
@@ -393,6 +410,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'authornote',
+        hint: "Returns the parsed chat note or the prompt template's default author note.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters?.[getSelectedCharID()]
@@ -414,6 +432,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'chatindex',
+        hint: "Returns the current chat message index as a string.",
         callback: (str, matcherArg, args, vars) => {
             return matcherArg.chatID.toString()
         },
@@ -423,6 +442,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'firstmsgindex',
+        hint: "Returns the selected first-message index as a string.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -435,6 +455,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'blank',
+        hint: "Returns an empty string.",
         callback: (str, matcherArg, args, vars) => {
             return ''
         },
@@ -444,6 +465,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'messagetime',
+        hint: "Returns the current message's local time, or a placeholder when unavailable.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.tokenizeAccurate){
                 return `00:00:00`
@@ -468,6 +490,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'messagedate',
+        hint: "Returns the current message's local date, or a placeholder when unavailable.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.tokenizeAccurate){
                 return `00:00:00`
@@ -491,6 +514,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'messageunixtimearray',
+        hint: "Returns message timestamps in milliseconds as a JSON array; missing times are zero.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -505,6 +529,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'unixtime',
+        hint: "Returns the current Unix timestamp in seconds.",
         callback: (str, matcherArg, args, vars) => {
             const now = new Date()
             return (now.getTime() / 1000).toFixed(0)
@@ -515,6 +540,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'isotime',
+        hint: "Returns the current UTC time as hours, minutes, and seconds.",
         callback: (str, matcherArg, args, vars) => {
             const now = new Date()
             return `${now.getUTCHours()}:${now.getUTCMinutes()}:${now.getUTCSeconds()}`
@@ -525,6 +551,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'isodate',
+        hint: "Returns the current UTC date as year-month-day.",
         callback: (str, matcherArg, args, vars) => {
             const now = new Date()
             return `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}-${now.getUTCDate()}`
@@ -535,6 +562,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'messageidleduration',
+        hint: "Returns the interval between the latest two user messages as HH:MM:SS.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.tokenizeAccurate){
                 return `00:00:00`
@@ -592,6 +620,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'idleduration',
+        hint: "Returns the time since the last chat message as HH:MM:SS.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.tokenizeAccurate){
                 return `00:00:00`
@@ -629,6 +658,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'br',
+        hint: "Returns a newline character.",
         callback: (str, matcherArg, args, vars) => {
             return '\n'
         },
@@ -638,6 +668,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'model',
+        hint: "Returns the selected model's internal ID.",
         callback: (str, matcherArg, args, vars) => {
             return getGenerationModelMetadata('model').internalId
         },
@@ -647,6 +678,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'axmodel',
+        hint: "Returns the selected auxiliary model's internal ID.",
         callback: (str, matcherArg, args, vars) => {
             return getGenerationModelMetadata('submodel').internalId
         },
@@ -656,6 +688,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'role',
+        hint: "Returns the current role from conditions, message context, or the supplied role.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.cbsConditions.chatRole){
                 return matcherArg.cbsConditions.chatRole
@@ -676,6 +709,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'isfirstmsg',
+        hint: "Returns 1 when the first-message condition is set, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.cbsConditions.firstmsg){
                 return '1'
@@ -688,6 +722,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'jbtoggled',
+        hint: "Returns 1 if the jailbreak prompt is enabled, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             return db.jailbreakToggle ? '1' : '0'
@@ -698,6 +733,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'maxcontext',
+        hint: "Returns the maximum context setting as a string.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             return db.maxContext.toString()
@@ -708,6 +744,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'lastmessage',
+        hint: "Returns the content of the last chat message.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -723,6 +760,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'lastmessageid',
+        hint: "Returns the last chat message's zero-based index as a string.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -739,6 +777,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Variable handling functions
     registerFunction({
         name: 'tempvar',
+        hint: "Returns a temporary variable's value, or an empty string if unset.",
         callback: (str, matcherArg, args, vars) => {
             return {
                 text: vars[args[0]] ?? '',
@@ -751,6 +790,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'settempvar',
+        hint: "Sets a temporary variable and returns an empty string.",
         callback: (str, matcherArg, args, vars) => {
             vars[args[0]] = args[1]
             return {
@@ -764,6 +804,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'return',
+        hint: "Sets the script return value and force-return flag, then emits no text.",
         callback: (str, matcherArg, args, vars) => {
             vars['__return__'] = args[0]
             vars['__force_return__'] = '1'
@@ -778,6 +819,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'getvar',
+        hint: "Returns a chat variable, preferring a supplied override.",
         callback: (str, matcherArg, args, vars) => {
             return matcherArg.variableOverrides?.chat?.[args[0]] ?? getChatVar(args[0])
         },
@@ -788,6 +830,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'calc',
+        hint: "Evaluates an expression and returns its result as a string.",
         callback: (str, matcherArg, args, vars) => {
             return calcString(args[0]).toString()
         },
@@ -797,6 +840,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'addvar',
+        hint: "Adds to a chat variable when variable execution is enabled.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.rmVar){
                 return ''
@@ -813,6 +857,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'setvar',
+        hint: "Sets a chat variable when variable execution is enabled.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.rmVar){
                 return ''
@@ -829,6 +874,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'setdefaultvar',
+        hint: "Sets a chat variable only when its current value is empty or null.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.rmVar){
                 return ''
@@ -848,6 +894,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'getglobalvar',
+        hint: "Returns a global chat variable, preferring a supplied override.",
         callback: (str, matcherArg, args, vars) => {
             return matcherArg.variableOverrides?.global?.[args[0]] ?? getGlobalChatVar(args[0])
         },
@@ -858,6 +905,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'button',
+        hint: "Returns button HTML that invokes the supplied trigger when clicked.",
         callback: (str, matcherArg, args, vars) => {
             return `<button class="button-default" risu-trigger="${args[1]}">${args[0]}</button>`
         },
@@ -867,6 +915,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'risu',
+        hint: "Returns Risuai logo image HTML, using 45 pixels when no size is given.",
         callback: (str, matcherArg, args, vars) => {
             const size = args[0] || '45'
             return `<img src="/legacy-logo.png" style="height:${size}px;width:${size}px" />`
@@ -878,6 +927,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Comparison functions
     registerFunction({
         name: 'equal',
+        hint: "Returns 1 when the argument strings are identical, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (args[0] === args[1]) ? '1' : '0'
         },
@@ -887,6 +937,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'notequal',
+        hint: "Returns 1 when the argument strings differ, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (args[0] !== args[1]) ? '1' : '0'
         },
@@ -896,6 +947,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'greater',
+        hint: "Returns 1 if the first numeric argument is greater, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (Number(args[0]) > Number(args[1])) ? '1' : '0'
         },
@@ -905,6 +957,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'less',
+        hint: "Returns 1 if the first numeric argument is less, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (Number(args[0]) < Number(args[1])) ? '1' : '0'
         },
@@ -914,6 +967,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'greaterequal',
+        hint: "Returns 1 if the first numeric argument is at least the second, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (Number(args[0]) >= Number(args[1])) ? '1' : '0'
         },
@@ -923,6 +977,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'lessequal',
+        hint: "Returns 1 if the first numeric argument is at most the second, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return (Number(args[0]) <= Number(args[1])) ? '1' : '0'
         },
@@ -932,6 +987,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'and',
+        hint: "Returns 1 only when both arguments are 1; otherwise returns 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0] === '1' && args[1] === '1' ? '1' : '0'
         },
@@ -941,6 +997,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'or',
+        hint: "Returns 1 when either argument is 1; otherwise returns 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0] === '1' || args[1] === '1' ? '1' : '0'
         },
@@ -950,6 +1007,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'not',
+        hint: "Returns 0 when the input is 1; otherwise returns 1.",
         callback: (str, matcherArg, args, vars) => {
             return args[0] === '1' ? '0' : '1'
         },
@@ -959,6 +1017,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'file',
+        hint: "Displays the filename in display mode; otherwise decodes Base64 content as UTF-8.",
         callback: (str, matcherArg, args, vars) => {
             if(matcherArg.displaying){
                 return `<br><div class="risu-file">${args[0]}</div><br>`
@@ -972,6 +1031,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // String manipulation functions
     registerFunction({
         name: 'startswith',
+        hint: "Returns 1 if the first string starts with the second; otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].startsWith(args[1]) ? '1' : '0'
         },
@@ -981,6 +1041,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'endswith',
+        hint: "Returns 1 if the first string ends with the second; otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].endsWith(args[1]) ? '1' : '0'
         },
@@ -990,6 +1051,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'contains',
+        hint: "Returns 1 if the first string contains the second; otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].includes(args[1]) ? '1' : '0'
         },
@@ -999,6 +1061,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'replace',
+        hint: "Replaces every occurrence of a substring with another string.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].replaceAll(args[1], args[2])
         },
@@ -1008,6 +1071,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'split',
+        hint: "Splits a string by a delimiter and returns the parts as a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             return makeArray(args[0].split(args[1]))
         },
@@ -1017,6 +1081,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'join',
+        hint: "Joins a JSON array's elements with the specified separator.",
         callback: (str, matcherArg, args, vars) => {
             return (parseArray(args[0])).join(args[1])
         },
@@ -1026,6 +1091,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'spread',
+        hint: "Joins a JSON array's elements with ::.",
         callback: (str, matcherArg, args, vars) => {
             return (parseArray(args[0])).join('::')
         },
@@ -1035,6 +1101,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'trim',
+        hint: "Removes leading and trailing whitespace from a string.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].trim()
         },
@@ -1044,6 +1111,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'length',
+        hint: "Returns the string's length.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].length.toString()
         },
@@ -1054,6 +1122,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Array/Object manipulation functions
     registerFunction({
         name: 'arraylength',
+        hint: "Returns the number of elements in a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             return parseArray(args[0]).length.toString()
         },
@@ -1063,6 +1132,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'lower',
+        hint: "Converts a string to lowercase.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].toLocaleLowerCase()
         },
@@ -1072,6 +1142,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'upper',
+        hint: "Converts a string to uppercase.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].toLocaleUpperCase()
         },
@@ -1081,6 +1152,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'capitalize',
+        hint: "Capitalizes the first character and leaves the rest unchanged.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].charAt(0).toUpperCase() + args[0].slice(1)
         },
@@ -1090,6 +1162,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'round',
+        hint: "Rounds a number to the nearest integer.",
         callback: (str, matcherArg, args, vars) => {
             return Math.round(Number(args[0])).toString()
         },
@@ -1099,6 +1172,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'floor',
+        hint: "Rounds a number down to the nearest integer.",
         callback: (str, matcherArg, args, vars) => {
             return Math.floor(Number(args[0])).toString()
         },
@@ -1108,6 +1182,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'ceil',
+        hint: "Rounds a number up to the nearest integer.",
         callback: (str, matcherArg, args, vars) => {
             return Math.ceil(Number(args[0])).toString()
         },
@@ -1117,6 +1192,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'abs',
+        hint: "Returns a number's absolute value.",
         callback: (str, matcherArg, args, vars) => {
             return Math.abs(Number(args[0])).toString()
         },
@@ -1126,6 +1202,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'remaind',
+        hint: "Returns the remainder after dividing the first number by the second.",
         callback: (str, matcherArg, args, vars) => {
             return (Number(args[0]) % Number(args[1])).toString()
         },
@@ -1135,6 +1212,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'previouschatlog',
+        hint: "Returns the chat message at the specified index, or Out of range.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -1147,6 +1225,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'tonumber',
+        hint: "Keeps numeric characters and decimal points from a string.",
         callback: (str, matcherArg, args, vars) => {
             return ([...args[0]].filter((v) => {
                 return !isNaN(Number(v)) || v === '.'
@@ -1158,6 +1237,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'pow',
+        hint: "Raises the first number to the power of the second.",
         callback: (str, matcherArg, args, vars) => {
             return Math.pow(Number(args[0]), Number(args[1])).toString()
         },
@@ -1167,6 +1247,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arrayelement',
+        hint: "Returns the array element at the specified index, or null.",
         callback: (str, matcherArg, args, vars) => {
             const element = parseArray(args[0]).at(Number(args[1])) ?? 'null'
             return typeof element === 'object' ? JSON.stringify(element) : String(element)
@@ -1177,6 +1258,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'dictelement',
+        hint: "Returns the object value for a key, or null.",
         callback: (str, matcherArg, args, vars) => {
             const element = parseDict(args[0])[args[1]] ?? 'null'
             return typeof element === 'object' ? JSON.stringify(element) : String(element)
@@ -1187,6 +1269,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'objectassert',
+        hint: "Sets a property when its current value is falsy and returns the object as JSON.",
         callback: (str, matcherArg, args, vars) => {
             const dict = parseDict(args[0])
             if(!dict[args[1]]){
@@ -1200,6 +1283,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'element',
+        hint: "Traverses JSON by keys or indices, returning null if traversal fails.",
         callback: (str, matcherArg, args, vars) => {
             try {
                 const agmts = args.slice(1)
@@ -1225,6 +1309,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arrayshift',
+        hint: "Removes the first element from a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             arr.shift()
@@ -1236,6 +1321,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arraypop',
+        hint: "Removes the last element from a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             arr.pop()
@@ -1247,6 +1333,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arraypush',
+        hint: "Appends an element to a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             arr.push(args[1])
@@ -1258,6 +1345,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arraysplice',
+        hint: "Removes array elements at an index and inserts a replacement.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             arr.splice(Number(args[1]), Number(args[2]), args[3])
@@ -1269,6 +1357,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'arrayassert',
+        hint: "Sets an array element only when its index is beyond the current end.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             const index = Number(args[1])
@@ -1283,6 +1372,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'makearray',
+        hint: "Creates a JSON array from the provided arguments.",
         callback: (str, matcherArg, args, vars) => {
             return makeArray(args)
         },
@@ -1292,6 +1382,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'makedict',
+        hint: "Creates a JSON object from key=value arguments.",
         callback: (str, matcherArg, args, vars) => {
             let out = {}
             for(let i=0;i<args.length;i++){
@@ -1313,6 +1404,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Missing basic functions (no arguments)
     registerFunction({
         name: 'emotionlist',
+        hint: "Returns the current character's emotion image names as a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -1329,6 +1421,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'assetlist',
+        hint: "Returns the current character's additional asset names as a JSON array.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -1345,6 +1438,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'prefillsupported',
+        hint: "Returns 1 if the current model supports prefill; otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return getGenerationModelMetadata('model').supportsPrefill ? '1' : '0'
         },
@@ -1354,6 +1448,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'screenwidth',
+        hint: "Returns the viewport width in pixels.",
         callback: (str, matcherArg, args, vars) => {
             return window.innerWidth.toString()
         },
@@ -1363,6 +1458,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'screenheight',
+        hint: "Returns the viewport height in pixels.",
         callback: (str, matcherArg, args, vars) => {
             return window.innerHeight.toString()
         },
@@ -1372,6 +1468,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'cbr',
+        hint: "Returns an escaped newline, or repeats the matched text when given an argument.",
         callback: (str, matcherArg, args, vars) => {
 
             if(args.length > 0){
@@ -1385,6 +1482,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'decbo',
+        hint: "Displays a literal opening curly brace.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9b8'
         },
@@ -1394,6 +1492,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'decbc',
+        hint: "Displays a literal closing curly brace.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9b9'
         },
@@ -1403,6 +1502,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'bo',
+        hint: "Displays literal opening double curly braces.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9b8\uE9b8'
         },
@@ -1412,6 +1512,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'bc',
+        hint: "Displays literal closing double curly braces.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9b9\uE9b9'
         },
@@ -1421,6 +1522,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedbracketopen',
+        hint: "Displays a literal opening parenthesis.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BA'
         },
@@ -1430,6 +1532,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedbracketclose',
+        hint: "Displays a literal closing parenthesis.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BB'
         },
@@ -1439,6 +1542,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedanglebracketopen',
+        hint: "Displays a literal opening angle bracket.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BC'
         },
@@ -1448,6 +1552,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedanglebracketclose',
+        hint: "Displays a literal closing angle bracket.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BD'
         },
@@ -1457,6 +1562,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedcolon',
+        hint: "Displays a literal colon.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BE'
         },
@@ -1466,6 +1572,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'displayescapedsemicolon',
+        hint: "Displays a literal semicolon.",
         callback: (str, matcherArg, args, vars) => {
             return '\uE9BF'
         },
@@ -1475,6 +1582,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'chardisplayasset',
+        hint: "Returns asset names allowed by the current character's display settings.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -1499,6 +1607,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Missing functions with :: arguments
     registerFunction({
         name: 'history',
+        hint: "Returns chat history as JSON, optionally prefixing each message with its role.",
         callback: (str, matcherArg, args, vars) => {
 
             if(args.length === 0){
@@ -1532,6 +1641,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'range',
+        hint: "Returns a JSON array of numbers from the start up to, but not including, the end.",
         callback: (str, matcherArg, args, vars) => {
             const arr = parseArray(args[0])
             const start = arr.length > 1 ? Number(arr[0]) : 0
@@ -1551,6 +1661,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'date',
+        hint: "Returns the current date or formats a timestamp with the supplied pattern.",
         callback: (str, matcherArg, args, vars) => {
 
             if(args.length === 0){
@@ -1573,6 +1684,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'time',
+        hint: "Returns the current time or formats a timestamp with the supplied pattern.",
         callback: (str, matcherArg, args, vars) => {
 
             if(args.length === 0){
@@ -1595,6 +1707,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'moduleenabled',
+        hint: "Returns 1 if a module namespace is loaded; otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             const modules = getModules()
             for(const module of modules){
@@ -1610,6 +1723,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'moduleassetlist',
+        hint: "Returns a module's asset names as a JSON array, or an empty string if absent.",
         callback: (str, matcherArg, args, vars) => {
             const module = getModules()?.find((f) => {
                 return f.namespace === args[0]
@@ -1627,6 +1741,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'filter',
+        hint: "Filters a JSON array to remove empty items, duplicates, or both.",
         callback: (str, matcherArg, args, vars) => {
             const array = parseArray(args[0])
             const filterTypes = [
@@ -1655,6 +1770,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'all',
+        hint: "Returns 1 if every supplied value is 1; accepts an array or separate values.",
         callback: (str, matcherArg, args, vars) => {
             const array = args.length > 1 ? args : parseArray(args[0])
             const all = array.every((f) => {
@@ -1668,6 +1784,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'any',
+        hint: "Returns 1 if any supplied value is 1; accepts an array or separate values.",
         callback: (str, matcherArg, args, vars) => {
             const array = args.length > 1 ? args : parseArray(args[0])
             const any = array.some((f) => {
@@ -1681,6 +1798,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'min',
+        hint: "Returns the smallest supplied number; non-numeric values count as zero.",
         callback: (str, matcherArg, args, vars) => {
             const val = args.length > 1 ? args : parseArray(args[0])
             return Math.min(...val.map((f) => {
@@ -1697,6 +1815,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'max',
+        hint: "Returns the largest supplied number; non-numeric values count as zero.",
         callback: (str, matcherArg, args, vars) => {
             const val = args.length > 1 ? args : parseArray(args[0])
             return Math.max(...val.map((f) => {
@@ -1713,6 +1832,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'sum',
+        hint: "Returns the sum of supplied numbers; non-numeric values count as zero.",
         callback: (str, matcherArg, args, vars) => {
             const val = args.length > 1 ? args : parseArray(args[0])
             return val.map((f) => {
@@ -1729,6 +1849,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'average',
+        hint: "Returns the mean of supplied numbers; non-numeric values count as zero.",
         callback: (str, matcherArg, args, vars) => {
             const val = args.length > 1 ? args : parseArray(args[0])
             const sum = val.map((f) => {
@@ -1746,6 +1867,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'fixnum',
+        hint: "Formats a number with the specified number of decimal places.",
         callback: (str, matcherArg, args, vars) => {
             return Number(args[0]).toFixed(Number(args[1]))
         },
@@ -1755,6 +1877,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'unicodeencode',
+        hint: "Returns the UTF-16 code unit at the selected string index.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].charCodeAt(args[1] ? Number(args[1]) : 0).toString()
         },
@@ -1764,6 +1887,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'unicodedecode',
+        hint: "Converts a decimal character code to a character.",
         callback: (str, matcherArg, args, vars) => {
             return String.fromCharCode(Number(args[0]))
         },
@@ -1773,6 +1897,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'u',
+        hint: "Converts a hexadecimal character code to a character.",
         callback: (str, matcherArg, args, vars) => {
             return String.fromCharCode(parseInt(args[0], 16))
         },
@@ -1782,6 +1907,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'ue',
+        hint: "Converts a hexadecimal character code to a character.",
         callback: (str, matcherArg, args, vars) => {
             return String.fromCharCode(parseInt(args[0], 16))
         },
@@ -1791,6 +1917,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'hash',
+        hint: "Returns a deterministic seven-digit number derived from a string.",
         callback: (str, matcherArg, args, vars) => {
             return ((pickHashRand(0, args[0]) * 10000000) + 1).toFixed(0).padStart(7, '0')
         },
@@ -1800,6 +1927,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'randint',
+        hint: "Returns a random integer between the supplied bounds, inclusive.",
         callback: (str, matcherArg, args, vars) => {
             const min = Number(args[0])
             const max = Number(args[1])
@@ -1814,6 +1942,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'dice',
+        hint: "Rolls the specified number of dice and returns their total.",
         callback: (str, matcherArg, args, vars) => {
             const notation = args[0].split('d')
             const num = Number(notation[0])
@@ -1833,6 +1962,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'fromhex',
+        hint: "Converts a hexadecimal string to a decimal number.",
         callback: (str, matcherArg, args, vars) => {
             return Number.parseInt(args[0], 16).toString()
         },
@@ -1842,6 +1972,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'tohex',
+        hint: "Converts a decimal number to a hexadecimal string.",
         callback: (str, matcherArg, args, vars) => {
             return Number.parseInt(args[0]).toString(16)
         },
@@ -1851,6 +1982,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'metadata',
+        hint: "Returns system or model metadata for a supported key.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             switch(args[0].toLocaleLowerCase()){
@@ -1919,6 +2051,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'iserror',
+        hint: "Returns 1 if a string starts with error:, otherwise 0.",
         callback: (str, matcherArg, args, vars) => {
             return args[0].toLocaleLowerCase().startsWith('error:') ? '1' : '0'
         },
@@ -1929,6 +2062,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Encryption/decryption functions
     registerFunction({
         name: 'xor',
+        hint: "Encodes a string with XOR obfuscation and Base64.",
         callback: (str, matcherArg, args, vars) => {
             const buf = new TextEncoder().encode(args[0])
             for(let i = 0; i < buf.length; i++){
@@ -1942,6 +2076,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'xordecrypt',
+        hint: "Decodes and reverses the XOR/Base64 encoding.",
         callback: (str, matcherArg, args, vars) => {
             const buf = Buffer.from(args[0], 'base64')
             for(let i = 0; i < buf.length; i++){
@@ -1955,6 +2090,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'crypt',
+        hint: "Shifts Unicode characters with a Caesar cipher.",
         callback: (str, matcherArg, args, vars) => {
             let shift = args[1] ? Number(args[1]) : 32768
             if(isNaN(shift)){
@@ -2006,6 +2142,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'random',
+        hint: "Picks a random value from arguments or a delimited list.",
         callback: (str, matcherArg, args, vars) => {
             return randomPickImpl(str, matcherArg, args, Math.random())
         },
@@ -2015,6 +2152,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'pick',
+        hint: "Picks a chat-stable value from arguments or a delimited list.",
         callback: (str, matcherArg, args, vars) => {
             const db = getDatabase()
             const selchar = db.characters[getSelectedCharID()]
@@ -2029,6 +2167,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'roll',
+        hint: "Rolls dice and returns their sum.",
         callback: (str, matcherArg, args, vars) => {
             if(args.length === 0){
                 return '1'
@@ -2058,6 +2197,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'rollp',
+        hint: "Returns a chat-stable dice roll sum.",
         callback: (str, matcherArg, args, vars) => {
             if(args.length === 0){
                 return '1'
@@ -2093,6 +2233,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'hiddenkey',
+        hint: "Provides a lore activation key without adding it to the model request.",
         callback: (str, matcherArg, args, vars) => {
             return ''
         },
@@ -2102,6 +2243,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'reverse',
+        hint: "Reverses a string by Unicode code point.",
         callback: (str, matcherArg, args, vars) => {
             return [...(args[0] ?? '')].reverse().join('')
         },
@@ -2111,6 +2253,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'comment',
+        hint: "Adds a visible chat comment during display parsing.",
         callback: (str, matcherArg, args, vars) => {
             if(!matcherArg.displaying){
                 return ''
@@ -2123,6 +2266,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'tex',
+        hint: "Wraps LaTeX in math delimiters for rendering.",
         callback: (str, matcherArg, args, vars) => {
             return `$$${args[0]}$$`
         },
@@ -2132,6 +2276,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'ruby',
+        hint: "Renders ruby annotation text for East Asian typography.",
         callback: (str, matcherArg, args, vars) => {
             return `<ruby>${args[0]}<rp> (</rp><rt>${args[1]}</rt><rp>) </rp></ruby>`
         },
@@ -2141,6 +2286,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'codeblock',
+        hint: "Renders code in a code block, optionally with syntax highlighting.",
         callback: (str, matcherArg, args, vars) => {
             let code = args[args.length - 1]
                 .replace(/\"/g, '&quot;')
@@ -2161,6 +2307,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     
     registerFunction({
         name: 'bkspc',
+        hint: "Removes the last word from the current output.",
         callback: (str, matcherArg, args, vars) => {
             let root = matcherArg?.getNested?.()?.[0]
             if(!root){
@@ -2193,6 +2340,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'erase',
+        hint: "Removes the last sentence from the current output.",
         callback: (str, matcherArg, args, vars) => {
             let root = matcherArg?.getNested?.()?.[0]
             if(!root){
@@ -2229,6 +2377,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'declare',
+        hint: "Registers a declaration that affects parser behavior.",
         callback: (str, matcherArg, args, vars) => {
             matcherArg.var[`__declared_${args[0]}__`] = '1'
             return ''
@@ -2239,6 +2388,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: '//',
+        hint: "Introduces a comment in CBS source without emitting output.",
         callback: 'doc_only',
         alias: [],
         description: 'A comment CBS for commenting out code.\n\nUsage:: {{// this is a comment}}',
@@ -2246,6 +2396,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: '?',
+        hint: "Evaluates an arithmetic or comparison expression.",
         callback: 'doc_only',
         alias: [],
         description: 'Runs math operations on numbers. Supports +, -, *, /, %, ^ (exponentiation), % (modulo), < (less than), > (greater than), <= (less than or equal), >= (greater than or equal), == (equal), != (not equal), and brackets for grouping.\n\nUsage:: {{? 1+2}} → 3, {{? (2*3)+4}} → 10',
@@ -2264,6 +2415,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     // Asset display functions (doc_only)
     registerFunction({
         name: 'asset',
+        hint: "Displays an additional asset using its configured element type.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays additional asset A as appropriate element type.\n\nUsage:: {{asset::assetName}}',
@@ -2271,6 +2423,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'emotion',
+        hint: "Displays an emotion image asset.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays emotion image A as image element.\n\nUsage:: {{emotion::emotionName}}',
@@ -2278,6 +2431,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'audio',
+        hint: "Displays an audio asset with a player.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays audio asset A as audio element.\n\nUsage:: {{audio::audioName}}',
@@ -2285,6 +2439,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'bg',
+        hint: "Displays a background image as a background element.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays background image A as background image element.\n\nUsage:: {{bg::backgroundName}}',
@@ -2292,6 +2447,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'bgm',
+        hint: "Displays an audio asset with a player.",
         callback: 'doc_only',
         alias: [],
         description: 'Alias of audio. Displays an audio player for asset A.\n\nUsage:: {{bgm::musicName}}',
@@ -2299,6 +2455,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'video',
+        hint: "Displays a video asset.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays video asset A as video element.\n\nUsage:: {{video::videoName}}',
@@ -2306,6 +2463,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'video-img',
+        hint: "Displays a video asset as an image-like element.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays video asset A as image-like element.\n\nUsage:: {{video-img::videoName}}',
@@ -2313,6 +2471,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'image',
+        hint: "Displays an image asset.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays image asset A as image element.\n\nUsage:: {{image::imageName}}',
@@ -2320,6 +2479,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'img',
+        hint: "Displays an unstyled image asset.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays A as unstyled image element.\n\nUsage:: {{img::imageName}}',
@@ -2327,6 +2487,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'path',
+        hint: "Returns the path data for an additional asset.",
         callback: 'doc_only',
         alias: ['raw'],
         description: 'Returns additional asset A\'s path data.\n\nUsage:: {{path::assetName}}',
@@ -2334,6 +2495,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'inlay',
+        hint: "Legacy alias for displaying a styled inlay without sending it to the model.",
         callback: 'doc_only',
         alias: [],
         description: 'Legacy alias of inlayed. Displays a styled inlay asset without inserting it into the model request.\n\nUsage:: {{inlay::inlayName}}',
@@ -2341,6 +2503,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'inlayed',
+        hint: "Displays a styled inlay without adding it to the model request.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays styled inlay asset A, which doesn\'t inserts at model request.\n\nUsage:: {{inlayed::inlayName}}',
@@ -2348,6 +2511,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'inlayeddata',
+        hint: "Displays a styled inlay and adds it to the model request.",
         callback: 'doc_only',
         alias: [],
         description: 'Displays styled inlay asset A, which inserts at model request.\n\nUsage:: {{inlayeddata::inlayName}}',
@@ -2355,6 +2519,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'source',
+        hint: "Returns the profile source URL for the user or character.",
         callback: 'doc_only',
         alias: [],
         description: 'Returns the source URL of user or character\'s profile. argument must be "user" or "char".\n\nUsage:: {{source::user}} or {{source::char}}',
@@ -2362,6 +2527,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name:"#if",
+        hint: "Runs a conditional block when its condition is truthy.",
         callback: 'doc_only',
         alias: [],
         description: 'Conditional statement for CBS. 1 and "true" are truty, and otherwise false.\n\nUsage:: {{#if condition}}...{{/if}}.',
@@ -2373,6 +2539,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name:'#if_pure',
+        hint: "Runs a conditional block while preserving its inner whitespace.",
         callback: 'doc_only',
         alias: [],
         description: 'Conditional statement for CBS, which has keep whitespace handling. 1 and "true" are truty, and otherwise false.\n\nUsage:: {{#if_pure condition}}...{{/if_pure}}',
@@ -2384,6 +2551,7 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name:'#when',
+        hint: "Runs a conditional block with logical, comparison, variable, and toggle operators.",
         callback: 'doc_only',
         alias: [],
         preview: 'condition',
@@ -2425,6 +2593,7 @@ Usage:: {{#when condition}}...{{/when}} or {{#when::not::condition}}...{{/when}}
 
     registerFunction({
         name:':else',
+        hint: "Runs the alternate branch of a #when block.",
         callback: 'doc_only',
         alias: [],
         description: 'Else statement for CBS. Must be used inside {{#when}}. if {{#when}} is multiline, :else must be on line without additional string. if {{#when}} is used with operator \'legacy\', it will not work.\n\nUsage:: {{#when condition}}...{{:else}}...{{/when}} or {{#when::not::condition}}...{{:else}}...{{/when}}',
@@ -2432,6 +2601,7 @@ Usage:: {{#when condition}}...{{/when}} or {{#when::not::condition}}...{{/when}}
 
     registerFunction({
         name:'#pure',
+        hint: "Emits block content without CBS parsing.",
         callback: 'doc_only',
         alias: [],
         description: 'displays content without any CBS processing. Useful for displaying raw HTML or other content without parsing.\n\nUsage:: {{#puredisplay}}...{{/puredisplay}}',
@@ -2442,6 +2612,7 @@ Usage:: {{#when condition}}...{{/when}} or {{#when::not::condition}}...{{/when}}
     })
     registerFunction({
         name:'#puredisplay',
+        hint: "Emits block content without CBS parsing.",
         callback: 'doc_only',
         alias: [],
         description: 'displays content without any CBS processing. Useful for displaying raw HTML or other content without parsing.\n\nUsage:: {{#puredisplay}}...{{/puredisplay}}',
@@ -2449,6 +2620,7 @@ Usage:: {{#when condition}}...{{/when}} or {{#when::not::condition}}...{{/when}}
 
     registerFunction({
         name: '#escape',
+        hint: "Emits literal content by escaping CBS syntax.",
         callback: 'doc_only',
         alias: [],
         description: `Escapes curly braces and parentheses, treating content as literal text. Useful for displaying CBS syntax without evaluation.
@@ -2461,6 +2633,7 @@ Usage:: {{#escape}}...{{/escape}}`,
 
     registerFunction({
         name:'#each',
+        hint: "Iterates over an array, rendering the block for each item.",
         callback: 'doc_only',
         alias: [':each'],
         description: `Iterates over an array.
@@ -2473,6 +2646,7 @@ Usage:: {{#each A as V}} ... {{slot::V}} ... {{/each}}`,
 
     registerFunction({
         name: 'slot',
+        hint: "Returns the current item or property in a slot-aware CBS block.",
         callback: 'doc_only',
         alias: [],
         description: 'Used in various CBS functions to access specific slots or properties.\n\nUsage:: {{slot::propertyName}} or {{slot}}, depending on context.',
@@ -2480,6 +2654,7 @@ Usage:: {{#each A as V}} ... {{slot::V}} ... {{/each}}`,
 
     registerFunction({
         name: 'position',
+        hint: "Names a position for features such as prompt decorators.",
         callback: 'doc_only',
         alias: [],
         description: 'Defines the position which can be used in various features such as @@position <positionName> decorator.\n\nUsage:: {{position::positionName}}',
@@ -2511,7 +2686,7 @@ export function getCBSCompletionNames(): string[] {
 
 export type CBSCompletionEntry = {
     name: string
-    description: string
+    hint: string
     detail: string
     deprecated: boolean
 }
@@ -2527,8 +2702,8 @@ export function getCBSCompletionEntries(): CBSCompletionEntry[] {
             if (!entries.has(name)) {
                 entries.set(name, {
                     name,
-                    description: definition.description,
-                    detail: isAlias ? `alias of ${definition.name}` : name.startsWith('#') ? 'block' : '',
+                    hint: definition.hint ?? '',
+                    detail: isAlias ? `alias of ${definition.name}` : definition.alias.join(', '),
                     deprecated: !!definition.deprecated,
                 })
             }
@@ -2537,7 +2712,7 @@ export function getCBSCompletionEntries(): CBSCompletionEntry[] {
                 if (!entries.has(closingName)) {
                     entries.set(closingName, {
                         name: closingName,
-                        description: `Closes the ${name} block.\n\n${definition.description}`,
+                        hint: `Closes the ${name} block.`,
                         detail: `closes ${name}`,
                         deprecated: !!definition.deprecated,
                     })

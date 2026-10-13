@@ -25,7 +25,7 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
 import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
 import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
-import { isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
+import { handleTextEntryEscape, isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
 
 let hotkeyInitialized = false
 
@@ -33,9 +33,7 @@ export function initHotkey() {
     if (hotkeyInitialized) return
     hotkeyInitialized = true
 
-    // Text entry is the innermost navigation layer. Handle it during capture
-    // so local full-screen and overlay Escape handlers cannot close their
-    // parent before a focused field gets a chance to blur.
+    // Handle field overlays before blur or parent dismissal during capture.
     window.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape' || event.isComposing) return
         const activeElement = document.activeElement as HTMLElement | null
@@ -43,6 +41,7 @@ export function initHotkey() {
         const focusReturnTarget = activeElement.closest<HTMLElement>('[role="dialog"][tabindex]')
         event.preventDefault()
         event.stopImmediatePropagation()
+        if (handleTextEntryEscape(activeElement)) return
         activeElement.blur()
         focusReturnTarget?.focus({ preventScroll: true })
     }, true)

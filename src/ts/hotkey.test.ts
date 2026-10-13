@@ -43,7 +43,7 @@ vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
 
 import { hotkeyMatches, isSupportedHotkey } from './defaulthotkeys'
 import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey } from './hotkey'
-import { requestEscapeAction } from './gui/escapeKey'
+import { registerTextEntryEscapeHandler, requestEscapeAction } from './gui/escapeKey'
 import {
     botMakerMode,
     QuickSettings,
@@ -137,7 +137,7 @@ describe('application hotkeys', () => {
         expect(requestEscapeAction()).toBe(false)
     })
 
-    it('blurs a focused input before a parent dialog can close', () => {
+    it('dismisses a field overlay, then blurs the input before closing its parent', () => {
         const layer = document.createElement('div')
         const input = document.createElement('input')
         const closeButton = document.createElement('button')
@@ -149,6 +149,15 @@ describe('application hotkeys', () => {
         layer.append(input)
         document.body.append(layer, closeButton)
         input.focus()
+
+        const dismissCompletion = vi.fn(() => true)
+        const unregisterEscape = registerTextEntryEscapeHandler(input, dismissCompletion)
+        expect(requestEscapeAction()).toBe(true)
+        expect(dismissCompletion).toHaveBeenCalledOnce()
+        expect(document.activeElement).toBe(input)
+        expect(closeLayer).not.toHaveBeenCalled()
+        expect(close).not.toHaveBeenCalled()
+        unregisterEscape()
 
         expect(requestEscapeAction()).toBe(true)
         expect(document.activeElement).not.toBe(input)

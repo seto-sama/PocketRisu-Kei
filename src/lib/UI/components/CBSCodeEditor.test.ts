@@ -1,12 +1,43 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { completionStatus, currentCompletions, startCompletion } from '@codemirror/autocomplete'
+import { acceptCompletion, completionStatus, startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { mount, tick, unmount } from 'svelte'
 import CBSCodeEditor from './CBSCodeEditor.svelte'
 
 const mounted: unknown[] = []
+
+async function render(value: string) {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const onValueChange = vi.fn()
+    const component = mount(CBSCodeEditor, {
+        target,
+        props: {
+            value,
+            wordWrap: true,
+            onValueChange,
+        },
+    })
+    mounted.push(component)
+    await tick()
+
+    const content = target.querySelector<HTMLElement>('[role="textbox"]')!
+    const editor = EditorView.findFromDOM(content)!
+    return { target, content, editor, onValueChange }
+}
+
+function openCompletions(content: HTMLElement, editor: EditorView, position = editor.state.doc.length) {
+    editor.dispatch({ selection: { anchor: position } })
+    content.focus()
+    startCompletion(editor)
+}
+
+function optionWithLabel(target: HTMLElement, label: string) {
+    return [...target.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find(option => option.querySelector('.risu-completion-label')?.textContent === label)
+}
 
 afterEach(async () => {
     await Promise.all(mounted.splice(0).map(component => unmount(component as never)))
@@ -15,86 +46,61 @@ afterEach(async () => {
 
 describe('CBSCodeEditor', () => {
     it('reports document changes immediately to its owner', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const onValueChange = vi.fn()
-        const component = mount(CBSCodeEditor, {
-            target,
-            props: { value: 'before', wordWrap: true, onValueChange },
-        })
-        mounted.push(component)
-        await tick()
-
-        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
-        const editor = EditorView.findFromDOM(content)!
+        const { editor, onValueChange } = await render('before')
         editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: 'after' } })
 
         expect(onValueChange).toHaveBeenLastCalledWith('after')
     })
 
-    it('offers a complete CBS insertion after opening braces', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(CBSCodeEditor, {
-            target,
-            props: { value: '{{ch', wordWrap: true },
-        })
-        mounted.push(component)
-        await tick()
+    it('renders the alias and short hint when accepting an ordinary CBS completion', async () => {
+        const { target, content, editor } = await render('{{ch tail')
+        openCompletions(content, editor, 4)
+        await vi.waitFor(() => expect(optionWithLabel(target, 'char')).toBeDefined())
 
-        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
-        const editor = EditorView.findFromDOM(content)!
-        editor.dispatch({ selection: { anchor: editor.state.doc.length } })
-        content.focus()
-        startCompletion(editor)
-        await vi.waitFor(() => {
-            expect(completionStatus(editor.state)).toBe('active')
-            expect(target.querySelector('[role="option"][aria-selected="true"]')).not.toBeNull()
-        })
-
-        expect(currentCompletions(editor.state)).toContainEqual(
-            expect.objectContaining({ label: 'char', apply: 'char}}' }),
-        )
+        const option = optionWithLabel(target, 'char')!
+        expect(option.querySelector('.risu-completion-detail')?.textContent).toBe('bot')
+        expect(option.querySelector('.risu-completion-description')?.textContent).toContain('selected character')
+        expect(option.querySelector('.risu-completion-description')?.textContent).not.toContain('Usage::')
+        await vi.waitFor(() => expect(acceptCompletion(editor)).toBe(true))
+        expect(editor.state.doc.toString()).toBe('{{char}} tail')
     })
 
-    it('completes syntax added to the shared CBS registry', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(CBSCodeEditor, {
-            target,
-            props: { value: '{{#wh', wordWrap: true },
-        })
-        mounted.push(component)
-        await tick()
+    it('closes completions on mouse interaction or Escape and activates them again after typing', async () => {
+        const { content, editor } = await render('{{ch')
+        openCompletions(content, editor)
+        await vi.waitFor(() => expect(completionStatus(editor.state)).toBe('active'))
 
-        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
-        const editor = EditorView.findFromDOM(content)!
-        editor.dispatch({ selection: { anchor: editor.state.doc.length } })
-        content.focus()
-        startCompletion(editor)
-        await vi.waitFor(() => {
-            expect(currentCompletions(editor.state).some(option => option.label === '#when')).toBe(true)
-        })
+        content.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        expect(completionStatus(editor.state)).toBeNull()
+        editor.dispatch({ selection: { anchor: 4 } })
+        content.click()
+        expect(completionStatus(editor.state)).toBeNull()
 
-        const whenCompletion = currentCompletions(editor.state).find(option => option.label === '#when')
-        expect(whenCompletion).toMatchObject({
-            label: '#when',
-            detail: 'block',
-        })
-        expect(whenCompletion?.info).toBeTypeOf('function')
+        editor.dispatch({ changes: { from: 4, insert: 'a' }, selection: { anchor: 5 }, userEvent: 'input.type' })
+        expect(editor.state.doc.toString()).toBe('{{cha')
+        await vi.waitFor(() => expect(completionStatus(editor.state)).toBe('active'))
+
+        content.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        expect(completionStatus(editor.state)).toBeNull()
+        expect(document.activeElement).toBe(content)
+        expect(editor.state.doc.toString()).toBe('{{cha')
+    })
+
+    it('renders a short hint and accepts a CBS block completion', async () => {
+        const { target, content, editor } = await render('{{#wh')
+        openCompletions(content, editor)
+        await vi.waitFor(() => expect(optionWithLabel(target, '#when')).toBeDefined())
+
+        const option = optionWithLabel(target, '#when')!
+        expect(option.querySelector('.risu-completion-description')?.textContent)
+            .toContain('logical, comparison, variable, and toggle operators')
+        expect(option.querySelector('.risu-completion-description')?.textContent).not.toContain('Usage::')
+        await vi.waitFor(() => expect(acceptCompletion(editor)).toBe(true))
+        expect(editor.state.doc.toString()).toBe('{{#when ')
     })
 
     it('renders CBS highlighting and opens replace search with Ctrl+H', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(CBSCodeEditor, {
-            target,
-            props: { value: '{{char}}', wordWrap: true },
-        })
-        mounted.push(component)
-        await tick()
-
-        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
+        const { target, content } = await render('{{char}}')
         expect(target.querySelector('.cm-cbs-depth-1')?.textContent).toBe('{{char}}')
 
         content.focus()

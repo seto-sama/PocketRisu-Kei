@@ -9,5 +9,6 @@ describe('CBS documentation', () => {
             aliases: ['bot'],
         })
         expect(documentation.some(item => item.name === '__')).toBe(false)
+        expect(documentation.find(item => item.name === '#when')?.description).toContain('Basic operators:')
     })
 })

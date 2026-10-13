@@ -318,10 +318,6 @@
         showPopupEditor({
             value: draftValue,
             title: inferPopupTitle(),
-            commitMode: resolvedCommitMode === 'input'
-                ? 'input'
-                : resolvedCommitMode === 'debounce' ? 'debounce' : 'submit',
-            debounceMs,
             onCommit: (nextValue) => {
                 draftValue = nextValue
                 dirty = draftValue !== value
