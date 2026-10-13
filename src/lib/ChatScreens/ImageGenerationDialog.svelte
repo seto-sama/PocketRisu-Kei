@@ -194,11 +194,11 @@
         <div class="mt-2 flex flex-col gap-3 pt-1.5">
             <label class="flex flex-col gap-1 text-sm text-maintext">
                 <span>{language.prompt}</span>
-                <Textarea bind:value={prompt} fullwidth commitMode="input" onInput={cacheDraft} />
+                <Textarea bind:value={prompt} fullwidth commitMode="input" onInput={cacheDraft} imageTags />
             </label>
             <label class="flex flex-col gap-1 text-sm text-maintext">
                 <span>{language.negativePrompt}</span>
-                <Textarea bind:value={negativePrompt} fullwidth commitMode="input" onInput={cacheDraft} />
+                <Textarea bind:value={negativePrompt} fullwidth commitMode="input" onInput={cacheDraft} imageTags />
             </label>
         </div>
     </div>

@@ -774,6 +774,18 @@ export const languageEnglish = {
     imageStylePresetFolderView: "View by Folder",
     imageStylePresetTagView: "View by Tag",
     imageStylePresetModuleView: "View by Module",
+    imageTagAutocomplete: {
+        label: "Danbooru tags",
+        loading: "Downloading the Danbooru tag list.",
+        error: "Autocomplete is unavailable. You can still enter tags and generate an image.",
+        categories: {
+            general: "General",
+            artist: "Artist",
+            copyright: "Copyright",
+            character: "Character",
+            meta: "Meta",
+        },
+    },
     imageSettings: {
         steps: "Steps",
         cfgScale: "CFG Scale",

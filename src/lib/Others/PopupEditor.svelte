@@ -27,6 +27,7 @@
     import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit'
     import { onDestroy, tick } from 'svelte'
     import CBSDocumentationDialog from './CBSDocumentationDialog.svelte'
+    import { createImageTagCompletionSource, type ImageTagStatus } from 'src/ts/imageGeneration/imageTags'
 
     type PreviewToggleDefinition = {
         key:string
@@ -61,6 +62,11 @@
     let previewSearchInput:HTMLInputElement | null = $state(null)
     let previewPane:HTMLDivElement | undefined = $state()
     let documentationOpen = $state(false)
+    let imageTagStatus = $state<ImageTagStatus>('idle')
+    const imageTagCompletion = $derived(popUpEditorStore.imageTags
+        ? createImageTagCompletionSource({
+            onStatus: status => { imageTagStatus = status },
+        }) : undefined)
     const commitController = createPopupEditorCommitController(
         async (value) => popUpEditorStore.onCommit?.(value),
         () => popUpEditorStore.debounceMs,
@@ -119,6 +125,8 @@
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
         popUpEditorStore.mode = 'cbs'
+        popUpEditorStore.imageTags = false
+        imageTagStatus = 'idle'
         popUpEditorStore.commitMode = 'submit'
         popUpEditorStore.debounceMs = INPUT_COMMIT_DEBOUNCE_MS
         popUpEditorStore.hideCancel = false
@@ -410,6 +418,11 @@
     {/snippet}
 
     <div class="flex min-h-0 flex-1 flex-col gap-2">
+        {#if popUpEditorStore.imageTags && !previewing && imageTagStatus !== 'idle'}
+            <p role="status" class="text-xs text-subtext">
+                {language.imageTagAutocomplete[imageTagStatus]}
+            </p>
+        {/if}
         {#if popUpEditorStore.metadata.length > 0}
             <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 {#each popUpEditorStore.metadata as item (item.label)}
@@ -583,6 +596,7 @@
             >
                 <CBSCodeEditor
                     value={popUpEditorStore.value}
+                    completionSource={imageTagCompletion}
                     {wordWrap}
                     {searchRequest}
                     onValueChange={updateEditorValue}

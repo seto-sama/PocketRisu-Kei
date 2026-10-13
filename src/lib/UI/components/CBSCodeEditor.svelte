@@ -1,7 +1,7 @@
 <div class="risu-field-border h-full min-h-0 w-full rounded-md bg-lightbg text-maintext" bind:this={editorRoot}></div>
 
 <script lang="ts">
-    import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext } from '@codemirror/autocomplete'
+    import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext, type CompletionSource } from '@codemirror/autocomplete'
     import {
         SearchQuery,
         closeSearchPanel,
@@ -47,6 +47,7 @@
         onValueChange?: (value: string) => void
         searchRequest?: number
         onSearchOpened?: () => void
+        completionSource?: CompletionSource
     }
 
     let {
@@ -56,15 +57,17 @@
         onValueChange = () => {},
         searchRequest = 0,
         onSearchOpened = () => {},
+        completionSource = undefined,
     }: Props = $props()
 
     let editorRoot: HTMLDivElement
     let editor: EditorView | undefined
     const wrapCompartment = new Compartment()
+    const completionCompartment = new Compartment()
 
     function completionExtension() {
         return autocompletion({
-            override: [cbsCompletion],
+            override: completionSource ? [cbsCompletion, completionSource] : [cbsCompletion],
             activateOnTyping: true,
             aboveCursor: false,
             icons: false,
@@ -540,7 +543,7 @@
                 extensions: [
                     minimalSetup,
                     search({ createPanel: createSearchPanel, top: true }),
-                    completionExtension(),
+                    completionCompartment.of(completionExtension()),
                     tooltips({ tooltipSpace: view => getCompletionBounds(view.dom) }),
                     completionPositioning,
                     EditorView.domEventObservers({
@@ -596,6 +599,12 @@
         editor.dispatch({
             effects: wrapCompartment.reconfigure(wordWrap ? EditorView.lineWrapping : []),
         })
+    })
+
+    $effect(() => {
+        void completionSource
+        if (!editor) return
+        editor.dispatch({ effects: completionCompartment.reconfigure(completionExtension()) })
     })
 
     onDestroy(() => {

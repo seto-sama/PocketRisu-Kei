@@ -833,6 +833,18 @@ export const languageKorean = {
   imageStylePresetFolderView: "폴더별 보기",
   imageStylePresetTagView: "태그별 보기",
   imageStylePresetModuleView: "모듈별 보기",
+  imageTagAutocomplete: {
+    label: "단부루 태그",
+    loading: "단부루 태그 목록을 다운로드하는 중입니다.",
+    error: "자동완성을 사용할 수 없습니다. 태그를 직접 입력해 이미지를 생성할 수 있습니다.",
+    categories: {
+      general: "일반",
+      artist: "작가",
+      copyright: "작품",
+      character: "캐릭터",
+      meta: "메타",
+    },
+  },
   imageSettings: {
     steps: "스텝",
     cfgScale: "CFG 스케일",

@@ -2191,6 +2191,11 @@ installImageGenerationJobRoutes(app, {
     checkProxyAuth, requireSyncClientId, service: imageGenerationJobService,
 });
 
+require('./routes/imageTags.cjs').installImageTagRoutes(app, {
+    checkAuth,
+    cacheDir: path.join(savePath, 'cache', 'image-tags'),
+});
+
 installRevenantGenerationRoutes(app, {
     checkProxyAuth,
     requireSyncClientId,

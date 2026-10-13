@@ -282,6 +282,7 @@ export interface PopupEditorOptions {
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
     mode?: 'plain' | 'cbs'
+    imageTags?: boolean
     commitMode?: PopupEditorCommitMode
     debounceMs?: number
     hideCancel?: boolean
@@ -300,6 +301,7 @@ export const popUpEditorStore = $state({
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
     mode: 'cbs' as 'plain' | 'cbs',
+    imageTags: false,
     commitMode: 'submit' as PopupEditorCommitMode,
     debounceMs: INPUT_COMMIT_DEBOUNCE_MS,
     hideCancel: false,
@@ -315,6 +317,7 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
     popUpEditorStore.mode = options.mode ?? 'cbs'
+    popUpEditorStore.imageTags = options.imageTags ?? false
     popUpEditorStore.commitMode = options.commitMode ?? 'submit'
     popUpEditorStore.debounceMs = options.debounceMs ?? INPUT_COMMIT_DEBOUNCE_MS
     popUpEditorStore.hideCancel = options.hideCancel ?? false
