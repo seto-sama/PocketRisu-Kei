@@ -175,6 +175,7 @@ describe('manual image workflow', () => {
             prompt: 'portrait',
             negativePrompt: 'blur',
             seed: 42,
+            preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
             label: 'NovelAI',
             projection: 'append',
         })
@@ -183,6 +184,7 @@ describe('manual image workflow', () => {
         expect(submitted.plan).toEqual([expect.objectContaining({ key: 'image.generate' })])
         expect(submitted.context).toMatchObject({
             kind: 'image-generation',
+            preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
             target: { characterId: 'character-1', roomId: 'room-1' },
             prompt: 'portrait',
             negativePrompt: 'blur',

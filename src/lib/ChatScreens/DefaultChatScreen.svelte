@@ -51,6 +51,7 @@ import { isMobile } from 'src/ts/platform'
     import { runAutomaticRerolls, type AutomaticRerollResult } from 'src/ts/process/automaticReroll';
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset, getInlayAssetUrl, getInlayExplorerItemsBatch, getInlayMeta, type InlayExplorerItem } from 'src/ts/process/files/inlays';
+    import { getFirstInlayId } from 'src/ts/util/inlayTokens';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
     import {
         activeRevenantWorkflows,
@@ -429,7 +430,7 @@ import { isMobile } from 'src/ts/platform'
         message.chatId = messageId
         imageRerollingTarget = { roomId: chat.id, messageId }
         try {
-            const inlayId = message.data.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/)?.[1]
+            const inlayId = getFirstInlayId(message.data)
             const prompt = inlayId ? (await getInlayMeta(inlayId))?.imageGeneration : undefined
             if(!prompt) {
                 notifyError(language.imageGenerationPromptNotFound)
@@ -440,6 +441,7 @@ import { isMobile } from 'src/ts/platform'
                 roomId: chat.id,
                 prompt: prompt.prompt,
                 negativePrompt: prompt.negativePrompt,
+                preset: prompt.preset,
                 label: getCurrentImageGenerationPreset(DBState.db).name,
                 projection: 'reroll',
                 messageId,

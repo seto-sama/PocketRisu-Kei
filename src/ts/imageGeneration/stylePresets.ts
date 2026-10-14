@@ -211,7 +211,7 @@ export function applyImageStylePresetBinding(
     return true
 }
 
-function joinPrompt(prefix: string, input: string): string {
+export function joinImagePrompts(prefix: string, input: string): string {
     if (!prefix) return input.trim()
     if (!input.trim()) return prefix.trim()
     return `${prefix.trim()}${prefix.trimEnd().endsWith(',') ? '\n' : ',\n'}${input.trim()}`
@@ -225,7 +225,7 @@ function fillPositiveTemplate(template: string, input: string): string {
         .replaceAll('{char}', '')
         .replaceAll('{supplement}', '')
         .trim()
-    if (!hasInputSlot) result = joinPrompt(result, input)
+    if (!hasInputSlot) result = joinImagePrompts(result, input)
     return result.replace(/\n{3,}/g, '\n\n')
 }
 
@@ -237,7 +237,7 @@ function fillNegativeTemplate(template: string, input: string): string {
         .replaceAll('{char}', '')
         .replaceAll('{supplement}', '')
         .trim()
-    if (!hasInputSlot) result = joinPrompt(result, input)
+    if (!hasInputSlot) result = joinImagePrompts(result, input)
     return result.replace(/\n{3,}/g, '\n\n')
 }
 

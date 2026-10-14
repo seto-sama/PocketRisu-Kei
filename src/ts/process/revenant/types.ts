@@ -10,6 +10,7 @@ import type {
 
 import type { RevenantOperationContext } from './operations'
 import type { DeltaPatch } from '../../storage/nodeStorage'
+import type { ImagePresetMetadata } from '../files/inlayMeta'
 export {
     createRevenantOperation,
     getRevenantOperationJobType,
@@ -221,6 +222,7 @@ export interface RevenantImageWorkflowContext {
     prompt: string
     negativePrompt: string
     seed?: number
+    preset?: ImagePresetMetadata
     label: string
     projection?: 'append' | 'reroll' | 'return'
 }

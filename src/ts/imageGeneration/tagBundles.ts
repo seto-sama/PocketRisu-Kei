@@ -69,13 +69,19 @@ export function searchImageTagBundles(query: string, bundles: ImageTagBundle[]):
     return bundles.filter(bundle => bundle.name.toLowerCase().includes(name))
 }
 
-export function expandImageTagBundles(prompt: string, bundles: ImageTagBundle[]): string {
-    if (!bundles.length || !prompt.includes('###')) return prompt
-    const byName = new Map(bundles.map(bundle => [bundle.name.toLowerCase(), bundle.content]))
+export function expandImageTagBundles(prompt: string, bundles: ImageTagBundle[]): { prompt: string; bundleNames: string[] } {
+    if (!bundles.length || !prompt.includes('###')) return { prompt, bundleNames: [] }
+    const byName = new Map(bundles.map(bundle => [bundle.name.toLowerCase(), bundle]))
     const names = [...byName.keys()].sort((left, right) => right.length - left.length)
         .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     const references = new RegExp(`(?<!#)###[\\t ]*(${names.join('|')})(?=[\\t ]*(?:$|[,|.\\r\\n:}\\])]))`, 'gi')
-    return prompt.replace(references, (_reference, name: string) => byName.get(name.toLowerCase())!)
+    const bundleNames = new Set<string>()
+    const expanded = prompt.replace(references, (_reference, name: string) => {
+        const bundle = byName.get(name.toLowerCase())!
+        bundleNames.add(bundle.name)
+        return bundle.content
+    })
+    return { prompt: expanded, bundleNames: [...bundleNames] }
 }
 
 export function getImageTagBundleLorebook(db: BundleDatabase, moduleId?: string): loreBook | undefined {

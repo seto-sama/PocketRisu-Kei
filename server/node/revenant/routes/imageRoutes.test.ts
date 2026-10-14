@@ -104,7 +104,7 @@ describe('Node image generation jobs', () => {
                 NAII2I: false,
             },
             apiKey: 'secret',
-            prompt: 'portrait (group), 0.6::artist:placeholder_artist::, 1.2::masterpiece::',
+            prompt: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::',
             negativePrompt: 'blur',
             seed: 42,
         })
@@ -112,12 +112,12 @@ describe('Node image generation jobs', () => {
         expect([...result.image]).toEqual([9, 8, 7])
         const request = JSON.parse(String((upstream.mock.calls[0]?.[1] as RequestInit).body))
         expect(request).toMatchObject({
-            input: 'portrait (group), 0.6::artist:placeholder_artist::, 1.2::masterpiece::',
+            input: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::',
             action: 'generate',
             parameters: {
                 negative_prompt: 'blur', seed: 42, steps: 28,
                 v4_prompt: {
-                    caption: { base_caption: 'portrait (group), 0.6::artist:placeholder_artist::, 1.2::masterpiece::' },
+                    caption: { base_caption: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::' },
                 },
             },
         })

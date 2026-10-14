@@ -88,7 +88,7 @@
 
 <Tooltip>
     {#snippet trigger(props)}
-    <button {...props} type="button" data-risu-help class="flex min-h-5 w-40 items-center gap-1.5 text-xs font-normal text-subtext cursor-help">
+    <button {...props} type="button" data-risu-help class="flex min-h-5 w-42 items-center gap-1.5 text-xs font-normal text-subtext cursor-help">
         <span class="shrink-0">{language.imageGenerationRemainingQuota}</span>
         <div
             class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full border border-darkborderc bg-transparent"

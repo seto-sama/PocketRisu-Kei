@@ -1,22 +1,12 @@
 import { saveAsset } from '../globalApi.svelte'
 import { archiveCurrentCharacterIcon } from '../characterAssets'
-import { getInlayAssetBlob } from '../process/files/inlays'
+import { getInlayAssetBlob, getInlayMeta } from '../process/files/inlays'
 import type { character } from '../storage/database.svelte'
+import { getFirstInlayId } from '../util/inlayTokens'
 
 export type GeneratedImageAssetTarget = 'icon' | 'emotion' | 'additional'
 
-const INLAY_REFERENCE = /\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/
-
 export class GeneratedInlayAssetError extends Error {}
-
-function uniqueAssetName(name: string, existingNames: Iterable<string>): string {
-    const names = new Set(existingNames)
-    if (!names.has(name)) return name
-
-    let suffix = 2
-    while (names.has(`${name} ${suffix}`)) suffix += 1
-    return `${name} ${suffix}`
-}
 
 function assetBaseName(name: string, extension: string, inlayId: string): string {
     const trimmed = name.trim()
@@ -32,7 +22,7 @@ export async function addGeneratedInlayToCharacter(
     currentCharacter: character,
     target: GeneratedImageAssetTarget,
 ): Promise<{ path: string, name: string }> {
-    const inlayId = INLAY_REFERENCE.exec(message)?.[1]
+    const inlayId = getFirstInlayId(message)
     if (!inlayId) throw new GeneratedInlayAssetError()
 
     const inlay = await getInlayAssetBlob(inlayId)
@@ -43,23 +33,22 @@ export async function addGeneratedInlayToCharacter(
     const bytes = new Uint8Array(await inlay.data.arrayBuffer())
     const extension = inlay.ext || 'png'
     const path = await saveAsset(bytes, '', extension)
-    const baseName = assetBaseName(inlay.name, extension, inlayId)
+    const preset = (await getInlayMeta(inlayId))?.imageGeneration?.preset
+    const name = preset?.tagBundleNames.length && preset.sceneName
+        ? [...preset.tagBundleNames, preset.sceneName].join('_')
+        : assetBaseName(inlay.name, extension, inlayId)
 
     if (target === 'icon') {
         archiveCurrentCharacterIcon(currentCharacter)
         currentCharacter.image = path
-        return { path, name: baseName }
     }
-
-    if (target === 'emotion') {
+    else if (target === 'emotion') {
         currentCharacter.emotionImages ??= []
-        const name = uniqueAssetName(baseName, currentCharacter.emotionImages.map(([itemName]) => itemName))
         currentCharacter.emotionImages.push([name, path])
-        return { path, name }
     }
-
-    currentCharacter.additionalAssets ??= []
-    const name = uniqueAssetName(baseName, currentCharacter.additionalAssets.map(([itemName]) => itemName))
-    currentCharacter.additionalAssets.push([name, path, extension])
+    else {
+        currentCharacter.additionalAssets ??= []
+        currentCharacter.additionalAssets.push([name, path, extension])
+    }
     return { path, name }
 }

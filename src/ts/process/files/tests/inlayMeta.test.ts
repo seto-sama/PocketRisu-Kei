@@ -34,31 +34,27 @@ vi.mock('src/ts/storage/nodeStorage', () => ({
     },
 }))
 
-const { getInlayMeta, setInlayMeta } = await import('../inlayMeta')
+const { getInlayMeta, getInlayMetasBatch, setInlayMeta } = await import('../inlayMeta')
 
 beforeEach(() => {
     storage.clear()
 })
 
 describe('inlay image generation metadata', () => {
-    test('preserves a finite generation seed', async () => {
-        await setInlayMeta('seeded', {
+    test('preserves generation seed and hidden preset metadata in single and batch reads', async () => {
+        const meta = {
             createdAt: 1,
             updatedAt: 2,
             imageGeneration: {
                 prompt: 'positive',
                 negativePrompt: 'negative',
                 seed: 4_294_967_295,
+                preset: { tagBundleNames: ['Miku', 'Black Suit'], sceneName: 'smile' },
             },
-        })
-
-        expect(await getInlayMeta('seeded')).toMatchObject({
-            imageGeneration: {
-                prompt: 'positive',
-                negativePrompt: 'negative',
-                seed: 4_294_967_295,
-            },
-        })
+        }
+        await setInlayMeta('seeded', meta)
+        expect(await getInlayMeta('seeded')).toMatchObject(meta)
+        expect(await getInlayMetasBatch(['seeded'])).toMatchObject({ seeded: meta })
     })
 
     test('drops an invalid legacy seed without dropping the prompts', async () => {

@@ -1319,8 +1319,9 @@ async function prepareNovelAIDirectorReference(buffer) {
 
 async function executeServerImageAction({ workflow, action }) {
     const payload = action?.payload || {};
-    const target = payload.target || (workflow.context?.kind === 'image-generation'
-        ? workflow.context.target
+    const imageContext = workflow.context?.kind === 'image-generation' ? workflow.context : undefined;
+    const target = payload.target || (imageContext
+        ? imageContext.target
         : {
             characterId: workflow.characterId,
             roomId: workflow.roomId,
@@ -1392,11 +1393,11 @@ async function executeServerImageAction({ workflow, action }) {
         updatedAt: now,
         charId: target.characterId,
         chatId: target.roomId,
-        imageGeneration: { prompt: requestPrompt, negativePrompt, seed },
+        imageGeneration: { prompt: requestPrompt, negativePrompt, seed, preset: imageContext?.preset },
     })));
     const reference = `{{inlayed::${inlayId}}}`;
-    const projection = workflow.context?.kind === 'image-generation'
-        ? workflow.context.projection || 'append'
+    const projection = imageContext
+        ? imageContext.projection || 'append'
         : undefined;
     if (projection === 'append' || projection === 'reroll') {
         await canonicalChatService.commitServerMutation({

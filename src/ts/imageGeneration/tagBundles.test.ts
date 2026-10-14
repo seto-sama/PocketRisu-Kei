@@ -36,9 +36,10 @@ it('expands multiple references inside weight wrappers while preserving unknown 
         { name: 'Black Suit', content: 'black suit, red necktie', source: 'Character' },
     ]
     const prompt = '{{{### Miku}}}, 1.3::### Black Suit:: | (### Miku:0.8), ### Miku Junior, #### Miku'
-    expect(expandImageTagBundles(prompt, bundles)).toBe(
-        '{{{boy, {{{tan skin}}}}}}, 1.3::black suit, red necktie:: | (boy, {{{tan skin}}}:0.8), ### Miku Junior, #### Miku',
-    )
+    expect(expandImageTagBundles(prompt, bundles)).toEqual({
+        prompt: '{{{boy, {{{tan skin}}}}}}, 1.3::black suit, red necktie:: | (boy, {{{tan skin}}}:0.8), ### Miku Junior, #### Miku',
+        bundleNames: ['Miku', 'Black Suit'],
+    })
 })
 
 it('stores an inactive bundle lorebook with a stable UUID and keeps editing it after rename', () => {

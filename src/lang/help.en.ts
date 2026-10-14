@@ -448,6 +448,7 @@ export const helpEn = {
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:
             "Seed for deterministic output. Same input + same seed ≈ same response. Use it to remove variance when comparing prompts. Only honored on OpenAI / reverse-proxy / OpenRouter models.",
+        imageCharacterPresets: "Character presets are tag bundles you can write yourself. Separate each preset with a `###` heading and a line break.",
         imageGenerationSeed:
             "When left blank, a random value is sent.",
         imageGenerationPresetQuickEdit:

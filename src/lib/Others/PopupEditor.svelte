@@ -7,6 +7,7 @@
     import { DBState, popUpEditorStore } from 'src/ts/stores.svelte'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
+    import Help from './Help.svelte'
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import CBSCodeEditor from '../UI/components/CBSCodeEditor.svelte'
     import Input from '../UI/components/Input.svelte'
@@ -404,6 +405,9 @@
         <span class:font-mono={popUpEditorStore.title !== ''} class:break-all={popUpEditorStore.title !== ''}>
             {popUpEditorStore.title || language.hotkeyDesc.popupEditor}
         </span>
+        {#if popUpEditorStore.helpKey}
+            <Help key={popUpEditorStore.helpKey} name={popUpEditorStore.title} />
+        {/if}
     {/snippet}
 
     {#snippet headerActions()}
