@@ -3,12 +3,6 @@ import { downloadUrl } from '../download'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
-// Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
-// Context (HTTPS/localhost). To support remote access over plain HTTP, signing
-// happens on the server; the client only caches and forwards issued tokens.
-// If upstream changes its auth flow, sync manually.
-// Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
-// /api/login, /api/token/refresh)
 import { language } from "src/lang"
 import { alertInput } from "../alert"
 import { decodeRisuSave } from "./risuSave"
@@ -37,8 +31,6 @@ function serverErrorMessage(body: any, fallback: string): string {
     })
 }
 
-// Warning the server attaches to /api/patch responses when the most recent
-// debounced persist failed (Stage 1 visibility — see issues.md).
 export interface PersistWarning {
     timestamp: number
     message: string
@@ -56,7 +48,6 @@ export interface PatchItemResult {
     revision?: number
     conflict?: boolean
     persistWarning?: PersistWarning
-    /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
 }
 
@@ -97,7 +88,6 @@ export interface SettingsBackupEstimate {
     moduleAssets: { count: number, bytes: number, moduleCount: number }
 }
 
-/** Page-scoped id used for sync self-echo suppression and request tracing. */
 export function getSyncClientId(): string {
     return NodeStorage.getSessionId()
 }
@@ -105,7 +95,7 @@ export function getSyncClientId(): string {
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
-    // Unique per page load — identifies the origin of writes and sync events.
+    // Each page needs its own id so sync broadcasts can skip the originating page.
     private static sessionId: string =
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
 
@@ -113,6 +103,7 @@ export class NodeStorage{
     _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
     authChecked = false
+    // Server-side JWT signing lets remote HTTP clients authenticate without crypto.subtle.
     private cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
@@ -130,8 +121,6 @@ export class NodeStorage{
             return this.cachedJwt.token
         }
 
-        // A fresh page has no in-memory JWT. Authenticate first instead of
-        // calling /api/token/refresh with an empty risu-auth header.
         if (!this.cachedJwt) {
             await this.checkAuth()
             if (!this.cachedJwt) {
@@ -143,9 +132,7 @@ export class NodeStorage{
         const token = await this._refreshToken()
         if (token) return token
 
-        // A rejected refresh means the cached token is no longer usable.
-        // Re-establish authentication through /api/test_auth instead of
-        // returning an empty or stale token to the caller.
+        // Reauthenticate after a rejected refresh to avoid reusing its invalid token.
         this.cachedJwt = null
         this.authChecked = false
         await this.checkAuth()
@@ -155,8 +142,7 @@ export class NodeStorage{
         return this.cachedJwt.token
     }
 
-    // Called once after JWT auth is confirmed. Issues a session cookie so that
-    // <img src="/api/asset/..."> can be served without JS-injected headers.
+    // Asset elements cannot attach JWT headers, so they need a session cookie.
     private async initSession(authToken: string) {
         if (NodeStorage.sessionInitialized) return
         if (NodeStorage.sessionPending) return NodeStorage.sessionPending
@@ -176,9 +162,8 @@ export class NodeStorage{
             if (res.ok) {
                 NodeStorage.sessionInitialized = true
             }
-            // Non-ok (400/401/500): will retry on next checkAuth() call.
         } catch {
-            // Network error: will retry on next checkAuth() call.
+            // Retry session creation on the next authenticated request.
         } finally {
             NodeStorage.sessionPending = null
         }
@@ -310,6 +295,15 @@ export class NodeStorage{
         return new Blob([await response.arrayBuffer()], { type: 'image/webp' })
     }
 
+    async saveInlayVideoThumbnail(id: string, thumbnail: Blob): Promise<void> {
+        const response = await this.authFetch(`/api/inlays/${encodeURIComponent(id)}/video-thumbnail`, {
+            method: 'POST',
+            body: thumbnail,
+            headers: { 'content-type': 'application/octet-stream' },
+        })
+        if (!response.ok) throw await storageRequestError('saveInlayVideoThumbnail', response)
+    }
+
     async getItem(key:string):Promise<Buffer> {
         const headers: Record<string, string> = {
             'file-path': Buffer.from(key, 'utf-8').toString('hex')
@@ -320,7 +314,6 @@ export class NodeStorage{
             throw await storageRequestError('getItem', da)
         }
 
-        // Capture ETag for database.bin
         const etag = da.headers.get('x-db-etag')
         if (etag) {
             this._lastDbEtag = etag
@@ -447,12 +440,10 @@ export class NodeStorage{
 
     listItem = this.keys
 
-    /** Set cached ETag for database.bin */
     setDbEtag(etag: string | null) {
         this._lastDbEtag = etag
     }
 
-    /** Set the revision associated with the cached database projection. */
     setDbRevision(revision: number | null) {
         this._lastDbRevision = revision
     }
@@ -489,7 +480,7 @@ export class NodeStorage{
         return await response.json() as PluginStorageStartupStats
     }
 
-    /** Read cleanup references without replacing the autosave revision/ETag. */
+    // Cleanup reads must not advance the autosave baseline.
     async scanContentReferences(kind: ContentReferenceKind, candidates: string[]) {
         const response = await this.authFetch('/api/database/content-references', {
             method: 'POST',
@@ -501,7 +492,6 @@ export class NodeStorage{
         return validateContentReferences(await response.json(), kind, candidates)
     }
 
-    /** Load the relational database's client projection as JSON. */
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
         const headers:Record<string, string> = { accept: 'application/json' }
         if (this.pluginStorageExclusionHeader) {
@@ -521,11 +511,7 @@ export class NodeStorage{
         return data
     }
 
-    /**
-     * Initialize a brand-new relational database. The server only accepts this
-     * while revision 0 is still current, so two first-run clients cannot replace
-     * one another's initialized state.
-     */
+    // Revision 0 prevents concurrent first-run clients from overwriting each other.
     async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
         const response = await this.authFetch('/api/database', {
             method: 'PUT',
@@ -561,7 +547,6 @@ export class NodeStorage{
         }
     }
 
-    /** Apply metadata changes to the relational database projection. */
     async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
         return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
     }
@@ -577,7 +562,6 @@ export class NodeStorage{
         key?: string,
         method: 'POST' | 'PATCH' = 'POST',
     ): Promise<PatchItemResult> {
-        // Empty changes have no write intent and need no network request.
         if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
 
@@ -638,7 +622,6 @@ export class NodeStorage{
         return { success: true, etag: nextEtag, revision: nextRevision, persistWarning }
     }
 
-    // ── Bulk asset operations (3-2-B) ──────────────────────────────────────────
     async getItems(keys: string[]): Promise<{key: string, value: Buffer}[]> {
         const da = await this.authFetch('/api/assets/bulk-read', {
             method: 'POST',
@@ -721,8 +704,7 @@ export class NodeStorage{
             xhr.setRequestHeader('content-type', 'application/x-risu-backup')
             xhr.setRequestHeader('risu-auth', authHeader)
             xhr.setRequestHeader('x-sync-client-id', NodeStorage.sessionId)
-            // Opt into NDJSON streaming so the server keeps the response socket
-            // alive during long post-upload work — prevents reverse-proxy 502s.
+            // Stream restore progress to prevent reverse-proxy timeouts after upload.
             xhr.setRequestHeader('accept', 'application/x-ndjson')
 
             let uploadComplete = false
@@ -750,15 +732,13 @@ export class NodeStorage{
                     let msg: any
                     try { msg = JSON.parse(line) } catch { continue }
                     if (msg.type === 'progress' && uploadComplete) {
-                        // After upload finishes, surface server-side processing
-                        // progress through the same callback for UI continuity.
+                        // Reuse the upload progress UI for server-side restoration.
                         onProgress?.(msg.bytes, msg.totalBytes)
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
                         serverErrorMsg = serverErrorMessage(msg, 'backup import failed')
                     }
-                    // Ignore 'heartbeat' and unknown event types.
                 }
             }
 
@@ -783,8 +763,6 @@ export class NodeStorage{
             xhr.send(file)
         })
     }
-
-    // ── Server-side backup ─────────────────────────────────────────────────────
 
     async saveServerBackup(
         note = '',
@@ -949,8 +927,6 @@ export class NodeStorage{
     async downloadServerBackup(filename: string): Promise<void> {
         await this.startCookieDownload(`/api/backup/server/download/${encodeURIComponent(filename)}`)
     }
-
-    // ── Chat content (runtime lazy load) ────────────────────────────────────
 
     async fetchBookmarkCatalog(): Promise<BookmarkCatalog> {
         const da = await this.authFetch(BOOKMARKS_API_PATH)

@@ -3,11 +3,10 @@
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const nodeCrypto = require('crypto');
 const { binaryBodyParser } = require('./binaryHttp.cjs');
 const { encodeInlayAsset, decodeInlayAsset } = require('../../src/ts/storage/inlayTransport.ts');
-const { isInlayMediaType } = require('../../shared/inlayTypes.mjs');
+const { isInlayMediaType, getInlayThumbnailScale } = require('../../shared/inlayTypes.mjs');
 
 function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, kvList, logger }) {
     const migrationMarker = path.join(inlayDir, '.migrated_to_fs');
@@ -145,7 +144,7 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
     }
 
     async function removeThumbnailCaches(id) {
-        // Finish this asset's pending builds before removing their output.
+        // An in-flight build could otherwise recreate the deleted thumbnail.
         await Promise.allSettled(Object.keys(thumbnailDirs).map(type => (
             thumbnailJobs.get(`${type}:${id}`)
         )));
@@ -307,25 +306,18 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         return { size, format, lossy, quality };
     }
 
-    async function encodeInlayImageBuffer(buffer, settings) {
+    async function encodeImageBuffer(buffer, { format, options, getScale }) {
         const vips = await getVips();
         const source = vips.Image.newFromBuffer(buffer);
         let rotated = null;
         let image = null;
         try {
             rotated = source.autorot();
-            const maxPixels = INLAY_IMAGE_SIZE_PIXELS[settings.size];
-            const currentPixels = rotated.width * rotated.height;
-            const scale = currentPixels > maxPixels ? Math.sqrt(maxPixels / currentPixels) : 1;
+            const scale = getScale(rotated.width, rotated.height);
             image = scale < 1 ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 }) : rotated;
-            const output = settings.format === 'png'
-                ? image.writeToBuffer('.png', { Q: 100 })
-                : image.writeToBuffer('.webp', settings.lossy
-                    ? { Q: Math.round(settings.quality * 100), effort: INLAY_WEBP_EFFORT }
-                    : { lossless: true, effort: INLAY_WEBP_EFFORT });
             return {
-                buffer: Buffer.from(output),
-                ext: settings.format,
+                buffer: Buffer.from(image.writeToBuffer(`.${format}`, options)),
+                ext: format,
                 width: image.width,
                 height: image.height,
             };
@@ -336,63 +328,26 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         }
     }
 
-    const THUMB_SHORT_SIDE = 320;
-    const THUMB_LONG_SIDE = 640;
-    const THUMB_QUALITY = 75;
-    const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
-
-    async function generateThumbnail(buffer) {
-        const vips = await getVips();
-        const source = vips.Image.newFromBuffer(buffer);
-        let rotated = null;
-        let image = null;
-        try {
-            rotated = source.autorot();
-            const landscape = rotated.width >= rotated.height;
-            const targetWidth = landscape ? THUMB_LONG_SIDE : THUMB_SHORT_SIDE;
-            const targetHeight = landscape ? THUMB_SHORT_SIDE : THUMB_LONG_SIDE;
-            const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height, 1);
-            image = scale < 1 ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 }) : rotated;
-            return Buffer.from(image.writeToBuffer('.webp', { Q: THUMB_QUALITY }));
-        } finally {
-            if (image && image !== rotated) image.delete();
-            if (rotated) rotated.delete();
-            source.delete();
-        }
-    }
-
-    function extractVideoThumbnailFrame(inputPath, outputPath) {
-        const bundledExecutable = path.join(
-            process.cwd(), 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
-        );
-        const executable = process.env.RISU_FFMPEG_PATH || (
-            fsSync.existsSync(bundledExecutable) ? bundledExecutable : 'ffmpeg'
-        );
-        return new Promise(resolve => {
-            const child = spawn(executable, [
-                '-hide_banner', '-loglevel', 'error', '-ss', '0.1', '-i', inputPath,
-                '-map', '0:v:0', '-frames:v', '1', '-an', '-sn', '-c:v', 'png', '-y', outputPath,
-            ], { stdio: 'ignore', windowsHide: true });
-            let settled = false;
-            const finish = success => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timeout);
-                resolve(success);
-            };
-            const timeout = setTimeout(() => {
-                child.kill('SIGKILL');
-                finish(false);
-            }, 30_000);
-            child.once('error', () => finish(false));
-            child.once('close', code => finish(code === 0));
+    function encodeInlayImageBuffer(buffer, settings) {
+        const maxPixels = INLAY_IMAGE_SIZE_PIXELS[settings.size];
+        return encodeImageBuffer(buffer, {
+            format: settings.format,
+            options: settings.format === 'png' ? { Q: 100 }
+                : settings.lossy
+                    ? { Q: Math.round(settings.quality * 100), effort: INLAY_WEBP_EFFORT }
+                    : { lossless: true, effort: INLAY_WEBP_EFFORT },
+            getScale: (width, height) => Math.min(1, Math.sqrt(maxPixels / (width * height))),
         });
     }
 
-    async function ensureThumbnail(id, type) {
+    const THUMB_QUALITY = 75;
+    const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+
+    async function ensureThumbnail(id, type, frameBuffer = null) {
         const jobKey = `${type}:${id}`;
         const pending = thumbnailJobs.get(jobKey);
-        if (pending) return await pending;
+        if (pending) return pending;
+        const canGenerate = type === 'image' || frameBuffer !== null;
 
         const job = (async () => {
             const sidecar = await readInlaySidecar(id);
@@ -405,40 +360,33 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
             try {
                 const stat = await fs.stat(thumbnailPath);
                 return { filePath: thumbnailPath, stat };
-            } catch {
-                // A missing cache entry is generated below.
-            }
+            } catch {}
+
+            if (!canGenerate) return null;
 
             const thumbnailDir = path.dirname(thumbnailPath);
             await fs.mkdir(thumbnailDir, { recursive: true });
             const temporaryBase = `${id}.${process.pid}.${nodeCrypto.randomBytes(6).toString('hex')}`;
-            const framePath = type === 'video'
-                ? path.join(thumbnailDir, `${temporaryBase}.frame.png`)
-                : null;
             const temporaryPath = path.join(thumbnailDir, `${temporaryBase}.tmp.webp`);
             try {
-                let input;
-                if (type === 'video') {
-                    if (!await extractVideoThumbnailFrame(source.filePath, framePath)) return null;
-                    input = await fs.readFile(framePath);
-                } else {
-                    input = await fs.readFile(source.filePath);
-                }
-                await fs.writeFile(temporaryPath, await generateThumbnail(input));
+                const input = frameBuffer || await fs.readFile(source.filePath);
+                const thumbnail = await encodeImageBuffer(input, {
+                    format: 'webp', options: { Q: THUMB_QUALITY }, getScale: getInlayThumbnailScale,
+                });
+                await fs.writeFile(temporaryPath, thumbnail.buffer);
                 await fs.rename(temporaryPath, thumbnailPath);
                 return { filePath: thumbnailPath, stat: await fs.stat(thumbnailPath) };
             } catch {
                 return null;
             } finally {
-                await Promise.allSettled([
-                    framePath ? fs.unlink(framePath) : Promise.resolve(),
-                    fs.unlink(temporaryPath),
-                ]);
+                await fs.unlink(temporaryPath).catch(() => {});
             }
-        })().finally(() => thumbnailJobs.delete(jobKey));
+        })();
+        if (!canGenerate) return job;
 
-        thumbnailJobs.set(jobKey, job);
-        return await job;
+        const trackedJob = job.finally(() => thumbnailJobs.delete(jobKey));
+        thumbnailJobs.set(jobKey, trackedJob);
+        return trackedJob;
     }
 
     async function compressInlays(settings, onProgress = () => {}) {
@@ -527,6 +475,20 @@ function installInlaysRoutes(app, { sessionAuthMiddleware, requireSyncClientId, 
             return res.send(encoded.buffer);
         } catch (error) {
             return res.status(400).json({ error: error?.message || 'Image encoding failed' });
+        }
+    });
+
+    app.post('/api/inlays/:id/video-thumbnail', sessionAuthMiddleware, binaryBodyParser('2mb'), async (req, res) => {
+        if (!requireSyncClientId(req, res)) return;
+        if (!inlayService.isSafeInlayId(req.params.id) || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+            return res.status(400).json({ error: 'Video id and thumbnail body required' });
+        }
+        try {
+            const thumbnail = await inlayService.ensureThumbnail(req.params.id, 'video', req.body);
+            if (!thumbnail) return res.status(400).json({ error: 'Video thumbnail could not be saved' });
+            return res.status(204).end();
+        } catch (error) {
+            return res.status(400).json({ error: error?.message || 'Video thumbnail could not be saved' });
         }
     });
 

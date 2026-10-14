@@ -3,42 +3,28 @@ import fc from 'fast-check'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { encodeInlayAsset, decodeInlayAsset } from '../../../storage/inlayTransport'
 import type { InlayAsset } from '../inlays'
-import {
-    scanInlayReferences,
-    fitInlayImageSize,
-    buildInlayReference,
-    getInlayAsset,
-    getInlayAssetUrl,
-    getInlayAssetBlob,
-    getInlayDownloadFileName,
-    getCharacterChatIndex,
-    INLAY_AUDIO_EXTENSIONS,
-    INLAY_IMAGE_MAX_PIXELS,
-    INLAY_VIDEO_EXTENSIONS,
-    listInlayExplorerItems,
-    postInlayAsset,
-    removeInlayAsset,
-    setInlayAsset,
-    writeInlayImage,
-    __resetInlayStorageForTest,
-} from '../inlays'
+
+let inlays!: typeof import('../inlays')
 
 describe('inlay viewer helpers', () => {
     test('builds canonical references and direct asset URLs', () => {
-        expect(buildInlayReference('asset-id')).toBe('{{inlayed::asset-id}}')
-        expect(getInlayAssetUrl('asset-id')).toBe('/api/asset/696e6c61792f61737365742d6964')
+        expect(inlays.buildInlayReference('asset-id')).toBe('{{inlayed::asset-id}}')
+        expect(inlays.getInlayAssetUrl('asset-id')).toBe('/api/asset/696e6c61792f61737365742d6964')
     })
 
     test('normalizes download names and replaces unsafe characters', () => {
-        expect(getInlayDownloadFileName('image.jpg', 'png')).toBe('image.png')
-        expect(getInlayDownloadFileName('bad/name', 'webp')).toBe('bad_name.webp')
-        expect(getInlayDownloadFileName('', 'png')).toBe('inlay-asset.png')
+        expect(inlays.getInlayDownloadFileName('image.jpg', 'png')).toBe('image.png')
+        expect(inlays.getInlayDownloadFileName('bad/name', 'webp')).toBe('bad_name.webp')
+        expect(inlays.getInlayDownloadFileName('', 'png')).toBe('inlay-asset.png')
     })
 })
 
 const { scanReferencesMock } = vi.hoisted(() => ({ scanReferencesMock: vi.fn() }))
-
-//#region module mocks
+const { createVideoThumbnailMock, saveVideoThumbnailMock } = vi.hoisted(() => ({
+    createVideoThumbnailMock: vi.fn(),
+    saveVideoThumbnailMock: vi.fn(),
+}))
+vi.mock('../videoThumbnail', () => ({ createVideoThumbnail: createVideoThumbnailMock }))
 
 // happy-dom canvas getContext returns null
 const fakeCtx = {
@@ -75,6 +61,7 @@ vi.mock('src/ts/storage/nodeStorage', () => {
     class MockNodeStorage {
         authChecked = true
         scanContentReferences = scanReferencesMock
+        saveInlayVideoThumbnail = saveVideoThumbnailMock
         async setItem(key: string, value: Uint8Array) {
             nodeStorageMap.set(key, value)
         }
@@ -151,12 +138,10 @@ vi.mock(
     () =>
         ({
             asBuffer: (arr: Uint8Array) => arr,
-            // modules.ts (pulled in via the stores $effect) imports this from util
+            // Transitive store imports also require this export.
             checkPersonaBinded: () => null,
         }) as typeof import('src/ts/util'),
 )
-
-//#endregion
 
 function makeImage(w: number, h: number): HTMLImageElement {
     const img = new Image()
@@ -173,8 +158,10 @@ function makeImage(w: number, h: number): HTMLImageElement {
     return img
 }
 
-beforeEach(() => {
+beforeEach(async () => {
     vi.clearAllMocks()
+    createVideoThumbnailMock.mockReset().mockResolvedValue(null)
+    saveVideoThumbnailMock.mockReset().mockResolvedValue(undefined)
     nodeStorageMap.clear()
     inlayMetaMap.clear()
     getDatabaseMock.mockReturnValue({
@@ -185,7 +172,8 @@ beforeEach(() => {
         inlayImageLossy: true,
         inlayImageQuality: 0.85,
     })
-    __resetInlayStorageForTest()
+    vi.resetModules()
+    inlays = await import('../inlays')
 })
 
 describe('setInlayAsset', () => {
@@ -207,10 +195,10 @@ describe('setInlayAsset', () => {
             width: 20,
         }
 
-        await setInlayAsset('id-1', first)
-        await setInlayAsset('id-1', second)
+        await inlays.setInlayAsset('id-1', first)
+        await inlays.setInlayAsset('id-1', second)
 
-        const stored = await getInlayAsset('id-1')
+        const stored = await inlays.getInlayAsset('id-1')
         expect(stored).toMatchObject({
             height: 20,
             name: 'second.png',
@@ -231,9 +219,9 @@ describe('getInlayAsset', () => {
             name: 'blob-asset.png',
             type: 'image',
         }
-        await setInlayAsset('blob-id', asset)
+        await inlays.setInlayAsset('blob-id', asset)
 
-        const result = await getInlayAsset('blob-id')
+        const result = await inlays.getInlayAsset('blob-id')
 
         expect(result!.data).toMatch(/^data:/)
         expect(result!.name).toBe('blob-asset.png')
@@ -243,15 +231,16 @@ describe('getInlayAsset', () => {
 describe('getInlayAssetBlob', () => {
     test('roundtrips binary media through storage without a cached Blob', async () => {
         const bytes = new Uint8Array([0, 255, 128, 1])
-        await setInlayAsset('blob-id', {
+        await inlays.setInlayAsset('blob-id', {
             data: new Blob([bytes], { type: 'image/png' }),
             ext: 'png', height: 64, width: 64, name: 'blob.png', type: 'image',
         })
         const wire = decodeInlayAsset(nodeStorageMap.get('inlay/blob-id')!)
         expect(wire.bytes).toEqual(bytes)
         expect(wire.metadata).toMatchObject({ mime: 'image/png', name: 'blob.png' })
-        __resetInlayStorageForTest()
-        const result = await getInlayAssetBlob('blob-id')
+        vi.resetModules()
+        inlays = await import('../inlays')
+        const result = await inlays.getInlayAssetBlob('blob-id')
         expect(result!.data.type).toBe('image/png')
         expect(new Uint8Array(await result!.data.arrayBuffer())).toEqual(bytes)
     })
@@ -283,7 +272,7 @@ describe('getCharacterChatIndex', () => {
             ],
         })
 
-        expect(getCharacterChatIndex()).toEqual([
+        expect(inlays.getCharacterChatIndex()).toEqual([
             {
                 chaId: 'char-1',
                 chats: [
@@ -310,7 +299,7 @@ describe('listInlayExplorerItems', () => {
             updatedAt: 20,
         })
 
-        await setInlayAsset('img-1', {
+        await inlays.setInlayAsset('img-1', {
             data: new Blob(['img-data'], { type: 'image/png' }),
             ext: 'png',
             height: 128,
@@ -332,7 +321,7 @@ describe('listInlayExplorerItems', () => {
         }, new Uint8Array([97])))
         nodeStorageMap.set('inlay_info/audio-1', infoOnlyValue)
 
-        const result = await listInlayExplorerItems()
+        const result = await inlays.listInlayExplorerItems()
         const byId = Object.fromEntries(result.map((item) => [item.id, item]))
 
         expect(byId['img-1']).toMatchObject({
@@ -352,28 +341,49 @@ describe('listInlayExplorerItems', () => {
 })
 
 describe('postInlayAsset', () => {
-    test.each(['txt', 'MP3', 'mp3.exe', 'no-extension'])('rejects unsupported file name %s', async (name) => {
-        expect(await postInlayAsset({ name, data: new Uint8Array([0x00]) })).toBeNull()
+    test.each(['notes.txt', 'clip.mp4.exe', 'no-extension'])('rejects unsupported file name %s', async (name) => {
+        expect(await inlays.postInlayAsset({ name, data: new Uint8Array([0x00]) })).toBeNull()
     })
 
-    test.each(INLAY_AUDIO_EXTENSIONS)('routes .%s files to audio storage', async (ext) => {
-        const result = await postInlayAsset({ name: `sound.${ext}`, data: new Uint8Array([0x00]) })
-        expect(await getInlayAssetBlob(result!)).toMatchObject({ ext, type: 'audio' })
+    test('routes supported audio files to audio storage', async () => {
+        for (const ext of inlays.INLAY_AUDIO_EXTENSIONS) {
+            const result = await inlays.postInlayAsset({ name: `sound.${ext}`, data: new Uint8Array([0x00]) })
+            expect(await inlays.getInlayAssetBlob(result!)).toMatchObject({ ext, type: 'audio' })
+        }
     })
 
-    test.each(INLAY_VIDEO_EXTENSIONS)('routes .%s files to video storage', async (ext) => {
-        const result = await postInlayAsset({ name: `clip.${ext}`, data: new Uint8Array([0x00]) })
-        expect(await getInlayAssetBlob(result!)).toMatchObject({ ext, type: 'video' })
+    test('routes supported video files to video storage', async () => {
+        for (const ext of inlays.INLAY_VIDEO_EXTENSIONS) {
+            const result = await inlays.postInlayAsset({ name: `clip.${ext}`, data: new Uint8Array([0x00]) })
+            expect(await inlays.getInlayAssetBlob(result!)).toMatchObject({ ext, type: 'video' })
+        }
+    })
+
+    test('saves the browser-generated video thumbnail with the uploaded asset', async () => {
+        const thumbnail = new Blob(['frame'], { type: 'image/png' })
+        createVideoThumbnailMock.mockResolvedValueOnce(thumbnail)
+        const id = await inlays.postInlayAsset({ name: 'clip.mp4', data: new Uint8Array([1, 2]) })
+        expect(saveVideoThumbnailMock).toHaveBeenCalledWith(id, thumbnail)
+        expect(await inlays.getInlayAssetBlob(id!)).toMatchObject({ type: 'video', name: 'clip.mp4' })
+    })
+
+    test('keeps the original video when saving its thumbnail fails', async () => {
+        createVideoThumbnailMock.mockResolvedValueOnce(new Blob(['frame'], { type: 'image/png' }))
+        saveVideoThumbnailMock.mockRejectedValueOnce(new Error('Network failure'))
+        const id = await inlays.postInlayAsset({ name: 'clip.mp4', data: new Uint8Array([1, 2]) })
+        expect(await inlays.getInlayAssetBlob(id!)).toMatchObject({ type: 'video', name: 'clip.mp4' })
     })
 })
 
 describe('fitInlayImageSize', () => {
+    const maxPixels = 1024 * 1024
+
     test('keeps dimensions inside the pixel budget unchanged', () => {
         fc.assert(fc.property(
             fc.integer({ min: 1, max: 1024 }),
             fc.integer({ min: 1, max: 1024 }),
             (width, height) => {
-                expect(fitInlayImageSize(width, height)).toEqual({ width, height })
+                expect(inlays.fitInlayImageSize(width, height, maxPixels)).toEqual({ width, height })
             },
         ))
     })
@@ -383,11 +393,11 @@ describe('fitInlayImageSize', () => {
             fc.integer({ min: 1, max: 10_000 }),
             fc.integer({ min: 1, max: 10_000 }),
             (width, height) => {
-                const fitted = fitInlayImageSize(width, height)
-                expect(fitted.width * fitted.height).toBeLessThanOrEqual(INLAY_IMAGE_MAX_PIXELS)
+                const fitted = inlays.fitInlayImageSize(width, height, maxPixels)
+                expect(fitted.width * fitted.height).toBeLessThanOrEqual(maxPixels)
                 expect(fitted.width).toBeGreaterThan(0)
                 expect(fitted.height).toBeGreaterThan(0)
-                if (width * height > INLAY_IMAGE_MAX_PIXELS) {
+                if (width * height > maxPixels) {
                     expect(Math.abs(width / height - fitted.width / fitted.height) / (width / height)).toBeLessThan(0.01)
                 }
             },
@@ -395,7 +405,7 @@ describe('fitInlayImageSize', () => {
     })
 
     test('keeps the 1216 x 832 NAI default inside the 1K pixel budget', () => {
-        expect(fitInlayImageSize(1216, 832, INLAY_IMAGE_MAX_PIXELS)).toEqual({
+        expect(inlays.fitInlayImageSize(1216, 832, maxPixels)).toEqual({
             width: 1216,
             height: 832,
         })
@@ -406,7 +416,7 @@ describe('writeInlayImage', () => {
     test('stores image asset with correct metadata and returns id', async () => {
         const imgObj = makeImage(200, 100)
 
-        const result = await writeInlayImage(imgObj, {
+        const result = await inlays.writeInlayImage(imgObj, {
             name: 'photo.jpg',
             ext: 'jpg',
             id: 'custom-id',
@@ -414,7 +424,7 @@ describe('writeInlayImage', () => {
 
         expect(result).toBe('custom-id')
 
-        const stored = await getInlayAssetBlob('custom-id')
+        const stored = await inlays.getInlayAssetBlob('custom-id')
         expect(stored).toMatchObject({
             data: expect.any(Blob),
             ext: 'webp',
@@ -429,7 +439,7 @@ describe('writeInlayImage', () => {
         getDatabaseMock.mockReturnValue({ characters: [], inlayImageCompression: false })
         const imgObj = makeImage(200, 100)
 
-        const result = await writeInlayImage(imgObj, {
+        const result = await inlays.writeInlayImage(imgObj, {
             name: 'photo.jpg',
             ext: 'jpg',
             id: 'lossless-id',
@@ -437,7 +447,7 @@ describe('writeInlayImage', () => {
 
         expect(result).toBe('lossless-id')
 
-        const stored = await getInlayAssetBlob('lossless-id')
+        const stored = await inlays.getInlayAssetBlob('lossless-id')
         expect(stored).toMatchObject({
             data: expect.any(Blob),
             ext: 'png',
@@ -459,9 +469,9 @@ describe('writeInlayImage', () => {
         })
         const imgObj = makeImage(3000, 2000)
 
-        await writeInlayImage(imgObj, { id: 'png-2k' })
+        await inlays.writeInlayImage(imgObj, { id: 'png-2k' })
 
-        const stored = await getInlayAssetBlob('png-2k')
+        const stored = await inlays.getInlayAssetBlob('png-2k')
         expect(stored).toMatchObject({ ext: 'png', type: 'image' })
         expect(stored!.width! * stored!.height!).toBeLessThanOrEqual(2048 * 2048)
     })
@@ -469,10 +479,10 @@ describe('writeInlayImage', () => {
     test('generates uuid when no id is provided', async () => {
         const imgObj = makeImage(50, 50)
 
-        const result = await writeInlayImage(imgObj)
+        const result = await inlays.writeInlayImage(imgObj)
         expect(result).toBe('test-uuid-1234')
 
-        const stored = await getInlayAssetBlob('test-uuid-1234')
+        const stored = await inlays.getInlayAssetBlob('test-uuid-1234')
         expect(stored!.name).toBe('test-uuid-1234')
     })
 
@@ -484,8 +494,8 @@ describe('set -> get round-trip', () => {
             data: new Blob(['data'], { type: 'application/octet-stream' }),
             ext: 'custom', height: 480, width: 640, name: 'named asset', type: 'image',
         }
-        await setInlayAsset('metadata-round-trip', asset)
-        expect(await getInlayAsset('metadata-round-trip')).toMatchObject({
+        await inlays.setInlayAsset('metadata-round-trip', asset)
+        expect(await inlays.getInlayAsset('metadata-round-trip')).toMatchObject({
             data: expect.any(String), ext: 'custom', height: 480, width: 640,
             name: 'named asset', type: 'image',
         })
@@ -495,12 +505,12 @@ describe('set -> get round-trip', () => {
 describe('set -> remove -> get', () => {
     test('removes a stored asset from cache and persistence', async () => {
         const id = 'remove-round-trip'
-        await setInlayAsset(id, {
+        await inlays.setInlayAsset(id, {
             data: new Blob(['x']), ext: 'png', height: 1, width: 1, name: 'tmp.png', type: 'image',
         })
-        expect(await getInlayAsset(id)).not.toBeNull()
-        await removeInlayAsset(id)
-        expect(await getInlayAsset(id)).toBeNull()
+        expect(await inlays.getInlayAsset(id)).not.toBeNull()
+        await inlays.removeInlayAsset(id)
+        expect(await inlays.getInlayAsset(id)).toBeNull()
     })
 })
 
@@ -512,13 +522,13 @@ describe('inlay reference scan', () => {
             chats: [{ id: 'unopened', _placeholder: true, message: [] }],
         }] })
         scanReferencesMock.mockResolvedValue({ kind: 'inlay', scannedAt: 1, totalMessages: 1, refCounts: { used: 1, swipe: 1, summary: 1 } })
-        expect((await scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts).toEqual({ greeting: 1, alternate: 1, used: 1, swipe: 1, summary: 1 })
+        expect((await inlays.scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts).toEqual({ greeting: 1, alternate: 1, used: 1, swipe: 1, summary: 1 })
         scanReferencesMock.mockResolvedValue({ kind: 'inlay', scannedAt: 2, totalMessages: 1, refCounts: { 'new-reference': 1 } })
-        expect((await scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts['new-reference']).toBe(1)
+        expect((await inlays.scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).refCounts['new-reference']).toBe(1)
     })
     test('never classifies assets as unused after an incomplete scan', async () => {
         getDatabaseMock.mockReturnValue({ characters: [{ chaId: 'char', chats: [{ id: 'unopened', _placeholder: true }] }] })
         scanReferencesMock.mockRejectedValue(new Error('offline'))
-        await expect(scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).rejects.toThrow('offline')
+        await expect(inlays.scanInlayReferences(['used', 'swipe', 'summary', 'new-reference'])).rejects.toThrow('offline')
     })
 })
