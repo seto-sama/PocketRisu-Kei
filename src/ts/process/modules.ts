@@ -24,6 +24,7 @@ export interface RisuModule extends PresetTagFields {
     name: string
     description: string
     lorebook?: loreBook[]
+    imageTagBundleLorebookId?: string
     regex?: customscript[]
     cjs?: string
     trigger?: triggerscript[]

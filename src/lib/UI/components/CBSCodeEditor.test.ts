@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { acceptCompletion, completionStatus, startCompletion } from '@codemirror/autocomplete'
+import { acceptCompletion, completionStatus, startCompletion, type CompletionSource } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { mount, tick, unmount } from 'svelte'
 import CBSCodeEditor from './CBSCodeEditor.svelte'
+import { createImageTagCompletionSource } from 'src/ts/imageGeneration/imageTags'
+
+vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { createAuth: vi.fn() } }))
 
 const mounted: unknown[] = []
 
-async function render(value: string) {
+async function render(value: string, options: { completionSource?: CompletionSource } = {}) {
     const target = document.createElement('div')
     document.body.appendChild(target)
     const onValueChange = vi.fn()
@@ -18,6 +21,7 @@ async function render(value: string) {
             value,
             wordWrap: true,
             onValueChange,
+            ...options,
         },
     })
     mounted.push(component)
@@ -45,6 +49,24 @@ afterEach(async () => {
 })
 
 describe('CBSCodeEditor', () => {
+    it('completes a Korean image tag prefix while preserving following prompt text', async () => {
+        const { target, content, editor, onValueChange } = await render('1girl, (장발 out:1.2), blue eyes', {
+            completionSource: createImageTagCompletionSource({
+                search: async () => [{ name: 'long hair', category: 0, count: 100, description: '긴 머리, 장발' }],
+            }),
+        })
+        openCompletions(content, editor, 10)
+        await vi.waitFor(() => expect(optionWithLabel(target, 'long hair')).toBeDefined())
+
+        const option = optionWithLabel(target, 'long hair')!
+        expect(option.querySelector('.risu-completion-detail')?.textContent).toContain('General')
+        expect(option.querySelector('.risu-completion-description')?.textContent).toContain('긴 머리, 장발')
+        await vi.waitFor(() => expect(acceptCompletion(editor)).toBe(true))
+        expect(editor.state.doc.toString()).toBe('1girl, (long hair, out:1.2), blue eyes')
+        expect(editor.state.selection.main.head).toBe(editor.state.doc.toString().indexOf('out'))
+        expect(onValueChange).toHaveBeenLastCalledWith('1girl, (long hair, out:1.2), blue eyes')
+    })
+
     it('reports document changes immediately to its owner', async () => {
         const { editor, onValueChange } = await render('before')
         editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: 'after' } })
@@ -65,10 +87,16 @@ describe('CBSCodeEditor', () => {
         expect(editor.state.doc.toString()).toBe('{{char}} tail')
     })
 
-    it('closes completions on mouse interaction or Escape and activates them again after typing', async () => {
-        const { content, editor } = await render('{{ch')
+    it('keeps completions open on list interaction, closes on input clicks or Escape, and reopens after typing', async () => {
+        const { target, content, editor } = await render('{{ch')
         openCompletions(content, editor)
         await vi.waitFor(() => expect(completionStatus(editor.state)).toBe('active'))
+
+        const list = target.querySelector<HTMLElement>('[role="listbox"]')!
+        list.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        list.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+        expect(completionStatus(editor.state)).toBe('active')
+        expect(document.activeElement).toBe(content)
 
         content.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
         expect(completionStatus(editor.state)).toBeNull()

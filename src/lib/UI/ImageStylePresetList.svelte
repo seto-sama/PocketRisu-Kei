@@ -561,11 +561,11 @@
         </div>
         <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetPositive}</span>
-            <Textarea bind:value={editorPositive} commitMode="input" fullwidth />
+            <Textarea bind:value={editorPositive} commitMode="input" fullwidth imageTags />
         </label>
         <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetNegative}</span>
-            <Textarea bind:value={editorNegative} commitMode="input" fullwidth />
+            <Textarea bind:value={editorNegative} commitMode="input" fullwidth imageTags />
         </label>
     </div>
     {#snippet footer()}

@@ -107,6 +107,10 @@
     {/if}
 </div>
 
+{#if imageTags && !readonly && textareaRef}
+    <ImageTagSuggestions target={textareaRef} getBundles={() => listImageTagBundles(DBState.db, DBState.db.characters?.[$selectedCharID])} />
+{/if}
+
 <style>
     .risu-textarea-padding-x {
         padding-inline: 0.625rem;
@@ -115,13 +119,15 @@
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { onDestroy, tick, untrack, type Snippet } from 'svelte';
-  import { DBState, showPopupEditor } from 'src/ts/stores.svelte';
+    import { DBState, selectedCharID, showPopupEditor } from 'src/ts/stores.svelte';
     import { Maximize2Icon, CopyIcon, CheckIcon, EraserIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
     import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
     import IconButton from './IconButton.svelte'
     import IconButtonGroup from './IconButtonGroup.svelte'
+    import ImageTagSuggestions from './ImageTagSuggestions.svelte'
+    import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     import { longpress } from 'src/ts/gui/longtouch'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
@@ -154,6 +160,7 @@
         contentClassName?: string;
         style?: string;
         popupTitle?: string;
+        imageTags?: boolean;
     }
 
     type Props = BaseProps & (
@@ -191,6 +198,7 @@
         contentClassName = '',
         style = '',
         popupTitle = '',
+        imageTags = false,
     }: Props = $props();
     // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
@@ -318,6 +326,7 @@
         showPopupEditor({
             value: draftValue,
             title: inferPopupTitle(),
+            imageTags,
             onCommit: (nextValue) => {
                 draftValue = nextValue
                 dirty = draftValue !== value

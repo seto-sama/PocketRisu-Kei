@@ -165,6 +165,7 @@ describe('manual image workflow validation', () => {
         prompt: 'portrait',
         negativePrompt: '',
         seed: 42,
+        preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
         label: 'NovelAI',
     }
 

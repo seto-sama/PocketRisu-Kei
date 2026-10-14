@@ -299,6 +299,7 @@ export const helpKo = {
         "maxResponseSize": "한 번의 응답에서 받을 최대 출력 토큰 수입니다. 짧으면 응답이 잘리고, 길면 더 비싸지고 모델이 산만해질 수 있습니다.",
         "seed": "결정적 응답을 위한 시드. 같은 입력 + 같은 시드 = 거의 같은 응답. 변동성을 없애고 비교 실험할 때 사용. (OpenAI/역프록시/OpenRouter 모델에서만 동작)",
         "imageGenerationSeed": "비워둘 경우 랜덤한 값이 전송됩니다.",
+        "imageCharacterPresets": "캐릭터 프리셋은 사용자가 직접 작성할 수 있는 태그 묶음입니다. 각 프리셋은 `###` 헤더 및 줄바꿈으로 구분됩니다.",
         "imageGenerationPresetQuickEdit": "지정된 세팅 및 프롬프트를 바탕으로 이미지를 생성합니다.\n생성 세팅 및 프리셋 설정 칸을 우클릭하면 프리셋을 편집할 수 있습니다.",
         "thinkingType": "Claude 사고(thinking) 모드.\n\n- **Off**: 사고 비활성화 (빠르고 저렴)\n- **Budget (Manual Tokens)**: 아래 \"Thinking Tokens\" 값만큼 사고에 토큰 사용\n- **Adaptive**: Claude가 문제 난이도에 맞춰 자동 사고량 조절 (최신 Claude 모델 한정)",
         "thinkingTokens": "\"Budget\" 모드에서 사고에 사용할 최대 토큰 수. 더 어려운 추론에는 더 많이, 비용이 부담되면 줄이세요. -1은 기본값 사용.",

@@ -149,6 +149,22 @@ export function observeRevenantImageGenerationWorkflow(
     return promise
 }
 
+export async function generateImageWorkflowSequence(
+    requests: Parameters<typeof beginImageGenerationWorkflow>[0][],
+    options: {
+        onActivate?: (workflow: RevenantWorkflow) => void
+        onStart?: (pendingCount: number) => void
+        shouldStop?: () => boolean
+    } = {},
+): Promise<void> {
+    for (const [index, request] of requests.entries()) {
+        if (options.shouldStop?.()) break
+        options.onStart?.(requests.length - index - 1)
+        const workflow = await beginImageGenerationWorkflow(request)
+        await observeRevenantImageGenerationWorkflow(workflow, options.onActivate ? () => options.onActivate(workflow) : undefined)
+    }
+}
+
 export async function generateImageThroughWorkflow(arg: {
     characterId: string
     roomId: string | undefined

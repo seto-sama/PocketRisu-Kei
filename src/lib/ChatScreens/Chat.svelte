@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, LanguagesIcon, LinkIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, LanguagesIcon, LinkIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
 
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
@@ -83,7 +83,7 @@
     import type { ChatScrollController } from "./chatScroll";
     import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
     import { Item as DropdownMenuItem } from "../UI/components/dropdown-menu";
-    import Tooltip from "../UI/components/Tooltip.svelte";
+    import DropdownMenuHelp from "../UI/components/DropdownMenuHelp.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
     import {
         bookmarkKey,
@@ -1583,25 +1583,7 @@
     }}>
         <ScissorsIcon />
         <span>{language.disableAbove}</span>
-        <Tooltip>
-            {#snippet trigger(props)}
-                <button
-                    {...props}
-                    type="button"
-                    class="ml-auto inline-flex items-center border-0 bg-transparent p-0 text-subtext"
-                    tabindex="-1"
-                    aria-label={language.disableAboveHelp}
-                    onpointerdown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                    }}
-                    onclick={(event) => event.stopPropagation()}
-                >
-                    <CircleQuestionMarkIcon />
-                </button>
-            {/snippet}
-            {language.disableAboveHelp}
-        </Tooltip>
+        <DropdownMenuHelp text={language.disableAboveHelp} />
     </DropdownMenuItem>
     {/if}
 {/snippet}
