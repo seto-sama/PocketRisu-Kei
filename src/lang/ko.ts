@@ -47,6 +47,7 @@ export const languageKorean = {
     notFound: "파일이나 폴더를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.",
     unsupportedEntry: "링크와 특수 파일은 드라이브에서 접근할 수 없습니다.",
     unavailable: "드라이브에 접근할 수 없습니다. 서버의 저장 공간과 접근 권한을 확인해 주세요.",
+    remoteAccessDenied: "Cloudflare 원격 접속 중에는 서버 드라이브를 사용할 수 없습니다.",
   },
   formating: {
     main: "메인 프롬프트",

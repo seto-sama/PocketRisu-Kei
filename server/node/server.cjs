@@ -2240,6 +2240,7 @@ installRevenantGenerationRoutes(app, {
 
 require('./routes/web.cjs').installWebRoutes(app, {
     enablePatchSync,
+    isCloudflareTunnelRequest,
 });
 
 require('./routes/proxy.cjs').installProxyRoutes(app, {
@@ -2426,6 +2427,7 @@ driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
     savePath,
     checkAuth,
     checkDownloadAuth,
+    isCloudflareTunnelRequest,
     getTrashRetentionDays: async () => {
         await ensureCanonicalStorage();
         return storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays;

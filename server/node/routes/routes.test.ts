@@ -117,7 +117,13 @@ describe('server route composition', () => {
 
     it('serves feature routes, retains authentication and exposes the same live auth state', async () => {
         const page = await fetch(base)
-        expect(await page.text()).toContain('globalThis.__NODE__ = true')
+        const pageHtml = await page.text()
+        expect(pageHtml).toContain('globalThis.__NODE__ = true')
+        expect(pageHtml).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = false')
+        expect(page.headers.get('cache-control')).toContain('no-store')
+        const remotePage = await fetch(base, { headers: { 'x-forwarded-host': 'preview.trycloudflare.com' } })
+        expect(await remotePage.text()).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = true')
+        expect(remotePage.headers.get('cache-control')).toContain('no-store')
         for (const path of ['/api/active-devices', '/api/logs', '/api/request-logs', '/api/usage', '/api/backup/schedule', '/api/bookmarks', '/api/db/snapshots/limits', '/api/tunnel/status', '/api/update-check']) {
             const response = await fetch(base + path, { headers })
             expect(response.status, path + ': ' + await response.text()).toBe(200)
@@ -155,6 +161,16 @@ describe('server route composition', () => {
         const download = await fetch(base + '/api/drive/download?path=shared.bin', { headers: { cookie } })
         expect(download.status).toBe(200)
         expect(new Uint8Array(await download.arrayBuffer())).toEqual(Uint8Array.of(0, 128, 255))
+        const remoteCookieDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
+            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })
+        expect(remoteCookieDownload.status).toBe(403)
+        expect(await remoteCookieDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
+        const remoteJwtDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
+            headers: { 'risu-auth': headers['risu-auth'], 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })
+        expect(remoteJwtDownload.status).toBe(403)
+        expect(await remoteJwtDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
         expect((await fetch(base + '/api/drive/download?path=shared.bin')).status).toBe(401)
         const cookieMutation = await fetch(base + '/api/drive/rename', {
             method: 'PATCH', headers: { cookie, 'content-type': 'application/json' },

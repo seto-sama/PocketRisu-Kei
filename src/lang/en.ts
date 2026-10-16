@@ -44,6 +44,7 @@ export const languageEnglish = {
         notFound: apiErrorMessages.DRIVE_NOT_FOUND,
         unsupportedEntry: apiErrorMessages.DRIVE_UNSUPPORTED_ENTRY,
         unavailable: apiErrorMessages.DRIVE_UNAVAILABLE,
+        remoteAccessDenied: apiErrorMessages.DRIVE_REMOTE_ACCESS_DENIED,
     },
     formating: {
         main: "Main Prompt",

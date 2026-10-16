@@ -46,6 +46,7 @@
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
+    import { isCloudflareTunnel, isNodeServer } from './ts/platform'
 
     let gridOpen = $state(false)
     let driveOpen = $state(false)
@@ -63,6 +64,7 @@
     }
 
     function openServerDrive() {
+        if (!isNodeServer || isCloudflareTunnel) return
         driveOpen = true
         if ($DynamicGUI) sideBarStore.set(false)
     }

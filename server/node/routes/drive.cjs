@@ -72,6 +72,7 @@ function installDriveRoutes(app, {
     savePath,
     checkAuth,
     checkDownloadAuth,
+    isCloudflareTunnelRequest,
     getTrashRetentionDays = () => DEFAULT_TRASH_RETENTION_DAYS,
 }) {
     const root = path.join(savePath, 'drive');
@@ -308,6 +309,9 @@ function installDriveRoutes(app, {
             if (!await (download ? checkDownloadAuth : checkAuth)(req, res)) return;
             res.set('Cache-Control', 'no-store, no-transform');
             try {
+                if (isCloudflareTunnelRequest(req)) {
+                    throw createApiError(codes.DRIVE_REMOTE_ACCESS_DENIED, 403);
+                }
                 await handler(req, res);
             } catch (error) {
                 if (res.destroyed) return;

@@ -96,7 +96,7 @@
       mergeVisibleSidebarMenuOrder,
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
-    import { isNodeServer } from 'src/ts/platform';
+    import { isCloudflareTunnel, isNodeServer } from 'src/ts/platform';
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
   let sideBarMode = $state(0);
@@ -156,7 +156,7 @@
   ))
   let sidebarMenuPluginKeys = $derived([...sidebarMenuPluginsByKey.keys()])
   let visibleSidebarMenuOrder = $derived(
-    getVisibleSidebarMenuOrder(sidebarMenuOrder.filter(key => isNodeServer || key !== SIDEBAR_MENU_DRIVE), sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
+    getVisibleSidebarMenuOrder(sidebarMenuOrder.filter(key => (isNodeServer && !isCloudflareTunnel) || key !== SIDEBAR_MENU_DRIVE), sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
   )
   let displayedSidebarMenuOrder = $derived(
     getSidebarMenuDisplayOrder(visibleSidebarMenuOrder, !!DBState.db.hamburgerButtonBottom)
