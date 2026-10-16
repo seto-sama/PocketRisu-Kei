@@ -10,6 +10,7 @@
     import RealmPopUp from './lib/UI/Realm/RealmPopUp.svelte';
     import FolderSettingsDialog from './lib/SideBars/FolderSettingsDialog.svelte';
     import GridChars from './lib/Others/GridCatalog.svelte';
+    import ServerDrive from './lib/Others/ServerDrive.svelte';
     import Dialog from './lib/UI/components/Dialog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
     import Settings from './lib/Setting/Settings.svelte';
@@ -47,6 +48,7 @@
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
 
     let gridOpen = $state(false)
+    let driveOpen = $state(false)
     let keepingSessionAlive = $state(false)
 
     $effect(() => initializePwaInstall())
@@ -58,6 +60,11 @@
 
     function closeCharacterGrid() {
         gridOpen = false
+    }
+
+    function openServerDrive() {
+        driveOpen = true
+        if ($DynamicGUI) sideBarStore.set(false)
     }
 
     function handleDialogKeydown(event: KeyboardEvent) {
@@ -161,6 +168,7 @@
             {#if !$DynamicGUI}
                 <Sidebar
                     openGrid={openCharacterGrid}
+                    openDrive={openServerDrive}
                     onNavigate={closeCharacterGrid}
                     hidden={!$sideBarStore}
                 />
@@ -218,6 +226,7 @@
             >
                 <Sidebar
                     openGrid={openCharacterGrid}
+                    openDrive={openServerDrive}
                     onNavigate={closeCharacterGrid}
                     hidden={false}
                 />
@@ -257,6 +266,9 @@
     {/if}
     {#if $bookmarkListOpen}
         <BookmarkList />
+    {/if}
+    {#if driveOpen}
+        <ServerDrive bind:open={driveOpen} />
     {/if}
     <!-- Keep the modal mounted while a chat is selected so work/results survive closing it. -->
     {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]}

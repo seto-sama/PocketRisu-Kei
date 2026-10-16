@@ -13,6 +13,7 @@
         sideOffset?: number
         collisionPadding?: number
         side?: 'top' | 'right' | 'bottom' | 'left'
+        arrow?: boolean
         disabled?: boolean
         variant?: 'solid' | 'glass'
         size?: 'default' | 'compact'
@@ -26,6 +27,7 @@
         sideOffset = 4,
         collisionPadding = 8,
         side,
+        arrow,
         disabled = false,
         variant = 'solid',
         size = 'default',
@@ -35,7 +37,7 @@
 
     provideOverlayLayer(() => open)
 
-    const hasArrow = $derived(side !== undefined)
+    const hasArrow = $derived(arrow ?? (side !== undefined))
 
     const contentClass = $derived(
         cn(

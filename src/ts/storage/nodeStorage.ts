@@ -88,6 +88,17 @@ export interface SettingsBackupEstimate {
     moduleAssets: { count: number, bytes: number, moduleCount: number }
 }
 
+export interface DriveEntry {
+    path: string
+    name: string
+    type: 'file' | 'directory'
+    size: number | null
+    createdAt: number | null
+    modifiedAt: number
+}
+
+export type DriveUploadConflict = 'error' | 'overwrite' | 'rename'
+
 export function getSyncClientId(): string {
     return NodeStorage.getSessionId()
 }
@@ -674,6 +685,57 @@ export class NodeStorage{
         const params = new URLSearchParams({ download: '1' })
         if (filename) params.set('filename', filename)
         await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
+    }
+
+    private async driveRequest<T>(url: string, init?: RequestInit): Promise<T> {
+        const response = await this.authFetch(`/api/drive${url}`, init)
+        if (!response.ok) throw await apiRequestError(response)
+        return response.json()
+    }
+
+    async listDrive(path = '', signal?: AbortSignal): Promise<{ path: string, entries: DriveEntry[] }> {
+        return this.driveRequest(`?${new URLSearchParams({ path })}`, { signal })
+    }
+
+    async driveMetadata(path: string, signal?: AbortSignal): Promise<DriveEntry> {
+        return this.driveRequest(`/metadata?${new URLSearchParams({ path })}`, { signal })
+    }
+
+    async createDriveDirectory(path: string, name: string): Promise<void> {
+        await this.driveRequest('/directory', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name }),
+        })
+    }
+
+    async renameDriveEntry(path: string, name: string): Promise<void> {
+        await this.driveRequest('/rename', {
+            method: 'PATCH', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name }),
+        })
+    }
+
+    async deleteDriveEntry(path: string): Promise<void> {
+        await this.driveRequest('/entry', {
+            method: 'DELETE', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
+    }
+
+    async emptyDriveTrash(): Promise<void> {
+        await this.driveRequest('/trash', { method: 'DELETE' })
+    }
+
+    async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveUploadConflict = 'error'): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>(`/file?${new URLSearchParams({ path, name: file.name, conflict })}`, {
+            method: 'PUT', headers: { 'content-type': 'application/octet-stream' },
+            body: file, signal,
+        })
+        return result.entry
+    }
+
+    async downloadDriveFile(path: string): Promise<void> {
+        await this.startCookieDownload(`/api/drive/download?${new URLSearchParams({ path })}`)
     }
 
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {

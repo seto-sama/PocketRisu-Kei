@@ -142,6 +142,27 @@ describe('server route composition', () => {
         expect(await response.json()).toEqual({ records: [] })
     })
 
+    it('mounts the drive with server login and cookie downloads while keeping mutations JWT-only', async () => {
+        const uploadUrl = base + '/api/drive/file?name=shared.bin'
+        const upload = await fetch(uploadUrl, {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: Uint8Array.of(0, 128, 255),
+        })
+        expect(upload.status).toBe(201)
+        const listing = await fetch(base + '/api/drive', { headers })
+        expect((await listing.json()).entries).toEqual([expect.objectContaining({ name: 'shared.bin', size: 3 })])
+        const session = await fetch(base + '/api/session', { method: 'POST', headers })
+        const cookie = session.headers.get('set-cookie')!.split(';')[0]
+        const download = await fetch(base + '/api/drive/download?path=shared.bin', { headers: { cookie } })
+        expect(download.status).toBe(200)
+        expect(new Uint8Array(await download.arrayBuffer())).toEqual(Uint8Array.of(0, 128, 255))
+        expect((await fetch(base + '/api/drive/download?path=shared.bin')).status).toBe(401)
+        const cookieMutation = await fetch(base + '/api/drive/rename', {
+            method: 'PATCH', headers: { cookie, 'content-type': 'application/json' },
+            body: JSON.stringify({ path: 'shared.bin', name: 'changed.bin' }),
+        })
+        expect(cookieMutation.status).toBe(401)
+    })
+
     it('clears request payloads separately from metadata', async () => {
         execFileSync(process.execPath, ['-e', `
             const logs = require(process.argv[1]);

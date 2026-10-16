@@ -866,6 +866,7 @@ export function setDatabase(data:Database){
     data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
     data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
     data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
+    data.serverDriveShortcuts ??= []
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
     data.scrollButtonType ??= 'four'
@@ -1467,6 +1468,7 @@ export interface Database{
     sidebarMenuOrder?:string[]
     sidebarMenuHidden?:string[]
     settingsMenuOrder?:string[]
+    serverDriveShortcuts?:string[]
     sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
     blockquoteStyling?:boolean

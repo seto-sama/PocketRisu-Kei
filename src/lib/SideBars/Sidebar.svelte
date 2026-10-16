@@ -38,6 +38,7 @@
     ArrowRightIcon,
     SearchIcon,
     BookmarkCheckIcon,
+    HardDriveIcon,
   } from "@lucide/svelte";
     import {
   addCharacter,
@@ -83,6 +84,7 @@
     import {
       DEFAULT_SIDEBAR_MENU_ORDER,
       SIDEBAR_MENU_BOOKMARKS,
+      SIDEBAR_MENU_DRIVE,
       SIDEBAR_MENU_CHARACTERS,
       SIDEBAR_MENU_HOME,
       SIDEBAR_MENU_SETTINGS,
@@ -94,6 +96,7 @@
       mergeVisibleSidebarMenuOrder,
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
+    import { isNodeServer } from 'src/ts/platform';
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
   let sideBarMode = $state(0);
@@ -153,7 +156,7 @@
   ))
   let sidebarMenuPluginKeys = $derived([...sidebarMenuPluginsByKey.keys()])
   let visibleSidebarMenuOrder = $derived(
-    getVisibleSidebarMenuOrder(sidebarMenuOrder, sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
+    getVisibleSidebarMenuOrder(sidebarMenuOrder.filter(key => isNodeServer || key !== SIDEBAR_MENU_DRIVE), sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
   )
   let displayedSidebarMenuOrder = $derived(
     getSidebarMenuDisplayOrder(visibleSidebarMenuOrder, !!DBState.db.hamburgerButtonBottom)
@@ -189,11 +192,12 @@
   }
   interface Props {
     openGrid?: any;
+    openDrive?: () => void;
     onNavigate?: () => void;
     hidden?: boolean;
   }
 
-  let { openGrid = () => {}, onNavigate = () => {}, hidden = false }: Props = $props();
+  let { openGrid = () => {}, openDrive = () => {}, onNavigate = () => {}, hidden = false }: Props = $props();
 
   sideBarClosing.set(false)
 
@@ -534,6 +538,14 @@
                       bookmarkListOpen.set(true)
                     }}>
                       <BookmarkCheckIcon />
+                    </BarIcon>
+                  {:else if menuKey === SIDEBAR_MENU_DRIVE}
+                    <BarIcon label={language.serverDrive.title} onClick={() => {
+                      if (editMode) return
+                      reseter()
+                      openDrive()
+                    }}>
+                      <HardDriveIcon />
                     </BarIcon>
                   {:else if menuKey === SIDEBAR_MENU_SETTINGS}
                     <BarIcon onClick={openSettings}>

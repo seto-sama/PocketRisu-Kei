@@ -82,6 +82,7 @@ const {
 const { computeChatEtag, commitChatContent, mergeChatStubWithFullChat, reassembleFullDb: reassembleFullDbFromStore, createCanonicalChatService } = require('./chatStore.cjs');
 const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
+const { normalizeTrashRetentionDays } = require('../../shared/trashRetention.mjs');
 
 const { decodeRisuSave, encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
 const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
@@ -114,6 +115,7 @@ let restoreColdStorageInDb;
 let restoreColdStorageChat;
 let appDataMigration;
 let appDataReadyPromise = null;
+let driveRoutes;
 
 function computeBufferEtag(buffer) {
     return nodeCrypto.createHash('md5').update(buffer).digest('hex');
@@ -1991,12 +1993,26 @@ function reconcileCachedChats(startup) {
     }
 }
 
+function refreshDriveTrashRetentionIfChanged(previousRetentionDays, nextRetentionDays) {
+    if (previousRetentionDays === normalizeTrashRetentionDays(nextRetentionDays)) return;
+    const refresh = driveRoutes?.refreshTrashRetention;
+    if (refresh) {
+        void refresh().catch(error => {
+            logger.warn('[Drive] Failed to refresh trash retention:', error);
+        });
+    }
+}
+
 function refreshCanonicalDatabaseCache(options = {}) {
     const state = appDataStore.getState();
+    const previousRetentionDays = normalizeTrashRetentionDays(
+        storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays,
+    );
     if (!state.initialized) {
         delete storageState.dbCache[DB_HEX_KEY];
         storageState.fullChatStore = null;
         storageState.dbEtag = MISSING_DATABASE_ETAG;
+        refreshDriveTrashRetentionIfChanged(previousRetentionDays, undefined);
         return;
     }
     const startup = appDataStore.exportProjection({ includeMessages: false });
@@ -2004,6 +2020,7 @@ function refreshCanonicalDatabaseCache(options = {}) {
     if (options.invalidateChats) storageState.fullChatStore = null;
     else reconcileCachedChats(startup);
     storageState.dbEtag = computeDatabaseEtagFromObject(startup);
+    refreshDriveTrashRetentionIfChanged(previousRetentionDays, startup.trashRetentionDays);
 }
 
 async function ensureCanonicalStorage() {
@@ -2405,6 +2422,16 @@ require('./routes/tunnel.cjs').installTunnelRoutes(app, {
     stopTunnel,
 });
 
+driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
+    savePath,
+    checkAuth,
+    checkDownloadAuth,
+    getTrashRetentionDays: async () => {
+        await ensureCanonicalStorage();
+        return storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays;
+    },
+});
+
 // ─── Express error middleware — must be registered after all routes ─────────
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
@@ -2520,6 +2547,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
         stopTunnel();
+        await driveRoutes.stopTrashCleanup();
         const generationRuns = [];
         for (const job of generationRuntimeJobs.values()) {
             if (job.done) continue;

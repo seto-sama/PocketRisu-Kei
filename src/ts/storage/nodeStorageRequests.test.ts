@@ -40,12 +40,14 @@ it('hands backups and assets to the browser after refreshing only the session co
     await storage.downloadBackupExport({ target: 'upstream' })
     await storage.downloadServerBackup('risu-backup-1.bin')
     await storage.downloadAsset('inlay/image', '한글.png')
+    await storage.downloadDriveFile('자료/한글 &.bin')
     expect(downloads).toEqual([
         { url: '/api/backup/export', name: '' },
         { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
         { url: '/api/backup/export?target=upstream', name: '' },
         { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
         { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
+        { url: `/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.bin' })}`, name: '' },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(downloads.length)
     for (const [url, request] of fetchMock.mock.calls) {

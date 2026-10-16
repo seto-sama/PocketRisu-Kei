@@ -11,7 +11,7 @@
  */
 
 export const helpEn = {
-        "trashAutoDeleteSchedule": "Characters are permanently deleted after the specified number of days from pressing the delete button. Enter 0 to disable automatic deletion.",
+        "trashAutoDeleteSchedule": "Applies to both character and Server Drive trash. Items are permanently deleted the specified number of days after being moved to trash. Enter 0 to disable automatic deletion.",
         "trash": "You can restore or permanently delete characters in the trash. Right-click the trash icon to set the permanent deletion schedule.",
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
         "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",

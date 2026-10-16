@@ -72,6 +72,10 @@ export function localizedApiErrorMessage(payload: {
     fallback?: string
 }): string {
     switch (payload.code) {
+        case apiErrorCodes.DRIVE_NOT_FOUND: return language.serverDrive.notFound
+        case apiErrorCodes.DRIVE_ALREADY_EXISTS: return language.serverDrive.conflictTitle
+        case apiErrorCodes.DRIVE_UNSUPPORTED_ENTRY: return language.serverDrive.unsupportedEntry
+        case apiErrorCodes.DRIVE_UNAVAILABLE: return language.serverDrive.unavailable
         case apiErrorCodes.DATABASE_LOCKED: return language.errors.databaseLocked
         case apiErrorCodes.CHAT_CONTENT_CHANGED: return language.errors.chatContentChangedOnAnotherClient
         case apiErrorCodes.BACKUP_ENCRYPTION_METADATA_INVALID: return language.errors.backupEncryptionMetadataInvalid
