@@ -4,7 +4,7 @@
     import Badge from '../../UI/components/Badge.svelte'
     import Alert from '../../UI/components/Alert.svelte'
     import Accordion from '../../UI/components/Accordion.svelte'
-    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import ProgressDialog from '../../UI/components/ProgressDialog.svelte'
     import Switch from '../../UI/components/Switch.svelte'
     import Tooltip from '../../UI/components/Tooltip.svelte'
     import {
@@ -790,6 +790,6 @@
 
 {/if}
 
-<LoadingDialog open={optimizeOpen} message={optimizeMessage} />
-<LoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
-<LoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />
+<ProgressDialog open={optimizeOpen} title={language.storageOptimize} message={optimizeMessage} />
+<ProgressDialog open={walCleanupOpen} title={language.storageWalCleanup_btn} message={language.storageWalCleanuping} />
+<ProgressDialog open={hypaCleanupOpen} title={language.storageHypaCleanup} message={language.storageHypaCleanuping} />

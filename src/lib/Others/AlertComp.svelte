@@ -12,7 +12,7 @@
     import Button from '../UI/components/Button.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
     import AlertDialog from '../UI/components/AlertDialog.svelte';
-    import LoadingDialog from '../UI/components/LoadingDialog.svelte';
+    import ProgressDialog from '../UI/components/ProgressDialog.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import Select from "../UI/components/Select.svelte";
     import SelectOption from "../UI/components/SelectOption.svelte";
@@ -607,11 +607,13 @@
     {/snippet}
 </Dialog>
 
-<LoadingDialog
+<ProgressDialog
     open={$alertStore.type === 'wait' || $alertStore.type === 'wait2' || $alertStore.type === 'progress'}
+    title={$alertStore.title}
     message={$alertStore.msg}
     submessage={$alertStore.type !== 'progress' ? ($alertStore.submsg ?? '') : ''}
     progress={$alertStore.type === 'progress' ? parseFloat($alertStore.submsg ?? '0') : null}
+    progressDetail={$alertStore.progressDetail}
 />
 
 <AlertDialog

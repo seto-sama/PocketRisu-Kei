@@ -31,6 +31,8 @@ export interface alertData{
             |'progress'|'pluginconfirm'
             |'confirmMulti',
     msg: string,
+    title?: string,
+    progressDetail?: string,
     submsg?: string
     datalist?: [string, string][],
     stackTrace?: string;
@@ -269,10 +271,11 @@ export function notifySuccess(msg: unknown, opts?: Pick<NotifyOptions, 'descript
     toast.success(message, opts?.description ? { description: opts.description } : undefined)
 }
 
-export function alertWait(msg:string){
+export function alertWait(msg:string, title?:string){
     alertStoreImported.set({
         'type': 'wait',
-        'msg': msg
+        'msg': msg,
+        title,
     })
 
 }
