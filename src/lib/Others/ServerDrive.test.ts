@@ -53,6 +53,13 @@ function parentPath(path: string) {
     return separator < 0 ? '' : path.slice(0, separator)
 }
 
+function dispatchDrag(target: EventTarget, type: string, dataTransfer = new DataTransfer()) {
+    const event = new DragEvent(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    target.dispatchEvent(event)
+    return { event, dataTransfer }
+}
+
 async function mountDrive() {
     const target = document.createElement('div')
     document.body.appendChild(target)
@@ -146,11 +153,10 @@ beforeEach(async () => {
         else rootEntries = [...rootEntries.filter(item => item.path !== saved.path), saved]
         return saved
     })
-    storage.renameDriveEntry.mockImplementation(async (path: string, name: string, _policy: string, _merge: unknown) => {
+    storage.renameDriveEntry.mockImplementation(async (path: string, name: string, _policy: string, _merge: unknown, destination = '') => {
         const existing = [...rootEntries, ...files].find(item => item.path === path)
             ?? (path === folder.path ? folder : { ...file, path })
-        const parent = parentPath(path)
-        const destinationPath = parent ? `${parent}/${name}` : name
+        const destinationPath = destination ? `${destination}/${name}` : name
         const saved = { ...existing, name, path: destinationPath }
         const descendants = [...rootEntries, ...files]
             .filter(item => item.path.startsWith(path + '/'))
@@ -287,7 +293,7 @@ it.each(['overwrite', 'rename', 'cancel'] as const)('offers %s when renaming a f
         await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledOnce())
         await vi.waitFor(() => expect(document.querySelector(`input[aria-label="${language.name}"]`)).toBeNull())
         await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain(savedName))
-        expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents/report.txt', 'archive.txt', choice, undefined)
+        expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents/report.txt', 'archive.txt', choice, undefined, 'Documents')
         if (choice === 'overwrite') expect(document.querySelector('main')?.textContent).not.toContain('report.txt')
     }
     expect(notifyError).not.toHaveBeenCalled()
@@ -310,8 +316,8 @@ it('asks for a choice when another device creates the rename target after the fo
     await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('raced.txt'))
     button(language.serverDrive.keepBoth).click()
     await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('raced (1).txt'))
-    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents/report.txt', 'raced.txt', 'error', undefined)
-    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents/report.txt', 'raced.txt', 'rename', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents/report.txt', 'raced.txt', 'error', undefined, 'Documents')
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents/report.txt', 'raced.txt', 'rename', undefined, 'Documents')
     expect(notifyError).not.toHaveBeenCalled()
 })
 
@@ -354,7 +360,7 @@ it('merges a renamed folder with destination previews and choices keyed by full 
         name: 'skip.txt',
         text: expect.stringContaining('Documents/sub/skip.txt'),
     })
-    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined, '')
     expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents', 'Archive', 'overwrite', {
         revision: 'revision-1',
         choices: {
@@ -363,7 +369,7 @@ it('merges a renamed folder with destination previews and choices keyed by full 
             'Archive/sub/local.txt': 'local',
             'Archive/sub/both.txt': 'both',
         },
-    })
+    }, '')
     await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual([
         'Documents', 'Archive/sub', 'Archive/renamed-deep', 'Documents-old',
     ]))
@@ -397,7 +403,7 @@ it('leaves the source in place and does not retry a folder merge after compariso
 
     await vi.waitFor(() => expect(chooseConflictComparison).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull())
-    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Archive', 'overwrite', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Archive', 'overwrite', undefined, '')
     expect(rootEntries.map(item => item.path)).toEqual(['Documents', 'Archive'])
     expect(document.querySelector(`input[aria-label="${language.name}"]`)).not.toBeNull()
     expect(notifyError).not.toHaveBeenCalled()
@@ -434,13 +440,13 @@ it('shows a fresh merge plan after a stale revision before retrying', async () =
     expect(chooseConflictComparison.mock.calls[0][0].items[0].label).toBe('Archive/first.txt')
     expect(chooseConflictComparison.mock.calls[1][0].items[0].label).toBe('Archive/fresh.txt')
     await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(3))
-    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined, '')
     expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents', 'Archive', 'overwrite', {
         revision: 'revision-1', choices: { 'Archive/first.txt': 'server' },
-    })
+    }, '')
     expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(3, 'Documents', 'Archive', 'overwrite', {
         revision: 'revision-2', choices: { 'Archive/fresh.txt': 'local' },
-    })
+    }, '')
     expect(notifyError).not.toHaveBeenCalled()
 })
 
@@ -521,7 +527,185 @@ it('updates nested shortcuts when a folder is renamed', async () => {
     await tick()
     await submitName('Renamed')
     await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual(['Renamed', 'Renamed/subfolder', 'Documents-old']))
-    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Renamed', 'error', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Renamed', 'error', undefined, '')
+})
+
+it('moves every selected file dropped on a grid folder, even when its later click changes selection', async () => {
+    const target = { ...folder, name: 'Target', path: 'Documents/Target' }
+    const alpha = { ...file, name: 'alpha.txt', path: 'Documents/alpha.txt' }
+    const beta = { ...file, name: 'beta.txt', path: 'Documents/beta.txt' }
+    files = [{ ...file }, target, alpha, beta]
+    await openDocuments()
+    entry('alpha.txt').click()
+    entry('beta.txt').dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+    await tick()
+
+    const transfer = dispatchDrag(entry('alpha.txt'), 'dragstart').dataTransfer
+    entry('alpha.txt').click()
+    await tick()
+    expect(entry('alpha.txt').getAttribute('aria-pressed')).toBe('true')
+    expect(entry('beta.txt').getAttribute('aria-pressed')).toBe('false')
+
+    dispatchDrag(entry('Target'), 'dragover', transfer)
+    await tick()
+    expect(entry('Target').getAttribute('data-selected')).toBe('true')
+    dispatchDrag(entry('Target'), 'drop', transfer)
+
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(2))
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents/alpha.txt', 'alpha.txt', 'error', undefined, 'Documents/Target')
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents/beta.txt', 'beta.txt', 'error', undefined, 'Documents/Target')
+    await vi.waitFor(() => expect(document.querySelector('[data-drive-entry="Documents/alpha.txt"]')).toBeNull())
+    expect(document.querySelector('[data-drive-entry="Documents/beta.txt"]')).toBeNull()
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('moves an unselected folder by its returned path mappings and remaps nested shortcuts', async () => {
+    const incoming = { ...folder, name: 'Incoming', path: 'Documents/Incoming' }
+    const target = { ...folder, name: 'Target', path: 'Documents/Target' }
+    const nested = { ...folder, name: 'Nested', path: 'Documents/Incoming/Nested' }
+    files = [{ ...file }, incoming, target, nested]
+    DBState.db.serverDriveShortcuts = [
+        'Documents/Incoming',
+        'Documents/Incoming/Nested',
+        'Documents/Incoming-old',
+    ]
+    await openDocuments()
+
+    const transfer = dispatchDrag(entry('Incoming'), 'dragstart').dataTransfer
+    dispatchDrag(entry('Target'), 'dragover', transfer)
+    dispatchDrag(entry('Target'), 'drop', transfer)
+
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledOnce())
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith(
+        'Documents/Incoming', 'Incoming', 'error', undefined, 'Documents/Target',
+    )
+    await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual([
+        'Documents/Target/Incoming',
+        'Documents/Target/Incoming/Nested',
+        'Documents/Incoming-old',
+    ]))
+    expect(document.querySelector('[data-drive-entry="Documents/Incoming"]')).toBeNull()
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('ignores drops on the current grid, current breadcrumb and a folder onto itself', async () => {
+    const target = { ...folder, name: 'Target', path: 'Documents/Target' }
+    files = [{ ...file }, target]
+    await openDocuments()
+    const main = document.querySelector('main')!
+
+    let transfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    dispatchDrag(main, 'dragover', transfer)
+    dispatchDrag(main, 'drop', transfer)
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+
+    transfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    const navigation = document.querySelector(`nav[aria-label="${language.serverDrive.path}"]`)!
+    const currentBreadcrumb = [...navigation.querySelectorAll<HTMLButtonElement>('button')]
+        .find(element => element.textContent?.trim() === 'Documents')!
+    dispatchDrag(currentBreadcrumb, 'drop', transfer)
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+
+    transfer = dispatchDrag(entry('Target'), 'dragstart').dataTransfer
+    dispatchDrag(entry('Target'), 'drop', transfer)
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('clears a cancelled drag so the file can be dropped on the root IconButton', async () => {
+    await openDocuments()
+    const rootButton = [...document.querySelectorAll<HTMLButtonElement>(
+        `nav[aria-label="${language.serverDrive.path}"] button`,
+    )].find(element => element.title === language.serverDrive.driveRoot
+        || element.getAttribute('aria-label') === language.serverDrive.driveRoot)
+    expect(rootButton).toBeDefined()
+
+    const cancelledTransfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    dispatchDrag(entry('report.txt'), 'dragend', cancelledTransfer)
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+
+    const transfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    dispatchDrag(rootButton!, 'dragover', transfer)
+    await tick()
+    expect(rootButton!.getAttribute('data-selected')).toBe('true')
+    dispatchDrag(rootButton!, 'drop', transfer)
+
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledOnce())
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith(
+        'Documents/report.txt', 'report.txt', 'error', undefined, '',
+    )
+    await vi.waitFor(() => expect(document.querySelector('[data-drive-entry="Documents/report.txt"]')).toBeNull())
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('cancels a file move conflict and ignores another drag while the choice dialog is open', async () => {
+    const target = { ...folder, name: 'Target', path: 'Documents/Target' }
+    const existing = { ...file, path: 'Documents/Target/report.txt' }
+    files = [{ ...file }, target, existing]
+    storage.renameDriveEntry.mockRejectedValueOnce({ code: apiErrorCodes.DRIVE_ALREADY_EXISTS })
+    await openDocuments()
+    const transfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    dispatchDrag(entry('Target'), 'drop', transfer)
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    const alert = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+    expect([...alert.querySelectorAll('button')].map(element => element.textContent?.trim()).sort())
+        .toEqual([language.cancel, language.serverDrive.keepBoth, language.serverDrive.overwrite].sort())
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith(
+        'Documents/report.txt', 'report.txt', 'error', undefined, 'Documents/Target',
+    )
+
+    const blockedTransfer = dispatchDrag(entry('report.txt'), 'dragstart').dataTransfer
+    dispatchDrag(entry('Target'), 'drop', blockedTransfer)
+    expect(storage.renameDriveEntry).toHaveBeenCalledOnce()
+    button(language.cancel, alert).click()
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull())
+    expect(storage.renameDriveEntry).toHaveBeenCalledOnce()
+    expect(document.querySelector('[data-drive-entry="Documents/report.txt"]')).not.toBeNull()
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('keeps a dropped folder and its shortcut when a merge comparison skips the conflict', async () => {
+    const incoming = { ...folder, name: 'Incoming', path: 'Documents/Incoming' }
+    const target = { ...folder, name: 'Target', path: 'Documents/Target' }
+    const existing = { ...folder, name: 'Incoming', path: 'Documents/Target/Incoming' }
+    const conflicts = [{
+        path: 'Documents/Target/Incoming/notes.txt',
+        existing: { ...file, name: 'notes.txt', path: 'Documents/Target/Incoming/notes.txt' },
+        incoming: { ...file, name: 'notes.txt', path: 'Documents/Incoming/notes.txt' },
+    }]
+    files = [{ ...file }, incoming, target, existing]
+    DBState.db.serverDriveShortcuts = ['Documents/Incoming', 'Documents/Incoming/subfolder']
+    storage.renameDriveEntry.mockRejectedValueOnce({ code: apiErrorCodes.DRIVE_ALREADY_EXISTS })
+    storage.renameDriveEntry.mockRejectedValueOnce({
+        status: 409,
+        code: apiErrorCodes.DRIVE_MERGE_CONFLICT,
+        details: { revision: 'drop-revision', conflicts },
+    })
+    storage.renameDriveEntry.mockResolvedValueOnce(renameResult(existing, []))
+    chooseConflictComparison.mockResolvedValueOnce([null])
+    await openDocuments()
+
+    const transfer = dispatchDrag(entry('Incoming'), 'dragstart').dataTransfer
+    dispatchDrag(entry('Target'), 'drop', transfer)
+    const confirmation = await vi.waitFor(() => folderMergeDialog('Incoming'))
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(
+        1, 'Documents/Incoming', 'Incoming', 'error', undefined, 'Documents/Target',
+    )
+    button(language.yes, confirmation).click()
+
+    await vi.waitFor(() => expect(chooseConflictComparison).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(3))
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(
+        2, 'Documents/Incoming', 'Incoming', 'overwrite', undefined, 'Documents/Target',
+    )
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(
+        3, 'Documents/Incoming', 'Incoming', 'overwrite', {
+            revision: 'drop-revision', choices: { 'Documents/Target/Incoming/notes.txt': null },
+        }, 'Documents/Target',
+    )
+    await vi.waitFor(() => expect(document.querySelector('[data-drive-entry="Documents/Incoming"]')).not.toBeNull())
+    expect(DBState.db.serverDriveShortcuts).toEqual(['Documents/Incoming', 'Documents/Incoming/subfolder'])
+    expect(notifyError).not.toHaveBeenCalled()
 })
 
 it('offers new folder and upload actions on empty space without opening the file menu', async () => {

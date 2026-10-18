@@ -225,6 +225,121 @@ it('applies file rename conflict choices and returns the resulting entry', async
     expect(await readdir(root)).not.toContain('replacement.txt')
 })
 
+it('moves files and folder subtrees across destination folders and reports moves', async () => {
+    await json('/directory', { name: 'source' })
+    await json('/directory', { name: 'target' })
+    await json('/directory', { path: 'source', name: 'folder' })
+    await json('/directory', { path: 'source/folder', name: 'nested' })
+    await upload('inside.txt', 'folder contents', 'source/folder/nested')
+    await upload('same.txt', 'file contents', 'source')
+
+    const noOp = await json('/rename', {
+        path: 'source/same.txt', name: 'same.txt', destination: 'source',
+    }, 'PATCH')
+    expect(noOp.status).toBe(200)
+    expect(await noOp.json()).toMatchObject({ entry: { path: 'source/same.txt' }, moves: [] })
+    expect(await readFile(join(root, 'source', 'same.txt'), 'utf8')).toBe('file contents')
+
+    const movedFile = await json('/rename', {
+        path: 'source/same.txt', name: 'renamed.txt', destination: 'target',
+    }, 'PATCH')
+    expect(movedFile.status).toBe(200)
+    expect(await movedFile.json()).toMatchObject({
+        entry: { path: 'target/renamed.txt', type: 'file' },
+        moves: [{ from: 'source/same.txt', to: 'target/renamed.txt' }],
+    })
+    expect(await readFile(join(root, 'target', 'renamed.txt'), 'utf8')).toBe('file contents')
+
+    const movedFolder = await json('/rename', {
+        path: 'source/folder', name: 'folder', destination: 'target',
+    }, 'PATCH')
+    expect(movedFolder.status).toBe(200)
+    expect(await movedFolder.json()).toMatchObject({
+        entry: { path: 'target/folder', type: 'directory' },
+        moves: [{ from: 'source/folder', to: 'target/folder' }],
+    })
+    expect(await readFile(join(root, 'target', 'folder', 'nested', 'inside.txt'), 'utf8')).toBe('folder contents')
+    expect(await readdir(join(root, 'source'))).toEqual([])
+})
+
+it('applies file numbering and overwrite choices in the destination folder', async () => {
+    await json('/directory', { name: 'source' })
+    await json('/directory', { name: 'target' })
+    await upload('report.txt', 'existing', 'target')
+    await upload('draft.txt', 'draft')
+
+    const keptBoth = await json('/rename', {
+        path: 'draft.txt', name: 'report.txt', destination: 'target', conflict: 'rename',
+    }, 'PATCH')
+    expect(keptBoth.status).toBe(200)
+    expect(await keptBoth.json()).toMatchObject({
+        entry: { path: 'target/report (1).txt' },
+        moves: [{ from: 'draft.txt', to: 'target/report (1).txt' }],
+    })
+    expect(await readFile(join(root, 'target', 'report.txt'), 'utf8')).toBe('existing')
+    expect(await readFile(join(root, 'target', 'report (1).txt'), 'utf8')).toBe('draft')
+
+    await upload('replacement.txt', 'replacement')
+    const overwritten = await json('/rename', {
+        path: 'replacement.txt', name: 'report.txt', destination: 'target', conflict: 'overwrite',
+    }, 'PATCH')
+    expect(overwritten.status).toBe(200)
+    expect(await overwritten.json()).toMatchObject({ entry: { path: 'target/report.txt' } })
+    expect(await readFile(join(root, 'target', 'report.txt'), 'utf8')).toBe('replacement')
+    expect(await readdir(root)).not.toContain('replacement.txt')
+})
+
+it('merges across destination folders while leaving skipped incoming conflicts at the source', async () => {
+    await json('/directory', { name: 'source-parent' })
+    await json('/directory', { name: 'target-parent' })
+    await json('/directory', { path: 'source-parent', name: 'folder' })
+    await json('/directory', { path: 'target-parent', name: 'folder' })
+    await writeFile(join(root, 'source-parent', 'folder', 'same.txt'), 'incoming')
+    await writeFile(join(root, 'source-parent', 'folder', 'fresh.txt'), 'fresh')
+    await writeFile(join(root, 'target-parent', 'folder', 'same.txt'), 'existing')
+
+    const first = await json('/rename', {
+        path: 'source-parent/folder', name: 'folder', destination: 'target-parent', conflict: 'overwrite',
+    }, 'PATCH')
+    expect(first.status).toBe(409)
+    const plan = await first.json()
+    expect(plan.details.conflicts).toEqual([
+        expect.objectContaining({ path: 'target-parent/folder/same.txt' }),
+    ])
+
+    const merged = await json('/rename', {
+        path: 'source-parent/folder', name: 'folder', destination: 'target-parent', conflict: 'overwrite',
+        merge: { revision: plan.details.revision, choices: { 'target-parent/folder/same.txt': 'server' } },
+    }, 'PATCH')
+    expect(merged.status).toBe(200)
+    expect(await merged.json()).toMatchObject({
+        entry: { path: 'target-parent/folder' },
+        moves: expect.arrayContaining([{ from: 'source-parent/folder/fresh.txt', to: 'target-parent/folder/fresh.txt' }]),
+    })
+    expect(await readFile(join(root, 'source-parent', 'folder', 'same.txt'), 'utf8')).toBe('incoming')
+    expect(await readFile(join(root, 'target-parent', 'folder', 'same.txt'), 'utf8')).toBe('existing')
+    expect(await readFile(join(root, 'target-parent', 'folder', 'fresh.txt'), 'utf8')).toBe('fresh')
+})
+
+it('rejects invalid, trash and descendant destination folders without moving the source', async () => {
+    await json('/directory', { name: 'source' })
+    await json('/directory', { path: 'source', name: 'nested' })
+    await writeFile(join(root, 'source', 'inside.txt'), 'contents')
+    const attempts = [
+        { destination: '../outside', name: 'moved' },
+        { destination: DRIVE_TRASH_DIRECTORY, name: 'moved' },
+        { destination: 'source/nested', name: 'moved' },
+        { destination: 'missing', name: 'moved' },
+    ]
+    const statuses = await Promise.all(attempts.map(async body => (
+        (await json('/rename', { path: 'source', ...body }, 'PATCH')).status
+    )))
+    expect(statuses).toEqual([400, 400, 400, 404])
+    expect(await readFile(join(root, 'source', 'inside.txt'), 'utf8')).toBe('contents')
+    expect((await readdir(join(root, 'source'))).sort()).toEqual(['inside.txt', 'nested'])
+    expect(await readdir(root)).toEqual(expect.arrayContaining(['source', DRIVE_TRASH_DIRECTORY]))
+})
+
 it('rejects unsupported create and rename conflict modes', async () => {
     await json('/directory', { name: 'source' })
     expect((await json('/directory', { name: 'new-folder', conflict: 'unexpected' })).status).toBe(400)

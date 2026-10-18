@@ -759,9 +759,18 @@ function installDriveRoutes(app, {
         const conflict = conflictPolicy(req.body?.conflict);
         const result = await mutate(async () => {
             const { absolutePath, stat } = await resolveEntry(relativePath);
-            const destinationParent = parts.slice(0, -1).join('/');
+            const sourceParent = parts.slice(0, -1).join('/');
+            const destinationParent = req.body?.destination === undefined ? sourceParent : req.body.destination;
             assertWritableDestination(destinationParent, name);
             const destinationEntry = await resolveEntry(destinationParent, true);
+            if (stat.isDirectory()) {
+                const destinationFromSource = path.relative(absolutePath, destinationEntry.absolutePath);
+                if (destinationFromSource === ''
+                    || (!path.isAbsolute(destinationFromSource) && destinationFromSource !== '..'
+                        && !destinationFromSource.startsWith(`..${path.sep}`))) {
+                    throw createApiError(codes.INVALID_FILE_PATH, 400);
+                }
+            }
             const targetRelativePath = drivePath(destinationParent, name);
             if (targetRelativePath === relativePath) {
                 return { entry: metadata(relativePath, stat), moves: [] };

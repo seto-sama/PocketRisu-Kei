@@ -727,10 +727,10 @@ export class NodeStorage{
         return result.entry
     }
 
-    async renameDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution): Promise<DriveRenameResult> {
+    async renameDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution, destination?: string): Promise<DriveRenameResult> {
         return this.driveRequest('/rename', {
             method: 'PATCH', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path, name, conflict, merge }),
+            body: JSON.stringify({ path, name, conflict, merge, destination }),
         })
     }
 

@@ -78,11 +78,11 @@ it('carries folder merge comparisons, choices, and completed moves through the d
     const merge = { revision: plan.revision, choices: { [entry.path]: 'both' as const } }
     const result = { entry, moves: [{ from: 'source/a.txt', to: 'target/a (1).txt' }] }
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(result)))
-    expect(await storage.renameDriveEntry('source', 'target', 'overwrite', merge)).toEqual(result)
+    expect(await storage.renameDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(result)
     const [url, request] = fetchMock.mock.calls[1]
     expect(url).toBe('/api/drive/rename')
     expect(request.method).toBe('PATCH')
-    expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge })
+    expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
 })
 
 describe('storage request integration', () => {

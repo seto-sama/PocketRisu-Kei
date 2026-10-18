@@ -45,6 +45,8 @@
     let historyIndex = $state(0)
     let selectedPaths = $state<string[]>([])
     let selectionAnchor = $state<string | null>(null)
+    let movingEntries = $state<DriveEntry[]>([])
+    let dropPath = $state<string | null>(null)
     let drag = $state<{
         pointerId: number
         startX: number
@@ -202,10 +204,71 @@
         }
     }
 
-    function selectForContext(entry: DriveEntry) {
+    function ensureSelected(entry: DriveEntry) {
         if (!selectedPathSet.has(entry.path)) {
             selectedPaths = [entry.path]
             selectionAnchor = entry.path
+        }
+    }
+
+    function startEntryDrag(event: DragEvent, entry: DriveEntry) {
+        if (disabled || inTrash || !event.dataTransfer) {
+            event.preventDefault()
+            return
+        }
+        ensureSelected(entry)
+        movingEntries = [...selectedEntries]
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', movingEntries.map(item => item.path).join('\n'))
+    }
+
+    function endEntryDrag() {
+        movingEntries = []
+        dropPath = null
+    }
+
+    function canMoveTo(destination: string) {
+        return !disabled && !inTrash && movingEntries.length > 0
+            && destination !== currentPath && !movingEntries.some(entry => entry.path === destination)
+    }
+
+    function dropProps(destination: string) {
+        return {
+            ondragover: (event: DragEvent) => {
+                if (!movingEntries.length || disabled || inTrash) return
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+                dropPath = canMoveTo(destination) ? destination : null
+            },
+            ondragleave: (event: DragEvent) => {
+                if (event.relatedTarget instanceof Node && (event.currentTarget as HTMLElement).contains(event.relatedTarget)) return
+                if (dropPath === destination) dropPath = null
+            },
+            ondrop: (event: DragEvent) => { void dropEntries(event, destination) },
+        }
+    }
+
+    async function dropEntries(event: DragEvent, destination: string) {
+        if (!movingEntries.length) return
+        event.preventDefault()
+        event.stopPropagation()
+        const sources = [...movingEntries]
+        const move = canMoveTo(destination)
+        endEntryDrag()
+        if (!move) return
+        busy = true
+        const controller = operationController = new AbortController()
+        try {
+            for (const source of sources) {
+                controller.signal.throwIfAborted()
+                if (!await relocateEntry(source, source.name, destination, controller.signal)) break
+            }
+        } catch (error) {
+            if (!controller.signal.aborted) notifyError(error)
+        } finally {
+            busy = false
+            await refresh()
         }
     }
 
@@ -332,11 +395,7 @@
         const source = renameTarget
         try {
             const saved = source
-                ? await resolveConflict({ ...source, name }, async (policy, merge) => {
-                    const result = await storage.renameDriveEntry(source.path, name, policy, merge)
-                    if (source.type === 'directory') updateShortcuts(result.moves)
-                    return result.entry
-                }, controller.signal, source.path)
+                ? await relocateEntry(source, name, currentPath, controller.signal)
                 : await resolveConflict({ name, type: 'directory', size: null },
                     policy => storage.createDriveDirectory(currentPath, name, policy), controller.signal)
             if (!saved) return
@@ -347,6 +406,14 @@
         } finally {
             busy = false
         }
+    }
+
+    async function relocateEntry(source: DriveEntry, name: string, destination: string, signal: AbortSignal) {
+        return resolveConflict({ ...source, name }, async (policy, merge) => {
+            const result = await storage.renameDriveEntry(source.path, name, policy, merge, destination)
+            if (source.type === 'directory') updateShortcuts(result.moves)
+            return result.entry
+        }, signal, source.path, destination)
     }
 
     function updateShortcuts(moves: DriveRenameResult['moves']) {
@@ -384,9 +451,9 @@
         }
     }
 
-    async function resolveConflict(incoming: ConflictItem, save: (policy: DriveConflict, merge?: DriveMergeResolution) => Promise<DriveEntry>, signal: AbortSignal, sourcePath?: string) {
-        const path = currentPath ? `${currentPath}/${incoming.name}` : incoming.name
-        const known = entries.find(entry => entry.path === path && entry.path !== sourcePath)
+    async function resolveConflict(incoming: ConflictItem, save: (policy: DriveConflict, merge?: DriveMergeResolution) => Promise<DriveEntry>, signal: AbortSignal, sourcePath?: string, destination = currentPath) {
+        const path = destination ? `${destination}/${incoming.name}` : incoming.name
+        const known = destination === currentPath ? entries.find(entry => entry.path === path && entry.path !== sourcePath) : undefined
         let policy: DriveConflict | null = known ? await askConflict(incoming, known, signal) : 'error'
         let merge: DriveMergeResolution | undefined
         while (policy) {
@@ -546,11 +613,11 @@
             {#if $mdViewport}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <IconButton {...actionProps()} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext" title={language.serverDrive.driveRoot} onclick={() => refresh('')}><HardDriveIcon /></IconButton>
+                    <IconButton {...actionProps()} {...dropProps('')} data-selected={dropPath === ''} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext" title={language.serverDrive.driveRoot} onclick={() => refresh('')}><HardDriveIcon /></IconButton>
                     {@render folderDropdown('')}
                     {#each parts as part, index}
                         {@const path = parts.slice(0, index + 1).join('/')}
-                        <button class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
+                        <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
                 </div>
@@ -570,7 +637,7 @@
                 <ContextMenu.Trigger disabled={disabled || !!loadError}>
                     {#snippet child({ props })}
                         {@const areaProps = props as HTMLAttributes<HTMLElement>}
-                        <main {...areaProps} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading}
+                        <main {...areaProps} {...dropProps(currentPath)} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading}
                             onpointerdown={(event) => {
                                 if ((event.target as Element).closest('[data-drive-entry]')) return
                                 areaProps.onpointerdown?.(event)
@@ -593,11 +660,12 @@
                                 <div class="grid grid-cols-[repeat(auto-fill,6rem)] gap-1">
                                     {#each sortedEntries.slice(0, visibleLimit) as entry (entry.path)}
                                         {@const EntryIcon = entry.type === 'directory' ? FolderIcon : FileIcon}
-                                        <ContextMenu.Root onOpenChange={(open) => { if (open) selectForContext(entry) }}>
+                                        <ContextMenu.Root onOpenChange={(open) => { if (open) ensureSelected(entry) }}>
                                             <ContextMenu.Trigger disabled={disabled}>
                                                 {#snippet child({ props })}
-                                                    <button {...props} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" data-selected={selectedPathSet.has(entry.path)} data-drive-entry={entry.path}
+                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
                                                         aria-label={entry.name} aria-pressed={selectedPathSet.has(entry.path)} disabled={disabled}
+                                                        draggable={!disabled && !inTrash} ondragstart={event => startEntryDrag(event, entry)} ondragend={endEntryDrag}
                                                         onclick={(event) => selectEntry(event, entry)} ondblclick={() => activate(entry)}
                                                         onkeydown={(event) => handleEntryKeydown(event, entry)}>
                                                         <EntryIcon size={32} strokeWidth={fileStrokeWidth} absoluteStrokeWidth class={entry.type === 'directory' ? 'shrink-0 text-warning fill-warning/10' : 'shrink-0 text-primary'} />
