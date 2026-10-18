@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -10,6 +10,9 @@ import { encodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
 import { MAX_GENERATION_BODY_BYTES } from '../../../src/ts/process/revenant/transport/protocol'
 import { createDelta } from '../../../shared/guardedDelta.mjs'
 import { pocketKeiVer } from '../../../src/ts/version'
+import { decodeBackup } from '../../../test/compat/helpers/decode'
+import Database from '../sqlite.cjs'
+import appDataStorePkg from '../appDataStore.cjs'
 
 const { decodeRisuSave } = createRequire(import.meta.url)('../utils.cjs') as {
     decodeRisuSave(data: Uint8Array): Promise<any>
@@ -426,6 +429,55 @@ describe('server route composition', () => {
         const conflict = await patchChat(canonical, { ...canonical, message: [{ ...reply, data: 'second edit' }] })
         expect(conflict.status).toBe(409)
         expect(await conflict.json()).toMatchObject({ code: 'CHAT_CONTENT_CHANGED' })
+    })
+
+    it('checkpoints and prepares a compressed snapshot with progress', async () => {
+        await writeInlay('backup-size-test')
+        const before = (await (await fetch(base + '/api/database', { headers })).json()).database
+        const globalNote = 'Latest committed value for export'
+        const saved = await fetch(base + '/api/database', {
+            method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ changes: createDelta(before, { ...before, globalNote }) }),
+        })
+        expect(saved.status).toBe(200)
+        const prepared = await fetch(base + '/api/backup/export/prepare', { method: 'POST', headers })
+        expect(prepared.status, await prepared.clone().text()).toBe(200)
+        expect(prepared.headers.get('content-type')).toContain('application/x-ndjson')
+        expect(prepared.headers.get('cache-control')).toContain('no-transform')
+        const events = (await prepared.text()).trim().split('\n').map(line => JSON.parse(line))
+        expect(events[0]).toMatchObject({ type: 'progress', stage: 'saving' })
+        const compression = events.filter(event => event.stage === 'compressing')
+        expect(compression[0].bytes).toBe(0)
+        expect(compression.at(-1).bytes).toBe(compression.at(-1).totalBytes)
+        expect(events.at(-2)).toMatchObject({ type: 'progress', stage: 'ready' })
+        expect(events.at(-1).type).toBe('done')
+        const url = events.at(-1).url
+
+        const copyPath = join(directory, 'checkpointed.db')
+        copyFileSync(join(directory, 'save/risuai.db'), copyPath)
+        const checkpointed = new Database(copyPath)
+        try {
+            const store = appDataStorePkg.createAppDataStore(checkpointed)
+            expect(store.exportProjection({ includeMessages: false }).globalNote).toBe(globalNote)
+        } finally {
+            checkpointed.close()
+        }
+
+        const current = (await (await fetch(base + '/api/database', { headers })).json()).database
+        const updated = await fetch(base + '/api/database', {
+            method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ changes: createDelta(current, { ...current, globalNote: 'Changed after preparation' }) }),
+        })
+        expect(updated.status).toBe(200)
+        const exported = await fetch(base + url, { headers })
+        expect(exported.status).toBe(200)
+        const backup = Buffer.from(await exported.arrayBuffer())
+        expect(compression.at(-1).backupBytes).toBe(backup.length)
+        expect(events.at(-2).totalBytes).toBe(backup.length)
+        const entry = decodeBackup(backup)
+            .find(entry => entry.name === 'database.risudat')!
+        expect((await decodeRisuSave(entry.data)).globalNote).toBe(globalNote)
+        expect((await fetch(base + url, { headers })).status).toBe(404)
     })
 
     it('merges independent database changes and rejects overlapping edits over HTTP', async () => {

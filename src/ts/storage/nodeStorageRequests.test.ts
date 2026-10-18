@@ -30,22 +30,16 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-it('hands backups and assets to the browser after refreshing only the session cookie', async () => {
+it('hands existing backups and assets to the browser after refreshing only the session cookie', async () => {
     const downloads: { url: string, name: string }[] = []
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
         downloads.push({ url: this.getAttribute('href')!, name: this.download })
     })
     fetchMock.mockResolvedValue(new Response('{}'))
-    await storage.downloadBackupExport()
-    await storage.downloadBackupExport({ mode: 'settings', moduleAssets: false })
-    await storage.downloadBackupExport({ target: 'upstream' })
     await storage.downloadServerBackup('risu-backup-1.bin')
     await storage.downloadAsset('inlay/image', '한글.png')
     await storage.downloadDriveFile('자료/한글 &.bin')
     expect(downloads).toEqual([
-        { url: '/api/backup/export', name: '' },
-        { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
-        { url: '/api/backup/export?target=upstream', name: '' },
         { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
         { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
         { url: `/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.bin' })}`, name: '' },
@@ -64,7 +58,59 @@ it('hands backups and assets to the browser after refreshing only the session co
 it('does not start a download when session refresh fails', async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
-    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
+    await expect(storage.downloadServerBackup('risu-backup-1.bin')).rejects.toMatchObject({ status: 401 })
+    expect(click).not.toHaveBeenCalled()
+})
+
+it('does not start a download when backup preparation fails', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"DATABASE_LOCKED"}', { status: 503 }))
+    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 503, code: 'DATABASE_LOCKED' })
+    expect(click).not.toHaveBeenCalled()
+})
+
+it('receives compression progress before downloading, across split UTF-8 lines', async () => {
+    let downloadedUrl = ''
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        downloadedUrl = this.getAttribute('href')!
+    })
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } })))
+        .mockResolvedValueOnce(new Response('{}'))
+    const progress = vi.fn()
+    let finished = false
+    const downloading = storage.downloadBackupExport({ mode: 'settings', moduleAssets: false }, progress)
+        .then(() => { finished = true })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/backup/export/prepare?mode=settings&moduleAssets=0')
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('accept')).toBe('application/x-ndjson')
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+    expect(click).not.toHaveBeenCalled()
+    expect(finished).toBe(false)
+
+    const event = { stage: 'compressing', bytes: 10, totalBytes: 20, backupBytes: 105, label: '압축' }
+    const data = new TextEncoder().encode(JSON.stringify({ type: 'progress', ...event }) + '\n')
+    const split = data.indexOf(0xec) + 1
+    controller.enqueue(data.subarray(0, split))
+    controller.enqueue(data.subarray(split))
+    await vi.waitFor(() => expect(progress).toHaveBeenCalledWith(expect.objectContaining(event)))
+    expect(click).not.toHaveBeenCalled()
+    controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'done', url: '/api/backup/export?prepared=ready' })))
+    controller.close()
+    await downloading
+    expect(click).toHaveBeenCalledOnce()
+    expect(downloadedUrl).toBe('/api/backup/export?prepared=ready')
+    expect(finished).toBe(true)
+})
+
+it.each([
+    [{ type: 'progress', stage: 'saving' }],
+    [{ type: 'error', code: 'BACKUP_NOT_FOUND', message: 'missing' }],
+])('does not download an incomplete or failed preparation stream: %j', async (event) => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(event) + '\n'))
+    await expect(storage.downloadBackupExport()).rejects.toThrow()
     expect(click).not.toHaveBeenCalled()
 })
 

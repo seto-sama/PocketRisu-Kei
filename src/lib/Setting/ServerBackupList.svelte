@@ -4,7 +4,7 @@
     // is replaced; downloads are handled by the browser without relaying
     // the backup through this tab.
     import { getCurrentLocale, language } from "src/lang";
-    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError, notifyInfo } from "src/ts/alert";
+    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError } from "src/ts/alert";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -76,12 +76,16 @@
     async function restoreBackup(backup: BackupEntry) {
         if (!(await alertConfirm(language.backupLoadConfirm))) return;
         if (!(await alertConfirm(language.backupLoadConfirm2))) return;
-        alertWait(language.serverBackupRestoring);
+        alertWait(language.serverBackupRestoring, language.serverBackupLoadBackup);
         try {
             const result = await forageStorage.restoreServerBackup(backup.filename, (bytes, totalBytes) => {
                 if (totalBytes > 0) {
-                    const pct = ((bytes / totalBytes) * 100).toFixed(1);
-                    alertWait(`${language.serverBackupRestoring} (${pct}%)`);
+                    alertStore.set({
+                        type: 'progress',
+                        title: language.serverBackupLoadBackup,
+                        msg: language.serverBackupRestoring,
+                        submsg: String(bytes / totalBytes * 100),
+                    });
                 }
             });
             if (result.coldStorageFailed && result.coldStorageFailed > 0) {
@@ -98,14 +102,18 @@
     }
 
     async function restoreAssets(backup: BackupEntry) {
-        alertWait(language.serverBackupAssetsRestoring);
+        alertWait(language.serverBackupAssetsRestoring, language.serverBackupRestoreAssets);
         try {
             const result = await forageStorage.restoreMissingServerBackupAssets(
                 backup.filename,
                 (bytes, totalBytes) => {
                     if (totalBytes > 0) {
-                        const pct = ((bytes / totalBytes) * 100).toFixed(1);
-                        alertWait(`${language.serverBackupAssetsRestoring} (${pct}%)`);
+                        alertStore.set({
+                            type: 'progress',
+                            title: language.serverBackupRestoreAssets,
+                            msg: language.serverBackupAssetsRestoring,
+                            submsg: String(bytes / totalBytes * 100),
+                        });
                     }
                 },
             );
@@ -121,7 +129,7 @@
     async function downloadBackup(backup: BackupEntry) {
         try {
             await forageStorage.downloadServerBackup(backup.filename);
-            notifyInfo(language.browserDownloadStarted);
+            notifySuccess(language.browserDownloadStarted);
         } catch (error) {
             notifyError(error instanceof Error ? error.message : 'Download failed');
         }

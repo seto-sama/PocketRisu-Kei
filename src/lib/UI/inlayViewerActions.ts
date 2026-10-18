@@ -1,5 +1,5 @@
 import { language } from 'src/lang'
-import { notifyError, notifySuccess, notifyInfo } from 'src/ts/alert'
+import { notifyError, notifySuccess } from 'src/ts/alert'
 import { forageStorage } from 'src/ts/storage/autoStorage'
 import {
     buildInlayReference,
@@ -27,7 +27,7 @@ export function downloadInlayAsset(id: string): Promise<void> {
             await forageStorage.downloadAsset(`inlay/${id}`, asset
                 ? getInlayDownloadFileName(asset.name, asset.ext)
                 : undefined)
-            notifyInfo(language.browserDownloadStarted)
+            notifySuccess(language.browserDownloadStarted)
         } catch (error) {
             notifyError(`${error}`)
         }

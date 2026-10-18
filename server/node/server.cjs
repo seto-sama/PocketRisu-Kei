@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
-const { codes: API_ERROR_CODES, sendApiError } = require('./apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
@@ -334,6 +334,22 @@ async function flushPendingDb() {
         delete saveTimers[DB_HEX_KEY];
         await persistFullChatStoreNow();
         createBackupAndRotate();
+    }
+}
+
+async function prepareDatabaseExport() {
+    await flushPendingDb();
+    await ensureCanonicalStorage();
+
+    const [checkpoint] = checkpointWal('FULL') ?? [];
+    if (!checkpoint
+        || checkpoint.busy > 0
+        || checkpoint.log !== checkpoint.checkpointed) {
+        throw createApiError(API_ERROR_CODES.DATABASE_LOCKED, 503, checkpoint && {
+            busy: checkpoint.busy,
+            log: checkpoint.log,
+            checkpointed: checkpoint.checkpointed,
+        });
     }
 }
 
@@ -2333,6 +2349,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     inlayDir,
     inlayMigrationMarker,
     flushPendingDb,
+    prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -2348,7 +2365,6 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     queueStorageOperation,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
-    estimateServerBackupSize,
     getSnapshotLimits,
     SNAPSHOT_LIMIT_MIN_COUNT,
     SNAPSHOT_LIMIT_MAX_COUNT,

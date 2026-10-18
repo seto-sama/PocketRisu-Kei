@@ -591,21 +591,9 @@
         SaveLocalBackup()
     }
 
-    async function restoreFromLocalFile() {
-        if (!(await alertConfirm(language.backupLoadConfirm))) return
-        if (!(await alertConfirm(language.backupLoadConfirm2))) return
-        LoadLocalBackup()
-    }
-
     async function downloadUpstreamLocal() {
         if (!(await alertConfirm(language.saveBackupForUpstreamConfirm))) return
         SaveLocalBackupForUpstream()
-    }
-
-    async function restoreFromUpstreamLocalFile() {
-        if (!(await alertConfirm(language.backupLoadConfirm))) return
-        if (!(await alertConfirm(language.backupLoadConfirm2))) return
-        LoadLocalBackup()
     }
 
     async function loadInitialData() {
@@ -850,9 +838,17 @@
             </Button>
             {/snippet}
         </SettingLayout>
+        <SettingLayout variant="action" title={language.savePartialLocalBackup} description={language.help.migrationPartialBackupDesc}>
+            {#snippet control()}
+            <Button variant="outline" size="sm" onclick={SavePartialLocalBackup}>
+                <DownloadIcon />
+                {language.backupLocalPartialDownload}
+            </Button>
+            {/snippet}
+        </SettingLayout>
         <SettingLayout variant="action" title={language.loadBackupLocal} description={language.help.backupLocalRestoreDesc}>
             {#snippet control()}
-            <Button variant="outline" size="sm" onclick={restoreFromLocalFile}>
+            <Button variant="outline" size="sm" onclick={LoadLocalBackup}>
                 <UploadIcon />
                 {language.loadBackupLocal}
             </Button>
@@ -886,17 +882,9 @@
             </Button>
             {/snippet}
         </SettingLayout>
-        <SettingLayout variant="action" title={language.savePartialLocalBackup} description={language.help.migrationPartialBackupDesc}>
-            {#snippet control()}
-            <Button variant="outline" size="sm" onclick={SavePartialLocalBackup}>
-                <DownloadIcon />
-                {language.migrationCompatSnapshotExportButton}
-            </Button>
-            {/snippet}
-        </SettingLayout>
         <SettingLayout variant="action" title={language.migrationLoadUpstreamBackup} description={language.help.migrationUpstreamRestoreDesc}>
             {#snippet control()}
-            <Button variant="outline" size="sm" onclick={restoreFromUpstreamLocalFile}>
+            <Button variant="outline" size="sm" onclick={LoadLocalBackup}>
                 <UploadIcon />
                 {language.migrationCompatBackupImportButton}
             </Button>

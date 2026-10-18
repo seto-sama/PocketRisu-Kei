@@ -32,6 +32,57 @@ function serverErrorMessage(body: any, fallback: string): string {
     })
 }
 
+async function* readNdjson(response: Response): AsyncGenerator<any> {
+    if (!response.body) throw new Error('NDJSON response body is unavailable')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamEnded = false
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+                streamEnded = true
+                buffer += decoder.decode()
+                break
+            }
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+                if (line.trim()) yield JSON.parse(line)
+            }
+        }
+
+        if (buffer.trim()) yield JSON.parse(buffer)
+    } finally {
+        if (!streamEnded) await reader.cancel().catch(() => {})
+        reader.releaseLock()
+    }
+}
+
+async function readBackupResult<T>(
+    response: Response,
+    onProgress: ((progress: any) => void) | undefined,
+    failureMessage: string,
+): Promise<T> {
+    let result: T | undefined
+    for await (const message of readNdjson(response)) {
+        if (message.type === 'progress') {
+            const progress = { ...message }
+            delete progress.type
+            onProgress?.(progress)
+        }
+        else if (message.type === 'done') result = message
+        else if (message.type === 'error') throw new Error(serverErrorMessage(message, failureMessage))
+    }
+    if (!result) throw new Error(failureMessage)
+    return result
+}
+
 export interface PersistWarning {
     timestamp: number
     message: string
@@ -79,9 +130,16 @@ export interface PluginStorageExclusion {
 
 export interface ExportBackupOptions {
     target?: 'upstream'
-    mode?: 'settings'
+    mode?: 'settings' | 'partial'
     moduleAssets?: boolean
 }
+
+export type BackupProgress =
+    | { stage: 'saving' }
+    | { stage: 'preparing' }
+    | { stage: 'compressing', bytes: number, totalBytes: number, backupBytes: number }
+    | { stage: 'ready', bytes: number, totalBytes: number }
+    | { stage: 'writing', bytes: number, totalBytes: number }
 
 export type FileFormat = 'save' | 'preset' | 'theme' | 'translator' | 'json'
 
@@ -682,14 +740,28 @@ export class NodeStorage{
         }
     }
 
-    async downloadBackupExport(opts?: ExportBackupOptions): Promise<void> {
+    async downloadBackupExport(
+        opts?: ExportBackupOptions,
+        onProgress?: (progress: BackupProgress) => void,
+    ): Promise<{ missingAssets: string[] }> {
         const params = new URLSearchParams()
         if(opts?.target === 'upstream') params.set('target', 'upstream')
-        if(opts?.mode === 'settings') params.set('mode', 'settings')
+        if(opts?.mode) params.set('mode', opts.mode)
         if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
         const query = params.toString()
-        const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
-        await this.startCookieDownload(url)
+        const prepared = await this.authFetch(`/api/backup/export/prepare${query ? `?${query}` : ''}`, {
+            method: 'POST',
+            headers: { accept: 'application/x-ndjson' },
+        })
+        if (!prepared.ok) throw await apiRequestError(prepared)
+        const download = await readBackupResult<{ url: string, missingAssets?: string[] }>(
+            prepared,
+            onProgress,
+            'Backup export failed',
+        )
+        if (!download.url) throw new Error('Backup export: no download URL received')
+        await this.startCookieDownload(download.url)
+        return { missingAssets: download.missingAssets ?? [] }
     }
 
     private async fileFormatRequest(format: FileFormat, action: 'encode' | 'decode', body: Uint8Array): Promise<Uint8Array> {
@@ -887,7 +959,7 @@ export class NodeStorage{
 
     async saveServerBackup(
         note = '',
-        onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void
+        onProgress?: (progress: BackupProgress) => void
     ): Promise<{ok: boolean, filename: string, size: number}> {
         const da = await this.authFetch('/api/backup/server/save', {
             method: 'POST',
@@ -901,31 +973,7 @@ export class NodeStorage{
             throw await storageRequestError('saveServerBackup', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {ok: boolean, filename: string, size: number} | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.current, msg.total, msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup save failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup: no result received')
-        return result
+        return readBackupResult(da, onProgress, 'Server backup save failed')
     }
 
     async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number, note?: string}>}> {
@@ -950,31 +998,7 @@ export class NodeStorage{
             throw await storageRequestError('restoreServerBackup', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {ok: boolean, assetsRestored: number, coldStorageFailed?: number} | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup restore failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup restore: no result received')
-        return result
+        return readBackupResult(da, (progress) => onProgress?.(progress.bytes, progress.totalBytes), 'Server backup restore failed')
     }
 
     async restoreMissingServerBackupAssets(
@@ -1002,40 +1026,7 @@ export class NodeStorage{
             throw await storageRequestError('restoreMissingServerBackupAssets', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {
-            ok: boolean
-            referencedAssets: number
-            missingAssets: number
-            assetsFound: number
-            assetsUnavailable: number
-            assetsRestored: number
-            restoredBytes: number
-            skippedExisting: number
-        } | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup asset restore failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup asset restore: no result received')
-        return result
+        return readBackupResult(da, (progress) => onProgress?.(progress.bytes, progress.totalBytes), 'Server backup asset restore failed')
     }
 
     async deleteServerBackup(filename: string): Promise<void> {

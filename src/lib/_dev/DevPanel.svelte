@@ -288,7 +288,7 @@ function hello(): string {
         alertWait('백업 복원 중...');
         await sleep(800);
         for (let p = 20; p <= 100; p += 20) {
-            alertWait(`백업 복원 중... (${p}%)`);
+            alertStore.set({ type: 'progress', msg: '백업 복원 중...', submsg: String(p) });
             await sleep(500);
         }
         alertClear();
@@ -491,7 +491,7 @@ function hello(): string {
     <div class="mt-4 flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-maintext">2. 로딩 / 진행 전환</h3>
         <p class="text-xs text-subtext">
-            alertWait 메시지 갱신, alertWait → alertError 덮어쓰기, progress 0→100% 등 LoadingDialog 동작을 확인합니다.
+            alertWait 메시지 갱신, alertWait → alertError 덮어쓰기, progress 0→100% 등 ProgressDialog 동작을 확인합니다.
         </p>
         <div class="flex flex-wrap gap-2">
             <Button variant="ghost" onclick={triggerWaitShort}>alertWait (2.5초)</Button>

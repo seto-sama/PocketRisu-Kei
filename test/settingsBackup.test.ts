@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import settingsBackup from '../server/node/settingsBackup.cjs'
 
-const {
-    buildSettingsBackupPlan,
-    stripToSettingsOnly,
-} = settingsBackup
+const { buildSettingsBackupPlan } = settingsBackup
 
 const database = {
     characters: [{ image: 'assets/character.png', chats: [{ message: ['secret'] }] }],
@@ -30,40 +27,28 @@ const assetRows = [
 
 function createPlan(includeModuleAssets: boolean) {
     return buildSettingsBackupPlan({
-        databaseValue: Buffer.from('database'),
+        database,
         assetRows,
-        decodeDatabase: async () => database,
-        encodeDatabase: (value: unknown) => Buffer.from(JSON.stringify(value)),
         includeModuleAssets,
     })
 }
 
 describe('settings backup', () => {
-    it('removes characters and their ordering', () => {
-        const trimmed = stripToSettingsOnly(database)
-        expect(trimmed.characters).toEqual([])
-        expect(trimmed.characterOrder).toEqual([])
-        expect(trimmed.apiType).toBe('openai')
-        expect(database.characters).toHaveLength(1)
-    })
+    it('module asset option never drops assets with another settings owner', () => {
+        const withModules = createPlan(true)
+        const withoutModules = createPlan(false)
 
-    it('module asset option never drops assets with another settings owner', async () => {
-        const withModules = await createPlan(true)
-        const withoutModules = await createPlan(false)
-
-        expect(withModules.includedAssetNames).toContain('module-only.png')
-        expect(withoutModules.includedAssetNames).not.toContain('module-only.png')
-        expect(withoutModules.includedAssetNames).toContain('shared.png')
-        expect(withoutModules.includedAssetNames).toContain('module-icon.png')
-        expect(withoutModules.includedAssetNames).not.toContain('character.png')
+        expect(withModules.includedAssets.map((asset: { key: string }) => asset.key)).toContain('assets/module-only.png')
         expect(new Set(withoutModules.includedAssets.map((asset: { key: string }) => asset.key))).toEqual(
             new Set(['assets/shared.png', 'assets/module-icon.png']),
         )
         expect(withModules.breakdown.moduleAssets.bytes).toBe(40)
         expect(withModules.breakdown.moduleAssets.count).toBe(1)
 
-        const exportedDatabase = JSON.parse(withoutModules.encodedDatabase.toString('utf-8'))
+        const exportedDatabase = withoutModules.database
         expect(exportedDatabase.characters).toEqual([])
         expect(exportedDatabase.characterOrder).toEqual([])
+        expect(exportedDatabase.apiType).toBe('openai')
+        expect(database.characters).toHaveLength(1)
     })
 })

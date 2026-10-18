@@ -103,6 +103,10 @@ export function getPersonaPrompt(){
 export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|'single' = 'single') {
     return new Promise<File[]>((resolve) => {
         const fileInput = document.createElement('input');
+        const finish = (files: File[]) => {
+            fileInput.remove();
+            resolve(files);
+        };
         fileInput.type = 'file';
         fileInput.multiple = multiple === 'multiple';
         const acceptAll = isIOS() || allowedExtensions[0] === '*'
@@ -113,7 +117,7 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
         }
         fileInput.addEventListener('change', (event) => {
             if (fileInput.files.length === 0) {
-                resolve([]);
+                finish([]);
                 return;
             }
     
@@ -131,9 +135,9 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
                 })
             }
     
-            fileInput.remove()
-            resolve(files);
+            finish(files);
         });
+        fileInput.addEventListener('cancel', () => finish([]), { once: true });
     
         document.body.appendChild(fileInput);
         fileInput.click();

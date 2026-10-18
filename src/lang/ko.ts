@@ -838,11 +838,12 @@ export const languageKorean = {
     "이 플러그인에는 외부 자바스크립트가 포함되어 있습니다.",
   waifuWidth: "Waifu 채팅창 넓이",
   files: "파일",
-  backupConfirm: "정말로 백업을 저장하시겠습니까?",
+  backupConfirm: "백업 파일을 저장하시겠습니까?",
   backupLoadConfirm:
-    "정말로 백업을 불러오시겠습니까? 현재 데이터가 모두 사라집니다!",
+    "백업을 불러오시겠습니까?\n현재 데이터가 전부 덮어씌워집니다.",
   backupLoadConfirm2:
-    "정말로, 정말로 백업을 불러오시겠습니까? 현재 데이터가 모두 사라집니다!",
+    "정말로 백업을 불러오시겠습니까?\n현재 데이터가 전부 덮어씌워집니다.",
+  backupSelectedFile: (filename: string) => `선택한 파일: ${filename}`,
   others: "기타",
   advancedRequestTab: "리퀘스트",
   dataDisplay: "데이터 표시",
@@ -1282,7 +1283,7 @@ export const languageKorean = {
   saveBackupLocal: "로컬 백업 저장",
   saveBackupForUpstream: "원본 리스용 백업 내보내기",
   saveBackupForUpstreamConfirm:
-    "이 백업은 원본 RisuAI로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
+    "이 백업은 원본 RisuAI로 데이터를 옮기기 위한 용도로, 인레이 이미지가 포함되지 않습니다.\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
   loadBackupLocal: "로컬 백업 불러오기",
   topP: "Top P",
   genTimes: "생성 횟수",
@@ -2161,7 +2162,7 @@ export const languageKorean = {
     "⚠️ 경고: 부분 로컬 백업 ⚠️\n\n이 백업은 최소한의 필수 정보만 빠르게 저장하는 기능입니다.\n\n포함되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n⚠️ 포함되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- 기타 모든 추가 미디어 파일\n\n이 백업 파일에는 모든 캐릭터 에셋이 포함되지 않습니다!\n완전한 백업이 필요하다면 일반 로컬 백업을 사용하세요.\n\n그래도 계속하시겠습니까?",
   partialBackupSecondConfirm:
     "⚠️⚠️ 최종 경고 ⚠️⚠️\n\n이 백업은 캐릭터의 프로필 이미지만 저장하며, 나머지 대부분의 에셋은 저장하지 않습니다!\n\n저장되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n저장되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- 기타 모든 미디어 파일\n\n⚠️ 백업 파일에 캐릭터 에셋이 필요하지 않은 경우에만 진행하세요! ⚠️\n\n정말로 부분 백업을 진행하시겠습니까?",
-  savePartialLocalBackup: "부분 로컬 백업 저장 (캐릭터 에셋 제외)",
+  savePartialLocalBackup: "로컬 백업 다운로드 (미디어 제외)",
   serverBackupSave: "서버에 백업 저장",
   serverBackupManage: "서버 백업 관리",
   serverBackupSaving: "서버에 백업 저장 중...",
@@ -2596,7 +2597,6 @@ export const languageKorean = {
     "원본 RisuAI 호환 포맷으로 백업·내보내기를 수행하는 보조 기능들입니다. 일반적인 백업 작업은 백업 탭을 사용하세요.",
   migrationLoadUpstreamBackup: "원본 리스 로컬 백업 불러오기",
   migrationCompatBackupExportButton: "호환 백업 내보내기",
-  migrationCompatSnapshotExportButton: "호환 스냅샷 내보내기",
   migrationCompatBackupImportButton: "호환 백업 불러오기",
   migrationDatasetExportButton: "데이터셋 내보내기",
 
@@ -2706,6 +2706,12 @@ export const languageKorean = {
   backupLocalDesc:
     "사용자 기기로 백업을 다운로드하거나 기기 파일에서 복원합니다.",
   backupLocalDownload: "로컬 백업 다운로드",
+  backupLocalPartialDownload: "부분 로컬 백업 다운로드",
+  backupLocalRestoring: "로컬 백업 불러오는 중...",
+  backupLocalSaving: "현재 데이터 저장 중...",
+  backupLocalCompressing: "백업 압축 중...",
+  backupLocalPreparing: "백업 파일 목록 준비 중...",
+  backupMissingAssets: (files: string) => `다음 에셋을 찾을 수 없어 백업에서 제외했습니다:\n${files}`,
 
   backupSettingsOnly: "설정 내보내기",
   backupSettingsOnlyDesc: "채팅 및 캐릭터 등을 제외한 설정 백업만 내보냅니다.",

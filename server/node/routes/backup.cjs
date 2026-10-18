@@ -3,8 +3,11 @@
 const { db: sqliteDb, kvList, snapshotSetFootprint, kvSize, kvGet, kvSet, kvDel, kvDelPrefix, clearEntities, checkpointWal, kvListWithSizes } = require('../db.cjs');
 const path = require('path');
 const fs = require('fs/promises');
-const { existsSync, mkdirSync } = require('fs');
-const { decodeRisuSave, normalizeJSON, encodeRisuSaveLegacy, encodeRisuSave } = require('../utils.cjs');
+const { existsSync, mkdirSync, createReadStream } = require('fs');
+const { randomUUID } = require('node:crypto');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+const { decodeRisuSave, encodeRisuSave, normalizeJSON } = require('../utils.cjs');
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
@@ -29,6 +32,7 @@ function installBackupRoutes(app, {
     inlayDir,
     inlayMigrationMarker,
     flushPendingDb,
+    prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -44,7 +48,6 @@ function installBackupRoutes(app, {
     queueStorageOperation,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
-    estimateServerBackupSize,
     getSnapshotLimits,
     SNAPSHOT_LIMIT_MIN_COUNT,
     SNAPSHOT_LIMIT_MAX_COUNT,
@@ -190,13 +193,51 @@ function installBackupRoutes(app, {
         }
     }
 
-    function encodeBackupEntry(name, data) {
+    function encodeBackupEntryHeader(name, size) {
         const encodedName = Buffer.from(name, 'utf-8');
-        const nameLength = Buffer.allocUnsafe(4);
-        nameLength.writeUInt32LE(encodedName.length, 0);
-        const dataLength = Buffer.allocUnsafe(4);
-        dataLength.writeUInt32LE(data.length, 0);
-        return Buffer.concat([nameLength, encodedName, dataLength, data]);
+        const header = Buffer.allocUnsafe(8 + encodedName.length);
+        header.writeUInt32LE(encodedName.length, 0);
+        encodedName.copy(header, 4);
+        header.writeUInt32LE(size, 4 + encodedName.length);
+        return header;
+    }
+
+    function createBackupProgressWriter(res) {
+        const lastPercentByStage = new Map();
+        return (progress) => {
+            if (res.destroyed || res.writableEnded) throw new Error('Client disconnected during backup');
+            if (progress.stage === 'compressing' || progress.stage === 'writing') {
+                const percent = progress.totalBytes > 0
+                    ? Math.floor(progress.bytes / progress.totalBytes * 100)
+                    : 100;
+                if (lastPercentByStage.get(progress.stage) === percent) return;
+                lastPercentByStage.set(progress.stage, percent);
+            }
+            res.write(JSON.stringify({ type: 'progress', ...progress }) + '\n');
+        };
+    }
+
+    async function* generateBackupEntries(plan, onProgress) {
+        let bytes = 0;
+        for (const entry of plan.entries) {
+            const header = encodeBackupEntryHeader(entry.backupName, entry.size);
+            yield header;
+            bytes += header.length;
+            const source = entry.kind === 'kv'
+                ? [kvGet(entry.key)]
+                : entry.kind === 'buffer'
+                    ? [entry.buffer]
+                    : createReadStream(entry.sourcePath);
+            let entryBytes = 0;
+            for await (const chunk of source) {
+                if (!chunk) throw new Error(`Backup entry not found: ${entry.backupName}`);
+                yield chunk;
+                entryBytes += chunk.length;
+                bytes += chunk.length;
+                onProgress?.({ bytes, totalBytes: plan.totalBytes });
+            }
+            if (entryBytes !== entry.size) throw new Error(`Backup entry changed: ${entry.backupName}`);
+        }
     }
 
     async function prepareImportedDatabaseProjection(raw) {
@@ -254,169 +295,242 @@ function installBackupRoutes(app, {
     });
 
     async function createSettingsBackupPlan(includeModuleAssets = true) {
-        const { withExportColorSchemes } = await import('../../shared/colorScheme.js');
-        await ensureCanonicalStorage();
-        const databaseValue = appDataStore.getState().initialized
-            ? Buffer.from(encodeRisuSaveLegacy(
-                appDataStore.exportProjection({ includeMessages: true }),
-            ))
-            : null;
+        const snapshot = await queueStorageOperation(async () => {
+            await prepareDatabaseExport();
+            if (!appDataStore.getState().initialized) return null;
+            return {
+                database: appDataStore.exportProjection({ includeMessages: false }),
+                assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
+            };
+        });
+        if (!snapshot) return null;
         return buildSettingsBackupPlan({
-            databaseValue,
-            assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
-            decodeDatabase: decodeRisuSave,
-            encodeDatabase: (database) => encodeRisuSave(withExportColorSchemes(database)),
+            ...snapshot,
             includeModuleAssets,
         });
     }
 
-    async function createCompatibleDatabaseValue({ exportColors = false } = {}) {
-        await ensureCanonicalStorage();
-        if (!appDataStore.getState().initialized) return null;
-        const database = appDataStore.exportProjection({ includeMessages: true });
-        bookmarkStore.projectDatabaseCompatibility(database);
-        // Internal snapshots retain canonical fields; only portable backups get aliases.
-        const output = exportColors
-            ? (await import('../../shared/colorScheme.js')).withExportColorSchemes(database)
-            : database;
-        return await encodeRisuSave(output);
+    async function createPartialBackupPlan() {
+        const database = await getDatabaseExportSnapshot();
+        if (!database) return null;
+
+        const imageDatabase = {
+            customBackground: database.customBackground,
+            userIcon: database.userIcon,
+            characters: (database.characters ?? []).map((character) => ({ image: character?.image })),
+            personas: (database.personas ?? []).map((persona) => ({ icon: persona?.icon })),
+            characterOrder: database.characterOrder,
+            botPresets: (database.botPresets ?? []).map((preset) => ({ image: preset?.image })),
+        };
+        const referencedNames = collectDatabaseAssetBasenames(imageDatabase, { assetsOnly: true });
+        const pngNames = new Set(Array.from(referencedNames).filter((name) => name.endsWith('.png')));
+        const assetRows = kvListWithSizes(STORED_ASSET_PREFIX);
+        const includedAssets = assetRows.filter((asset) => pngNames.has(statsBasename(asset.key)));
+        const includedNames = new Set(includedAssets.map((asset) => statsBasename(asset.key)));
+
+        return {
+            database,
+            includedAssets,
+            missingAssets: Array.from(pngNames).filter((name) => !includedNames.has(name)),
+        };
+    }
+
+    async function getDatabaseExportSnapshot() {
+        return queueStorageOperation(async () => {
+            await prepareDatabaseExport();
+            if (!appDataStore.getState().initialized) return null;
+            const database = appDataStore.exportProjection({ includeMessages: true });
+            bookmarkStore.projectDatabaseCompatibility(database);
+            return database;
+        });
+    }
+
+    async function createCompatibleDatabaseValue() {
+        const database = await getDatabaseExportSnapshot();
+        if (!database) return null;
+        return encodeRisuSave(database);
+    }
+
+    async function encodePortableDatabase(database, onCompress) {
+        const { withExportColorSchemes } = await import('../../shared/colorScheme.js');
+        return encodeRisuSave(withExportColorSchemes(database), onCompress);
     }
 
     app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
         if (!await checkAuth(req, res)) return;
         try {
-            await flushPendingDb();
             const plan = await createSettingsBackupPlan();
             if (!plan) return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
-            res.json(plan.breakdown);
+            const encodedDatabase = await encodePortableDatabase(plan.database);
+            res.json({ ...plan.breakdown, dbBytes: encodedDatabase.length });
         } catch (error) { next(error); }
     });
 
-    app.get('/api/backup/export', async (req, res, next) => {
-        if(!await checkDownloadAuth(req, res)){ return; }
-        try {
-            // ?target=upstream excludes application-specific inlay namespaces (inlay/,
-            // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
-            // which upstream RisuAI's import treats as a path under assets/ and
-            // fails with ENOENT. The export becomes lossy on inlay images but
-            // imports cleanly into upstream.
-            const target = req.query.target === 'upstream' ? 'upstream' : 'pocketrisu';
-            const settingsOnly = req.query.mode === 'settings';
-            const includeModuleAssets = req.query.moduleAssets !== '0';
-            // Flush any pending patches to ensure export includes latest data
-            await flushPendingDb();
+    const preparedExports = new Map();
+    const PREPARED_EXPORT_TTL_MS = 60_000;
+    const MAX_PREPARED_EXPORTS = 4;
 
-            const settingsPlan = settingsOnly
-                ? await createSettingsBackupPlan(includeModuleAssets)
-                : null;
-            if (settingsOnly && !settingsPlan) {
-                return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
-            }
+    async function prepareBackupExport(options, onProgress) {
+        // ?target=upstream excludes application-specific inlay namespaces (inlay/,
+        // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
+        // which upstream RisuAI's import treats as a path under assets/ and
+        // fails with ENOENT. The export becomes lossy on inlay images but
+        // imports cleanly into upstream.
+        const target = options.target === 'upstream' ? 'upstream' : 'pocketrisu';
+        const settingsOnly = options.mode === 'settings';
+        const partialOnly = options.mode === 'partial';
+        const includeModuleAssets = options.moduleAssets !== '0';
+        onProgress?.({ stage: 'saving' });
+        const settingsPlan = settingsOnly
+            ? await createSettingsBackupPlan(includeModuleAssets)
+            : null;
+        const partialPlan = partialOnly ? await createPartialBackupPlan() : null;
+        if ((settingsOnly && !settingsPlan) || (partialOnly && !partialPlan)) {
+            throw createApiError(API_ERROR_CODES.DATABASE_NOT_FOUND, 500);
+        }
 
-            const skipInlay = settingsOnly || target === 'upstream';
-            const inlayFiles = skipInlay ? [] : await listInlayFiles();
-            const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
-                const stat = await fs.stat(entry.filePath);
+        const database = settingsPlan?.database
+            ?? partialPlan?.database
+            ?? await getDatabaseExportSnapshot();
+        if (!database) throw createApiError(API_ERROR_CODES.DATABASE_NOT_FOUND, 500);
+
+        onProgress?.({ stage: 'preparing' });
+        const skipInlay = settingsOnly || partialOnly || target === 'upstream';
+        const inlayFiles = skipInlay ? [] : await listInlayFiles();
+        const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
+            const stat = await fs.stat(entry.filePath);
+            return {
+                kind: 'file',
+                sourcePath: entry.filePath,
+                backupName: `inlay/${entry.id}.${entry.ext}`,
+                sortKey: `inlay/${entry.id}`,
+                size: stat.size,
+            };
+        }));
+        const sidecarEntries = await Promise.all(inlayFiles.map(async (entry) => {
+            const sidecarPath = getInlaySidecarPath(entry.id);
+            try {
+                const stat = await fs.stat(sidecarPath);
                 return {
-                    kind: 'file',
-                    sourcePath: entry.filePath,
-                    backupName: `inlay/${entry.id}.${entry.ext}`,
-                    sortKey: `inlay/${entry.id}`,
+                    kind: 'sidecar',
+                    sourcePath: sidecarPath,
+                    backupName: `inlay_sidecar/${entry.id}`,
+                    sortKey: `inlay_sidecar/${entry.id}`,
                     size: stat.size,
                 };
-            }));
-            const sidecarEntries = await Promise.all(inlayFiles.map(async (entry) => {
-                const sidecarPath = getInlaySidecarPath(entry.id);
-                try {
-                    const stat = await fs.stat(sidecarPath);
-                    return {
-                        kind: 'sidecar',
-                        sourcePath: sidecarPath,
-                        backupName: `inlay_sidecar/${entry.id}`,
-                        sortKey: `inlay_sidecar/${entry.id}`,
-                        size: stat.size,
-                    };
-                } catch {
-                    return null;
-                }
-            }));
-            const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
-                kind: 'kv',
-                key: entry.key,
-                backupName: entry.key,
-                sortKey: entry.key,
-                size: entry.size,
-            }));
-            const namespacedEntries = [
-                ...(settingsPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
-                    .map((entry) => ({
-                        kind: 'kv',
-                        key: entry.key,
-                        backupName: path.basename(entry.key),
-                        sortKey: entry.key,
-                        size: entry.size,
-                    })),
-                ...(settingsOnly ? [] : listColdStorageBackupEntries()),
-                ...inlayMetaEntries,
-                ...inlayEntries,
-                ...sidecarEntries.filter(Boolean),
-            ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-            const exportedDatabase = settingsPlan?.encodedDatabase
-                ?? await createCompatibleDatabaseValue({ exportColors: true });
-            const dbSize = exportedDatabase?.length ?? 0;
-            const totalBytes = namespacedEntries.reduce((sum, entry) => {
-                return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
-            }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
-
-            const filenameBase = settingsOnly ? 'risu-settings' : 'risu-backup';
-            const filenameSuffix = settingsOnly ? '' : target === 'upstream' ? '-upstream' : '';
-            res.setHeader('content-type', 'application/octet-stream');
-            res.setHeader('content-disposition', `attachment; filename="${filenameBase}-${Date.now()}${filenameSuffix}.bin"`);
-            res.setHeader('content-length', totalBytes);
-            res.setHeader('x-risu-backup-assets', namespacedEntries.length);
-
-            let closed = false;
-            res.once('close', () => { closed = true; });
-
-            function waitForDrain() {
-                if (closed) return Promise.resolve();
-                return new Promise(resolve => {
-                    function done() {
-                        res.removeListener('drain', done);
-                        res.removeListener('close', done);
-                        resolve();
-                    }
-                    res.once('drain', done);
-                    res.once('close', done);
-                });
+            } catch {
+                return null;
             }
+        }));
+        const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
+            kind: 'kv',
+            key: entry.key,
+            backupName: entry.key,
+            sortKey: entry.key,
+            size: entry.size,
+        }));
+        const namespacedEntries = [
+            ...(settingsPlan?.includedAssets ?? partialPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
+                .map((entry) => ({
+                    kind: 'kv',
+                    key: entry.key,
+                    backupName: path.basename(entry.key),
+                    sortKey: entry.key,
+                    size: entry.size,
+                })),
+            ...(settingsOnly || partialOnly ? [] : listColdStorageBackupEntries()),
+            ...inlayMetaEntries,
+            ...inlayEntries,
+            ...sidecarEntries.filter(Boolean),
+        ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+        const databaseEntry = { kind: 'buffer', backupName: 'database.risudat', size: 0 };
+        const entries = [...namespacedEntries, databaseEntry];
+        const baseBytes = entries.reduce((sum, entry) => {
+            return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
+        }, 0);
+        databaseEntry.buffer = await encodePortableDatabase(database, onProgress && ((bytes, totalBytes, compressedBytes) => {
+            onProgress({ stage: 'compressing', bytes, totalBytes, backupBytes: baseBytes + compressedBytes });
+        }));
+        databaseEntry.size = databaseEntry.buffer.length;
+        const totalBytes = baseBytes + databaseEntry.size;
 
-            for (const entry of namespacedEntries) {
-                if (closed) break;
-                const value = entry.kind === 'kv'
-                    ? kvGet(entry.key)
-                    : entry.kind === 'buffer'
-                        ? entry.buffer
-                        : await fs.readFile(entry.sourcePath);
-                if (closed) break;
-                if (value) {
-                    const ok = res.write(encodeBackupEntry(entry.backupName, value));
-                    if (!ok) {
-                        await waitForDrain();
-                        if (closed) break;
-                    }
-                }
-            }
+        const filenameBase = settingsOnly ? 'risu-settings' : partialOnly ? 'risu-backup-partial' : 'risu-backup';
+        const filenameSuffix = settingsOnly || partialOnly ? '' : target === 'upstream' ? '-upstream' : '';
+        const plan = {
+            entries, assetCount: namespacedEntries.length, totalBytes,
+            missingAssets: partialPlan?.missingAssets ?? [],
+            filename: `${filenameBase}-${Date.now()}${filenameSuffix}.bin`,
+        };
+        onProgress?.({ stage: 'ready', bytes: plan.totalBytes, totalBytes: plan.totalBytes });
+        return plan;
+    }
 
-            if (!closed && dbSize) {
-                const ok = res.write(encodeBackupEntry('database.risudat', exportedDatabase));
-                if (!ok) {
-                    await waitForDrain();
-                }
+    function takePreparedExport(id) {
+        const entry = preparedExports.get(id);
+        if (!entry?.plan) throw createApiError(API_ERROR_CODES.BACKUP_NOT_FOUND, 404);
+        clearTimeout(entry.timer);
+        preparedExports.delete(id);
+        return entry.plan;
+    }
+
+    app.post('/api/backup/export/prepare', async (req, res, next) => {
+        if (!await checkAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        if (preparedExports.size >= MAX_PREPARED_EXPORTS) {
+            return res.status(429).json({ error: 'Too many prepared backup exports' });
+        }
+        const id = randomUUID();
+        const entry = { plan: null, timer: null };
+        preparedExports.set(id, entry);
+        try {
+            res.setHeader('content-type', 'application/x-ndjson');
+            res.setHeader('cache-control', 'no-store, no-transform');
+            res.setHeader('x-accel-buffering', 'no');
+            res.flushHeaders();
+            entry.plan = await prepareBackupExport(req.query, createBackupProgressWriter(res));
+            if (res.destroyed) {
+                preparedExports.delete(id);
+                return;
             }
-            if (!closed) res.end();
+            // Discard the compressed DB if the browser never follows the download link.
+            entry.timer = setTimeout(() => preparedExports.delete(id), PREPARED_EXPORT_TTL_MS);
+            entry.timer.unref();
+            const download = {
+                url: `/api/backup/export?prepared=${id}`,
+                missingAssets: entry.plan.missingAssets,
+            };
+            res.end(JSON.stringify({ type: 'done', ...download }) + '\n');
         } catch (error) {
-            next(error);
+            clearTimeout(entry.timer);
+            preparedExports.delete(id);
+            if (res.headersSent) {
+                if (!res.destroyed) res.end(JSON.stringify({
+                    type: 'error', message: error.message, code: error.code, details: error.details,
+                }) + '\n');
+            } else {
+                next(error);
+            }
+        }
+    });
+
+    app.get('/api/backup/export', async (req, res, next) => {
+        if (!await checkDownloadAuth(req, res)) return;
+        try {
+            const plan = req.query.prepared
+                ? takePreparedExport(req.query.prepared)
+                : await prepareBackupExport(req.query);
+            const { assetCount, totalBytes, filename } = plan;
+            res.setHeader('content-type', 'application/octet-stream');
+            res.setHeader('content-disposition', `attachment; filename="${filename}"`);
+            res.setHeader('content-length', totalBytes);
+            res.setHeader('x-risu-backup-assets', assetCount);
+            res.flushHeaders();
+            await pipeline(
+                Readable.from(generateBackupEntries(plan), { objectMode: false }),
+                res,
+            );
+        } catch (error) {
+            if (!res.destroyed && !res.writableEnded) next(error);
         }
     });
 
@@ -561,130 +675,93 @@ function installBackupRoutes(app, {
     app.post('/api/backup/server/save', async (req, res, next) => {
         if (!await checkAuth(req, res)) { return; }
         if (!requireSyncClientId(req, res)) return;
+
+        res.setHeader('content-type', 'application/x-ndjson');
+        res.setHeader('cache-control', 'no-store, no-transform');
+        res.setHeader('x-accel-buffering', 'no');
+        res.flushHeaders();
+
+        let closed = !!res.destroyed;
+        let writeStream;
+        let pipelineActive = false;
+        let tmpPath;
+        let writeComplete = false;
+        const onResponseClose = () => {
+            closed = true;
+            if (pipelineActive && writeStream && !writeStream.destroyed) {
+                writeStream.destroy(new Error('Client disconnected during backup save'));
+            }
+        };
+        res.once('close', onResponseClose);
+
+        const writeProgress = createBackupProgressWriter(res);
         try {
-            await flushPendingDb();
-            const dbBackupValue = await createCompatibleDatabaseValue({ exportColors: true });
+            const plan = await prepareBackupExport({}, writeProgress);
+            if (closed || res.destroyed) return;
 
-            // Pre-flight disk check — bail before streaming if the target dir
-            // can't fit the backup. Avoids wasted minutes + half-written tmp files.
+            // The plan includes encoded entry headers; keep the existing safety margin.
+            const estimate = plan.totalBytes;
+            const required = Math.ceil(estimate * 1.05);
+            let free;
             try {
-                const estimate = await estimateServerBackupSize(dbBackupValue?.length);
-                const required = Math.ceil(estimate * 1.05); // 5% safety margin
-                const sf = await fs.statfs(backupState.backupsDir);
-                const free = sf.bsize * sf.bavail;
-                if (estimate > 0 && free < required) {
-                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
-                        required,
-                        free,
-                    });
-                }
-            } catch (e) {
-                // Non-fatal: log and proceed. statfs may be unavailable, in which
-                // case the streaming fallback path below still fails gracefully.
-                console.warn('[Backup] pre-flight disk check failed:', e?.message || e);
+                const stats = await fs.statfs(backupState.backupsDir);
+                free = stats.bsize * stats.bavail;
+            } catch (error) {
+                console.warn('[Backup] pre-flight disk check failed:', error?.message || error);
             }
+            if (estimate > 0 && free !== undefined && free < required) {
+                throw createApiError(API_ERROR_CODES.INSUFFICIENT_STORAGE, 507, { required, free });
+            }
+            if (closed || res.destroyed) return;
 
-            const inlayFiles = await listInlayFiles();
-            const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
-                const stat = await fs.stat(entry.filePath);
-                return { kind: 'file', sourcePath: entry.filePath, backupName: `inlay/${entry.id}.${entry.ext}`, size: stat.size };
-            }));
-            const sidecarEntries = (await Promise.all(inlayFiles.map(async (entry) => {
-                const sidecarPath = getInlaySidecarPath(entry.id);
-                try {
-                    const stat = await fs.stat(sidecarPath);
-                    return { kind: 'sidecar', sourcePath: sidecarPath, backupName: `inlay_sidecar/${entry.id}`, size: stat.size };
-                } catch { return null; }
-            }))).filter(Boolean);
-
-            const namespacedEntries = [
-                ...kvListWithSizes('assets/').map((e) => ({ kind: 'kv', key: e.key, backupName: path.basename(e.key), size: e.size })),
-                ...listColdStorageBackupEntries(),
-                ...kvListWithSizes('inlay_meta/').map((e) => ({ kind: 'kv', key: e.key, backupName: e.key, size: e.size })),
-                ...inlayEntries,
-                ...sidecarEntries,
-            ];
-
-            const totalEntries = namespacedEntries.length + 1; // +1 for database
-            const totalBytes = namespacedEntries.reduce((sum, e) => sum + e.size, 0) + (dbBackupValue?.length || 0);
-
-            // Stream progress as NDJSON
-            res.setHeader('content-type', 'application/x-ndjson');
-            res.flushHeaders();
-
-            const filename = `risu-backup-${Date.now()}.bin`;
+            const { filename, missingAssets } = plan;
             const finalPath = path.join(backupState.backupsDir, filename);
-            const tmpPath = finalPath + '.tmp';
+            tmpPath = finalPath + '.tmp';
             const { createWriteStream: createFsWriteStream } = require('fs');
-            const writeStream = createFsWriteStream(tmpPath);
-
-            let closed = false;
-            let writeComplete = false;
-            res.once('close', () => { closed = true; });
-
+            writeStream = createFsWriteStream(tmpPath);
+            pipelineActive = true;
             try {
-                await new Promise((resolve, reject) => {
-                    writeStream.on('error', reject);
-
-                    (async () => {
-                        let written = 0;
-                        let bytesWritten = 0;
-                        for (const entry of namespacedEntries) {
-                            if (closed) break;
-                            const value = entry.kind === 'kv'
-                                ? kvGet(entry.key)
-                                : entry.kind === 'buffer'
-                                    ? entry.buffer
-                                    : await fs.readFile(entry.sourcePath);
-                            if (value) {
-                                const ok = writeStream.write(encodeBackupEntry(entry.backupName, value));
-                                if (!ok) await new Promise(r => writeStream.once('drain', r));
-                                bytesWritten += value.length;
-                            }
-                            written++;
-                            if (written % 50 === 0 || written === namespacedEntries.length) {
-                                res.write(JSON.stringify({ type: 'progress', current: written, total: totalEntries, bytes: bytesWritten, totalBytes }) + '\n');
-                            }
-                        }
-                        if (closed) throw new Error('Client disconnected during backup save');
-                        if (dbBackupValue) {
-                            const ok = writeStream.write(encodeBackupEntry('database.risudat', dbBackupValue));
-                            if (!ok) await new Promise(r => writeStream.once('drain', r));
-                            bytesWritten += dbBackupValue.length;
-                        }
-                        res.write(JSON.stringify({ type: 'progress', current: totalEntries, total: totalEntries, bytes: bytesWritten, totalBytes }) + '\n');
-                        writeStream.end(resolve);
-                    })().catch(reject);
-                });
-
-                // Atomic rename: only expose the file after successful write
-                await fs.rename(tmpPath, finalPath);
-                writeComplete = true;
-
-                const stat = await fs.stat(finalPath);
-                const note = normalizeBackupNote(req.body?.note);
-                if (note) setBackupNote(getBackupNotesDir(), 'server', filename, note);
-                console.log(`[Server Backup] Saved: ${filename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
-                res.write(JSON.stringify({ type: 'done', ok: true, filename, size: stat.size, note }) + '\n');
-                res.end();
-            } catch (innerError) {
-                // Clean up incomplete temp file
-                if (!writeComplete) {
-                    await fs.unlink(tmpPath).catch(() => {});
-                }
-                throw innerError;
+                await pipeline(
+                    Readable.from(generateBackupEntries(plan, (progress) => {
+                        writeProgress({ stage: 'writing', ...progress });
+                    }), { objectMode: false }),
+                    writeStream,
+                );
+            } finally {
+                pipelineActive = false;
             }
-        } catch (error) {
-            if (!res.headersSent) {
-                next(error);
-            } else {
+
+            if (closed || res.destroyed) throw new Error('Client disconnected during backup save');
+            await fs.rename(tmpPath, finalPath);
+            writeComplete = true;
+
+            const stat = await fs.stat(finalPath);
+            const note = normalizeBackupNote(req.body?.note);
+            if (note) setBackupNote(getBackupNotesDir(), 'server', filename, note);
+            console.log(`[Server Backup] Saved: ${filename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+            if (!closed && !res.destroyed) {
                 res.write(JSON.stringify({
-                    type: 'error',
-                    message: error.message,
-                    ...(error?.code ? { code: error.code } : {}),
+                    type: 'done', ok: true, filename, size: stat.size, note, missingAssets,
                 }) + '\n');
                 res.end();
             }
+        } catch (error) {
+            if (tmpPath && !writeComplete) await fs.unlink(tmpPath).catch(() => {});
+            if (!res.headersSent) {
+                next(error);
+            } else if (!closed && !res.destroyed && !res.writableEnded) {
+                try {
+                    res.write(JSON.stringify({
+                        type: 'error',
+                        message: error.message,
+                        ...(error?.code ? { code: error.code } : {}),
+                        ...(error?.details ? { details: error.details } : {}),
+                    }) + '\n');
+                    res.end();
+                } catch {}
+            }
+        } finally {
+            res.removeListener('close', onResponseClose);
         }
     });
 
@@ -1188,7 +1265,6 @@ function installBackupRoutes(app, {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         try {
-            await flushPendingDb();
             const blob = await createCompatibleDatabaseValue();
             if (!blob) {
                 return sendApiError(res, 404, API_ERROR_CODES.DATABASE_NOT_FOUND);

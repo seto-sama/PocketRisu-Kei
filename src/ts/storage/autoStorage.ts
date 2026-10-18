@@ -3,9 +3,10 @@ import {
     NodeStorage,
     type DatabaseProjection,
     type ExportBackupOptions,
-    type FileFormat,
+    type BackupProgress,
     type PatchItemResult,
     type DeltaPatch,
+    type FileFormat,
 } from "./nodeStorage"
 
 export class AutoStorage{
@@ -44,9 +45,12 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
-    async downloadBackupExport(opts?: ExportBackupOptions) {
+    async downloadBackupExport(
+        opts?: ExportBackupOptions,
+        onProgress?: (progress: BackupProgress) => void,
+    ) {
         await this.Init()
-        return this.realStorage.downloadBackupExport(opts)
+        return this.realStorage.downloadBackupExport(opts, onProgress)
     }
 
     async downloadAsset(key: string, filename?: string) {
@@ -126,7 +130,7 @@ export class AutoStorage{
     async setItems(entries: {key: string, value: Uint8Array}[]) { return this.realStorage.setItems(entries) }
 
     // ── Server-side backup ─────────────────────────────────────────────────────
-    async saveServerBackup(note = '', onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void) {
+    async saveServerBackup(note = '', onProgress?: (progress: BackupProgress) => void) {
         await this.Init()
         return this.realStorage.saveServerBackup(note, onProgress)
     }

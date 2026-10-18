@@ -14,17 +14,12 @@ function stripToSettingsOnly(database) {
 }
 
 /** Build the database and exact asset allow-list used by estimate and export. */
-async function buildSettingsBackupPlan({
-    databaseValue,
+function buildSettingsBackupPlan({
+    database,
     assetRows,
-    decodeDatabase,
-    encodeDatabase,
     includeModuleAssets = true,
 }) {
-    if (!databaseValue) return null;
-
-    const trimmed = stripToSettingsOnly(await decodeDatabase(databaseValue));
-    const encodedDatabase = Buffer.from(await encodeDatabase(trimmed));
+    const trimmed = stripToSettingsOnly(database);
     const withModuleAssets = collectDatabaseAssetBasenames(trimmed);
     const withoutModuleAssets = collectDatabaseAssetBasenames(trimmed, {
         includeModuleAssets: false,
@@ -53,11 +48,9 @@ async function buildSettingsBackupPlan({
     }
 
     return {
-        encodedDatabase,
-        includedAssetNames,
+        database: trimmed,
         includedAssets,
         breakdown: {
-            dbBytes: encodedDatabase.length,
             baseAssets: { count: baseCount, bytes: baseBytes },
             moduleAssets: {
                 count: moduleCount,
@@ -71,6 +64,5 @@ async function buildSettingsBackupPlan({
 }
 
 module.exports = {
-    stripToSettingsOnly,
     buildSettingsBackupPlan,
 };
