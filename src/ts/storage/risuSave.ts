@@ -1,9 +1,6 @@
 import { chatMetadataFields } from '../../../shared/chatShape.mjs'
-import { Buffer } from 'buffer'
-import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
-import * as fflate from "fflate";
-import { language } from "src/lang";
-import { createBotPresetTemplate, type Database } from "./database.svelte";
+import { Packr, Unpackr } from "msgpackr/index-no-eval";
+import type { Database } from "./database.svelte";
 import { chatToStub } from "./chatStorage";
 import {
     characterToClientWriteShape,
@@ -28,33 +25,11 @@ const magicStreamCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 8
 const magicRisuSaveHeader = new TextEncoder().encode("RISUSAVE\0");
 
 
-export function encodeRisuSaveLegacy(data:any, compression:'noCompression'|'compression' = 'noCompression'){
-    let encoded:Uint8Array = packr.encode(data)
-    if(compression === 'compression'){
-        encoded = fflate.compressSync(encoded)
-        const result = new Uint8Array(encoded.length + magicCompressedHeader.length);
-        result.set(magicCompressedHeader, 0)
-        result.set(encoded, magicCompressedHeader.length)
-        return result
-    }
-    else{
-        const result = new Uint8Array(encoded.length + magicHeader.length);
-        result.set(magicHeader, 0)
-        result.set(encoded, magicHeader.length)
-        return result
-    }
-}
-
-export async function encodeRisuSaveCompressionStream(data:any) {
-    let encoded:Uint8Array = packr.encode(data)
-    const cs = new CompressionStream('gzip');
-    const writer = cs.writable.getWriter();
-    writer.write(encoded as any);
-    writer.close();
-    const buf = await new Response(cs.readable).arrayBuffer()
-    const result = new Uint8Array(new Uint8Array(buf).length + magicStreamCompressedHeader.length);
-    result.set(magicStreamCompressedHeader, 0)
-    result.set(new Uint8Array(buf), magicStreamCompressedHeader.length)
+export function encodeRisuSaveLegacy(data:any){
+    const encoded:Uint8Array = packr.encode(data)
+    const result = new Uint8Array(encoded.length + magicHeader.length);
+    result.set(magicHeader, 0)
+    result.set(encoded, magicHeader.length)
     return result
 }
 
@@ -84,101 +59,77 @@ enum RisuSaveType {
 }
 
 type EncodeBlockArg = {
-    compression:boolean
     data:string
     type:RisuSaveType
     name:string
-    cache?:boolean
 }
 
-class UnsupportedRemoteBlockError extends Error {
-    readonly code = 'UNSUPPORTED_REMOTE_SAVE'
-
-    constructor() {
-        super(
-            language.unsupportedRemoteSave,
-        )
-        this.name = 'UnsupportedRemoteBlockError'
+function serializeRootValues(data: Database): Record<string, unknown> {
+    const root: Record<string, unknown> = {}
+    for (const key of Object.keys(data)) {
+        if (
+            key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
+            key !== 'plugins' && key !== 'pluginCustomStorage'
+        ) {
+            root[key] = rootValueToClientWriteShape(key, data[key])
+        }
     }
+    return root
 }
 
-const risuSaveCacheMap = new Map<string, {type: RisuSaveType, data: string, name: string}>();
+function serializeCharacterBlock(character: Database['characters'][number]): string {
+    const charForEncode = {
+        ...characterToClientWriteShape(character),
+        chats: character.chats.map(chat => chatToStub(chat)),
+    }
+    // Keep serialization strict so circular data fails the save.
+    return JSON.stringify(charForEncode)
+}
+
 export class RisuSaveEncoder {
 
     private blocks: { [key: string]: Uint8Array } = {};
-    private compression: boolean = false;
-    // Per-character change detection: the exact JSON we last encoded. A plain
-    // string comparison is a native memcmp — ~3x faster than the previous
-    // normalizeJSON + calculateHash walk — and the string is reused as the
-    // encode payload, so changed characters aren't stringified twice.
-    // In-memory only (rebuilt by init()), so the representation is free to
-    // differ from the patcher's protocol-level calculateHash.
+    // Retain each character's JSON to avoid encoding unchanged blocks again.
     private characterJsons: { [key: string]: string } = {};
 
-    async init(data:Database,arg:{ compression?: boolean } = {}){
-        const { compression = false } = arg;
-        this.compression = compression;
-        let obj:Record<any,any> = {}
-        let keys = Object.keys(data)
-        for(const key of keys){
-            if(
-                key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
-                key !== 'plugins' && key !== 'pluginCustomStorage'
-            ){
-                obj[key] = rootValueToClientWriteShape(key, data[key])
-            }
-        }
-        this.blocks['root'] = await this.encodeBlock({
-            compression,
+    async init(data:Database){
+        const obj = serializeRootValues(data)
+        this.blocks['root'] = this.encodeBlock({
             data: JSON.stringify(obj),
             type: RisuSaveType.ROOT,
             name: 'root'
         });
-        this.blocks['preset'] = await this.encodeBlock({
-            compression,
+        this.blocks['preset'] = this.encodeBlock({
             data: JSON.stringify(data.botPresets),
             type: RisuSaveType.BOTPRESET,
             name: 'preset'
         });
-        this.blocks['modules'] = await this.encodeBlock({
-            compression,
+        this.blocks['modules'] = this.encodeBlock({
             data: JSON.stringify(data.modules),
             type: RisuSaveType.MODULES,
             name: 'modules'
         });
-        this.blocks['plugins'] = await this.encodeBlock({
-            compression,
+        this.blocks['plugins'] = this.encodeBlock({
             data: JSON.stringify(data.plugins),
             type: RisuSaveType.PLUGINS,
             name: 'plugins'
         });
-        this.blocks['pluginStorage'] = await this.encodeBlock({
-            compression,
+        this.blocks['pluginStorage'] = this.encodeBlock({
             data: JSON.stringify(data.pluginCustomStorage),
             type: RisuSaveType.PLUGIN_STORAGE,
             name: 'pluginStorage'
         });
         this.characterJsons = {}
         for( const character of data.characters) {
-            // Replace chats with stubs for database.bin — full chat data lives server-side
-            const charForEncode = {
-                ...characterToClientWriteShape(character),
-                chats: character.chats.map(c => chatToStub(c)),
-            }
-            // Raw stringify (no normalize fallback): a circular ref must fail the
-            // save loudly, exactly as before, rather than silently persist a
-            // lossy copy. This string doubles as the encode payload.
-            const charJson = JSON.stringify(charForEncode)
-            this.blocks[character.chaId] = await this.encodeBlock({
-                compression,
+            const charJson = serializeCharacterBlock(character)
+            this.blocks[character.chaId] = this.encodeBlock({
                 data: charJson,
                 type: RisuSaveType.CHARACTER_WITH_CHAT,
                 name: character.chaId
             });
             this.characterJsons[character.chaId] = charJson
         }
-        this.blocks['config'] = await this.encodeBlock({
-            compression,
+        this.blocks['config'] = this.encodeBlock({
             data: JSON.stringify({
                 version: 1
             }),
@@ -188,55 +139,23 @@ export class RisuSaveEncoder {
     }
 
     async set(data:Database, toSave:toSaveType){
-        let obj:Record<any,any> = {}
-        let keys = Object.keys(data)
-        for(const key of keys){
-            if(
-                key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
-                key !== 'plugins' && key !== 'pluginCustomStorage'
-            ){
-                obj[key] = rootValueToClientWriteShape(key, data[key])
-            }
-        }
+        const obj = serializeRootValues(data)
 
-        const savedId = new Set<string>();
         for(const character of data.characters) {
             if (!character?.chaId) {
                 continue
             }
             const chaId = character.chaId
-            savedId.add(chaId)
-            const index = toSave.character.indexOf(chaId);
-            // Compare against the stub-replaced character so hydration (stub →
-            // full chat) doesn't read as a change of the character itself.
-            // Raw stringify (see init): circular refs fail the save loudly.
-            const charForEncode = {
-                ...characterToClientWriteShape(character),
-                chats: character.chats.map(c => chatToStub(c)),
-            }
-            const charJson = JSON.stringify(charForEncode)
+            const charJson = serializeCharacterBlock(character)
             const hasChanged = this.characterJsons[chaId] !== charJson
 
-            if (index !== -1 || hasChanged || !this.blocks[chaId]) {
-                this.blocks[character.chaId] = await this.encodeBlock({
-                    compression: this.compression,
+            if (hasChanged || !this.blocks[chaId]) {
+                this.blocks[chaId] = this.encodeBlock({
                     data: charJson,
                     type: RisuSaveType.CHARACTER_WITH_CHAT,
                     name: character.chaId
                 });
                 this.characterJsons[chaId] = charJson
-                if (index !== -1) {
-                    toSave.character.splice(index, 1);
-                }
-            }
-        }
-        if(toSave.character.length > 0){
-            console.log(`Deleting character data: ${toSave.character.join(', ')}`);
-            for(const chaId of toSave.character){
-                if(!savedId.has(chaId)){
-                    delete this.blocks[chaId];
-                    delete this.characterJsons[chaId];
-                }
             }
         }
 
@@ -255,16 +174,14 @@ export class RisuSaveEncoder {
         }
 
         if(toSave.botPreset){
-            this.blocks['preset'] = await this.encodeBlock({
-                compression: this.compression,
+            this.blocks['preset'] = this.encodeBlock({
                 data: JSON.stringify(data.botPresets),
                 type: RisuSaveType.BOTPRESET,
                 name: 'preset'
             });
         }
         if(toSave.modules){
-            this.blocks['modules'] = await this.encodeBlock({
-                compression: this.compression,
+            this.blocks['modules'] = this.encodeBlock({
                 data: JSON.stringify(data.modules),
                 type: RisuSaveType.MODULES,
                 name: 'modules'
@@ -272,8 +189,7 @@ export class RisuSaveEncoder {
         }
 
         if(toSave.pluginCustomStorage){
-            this.blocks['pluginStorage'] = await this.encodeBlock({
-                compression: this.compression,
+            this.blocks['pluginStorage'] = this.encodeBlock({
                 data: JSON.stringify(data.pluginCustomStorage),
                 type: RisuSaveType.PLUGIN_STORAGE,
                 name: 'pluginStorage'
@@ -281,8 +197,7 @@ export class RisuSaveEncoder {
         }
 
         if(toSave.plugins){
-            this.blocks['plugins'] = await this.encodeBlock({
-                compression: this.compression,
+            this.blocks['plugins'] = this.encodeBlock({
                 data: JSON.stringify(data.plugins),
                 type: RisuSaveType.PLUGINS,
                 name: 'plugins'
@@ -290,17 +205,14 @@ export class RisuSaveEncoder {
         }
 
         obj["__directory"] = Object.keys(this.blocks).filter(key => key !== 'root');
-        this.blocks['root'] = await this.encodeBlock({
-            compression: this.compression,
+        this.blocks['root'] = this.encodeBlock({
             data: JSON.stringify(obj),
             type: RisuSaveType.ROOT,
             name: 'root'
         });
     }
 
-    encode(arg:{
-        compression?: boolean
-    } = {}){
+    encode(){
         if(!this.blocks['config']){
             return null
         }
@@ -318,252 +230,61 @@ export class RisuSaveEncoder {
             view.set(this.blocks[key], offset);
             offset += this.blocks[key].length;
         }
-        console.log(Object.keys(this.blocks).length, 'blocks encoded');
         return arrayBuf;
     }
 
-    async encodeBlock(arg:EncodeBlockArg){
-        let databuf: Uint8Array;
-        const cacheBlock = arg.cache ?? true;
-        if(arg.compression){
-            const cs = new CompressionStream('gzip');
-            const writer = cs.writable.getWriter();
-            writer.write(new TextEncoder().encode(arg.data));
-            writer.close();
-            const compressedData = await new Response(cs.readable).arrayBuffer();
-            databuf = (new Uint8Array(compressedData));
-        }
-        else{
-            databuf = (new TextEncoder().encode(arg.data));
-        }
+    encodeBlock(arg:EncodeBlockArg): Uint8Array {
+        const databuf = new TextEncoder().encode(arg.data);
         const nameBuf = new TextEncoder().encode(arg.name);
         const lengthBuf = new ArrayBuffer(4);
         new Uint32Array(lengthBuf)[0] = databuf.length;
         const arrayBuf = new ArrayBuffer(2 + 1 + nameBuf.length + 4 + databuf.length);
         const buf = new Uint8Array(arrayBuf);
-        buf.set(new Uint8Array([arg.type, arg.compression ? 1 : 0]), 0);
+        buf.set(new Uint8Array([arg.type, 0]), 0);
         buf.set(new Uint8Array([nameBuf.length]), 2);
         buf.set(nameBuf, 3);
         buf.set(new Uint8Array(lengthBuf), 3 + nameBuf.length);
         buf.set(databuf, 7 + nameBuf.length);
-        risuSaveCacheMap.set(`risuSaveBlock_${arg.name}`, {
-            type: arg.type,
-            data: arg.data,
-            name: arg.name,
-        });
         return buf;
     }
 
 }
 
-export class RisuSaveDecoder {
-    private blocks: {
-        name: string;
-        type: RisuSaveType;
-        compression: boolean;
-        content: string;
-    }[] = []
-    async decode(data: Uint8Array): Promise<Database> {
-        console.log('Decoding RisuSave data');
-        let offset = magicRisuSaveHeader.length;
-        //@ts-expect-error Database has required fields, but we initialize empty and populate incrementally during decode
-        let db:Database = {}
-        const loadedBlocks = new Set<string>();
-        while (offset < data.length) {
-            try {
-                const type = data[offset];
-                const compression = data[offset + 1] === 1;
-                offset += 2;
-
-                const nameLength = data[offset];
-                offset += 1;
-                const name = new TextDecoder().decode(data.subarray(offset, offset + nameLength));
-                offset += nameLength;
-
-                const newArrayBuf = new ArrayBuffer(4);
-                const lengthSubUint8Buf = data.slice(offset, offset + 4);
-                new Uint8Array(newArrayBuf).set(lengthSubUint8Buf);
-                const length = new Uint32Array(newArrayBuf)[0];
-                offset += 4;
-
-                let blockData = data.subarray(offset, offset + length);
-                offset += length;
-
-                if (compression) {
-                    const cs = new DecompressionStream('gzip');
-                    const writer = cs.writable.getWriter();
-                    writer.write(blockData as any);
-                    writer.close();
-                    const buf = await new Response(cs.readable).arrayBuffer();
-                    blockData = new Uint8Array(buf);
-                }
-
-                loadedBlocks.add(name);
-                this.blocks.push({
-                    name,
-                    type,
-                    compression,
-                    content: new TextDecoder().decode(blockData)
-                })   
-            } catch (error) {
-                continue
-            }
-        }
-        console.log('blocks',this.blocks)
-        let directory: string[] = []
-        for(let i = 0; i < this.blocks.length; i++){
-            const key = i;
-            try {
-            switch(this.blocks[key].type){
-                case RisuSaveType.ROOT:{
-                    const rootData = JSON.parse(this.blocks[key].content);
-                    for(const rootKey in rootData){
-                        if(!db[rootKey] && !rootKey.startsWith('__')){
-                            db[rootKey] = rootData[rootKey];
-                        }
-                        if(rootKey === '__directory'){
-                            directory = rootData[rootKey];
-                            console.log('RisuSave directory:', directory);
-                            for(const dirKey of directory){
-                                if(!loadedBlocks.has(dirKey)){
-                                    try {
-                                        console.log(`Loading directory block ${dirKey} from cache`);
-                                        const dirData:{
-                                            type:RisuSaveType
-                                            data:string
-                                            name:string
-                                        } = risuSaveCacheMap.get(`risuSaveBlock_${dirKey}`) ?? null;
-
-                                        if(dirData){
-                                            this.blocks.push({
-                                                name: dirData.name,
-                                                type: dirData.type,
-                                                compression: false,
-                                                content: dirData.data
-                                            });
-                                            loadedBlocks.add(dirKey);
-                                        }
-                                    } catch (error) {
-                                        console.error(`Error loading directory block ${dirKey}:`, error);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-                case RisuSaveType.CHARACTER_WITH_CHAT:
-                case RisuSaveType.CHARACTER_WITHOUT_CHAT:{
-                    db.characters ??= [];
-                    const character = JSON.parse(this.blocks[key].content);
-                    db.characters.push(character);
-                    break
-                }
-                case RisuSaveType.BOTPRESET:{
-                    db.botPresets = JSON.parse(this.blocks[key].content);
-                    break;
-                }
-                case RisuSaveType.MODULES:{
-                    db.modules = JSON.parse(this.blocks[key].content);
-                    break;
-                }
-                case RisuSaveType.CONFIG:{
-                    break;
-                }
-                case RisuSaveType.PLUGINS:{
-                    db.plugins = JSON.parse(this.blocks[key].content);
-                    break;
-                }
-                case RisuSaveType.LOADOUTS:{
-                    // Loadout feature removed; ignore any legacy blocks from older backups.
-                    break;
-                }
-                case RisuSaveType.PLUGIN_STORAGE:{
-                    db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
-                    break;
-                }
-                case RisuSaveType.UNSUPPORTED_REMOTE:{
-                    throw new UnsupportedRemoteBlockError()
-                }
-                case RisuSaveType.ROOT_COMPONENT:{
-                    const componentData:{
-                        data:any
-                        key:string
-                    } = JSON.parse(this.blocks[key].content);
-                    db[componentData.key] = componentData.data;
-                    break;
-                }
-                default:{
-                    console.warn(`Not Implemented RisuSaveType: ${this.blocks[key].type} for ${this.blocks[key].name}`);
-                }
-            }
-            } catch (error) {
-                console.error(`Error processing block ${this.blocks[key].name}:`, error);
-
-                if(error instanceof UnsupportedRemoteBlockError){
-                    throw error
-                }
-
-                if(this.blocks[key].type === RisuSaveType.ROOT){
-                    throw new Error('Failed to decode root block, cannot proceed with decoding RisuSave data');
-                }
-            }
-        }
-        if(!Array.isArray(db.botPresets) || db.botPresets.length === 0){
-            db.botPresets = [createBotPresetTemplate()]
-            db.botPresetsId = 0
-        }
-        console.log('Decoded RisuSave data', db);
-        return db;
-    }
-}
-
 export async function decodeRisuSave(data:Uint8Array){
+    let header: ReturnType<typeof checkHeader> = false
     try {
-        const header = checkHeader(data)
+        header = checkHeader(data)
         switch(header){
             case "compressed":
-                data = data.slice(magicCompressedHeader.length)
-                return decode(fflate.decompressSync(data))
+                return await decodeSaveFile(data)
             case "raw":
                 data = data.slice(magicHeader.length)
                 return unpackr.decode(data)
-            case "stream":{
-                data = data.slice(magicStreamCompressedHeader.length)
-                const cs = new DecompressionStream('gzip');
-                const writer = cs.writable.getWriter();
-                writer.write(data as any);
-                writer.close();
-                const buf = await new Response(cs.readable).arrayBuffer()
-                return unpackr.decode(new Uint8Array(buf))
-            }
+            case "stream":
+                return await decodeSaveFile(data)
             case "risusave":{
-                const decoder = new RisuSaveDecoder();
-                return await decoder.decode(data);
+                return await decodeSaveFile(data)
             }
         }
         return unpackr.decode(data)
     }
     catch (error) {
-        if(error instanceof UnsupportedRemoteBlockError){
-            throw error
-        }
+        if(header === 'compressed' || header === 'stream' || header === 'risusave') throw error
         console.error('Error decoding RisuSave data:', error);
         try {
-            console.log('risudecode')
-            const risuSaveHeader = new Uint8Array(Buffer.from("\u0000\u0000RISU",'utf-8'))
+            const risuSaveHeader = new TextEncoder().encode("\u0000\u0000RISU")
             const realData = data.subarray(risuSaveHeader.length)
             const dec = unpackr.decode(realData)
             return dec   
         } catch (error) {
-            const buf = Buffer.from(fflate.decompressSync(Buffer.from(data)))
-            try {
-                return JSON.parse(buf.toString('utf-8'))                            
-            } catch (error) {
-                return unpackr.decode(buf)
-            }
+            return await decodeSaveFile(data)
         }
     }
+}
+
+async function decodeSaveFile(data:Uint8Array):Promise<Database>{
+    const { forageStorage } = await import('./autoStorage')
+    return await forageStorage.decodeFile('save', data) as Database
 }
 
 function checkHeader(data: Uint8Array) {

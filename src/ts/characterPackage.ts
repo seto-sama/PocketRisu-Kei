@@ -1,6 +1,5 @@
 import { setChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
-import * as fflate from 'fflate'
 import { createEntityId } from 'src/ts/id';
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
@@ -12,6 +11,7 @@ import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
+import { zip } from './process/zip'
 import { getInlayAssetBlob, setInlayAsset, getInlayInfosBatch } from './process/files/inlays'
 import { isInlayMediaType } from '../../shared/inlayTypes.mjs'
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
@@ -131,28 +131,48 @@ async function buildPersonaPng(persona: { name: string, personaPrompt: string, i
 
 // ── Shared import logic ──
 
-async function parseAndValidatePackage(file: { name: string, data: Uint8Array }): Promise<{ unzipped: fflate.Unzipped, manifest: PackageManifest } | null> {
+async function parseAndValidatePackage(file: { name: string, data: Uint8Array }): Promise<{ unzipped: Record<string, Uint8Array>, manifest: PackageManifest } | null> {
     alertWait(language.characterPackageProgressReading)
 
-    const unzipped = await new Promise<fflate.Unzipped>((resolve, reject) => {
-        fflate.unzip(file.data, (err, data) => {
-            if (err) reject(err)
-            else resolve(data)
-        })
-    })
+    const archive = new zip.ZipReader(new zip.Uint8ArrayReader(file.data))
+    const unzipped: Record<string, Uint8Array> = Object.create(null)
+    try {
+        const entries = new Map<string, zip.Entry>()
+        for (const entry of await archive.getEntries()) {
+            if ('getData' in entry) entries.set(entry.filename, entry)
+        }
 
-    const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) {
-        alertError(language.characterPackageInvalidZip)
-        return null
-    }
-    const manifest: PackageManifest = JSON.parse(new TextDecoder().decode(manifestBytes))
-    if (manifest.type !== 'risuCharacterPackage' || manifest.version !== 1) {
-        alertError(language.characterPackageInvalidZip)
-        return null
-    }
+        const manifestEntry = entries.get('manifest.json')
+        if (!manifestEntry || !('getData' in manifestEntry)) {
+            alertError(language.characterPackageInvalidZip)
+            return null
+        }
+        const manifestBytes = await manifestEntry.getData(new zip.Uint8ArrayWriter())
+        const manifest: PackageManifest = JSON.parse(new TextDecoder().decode(manifestBytes))
+        if (manifest.type !== 'risuCharacterPackage' || manifest.version !== 1) {
+            alertError(language.characterPackageInvalidZip)
+            return null
+        }
 
-    return { unzipped, manifest }
+        const referencedFiles = new Set<string>()
+        if (!manifest.character.isEmpty && manifest.character.file) referencedFiles.add(manifest.character.file)
+        if (manifest.chats?.file) referencedFiles.add(manifest.chats.file)
+        for (const persona of manifest.personas ?? []) referencedFiles.add(persona.file)
+        if (manifest.inlays) {
+            if (manifest.inlays.metaFile) referencedFiles.add(manifest.inlays.metaFile)
+            for (const file of manifest.inlays.files) referencedFiles.add(file)
+        }
+
+        for (const path of referencedFiles) {
+            const entry = entries.get(path)
+            if (entry && 'getData' in entry) {
+                unzipped[path] = await entry.getData(new zip.Uint8ArrayWriter())
+            }
+        }
+        return { unzipped, manifest }
+    } finally {
+        await archive.close().catch(() => {})
+    }
 }
 
 function buildImportSummary(manifest: PackageManifest): string {
@@ -178,7 +198,7 @@ type ProgressFn = (msg: string, subPct?: number) => void
 
 async function importPersonas(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     progress: ProgressFn
 ): Promise<Record<string, string>> {
     const personaIdMap: Record<string, string> = {}
@@ -248,7 +268,7 @@ async function importPersonas(
 
 async function importChatsToCharacter(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     targetChar: character,
     personaIdMap: Record<string, string>,
     progress: ProgressFn,
@@ -309,7 +329,7 @@ async function importChatsToCharacter(
 
 async function importInlays(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     targetCharId: string,
     importCurrentStep: number,
     importTotalSteps: number,

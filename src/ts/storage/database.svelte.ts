@@ -4,14 +4,14 @@ import { getEnabledModules } from '../process/moduleSelection';
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
+import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
 import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
-import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
+import { downloadFile, forageStorage, requestImmediateSave, saveAsset as saveImageGlobal } from '../globalApi.svelte';
 import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
@@ -2615,6 +2615,7 @@ export function copyThemePreset(id: number){
 }
 
 export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
+    await requestImmediateSave({ requireSuccess: true })
     const current = getDatabase()
     const db = { ...current, themePresets: [...current.themePresets] }
     saveCurrentThemePreset(db)
@@ -2622,18 +2623,10 @@ export async function downloadThemePreset(id: number, type: 'json'|'risutheme' =
     pres.customBackground = ''
 
     if(type === 'json'){
-        downloadFile(pres.name + "_theme.json", Buffer.from(JSON.stringify(pres, null, 2)))
+        downloadFile(pres.name + "_theme.json", await forageStorage.encodeFile('json', pres))
     } else {
-        const buf = fflate.compressSync(encodeMsgpack({
-            presetVersion: 1,
-            type: 'theme',
-            preset: await encryptBuffer(
-                encodeMsgpack(pres),
-                'risutheme'
-            )
-        }))
-        const buf2 = await encodeRPack(buf)
-        downloadFile(pres.name + "_theme.risutheme", buf2)
+        const data = await forageStorage.encodeFile('theme', pres)
+        downloadFile(pres.name + "_theme.risutheme", data)
     }
 
     notifySuccess(language.successExport)
@@ -2650,18 +2643,14 @@ export async function importThemePreset(f: {
 
     let pre: any
     if(f.name.endsWith('.risutheme')){
-        let data = await decodeRPack(f.data)
-        const decoded = await decodeMsgpack(fflate.decompressSync(data))
-        if(decoded.presetVersion === 1 && decoded.type === 'theme'){
-            pre = {
-                ...structuredClone(themePresetTemplate),
-                ...decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset, 'risutheme')))
-            }
+        pre = {
+            ...structuredClone(themePresetTemplate),
+            ...await forageStorage.decodeFile('theme', f.data)
         }
     } else {
         pre = {
             ...structuredClone(themePresetTemplate),
-            ...(JSON.parse(Buffer.from(f.data).toString('utf-8')))
+            ...await forageStorage.decodeFile('json', f.data)
         }
     }
 
@@ -2676,10 +2665,7 @@ export async function importThemePreset(f: {
     notifySuccess(language.successImport)
 }
 
-import { encode as encodeMsgpack, decode as decodeMsgpack } from "msgpackr/index-no-eval";
-import * as fflate from "fflate";
 import type { RisuModule } from '../process/modules';
-import { decodeRPack, encodeRPack } from '../rpack/rpack_js';
 import { DBState, selectedCharID } from '../stores.svelte';
 import { LLMFlags, LLMFormat, LLMTokenizer } from '../model/modellist';
 import type { HypaModel } from '../process/memory/hypamemory';
@@ -2688,28 +2674,19 @@ import type { OpenAIChat } from '../process/index.svelte';
 
 export async function downloadPreset(id:number, type:'json'|'risupreset'|'return' = 'json'){
     saveCurrentPreset()
+    await requestImmediateSave({ requireSuccess: true })
     let db = getDatabase()
     let pres = structuredClone(db.botPresets[id])
-    console.log(pres)
     pres.openAIKey = ''
     pres.forceReplaceUrl = ''
     pres.forceReplaceUrl2 = ''
     pres.proxyKey = ''
 
     if(type === 'json'){
-        downloadFile(pres.name + "_preset.json", Buffer.from(JSON.stringify(pres, null, 2)))
+        downloadFile(pres.name + "_preset.json", await forageStorage.encodeFile('json', pres))
     }
     else if(type === 'risupreset' || type === 'return'){
-        const buf = fflate.compressSync(encodeMsgpack({
-            presetVersion: 2,
-            type: 'preset',
-            preset: await encryptBuffer(
-                encodeMsgpack(pres),
-                'risupreset'
-            )
-        }))
-
-        const buf2 = await encodeRPack(buf)
+        const buf2 = await forageStorage.encodeFile('preset', pres)
 
         if(type === 'risupreset'){
             downloadFile(pres.name + "_preset.risup", buf2)
@@ -2804,15 +2781,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
                 throw new Error('Risu preset files must be imported one at a time.')
             }
             const file = nativeFiles[0]
-            let data = file.data
-            if(file.name.toLowerCase().endsWith('.risup')){
-                data = await decodeRPack(data)
-            }
-            const decoded = await decodeMsgpack(fflate.decompressSync(data))
-            if((decoded.presetVersion !== 0 && decoded.presetVersion !== 2) || decoded.type !== 'preset'){
-                throw new Error('Unsupported Risu preset format.')
-            }
-            const importedPreset = decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset ?? decoded.pres, 'risupreset')))
+            const importedPreset = await forageStorage.decodeFile('preset', file.data)
             const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
             addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
             return true
@@ -2845,7 +2814,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
             return true
         }
 
-        const importedPreset = JSON.parse(conversionFile.content)
+        const importedPreset = await forageStorage.decodeFile('json', files[0].data)
         if(isNovelAIPreset(importedPreset)){
             // NovelAI preset
             const pre = {...presetTemplate, ...importedPreset}

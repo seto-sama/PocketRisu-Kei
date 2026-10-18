@@ -1,22 +1,19 @@
-import { Buffer } from 'buffer'
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { webcrypto } from 'node:crypto'
-import { decompressSync } from 'fflate'
-import { decode } from 'msgpackr'
 import { defaultColorScheme, exportColorSchemeWithAliases, withExportColorSchemes, normalizeColorScheme } from '../../../server/shared/colorScheme.js'
 
 vi.mock('../stores.svelte', () => ({ DBState: { db: {} }, selectedCharID: { subscribe: () => () => {} }, selIdState: { selId: -1 } }))
-const backupEntries = vi.hoisted(() => [] as Array<{ name: string, data: Uint8Array }>)
+const { forageStorage, requestImmediateSave } = vi.hoisted(() => {
+    const encodeFile = vi.fn(async (format: string, value: unknown) => new TextEncoder().encode(
+        format === 'json' ? JSON.stringify(value, null, 2) : JSON.stringify({ format, value }),
+    ))
+    const forageStorage = { realStorage: null, encodeFile }
+    const requestImmediateSave = vi.fn(async () => {})
+    return { forageStorage, requestImmediateSave }
+})
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage: { realStorage: null }, downloadFile: vi.fn(), saveAsset: async () => '',
-    LocalWriter: class {
-        async init() { return true }
-        async writeBackup(name: string, data: Uint8Array) { backupEntries.push({ name, data }) }
-        async close() {}
-    },
+    forageStorage, downloadFile: vi.fn(), saveAsset: async () => '', requestImmediateSave,
 }))
-vi.mock('../storage/autoStorage', () => ({ forageStorage: { realStorage: null } }))
+vi.mock('../storage/autoStorage', () => ({ forageStorage }))
 vi.mock('../alert', () => ({ notifySuccess: () => {}, alertError: () => {}, alertConfirm: async () => true, alertWait: () => {} }))
 vi.mock('../../lang', () => ({ language: {}, changeLanguage: () => {} }))
 
@@ -28,6 +25,18 @@ function assertScheme(value, source: typeof defaultColorScheme = scheme) {
 }
 
 describe('export color compatibility', () => {
+    it('stops exporting when the current changes cannot be saved', async () => {
+        const { downloadThemePreset } = await import('../storage/database.svelte')
+        const { downloadFile } = await import('../globalApi.svelte')
+        const { DBState } = await import('../stores.svelte')
+        DBState.db = { colorScheme: scheme, themePresets: [{ name: 'Saved', colorScheme: scheme }], themePresetsId: 0 } as any
+        vi.mocked(downloadFile).mockClear()
+        requestImmediateSave.mockRejectedValueOnce(new Error('Save failed'))
+
+        await expect(downloadThemePreset(0, 'risutheme')).rejects.toThrow('Save failed')
+        expect(requestImmediateSave).toHaveBeenCalledWith({ requireSuccess: true })
+        expect(downloadFile).not.toHaveBeenCalled()
+    })
     it('copies active and saved colors, retaining extensions and preferring canonical values', () => {
         const source = { colorScheme: { ...scheme, bgcolor: '#000000' }, themePresets: [{ colorScheme: scheme }] }
         const before = structuredClone(source)
@@ -65,52 +74,26 @@ describe('export color compatibility', () => {
             expect(DBState.db).toEqual(before)
         }
     })
-    it('serializes compatible colors in the partial backup database entry', async () => {
-        const { DBState } = await import('../stores.svelte')
-        const { SavePartialLocalBackup } = await import('../drive/backuplocal')
-        const { decodeRisuSave } = await import('../storage/risuSave')
-        const db = { characters: [], colorScheme: scheme, themePresets: [{ name: 'Saved', colorScheme: scheme }] }
-        DBState.db = db as any
-        const before = structuredClone(db)
-        await SavePartialLocalBackup()
-        const data = await decodeRisuSave(backupEntries.find(entry => entry.name === 'database.risudat')!.data)
-        assertScheme(data.colorScheme)
-        assertScheme(data.themePresets[0].colorScheme)
-        expect(db).toEqual(before)
-    })
-    it('exports color JSON and both theme containers without changing the DB or saved presets', async () => {
+    it('exports theme JSON and native files through the shared codec without changing saved presets', async () => {
         const { DBState } = await import('../stores.svelte')
         const { downloadFile } = await import('../globalApi.svelte')
         const { exportColorScheme } = await import('./colorscheme')
         const { downloadThemePreset } = await import('../storage/database.svelte')
-        const { decryptBuffer } = await import('../util')
-        const { decodeRPack } = await import('../rpack/rpack_js')
         const db = { colorScheme: scheme, colorSchemeName: 'custom', theme: 'standard', themePresetsId: 0, themePresets: [{ name: 'Active', colorScheme: { ...scheme, lightbg: '#999999' } }, { name: 'Saved', colorScheme: scheme }] }
         DBState.db = db as any
         const before = structuredClone(db)
         exportColorScheme()
         assertScheme(JSON.parse(vi.mocked(downloadFile).mock.calls.at(-1)![1] as string))
-        const cryptoDescriptor = Object.getOwnPropertyDescriptor(window, 'crypto')
-        Object.defineProperty(window, 'crypto', { configurable: true, value: webcrypto })
-        const map = readFileSync('src/ts/rpack/rpack_map.bin')
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(map))
-        try {
-            for (const id of [0, 1]) {
-                await downloadThemePreset(id, 'json')
-                assertScheme(JSON.parse(Buffer.from(vi.mocked(downloadFile).mock.calls.at(-1)![1] as Uint8Array).toString()).colorScheme)
-                await downloadThemePreset(id, 'risutheme')
-                const bytes = vi.mocked(downloadFile).mock.calls.at(-1)![1]
-                const envelope = decode(decompressSync(await decodeRPack(bytes)))
-                expect(envelope.type).toBe('theme')
-                expect(envelope.presetVersion).toBe(1)
-                const preset = decode(new Uint8Array(await decryptBuffer(envelope.preset, 'risutheme')))
-                assertScheme(preset.colorScheme)
-                expect(db).toEqual(before)
-            }
-        } finally {
-            fetchMock.mockRestore()
-            if (cryptoDescriptor) Object.defineProperty(window, 'crypto', cryptoDescriptor)
-            else Reflect.deleteProperty(window, 'crypto')
+        for (const id of [0, 1]) {
+            await downloadThemePreset(id, 'json')
+            const json = JSON.parse(new TextDecoder().decode(vi.mocked(downloadFile).mock.calls.at(-1)![1] as Uint8Array))
+            assertScheme(json.colorScheme)
+
+            await downloadThemePreset(id, 'risutheme')
+            const native = JSON.parse(new TextDecoder().decode(vi.mocked(downloadFile).mock.calls.at(-1)![1] as Uint8Array))
+            expect(native.format).toBe('theme')
+            assertScheme(native.value.colorScheme)
+            expect(db).toEqual(before)
         }
     })
 })

@@ -38,7 +38,6 @@
   "DRIVE_ALREADY_EXISTS": "An item with that name already exists.",
   "DRIVE_MERGE_CONFLICT": "Choose which items to keep before merging these folders.",
   "DRIVE_UNSUPPORTED_ENTRY": "Links and special files cannot be accessed through the drive.",
-  "DRIVE_ARCHIVE_TOO_LARGE": "Folder ZIP downloads must be smaller than 4 GiB and contain fewer than 65,535 entries.",
   "DRIVE_UNAVAILABLE": "The drive could not be accessed. Check the server's storage and permissions.",
   "DRIVE_REMOTE_ACCESS_DENIED": "Server Drive is unavailable through Cloudflare remote access."
 }

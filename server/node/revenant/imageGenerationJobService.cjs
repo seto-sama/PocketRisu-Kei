@@ -1,6 +1,6 @@
 'use strict';
 
-const { unzipSync } = require('fflate');
+const { getZip } = require('../zip.cjs');
 
 const {
     MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES,
@@ -92,9 +92,28 @@ function createImageGenerationJobService({
             body: JSON.stringify(spec.body),
             signal: AbortSignal.any([job.abortController.signal, timeoutSignal]),
         });
-        const result = Buffer.from(await response.arrayBuffer());
+        const reader = response.body?.getReader();
+        let result = Buffer.alloc(0);
+        if (reader) {
+            const chunks = [];
+            let size = 0;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    size += value.byteLength;
+                    if (size > MAX_RESULT_BYTES) {
+                        await reader.cancel().catch(() => {});
+                        throw new Error('Image generation result is too large');
+                    }
+                    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+                }
+            } finally {
+                reader.releaseLock();
+            }
+            result = Buffer.concat(chunks, size);
+        }
         if (!response.ok) throw new Error(result.toString('utf8') || `NovelAI returned ${response.status}`);
-        if (result.length > MAX_RESULT_BYTES) throw new Error('Image generation result is too large');
         job.result = result;
         job.resultFormat = 'novelai-zip';
     }
@@ -300,10 +319,38 @@ function createImageGenerationJobService({
         await waitForJob(job);
         let image = job.result;
         if (job.resultFormat === 'novelai-zip') {
-            const files = unzipSync(new Uint8Array(job.result));
-            const key = Object.keys(files).find(name => /\.(?:png|jpe?g|webp)$/i.test(name));
-            if (!key) throw new Error('NovelAI response did not contain an image');
-            image = Buffer.from(files[key]);
+            const { ZipReader, Uint8ArrayReader } = await getZip();
+            const archive = new ZipReader(new Uint8ArrayReader(job.result), {
+                checkCrc32: true,
+                useWebWorkers: false,
+            });
+            try {
+                let entry;
+                for await (const item of archive.getEntriesGenerator()) {
+                    if (!item.directory && /\.(?:png|jpe?g|webp)$/i.test(item.filename)) {
+                        entry = item;
+                        break;
+                    }
+                }
+                if (!entry) throw new Error('NovelAI response did not contain an image');
+                if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize <= 0
+                    || entry.uncompressedSize > MAX_RESULT_BYTES) {
+                    throw new Error('NovelAI image result is too large');
+                }
+                const imageData = Buffer.allocUnsafe(entry.uncompressedSize);
+                let imageBytes = 0;
+                await entry.getData(new WritableStream({
+                    write(chunk) {
+                        imageBytes += chunk.byteLength;
+                        if (imageBytes > imageData.length) throw new Error('NovelAI image result is too large');
+                        imageData.set(chunk, imageBytes - chunk.byteLength);
+                    },
+                }), { useWebWorkers: false });
+                if (imageBytes !== imageData.length) throw new Error('NovelAI image result size mismatch');
+                image = imageData;
+            } finally {
+                await archive.close();
+            }
         }
         return { job, image };
     }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+const { decodeFile } = vi.hoisted(() => ({
+    decodeFile: vi.fn(async (_format: string, data: Uint8Array) => JSON.parse(new TextDecoder().decode(data))),
+}))
+
 vi.mock('../stores.svelte', () => ({
     DBState: { db: {} as any },
     selectedCharID: { subscribe: () => () => {} },
@@ -7,7 +11,7 @@ vi.mock('../stores.svelte', () => ({
 }))
 
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage: { realStorage: null },
+    forageStorage: { realStorage: null, decodeFile },
     downloadFile: () => {},
     saveAsset: async () => '',
 }))
@@ -37,6 +41,7 @@ const migratedLegacyTextItems = [
 ]
 
 beforeEach(() => {
+    decodeFile.mockClear()
     DBState.db = { botPresets: [] }
 })
 

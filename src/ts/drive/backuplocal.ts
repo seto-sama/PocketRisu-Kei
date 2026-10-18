@@ -1,7 +1,6 @@
 import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
 import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess, notifyInfo } from "../alert";
 import { LocalWriter, forageStorage } from "../globalApi.svelte";
-import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
 import { getSyncClientId, type ExportBackupOptions } from "../storage/nodeStorage";
@@ -199,7 +198,7 @@ export async function SavePartialLocalBackup(){
             }
         }
     }
-    const dbData = encodeRisuSaveLegacy(withExportColorSchemes(dbCopy), 'compression')
+    const dbData = await forageStorage.encodeFile('save', withExportColorSchemes(dbCopy))
 
     alertWait(`Saving partial local backup... (Saving database)`) 
 

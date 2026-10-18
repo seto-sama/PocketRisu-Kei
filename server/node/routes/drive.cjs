@@ -4,12 +4,11 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
-const { PassThrough } = require('node:stream');
-const { once } = require('node:events');
+const { Readable, Writable } = require('node:stream');
 const { finished, pipeline } = require('node:stream/promises');
-const { Zip, ZipPassThrough } = require('fflate');
 const { codes, createApiError } = require('../apiErrors.cjs');
 const { readDrivePreview } = require('../drivePreview.cjs');
+const { getZip } = require('../zip.cjs');
 const {
     DEFAULT_TRASH_RETENTION_DAYS,
     DRIVE_TRASH_DIRECTORY: TRASH_NAME,
@@ -877,101 +876,55 @@ function installDriveRoutes(app, {
         return copy ? { entry } : { entry, moves: [{ from: relativePath, to: entry.path }] };
     }
 
-    function preflightZipTree(node, archivePath, summary) {
-        const { stat } = node;
-        summary.entries++;
-        if (summary.entries >= 65_535) throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
-        const zipPath = `${archivePath}${stat.isDirectory() ? '/' : ''}`;
-        const nameBytes = Buffer.byteLength(zipPath);
-        if (nameBytes > 65_535) throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
-        summary.bytes += 92 + (nameBytes * 2) + (stat.isFile() ? stat.size : 0);
-        if (!Number.isSafeInteger(summary.bytes) || summary.bytes >= 0xffff_ffff
-            || (stat.isFile() && (!Number.isSafeInteger(stat.size) || stat.size >= 0xffff_ffff))) {
-            throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
-        }
-        for (const child of node.children) {
-            preflightZipTree(child, `${archivePath}/${path.posix.basename(child.relativePath)}`, summary);
-        }
-    }
-
     async function streamZipFolder(res, tree) {
+        const { ZipWriter } = await getZip();
         const archiveChanged = () => createApiError(codes.DRIVE_UNAVAILABLE, 500);
-        const output = new PassThrough({ highWaterMark: 64 * 1024 });
         const abortController = new AbortController();
-        let zip;
-        let streamError;
-        let blocked;
-        const completion = pipeline(output, res).catch(error => {
-            streamError = error;
-            abortController.abort(error);
-            zip?.terminate();
-            throw error;
-        });
-        completion.catch(() => {});
-        zip = new Zip((error, chunk, final) => {
-            if (error) {
-                streamError = error;
-                output.destroy(error);
-                return;
-            }
-            if (chunk?.length && !output.write(Buffer.from(chunk)) && !blocked) {
-                blocked = once(output, 'drain', { signal: abortController.signal }).then(
-                    () => { blocked = null; },
-                    caught => { streamError = caught; },
-                );
-            }
-            if (final) output.end();
-        });
+        const zip = new ZipWriter(Writable.toWeb(res), { useWebWorkers: false, zip64: true });
 
         const onClose = () => {
             if (res.writableFinished) return;
-            const error = new Error('Drive download aborted');
-            streamError = error;
-            abortController.abort(error);
-            zip.terminate();
-            output.destroy(error);
+            abortController.abort(new Error('Drive download aborted'));
         };
         res.once('close', onClose);
 
-        async function waitForOutput() {
-            if (blocked) await blocked;
-            if (streamError) throw streamError;
-        }
-
         async function addDirectory(archivePath) {
-            const file = new ZipPassThrough(`${archivePath}/`);
-            zip.add(file);
-            await waitForOutput();
-            file.push(Buffer.alloc(0), true);
-            await waitForOutput();
+            await zip.add(`${archivePath}/`, null, {
+                directory: true,
+                compressionMethod: 0,
+                signal: abortController.signal,
+                useWebWorkers: false,
+            });
         }
 
         async function addFile(node, archivePath) {
             const { file, stat } = await openFile(node.relativePath);
+            let input;
             try {
                 if (JSON.stringify(statFingerprint(stat)) !== JSON.stringify(statFingerprint(node.stat))) {
                     throw archiveChanged();
                 }
-                const zipFile = new ZipPassThrough(archivePath);
-                zip.add(zipFile);
-                await waitForOutput();
-                const input = file.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 });
+                input = file.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 });
                 let streamed = 0;
-                for await (const chunk of input) {
-                    if (streamed + chunk.length > node.stat.size) throw archiveChanged();
-                    streamed += chunk.length;
-                    zipFile.push(chunk);
-                    await waitForOutput();
-                }
+                const readable = Readable.toWeb(input).pipeThrough(new TransformStream({
+                    transform(chunk, controller) {
+                        if (streamed + chunk.byteLength > node.stat.size) throw archiveChanged();
+                        streamed += chunk.byteLength;
+                        controller.enqueue(chunk);
+                    },
+                }));
+                await zip.add(archivePath, readable, {
+                    compressionMethod: 0,
+                    signal: abortController.signal,
+                    useWebWorkers: false,
+                });
                 if (streamed !== node.stat.size) throw archiveChanged();
-                zipFile.push(Buffer.alloc(0), true);
-                await waitForOutput();
                 const after = await file.stat();
-                if (streamed !== zipFile.size
-                    || JSON.stringify(statFingerprint(node.stat)) !== JSON.stringify(statFingerprint(after))) {
+                if (JSON.stringify(statFingerprint(node.stat)) !== JSON.stringify(statFingerprint(after))) {
                     throw archiveChanged();
                 }
             } finally {
+                input?.destroy();
                 await file.close();
             }
         }
@@ -991,17 +944,13 @@ function installDriveRoutes(app, {
 
         try {
             await addTree(tree, path.posix.basename(tree.relativePath));
-            zip.end();
-            await waitForOutput();
-            await completion;
+            await zip.close();
         } catch (error) {
-            zip.terminate();
-            output.destroy(error);
-            await completion.catch(() => {});
+            abortController.abort(error);
+            if (!res.destroyed) res.destroy(error);
             throw error;
         } finally {
             res.off('close', onClose);
-            zip.terminate();
         }
     }
 
@@ -1207,7 +1156,6 @@ function installDriveRoutes(app, {
         const resolved = await resolveEntry(relativePath);
         if (resolved.stat.isDirectory()) {
             const tree = await captureTree(resolved.absolutePath, relativePath, 'download', new Map());
-            preflightZipTree(tree, path.posix.basename(relativePath), { entries: 0, bytes: 22 });
             res.attachment(`${path.posix.basename(relativePath)}.zip`);
             res.type('application/zip');
             res.set('X-Content-Type-Options', 'nosniff');

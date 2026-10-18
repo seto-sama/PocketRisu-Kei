@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
+import { encode, decode } from 'msgpackr'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { encodeInlayAsset, decodeInlayAsset } from '../../../src/ts/storage/inlayTransport'
 import { encodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
@@ -135,6 +136,22 @@ describe('server route composition', () => {
         expect(session.status).toBe(200)
         const restored = await fetch(base + '/api/test_auth', { headers: { cookie: session.headers.get('set-cookie')!.split(';')[0] } })
         expect((await restored.json()).status).toBe('success')
+    })
+
+    it('round-trips native preset files through the mounted authenticated routes', async () => {
+        const value = { name: '서버 프리셋', mainPrompt: 'Keep this prompt.' }
+        const options = { method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream' } }
+        const unauthorized = await fetch(base + '/api/file-formats/preset/encode', {
+            ...options, headers: { 'content-type': 'application/octet-stream' }, body: encode(value),
+        })
+        expect(unauthorized.status).toBe(401)
+        const encoded = await fetch(base + '/api/file-formats/preset/encode', { ...options, body: encode(value) })
+        expect(encoded.status).toBe(200)
+        const decoded = await fetch(base + '/api/file-formats/preset/decode', {
+            ...options, body: new Uint8Array(await encoded.arrayBuffer()),
+        })
+        expect(decoded.status).toBe(200)
+        expect(decode(new Uint8Array(await decoded.arrayBuffer()))).toEqual(value)
     })
 
     it('authenticates thought context queries and returns an empty result for unknown responses', async () => {

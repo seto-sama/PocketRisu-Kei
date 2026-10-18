@@ -1,6 +1,6 @@
 import { encodeBinaryMessage, decodeBinaryMessage } from '../../../../src/ts/network/binaryMessage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { zipSync } from 'fflate'
+import { zip } from '../../../../src/ts/process/zip'
 import { createImageGenerationJobService } from '../imageGenerationJobService.cjs'
 import { installImageGenerationJobRoutes } from './imageRoutes.cjs'
 
@@ -18,6 +18,19 @@ function responseRecorder() {
         status(code: number) { this.statusCode = code; return this },
         send(body: any) { this.body = body; return this },
     }
+}
+
+async function createZip(entries: Record<string, Uint8Array>) {
+    const output = new zip.Uint8ArrayWriter()
+    const archive = new zip.ZipWriter(output, { useWebWorkers: false })
+    for (const [name, data] of Object.entries(entries)) {
+        await archive.add(name, new zip.Uint8ArrayReader(data), {
+            compressionMethod: 0,
+            useWebWorkers: false,
+        })
+    }
+    await archive.close()
+    return output.getData()
 }
 
 describe('Node image generation jobs', () => {
@@ -87,7 +100,7 @@ describe('Node image generation jobs', () => {
             post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
             get: (path: string, handler: Function) => routes.set(`GET ${path}`, handler),
         }
-        const zipped = zipSync({ 'image.png': new Uint8Array([9, 8, 7]) })
+        const zipped = await createZip({ 'image.png': new Uint8Array([9, 8, 7]) })
         const upstream = vi.fn(async () => new Response(zipped, { status: 200 }))
         vi.stubGlobal('fetch', upstream)
         const service = createImageJobs(app, {

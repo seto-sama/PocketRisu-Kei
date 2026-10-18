@@ -48,7 +48,6 @@ export const languageEnglish = {
         apply: "Apply",
         notFound: apiErrorMessages.DRIVE_NOT_FOUND,
         unsupportedEntry: apiErrorMessages.DRIVE_UNSUPPORTED_ENTRY,
-        archiveTooLarge: apiErrorMessages.DRIVE_ARCHIVE_TOO_LARGE,
         unavailable: apiErrorMessages.DRIVE_UNAVAILABLE,
         remoteAccessDenied: apiErrorMessages.DRIVE_REMOTE_ACCESS_DENIED,
     },

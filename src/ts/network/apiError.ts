@@ -76,7 +76,6 @@ export function localizedApiErrorMessage(payload: {
         case apiErrorCodes.DRIVE_ALREADY_EXISTS: return language.serverDrive.conflictTitle
         case apiErrorCodes.DRIVE_MERGE_CONFLICT: return language.serverDrive.conflictTitle
         case apiErrorCodes.DRIVE_UNSUPPORTED_ENTRY: return language.serverDrive.unsupportedEntry
-        case apiErrorCodes.DRIVE_ARCHIVE_TOO_LARGE: return language.serverDrive.archiveTooLarge
         case apiErrorCodes.DRIVE_UNAVAILABLE: return language.serverDrive.unavailable
         case apiErrorCodes.DRIVE_REMOTE_ACCESS_DENIED: return language.serverDrive.remoteAccessDenied
         case apiErrorCodes.DATABASE_LOCKED: return language.errors.databaseLocked

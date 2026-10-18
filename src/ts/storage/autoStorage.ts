@@ -3,6 +3,7 @@ import {
     NodeStorage,
     type DatabaseProjection,
     type ExportBackupOptions,
+    type FileFormat,
     type PatchItemResult,
     type DeltaPatch,
 } from "./nodeStorage"
@@ -60,6 +61,16 @@ export class AutoStorage{
     async importBackup(file: Blob, onProgress?: (loaded: number, total: number) => void) {
         await this.Init()
         return this.realStorage.importBackup(file, onProgress)
+    }
+
+    async encodeFile(format: FileFormat, value: unknown) {
+        await this.Init()
+        return this.realStorage.encodeFile(format, value)
+    }
+
+    async decodeFile(format: FileFormat, bytes: Uint8Array) {
+        await this.Init()
+        return this.realStorage.decodeFile(format, bytes)
     }
 
     async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {

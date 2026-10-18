@@ -14,11 +14,11 @@ import { hasher } from "./parser/parser.svelte"
 import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
-import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
+import { CharXImporter, CharXWriter } from "./process/processzip"
+import { zip } from "./process/zip"
 import { exportModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
-import { Unzip } from 'fflate'
 
 
 const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
@@ -74,11 +74,15 @@ export async function importFile(name:string, data:Uint8Array|File):Promise<bool
         if(chunks.chara || chunks.ccv3){
             name = `${name}.png`
         } else {
-            // JPEG CharX exports contain a ZIP after the image. Inspect names without extracting assets.
-            let hasCard = false
-            const archive = new Unzip(file => { if(file.name === 'card.json') hasCard = true })
-            try { archive.push(data, true) } catch { return false }
-            if(!hasCard) return false
+            const archive = new zip.ZipReader(new zip.Uint8ArrayReader(data))
+            try {
+                const entries = await archive.getEntries()
+                if(!entries.some(entry => !entry.directory && entry.filename === 'card.json')) return false
+            } catch {
+                return false
+            } finally {
+                await archive.close().catch(() => {})
+            }
             name = `${name}.charx`
         }
         type = 'character'

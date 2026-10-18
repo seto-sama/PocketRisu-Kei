@@ -24,7 +24,7 @@ async function buildSettingsBackupPlan({
     if (!databaseValue) return null;
 
     const trimmed = stripToSettingsOnly(await decodeDatabase(databaseValue));
-    const encodedDatabase = Buffer.from(encodeDatabase(trimmed));
+    const encodedDatabase = Buffer.from(await encodeDatabase(trimmed));
     const withModuleAssets = collectDatabaseAssetBasenames(trimmed);
     const withoutModuleAssets = collectDatabaseAssetBasenames(trimmed, {
         includeModuleAssets: false,

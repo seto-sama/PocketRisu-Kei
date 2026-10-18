@@ -1,7 +1,3 @@
-import { decode as decodeMsgpack, encode as encodeMsgpack } from "msgpackr/index-no-eval";
-import * as fflate from "fflate";
-import { decryptBuffer, encryptBuffer } from "src/ts/util";
-import { decodeRPack, encodeRPack } from "src/ts/rpack/rpack_js.js";
 import { normalizePresetTagFields, type PresetTagFields } from "src/ts/preset/tags";
 import { appendPresetItem, duplicatePresetItem, movePresetItem, removePresetItem } from "src/ts/preset/collection";
 import { createEntityId } from "src/ts/id";
@@ -19,16 +15,9 @@ export interface TranslatorPresetStateLike {
     translatorPresetTags?: { id: string; name: string }[];
 }
 
-interface EncryptedTranslatorPresetFile {
-    translatorPresetVersion: 1;
-    type: "translator-preset";
-    preset: Uint8Array | ArrayBuffer;
-}
-
 export const defaultTranslatorPrompt =
     "You are a translator. translate the following html or text into {{slot}}. do not output anything other than the translation.";
 export const translatorPresetFileExtension = "risutl";
-const translatorPresetEncryptionKey = "risutl";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
@@ -51,31 +40,6 @@ function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput
         (value.folderId === undefined || typeof value.folderId === "string" || (
             Array.isArray(value.folderId) && value.folderId.every(id => typeof id === "string")
         ))
-    );
-}
-
-function getBytes(value: unknown): Uint8Array | null {
-    if (value instanceof Uint8Array) {
-        return value;
-    }
-
-    if (value instanceof ArrayBuffer) {
-        return new Uint8Array(value);
-    }
-
-    if (ArrayBuffer.isView(value)) {
-        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    }
-
-    return null;
-}
-
-function isEncryptedTranslatorPresetFile(value: unknown): value is EncryptedTranslatorPresetFile {
-    return (
-        isRecord(value) &&
-        value.translatorPresetVersion === 1 &&
-        value.type === "translator-preset" &&
-        getBytes(value.preset) !== null
     );
 }
 
@@ -217,40 +181,8 @@ export function getCurrentTranslatorPresetFromState<T extends TranslatorPresetSt
 }
 
 async function decodeEncryptedTranslatorPresetFile(data: Uint8Array): Promise<TranslatorPreset> {
-    let encodedPreset: Uint8Array;
-    try {
-        encodedPreset = await decodeRPack(data);
-    } catch {
-        throw new Error("Invalid translator preset file.");
-    }
-
-    let decodedContainer: unknown;
-
-    try {
-        decodedContainer = decodeMsgpack(fflate.decompressSync(encodedPreset));
-    } catch {
-        throw new Error("Invalid translator preset file.");
-    }
-
-    if (!isEncryptedTranslatorPresetFile(decodedContainer)) {
-        throw new Error("Invalid translator preset file.");
-    }
-
-    const encryptedPreset = getBytes(decodedContainer.preset);
-
-    if (!encryptedPreset) {
-        throw new Error("Invalid translator preset file.");
-    }
-
-    let decryptedPreset: ArrayBuffer;
-
-    try {
-        decryptedPreset = await decryptBuffer(encryptedPreset, translatorPresetEncryptionKey);
-    } catch {
-        throw new Error("Invalid translator preset file.");
-    }
-
-    const parsedPreset: unknown = decodeMsgpack(new Uint8Array(decryptedPreset));
+    const { forageStorage } = await import('../storage/autoStorage');
+    const parsedPreset: unknown = await forageStorage.decodeFile('translator', data);
 
     if (!isTranslatorPresetInput(parsedPreset)) {
         throw new Error("Invalid translator preset file.");
@@ -267,16 +199,8 @@ export async function encodeTranslatorPresetFile(preset: TranslatorPreset): Prom
         preset.name.trim().length > 0 ? preset.name : "Preset",
         preset
     );
-    const encryptedPreset = new Uint8Array(
-        await encryptBuffer(encodeMsgpack(normalizedPreset), translatorPresetEncryptionKey)
-    );
-    const payload: EncryptedTranslatorPresetFile = {
-        translatorPresetVersion: 1,
-        type: "translator-preset",
-        preset: encryptedPreset,
-    };
-
-    return await encodeRPack(fflate.compressSync(encodeMsgpack(payload)));
+    const { forageStorage } = await import('../storage/autoStorage');
+    return forageStorage.encodeFile('translator', normalizedPreset);
 }
 
 export async function decodeTranslatorPresetFile(data: Uint8Array): Promise<TranslatorPreset> {

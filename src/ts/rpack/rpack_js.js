@@ -1,18 +1,22 @@
-// Only 20 lines, lol
+import fileBufferUrl from '../../../server/shared/rpack_map.bin?url';
 
-import fileBufferUrl from './rpack_map.bin?url';
-
-let mapData;
 let encodeMap;
 let decodeMap;
+let initPromise;
 
-export async function initRPack() {
-    if(mapData) return; // Already initialized
-    const response = await fetch(fileBufferUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    mapData = new Uint8Array(arrayBuffer);
-    encodeMap = mapData.slice(0, 256);
-    decodeMap = mapData.slice(256, 512);
+export function initRPack() {
+    if (!initPromise) {
+        initPromise = (async () => {
+            const response = await fetch(fileBufferUrl);
+            const mapData = new Uint8Array(await response.arrayBuffer());
+            encodeMap = mapData.subarray(0, 256);
+            decodeMap = mapData.subarray(256, 512);
+        })().catch(error => {
+            initPromise = undefined;
+            throw error;
+        });
+    }
+    return initPromise;
 }
 
 export async function encodeRPack(data) {

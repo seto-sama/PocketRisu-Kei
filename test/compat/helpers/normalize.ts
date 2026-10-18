@@ -3,6 +3,7 @@
  * semantic comparison (order-independent, timestamp-independent).
  */
 import { Unpackr } from 'msgpackr'
+import { inflateRawSync, unzipSync } from 'node:zlib'
 import { decodeBackup } from './decode.js'
 
 // Magic header: \0RISUSAVE\0\x07  (11 bytes, "raw" / no-compression variant)
@@ -18,10 +19,14 @@ export function decodeRisuDat(buf: Buffer): Record<string, unknown> {
     return unpackr.decode(buf.subarray(MAGIC_RAW.length))
   }
   if (buf.subarray(0, MAGIC_COMPRESSED.length).equals(MAGIC_COMPRESSED)) {
-    // Compressed variant — use fflate
-    const fflate = require('fflate') as typeof import('fflate')
-    const decompressed = fflate.decompressSync(buf.subarray(MAGIC_COMPRESSED.length))
-    return unpackr.decode(Buffer.from(decompressed))
+    const compressed = buf.subarray(MAGIC_COMPRESSED.length)
+    let decompressed: Buffer
+    try {
+      decompressed = unzipSync(compressed)
+    } catch {
+      decompressed = inflateRawSync(compressed)
+    }
+    return unpackr.decode(decompressed)
   }
   // Fallback: try raw msgpackr
   return unpackr.decode(buf)

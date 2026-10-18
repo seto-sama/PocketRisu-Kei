@@ -4,7 +4,7 @@ const { db: sqliteDb, kvList, snapshotSetFootprint, kvSize, kvGet, kvSet, kvDel,
 const path = require('path');
 const fs = require('fs/promises');
 const { existsSync, mkdirSync } = require('fs');
-const { decodeRisuSave, normalizeJSON, encodeRisuSaveLegacy } = require('../utils.cjs');
+const { decodeRisuSave, normalizeJSON, encodeRisuSaveLegacy, encodeRisuSave } = require('../utils.cjs');
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
@@ -265,7 +265,7 @@ function installBackupRoutes(app, {
             databaseValue,
             assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
             decodeDatabase: decodeRisuSave,
-            encodeDatabase: (database) => encodeRisuSaveLegacy(withExportColorSchemes(database), 'compression'),
+            encodeDatabase: (database) => encodeRisuSave(withExportColorSchemes(database)),
             includeModuleAssets,
         });
     }
@@ -279,7 +279,7 @@ function installBackupRoutes(app, {
         const output = exportColors
             ? (await import('../../shared/colorScheme.js')).withExportColorSchemes(database)
             : database;
-        return Buffer.from(encodeRisuSaveLegacy(output, 'compression'));
+        return await encodeRisuSave(output);
     }
 
     app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
@@ -1063,7 +1063,7 @@ function installBackupRoutes(app, {
             // that historical catalog into the portable file; legacy snapshots
             // already carry their bookmark compatibility fields in the blob.
             bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
-            const blob = Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
+            const blob = await encodeRisuSave(database);
 
             const dir = getManualSnapshotsDir();
             await fs.mkdir(dir, { recursive: true });

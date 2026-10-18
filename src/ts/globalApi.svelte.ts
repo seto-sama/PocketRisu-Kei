@@ -225,6 +225,7 @@ export let requiresFullEncoderReload = $state({
 
 interface ImmediateSaveOptions {
     forceFullWrite?: boolean
+    requireSuccess?: boolean
     characterIds?: string[]
     chatTargets?: { characterId: string, chatId: string }[]
 }
@@ -370,7 +371,7 @@ export async function saveDb() {
     let encoder: RisuSaveEncoder | null = null
     if (!isNodeServer) {
         encoder = new RisuSaveEncoder()
-        await encoder.init(getDatabase(), { compression: false })
+        await encoder.init(getDatabase())
     }
 
     let patcher = new RisuSavePatcher()
@@ -758,7 +759,7 @@ export async function saveDb() {
             updateGuisize()
             if (!isNodeServer) {
                 encoder = new RisuSaveEncoder()
-                await encoder.init(data, { compression: false })
+                await encoder.init(data)
             }
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
@@ -955,7 +956,7 @@ export async function saveDb() {
 
             if (!isNodeServer) {
                 encoder = new RisuSaveEncoder()
-                await encoder.init(getDatabase(), { compression: false })
+                await encoder.init(getDatabase())
             }
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
@@ -1355,10 +1356,17 @@ export async function saveDb() {
     async function triggerSave(options?: {
         forceFullWrite?: boolean
         skipBroadcast?: boolean
-    }) {
-        if (syncApplying) return
+        requireSuccess?: boolean
+    }): Promise<void> {
+        if (syncApplying) {
+            if (options?.requireSuccess) throw new SaveConflictError()
+            return
+        }
         if (saveInFlight) {
-            return saveInFlight
+            await saveInFlight
+            // Shared autosave promises absorb errors; exports must verify a successful attempt.
+            if (options?.requireSuccess) return triggerSave(options)
+            return
         }
 
         const toSave = takeTrackedChanges()
@@ -1366,11 +1374,13 @@ export async function saveDb() {
             return
         }
 
+        let failure: { error: unknown } | undefined
         saveInFlight = (async () => {
             saving.state = true
             try {
                 const result = await saveRetry.runAttempt(() => persistTrackedChanges(toSave, options))
                 if (result === 'noop' && hasTrackedChanges(toSave)) {
+                    if (options?.requireSuccess) throw new SaveConflictError()
                     requeueTrackedChanges(toSave)
                     changed = true
                 }
@@ -1383,6 +1393,12 @@ export async function saveDb() {
                     ]
                 } else {
                     requeueTrackedChanges(toSave)
+                }
+                if (options?.requireSuccess) {
+                    saveRetry.reset()
+                    changed = true
+                    failure = { error }
+                    return
                 }
                 const decision = saveRetry.recordFailure(error)
                 if (!decision.retry) {
@@ -1405,7 +1421,13 @@ export async function saveDb() {
             }
         })()
 
-        return saveInFlight
+        await saveInFlight
+        if (failure) throw failure.error
+        // A strict caller must also persist edits that arrived while this
+        // attempt was in flight before it can safely export the current state.
+        if (options?.requireSuccess && hasTrackedChanges(changeTracker)) {
+            return triggerSave(options)
+        }
     }
 
     requestImmediateSaveImpl = async (options) => {
@@ -1432,6 +1454,7 @@ export async function saveDb() {
         await tick()
         await triggerSave({
             forceFullWrite: options?.forceFullWrite,
+            requireSuccess: options?.requireSuccess,
         })
     }
 
@@ -1444,7 +1467,7 @@ export async function saveDb() {
         if (requiresFullEncoderReload.state) {
             if (!isNodeServer) {
                 encoder = new RisuSaveEncoder()
-                await encoder.init(getDatabase(), { compression: false })
+                await encoder.init(getDatabase())
             }
             requiresFullEncoderReload.state = false
         }

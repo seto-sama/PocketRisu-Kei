@@ -2,6 +2,7 @@ import { encodeAssetBatch, decodeAssetBatch, getAssetUrl } from './assetTranspor
 import { downloadUrl } from '../download'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
+import { encode, decode } from 'msgpackr/index-no-eval'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 import { language } from "src/lang"
 import { alertInput } from "../alert"
@@ -81,6 +82,8 @@ export interface ExportBackupOptions {
     mode?: 'settings'
     moduleAssets?: boolean
 }
+
+export type FileFormat = 'save' | 'preset' | 'theme' | 'translator' | 'json'
 
 export interface SettingsBackupEstimate {
     dbBytes: number
@@ -687,6 +690,24 @@ export class NodeStorage{
         const query = params.toString()
         const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
         await this.startCookieDownload(url)
+    }
+
+    private async fileFormatRequest(format: FileFormat, action: 'encode' | 'decode', body: Uint8Array): Promise<Uint8Array> {
+        const response = await this.authFetch(`/api/file-formats/${format}/${action}`, {
+            method: 'POST',
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
+            body: body as Uint8Array<ArrayBuffer>,
+        })
+        if (!response.ok) throw await apiRequestError(response)
+        return new Uint8Array(await response.arrayBuffer())
+    }
+
+    async encodeFile(format: FileFormat, value: unknown): Promise<Uint8Array> {
+        return this.fileFormatRequest(format, 'encode', encode(value))
+    }
+
+    async decodeFile(format: FileFormat, bytes: Uint8Array): Promise<any> {
+        return decode(await this.fileFormatRequest(format, 'decode', bytes))
     }
 
     private async startCookieDownload(url: string): Promise<void> {

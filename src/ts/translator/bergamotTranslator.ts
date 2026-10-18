@@ -1,5 +1,4 @@
 import { LatencyOptimisedTranslator, TranslatorBacking } from "@browsermt/bergamot-translator";
-import { gunzipSync } from 'fflate';
 import { asBuffer } from "../util";
 
 // Cache Translations Models
@@ -29,53 +28,59 @@ class CacheDB {
 
     async load(url: string, checksum: string): Promise<ArrayBuffer | null> {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(this.storeName, "readonly");
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(url);
+        try {
+            return await new Promise((resolve, reject) => {
+                const transaction = db.transaction(this.storeName, "readonly");
+                const request = transaction.objectStore(this.storeName).get(url);
 
-            request.onsuccess = () => {
-                const result = request.result;
-                if (result && result.checksum === checksum) {
-                    resolve(result.buffer);
-                } else {
-                    resolve(null);
-                }
-            };
+                request.onsuccess = () => {
+                    const result = request.result;
+                    resolve(result && result.checksum === checksum ? result.buffer : null);
+                };
 
-            request.onerror = () => reject(request.error);
-        });
+                request.onerror = () => reject(request.error);
+            });
+        } finally {
+            db.close();
+        }
     }
 
     async save(url: string, checksum: string, buffer: ArrayBuffer): Promise<void> {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(this.storeName, "readwrite");
-            const store = transaction.objectStore(this.storeName);
-            const request = store.put({ url, checksum, buffer });
+        try {
+            return await new Promise((resolve, reject) => {
+                const transaction = db.transaction(this.storeName, "readwrite");
+                transaction.objectStore(this.storeName).put({ url, checksum, buffer });
 
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => reject(transaction.error);
+                transaction.onabort = () => reject(transaction.error);
+            });
+        } finally {
+            db.close();
+        }
     }
 
     async clear(): Promise<void> {
         const db = await this.getDB();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(this.storeName, "readwrite");
-            const store = transaction.objectStore(this.storeName);
-            const request = store.clear();
+        try {
+            return await new Promise((resolve, reject) => {
+                const transaction = db.transaction(this.storeName, "readwrite");
+                transaction.objectStore(this.storeName).clear();
 
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => reject(transaction.error);
+                transaction.onabort = () => reject(transaction.error);
+            });
+        } finally {
+            db.close();
+        }
     }
 }
 
 // Mozilla Firefox Translations Models
 class FirefoxBacking extends TranslatorBacking {
     private cache: CacheDB;
-    downloadTimeout: number;
 
     constructor(options?) {
         const registryUrl = 'https://raw.githubusercontent.com/mozilla/firefox-translations-models/refs/heads/main/registry.json';
@@ -112,13 +117,8 @@ class FirefoxBacking extends TranslatorBacking {
 }
 
 async function decompressGZip(buffer:ArrayBuffer) {
-    if (typeof DecompressionStream !== "undefined") {
-        const decompressor = new DecompressionStream('gzip');
-        const stream = new Response(buffer).body.pipeThrough(decompressor);
-        return await new Response(stream).arrayBuffer();
-    } else {    // GZip decompression fallback
-        return gunzipSync(new Uint8Array(buffer)).buffer;
-    }
+    const stream = new Response(buffer).body.pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).arrayBuffer();
 }
 
 let translator = null;

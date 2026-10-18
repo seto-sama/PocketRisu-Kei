@@ -2263,6 +2263,10 @@ require('./routes/auth.cjs').installAuthRoutes(app, {
     passwordPath,
 });
 
+require('./routes/fileFormats.cjs').installFileFormatRoutes(app, {
+    checkAuth,
+});
+
 require('./routes/assets/index.cjs').installAssetRoutes(app, {
     saveTimers,
     queueStorageOperation,

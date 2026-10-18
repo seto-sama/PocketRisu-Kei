@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { encode, decode } from 'msgpackr/index-no-eval'
 
 vi.mock('../alert', () => ({ alertInput: vi.fn(), waitAlert: vi.fn(), notifyError: vi.fn() }))
 vi.mock('./risuSave', () => ({
@@ -65,6 +66,26 @@ it('does not start a download when session refresh fails', async () => {
     fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
     await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
     expect(click).not.toHaveBeenCalled()
+})
+
+it('transfers file formats with authentication and preserves binary values', async () => {
+    const value = { name: '한글', bytes }
+    fetchMock.mockResolvedValueOnce(new Response(bytes))
+    expect(await storage.encodeFile('preset', value)).toEqual(bytes)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/file-formats/preset/encode')
+    const sent = decode(fetchMock.mock.calls[0][1].body)
+    expect(sent.name).toBe(value.name)
+    expect(new Uint8Array(sent.bytes)).toEqual(bytes)
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+
+    fetchMock.mockResolvedValueOnce(new Response(encode(value)))
+    const received = await storage.decodeFile('preset', bytes)
+    expect(received.name).toBe(value.name)
+    expect(new Uint8Array(received.bytes)).toEqual(bytes)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/file-formats/preset/decode')
+
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.decodeFile('save', bytes)).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
 })
 
 it('reads drive imports as authenticated files without starting a browser download', async () => {

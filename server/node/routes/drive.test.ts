@@ -1,6 +1,6 @@
 import express from 'express'
 import { createServer, request, type Server } from 'node:http'
-import { unzipSync } from 'fflate'
+import { zip } from '../../../src/ts/process/zip'
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, link, writeFile, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +20,21 @@ let stopTrashCleanup: () => void
 const auth = { 'risu-auth': 'test-token' }
 const trashPath = () => join(root, DRIVE_TRASH_DIRECTORY)
 const encodeThumbnail = vi.fn()
+
+async function unzip(data: Uint8Array) {
+    const archive = new zip.ZipReader(new zip.Uint8ArrayReader(data), { useWebWorkers: false })
+    try {
+        const contents: Record<string, Uint8Array> = Object.create(null)
+        for (const entry of await archive.getEntries()) {
+            contents[entry.filename] = entry.directory
+                ? new Uint8Array()
+                : await entry.getData(new zip.Uint8ArrayWriter(), { useWebWorkers: false })
+        }
+        return contents
+    } finally {
+        await archive.close()
+    }
+}
 
 beforeEach(async () => {
     encodeThumbnail.mockReset().mockResolvedValue({ buffer: Buffer.from('thumbnail') })
@@ -255,7 +270,7 @@ it('streams directory downloads as ZIP files with nested files and empty directo
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('application/zip')
     expect(response.headers.get('content-disposition')).toContain('archive.zip')
-    const contents = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    const contents = await unzip(new Uint8Array(await response.arrayBuffer()))
     expect(Object.keys(contents).sort()).toEqual([
         'archive/', 'archive/empty/', 'archive/nested/', 'archive/nested/data.txt', 'archive/zero.bin',
     ])
