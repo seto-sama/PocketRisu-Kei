@@ -97,7 +97,25 @@ export interface DriveEntry {
     modifiedAt: number
 }
 
-export type DriveUploadConflict = 'error' | 'overwrite' | 'rename'
+export type DriveConflict = 'error' | 'overwrite' | 'rename'
+export type DriveMergeChoice = 'server' | 'local' | 'both' | null
+export interface DriveMergeConflict {
+    path: string
+    existing: DriveEntry
+    incoming: DriveEntry
+}
+export interface DriveMergePlan {
+    revision: string
+    conflicts: DriveMergeConflict[]
+}
+export interface DriveMergeResolution {
+    revision: string
+    choices: Record<string, DriveMergeChoice>
+}
+export interface DriveRenameResult {
+    entry: DriveEntry
+    moves: Array<{ from: string, to: string }>
+}
 
 export function getSyncClientId(): string {
     return NodeStorage.getSessionId()
@@ -701,17 +719,18 @@ export class NodeStorage{
         return this.driveRequest(`/metadata?${new URLSearchParams({ path })}`, { signal })
     }
 
-    async createDriveDirectory(path: string, name: string): Promise<void> {
-        await this.driveRequest('/directory', {
+    async createDriveDirectory(path: string, name: string, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/directory', {
             method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path, name }),
+            body: JSON.stringify({ path, name, conflict }),
         })
+        return result.entry
     }
 
-    async renameDriveEntry(path: string, name: string): Promise<void> {
-        await this.driveRequest('/rename', {
+    async renameDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution): Promise<DriveRenameResult> {
+        return this.driveRequest('/rename', {
             method: 'PATCH', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path, name }),
+            body: JSON.stringify({ path, name, conflict, merge }),
         })
     }
 
@@ -726,7 +745,7 @@ export class NodeStorage{
         await this.driveRequest('/trash', { method: 'DELETE' })
     }
 
-    async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveUploadConflict = 'error'): Promise<DriveEntry> {
+    async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
         const result = await this.driveRequest<{ entry: DriveEntry }>(`/file?${new URLSearchParams({ path, name: file.name, conflict })}`, {
             method: 'PUT', headers: { 'content-type': 'application/octet-stream' },
             body: file, signal,

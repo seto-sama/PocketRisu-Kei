@@ -74,6 +74,7 @@ export function localizedApiErrorMessage(payload: {
     switch (payload.code) {
         case apiErrorCodes.DRIVE_NOT_FOUND: return language.serverDrive.notFound
         case apiErrorCodes.DRIVE_ALREADY_EXISTS: return language.serverDrive.conflictTitle
+        case apiErrorCodes.DRIVE_MERGE_CONFLICT: return language.serverDrive.conflictTitle
         case apiErrorCodes.DRIVE_UNSUPPORTED_ENTRY: return language.serverDrive.unsupportedEntry
         case apiErrorCodes.DRIVE_UNAVAILABLE: return language.serverDrive.unavailable
         case apiErrorCodes.DRIVE_REMOTE_ACCESS_DENIED: return language.serverDrive.remoteAccessDenied

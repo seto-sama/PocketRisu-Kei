@@ -4,8 +4,10 @@ import ServerDrive from './ServerDrive.svelte'
 import { language } from 'src/lang'
 import { DBState } from 'src/ts/stores.svelte'
 import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
+import { apiErrorCodes } from 'src/ts/network/apiError'
+import { SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
 
-const { storage, notifyError, mdViewport } = await vi.hoisted(async () => {
+const { storage, notifyError, mdViewport, chooseConflictComparison } = await vi.hoisted(async () => {
     const { writable } = await import('svelte/store')
     return {
         storage: {
@@ -15,11 +17,16 @@ const { storage, notifyError, mdViewport } = await vi.hoisted(async () => {
         },
         notifyError: vi.fn(),
         mdViewport: writable(true),
+        chooseConflictComparison: vi.fn(),
     }
 })
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { Init: async () => {}, realStorage: storage } }))
 vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport }))
 vi.mock('src/ts/alert', () => ({ notifyError, notifySuccess: vi.fn() }))
+vi.mock('src/ts/storage/saveConflict', async importOriginal => {
+    const original = await importOriginal<typeof import('src/ts/storage/saveConflict')>()
+    return { ...original, chooseConflictComparison }
+})
 vi.mock('src/ts/parser/parser.svelte', () => ({ parseMarkdownSafe: (text: string) => text }))
 vi.mock('src/ts/stores.svelte', async () => {
     const { fromStore, writable } = await import('svelte/store')
@@ -36,8 +43,15 @@ vi.mock('src/ts/stores.svelte', async () => {
 let component: ReturnType<typeof mount>
 const folder = { name: 'Documents', path: 'Documents', type: 'directory', size: null, createdAt: 100, modifiedAt: 200 }
 const file = { name: 'report.txt', path: 'Documents/report.txt', type: 'file', size: 10, createdAt: 100, modifiedAt: 200 }
-let files: typeof file[]
+const renameResult = <T>(entry: T, moves: Array<{ from: string, to: string }> = []) => ({ entry, moves })
+let rootEntries: Array<typeof folder | typeof file>
+let files: Array<typeof folder | typeof file>
 let trashEntries: typeof file[]
+
+function parentPath(path: string) {
+    const separator = path.lastIndexOf('/')
+    return separator < 0 ? '' : path.slice(0, separator)
+}
 
 async function mountDrive() {
     const target = document.createElement('div')
@@ -82,10 +96,29 @@ function dialog(title: string) {
     return result!
 }
 
+function folderMergeDialog(name: string) {
+    const result = document.querySelector<HTMLElement>('[role="alertdialog"]')
+    expect(result).not.toBeNull()
+    expect(document.getElementById(result!.getAttribute('aria-labelledby')!)?.textContent).toBe(language.serverDrive.mergeFolders)
+    expect(document.getElementById(result!.getAttribute('aria-describedby')!)?.textContent)
+        .toBe(language.serverDrive.folderConflict.replace('{name}', name))
+    expect([...result!.querySelectorAll('button')].map(element => element.textContent?.trim()).sort())
+        .toEqual([language.no, language.yes].sort())
+    return result!
+}
+
 function chooseUpload(name = 'report.txt') {
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
     Object.defineProperty(input, 'files', { value: [new File(['replacement'], name)], configurable: true })
     input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+async function submitName(value: string) {
+    const input = document.querySelector<HTMLInputElement>(`input[aria-label="${language.name}"]`)!
+    input.value = value
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await tick()
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 }
 
 beforeEach(async () => {
@@ -94,17 +127,48 @@ beforeEach(async () => {
     mdViewport.set(true)
     DBState.db.serverDriveShortcuts = []
     DBState.db.trashRetentionDays = 3
+    rootEntries = [{ ...folder }]
     files = [{ ...file }]
     trashEntries = []
-    storage.listDrive.mockImplementation(async (path: string) => ({ path, entries: path === trashPath ? trashEntries : path ? files : [folder] }))
+    storage.listDrive.mockImplementation(async (path: string) => ({
+        path,
+        entries: path === trashPath ? trashEntries
+            : [...rootEntries, ...files].filter(entry => parentPath(entry.path) === path),
+    }))
     storage.emptyDriveTrash.mockImplementation(async () => { trashEntries = [] })
-    storage.driveMetadata.mockImplementation(async (path: string) => path === folder.path ? folder : { ...file, size: 42 })
+    storage.driveMetadata.mockImplementation(async (path: string) => {
+        const found = [...rootEntries, ...files].find(entry => entry.path === path)
+        return found ? { ...found, size: found.type === 'directory' ? null : 42 } : { ...file, size: 42, path }
+    })
+    storage.createDriveDirectory.mockImplementation(async (path: string, name: string) => {
+        const saved = { ...folder, name, path: path ? `${path}/${name}` : name }
+        if (path) files = [...files.filter(item => item.path !== saved.path), saved]
+        else rootEntries = [...rootEntries.filter(item => item.path !== saved.path), saved]
+        return saved
+    })
+    storage.renameDriveEntry.mockImplementation(async (path: string, name: string, _policy: string, _merge: unknown) => {
+        const existing = [...rootEntries, ...files].find(item => item.path === path)
+            ?? (path === folder.path ? folder : { ...file, path })
+        const parent = parentPath(path)
+        const destinationPath = parent ? `${parent}/${name}` : name
+        const saved = { ...existing, name, path: destinationPath }
+        const descendants = [...rootEntries, ...files]
+            .filter(item => item.path.startsWith(path + '/'))
+            .map(item => ({ ...item, path: `${destinationPath}${item.path.slice(path.length)}` }))
+        rootEntries = rootEntries.filter(item => item.path !== path && !item.path.startsWith(path + '/'))
+        files = files.filter(item => item.path !== path && !item.path.startsWith(path + '/'))
+        const targetList = parentPath(destinationPath) ? files : rootEntries
+        if (targetList === files) files = [...files.filter(item => item.path !== destinationPath), saved, ...descendants]
+        else rootEntries = [...rootEntries.filter(item => item.path !== destinationPath), saved, ...descendants]
+        return renameResult(saved, [{ from: path, to: destinationPath }])
+    })
     storage.uploadDriveFile.mockImplementation(async (_path, uploaded, _signal, mode) => {
         const name = mode === 'rename' ? 'report (1).txt' : uploaded.name
         const saved = { ...file, name, path: `Documents/${name}`, size: uploaded.size }
         files = [...files.filter(item => item.path !== saved.path), saved]
         return saved
     })
+    chooseConflictComparison.mockResolvedValue([])
     await mountDrive()
 })
 
@@ -173,37 +237,233 @@ it('hides the dropdown for a folder without subfolders and navigates from an anc
 
 it('keeps a failed rename editable and refreshes after a successful retry', async () => {
     await openDocuments()
-    storage.renameDriveEntry.mockRejectedValueOnce(new Error('Name already exists'))
+    storage.renameDriveEntry.mockRejectedValueOnce(new Error('Drive unavailable'))
     await contextMenu('report.txt')
     menuItem(language.serverDrive.rename).click()
     await tick()
     const input = document.querySelector<HTMLInputElement>(`input[aria-label="${language.name}"]`)!
-    input.value = 'existing.txt'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    await tick()
-    document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain('Name already exists'))
+    await submitName('new.txt')
+    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain('Drive unavailable'))
     expect(input.disabled).toBe(false)
-    input.value = 'new.txt'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    storage.renameDriveEntry.mockImplementationOnce(async () => { files = [{ ...file, name: 'new.txt', path: 'Documents/new.txt' }] })
-    await tick()
-    document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    storage.renameDriveEntry.mockImplementationOnce(async () => {
+        const saved = { ...file, name: 'new.txt', path: 'Documents/new.txt' }
+        files = [saved]
+        return renameResult(saved)
+    })
+    await submitName('new.txt')
     await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('new.txt'))
 })
 
-it('does not start another listing when a rename completes after the explorer closes', async () => {
-    let completeRename!: () => void
-    storage.renameDriveEntry.mockImplementationOnce(() => new Promise<void>(resolve => { completeRename = resolve }))
+it.each(['overwrite', 'rename', 'cancel'] as const)('offers %s when renaming a file onto an existing file', async choice => {
+    const existing = { ...file, name: 'archive.txt', path: 'Documents/archive.txt' }
+    files = [{ ...file }, existing]
     await openDocuments()
     await contextMenu('report.txt')
     menuItem(language.serverDrive.rename).click()
     await tick()
-    const input = document.querySelector<HTMLInputElement>(`input[aria-label="${language.name}"]`)!
-    input.value = 'renamed.txt'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await submitName('archive.txt')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+
+    const alert = document.querySelector('[role="alertdialog"]')!
+    const label = choice === 'overwrite' ? language.serverDrive.overwrite : choice === 'rename' ? language.serverDrive.keepBoth : language.cancel
+    if (choice !== 'cancel') {
+        const saved = choice === 'rename' ? { ...existing, name: 'archive (1).txt', path: 'Documents/archive (1).txt' } : existing
+        storage.renameDriveEntry.mockImplementationOnce(async (_path: string, _name: string, policy: string) => {
+            expect(policy).toBe(choice)
+            files = [...files.filter(item => item.path !== file.path && item.path !== existing.path), saved]
+            return renameResult(saved)
+        })
+    }
+    button(label, alert).click()
+
+    if (choice === 'cancel') {
+        await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull())
+        expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+        expect(document.querySelector('main')?.textContent).toContain('report.txt')
+        expect(document.querySelector('main')?.textContent).toContain('archive.txt')
+    } else {
+        const savedName = choice === 'rename' ? 'archive (1).txt' : 'archive.txt'
+        await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledOnce())
+        await vi.waitFor(() => expect(document.querySelector(`input[aria-label="${language.name}"]`)).toBeNull())
+        await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain(savedName))
+        expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents/report.txt', 'archive.txt', choice, undefined)
+        if (choice === 'overwrite') expect(document.querySelector('main')?.textContent).not.toContain('report.txt')
+    }
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('asks for a choice when another device creates the rename target after the folder was loaded', async () => {
+    await openDocuments()
+    const existing = { ...file, name: 'raced.txt', path: 'Documents/raced.txt' }
+    const saved = { ...file, name: 'raced (1).txt', path: 'Documents/raced (1).txt' }
+    storage.driveMetadata.mockResolvedValueOnce(existing)
+    storage.renameDriveEntry.mockRejectedValueOnce({ code: 'DRIVE_ALREADY_EXISTS' })
+    storage.renameDriveEntry.mockImplementationOnce(async () => {
+        files = [...files, saved]
+        return renameResult(saved)
+    })
+    await contextMenu('report.txt')
+    menuItem(language.serverDrive.rename).click()
     await tick()
-    document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await submitName('raced.txt')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('raced.txt'))
+    button(language.serverDrive.keepBoth).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('raced (1).txt'))
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents/report.txt', 'raced.txt', 'error', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents/report.txt', 'raced.txt', 'rename', undefined)
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('merges a renamed folder with destination previews and choices keyed by full conflict path', async () => {
+    const existing = { ...folder, name: 'Archive', path: 'Archive' }
+    rootEntries = [{ ...folder }, existing]
+    button(language.serverDrive.refresh).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Archive'))
+    DBState.db.serverDriveShortcuts = ['Documents', 'Documents/sub', 'Documents/sub/deep', 'Documents-old']
+
+    const names = ['skip.txt', 'server.txt', 'local.txt', 'both.txt']
+    const conflicts = names.map(name => ({
+        path: `Archive/sub/${name}`,
+        existing: { ...file, name, path: `Archive/sub/${name}` },
+        incoming: { ...file, name, path: `Documents/sub/${name}` },
+    }))
+    const plan = { revision: 'revision-1', conflicts }
+    storage.renameDriveEntry.mockRejectedValueOnce({ status: 409, code: apiErrorCodes.DRIVE_MERGE_CONFLICT, details: plan })
+    storage.renameDriveEntry.mockResolvedValueOnce(renameResult(existing, [
+        { from: 'Documents/sub', to: 'Archive/sub' },
+        { from: 'Documents/sub/deep', to: 'Archive/renamed-deep' },
+    ]))
+    chooseConflictComparison.mockResolvedValueOnce([null, 'server', 'local', 'both'])
+
+    await contextMenu('Documents')
+    menuItem(language.serverDrive.rename).click()
+    await tick()
+    await submitName('Archive')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    button(language.yes, folderMergeDialog('Archive')).click()
+
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(2))
+    const comparison = chooseConflictComparison.mock.calls[0][0]
+    expect(comparison.items).toHaveLength(4)
+    expect(comparison.items[0].blocks[0].server).toMatchObject({
+        name: 'skip.txt',
+        text: expect.stringContaining('Archive/sub/skip.txt'),
+    })
+    expect(comparison.items[0].blocks[0].local).toMatchObject({
+        name: 'skip.txt',
+        text: expect.stringContaining('Documents/sub/skip.txt'),
+    })
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents', 'Archive', 'overwrite', {
+        revision: 'revision-1',
+        choices: {
+            'Archive/sub/skip.txt': null,
+            'Archive/sub/server.txt': 'server',
+            'Archive/sub/local.txt': 'local',
+            'Archive/sub/both.txt': 'both',
+        },
+    })
+    await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual([
+        'Documents', 'Archive/sub', 'Archive/renamed-deep', 'Documents-old',
+    ]))
+    expect(document.querySelector('main')?.textContent).toContain('Archive')
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('leaves the source in place and does not retry a folder merge after comparison is cancelled', async () => {
+    const existing = { ...folder, name: 'Archive', path: 'Archive' }
+    rootEntries = [{ ...folder }, existing]
+    button(language.serverDrive.refresh).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Archive'))
+    const conflicts = [{
+        path: 'Archive/report.txt',
+        existing: { ...file, name: 'report.txt', path: 'Archive/report.txt' },
+        incoming: { ...file, name: 'report.txt', path: 'Documents/report.txt' },
+    }]
+    storage.renameDriveEntry.mockRejectedValueOnce({
+        status: 409,
+        code: apiErrorCodes.DRIVE_MERGE_CONFLICT,
+        details: { revision: 'revision-1', conflicts },
+    })
+    chooseConflictComparison.mockRejectedValueOnce(new SaveConflictCancelledError())
+
+    await contextMenu('Documents')
+    menuItem(language.serverDrive.rename).click()
+    await tick()
+    await submitName('Archive')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    button(language.yes, folderMergeDialog('Archive')).click()
+
+    await vi.waitFor(() => expect(chooseConflictComparison).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull())
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Archive', 'overwrite', undefined)
+    expect(rootEntries.map(item => item.path)).toEqual(['Documents', 'Archive'])
+    expect(document.querySelector(`input[aria-label="${language.name}"]`)).not.toBeNull()
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('shows a fresh merge plan after a stale revision before retrying', async () => {
+    const existing = { ...folder, name: 'Archive', path: 'Archive' }
+    rootEntries = [{ ...folder }, existing]
+    button(language.serverDrive.refresh).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Archive'))
+    const plan = (revision: string, name: string) => ({
+        revision,
+        conflicts: [{
+            path: `Archive/${name}.txt`,
+            existing: { ...file, name: `${name}.txt`, path: `Archive/${name}.txt` },
+            incoming: { ...file, name: `${name}.txt`, path: `Documents/${name}.txt` },
+        }],
+    })
+    const firstPlan = plan('revision-1', 'first')
+    const freshPlan = plan('revision-2', 'fresh')
+    storage.renameDriveEntry.mockRejectedValueOnce({ status: 409, code: apiErrorCodes.DRIVE_MERGE_CONFLICT, details: firstPlan })
+    storage.renameDriveEntry.mockRejectedValueOnce({ status: 409, code: apiErrorCodes.DRIVE_MERGE_CONFLICT, details: freshPlan })
+    storage.renameDriveEntry.mockResolvedValueOnce(renameResult(existing, []))
+    chooseConflictComparison.mockResolvedValueOnce(['server']).mockResolvedValueOnce(['local'])
+
+    await contextMenu('Documents')
+    menuItem(language.serverDrive.rename).click()
+    await tick()
+    await submitName('Archive')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    button(language.yes, folderMergeDialog('Archive')).click()
+
+    await vi.waitFor(() => expect(chooseConflictComparison).toHaveBeenCalledTimes(2))
+    expect(chooseConflictComparison.mock.calls[0][0].items[0].label).toBe('Archive/first.txt')
+    expect(chooseConflictComparison.mock.calls[1][0].items[0].label).toBe('Archive/fresh.txt')
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(3))
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(1, 'Documents', 'Archive', 'overwrite', undefined)
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(2, 'Documents', 'Archive', 'overwrite', {
+        revision: 'revision-1', choices: { 'Archive/first.txt': 'server' },
+    })
+    expect(storage.renameDriveEntry).toHaveBeenNthCalledWith(3, 'Documents', 'Archive', 'overwrite', {
+        revision: 'revision-2', choices: { 'Archive/fresh.txt': 'local' },
+    })
+    expect(notifyError).not.toHaveBeenCalled()
+})
+
+it('does not ask for a conflict when a file is renamed to its current name', async () => {
+    await openDocuments()
+    await contextMenu('report.txt')
+    menuItem(language.serverDrive.rename).click()
+    await tick()
+    await submitName('report.txt')
+    await vi.waitFor(() => expect(document.querySelector(`input[aria-label="${language.name}"]`)).toBeNull())
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(document.querySelector('main')?.textContent).toContain('report.txt')
+})
+
+it('does not start another listing when a rename completes after the explorer closes', async () => {
+    let completeRename!: () => void
+    const saved = { ...file, name: 'renamed.txt', path: 'Documents/renamed.txt' }
+    storage.renameDriveEntry.mockImplementationOnce(() => new Promise(resolve => { completeRename = () => resolve(renameResult(saved)) }))
+    await openDocuments()
+    await contextMenu('report.txt')
+    menuItem(language.serverDrive.rename).click()
+    await tick()
+    await submitName('renamed.txt')
     await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledOnce())
     const listings = storage.listDrive.mock.calls.length
     await unmount(component)
@@ -250,16 +510,18 @@ it('pins folders as shortcuts, restores them when reopened and removes them', as
 })
 
 it('updates nested shortcuts when a folder is renamed', async () => {
+    const saved = { ...folder, name: 'Renamed', path: 'Renamed' }
     DBState.db.serverDriveShortcuts = ['Documents', 'Documents/subfolder', 'Documents-old']
+    storage.renameDriveEntry.mockImplementationOnce(async () => {
+        rootEntries = [saved]
+        return renameResult(saved, [{ from: 'Documents', to: saved.path }])
+    })
     await contextMenu('Documents')
     menuItem(language.serverDrive.rename).click()
     await tick()
-    const input = document.querySelector<HTMLInputElement>(`input[aria-label="${language.name}"]`)!
-    input.value = 'Renamed'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    await tick()
-    document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await submitName('Renamed')
     await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual(['Renamed', 'Renamed/subfolder', 'Documents-old']))
+    expect(storage.renameDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Renamed', 'error', undefined)
 })
 
 it('offers new folder and upload actions on empty space without opening the file menu', async () => {
@@ -275,6 +537,38 @@ it('offers new folder and upload actions on empty space without opening the file
     await contextMenu(area)
     menuItem(language.serverDrive.upload).click()
     await vi.waitFor(() => expect(picker).toHaveBeenCalledOnce())
+})
+
+it('merges a new empty folder into an existing folder', async () => {
+    await contextMenu(document.querySelector('main')!)
+    menuItem(language.serverDrive.newFolder).click()
+    await tick()
+    await submitName('Documents')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+
+    const alert = folderMergeDialog('Documents')
+    alert.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(storage.createDriveDirectory).toHaveBeenCalledOnce())
+    expect(storage.createDriveDirectory).toHaveBeenCalledExactlyOnceWith('', 'Documents', 'overwrite')
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+    expect(document.querySelector('main')?.textContent).toContain('Documents')
+})
+
+it('cancels a pending folder conflict and leaves the name form ready for another save', async () => {
+    await contextMenu(document.querySelector('main')!)
+    menuItem(language.serverDrive.newFolder).click()
+    await tick()
+    await submitName('Documents')
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+
+    button(language.no, folderMergeDialog('Documents')).click()
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull())
+    expect(storage.createDriveDirectory).not.toHaveBeenCalled()
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+    expect(dialog(language.serverDrive.newFolder)).toBeDefined()
+    await submitName('Notes')
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Notes'))
+    expect(storage.createDriveDirectory).toHaveBeenCalledExactlyOnceWith('', 'Notes', 'error')
 })
 
 it('toggles with Ctrl or Meta, extends from the anchor with Shift, and preserves the selection on right click', async () => {

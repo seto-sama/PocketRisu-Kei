@@ -225,8 +225,8 @@ describe('guarded chat saves', () => {
         const saving = saveChatToServer('character', 0, 'room', live)
         await vi.waitFor(() => expect(get(saveConflictDialog)).not.toBeNull())
         const dialog = get(saveConflictDialog)!
-        expect(dialog.items[0].local.data).toBe('local edit')
-        expect(dialog.items[0].server.data).toBe('remote edit')
+        expect(dialog.items[0].blocks[0].local.text).toBe('local edit')
+        expect(dialog.items[0].blocks[0].server.text).toBe('remote edit')
         const cancelled = expect(saving).rejects.toBeInstanceOf(SaveConflictCancelledError)
         dialog.complete(null)
         await cancelled
@@ -268,7 +268,7 @@ describe('guarded chat saves', () => {
             expect(get(saveConflictDialog)).not.toBeNull()
             expect(get(saveConflictDialog)).not.toBe(first)
         })
-        expect(get(saveConflictDialog)!.items[0].server.data).toBe('second server edit')
+        expect(get(saveConflictDialog)!.items[0].blocks[0].server.text).toBe('second server edit')
         get(saveConflictDialog)!.complete(['local'])
         await saving
         expect(backend.chat.message[0].data).toBe('my edit')

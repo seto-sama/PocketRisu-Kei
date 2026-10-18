@@ -67,6 +67,24 @@ it('does not start a download when session refresh fails', async () => {
     expect(click).not.toHaveBeenCalled()
 })
 
+it('carries folder merge comparisons, choices, and completed moves through the drive API', async () => {
+    const entry = { path: 'target/a.txt', name: 'a.txt', type: 'file', size: 12, createdAt: 1, modifiedAt: 2 }
+    const plan = { revision: 'revision', conflicts: [{ path: entry.path, existing: entry, incoming: { ...entry, path: 'source/a.txt' } }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'DRIVE_MERGE_CONFLICT', details: plan }), { status: 409 }))
+    await expect(storage.renameDriveEntry('source', 'target', 'overwrite')).rejects.toMatchObject({
+        code: 'DRIVE_MERGE_CONFLICT', details: plan,
+    })
+
+    const merge = { revision: plan.revision, choices: { [entry.path]: 'both' as const } }
+    const result = { entry, moves: [{ from: 'source/a.txt', to: 'target/a (1).txt' }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(result)))
+    expect(await storage.renameDriveEntry('source', 'target', 'overwrite', merge)).toEqual(result)
+    const [url, request] = fetchMock.mock.calls[1]
+    expect(url).toBe('/api/drive/rename')
+    expect(request.method).toBe('PATCH')
+    expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge })
+})
+
 describe('storage request integration', () => {
     it('sends the same guarded changes for database and chat saves', async () => {
         const delta = { changes: createDelta({ note: 'before' }, { note: 'after' }) }

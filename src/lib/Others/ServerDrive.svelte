@@ -9,7 +9,8 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
     import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
-    import type { DriveEntry, DriveUploadConflict, NodeStorage } from 'src/ts/storage/nodeStorage'
+    import type { DriveConflict, DriveEntry, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
+    import { chooseConflictComparison, SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
     import Button from '../UI/components/Button.svelte'
     import Input from '../UI/components/Input.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
@@ -32,7 +33,7 @@
     let uploadStatus = $state('')
     let fileInput = $state<HTMLInputElement>()
     let loadController: AbortController
-    let uploadController: AbortController
+    let operationController: AbortController
     let metadataController: AbortController
     let folderMenuController: AbortController
     let folderMenuEntries = $state<DriveEntry[]>([])
@@ -61,12 +62,14 @@
     let renameTarget = $state<DriveEntry | null>(null)
     let name = $state('')
     let nameError = $state('')
-    type ConflictChoice = Exclude<DriveUploadConflict, 'error'> | null
+    type ConflictChoice = Exclude<DriveConflict, 'error'> | null
+    type ConflictItem = Pick<DriveEntry, 'name' | 'type' | 'size'> & { modifiedAt?: number }
     let conflict = $state<{
-        file: File
+        incoming: ConflictItem
         existing: DriveEntry | null
         complete: (choice: ConflictChoice) => void
     } | null>(null)
+    const folderMergeConflict = $derived(conflict?.incoming.type === 'directory' && conflict?.existing?.type === 'directory')
 
     const parts = $derived(currentPath ? currentPath.split('/') : [])
     const inTrash = $derived(currentPath === trashPath || currentPath.startsWith(trashPath + '/'))
@@ -325,26 +328,36 @@
         if (busy || !name.trim()) return
         busy = true
         nameError = ''
+        const controller = operationController = new AbortController()
+        const source = renameTarget
         try {
-            if (renameTarget) {
-                await storage.renameDriveEntry(renameTarget.path, name)
-                if (renameTarget.type === 'directory') {
-                    const original = renameTarget.path
-                    const renamed = [...original.split('/').slice(0, -1), name].join('/')
-                    DBState.db.serverDriveShortcuts = shortcuts.map(path =>
-                        path === original || path.startsWith(original + '/') ? renamed + path.slice(original.length) : path)
-                }
-            } else await storage.createDriveDirectory(currentPath, name)
+            const saved = source
+                ? await resolveConflict({ ...source, name }, async (policy, merge) => {
+                    const result = await storage.renameDriveEntry(source.path, name, policy, merge)
+                    if (source.type === 'directory') updateShortcuts(result.moves)
+                    return result.entry
+                }, controller.signal, source.path)
+                : await resolveConflict({ name, type: 'directory', size: null },
+                    policy => storage.createDriveDirectory(currentPath, name, policy), controller.signal)
+            if (!saved) return
             nameOpen = false
             await refresh()
         } catch (error) {
-            nameError = String(error)
+            if (!controller.signal.aborted) nameError = String(error)
         } finally {
             busy = false
         }
     }
 
-    function askConflict(file: File, existing: DriveEntry | null, signal: AbortSignal): Promise<ConflictChoice> {
+    function updateShortcuts(moves: DriveRenameResult['moves']) {
+        const orderedMoves = [...moves].sort((a, b) => b.from.length - a.from.length)
+        DBState.db.serverDriveShortcuts = [...new Set(shortcuts.map(path => {
+            const moved = orderedMoves.find(move => path === move.from || path.startsWith(move.from + '/'))
+            return moved ? moved.to + path.slice(moved.from.length) : path
+        }))]
+    }
+
+    function askConflict(incoming: ConflictItem, existing: DriveEntry | null, signal: AbortSignal): Promise<ConflictChoice> {
         return new Promise(resolve => {
             const abort = () => complete(null)
             const complete = (choice: ConflictChoice) => {
@@ -352,37 +365,82 @@
                 conflict = null
                 resolve(choice)
             }
-            conflict = { file, existing, complete }
+            conflict = { incoming, existing, complete }
             signal.addEventListener('abort', abort, { once: true })
             if (signal.aborted) abort()
         })
     }
 
+    function mergePreview(entry: DriveEntry) {
+        const type = entry.type === 'directory' ? language.serverDrive.folder : language.serverDrive.file
+        return {
+            name: entry.name,
+            type,
+            text: [
+                `${language.serverDrive.path}: ${entry.path}`,
+                `${language.serverDrive.size}: ${formatSize(entry.size)}`,
+                `${language.serverDrive.modified}: ${new Date(entry.modifiedAt).toLocaleString()}`,
+            ].join('\n'),
+        }
+    }
+
+    async function resolveConflict(incoming: ConflictItem, save: (policy: DriveConflict, merge?: DriveMergeResolution) => Promise<DriveEntry>, signal: AbortSignal, sourcePath?: string) {
+        const path = currentPath ? `${currentPath}/${incoming.name}` : incoming.name
+        const known = entries.find(entry => entry.path === path && entry.path !== sourcePath)
+        let policy: DriveConflict | null = known ? await askConflict(incoming, known, signal) : 'error'
+        let merge: DriveMergeResolution | undefined
+        while (policy) {
+            signal.throwIfAborted()
+            try {
+                return await save(policy, merge)
+            } catch (error) {
+                if (error?.code === apiErrorCodes.DRIVE_MERGE_CONFLICT) {
+                    const plan = error.details as DriveMergePlan
+                    try {
+                        const choices = plan.conflicts.length ? await chooseConflictComparison({
+                            title: language.serverDrive.mergeFolders,
+                            description: language.serverDrive.mergeDescription,
+                            items: plan.conflicts.map(item => ({
+                                label: item.path,
+                                blocks: [{ server: mergePreview(item.existing), local: mergePreview(item.incoming) }],
+                            })),
+                            multiple: true,
+                            serverLabel: language.serverDrive.existing,
+                            localLabel: language.serverDrive.incoming,
+                            submitLabel: language.serverDrive.apply,
+                        }, signal) : []
+                        merge = { revision: plan.revision, choices: Object.fromEntries(plan.conflicts.map((item, index) => [item.path, choices[index]])) }
+                        policy = 'overwrite'
+                        continue
+                    } catch (error) {
+                        if (error instanceof SaveConflictCancelledError) return null
+                        throw error
+                    }
+                }
+                if (error?.code !== apiErrorCodes.DRIVE_ALREADY_EXISTS) throw error
+                merge = undefined
+                const existing = await storage.driveMetadata(path, signal).catch(() => null)
+                policy = await askConflict(incoming, existing, signal)
+            }
+        }
+        return null
+    }
+
     async function upload(files: File[]) {
         if (!files.length || disabled) return
         busy = true
-        const controller = uploadController = new AbortController()
+        const controller = operationController = new AbortController()
         let completed = 0
         try {
             for (const file of files) {
                 controller.signal.throwIfAborted()
                 uploadStatus = `${completed + 1} / ${files.length} · ${file.name}`
-                const known = entries.find(entry => entry.name === file.name)
-                let policy: DriveUploadConflict | null = known ? await askConflict(file, known, controller.signal) : 'error'
-                while (true) {
-                    if (!policy) controller.abort()
-                    controller.signal.throwIfAborted()
-                    try {
-                        const saved = await storage.uploadDriveFile(currentPath, file, controller.signal, policy)
-                        entries = [...entries.filter(entry => entry.path !== saved.path), saved]
-                        break
-                    } catch (error) {
-                        if (error?.code !== apiErrorCodes.DRIVE_ALREADY_EXISTS) throw error
-                        const path = currentPath ? `${currentPath}/${file.name}` : file.name
-                        const existing = await storage.driveMetadata(path, controller.signal).catch(() => null)
-                        policy = await askConflict(file, existing, controller.signal)
-                    }
-                }
+                const saved = await resolveConflict(
+                    { name: file.name, type: 'file', size: file.size, modifiedAt: file.lastModified },
+                    policy => storage.uploadDriveFile(currentPath, file, controller.signal, policy), controller.signal,
+                )
+                if (!saved) return
+                entries = [...entries.filter(entry => entry.path !== saved.path), saved]
                 completed++
             }
             notifySuccess(language.serverDrive.uploadComplete.replace('{count}', String(completed)))
@@ -405,7 +463,7 @@
         disposed = true
         loadController?.abort()
         metadataController?.abort()
-        uploadController?.abort()
+        operationController?.abort()
         folderMenuController?.abort()
     })
 </script>
@@ -505,7 +563,7 @@
                 <div class="flex shrink-0 items-center gap-2 border-b border-darkborderc bg-primary/10 px-3 py-2" role="status">
                     <UploadIcon size={16} class="shrink-0 text-primary" />
                     <span class="min-w-0 flex-1 truncate text-sm">{language.serverDrive.uploading} {uploadStatus}</span>
-                    <Button size="sm" variant="outline" onclick={() => uploadController.abort()}>{language.cancel}</Button>
+                    <Button size="sm" variant="outline" onclick={() => operationController.abort()}>{language.cancel}</Button>
                 </div>
             {/if}
             <ContextMenu.Root onOpenChange={(open) => { if (open) { selectedPaths = []; selectionAnchor = null } }}>
@@ -634,22 +692,22 @@
     </form>
 </Dialog>
 
-<AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) conflict?.complete(null) }} onCancel={() => conflict?.complete(null)}>
-    {#snippet title()}{language.serverDrive.conflictTitle}{/snippet}
-    {#snippet description()}{language.serverDrive.conflictDescription.replace('{name}', conflict?.file.name ?? '')}{/snippet}
-    {#if conflict}
+<AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) conflict?.complete(null) }} onCancel={() => conflict?.complete(null)}
+    onConfirm={folderMergeConflict ? () => conflict?.complete('overwrite') : undefined}>
+    {#snippet title()}{folderMergeConflict ? language.serverDrive.mergeFolders : language.serverDrive.conflictTitle}{/snippet}
+    {#snippet description()}<span class="whitespace-pre-line">{(folderMergeConflict ? language.serverDrive.folderConflict : language.serverDrive.conflictDescription).replace('{name}', conflict?.incoming.name ?? '')}</span>{/snippet}
+    {#if conflict && !folderMergeConflict}
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
             <dt class="text-subtext">{language.serverDrive.existing}</dt>
             <dd>{conflict.existing?.type === 'directory' ? language.serverDrive.folder : formatSize(conflict.existing?.size ?? null)}{#if conflict.existing} · {new Date(conflict.existing.modifiedAt).toLocaleString()}{/if}</dd>
             <dt class="text-subtext">{language.serverDrive.incoming}</dt>
-            <dd>{formatSize(conflict.file.size)} · {new Date(conflict.file.lastModified).toLocaleString()}</dd>
+            <dd>{conflict.incoming.type === 'directory' ? language.serverDrive.folder : formatSize(conflict.incoming.size)}{#if conflict.incoming.modifiedAt} · {new Date(conflict.incoming.modifiedAt).toLocaleString()}{/if}</dd>
         </dl>
-        {#if conflict.existing?.type === 'directory'}<p class="text-sm text-subtext">{language.serverDrive.folderConflict}</p>{/if}
     {/if}
     {#snippet footer()}
-        <Button variant="outline" onclick={() => conflict?.complete(null)}>{language.cancel}</Button>
-        <Button onclick={() => conflict?.complete('rename')}>{language.serverDrive.keepBoth}</Button>
-        <Button variant="destructive" disabled={conflict?.existing?.type !== 'file'} onclick={() => conflict?.complete('overwrite')}>{language.serverDrive.overwrite}</Button>
+        <Button variant="outline" onclick={() => conflict?.complete(null)}>{folderMergeConflict ? language.no : language.cancel}</Button>
+        {#if !folderMergeConflict}<Button onclick={() => conflict?.complete('rename')}>{language.serverDrive.keepBoth}</Button>{/if}
+        <Button variant={folderMergeConflict ? 'primary' : 'destructive'} disabled={!conflict?.existing || conflict.existing.type !== conflict.incoming.type} onclick={() => conflict?.complete('overwrite')}>{folderMergeConflict ? language.yes : language.serverDrive.overwrite}</Button>
     {/snippet}
 </AlertDialog>
 

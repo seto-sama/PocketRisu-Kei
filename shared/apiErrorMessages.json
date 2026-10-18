@@ -36,6 +36,7 @@
   "UNSUPPORTED_REMOTE_SAVE": "PocketRisu Kei does not process remote data. Disable Remote Saving in Original RisuAI, wait for saving to finish, then create and import a new backup.",
   "DRIVE_NOT_FOUND": "The drive file or folder could not be found. Refresh the folder and try again.",
   "DRIVE_ALREADY_EXISTS": "An item with that name already exists.",
+  "DRIVE_MERGE_CONFLICT": "Choose which items to keep before merging these folders.",
   "DRIVE_UNSUPPORTED_ENTRY": "Links and special files cannot be accessed through the drive.",
   "DRIVE_UNAVAILABLE": "The drive could not be accessed. Check the server's storage and permissions.",
   "DRIVE_REMOTE_ACCESS_DENIED": "Server Drive is unavailable through Cloudflare remote access."

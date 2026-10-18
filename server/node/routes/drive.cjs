@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const { finished, pipeline } = require('node:stream/promises');
 const { codes, createApiError } = require('../apiErrors.cjs');
 const {
@@ -31,6 +31,11 @@ function validateName(name) {
 function pathParts(value = '') {
     if (typeof value !== 'string') throw createApiError(codes.INVALID_FILE_PATH, 400);
     return value === '' ? [] : value.split('/').map(validateName);
+}
+
+function conflictPolicy(value = 'error') {
+    if (!['error', 'overwrite', 'rename'].includes(value)) throw createApiError(codes.INVALID_FILE_PATH, 400);
+    return value;
 }
 
 function isTrashPath(parts) {
@@ -259,6 +264,363 @@ function installDriveRoutes(app, {
         }
     }
 
+    function drivePath(parent, name) {
+        return parent ? `${parent}/${name}` : name;
+    }
+
+    async function optionalEntry(relativePath, resolvedParentPath) {
+        const parts = pathParts(relativePath);
+        if (!parts.length) return resolveEntry('', true);
+        const parent = parts.slice(0, -1).join('/');
+        const parentPath = resolvedParentPath ?? (await resolveEntry(parent, true)).absolutePath;
+        const absolutePath = path.join(parentPath, parts.at(-1));
+        const stat = await fs.lstat(absolutePath).catch(error => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+        });
+        if (stat) assertEntry(stat);
+        return stat ? { absolutePath, stat } : null;
+    }
+
+    function statFingerprint(stat) {
+        return stat && {
+            type: stat.isDirectory() ? 'directory' : 'file',
+            dev: String(stat.dev),
+            ino: String(stat.ino),
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            ctimeMs: stat.ctimeMs,
+        };
+    }
+
+    function identityFingerprint(stat) {
+        return {
+            type: stat.isDirectory() ? 'directory' : 'file',
+            dev: String(stat.dev),
+            ino: String(stat.ino),
+        };
+    }
+
+    async function captureTree(absolutePath, relativePath, role, observations) {
+        const stat = await fs.lstat(absolutePath);
+        assertEntry(stat);
+        observations.set(`${role}:${relativePath}`, statFingerprint(stat));
+        const node = { absolutePath, relativePath, stat, children: [] };
+        if (stat.isDirectory()) {
+            const names = (await fs.readdir(absolutePath)).sort((a, b) => a.localeCompare(b));
+            for (const name of names) {
+                validateName(name);
+                node.children.push(await captureTree(
+                    path.join(absolutePath, name), drivePath(relativePath, name), role, observations,
+                ));
+            }
+        }
+        return node;
+    }
+
+    async function assertCapturedTree(node, plan) {
+        const current = await fs.lstat(node.absolutePath).catch(error => {
+            if (error.code === 'ENOENT') throw mergeConflict(plan);
+            throw error;
+        });
+        assertEntry(current);
+        if (JSON.stringify(statFingerprint(current)) !== JSON.stringify(statFingerprint(node.stat))) {
+            throw mergeConflict(plan);
+        }
+        if (!current.isDirectory()) return;
+        const names = (await fs.readdir(node.absolutePath)).sort((a, b) => a.localeCompare(b));
+        const expectedNames = node.children.map(child => path.posix.basename(child.relativePath)).sort((a, b) => a.localeCompare(b));
+        if (names.length !== expectedNames.length || names.some((name, index) => name !== expectedNames[index])) {
+            throw mergeConflict(plan);
+        }
+        for (const child of node.children) await assertCapturedTree(child, plan);
+    }
+
+    async function collectMergePlan(sourcePath, destinationPath) {
+        const observations = new Map();
+        const source = await captureTree(sourcePath.absolutePath, sourcePath.relativePath, 'source', observations);
+
+        async function compare(sourceNode, targetAbsolutePath, targetRelativePath) {
+            const targetStat = await fs.lstat(targetAbsolutePath).catch(error => {
+                if (error.code === 'ENOENT') return null;
+                throw error;
+            });
+            observations.set(`destination:${targetRelativePath}`, statFingerprint(targetStat));
+            if (!targetStat) {
+                return { kind: 'move', source: sourceNode, targetAbsolutePath, targetRelativePath };
+            }
+            assertEntry(targetStat);
+            if (sourceNode.stat.isDirectory() && targetStat.isDirectory()) {
+                const children = [];
+                for (const child of sourceNode.children) {
+                    children.push(await compare(
+                        child,
+                        path.join(targetAbsolutePath, path.posix.basename(child.relativePath)),
+                        drivePath(targetRelativePath, path.posix.basename(child.relativePath)),
+                    ));
+                }
+                return { kind: 'merge', source: sourceNode, targetAbsolutePath, targetRelativePath, children };
+            }
+
+            const target = await captureTree(targetAbsolutePath, targetRelativePath, 'destination', observations);
+            const conflict = {
+                path: targetRelativePath,
+                existing: metadata(targetRelativePath, target.stat),
+                incoming: metadata(sourceNode.relativePath, sourceNode.stat),
+            };
+            return { kind: 'conflict', source: sourceNode, target, targetAbsolutePath, targetRelativePath, conflict };
+        }
+
+        const tree = await compare(source, destinationPath.absolutePath, destinationPath.relativePath);
+        const conflicts = [];
+        function collectConflicts(node) {
+            if (node.kind === 'conflict') conflicts.push(node.conflict);
+            for (const child of node.children ?? []) collectConflicts(child);
+        }
+        collectConflicts(tree);
+        conflicts.sort((a, b) => a.path.localeCompare(b.path));
+        const fingerprint = createHash('sha256').update(JSON.stringify({
+            sourceRoot: sourcePath.relativePath,
+            destinationRoot: destinationPath.relativePath,
+            observations: [...observations.entries()].sort(([a], [b]) => a.localeCompare(b)),
+        })).digest('hex');
+        return { tree, conflicts, revision: fingerprint };
+    }
+
+    function mergeConflict(plan) {
+        return createApiError(codes.DRIVE_MERGE_CONFLICT, 409, {
+            revision: plan.revision,
+            conflicts: plan.conflicts,
+        });
+    }
+
+    function mergeChoices(plan, merge) {
+        if (merge === undefined) {
+            if (plan.conflicts.length) throw mergeConflict(plan);
+            return Object.create(null);
+        }
+        if (!merge || typeof merge !== 'object' || Array.isArray(merge)
+            || typeof merge.revision !== 'string' || !merge.choices || typeof merge.choices !== 'object'
+            || Array.isArray(merge.choices)) {
+            throw createApiError(codes.INVALID_FILE_PATH, 400);
+        }
+        const choices = Object.create(null);
+        for (const [key, value] of Object.entries(merge.choices)) {
+            if (value !== null && !['server', 'local', 'both'].includes(value)) {
+                throw createApiError(codes.INVALID_FILE_PATH, 400);
+            }
+            choices[key] = value;
+        }
+        const expected = plan.conflicts.map(conflict => conflict.path).sort();
+        const supplied = Object.keys(choices).sort();
+        if (merge.revision !== plan.revision || expected.length !== supplied.length
+            || expected.some((path, index) => path !== supplied[index])) {
+            throw mergeConflict(plan);
+        }
+        return choices;
+    }
+
+    async function moveEntryToTrash(absolutePath, name, stat, { treeValidated = false } = {}) {
+        if (!treeValidated) await assertTree(absolutePath, stat);
+        const { absolutePath: trashPath } = await ensureTrashDirectory();
+        const manifest = await readTrashManifest();
+        for (let number = 0; ; number++) {
+            const targetName = number ? numberedName(name, number, stat.isDirectory()) : name;
+            const target = path.join(trashPath, targetName);
+            const existing = await fs.lstat(target).catch(error => {
+                if (error.code !== 'ENOENT') throw error;
+                return null;
+            });
+            if (existing) continue;
+            const hadManifestEntry = Object.hasOwn(manifest, targetName);
+            const previousTimestamp = manifest[targetName];
+            manifest[targetName] = Date.now();
+            await writeTrashManifest(manifest);
+            try {
+                await fs.rename(absolutePath, target);
+                return {
+                    absolutePath,
+                    target,
+                    targetName,
+                    hadManifestEntry,
+                    previousTimestamp,
+                    expectedIdentity: identityFingerprint(stat),
+                };
+            } catch (error) {
+                if (hadManifestEntry) manifest[targetName] = previousTimestamp;
+                else delete manifest[targetName];
+                await writeTrashManifest(manifest);
+                if (error.code !== 'EEXIST') throw error;
+            }
+        }
+    }
+
+    async function restoreTrashMove(move) {
+        const existing = await fs.lstat(move.absolutePath).catch(error => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+        });
+        if (existing) throw new Error(`Cannot restore Drive trash entry over ${move.absolutePath}`);
+        const trashed = await fs.lstat(move.target);
+        if (JSON.stringify(identityFingerprint(trashed)) !== JSON.stringify(move.expectedIdentity)) {
+            throw new Error(`Cannot restore changed Drive trash entry from ${move.target}`);
+        }
+        await fs.rename(move.target, move.absolutePath);
+        const manifest = await readTrashManifest();
+        if (move.hadManifestEntry) manifest[move.targetName] = move.previousTimestamp;
+        else delete manifest[move.targetName];
+        await writeTrashManifest(manifest);
+    }
+
+    async function rollbackMerge(journal) {
+        const failures = [];
+        for (const item of journal.reverse()) {
+            try {
+                if (item.kind === 'removed-directory') {
+                    const existing = await fs.lstat(item.path).catch(error => {
+                        if (error.code === 'ENOENT') return null;
+                        throw error;
+                    });
+                    if (existing) throw new Error(`Cannot recreate Drive merge directory over ${item.path}`);
+                    await fs.mkdir(item.path);
+                } else if (item.kind === 'trash') {
+                    await restoreTrashMove(item.move);
+                } else {
+                    const existingSource = await fs.lstat(item.from).catch(error => {
+                        if (error.code === 'ENOENT') return null;
+                        throw error;
+                    });
+                    if (existingSource) throw new Error(`Cannot roll back Drive merge over ${item.from}`);
+                    const existingTarget = await fs.lstat(item.to).catch(error => {
+                        if (error.code === 'ENOENT') return null;
+                        throw error;
+                    });
+                    if (!existingTarget) throw new Error(`Cannot find Drive merge item to roll back at ${item.to}`);
+                    if (JSON.stringify(identityFingerprint(existingTarget)) !== JSON.stringify(item.expectedIdentity)) {
+                        throw new Error(`Cannot roll back changed Drive merge item at ${item.to}`);
+                    }
+                    await fs.rename(item.to, item.from);
+                }
+            } catch (error) {
+                failures.push(error);
+            }
+        }
+        if (failures.length) console.error('[Drive] Failed to fully roll back folder merge:', failures);
+    }
+
+    async function mergeDirectory(sourcePath, destinationPath, merge) {
+        const plan = await collectMergePlan(sourcePath, destinationPath);
+        const choices = mergeChoices(plan, merge);
+        const journal = [];
+        const moves = [];
+        const operations = [];
+        const emptiedDirectories = [];
+        async function planOperations(node, reservedNames) {
+            if (node.kind === 'move') {
+                operations.push({ source: node.source, targetAbsolutePath: node.targetAbsolutePath, targetRelativePath: node.targetRelativePath });
+                return;
+            }
+            if (node.kind === 'conflict') {
+                const choice = choices[node.conflict.path];
+                if (choice === null || choice === 'server') return;
+                let targetAbsolutePath = node.targetAbsolutePath;
+                let targetRelativePath = node.targetRelativePath;
+                if (choice === 'both') {
+                    const parentRelativePath = path.posix.dirname(targetRelativePath) === '.' ? '' : path.posix.dirname(targetRelativePath);
+                    const parentAbsolutePath = path.dirname(targetAbsolutePath);
+                    const reserved = reservedNames ?? new Set();
+                    const name = path.posix.basename(targetRelativePath);
+                    for (let number = 1; ; number++) {
+                        const candidate = numberedName(name, number, node.source.stat.isDirectory());
+                        if (reserved.has(candidate)) continue;
+                        const candidatePath = path.join(parentAbsolutePath, candidate);
+                        const existing = await fs.lstat(candidatePath).catch(error => {
+                            if (error.code !== 'ENOENT') throw error;
+                            return null;
+                        });
+                        if (existing) continue;
+                        reserved.add(candidate);
+                        targetAbsolutePath = candidatePath;
+                        targetRelativePath = drivePath(parentRelativePath, candidate);
+                        break;
+                    }
+                }
+                operations.push({
+                    source: node.source,
+                    targetAbsolutePath,
+                    targetRelativePath,
+                    replace: choice === 'local' ? node.target : null,
+                });
+                return;
+            }
+            const siblingNames = new Set(node.children.map(child => path.posix.basename(child.source.relativePath)));
+            for (const child of node.children) await planOperations(child, siblingNames);
+            emptiedDirectories.push(node);
+        }
+        await planOperations(plan.tree);
+
+        let trashChanged = false;
+        try {
+            for (const operation of operations) {
+                await assertCapturedTree(operation.source, plan);
+                if (operation.replace) {
+                    await assertCapturedTree(operation.replace, plan);
+                    const trashMove = await moveEntryToTrash(
+                        operation.replace.absolutePath,
+                        path.posix.basename(operation.targetRelativePath),
+                        operation.replace.stat,
+                        { treeValidated: true },
+                    );
+                    trashChanged = true;
+                    journal.push({ kind: 'trash', move: trashMove });
+                }
+                const targetExists = await fs.lstat(operation.targetAbsolutePath).catch(error => {
+                    if (error.code === 'ENOENT') return null;
+                    throw error;
+                });
+                if (targetExists) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+                await assertCapturedTree(operation.source, plan);
+                await fs.rename(operation.source.absolutePath, operation.targetAbsolutePath);
+                journal.push({
+                    kind: 'move',
+                    from: operation.source.absolutePath,
+                    to: operation.targetAbsolutePath,
+                    expectedIdentity: identityFingerprint(operation.source.stat),
+                });
+                moves.push({ from: operation.source.relativePath, to: operation.targetRelativePath });
+            }
+
+            for (const node of emptiedDirectories) {
+                const current = await fs.lstat(node.source.absolutePath).catch(error => {
+                    if (error.code === 'ENOENT') throw mergeConflict(plan);
+                    throw error;
+                });
+                assertEntry(current);
+                if (!current.isDirectory()
+                    || JSON.stringify(identityFingerprint(current)) !== JSON.stringify(identityFingerprint(node.source.stat))) {
+                    throw mergeConflict(plan);
+                }
+                const remaining = await fs.readdir(node.source.absolutePath);
+                if (remaining.length) continue;
+                try {
+                    await fs.rmdir(node.source.absolutePath);
+                    journal.push({ kind: 'removed-directory', path: node.source.absolutePath });
+                    moves.push({ from: node.source.relativePath, to: node.targetRelativePath });
+                } catch (error) {
+                    if (error.code !== 'ENOTEMPTY') throw error;
+                }
+            }
+        } catch (error) {
+            await rollbackMerge(journal);
+            if (trashChanged) void scheduleTrashCleanup();
+            throw error;
+        }
+        if (trashChanged) void scheduleTrashCleanup();
+
+        const { stat } = await resolveEntry(destinationPath.relativePath);
+        return { entry: metadata(destinationPath.relativePath, stat), moves };
+    }
+
     async function destination(parent, name, overwrite = false) {
         assertWritableDestination(parent, name);
         const { absolutePath } = await resolveEntry(parent, true);
@@ -275,8 +637,8 @@ function installDriveRoutes(app, {
         return target;
     }
 
-    function numberedName(name, number) {
-        const extension = path.extname(name);
+    function numberedName(name, number, directory = false) {
+        const extension = directory ? '' : path.extname(name);
         const stem = Array.from(name.slice(0, name.length - extension.length));
         const suffix = ` (${number})${extension}`;
         while (stem.length && Buffer.byteLength(stem.join('') + suffix) > 255) stem.pop();
@@ -284,24 +646,30 @@ function installDriveRoutes(app, {
         return validateName(stem.join('') + suffix);
     }
 
-    async function publishUpload(temporaryPath, parent, name, conflict) {
+    async function publishEntry(parent, name, conflict, directory, write) {
         for (let number = 0; ; number++) {
-            const finalName = number ? numberedName(name, number) : name;
+            const finalName = number ? numberedName(name, number, directory) : name;
             try {
                 const target = await destination(parent, finalName, conflict === 'overwrite');
-                if (conflict === 'overwrite') {
-                    // Replace only after the complete upload has arrived, preserving the old file on cancellation.
-                    await fs.rename(temporaryPath, target);
-                } else {
-                    // link() also rejects files created by an external writer after the destination check.
-                    await fs.link(temporaryPath, target);
-                    await fs.unlink(temporaryPath);
-                }
+                await write(target);
                 return metadata(parent ? `${parent}/${finalName}` : finalName, await fs.lstat(target));
             } catch (error) {
                 if (conflict !== 'rename' || !['EEXIST', codes.DRIVE_ALREADY_EXISTS].includes(error.code)) throw error;
             }
         }
+    }
+
+    function publishFile(sourcePath, parent, name, conflict) {
+        return publishEntry(parent, name, conflict, false, async target => {
+            if (conflict === 'overwrite') {
+                // Publish atomically, keeping the destination intact until its replacement is ready.
+                await fs.rename(sourcePath, target);
+            } else {
+                // link() also rejects files created by an external writer after the destination check.
+                await fs.link(sourcePath, target);
+                await fs.unlink(sourcePath);
+            }
+        });
     }
 
     function route(method, url, handler, download = false) {
@@ -367,8 +735,19 @@ function installDriveRoutes(app, {
     route('post', '/api/drive/directory', async (req, res) => {
         const parent = req.body?.path ?? '';
         const name = validateName(req.body?.name);
-        await mutate(async () => fs.mkdir(await destination(parent, name)));
-        res.status(201).json({ ok: true });
+        const conflict = conflictPolicy(req.body?.conflict);
+        const entry = await mutate(async () => {
+            assertWritableDestination(parent, name);
+            if (conflict === 'overwrite') {
+                const existing = await optionalEntry(drivePath(parent, name));
+                if (existing) {
+                    if (!existing.stat.isDirectory()) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+                    return metadata(drivePath(parent, name), existing.stat);
+                }
+            }
+            return publishEntry(parent, name, conflict, true, target => fs.mkdir(target));
+        });
+        res.status(201).json({ entry });
     });
 
     route('patch', '/api/drive/rename', async (req, res) => {
@@ -377,13 +756,40 @@ function installDriveRoutes(app, {
         if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
         rejectTrashPath(parts);
         const name = validateName(req.body?.name);
-        await mutate(async () => {
-            const { absolutePath } = await resolveEntry(relativePath);
-            if (name === parts.at(-1)) return;
-            const target = await destination(parts.slice(0, -1).join('/'), name);
-            await fs.rename(absolutePath, target);
+        const conflict = conflictPolicy(req.body?.conflict);
+        const result = await mutate(async () => {
+            const { absolutePath, stat } = await resolveEntry(relativePath);
+            const destinationParent = parts.slice(0, -1).join('/');
+            assertWritableDestination(destinationParent, name);
+            const destinationEntry = await resolveEntry(destinationParent, true);
+            const targetRelativePath = drivePath(destinationParent, name);
+            if (targetRelativePath === relativePath) {
+                return { entry: metadata(relativePath, stat), moves: [] };
+            }
+            const existing = await optionalEntry(targetRelativePath, destinationEntry.absolutePath);
+            const mergeProvided = req.body?.merge !== undefined;
+            if (mergeProvided && conflict !== 'overwrite') {
+                throw createApiError(codes.INVALID_FILE_PATH, 400);
+            }
+            if (mergeProvided && (!stat.isDirectory() || (existing && !existing.stat.isDirectory()))) {
+                throw createApiError(codes.DRIVE_NOT_FOUND, 404);
+            }
+            if (stat.isDirectory() && conflict === 'overwrite' && (mergeProvided || existing?.stat.isDirectory())) {
+                return mergeDirectory(
+                    { absolutePath, relativePath },
+                    { absolutePath: existing?.absolutePath ?? path.join(destinationEntry.absolutePath, name), relativePath: targetRelativePath },
+                    req.body?.merge,
+                );
+            }
+            if (existing && conflict === 'overwrite' && stat.isDirectory() !== existing.stat.isDirectory()) {
+                throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+            }
+            const entry = stat.isFile()
+                ? await publishFile(absolutePath, destinationParent, name, conflict)
+                : await publishEntry(destinationParent, name, conflict, true, target => fs.rename(absolutePath, target));
+            return { entry, moves: [{ from: relativePath, to: entry.path }] };
         });
-        res.json({ ok: true });
+        res.json(result);
     });
 
     route('delete', '/api/drive/entry', async (req, res) => {
@@ -393,32 +799,7 @@ function installDriveRoutes(app, {
         rejectTrashPath(parts);
         await mutate(async () => {
             const { absolutePath, stat } = await resolveEntry(relativePath);
-            await assertTree(absolutePath, stat);
-            const { absolutePath: trashPath } = await ensureTrashDirectory();
-            const manifest = await readTrashManifest();
-            const name = parts.at(-1);
-            for (let number = 0; ; number++) {
-                const targetName = number ? numberedName(name, number) : name;
-                const target = path.join(trashPath, targetName);
-                const existing = await fs.lstat(target).catch(error => {
-                    if (error.code !== 'ENOENT') throw error;
-                    return null;
-                });
-                if (existing) continue;
-                const hadManifestEntry = Object.hasOwn(manifest, targetName);
-                const previousTimestamp = manifest[targetName];
-                manifest[targetName] = Date.now();
-                await writeTrashManifest(manifest);
-                try {
-                    await fs.rename(absolutePath, target);
-                    break;
-                } catch (error) {
-                    if (hadManifestEntry) manifest[targetName] = previousTimestamp;
-                    else delete manifest[targetName];
-                    await writeTrashManifest(manifest);
-                    if (error.code !== 'EEXIST') throw error;
-                }
-            }
+            await moveEntryToTrash(absolutePath, parts.at(-1), stat);
         });
         void scheduleTrashCleanup();
         res.json({ ok: true });
@@ -445,8 +826,7 @@ function installDriveRoutes(app, {
         }
         const relativePath = req.query.path ?? '';
         const name = validateName(req.query.name);
-        const conflict = req.query.conflict ?? 'error';
-        if (!['error', 'overwrite', 'rename'].includes(conflict)) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        const conflict = conflictPolicy(req.query.conflict);
         if (conflict === 'rename') {
             assertWritableDestination(relativePath, name);
             await resolveEntry(relativePath, true);
@@ -472,7 +852,7 @@ function installDriveRoutes(app, {
                 if (!req.complete && !req.destroyed) req.resume();
                 await file.close();
             }
-            const entry = await mutate(() => publishUpload(temporaryPath, relativePath, name, conflict));
+            const entry = await mutate(() => publishFile(temporaryPath, relativePath, name, conflict));
             res.status(201).json({ entry });
         } finally {
             await fs.rm(temporaryPath, { force: true });
