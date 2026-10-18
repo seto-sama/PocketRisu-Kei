@@ -9,6 +9,8 @@ PocketRisu를 PC에 실행해두고 다른 기기(스마트폰, 태블릿, 다�
 - [1. Quick Tunnel](#1-quick-tunnel) — PocketRisu 내장 기능. 별도 앱 불필요. 서버 재시작 시 URL 변경.
 - [2. Tailscale](#2-tailscale) — 사설 네트워크(VPN) 기반. URL 고정.
 
+브라우저에서 접속할 때는 HTTPS가 필요합니다. 아래 두 방법 모두 HTTPS 주소를 제공하므로 로컬 서버는 HTTP를 그대로 사용해도 됩니다.
+
 
 ## 1. Quick Tunnel
 

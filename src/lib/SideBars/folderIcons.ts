@@ -3,8 +3,7 @@
  * (`folder.icon`). Explicit imports keep the bundle to just these;
  * an unknown name (e.g. from a newer version) falls back to the default.
  */
-import type { Component } from 'svelte'
-import type { IconProps } from '@lucide/svelte'
+import type { LucideIcon } from '@lucide/svelte'
 import {
     FolderIcon, FolderHeartIcon, StarIcon, HeartIcon, SparklesIcon, FlameIcon, SunIcon, MoonIcon, CloudIcon, ZapIcon,
     CrownIcon, GemIcon, GiftIcon, CakeIcon, CoffeeIcon, PizzaIcon, MusicIcon, Gamepad2Icon, SwordIcon, ShieldIcon,
@@ -14,7 +13,7 @@ import {
     SmileIcon, UsersIcon, UserIcon, BabyIcon, BookmarkIcon, TagIcon, ClockIcon, CalendarIcon, ArchiveIcon, PinIcon,
 } from '@lucide/svelte'
 
-export const FOLDER_ICONS: Record<string, Component<IconProps>> = {
+export const FOLDER_ICONS: Record<string, LucideIcon> = {
     folder: FolderIcon, 'folder-heart': FolderHeartIcon, star: StarIcon, heart: HeartIcon, sparkles: SparklesIcon,
     flame: FlameIcon, sun: SunIcon, moon: MoonIcon, cloud: CloudIcon, zap: ZapIcon, crown: CrownIcon, gem: GemIcon,
     gift: GiftIcon, cake: CakeIcon, coffee: CoffeeIcon, pizza: PizzaIcon, music: MusicIcon, gamepad: Gamepad2Icon,
@@ -29,6 +28,6 @@ export const FOLDER_ICONS: Record<string, Component<IconProps>> = {
 
 export const FOLDER_ICON_NAMES = Object.keys(FOLDER_ICONS)
 
-export function folderIconComponent(name: string | undefined): Component<IconProps> | undefined {
+export function folderIconComponent(name: string | undefined): LucideIcon | undefined {
     return name && name !== 'folder' ? FOLDER_ICONS[name] : undefined
 }

@@ -1,4 +1,6 @@
 import { getSyncClientId } from './storage/nodeStorage'
+import { createEntityId } from './id'
+import { getLogClientId } from './log'
 
 export interface FetchLogSummary {
     id: string
@@ -39,28 +41,6 @@ export interface RequestLogStorage {
 
 export type RequestLogClearScope = 'payload' | 'all'
 
-const CLIENT_ID_KEY = 'risu-client-id'
-
-function createFetchLogId() {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-    return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function getFetchLogClientId(): string {
-    try {
-        let id = localStorage.getItem(CLIENT_ID_KEY)
-        if (!id) {
-            id = typeof crypto !== 'undefined' && crypto.randomUUID
-                ? crypto.randomUUID()
-                : Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
-            localStorage.setItem(CLIENT_ID_KEY, id)
-        }
-        return id.slice(0, 6)
-    } catch {
-        return 'session'
-    }
-}
-
 function getFetchLogPlatform(): string {
     if (typeof navigator === 'undefined') return 'Unknown'
     const ua = navigator.userAgent || ''
@@ -76,9 +56,9 @@ export function createFetchLogEntry(log: Omit<FetchLog, 'id' | 'timestamp' | 'cl
 }): FetchLog {
     return {
         ...log,
-        id: log.id ?? createFetchLogId(),
+        id: log.id ?? createEntityId(),
         timestamp: log.timestamp ?? Date.now(),
-        clientId: log.clientId ?? getFetchLogClientId(),
+        clientId: log.clientId ?? getLogClientId(),
         platform: log.platform ?? getFetchLogPlatform(),
     }
 }

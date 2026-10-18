@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 import DOMPurify from 'dompurify';
-import markdownit from 'markdown-it'
+import markdownit, { type MarkdownIt } from 'markdown-it'
 import { pocketKeiVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
 import { CurrentTriggerIdStore, DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
@@ -227,7 +227,7 @@ function escapeStandaloneOrderedListMarkers(markdown:string){
     }).join('\n')
 }
 
-function renderMarkdown(md:markdownit, data:string){
+function renderMarkdown(md:MarkdownIt, data:string){
     let quotes = ['“', '”', '‘', '’']
     if(DBState.db?.customQuotes){
         quotes = DBState.db.customQuotesData ?? quotes

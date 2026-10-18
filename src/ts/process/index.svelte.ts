@@ -706,7 +706,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const normalActives = lorepmt.actives.filter(v => {
         return v.pos === '' && v.inject === null
     })
-    console.log(normalActives)
+    if (import.meta.env.DEV) {
+        console.log(normalActives)
+    }
 
     for(const lorebook of normalActives){
         unformated.lorebook.push({
@@ -789,7 +791,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     currentTokens += 50
     
     const positionParser = (text:string, loc:string) => {
-        console.log(injectionLorePosSet)
+        if (import.meta.env.DEV) {
+            console.log(injectionLorePosSet)
+        }
         if(injectionLorePosSet.has(loc)){
             const matchings = injectionLorebooks.filter(v => {
                 return v.inject.location === loc
@@ -1058,7 +1062,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
     
-    console.log('Prepared messages for token calculation:', ms)
+    if (import.meta.env.DEV) {
+        console.log('Prepared messages for token calculation:', ms)
+    }
 
     let triggerAdditionalSysPrompt:additonalSysPrompt|undefined
     const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
@@ -1208,7 +1214,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
         index++
     }
-    console.log(JSON.stringify(chats, null, 2))
+    if (import.meta.env.DEV) {
+        console.log(chats)
+    }
 
     const depthPrompts = lorepmt.actives.filter(v => {
         return (v.pos === 'depth' && v.depth > 0) || v.pos === 'reverse_depth'
@@ -1226,7 +1234,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
         chatProcessStage.set(2)
         stageTimings.stage2Start = Date.now()
-        console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        if (import.meta.env.DEV) {
+            console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        }
         const sp = await hypaMemoryV3(
             chats,
             currentTokens,
@@ -1241,12 +1251,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             },
         )
         if(sp.error){
-            // Save new summary
+            // Preserve memory state returned with the error.
             if (sp.memory) {
                 currentChat.hypaV3Data = sp.memory
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
             }
-            console.log(sp)
+            if (import.meta.env.DEV) {
+                console.log(sp)
+            }
             if(abortSignal.aborted) return finishCancelledGeneration()
             throwError(sp.error)
             await finishWorkflow('failed')
@@ -1265,7 +1277,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
-        console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        if (import.meta.env.DEV) {
+            console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        }
         stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
         if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
     }
@@ -1551,7 +1565,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     formated = await runLuaEditTrigger(currentChar, 'editRequest', formated)
 
-    //token rechecking
     let inputTokens = 0
 
     for(const chat of formated){
@@ -1897,13 +1910,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    console.log(req)
+    if (import.meta.env.DEV) {
+        console.log(req)
+    }
     arg.onMainRequestResult?.({
         toolExecuted: req.type === 'success' && req.toolExecuted === true,
     })
     if(req.model){
         generationInfo.model = getGenerationModelString(req.model)
-        console.log(generationInfo.model, req.model)
+        if (import.meta.env.DEV) {
+            console.log(generationInfo.model, req.model)
+        }
     }
     try {
         await updateRevenantGenerationMetadata(messageChatId, {

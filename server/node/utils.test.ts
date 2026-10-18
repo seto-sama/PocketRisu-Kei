@@ -76,7 +76,7 @@ describe('decodeRisuSave', () => {
         const progress: Array<[number, number]> = []
         const encoded = await encodeRisuSave(database, (bytes: number, total: number) => progress.push([bytes, total]))
 
-        expect(encoded.subarray(0, magicCompressedHeader.length)).toEqual(magicCompressedHeader)
+        expect(Array.from(encoded.subarray(0, magicCompressedHeader.length))).toEqual(Array.from(magicCompressedHeader))
         expect(Array.from(encoded.subarray(magicCompressedHeader.length, magicCompressedHeader.length + 2))).toEqual([0x1f, 0x8b])
         const total = progress.at(-1)![1]
         expect(progress[0]).toEqual([0, total])

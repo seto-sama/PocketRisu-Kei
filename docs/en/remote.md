@@ -9,6 +9,8 @@ There are two ways to access PocketRisu running on your PC from another device (
 - [1. Quick Tunnel](#1-quick-tunnel) — Built into PocketRisu. No additional app required. URL changes on server restart.
 - [2. Tailscale](#2-tailscale) — Based on a private network (VPN). Persistent URL.
 
+The browser requires HTTPS for remote access. Local access through `http://localhost:6001` or `http://127.0.0.1:6001` on the server device remains supported. Plain HTTP over a LAN IP, such as `http://192.168.0.10:6001`, is not supported. Both methods below provide an HTTPS URL; the local server can continue using HTTP.
+
 
 ## 1. Quick Tunnel
 

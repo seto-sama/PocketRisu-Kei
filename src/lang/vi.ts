@@ -1018,9 +1018,8 @@ export const languageVietnamese = {
 
     remoteAccessTermuxWarning: "Cloudflare Quick Tunnel không hoạt động trên Termux. Hãy sử dụng Tailscale hoặc công cụ truy cập từ xa khác.",
 
-    httpInsecureWarningTitle: "Đang kết nối qua HTTP",
-    httpInsecureWarningBody: "Một số tính năng như plugin có thể không hoạt động. Hãy dùng tính năng Truy cập từ xa để có kết nối HTTPS.",
-    httpInsecureOpenRemoteAccess: "Mở cài đặt",
+    secureConnectionRequiredTitle: "Yêu cầu kết nối an toàn",
+    secureConnectionRequiredBody: "Mở PocketRisu Kei bằng HTTPS hoặc dùng http://localhost hoặc http://127.0.0.1 trên thiết bị máy chủ. Để truy cập từ xa, hãy bật Cloudflare Remote Access khi đang kết nối cục bộ.",
 
     selectBotHint: "Chọn một bot để bắt đầu trò chuyện",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

@@ -1,4 +1,3 @@
-import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { type HypaModel, type memoryVector, HypaProcesser, DEFAULT_HYPA_MODEL, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
@@ -332,17 +331,21 @@ async function executeHypaSummaryBatches(
         })
     );
 
-    console.log(logPrefix, `Starting ${batches.length} summarization.`);
-    const startedAt = performance.now();
+    if (import.meta.env.DEV) {
+        console.log(logPrefix, `Starting ${batches.length} summarization.`);
+    }
+    const startedAt = import.meta.env.DEV ? performance.now() : 0;
     try {
         const batchResult = useDurableDispatch
             ? await executeDurableHypaBatch<string>(tasks)
             : await concurrencyLimiter.executeBatch<string>(
                 tasks.map(task => () => task())
             );
-        console.debug(
-            `${logPrefix} summarization completed in ${performance.now() - startedAt}ms`
-        );
+        if (import.meta.env.DEV) {
+            console.debug(
+                `${logPrefix} summarization completed in ${performance.now() - startedAt}ms`
+            );
+        }
         return batchResult.results.map(result => {
             if (!result.success) throw result.error;
             if (!result.data) throw new Error("Empty summary returned");
@@ -481,7 +484,9 @@ export async function hypaMemoryV3(
 
     try {
         if (settings.useExperimentalImpl) {
-            console.log(logPrefix, "Using experimental implementation.");
+            if (import.meta.env.DEV) {
+                console.log(logPrefix, "Using experimental implementation.");
+            }
 
             return await hypaMemoryV3MainExp(
                 chats,
@@ -577,7 +582,9 @@ async function hypaMemoryV3MainExp(
         }
     }
 
-    console.log(logPrefix, "Starting index:", startIdx);
+    if (import.meta.env.DEV) {
+        console.log(logPrefix, "Starting index:", startIdx);
+    }
 
     // Reserve memory tokens
     const emptyMemoryTokens = await tokenizer.tokenizeChat({
@@ -595,7 +602,9 @@ async function hypaMemoryV3MainExp(
 
     if (shouldReserveMemoryTokens) {
         currentTokens += memoryTokens;
-        console.log(logPrefix, "Reserved memory tokens:", memoryTokens);
+        if (import.meta.env.DEV) {
+            console.log(logPrefix, "Reserved memory tokens:", memoryTokens);
+        }
     }
 
     // If summarization is needed
@@ -626,18 +635,20 @@ async function hypaMemoryV3MainExp(
         let toSummarizeTokens = 0;
         let currentIndex = startIdx;
 
-        console.log(
-            logPrefix,
-            "Evaluating summarization batch:",
-            "\nCurrent Tokens:",
-            currentTokens,
-            "\nMax Context Tokens:",
-            maxContextTokens,
-            "\nStart Index:",
-            startIdx,
-            "\nMax Chats Per Summary:",
-            settings.maxChatsPerSummary
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Evaluating summarization batch:",
+                "\nCurrent Tokens:",
+                currentTokens,
+                "\nMax Context Tokens:",
+                maxContextTokens,
+                "\nStart Index:",
+                startIdx,
+                "\nMax Chats Per Summary:",
+                settings.maxChatsPerSummary
+            );
+        }
 
         while (
             toSummarize.length < settings.maxChatsPerSummary &&
@@ -646,18 +657,20 @@ async function hypaMemoryV3MainExp(
             const chat = chats[currentIndex];
             const chatTokens = await tokenizer.tokenizeChat(chat);
 
-            console.log(
-                logPrefix,
-                "Evaluating chat:",
-                "\nIndex:",
-                currentIndex,
-                "\nRole:",
-                chat.role,
-                "\nContent:",
-                "\n" + chat.content,
-                "\nTokens:",
-                chatTokens
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Evaluating chat:",
+                    "\nIndex:",
+                    currentIndex,
+                    "\nRole:",
+                    chat.role,
+                    "\nContent:",
+                    "\n" + chat.content,
+                    "\nTokens:",
+                    chatTokens
+                );
+            }
 
             toSummarizeTokens += chatTokens;
 
@@ -668,25 +681,33 @@ async function hypaMemoryV3MainExp(
                 chat.name === "example_assistant" ||
                 chat.memo === "NewChatExample"
             ) {
-                console.log(
-                    logPrefix,
-                    `Skipping example chat at index ${currentIndex}`
-                );
+                if (import.meta.env.DEV) {
+                    console.log(
+                        logPrefix,
+                        `Skipping example chat at index ${currentIndex}`
+                    );
+                }
                 shouldSummarize = false;
             }
 
             if (chat.memo === "NewChat") {
-                console.log(logPrefix, `Skipping new chat at index ${currentIndex}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping new chat at index ${currentIndex}`);
+                }
                 shouldSummarize = false;
             }
 
             if (chat.content.trim().length === 0) {
-                console.log(logPrefix, `Skipping empty chat at index ${currentIndex}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping empty chat at index ${currentIndex}`);
+                }
                 shouldSummarize = false;
             }
 
             if (settings.doNotSummarizeUserMessage && chat.role === "user") {
-                console.log(logPrefix, `Skipping user role at index ${currentIndex}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping user role at index ${currentIndex}`);
+                }
                 shouldSummarize = false;
             }
 
@@ -702,22 +723,26 @@ async function hypaMemoryV3MainExp(
             currentTokens <= maxContextTokens &&
             currentTokens - toSummarizeTokens < targetTokens
         ) {
-            console.log(
-                logPrefix,
-                "Stopping summarization:",
-                `\ncurrentTokens(${currentTokens}) - toSummarizeTokens(${toSummarizeTokens}) < targetTokens(${targetTokens})`
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Stopping summarization:",
+                    `\ncurrentTokens(${currentTokens}) - toSummarizeTokens(${toSummarizeTokens}) < targetTokens(${targetTokens})`
+                );
+            }
             break;
         }
 
         // Collect summarization batch
         if (toSummarize.length > 0) {
-            console.log(
-                logPrefix,
-                "Collecting summarization batch:",
-                "\nTarget:",
-                toSummarize
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Collecting summarization batch:",
+                    "\nTarget:",
+                    toSummarize
+                );
+            }
 
             toSummarizeArray.push([...toSummarize]);
         }
@@ -750,7 +775,9 @@ async function hypaMemoryV3MainExp(
             room.hypaV3Data = toSerializableHypaV3Data(data);
             await recoverHypaV3SummaryJobs(char, room);
         } catch (error) {
-            console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            if (import.meta.env.DEV) {
+                console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            }
             return {
                 currentTokens,
                 chats,
@@ -760,31 +787,35 @@ async function hypaMemoryV3MainExp(
         }
     }
 
-    console.log(
-        logPrefix,
-        `${summarizationMode ? "Completed" : "Skipped"} summarization phase:`,
-        "\nCurrent Tokens:",
-        currentTokens,
-        "\nMax Context Tokens:",
-        maxContextTokens,
-        "\nAvailable Memory Tokens:",
-        availableMemoryTokens
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            `${summarizationMode ? "Completed" : "Skipped"} summarization phase:`,
+            "\nCurrent Tokens:",
+            currentTokens,
+            "\nMax Context Tokens:",
+            maxContextTokens,
+            "\nAvailable Memory Tokens:",
+            availableMemoryTokens
+        );
+    }
 
     // Early return if no summaries
     if (data.summaries.length === 0) {
         const newChats: OpenAIChat[] = chats.slice(startIdx);
 
-        console.log(
-            logPrefix,
-            "Exiting function:",
-            "\nCurrent Tokens:",
-            currentTokens,
-            "\nAll chats, including memory prompt:",
-            newChats,
-            "\nMemory Data:",
-            data
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Exiting function:",
+                "\nCurrent Tokens:",
+                currentTokens,
+                "\nAll chats, including memory prompt:",
+                newChats,
+                "\nMemory Data:",
+                data
+            );
+        }
 
         return {
             currentTokens,
@@ -819,16 +850,18 @@ async function hypaMemoryV3MainExp(
 
         selectedSummaries.push(...selectedImportantSummaries);
 
-        console.log(
-            logPrefix,
-            "After important memory selection:",
-            "\nSummary Count:",
-            selectedImportantSummaries.length,
-            "\nSummaries:",
-            selectedImportantSummaries,
-            "\nAvailable Memory Tokens:",
-            availableMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After important memory selection:",
+                "\nSummary Count:",
+                selectedImportantSummaries.length,
+                "\nSummaries:",
+                selectedImportantSummaries,
+                "\nAvailable Memory Tokens:",
+                availableMemoryTokens
+            );
+        }
     }
 
     // Select recent summaries
@@ -865,18 +898,20 @@ async function hypaMemoryV3MainExp(
 
         selectedSummaries.push(...selectedRecentSummaries);
 
-        console.log(
-            logPrefix,
-            "After recent memory selection:",
-            "\nSummary Count:",
-            selectedRecentSummaries.length,
-            "\nSummaries:",
-            selectedRecentSummaries,
-            "\nReserved Tokens:",
-            reservedRecentMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedRecentMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After recent memory selection:",
+                "\nSummary Count:",
+                selectedRecentSummaries.length,
+                "\nSummaries:",
+                selectedRecentSummaries,
+                "\nReserved Tokens:",
+                reservedRecentMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedRecentMemoryTokens
+            );
+        }
     }
 
     // Select similar summaries
@@ -893,12 +928,14 @@ async function hypaMemoryV3MainExp(
                 reservedRecentMemoryTokens - consumedRecentMemoryTokens;
 
             reservedSimilarMemoryTokens += unusedRecentTokens;
-            console.log(
-                logPrefix,
-                "Additional available token space for similar memory:",
-                "\nFrom recent:",
-                unusedRecentTokens
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Additional available token space for similar memory:",
+                    "\nFrom recent:",
+                    unusedRecentTokens
+                );
+            }
         }
 
         // Target only summaries that haven't been selected yet
@@ -937,18 +974,21 @@ async function hypaMemoryV3MainExp(
         };
 
         try {
-            console.log(
-                `${logPrefix} Starting addTexts with ${ebdTexts.length} chunks`
-            );
-            const addStartTime = performance.now();
+            if (import.meta.env.DEV) {
+                console.log(
+                    `${logPrefix} Starting addTexts with ${ebdTexts.length} chunks`
+                );
+            }
+            const addStartTime = import.meta.env.DEV ? performance.now() : 0;
 
             // Add EmbeddingTexts to processor for similarity search
             await processor.addTexts(ebdTexts);
 
-            const addEndTime = performance.now();
-            console.debug(
-                `${logPrefix} addTexts completed in ${addEndTime - addStartTime}ms`
-            );
+            if (import.meta.env.DEV) {
+                console.debug(
+                    `${logPrefix} addTexts completed in ${performance.now() - addStartTime}ms`
+                );
+            }
         } catch (error) {
             return {
                 currentTokens,
@@ -986,20 +1026,22 @@ async function hypaMemoryV3MainExp(
 
         if (queries.length > 0) {
             try {
-                console.log(
-                    `${logPrefix} Starting similarity search with ${recentChats.length} queries`
-                );
-                const searchStartTime = performance.now();
+                if (import.meta.env.DEV) {
+                    console.log(
+                        `${logPrefix} Starting similarity search with ${recentChats.length} queries`
+                    );
+                }
+                const searchStartTime = import.meta.env.DEV ? performance.now() : 0;
 
                 const batchScoredResults = await processor.similaritySearchScoredBatch(
                     queries.map((query) => query.content)
                 );
 
-                const searchEndTime = performance.now();
-                console.debug(
-                    `${logPrefix} Similarity search completed in ${searchEndTime - searchStartTime
-                    }ms`
-                );
+                if (import.meta.env.DEV) {
+                    console.debug(
+                        `${logPrefix} Similarity search completed in ${performance.now() - searchStartTime}ms`
+                    );
+                }
                 const rankedChunks = simpleCC<EmbeddingResult<Summary>>(
                     batchScoredResults,
                     (listIndex) => queries[listIndex].weight
@@ -1021,11 +1063,13 @@ async function hypaMemoryV3MainExp(
                         summaryTokens + consumedSimilarMemoryTokens >
                         reservedSimilarMemoryTokens
                     ) {
-                        console.log(
-                            logPrefix,
-                            "Stopping similar memory selection:",
-                            `\nconsumedSimilarMemoryTokens(${consumedSimilarMemoryTokens}) + summaryTokens(${summaryTokens}) > reservedSimilarMemoryTokens(${reservedSimilarMemoryTokens})`
-                        );
+                        if (import.meta.env.DEV) {
+                            console.log(
+                                logPrefix,
+                                "Stopping similar memory selection:",
+                                `\nconsumedSimilarMemoryTokens(${consumedSimilarMemoryTokens}) + summaryTokens(${summaryTokens}) > reservedSimilarMemoryTokens(${reservedSimilarMemoryTokens})`
+                            );
+                        }
                         break;
                     }
 
@@ -1051,18 +1095,20 @@ async function hypaMemoryV3MainExp(
             }
         }
 
-        console.log(
-            logPrefix,
-            "After similar memory selection:",
-            "\nSummary Count:",
-            selectedSimilarSummaries.length,
-            "\nSummaries:",
-            selectedSimilarSummaries,
-            "\nReserved Tokens:",
-            reservedSimilarMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedSimilarMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After similar memory selection:",
+                "\nSummary Count:",
+                selectedSimilarSummaries.length,
+                "\nSummaries:",
+                selectedSimilarSummaries,
+                "\nReserved Tokens:",
+                reservedSimilarMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedSimilarMemoryTokens
+            );
+        }
     }
 
     // Select random summaries
@@ -1080,16 +1126,18 @@ async function hypaMemoryV3MainExp(
             reservedSimilarMemoryTokens - consumedSimilarMemoryTokens;
 
         reservedRandomMemoryTokens += unusedRecentTokens + unusedSimilarTokens;
-        console.log(
-            logPrefix,
-            "Additional available token space for random memory:",
-            "\nFrom recent:",
-            unusedRecentTokens,
-            "\nFrom similar:",
-            unusedSimilarTokens,
-            "\nTotal added:",
-            unusedRecentTokens + unusedSimilarTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Additional available token space for random memory:",
+                "\nFrom recent:",
+                unusedRecentTokens,
+                "\nFrom similar:",
+                unusedSimilarTokens,
+                "\nTotal added:",
+                unusedRecentTokens + unusedSimilarTokens
+            );
+        }
 
         // Target only summaries that haven't been selected yet
         const unusedSummaries = data.summaries
@@ -1106,7 +1154,7 @@ async function hypaMemoryV3MainExp(
                 summaryTokens + consumedRandomMemoryTokens >
                 reservedRandomMemoryTokens
             ) {
-                // Trying to select more random memory
+                // Keep scanning for summaries that fit the remaining budget.
                 continue;
             }
 
@@ -1116,18 +1164,20 @@ async function hypaMemoryV3MainExp(
 
         selectedSummaries.push(...selectedRandomSummaries);
 
-        console.log(
-            logPrefix,
-            "After random memory selection:",
-            "\nSummary Count:",
-            selectedRandomSummaries.length,
-            "\nSummaries:",
-            selectedRandomSummaries,
-            "\nReserved Tokens:",
-            reservedRandomMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedRandomMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After random memory selection:",
+                "\nSummary Count:",
+                selectedRandomSummaries.length,
+                "\nSummaries:",
+                selectedRandomSummaries,
+                "\nReserved Tokens:",
+                reservedRandomMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedRandomMemoryTokens
+            );
+        }
     }
 
     // Sort selected summaries chronologically (by index)
@@ -1152,18 +1202,20 @@ async function hypaMemoryV3MainExp(
 
     currentTokens += realMemoryTokens;
 
-    console.log(
-        logPrefix,
-        "Final memory selection:",
-        "\nSummary Count:",
-        selectedSummaries.length,
-        "\nSummaries:",
-        selectedSummaries,
-        "\nReal Memory Tokens:",
-        realMemoryTokens,
-        "\nAvailable Memory Tokens:",
-        availableMemoryTokens
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            "Final memory selection:",
+            "\nSummary Count:",
+            selectedSummaries.length,
+            "\nSummaries:",
+            selectedSummaries,
+            "\nReal Memory Tokens:",
+            realMemoryTokens,
+            "\nAvailable Memory Tokens:",
+            availableMemoryTokens
+        );
+    }
 
     if (currentTokens > maxContextTokens) {
         throw new Error(
@@ -1196,16 +1248,18 @@ async function hypaMemoryV3MainExp(
         ...chats.slice(startIdx),
     ];
 
-    console.log(
-        logPrefix,
-        "Exiting function:",
-        "\nCurrent Tokens:",
-        currentTokens,
-        "\nAll chats, including memory prompt:",
-        newChats,
-        "\nMemory Data:",
-        data
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            "Exiting function:",
+            "\nCurrent Tokens:",
+            currentTokens,
+            "\nAll chats, including memory prompt:",
+            newChats,
+            "\nMemory Data:",
+            data
+        );
+    }
 
     return {
         currentTokens,
@@ -1267,7 +1321,9 @@ async function hypaMemoryV3Main(
         }
     }
 
-    console.log(logPrefix, "Starting index:", startIdx);
+    if (import.meta.env.DEV) {
+        console.log(logPrefix, "Starting index:", startIdx);
+    }
 
     // Reserve memory tokens
     const emptyMemoryTokens = await tokenizer.tokenizeChat({
@@ -1286,10 +1342,14 @@ async function hypaMemoryV3Main(
 
     if (shouldReserveEmptyMemoryTokens) {
         currentTokens += emptyMemoryTokens;
-        console.log(logPrefix, "Reserved empty memory tokens:", emptyMemoryTokens);
+        if (import.meta.env.DEV) {
+            console.log(logPrefix, "Reserved empty memory tokens:", emptyMemoryTokens);
+        }
     } else {
         currentTokens += memoryTokens;
-        console.log(logPrefix, "Reserved max memory tokens:", memoryTokens);
+        if (import.meta.env.DEV) {
+            console.log(logPrefix, "Reserved max memory tokens:", memoryTokens);
+        }
     }
 
     const serverPlanning = canPlanServerHypaSelection(options, room, tokenizer);
@@ -1325,39 +1385,43 @@ async function hypaMemoryV3Main(
         );
         let toSummarizeTokens = 0;
 
-        console.log(
-            logPrefix,
-            "Evaluating summarization batch:",
-            "\nCurrent Tokens:",
-            currentTokens,
-            "\nMax Context Tokens:",
-            maxContextTokens,
-            "\nStart Index:",
-            startIdx,
-            "\nEnd Index:",
-            endIdx,
-            "\nChat Count:",
-            endIdx - startIdx,
-            "\nMax Chats Per Summary:",
-            settings.maxChatsPerSummary
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Evaluating summarization batch:",
+                "\nCurrent Tokens:",
+                currentTokens,
+                "\nMax Context Tokens:",
+                maxContextTokens,
+                "\nStart Index:",
+                startIdx,
+                "\nEnd Index:",
+                endIdx,
+                "\nChat Count:",
+                endIdx - startIdx,
+                "\nMax Chats Per Summary:",
+                settings.maxChatsPerSummary
+            );
+        }
 
         for (let i = startIdx; i < endIdx; i++) {
             const chat = chats[i];
             const chatTokens = await tokenizer.tokenizeChat(chat);
 
-            console.log(
-                logPrefix,
-                "Evaluating chat:",
-                "\nIndex:",
-                i,
-                "\nRole:",
-                chat.role,
-                "\nContent:",
-                "\n" + chat.content,
-                "\nTokens:",
-                chatTokens
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Evaluating chat:",
+                    "\nIndex:",
+                    i,
+                    "\nRole:",
+                    chat.role,
+                    "\nContent:",
+                    "\n" + chat.content,
+                    "\nTokens:",
+                    chatTokens
+                );
+            }
 
             toSummarizeTokens += chatTokens;
 
@@ -1366,22 +1430,30 @@ async function hypaMemoryV3Main(
                 chat.name === "example_assistant" ||
                 chat.memo === "NewChatExample"
             ) {
-                console.log(logPrefix, `Skipping example chat at index ${i}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping example chat at index ${i}`);
+                }
                 continue;
             }
 
             if (chat.memo === "NewChat") {
-                console.log(logPrefix, `Skipping new chat at index ${i}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping new chat at index ${i}`);
+                }
                 continue;
             }
 
             if (chat.content.trim().length === 0) {
-                console.log(logPrefix, `Skipping empty chat at index ${i}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping empty chat at index ${i}`);
+                }
                 continue;
             }
 
             if (settings.doNotSummarizeUserMessage && chat.role === "user") {
-                console.log(logPrefix, `Skipping user role at index ${i}`);
+                if (import.meta.env.DEV) {
+                    console.log(logPrefix, `Skipping user role at index ${i}`);
+                }
                 continue;
             }
 
@@ -1393,16 +1465,20 @@ async function hypaMemoryV3Main(
             currentTokens <= maxContextTokens &&
             currentTokens - toSummarizeTokens < targetTokens
         ) {
-            console.log(
-                logPrefix,
-                "Stopping summarization:",
-                `\ncurrentTokens(${currentTokens}) - toSummarizeTokens(${toSummarizeTokens}) < targetTokens(${targetTokens})`
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Stopping summarization:",
+                    `\ncurrentTokens(${currentTokens}) - toSummarizeTokens(${toSummarizeTokens}) < targetTokens(${targetTokens})`
+                );
+            }
             break;
         }
 
         if (toSummarize.length > 0) {
-            console.log(logPrefix, "Collecting summarization batch:", "\nTarget:", toSummarize);
+            if (import.meta.env.DEV) {
+                console.log(logPrefix, "Collecting summarization batch:", "\nTarget:", toSummarize);
+            }
             summarizationBatches.push(toSummarize);
         }
 
@@ -1437,7 +1513,9 @@ async function hypaMemoryV3Main(
             room.hypaV3Data = toSerializableHypaV3Data(data);
             await recoverHypaV3SummaryJobs(char, room);
         } catch (error) {
-            console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            if (import.meta.env.DEV) {
+                console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            }
             return {
                 currentTokens,
                 chats,
@@ -1447,16 +1525,18 @@ async function hypaMemoryV3Main(
         }
     }
 
-    console.log(
-        logPrefix,
-        `${summarizationMode ? "Completed" : "Skipped"} summarization phase:`,
-        "\nCurrent Tokens:",
-        currentTokens,
-        "\nMax Context Tokens:",
-        maxContextTokens,
-        "\nAvailable Memory Tokens:",
-        availableMemoryTokens
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            `${summarizationMode ? "Completed" : "Skipped"} summarization phase:`,
+            "\nCurrent Tokens:",
+            currentTokens,
+            "\nMax Context Tokens:",
+            maxContextTokens,
+            "\nAvailable Memory Tokens:",
+            availableMemoryTokens
+        );
+    }
 
     // Early return if no summaries
     if (data.summaries.length === 0) {
@@ -1472,16 +1552,18 @@ async function hypaMemoryV3Main(
             ...chats.slice(startIdx),
         ];
 
-        console.log(
-            logPrefix,
-            "Exiting function:",
-            "\nCurrent Tokens:",
-            currentTokens,
-            "\nAll chats, including memory prompt:",
-            newChats,
-            "\nMemory Data:",
-            data
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Exiting function:",
+                "\nCurrent Tokens:",
+                currentTokens,
+                "\nAll chats, including memory prompt:",
+                newChats,
+                "\nMemory Data:",
+                data
+            );
+        }
 
         return {
             currentTokens,
@@ -1516,16 +1598,18 @@ async function hypaMemoryV3Main(
 
         selectedSummaries.push(...selectedImportantSummaries);
 
-        console.log(
-            logPrefix,
-            "After important memory selection:",
-            "\nSummary Count:",
-            selectedImportantSummaries.length,
-            "\nSummaries:",
-            selectedImportantSummaries,
-            "\nAvailable Memory Tokens:",
-            availableMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After important memory selection:",
+                "\nSummary Count:",
+                selectedImportantSummaries.length,
+                "\nSummaries:",
+                selectedImportantSummaries,
+                "\nAvailable Memory Tokens:",
+                availableMemoryTokens
+            );
+        }
     }
 
     // Select recent summaries
@@ -1562,18 +1646,20 @@ async function hypaMemoryV3Main(
 
         selectedSummaries.push(...selectedRecentSummaries);
 
-        console.log(
-            logPrefix,
-            "After recent memory selection:",
-            "\nSummary Count:",
-            selectedRecentSummaries.length,
-            "\nSummaries:",
-            selectedRecentSummaries,
-            "\nReserved Tokens:",
-            reservedRecentMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedRecentMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After recent memory selection:",
+                "\nSummary Count:",
+                selectedRecentSummaries.length,
+                "\nSummaries:",
+                selectedRecentSummaries,
+                "\nReserved Tokens:",
+                reservedRecentMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedRecentMemoryTokens
+            );
+        }
     }
 
     // Select similar summaries
@@ -1590,12 +1676,14 @@ async function hypaMemoryV3Main(
                 reservedRecentMemoryTokens - consumedRecentMemoryTokens;
 
             reservedSimilarMemoryTokens += unusedRecentTokens;
-            console.log(
-                logPrefix,
-                "Additional available token space for similar memory:",
-                "\nFrom recent:",
-                unusedRecentTokens
-            );
+            if (import.meta.env.DEV) {
+                console.log(
+                    logPrefix,
+                    "Additional available token space for similar memory:",
+                    "\nFrom recent:",
+                    unusedRecentTokens
+                );
+            }
         }
 
         // Target only summaries that haven't been selected yet
@@ -1645,22 +1733,26 @@ async function hypaMemoryV3Main(
 
             if (settings.enableSimilarityCorrection && recentChats.length > 1) {
                 // Raw + Summarized recent chat search
-                // Summarizing is meaningful when there are more than 2 recent chats
+                // Summarize when at least two recent chats are available.
 
                 // Attempt summarization
-                console.log(
-                    logPrefix,
-                    "Attempting summarization for similarity search:",
-                    "\nTarget:",
-                    recentChats
-                );
+                if (import.meta.env.DEV) {
+                    console.log(
+                        logPrefix,
+                        "Attempting summarization for similarity search:",
+                        "\nTarget:",
+                        recentChats
+                    );
+                }
 
                 try {
                     const summarizeResult = await summarize(recentChats);
 
                     queries.push(summarizeResult);
                 } catch (error) {
-                    console.log(logPrefix, "Summarization failed:", `\n${error}`);
+                    if (import.meta.env.DEV) {
+                        console.log(logPrefix, "Summarization failed:", `\n${error}`);
+                    }
 
                     return {
                         currentTokens,
@@ -1697,11 +1789,13 @@ async function hypaMemoryV3Main(
                         summaryTokens + consumedSimilarMemoryTokens >
                         reservedSimilarMemoryTokens
                     ) {
-                        console.log(
-                            logPrefix,
-                            "Stopping similar memory selection:",
-                            `\nconsumedSimilarMemoryTokens(${consumedSimilarMemoryTokens}) + summaryTokens(${summaryTokens}) > reservedSimilarMemoryTokens(${reservedSimilarMemoryTokens})`
-                        );
+                        if (import.meta.env.DEV) {
+                            console.log(
+                                logPrefix,
+                                "Stopping similar memory selection:",
+                                `\nconsumedSimilarMemoryTokens(${consumedSimilarMemoryTokens}) + summaryTokens(${summaryTokens}) > reservedSimilarMemoryTokens(${reservedSimilarMemoryTokens})`
+                            );
+                        }
                         break;
                     }
 
@@ -1720,18 +1814,20 @@ async function hypaMemoryV3Main(
             }
         }
 
-        console.log(
-            logPrefix,
-            "After similar memory selection:",
-            "\nSummary Count:",
-            selectedSimilarSummaries.length,
-            "\nSummaries:",
-            selectedSimilarSummaries,
-            "\nReserved Tokens:",
-            reservedSimilarMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedSimilarMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After similar memory selection:",
+                "\nSummary Count:",
+                selectedSimilarSummaries.length,
+                "\nSummaries:",
+                selectedSimilarSummaries,
+                "\nReserved Tokens:",
+                reservedSimilarMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedSimilarMemoryTokens
+            );
+        }
     }
 
     // Select random summaries
@@ -1749,16 +1845,18 @@ async function hypaMemoryV3Main(
             reservedSimilarMemoryTokens - consumedSimilarMemoryTokens;
 
         reservedRandomMemoryTokens += unusedRecentTokens + unusedSimilarTokens;
-        console.log(
-            logPrefix,
-            "Additional available token space for random memory:",
-            "\nFrom recent:",
-            unusedRecentTokens,
-            "\nFrom similar:",
-            unusedSimilarTokens,
-            "\nTotal added:",
-            unusedRecentTokens + unusedSimilarTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "Additional available token space for random memory:",
+                "\nFrom recent:",
+                unusedRecentTokens,
+                "\nFrom similar:",
+                unusedSimilarTokens,
+                "\nTotal added:",
+                unusedRecentTokens + unusedSimilarTokens
+            );
+        }
 
         // Target only summaries that haven't been selected yet
         const unusedSummaries = data.summaries
@@ -1775,7 +1873,7 @@ async function hypaMemoryV3Main(
                 summaryTokens + consumedRandomMemoryTokens >
                 reservedRandomMemoryTokens
             ) {
-                // Trying to select more random memory
+                // Keep scanning for summaries that fit the remaining budget.
                 continue;
             }
 
@@ -1785,18 +1883,20 @@ async function hypaMemoryV3Main(
 
         selectedSummaries.push(...selectedRandomSummaries);
 
-        console.log(
-            logPrefix,
-            "After random memory selection:",
-            "\nSummary Count:",
-            selectedRandomSummaries.length,
-            "\nSummaries:",
-            selectedRandomSummaries,
-            "\nReserved Tokens:",
-            reservedRandomMemoryTokens,
-            "\nConsumed Tokens:",
-            consumedRandomMemoryTokens
-        );
+        if (import.meta.env.DEV) {
+            console.log(
+                logPrefix,
+                "After random memory selection:",
+                "\nSummary Count:",
+                selectedRandomSummaries.length,
+                "\nSummaries:",
+                selectedRandomSummaries,
+                "\nReserved Tokens:",
+                reservedRandomMemoryTokens,
+                "\nConsumed Tokens:",
+                consumedRandomMemoryTokens
+            );
+        }
     }
 
     // Sort selected summaries chronologically (by index)
@@ -1823,18 +1923,20 @@ async function hypaMemoryV3Main(
 
     currentTokens += realMemoryTokens;
 
-    console.log(
-        logPrefix,
-        "Final memory selection:",
-        "\nSummary Count:",
-        selectedSummaries.length,
-        "\nSummaries:",
-        selectedSummaries,
-        "\nReal Memory Tokens:",
-        realMemoryTokens,
-        "\nAvailable Memory Tokens:",
-        availableMemoryTokens
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            "Final memory selection:",
+            "\nSummary Count:",
+            selectedSummaries.length,
+            "\nSummaries:",
+            selectedSummaries,
+            "\nReal Memory Tokens:",
+            realMemoryTokens,
+            "\nAvailable Memory Tokens:",
+            availableMemoryTokens
+        );
+    }
 
     if (currentTokens > maxContextTokens) {
         throw new Error(
@@ -1867,16 +1969,18 @@ async function hypaMemoryV3Main(
         ...chats.slice(startIdx),
     ];
 
-    console.log(
-        logPrefix,
-        "Exiting function:",
-        "\nCurrent Tokens:",
-        currentTokens,
-        "\nAll chats, including memory prompt:",
-        newChats,
-        "\nMemory Data:",
-        data
-    );
+    if (import.meta.env.DEV) {
+        console.log(
+            logPrefix,
+            "Exiting function:",
+            "\nCurrent Tokens:",
+            currentTokens,
+            "\nAll chats, including memory prompt:",
+            newChats,
+            "\nMemory Data:",
+            data
+        );
+    }
 
     return {
         currentTokens,
@@ -1918,10 +2022,11 @@ function cleanOrphanedSummary(chats: OpenAIChat[], data: HypaV3Data): void {
         return isSubset(summary.chatMemos, currentChatMemos);
     });
 
-    const removedCount = originalLength - data.summaries.length;
-
-    if (removedCount > 0) {
-        console.log(logPrefix, `Cleaned ${removedCount} orphaned summaries.`);
+    if (import.meta.env.DEV) {
+        const removedCount = originalLength - data.summaries.length;
+        if (removedCount > 0) {
+            console.log(logPrefix, `Cleaned ${removedCount} orphaned summaries.`);
+        }
     }
 }
 
@@ -1992,12 +2097,6 @@ export async function summarize(
     const { revenantTarget, signal, onRequestStatusActivate } = options;
 
     const formated = buildHypaSummaryPrompt(oaiMessages, settings, isResummarize);
-
-    const currentCharacter = getCurrentCharacter()
-    const currentRoom = currentCharacter?.chats[getChatPage(currentCharacter)]
-    const subBinding = resolveChatModelBinding(currentRoom, 'submodel')
-    const subModelName = subBinding.kind === 'modelPreset' ? subBinding.preset.name : ''
-    console.log(logPrefix, `Using ax model ${subModelName} for summarization.`);
 
     const response = await requestChatData(
         {

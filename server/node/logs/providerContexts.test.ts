@@ -67,7 +67,7 @@ function withIsolatedStore<T>(run: (store: ProviderContextStore) => T): T {
     }
 }
 
-describe.sequential('provider context persistence', () => {
+describe('provider context persistence', { concurrent: false }, () => {
     it('orders out-of-order projections, replaces duplicate jobs, and resets on model changes', () => {
         const result = withIsolatedStore(store => {
             store.recordProviderContext({

@@ -1,6 +1,6 @@
 import { isIOS, isMobile } from './platform'
 import { requestEscapeAction } from './gui/escapeKey'
-import { v4 as uuidv4 } from 'uuid'
+import { createEntityId } from './id'
 
 const MOBILE_BACK_GUARD_STATE = '__pocketRisuMobileBackGuard'
 
@@ -39,7 +39,7 @@ export function createMobileBackNavigationGuard(
     requestLeaveConfirmation: () => Promise<boolean> = confirmLeavePage,
 ) {
     // history.state survives reloads; only trust a guard created by this instance.
-    const guardId = uuidv4()
+    const guardId = createEntityId()
     let active = false
     let preventNavigation = false
     let historyNavigationPending: 'restore' | 'leave' | 'cleanup' | 'pass-through' | undefined

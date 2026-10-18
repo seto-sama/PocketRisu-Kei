@@ -112,8 +112,8 @@ vi.mock('src/ts/process/files/inlayMeta', () => ({
     })),
 }))
 
-vi.mock('uuid', () => ({
-    v4: vi.fn(() => 'test-uuid-1234'),
+vi.mock('src/ts/id', () => ({
+    createEntityId: vi.fn(() => 'test-uuid-1234'),
 }))
 
 const { getDatabaseMock } = vi.hoisted(() => ({

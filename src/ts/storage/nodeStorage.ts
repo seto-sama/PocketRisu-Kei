@@ -1,5 +1,6 @@
 import { encodeAssetBatch, decodeAssetBatch, getAssetUrl } from './assetTransport'
 import { downloadUrl } from '../download'
+import { createEntityId } from '../id'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
 import { encode, decode } from 'msgpackr/index-no-eval'
@@ -186,14 +187,12 @@ export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
     // Each page needs its own id so sync broadcasts can skip the originating page.
-    private static sessionId: string =
-        crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
+    private static sessionId: string = createEntityId()
 
     _lastDbEtag: string | null = null
     _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
     authChecked = false
-    // Server-side JWT signing lets remote HTTP clients authenticate without crypto.subtle.
     private cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null

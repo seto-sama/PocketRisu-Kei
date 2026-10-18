@@ -118,7 +118,7 @@ export const SafeIdbFactory = {
         return indexedDB.open(`safe_plugin_${name}`, version);
     },
     cmp: (first: string, second: string): number => {
-        //well, we don't need to prefix here, as the comparison is the same
+        // The same prefix on both strings would not change their ordering.
         return indexedDB.cmp(first, second);
     }
 }
@@ -312,7 +312,9 @@ export const SafeDocument = {
     title: document.title,
     head: document.head,
     createElement: (tagName: string): HTMLElement => {
-        console.log('Creating element:', tagName);
+        if (import.meta.env.DEV) {
+            console.log('Creating element:', tagName);
+        }
         tagName = tagName.toLowerCase().trim();
         if (!tagWhitelist.includes(tagName.toLowerCase())) {
             throw new Error(`Creation of <${tagName}> elements is not allowed in plugin context.`);
@@ -330,7 +332,9 @@ export const SafeDocument = {
         return restrictElement(document.createTextNode(data));
     },
     createElementNS: (namespaceURI: string, qualifiedName: string): Element => {
-        console.log('Creating namespaced element:', qualifiedName);
+        if (import.meta.env.DEV) {
+            console.log('Creating namespaced element:', qualifiedName);
+        }
         qualifiedName = qualifiedName.toLowerCase().trim();
         if (!tagWhitelist.includes(qualifiedName.toLowerCase())) {
             throw new Error(`Creation of <${qualifiedName}> elements is not allowed in plugin context.`);
@@ -385,7 +389,6 @@ export const SafeDocument = {
         }) as HTMLAnchorElement;
     },
 
-    //add safe methods as needed
     createRange: (): Range => {
         return (document.createRange());
     },

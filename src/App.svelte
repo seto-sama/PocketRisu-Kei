@@ -141,7 +141,9 @@
     }
 
     if(DBState?.db?.keepSessionAlive){
-        console.log("Starting silent audio to keep session alive")
+        if (import.meta.env.DEV) {
+            console.log("Starting silent audio to keep session alive")
+        }
         const silentAudio = new Audio(sendSound);
         silentAudio.loop = true;
         silentAudio.volume = 0.000001;

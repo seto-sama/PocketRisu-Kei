@@ -1018,9 +1018,8 @@ export const languageSpanish = {
 
     remoteAccessTermuxWarning: "Cloudflare Quick Tunnel no funciona en Termux. Utiliza Tailscale u otra herramienta de acceso remoto.",
 
-    httpInsecureWarningTitle: "Conectado mediante HTTP",
-    httpInsecureWarningBody: "Algunas funciones como los plugins pueden no funcionar. Usa la función de Acceso Remoto para una conexión HTTPS.",
-    httpInsecureOpenRemoteAccess: "Abrir configuración",
+    secureConnectionRequiredTitle: "Se requiere una conexión segura",
+    secureConnectionRequiredBody: "Abre PocketRisu Kei mediante HTTPS o usa http://localhost o http://127.0.0.1 en el dispositivo servidor. Para acceder de forma remota, activa Cloudflare Remote Access desde la conexión local.",
 
     selectBotHint: "Selecciona un bot para empezar a chatear",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

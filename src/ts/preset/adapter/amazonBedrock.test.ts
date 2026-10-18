@@ -1,3 +1,5 @@
+// @vitest-environment node
+import { createHash, createHmac } from 'node:crypto'
 import { describe, expect, test, vi } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import {
@@ -149,12 +151,38 @@ describe('Amazon Bedrock request wire', () => {
             input.credential,
         )
 
-        expect(prepared.headers.authorization).toMatch(
-            /^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\//,
+        const headers = new Headers(prepared.headers)
+        expect(headers.get('x-amz-date')).toMatch(/^\d{8}T\d{6}Z$/)
+        expect(headers.get('x-amz-security-token')).toBe('session')
+        expect(headers.has('host')).toBe(false)
+
+        const authorization = headers.get('authorization')?.match(
+            /^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\/([^,]+), SignedHeaders=([^,]+), Signature=([0-9a-f]+)$/,
         )
-        expect(prepared.headers['x-amz-date']).toMatch(/^\d{8}T\d{6}Z$/)
-        expect(prepared.headers['x-amz-security-token']).toBe('session')
-        expect(Object.keys(prepared.headers).some((key) => key.toLowerCase() === 'host')).toBe(false)
+        expect(authorization).toBeTruthy()
+        const [, scope, signedHeaderNames, signature] = authorization!
+        expect(scope).toContain('/ap-northeast-2/bedrock/aws4_request')
+        const url = new URL(prepared.url)
+        const canonicalHeaders = signedHeaderNames.split(';').map(name =>
+            `${name}:${name === 'host' ? url.host : headers.get(name)}`,
+        ).join('\n') + '\n'
+        const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+        const canonicalRequest = [
+            prepared.method,
+            encodeURIComponent(url.pathname).replaceAll('%2F', '/'),
+            '',
+            canonicalHeaders,
+            signedHeaderNames,
+            sha256(JSON.stringify(prepared.body)),
+        ].join('\n')
+        const stringToSign = [
+            'AWS4-HMAC-SHA256', headers.get('x-amz-date'), scope, sha256(canonicalRequest),
+        ].join('\n')
+        let signingKey = Buffer.from('AWS4secret')
+        for (const part of scope.split('/')) {
+            signingKey = createHmac('sha256', signingKey).update(part).digest()
+        }
+        expect(signature).toBe(createHmac('sha256', signingKey).update(stringToSign).digest('hex'))
     })
 
     test('sends and parses a non-streaming Converse response', async () => {

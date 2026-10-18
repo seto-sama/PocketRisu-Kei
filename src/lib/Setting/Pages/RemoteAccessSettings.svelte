@@ -5,12 +5,11 @@
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { getSyncClientId } from "src/ts/storage/nodeStorage";
     import { alertConfirm } from "src/ts/alert";
-    import { isSecureContext } from "src/ts/secureContext";
     import Button from "../../UI/components/Button.svelte";
     import Input from "../../UI/components/Input.svelte";
     import Alert from "../../UI/components/Alert.svelte";
     import { LoaderCircleIcon, CopyIcon, CheckIcon, DownloadIcon, TriangleAlertIcon, InfoIcon, MonitorIcon, SmartphoneIcon } from "@lucide/svelte";
-    import QRCode from "qrcode";
+    import { renderSVG } from "uqr";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { pwaInstallState, requestPwaInstall } from "src/ts/pwaInstall.svelte";
 
@@ -24,7 +23,9 @@
     let status = $state<'loading' | 'disabled' | 'off' | 'downloading' | 'starting' | 'running' | 'error'>('loading');
     let tunnelUrl = $state<string | null>(null);
     let tunnelError = $state<string | null>(null);
-    let qrDataUrl = $state<string | null>(null);
+    let qrDataUrl = $derived(tunnelUrl
+        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderSVG(tunnelUrl, { border: 2, ecc: 'M' }))}`
+        : null);
     let copied = $state(false);
     let platform = $state<string | null>(null);
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -53,10 +54,6 @@
                 status = data.status;
                 tunnelUrl = data.url;
                 tunnelError = data.error;
-
-                if (data.status === 'running' && data.url) {
-                    qrDataUrl = await QRCode.toDataURL(data.url, { width: 200, margin: 2 });
-                }
 
                 if ((data.status === 'starting' || data.status === 'downloading') && !pollTimer) {
                     pollTimer = setInterval(fetchStatus, 2000);
@@ -121,7 +118,6 @@
         } catch {}
         status = 'off';
         tunnelUrl = null;
-        qrDataUrl = null;
         tunnelError = null;
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
@@ -235,7 +231,6 @@
                     value={tunnelUrl ?? ''}
                     className="flex-1 select-all"
                 />
-                {#if isSecureContext}
                 <Button variant="outline" size="icon" onclick={copyUrl} aria-label={language.remoteAccessCopyUrl}>
                     {#if copied}
                         <CheckIcon />
@@ -243,7 +238,6 @@
                         <CopyIcon />
                     {/if}
                 </Button>
-                {/if}
             </div>
 
             <Alert variant="destructive" className="w-full max-w-md">

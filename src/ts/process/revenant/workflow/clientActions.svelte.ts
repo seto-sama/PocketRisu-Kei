@@ -235,7 +235,11 @@ async function executeClientAction(
                         ? Number(effect.index)
                         : getChatPage(character))
                 }
-                else if (effect.kind === 'log') console.log(effect.value)
+                else if (effect.kind === 'log') {
+                    if (import.meta.env.DEV) {
+                        console.log(effect.value)
+                    }
+                }
                 else if (effect.kind === 'tts') {
                     await sayTTS(character, String(effect.text ?? ''))
                 }

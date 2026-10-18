@@ -155,7 +155,9 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     db.statics.imports += 1
 
     if(fileName.endsWith('.charx') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')){
-        console.log('reading charx')
+        if (import.meta.env.DEV) {
+            console.log('reading charx')
+        }
         alertStore.set({
             type: 'wait',
             msg: 'Loading... (Reading)'
@@ -353,7 +355,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         }
     }
     const parsed = JSON.parse(Buffer.from(readedChara, 'base64').toString('utf-8'))
-    //fix readedChara version pointing number instead of string because of previous version
+    // Normalize numeric character_version values in imported cards.
     if(typeof (parsed as CharacterCardV2Risu)?.data?.character_version === 'number'){
         (parsed as CharacterCardV2Risu).data.character_version = (parsed as CharacterCardV2Risu).data.character_version.toString()
     }
@@ -644,7 +646,9 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         return false
     }
 
-    console.log(`Importing ${card.spec}, mode is ${mode}`)
+    if (import.meta.env.DEV) {
+        console.log(`Importing ${card.spec}, mode is ${mode}`)
+    }
 
     const data = card.data
     let im = img ? await saveAsset(img) : undefined

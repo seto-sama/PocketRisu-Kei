@@ -1018,9 +1018,8 @@ export const languageChinese = {
 
     remoteAccessTermuxWarning: "Cloudflare Quick Tunnel 在 Termux 上无法使用。请改用 Tailscale 或其他远程访问工具。",
 
-    httpInsecureWarningTitle: "通过 HTTP 连接",
-    httpInsecureWarningBody: "插件等部分功能可能无法使用。请使用远程访问功能以建立 HTTPS 连接。",
-    httpInsecureOpenRemoteAccess: "打开设置",
+    secureConnectionRequiredTitle: "需要安全连接",
+    secureConnectionRequiredBody: "请通过 HTTPS 访问 PocketRisu Kei，或在服务器设备上使用 http://localhost 或 http://127.0.0.1。若要远程访问，请先从本地连接启用 Cloudflare 远程访问。",
 
     selectBotHint: "选择一个机器人开始聊天",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

@@ -2149,10 +2149,9 @@ export const languageEnglish = {
     appInstallDesc: "Install PocketRisu Kei as an application.",
     appInstallAction: "Install App",
 
-    // Insecure (HTTP) connection warning
-    httpInsecureWarningTitle: "Connected over HTTP",
-    httpInsecureWarningBody: "Some features such as plugins may not work. Use the Remote Access feature for an HTTPS connection.",
-    httpInsecureOpenRemoteAccess: "Open settings",
+    // Secure connection requirement
+    secureConnectionRequiredTitle: "Secure connection required",
+    secureConnectionRequiredBody: "PocketRisu Kei only supports HTTPS connections. Please connect via localhost or HTTPS.",
 
     // System page
     system: "System",
@@ -2292,7 +2291,7 @@ export const languageEnglish = {
     storageLoading: "Loading...",
     storageFailedLoad: "Failed to load storage stats",
 
-    // Disk usage section (macOS-style bar)
+    // Disk usage
     storageDiskUsage: "Storage",
     storageDiskHeader: (used: number, total: number) =>
         `${(used / 1024 / 1024 / 1024).toFixed(2)} GB used of ${(total / 1024 / 1024 / 1024).toFixed(2)} GB`,
@@ -2301,7 +2300,7 @@ export const languageEnglish = {
     storageDiskFree: "Free",
     storageDiskRisuTotal: (size: number) => `PocketRisu Kei total: ${(size / 1024 / 1024).toFixed(1)} MB`,
 
-    // Per-row labels (shown in the breakdown list with ⓘ explanations)
+    // Storage breakdown row labels
     storageRowDbFile: "risuai.db",
     storageRowDbFileDesc: "The main SQLite database file. Contains every chat, character, asset, and setting.",
     storageRowFileBackups: "Disk backups (.bin)",
@@ -2329,7 +2328,7 @@ export const languageEnglish = {
     storageInternalOnly: "Show with full disk",
     storageInternalOnlyHint: "Off shows only PocketRisu Kei items; on includes system & free space relative to the disk.",
 
-    // 2 GB BLOB limit (separate section)
+    // SQLite BLOB limit
     storageBlobLimit: "2 GB BLOB limit",
     storageBlobLimitDesc: "SQLite caps a single row's value at ~2 GB. database.bin is one row, so chats and settings combined cannot exceed it. Saves start failing as you approach this limit.",
     storageBlobThreshold: (used: number, max: number, pct: number) =>
@@ -2431,7 +2430,7 @@ export const languageEnglish = {
 
     storageDebug: "Debug info",
 
-    // Data migration (formerly "Account & Files")
+    // Data migration
     migration: "Data Migration",
     migrationDesc: "Move data between RisuAI (or compatible systems) and PocketRisu Kei: import from upstream, or export to upstream-compatible format.",
     migrationGotoBackupTab: "Open Backups tab",
@@ -2477,9 +2476,7 @@ export const languageEnglish = {
     backupSnapshotLimitsCurrent: (count: number, bytes: number, logicalBytes?: number) => {
         const disk = (bytes / 1024 / 1024).toFixed(1)
         const saved = (logicalBytes ?? 0) - bytes
-        // Only surface the dedup win when it's meaningful (chunked snapshots share
-        // chunks); for tiny/un-chunked sets logical ≈ disk, so the plain line reads
-        // cleaner without a "(0 MB saved)" tail.
+        // Avoid displaying negligible deduplication savings.
         if (saved > 1024 * 1024) {
             const data = ((logicalBytes ?? 0) / 1024 / 1024).toFixed(0)
             const savedMB = (saved / 1024 / 1024).toFixed(0)

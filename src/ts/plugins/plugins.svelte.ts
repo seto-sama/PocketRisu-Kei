@@ -282,7 +282,9 @@ export async function importPlugin(code:string|null = null, argu:{
                     let metaStr = provied.slice(3).join(' ').replace(
                         /{{(.+?)(::?(.+?))?}}/g,
                         (a,g1:string,g2,g3:string) => {
-                            console.log(g1,g3)
+                            if (import.meta.env.DEV) {
+                                console.log(g1,g3)
+                            }
                             meta[g1] = g3 || '1'
                             return ''
                         }
@@ -434,7 +436,9 @@ export async function importPlugin(code:string|null = null, argu:{
             db.plugins.push(pluginData)
         }
 
-        console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
+        if (import.meta.env.DEV) {
+            console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
+        }
         setDatabaseLite(db)
         void requestImmediateSave()
 
@@ -456,7 +460,9 @@ export async function importPlugin(code:string|null = null, argu:{
 let pluginTranslator = false
 
 export async function loadPlugins() {
-    console.log('Loading plugins...')
+    if (import.meta.env.DEV) {
+        console.log('Loading plugins...')
+    }
     const db = getDatabase()
 
     // Revoking legacy API permission also disables individual legacy plugins.
@@ -744,7 +750,9 @@ export const getV2PluginAPIs = () => {
                         return (target as any)[prop];
                     }
                     else if(target.pluginCustomStorage){
-                        console.log('Getting custom db property', prop.toString());
+                        if (import.meta.env.DEV) {
+                            console.log('Getting custom db property', prop.toString());
+                        }
                         return target.pluginCustomStorage[prop.toString()];
                     }
                     return undefined;
@@ -756,7 +764,9 @@ export const getV2PluginAPIs = () => {
                         return true;
                     }
                     else{
-                        console.log('Setting custom db property', prop.toString(), value);
+                        if (import.meta.env.DEV) {
+                            console.log('Setting custom db property', prop.toString(), value);
+                        }
                         target.pluginCustomStorage ??= {}
                         target.pluginCustomStorage[prop.toString()] = value;
                         return true;
@@ -770,7 +780,9 @@ export const getV2PluginAPIs = () => {
                     return keys;
                 },
                 deleteProperty(target, prop) {
-                    console.log('Attempt to delete db.' + String(prop) + ' denied in safe database proxy.');
+                    if (import.meta.env.DEV) {
+                        console.log('Attempt to delete db.' + String(prop) + ' denied in safe database proxy.');
+                    }
                     return false;
                 },
                 getPrototypeOf(target) {
@@ -955,12 +967,16 @@ export async function loadV2Plugin(plugins: LegacyV2Plugin[]) {
         if(version === '2.1'){
             const safety = await checkCodeSafety(plugin.script)
             data = safety.modifiedCode
-            console.log('Safety check result:', safety)
-            console.log('Loading V2.1 Plugin', plugin.name, data)
+            if (import.meta.env.DEV) {
+                console.log('Safety check result:', safety)
+                console.log('Loading V2.1 Plugin', plugin.name, data)
+            }
         }
         else{
             data = plugin.script
-            console.log('Loading V2.0 Plugin', plugin.name)
+            if (import.meta.env.DEV) {
+                console.log('Loading V2.0 Plugin', plugin.name)
+            }
         }
 
         try {
@@ -970,7 +986,9 @@ export async function loadV2Plugin(plugins: LegacyV2Plugin[]) {
         }
 
         if(version === '2.1'){
-            console.log('Loaded V2.1 Plugin', plugin.name)
+            if (import.meta.env.DEV) {
+                console.log('Loaded V2.1 Plugin', plugin.name)
+            }
         }
         else{
             console.warn(`Plugin 2.0 support is deprecated. Please update plugin "${plugin.name}" to API version 3.0`)

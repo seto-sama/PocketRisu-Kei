@@ -30,7 +30,9 @@ export class FileSystemClient extends MCPClientLike {
             if (!this.directoryHandle) {
                 throw new Error("Directory selection was cancelled or failed.");
             }
-            console.log(`FileSystemClient: Selected directory: ${this.directoryHandle.name}`);
+            if (import.meta.env.DEV) {
+                console.log(`FileSystemClient: Selected directory: ${this.directoryHandle.name}`);
+            }
         } catch (error) {
             throw new Error("Directory selection cancelled or failed. Please try again.");
         }
@@ -299,7 +301,6 @@ export class FileSystemClient extends MCPClientLike {
         const fileHandle = await this.getFileHandle(path);
         const file = await fileHandle.getFile();
         
-        // Check file size
         if (file.size === 0) {
             return [{
                 type: 'text',
@@ -307,11 +308,9 @@ export class FileSystemClient extends MCPClientLike {
             }];
         }
 
-        // Automatic limits based on file type
         const maxTextLimit = 100000; // 100KB for text/code files
         const maxImageLimit = 5 * 1024 * 1024; // 5MB for images
 
-        // Auto-detect encoding
         const encoding = this.detectFileEncoding(file);
 
         try {
@@ -336,7 +335,6 @@ export class FileSystemClient extends MCPClientLike {
         const imageTypes = ['image/'];
         const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico'];
 
-        // Check if it's an image
         if (imageTypes.some(type => mimeType.startsWith(type)) || 
             imageExtensions.some(ext => fileName.endsWith(ext))) {
             return 'base64';
@@ -350,16 +348,13 @@ export class FileSystemClient extends MCPClientLike {
         let content: string;
         
         if (offset === 0 && file.size <= limit) {
-            // Read entire file
             content = await file.text();
         } else {
-            // Read partial file
             const endOffset = Math.min(offset + limit, file.size);
             const slice = file.slice(offset, endOffset);
             content = await slice.text();
         }
 
-        // Check if content was truncated
         const wasTruncated = (offset + content.length) < file.size;
         const info: string[] = [];
         
@@ -383,20 +378,16 @@ export class FileSystemClient extends MCPClientLike {
         let arrayBuffer: ArrayBuffer;
         
         if (offset === 0 && file.size <= limit) {
-            // Read entire file
             arrayBuffer = await file.arrayBuffer();
         } else {
-            // Read partial file
             const endOffset = Math.min(offset + limit, file.size);
             const slice = file.slice(offset, endOffset);
             arrayBuffer = await slice.arrayBuffer();
         }
 
-        // Convert to base64
         const uint8Array = new Uint8Array(arrayBuffer);
         const base64 = btoa(String.fromCharCode(...uint8Array));
         
-        // Check if content was truncated
         const wasTruncated = (offset + arrayBuffer.byteLength) < file.size;
         const info: string[] = [
             `File type: ${file.type || 'unknown'}`,
@@ -572,13 +563,11 @@ export class FileSystemClient extends MCPClientLike {
             if (handle.kind === 'file') {
                 let matches = false;
 
-                // Pattern matching
                 if (pattern) {
                     const regex = this.globToRegex(pattern, caseSensitive);
                     matches = regex.test(name);
                 }
 
-                // Content search
                 if (!matches && content) {
                     try {
                         const file = await handle.getFile();
@@ -641,10 +630,8 @@ export class FileSystemClient extends MCPClientLike {
             }];
         }
 
-        // Copy the file first
         await this.copyFile(source, destination);
         
-        // Then delete the source
         await this.deleteFile(source);
 
         return [{
@@ -678,7 +665,6 @@ export class FileSystemClient extends MCPClientLike {
                 text: info.join('\n')
             }];
         } catch (error) {
-            // Try as directory
             try {
                 const dirHandle = await this.getDirectoryHandle(path);
                 let fileCount = 0;
@@ -844,10 +830,8 @@ export class FileSystemClient extends MCPClientLike {
             entries.push(entry);
         }
 
-        // Filter hidden files if needed
         const filteredEntries = showHidden ? entries : entries.filter(([name]) => !name.startsWith('.'));
         
-        // Sort: directories first, then files
         filteredEntries.sort(([nameA, handleA], [nameB, handleB]) => {
             if (handleA.kind !== handleB.kind) {
                 return handleA.kind === 'directory' ? -1 : 1;

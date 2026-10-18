@@ -14,6 +14,8 @@ type sendFileArg = {
     query:string
 }
 
+const FILE_CONTEXT_CHUNKS = 7
+
 async function sendPofile(arg:sendFileArg){
 
     let result = ''
@@ -26,7 +28,9 @@ async function sendPofile(arg:sendFileArg){
     let currentChat = currentChar.chats[getChatPage(currentChar)]
     const lines = arg.file.split('\n')
     for(let i=0;i<lines.length;i++){
-        console.log(i)
+        if (import.meta.env.DEV) {
+            console.log(i)
+        }
         const line = lines[i]
         if(line === ''){
             if(msgId === ''){
@@ -99,53 +103,35 @@ async function sendPofile(arg:sendFileArg){
             continue
         }
         result += line + '\n'
-
-        if(i > 100){
-            break //prevent too long message in testing
-        }
-
     }
     await downloadFile('translated.po', result)
 }
 
-async function sendTxtFile(arg:sendFileArg) {
-    const lines = arg.file.split('\n').filter((a) => {
-        return a !== ''
-    })
+async function buildFileContext(texts: string[], query: string): Promise<string> {
     const hypa = new HypaProcesser()
-    hypa.addText(lines)
-    const result = await hypa.similaritySearch(arg.query)
-    let message = ''
-    for(let i = 0; i<result.length; i++){
-        message += "\n" + result[i]
-        if(i>5){
-            break
-        }
+    await hypa.addText(texts)
+    const result = await hypa.similaritySearch(query)
+    const message = result.slice(0, FILE_CONTEXT_CHUNKS).map(text => `\n${text}`).join('')
+    if (import.meta.env.DEV) {
+        console.log(message)
     }
-    console.log(message)
     return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')
 }
 
-async function sendXMLFile(arg:sendFileArg) {
-    const hypa = new HypaProcesser()
-    let nodeTexts:string[] = []
+function sendTxtFile(arg:sendFileArg): Promise<string> {
+    const lines = arg.file.split('\n').filter(line => line !== '')
+    return buildFileContext(lines, arg.query)
+}
+
+function sendXMLFile(arg:sendFileArg): Promise<string> {
+    const nodeTexts:string[] = []
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(arg.file, "text/xml");
     const nodes = xmlDoc.getElementsByTagName('*')
     for(const node of nodes){
         nodeTexts.push(node.textContent)
     }
-    hypa.addText(nodeTexts)
-    const result = await hypa.similaritySearch(arg.query)
-    let message = ''
-    for(let i = 0; i<result.length; i++){
-        message += "\n" + result[i]
-        if(i>5){
-            break
-        }
-    }
-    console.log(message)
-    return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')    
+    return buildFileContext(nodeTexts, arg.query)
 }
 
 type postFileResult = postFileResultAsset | postFileResultVoid | postFileResultText
@@ -203,7 +189,9 @@ export async function postChatFile(query:string|{
 
     for(const file of files){
         const extention = file.name.split('.').at(-1)
-        console.log(extention)
+        if (import.meta.env.DEV) {
+            console.log(extention)
+        }
 
         switch(extention){
             case 'po':{

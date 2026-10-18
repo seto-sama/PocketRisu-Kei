@@ -1263,9 +1263,8 @@ export const languageChineseTraditional = {
     "togglePresetRenamed": (oldName: string, newName: string) => `已將「${oldName}」重新命名為「${newName}」。`,
     "togglePresetSaved": (name: string) => `預設「${name}」已儲存。`,
 
-    "httpInsecureWarningTitle": "透過 HTTP 連線",
-    "httpInsecureWarningBody": "插件等部分功能可能無法使用。請使用遠端存取功能以建立 HTTPS 連線。",
-    "httpInsecureOpenRemoteAccess": "開啟設定",
+    "secureConnectionRequiredTitle": "需要安全連線",
+    "secureConnectionRequiredBody": "請透過 HTTPS 開啟 PocketRisu Kei，或在伺服器裝置上使用 http://localhost 或 http://127.0.0.1。若要遠端存取，請先從本機連線啟用 Cloudflare 遠端存取。",
 
     "selectBotHint": "選擇一個機器人開始聊天",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>

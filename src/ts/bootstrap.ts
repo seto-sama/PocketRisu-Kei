@@ -210,7 +210,7 @@ export async function loadData() {
             saveDb()
             startSyncReceiver()
             moduleUpdate()
-            // cleanChunks는 화면 진입 후 유휴 시간에 실행 (부트 블로킹 제거)
+            // Defer asset cleanup until after the UI loads.
             setTimeout(() => {
                 cleanChunks().catch(console.error)
             }, 5_000)
@@ -438,7 +438,9 @@ async function checkNewFormat(): Promise<void> {
                         await alertMd(language.bootstrap.diagnosticInformation(reportData));
                         await waitAlert();
                         
-                        console.log('Diagnostic information for developers:', diagnosticInfo);
+                        if (import.meta.env.DEV) {
+                            console.log('Diagnostic information for developers:', diagnosticInfo);
+                        }
                     } catch (reportError) {
                         console.error('Failed to generate diagnostic report:', reportError);
                     }
@@ -448,7 +450,9 @@ async function checkNewFormat(): Promise<void> {
                 
                 if (shouldReset) {
                     v.lorebook = [];
-                    console.log('Lorebook reset to empty array by user choice');
+                    if (import.meta.env.DEV) {
+                        console.log('Lorebook reset to empty array by user choice');
+                    }
                 } else {
                     console.warn('User chose to keep corrupted lorebook data');
                 }
@@ -505,7 +509,6 @@ async function checkNewFormat(): Promise<void> {
     }
     if (db.formatversion < 3) db.formatversion = 3;
     if (db.formatversion < 4) {
-        //migration removed due to issues
         db.formatversion = 4;
     }
     if (db.formatversion < 5) {

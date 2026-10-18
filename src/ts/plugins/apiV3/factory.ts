@@ -406,7 +406,7 @@ await (async function() {
     try {
         // Initialize cached properties
         const propsToInit = await window.risuai._getPropertiesForInitialization();
-        console.log('Initializing risuai properties:', JSON.stringify(propsToInit.list));
+        ${import.meta.env.DEV ? "console.log('Initializing risuai properties:', propsToInit.list);" : ''}
         for (let i = 0; i < propsToInit.list.length; i++) {
             const key = propsToInit.list[i];
             const value = propsToInit[key];
@@ -896,8 +896,10 @@ export class SandboxHost {
                     for (const id of usedAbortIds) this.abortControllers.delete(id);
                 }
 
-                console.log("Original request:", data);
-                console.log('Original response:', response, transferables);
+                if (import.meta.env.DEV) {
+                    console.log("Original request:", data);
+                    console.log('Original response:', response, transferables);
+                }
                 try {
                     this.iframe.contentWindow?.postMessage(response, '*', transferables);
                 } catch (error) {

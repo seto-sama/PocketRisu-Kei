@@ -81,6 +81,10 @@ function button(label: string, root: ParentNode = document) {
     return result!
 }
 
+function menuItems() {
+    return document.querySelectorAll<HTMLElement>('[role="menu"][data-state="open"] [role="menuitem"]')
+}
+
 function entry(name: string) {
     const result = [...document.querySelectorAll<HTMLButtonElement>('main button')].find(element => element.textContent?.includes(name))
     expect(result, name).toBeDefined()
@@ -93,14 +97,14 @@ async function openDocuments() {
 }
 
 function menuItem(label: string) {
-    const result = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === label)
+    const result = [...menuItems()].find(item => item.textContent?.trim() === label)
     expect(result, label).toBeDefined()
     return result!
 }
 
 async function contextMenu(target: string | HTMLElement) {
     (typeof target === 'string' ? entry(target) : target).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 100, clientY: 100 }))
-    await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull())
+    await vi.waitFor(() => expect(document.querySelector('[role="menu"][data-state="open"]')).not.toBeNull())
 }
 
 function dialog(title: string) {
@@ -303,7 +307,7 @@ it('previews a character PNG from the context menu without importing it', async 
 
 it('orders folder actions and downloads folders through the download API', async () => {
     await contextMenu('Documents')
-    expect([...document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent?.trim())).toEqual([
+    expect([...menuItems()].map(item => item.textContent?.trim())).toEqual([
         language.serverDrive.import, language.preview, language.download, language.serverDrive.addShortcut,
         language.cut, language.copy, language.serverDrive.moveToTrash, language.serverDrive.rename, language.serverDrive.metadata,
     ])
@@ -320,7 +324,7 @@ it('copies into the current folder using the existing numbered-name conflict cho
     menuItem(language.copy).click()
     await tick()
     await contextMenu(document.querySelector('main')!)
-    expect([...document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent?.trim())).toEqual([
+    expect([...menuItems()].map(item => item.textContent?.trim())).toEqual([
         language.serverDrive.newFolder, language.serverDrive.upload, language.paste,
     ])
     menuItem(language.paste).click()

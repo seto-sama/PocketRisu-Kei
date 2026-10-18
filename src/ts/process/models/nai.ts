@@ -46,7 +46,9 @@ export function stringlizeNAIChat(formated:OpenAIChat[], char:string, continued:
     if(!continued){
         res += `${seperator}${char}:`
     }
-    console.log(res)
+    if (import.meta.env.DEV) {
+        console.log(res)
+    }
     return res
 }
 

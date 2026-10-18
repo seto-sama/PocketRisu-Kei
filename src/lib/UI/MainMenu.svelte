@@ -1,7 +1,7 @@
 <script lang="ts">
     import { DBState, OpenRealmStore } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
-    import { ChevronDownIcon, CompassIcon, LayoutGridIcon, ListIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
+    import { ChevronDownIcon, CompassIcon, LayoutGridIcon, ListIcon, SendIcon, UsersIcon } from "@lucide/svelte";
     import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
@@ -10,10 +10,7 @@
     import Title from "./Title.svelte";
     import { updateInfoStore, updatePopupStore } from "src/ts/update";
     import { publicStatsStore } from "src/ts/publicStats";
-    import { isSecureContext } from "src/ts/secureContext";
-    import { openSettings, SettingsRoute } from "src/ts/routing";
     import Button from "./components/Button.svelte";
-    import Alert from "./components/Alert.svelte";
     import IconButton from "./components/IconButton.svelte";
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
     import HorizontalMasonry from "./HorizontalMasonry.svelte";
@@ -64,18 +61,6 @@
       </div>
     {/if}
     <div class="w-full flex p-4 flex-col text-maintext max-w-4xl">
-      {#if !isSecureContext}
-        <Alert variant="warning" className="mt-4 w-full">
-          {#snippet icon()}<TriangleAlertIcon />{/snippet}
-          {#snippet title()}{language.httpInsecureWarningTitle}{/snippet}
-          {language.httpInsecureWarningBody}
-          {#snippet action()}
-            <Button variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
-              {language.httpInsecureOpenRemoteAccess}
-            </Button>
-          {/snippet}
-        </Alert>
-      {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <div class="flex items-center gap-2 sm:flex-nowrap">
         <button

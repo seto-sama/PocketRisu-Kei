@@ -2310,11 +2310,10 @@ export const languageKorean = {
   appInstallDesc: "PocketRisu Kei를 PWA 애플리케이션 형태로 설치할 수 있습니다.",
   appInstallAction: "앱 설치",
 
-  // 비보안(HTTP) 접속 안내
-  httpInsecureWarningTitle: "HTTP로 접속 중",
-  httpInsecureWarningBody:
-    "플러그인 등 일부 기능이 동작하지 않을 수 있습니다. 원격 접속 기능을 사용하면 HTTPS로 연결할 수 있습니다.",
-  httpInsecureOpenRemoteAccess: "설정 열기",
+  // 보안 연결 필요 안내
+  secureConnectionRequiredTitle: "보안 연결이 필요합니다",
+  secureConnectionRequiredBody:
+    "PocketRisu Kei는 HTTPS 연결만 지원합니다. loaclhost 또는 HTTPS로 접속해주세요.",
 
   // 시스템 페이지
   system: "시스템",
@@ -2420,7 +2419,7 @@ export const languageKorean = {
   storageFailedLoad: "스토리지 통계를 불러오지 못했습니다",
   unsupportedRemoteSave: "PocketRisu Kei는 리모트 데이터를 처리하지 않습니다. 기존에 사용 중이던 RisuAI의 고급 설정 탭에서 'Enable Remote Saving' 옵션을 끈 후 save 폴더를 다시 복사해 주세요.",
 
-  // 디스크 사용량 (맥OS 스타일 막대)
+  // 디스크 사용량
   storageDiskUsage: "저장공간",
   storageDiskHeader: (used: number, total: number) =>
     `${(total / 1024 / 1024 / 1024).toFixed(2)} GB 중 ${(used / 1024 / 1024 / 1024).toFixed(2)} GB 사용됨`,
@@ -2430,7 +2429,7 @@ export const languageKorean = {
   storageDiskRisuTotal: (size: number) =>
     `총 ${(size / 1024 / 1024).toFixed(1)} MB 사용 중`,
 
-  // 항목별 라벨 (분포 리스트의 ⓘ 설명)
+  // 저장 공간 항목 라벨
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
     "메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
@@ -2468,7 +2467,7 @@ export const languageKorean = {
   storageInternalOnlyHint:
     "켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
-  // 2 GB BLOB 한계 (별도 섹션)
+  // SQLite BLOB 한계
   storageBlobLimit: "2 GB BLOB 한계",
   storageBlobLimitDesc:
     "SQLite는 단일 행 값을 약 2 GB까지만 허용합니다. database.bin이 하나의 행이라 채팅·설정 합계가 이 값을 넘을 수 없으며, 한계에 가까워지면 저장이 실패하기 시작합니다.",
@@ -2587,7 +2586,7 @@ export const languageKorean = {
 
   storageDebug: "디버그 정보",
 
-  // 데이터 이전 (구 "계정 & 파일")
+  // 데이터 이전
   migration: "데이터 이전",
   migrationDesc:
     "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 PocketRisu Kei 데이터를 원본 호환 형식으로 내보냅니다.",
@@ -2634,9 +2633,7 @@ export const languageKorean = {
   backupSnapshotLimitsCurrent: (count: number, bytes: number, logicalBytes?: number) => {
     const disk = (bytes / 1024 / 1024).toFixed(1)
     const saved = (logicalBytes ?? 0) - bytes
-    // Only surface the dedup win when it's meaningful (chunked snapshots share
-    // chunks); for tiny/un-chunked sets logical ≈ disk, so the plain line reads
-    // cleaner without a "(0 MB saved)" tail.
+    // Avoid displaying negligible deduplication savings.
     if (saved > 1024 * 1024) {
       const data = ((logicalBytes ?? 0) / 1024 / 1024).toFixed(0)
       const savedMB = (saved / 1024 / 1024).toFixed(0)

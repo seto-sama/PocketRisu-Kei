@@ -1342,7 +1342,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             removeChatPanel(id);
         },
         log: (message:string) => {
-            console.log(`[RisuAI Plugin: ${plugin.name}] ${message}`);
+            if (import.meta.env.DEV) {
+                console.log(`[RisuAI Plugin: ${plugin.name}] ${message}`);
+            }
         },
         createMutationObserver(callback: SafeMutationCallback): SafeMutationObserver {
             const observer = new SafeMutationObserver(callback, plugin.name)
@@ -1606,7 +1608,9 @@ export async function executePluginV3(plugin:RisuPlugin){
 
     const alreadyRunning = v3PluginInstances.find(p => p.name === plugin.name);
     if(alreadyRunning){
-        console.log(`[RisuAI Plugin: ${plugin.name}] Plugin is already running. Skipping load.`);
+        if (import.meta.env.DEV) {
+            console.log(`[RisuAI Plugin: ${plugin.name}] Plugin is already running. Skipping load.`);
+        }
         return;
     }
 
@@ -1619,7 +1623,9 @@ export async function executePluginV3(plugin:RisuPlugin){
         host
     });
     host.run(iframe, plugin.script);
-    console.log(`[RisuAI Plugin: ${plugin.name}] Loaded API V3 plugin.`);
+    if (import.meta.env.DEV) {
+        console.log(`[RisuAI Plugin: ${plugin.name}] Loaded API V3 plugin.`);
+    }
 }
 
 export function getV3PluginInstance(name: string) {

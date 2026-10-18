@@ -33,7 +33,9 @@ export class AutoStorage{
 
     async Init(){
         if(!this.realStorage){
-            console.log("using node storage")
+            if (import.meta.env.DEV) {
+                console.log("using node storage")
+            }
             this.realStorage = new NodeStorage()
         }
     }

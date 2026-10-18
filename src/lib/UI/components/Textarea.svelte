@@ -122,7 +122,6 @@
     import { DBState, selectedCharID, showPopupEditor } from 'src/ts/stores.svelte';
     import { Maximize2Icon, CopyIcon, CheckIcon, EraserIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
-    import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
     import IconButton from './IconButton.svelte'
     import IconButtonGroup from './IconButtonGroup.svelte'
@@ -287,10 +286,7 @@
         tick().then(() => {
             const target = textareaRef
             if(!target) return
-            // Measure against a collapsed input without collapsing the outer
-            // field itself. Changing autoHeight to 44px here used to publish a
-            // full layout frame on every keystroke, which could move an
-            // ancestor chat scroller before the real height was restored.
+            // Collapse only the textarea while measuring so the outer field does not move the chat scroller.
             const previousInlineHeight = target.style.height
             target.style.height = '0px'
             const nextHeight = Math.max(target.scrollHeight, 44)
@@ -351,11 +347,11 @@
     const copyValue = async () => {
         const text = draftValue ?? ''
         try {
-            if(isSecureContext && navigator.clipboard?.writeText){
+            if(navigator.clipboard?.writeText){
                 await navigator.clipboard.writeText(text)
             }
             else {
-                // Fallback for non-secure (remote http) contexts where the Clipboard API is unavailable
+                // Some browsers do not expose the Clipboard API even in secure contexts.
                 const ta = document.createElement('textarea')
                 ta.value = text
                 ta.style.position = 'fixed'

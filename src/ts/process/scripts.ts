@@ -103,7 +103,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
         const currentChar = getCurrentCharacter()
         if(currentChar){
             try{
-                const perf = performance.now()
+                const perf = import.meta.env.DEV ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'display', {
                     chat: getCurrentChat(),
                     displayMode: true,
@@ -111,7 +111,9 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                 })
     
                 data = d?.displayData ?? data
-                console.log('Trigger time', performance.now() - perf)
+                if (import.meta.env.DEV) {
+                    console.log('Trigger time', performance.now() - perf)
+                }
             }
             catch(e){
                 console.error(e)
@@ -204,10 +206,8 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
                         const selchar = db.characters[get(selectedCharID)]
                         const targetMessage = selchar?.chats?.[getChatPage(selchar)]?.message?.[chatID]
-                        // Chat sync may replace the message array while prompt
-                        // scripts are awaiting async work. Injection is a side
-                        // effect on the live UI message, so skip it if that old
-                        // numeric position no longer exists.
+                        // Chat sync may replace this message while scripts await;
+                        // skip injection if its original index no longer exists.
                         if(targetMessage) targetMessage.data = data
                         data = data.replace(reg, "")
                     }

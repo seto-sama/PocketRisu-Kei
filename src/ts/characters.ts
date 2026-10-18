@@ -116,13 +116,17 @@ export async function selectCharImg(charIndex:number) {
                     continue
                 }
                 if(allowedChunk.includes(chunk.key)){
-                    console.log(chunk.key, chunk.value)
+                    if (import.meta.env.DEV) {
+                        console.log(chunk.key, chunk.value)
+                    }
                     db.characters[charIndex].extentions ??= {}
                     db.characters[charIndex].extentions.pngExif ??= {}
                     db.characters[charIndex].extentions.pngExif[chunk.key] = chunk.value
                 }
             }
-            console.log(db.characters[charIndex].extentions)
+            if (import.meta.env.DEV) {
+                console.log(db.characters[charIndex].extentions)
+            }
         }   
     } catch (error) {
         console.error(error)

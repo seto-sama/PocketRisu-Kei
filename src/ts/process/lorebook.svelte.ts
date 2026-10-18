@@ -364,7 +364,7 @@ export async function loadLoreBookV3Prompt(options: {
                     case 'instruct_depth':
                     case 'reverse_instruct_depth':
                     case 'instruct_scan_depth':{
-                        //the instruct mode does not exists in risu
+                        // Risu has no instruct mode.
                         return false
                     }
                     case 'role':{
@@ -475,7 +475,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return
                     }
                     case 'is_user_icon':{
-                        //TODO
+                        // TODO: Implement the is_user_icon directive.
                         return false
                     }
                     case 'activate':{
@@ -503,7 +503,6 @@ export async function loadLoreBookV3Prompt(options: {
                         priority = parseInt(arg[0])
                         return
                     }
-                    //We can already do it with search depth, but its more readable and performant this way
                     case 'unrecursive':{
                         itemRecursive = false
                         return
@@ -524,7 +523,6 @@ export async function loadLoreBookV3Prompt(options: {
             
 
             if(!activated || forceState !== 'none' || fullLore[i].alwaysActive){
-                //if the lore is not activated or force activated, skip the search
             }
             else{
                 searchQueries.push({
@@ -622,7 +620,9 @@ export async function loadLoreBookV3Prompt(options: {
 
     // Apply lore injection after budgeting to avoid another token-count pass.
 
-    console.log('loreinjectionLores', loreinjectionLores)
+    if (import.meta.env.DEV) {
+        console.log('loreinjectionLores', loreinjectionLores)
+    }
     for(const lore of loreinjectionLores){
         const foundLoreIndex = activesResorted.findIndex((l) => {
             return l.source === lore.inject.location

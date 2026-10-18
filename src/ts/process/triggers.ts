@@ -1241,12 +1241,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             get message() { return chat.message },
             set message(value) { chat.message = value as Chat['message'] },
         }
-        // Display triggers only execute `displayAllowList`: those effects can
-        // read database-backed values, but cannot mutate persistent database,
-        // character, or chat fields. Cloning the complete database here made
-        // every rendered message pay that cost independently (and dominated
-        // long translated-chat loading), so keep the defensive draft only for
-        // mutation-capable trigger runs.
+        // Display effects are read-only, so they can use the live database;
+        // clone only for trigger runs that may mutate persistent state.
         const databaseDraft = arg.displayMode ? db : structuredClone(db)
         let abortRun = false
         await runRevenantTriggerProgram({
@@ -1284,7 +1280,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             executeAction: async triggerAction => {
                 const payload = triggerAction.payload
                 switch(triggerAction.kind){
-                    case 'log': console.log(payload.value); break
+                    case 'log':
+                        if (import.meta.env.DEV) {
+                            console.log(payload.value)
+                        }
+                        break
                     case 'prompt.append':
                         additonalSysPrompt[payload.location as keyof additonalSysPrompt] += `${payload.value}\n\n`
                         break

@@ -1,6 +1,4 @@
-import { Sha256 } from '@aws-crypto/sha256-js'
-import { HttpRequest } from '@smithy/protocol-http'
-import { SignatureV4 } from '@smithy/signature-v4'
+import { AwsV4Signer } from 'aws4fetch'
 import type { ModelPreset } from '../types'
 import {
     BEDROCK_CUSTOM_PATH_REGION,
@@ -221,36 +219,19 @@ export async function applyBedrockAuthentication(
         }
     }
 
-    const url = new URL(prepared.url)
-    const body = JSON.stringify(prepared.body)
-    const headers = setHeader(prepared.headers, 'Host', url.host)
-    const request = new HttpRequest({
+    const signer = new AwsV4Signer({
+        url: prepared.url,
         method: prepared.method,
-        protocol: url.protocol,
-        hostname: url.hostname,
-        port: url.port ? Number(url.port) : undefined,
-        path: `${url.pathname}${url.search}`,
-        headers,
-        body,
-    })
-    const signer = new SignatureV4({
-        sha256: Sha256,
-        credentials: {
-            accessKeyId: parsed.accessKeyId,
-            secretAccessKey: parsed.secretAccessKey,
-            sessionToken: parsed.sessionToken,
-        },
+        headers: prepared.headers,
+        body: JSON.stringify(prepared.body),
+        accessKeyId: parsed.accessKeyId,
+        secretAccessKey: parsed.secretAccessKey,
+        sessionToken: parsed.sessionToken,
         region,
         service: 'bedrock',
     })
-    const signed = await signer.sign(request)
-    const outgoing: Record<string, string> = {}
-    for (const [key, value] of Object.entries(signed.headers)) {
-        // `Host` is part of the signature, but browsers set this forbidden
-        // header themselves. Sending it explicitly would make direct fetch fail.
-        if (key.toLowerCase() !== 'host') outgoing[key] = value
-    }
-    return { ...prepared, headers: outgoing }
+    const signed = await signer.sign()
+    return { ...prepared, headers: Object.fromEntries(signed.headers) }
 }
 
 export function resolveBedrockRegion(preset: ModelPreset): string {

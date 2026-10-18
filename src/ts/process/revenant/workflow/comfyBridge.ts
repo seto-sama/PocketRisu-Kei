@@ -6,6 +6,7 @@ import {
     getRevenantGenerationSyncClientId,
 } from '../transport/client'
 import { getComfyBridgeId } from './comfyBridgeId'
+import { createEntityId } from '../../../id'
 
 const HANDLE_KEY = 'risu-comfy-bridge-handles'
 const MAX_STORED_HANDLES = 32
@@ -20,11 +21,6 @@ export interface ComfyBridgeJobStatus {
 
 type StoredHandle = { promptId: string, clientId: string }
 const running = new Map<string, Promise<void>>()
-function randomId(): string {
-    return globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-}
-
 function readHandles(): Record<string, StoredHandle> {
     try {
         const value = JSON.parse(globalThis.localStorage?.getItem(HANDLE_KEY) ?? '{}')
@@ -155,7 +151,7 @@ async function execute(jobId: string, initial: ComfyBridgeJobStatus): Promise<vo
     let handle = initial.providerHandle ?? readHandles()[jobId]
     if (!handle) {
         const workflow = buildWorkflow(preset.comfyConfig?.workflow || '', initial.bridgeRequest)
-        const clientId = `risu-${randomId()}`
+        const clientId = `risu-${createEntityId()}`
         const response = await directFetch(createComfyUrl(baseUrl, '/prompt'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },

@@ -173,10 +173,12 @@ export class MCPClient{
 
                 data = data.trim()
                 if(data){
-                    console.log("MCP SSE Data", {
-                        eventName: eventName,
-                        data: data
-                    })
+                    if (import.meta.env.DEV) {
+                        console.log("MCP SSE Data", {
+                            eventName: eventName,
+                            data: data
+                        })
+                    }
 
                     if(eventName === 'endpoint'){
                         const sseEventDetail:SseEventDetail = {
@@ -353,7 +355,6 @@ export class MCPClient{
             }
 
             if(response.status > 299 && responsePromise){
-                //invoke error handler
                 const details:SseEventDetail = {
                     mcpClientObjectId: this.mcpClientObjectId,
                     data: {
@@ -491,7 +492,9 @@ export class MCPClient{
     
     async handshake(){
 
-        console.log("MCP Handshake", this.url, this.mcpClientObjectId)
+        if (import.meta.env.DEV) {
+            console.log("MCP Handshake", this.url, this.mcpClientObjectId)
+        }
         this.protocolVersion = '2025-03-26' //default to latest version
         let {rpc:d,http} = await this.request('initialize', {
             "protocolVersion": this.protocolVersion,
@@ -595,7 +598,9 @@ export class MCPClient{
                 this.protocolVersion = d.result.protocolVersion
             }
 
-            console.log("MCP Handshake Successful", this.serverInfo, this.mcpClientObjectId)
+            if (import.meta.env.DEV) {
+                console.log("MCP Handshake Successful", this.serverInfo, this.mcpClientObjectId)
+            }
             this.initialized = true
 
             return this.serverInfo
@@ -610,7 +615,6 @@ export class MCPClient{
         if(this.getRefreshToken){
             const refreshTokenData = await this.getRefreshToken()
             if(refreshTokenData){
-                //get access token using refresh token
                 const tokenResponse = await fetchNative(refreshTokenData.tokenUrl, {
                     method: "POST",
                     headers: {
@@ -640,7 +644,6 @@ export class MCPClient{
             }
         })
 
-        //default discovery URLS
         let discoveryURLS = {
             'authorization_endpoint': OauthDiscovery.origin + "/authorize",
             'token_endpoint': OauthDiscovery.origin + "/token",
@@ -651,7 +654,7 @@ export class MCPClient{
             discoveryURLS = await oauthResponse.json()
         }
 
-        const redirectURL = "https://account.sionyw.com/oauthhelper" //Just a placeholder, should be replaced with actual redirect URL
+        const redirectURL = "https://account.sionyw.com/oauthhelper"
 
         const registerResponse = await fetchNative(discoveryURLS.registration_endpoint, {
             method: "POST",
@@ -690,7 +693,7 @@ export class MCPClient{
         openURL(authUrl.toString())
         const code = await alertInput("Input Authorization Code")
 
-        const authHelperResponse = await fetchNative("https://account.sionyw.com/oauthhelper/api", {
+        const authHelperResponse = await fetchNative(`${redirectURL}/api`, {
             method: "POST",
             body: JSON.stringify({
                 code: code,
@@ -800,7 +803,9 @@ export class MCPClient{
             }
 
             const response = await this.request("tools/list", args)
-            console.log("MCP Tools List Response", response)
+            if (import.meta.env.DEV) {
+                console.log("MCP Tools List Response", response)
+            }
             if(response.rpc.result?.tools){
                 tools.push(...response.rpc.result.tools)
                 if(response.rpc.result.nextCursor){

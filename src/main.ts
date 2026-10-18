@@ -1,19 +1,17 @@
 import "core-js/actual"
 import "virtual:pocketrisu-local-fonts.css"
-import "./ts/log-capture"
-import "./ts/storage/database.svelte"
-import App from "./App.svelte";
-import { loadData } from "./ts/bootstrap";
-import { preLoadCheck } from "./preload";
-import { mount } from "svelte";
-import { applyEarlyFontPreference } from "./ts/gui/fontPreference";
+import { applyEarlyLanguage, language } from "./lang"
 
-preLoadCheck()
-applyEarlyFontPreference()
-let app = mount(App, {
-    target: document.getElementById("app"),
-});
-loadData()
-document.getElementById('preloading').remove()
-
-export default app;
+if (window.isSecureContext) {
+    // Database defaults create UUIDs during module evaluation, so defer app imports until this check passes.
+    void import('./start')
+} else {
+    applyEarlyLanguage()
+    const title = document.createElement('h1')
+    title.className = 'text-xl font-bold'
+    title.textContent = language.secureConnectionRequiredTitle
+    const message = document.createElement('p')
+    message.className = 'mt-4 max-w-xl px-6 text-center text-base'
+    message.textContent = language.secureConnectionRequiredBody
+    document.getElementById('preloading')?.replaceChildren(title, message)
+}

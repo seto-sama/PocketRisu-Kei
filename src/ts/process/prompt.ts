@@ -190,7 +190,9 @@ export function stChatConvert(pre:any){
                     break
                 }
                 default:{
-                    console.log(p)
+                    if (import.meta.env.DEV) {
+                        console.log(p)
+                    }
                     promptTemplate.push({
                         type: 'plain',
                         type2: 'normal',
@@ -201,7 +203,9 @@ export function stChatConvert(pre:any){
             }
         }
         else{
-            console.log("Prompt not found", prompt)
+            if (import.meta.env.DEV) {
+                console.log("Prompt not found", prompt)
+            }
         
         }
     }

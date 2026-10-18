@@ -82,9 +82,7 @@
         firstMessage: boolean
         key: string
     } | null = null
-    // This controls the loading branch directly. The old {#await} block was
-    // invalidated when its promise settled, but the persistent streaming DOM
-    // needs this completion flag itself to be reactive.
+    // The persistent streaming DOM reads this flag to choose its loading branch.
     let lastParsedTranslated = $state(false)
     let completedRender: {
         data: string
@@ -128,6 +126,7 @@
     let committedRenderPromise: Promise<ChatBodyRenderResult> | null = null
     let stopInlayPreloadObservation = () => {}
     let stopInlayPlaceholderObservation = () => {}
+    // Publishing state must not re-render HTML already committed for that state.
     let skipNextTranslatedRender:boolean|null = null
     const renderController = createChatBodyRenderController(
         (delta) => onTranslationTaskChange(delta),
@@ -184,7 +183,7 @@
         tries?:number,
         requestContext?: MarkParsingRequest,
     ): Promise<string> => {
-        // track 'translated' and 'retranslate' state
+        // Track translation state and revision as render dependencies.
         translated;
         retranslate;
         translationRevision;
@@ -264,10 +263,7 @@
             )
             : null
         if (persistentRender) {
-            // Cache hits otherwise resolve together in one microtask and make
-            // Firefox construct an entire long room's DOM in a single frame.
-            // Keep lookup/parsing eliminated, but budget HTML commits across
-            // frames just as the asynchronous upstream path naturally does.
+            // Spread cache-hit commits across frames to keep long rooms responsive in Firefox.
             await waitForChatBodyRenderCacheCommit(persistentRender.html.length)
             if (!isCurrentRenderRequest()) return lastParsed || persistentRender.html
             translationCacheKey = persistentRender.translationCacheKey
@@ -288,10 +284,6 @@
             if (requestTranslated !== persistentRender.translated) {
                 queuePostRenderStateUpdate(() => {
                     if (msgDisplay === data && isCurrentRenderRequest()) {
-                        // The cached HTML already represents this state. Keep
-                        // the current promise identity when publishing the
-                        // control state so Svelte does not replace the same
-                        // large subtree a second time.
                         skipNextTranslatedRender = persistentRender.translated
                         translated = persistentRender.translated
                     }
@@ -345,11 +337,7 @@
                                 parseMarkdown: parseMessageMarkdown,
                             },
                         )
-                    // Commit the inspection identity only after its async work
-                    // completes. A recovery-list notification may start a
-                    // concurrent render; publishing these fields beforehand
-                    // made that render skip inspection and parse the entire
-                    // room once in the untranslated state.
+                    // Record inspection identity after recovery resolves so concurrent renders inspect the current snapshot.
                     lastCharArg = charArg
                     lastChatId = chatID
                     const inspectedRenderRevision = requestRenderRevision
@@ -373,11 +361,7 @@
                     const lastTranslated = requestTranslated
 
                     if (lastTranslated !== translateText) {
-                        // Render the discovered state in this pass, then publish
-                        // the reactive flag only after its HTML is complete.
-                        // Publishing before the await caused a duplicate pass;
-                        // returning here (the upstream behavior) created a
-                        // second room-wide wave and kept translation spinners up.
+                        // Render the discovered state now; publish it only after its HTML is ready.
                         translatedStateUpdate = translateText
                     }
                 } catch (error) {
@@ -484,7 +468,6 @@
                 renderResultReady = true
                 return lastParsedQueue
             }
-            //retry
             if(tries > 2){
 
                 alertError(`Error while parsing chat message: ${requestTranslated}, ${error.message}, ${error.stack}`)
@@ -499,7 +482,6 @@
             if (renderResultReady && isCurrentRenderRequest()) {
                 const settledRenderRevision = requestContext?.renderRevision ?? renderRevision
                 const settledRenderCacheKey = requestContext?.renderCacheKey ?? renderCacheKey
-                //since trimMarkdown is fast, we don't need to cache it
                 lastParsed = lastParsedQueue
                 lastParsedTranslated = currentParsedTranslated
                 completedRender = {
@@ -529,10 +511,6 @@
                 if (translatedStateUpdate !== null) {
                     queuePostRenderStateUpdate(() => {
                         if (msgDisplay === data && isCurrentRenderRequest()) {
-                            // Chat's controls still need the published state,
-                            // but the HTML represented by that state is already
-                            // the result of the current promise. Reuse it once
-                            // so Svelte does not replace the same large subtree.
                             skipNextTranslatedRender = translatedStateUpdate
                             translated = translatedStateUpdate!
                         }
@@ -562,7 +540,9 @@
 
             imgs.forEach(async (img) => {
                 const name = img.getAttribute('src')?.toLocaleLowerCase() || ''
-                console.log(name)
+                if (import.meta.env.DEV) {
+                    console.log(name)
+                }
 
                 if(
                     name.length > 200 ||
@@ -573,7 +553,9 @@
                 }
                 
                 const foundAsset = exactAssets.get(name)
-                console.log('Checking image:', name, 'Assets:', assets)
+                if (import.meta.env.DEV) {
+                    console.log('Checking image:', name, 'Assets:', assets)
+                }
                 if(foundAsset){
                     img.classList.add('root-loaded-image')
                     img.classList.add('root-loaded-image-' + styl)
@@ -656,10 +638,7 @@
             && skipNextTranslatedRender === translatedState
         ) {
             skipNextTranslatedRender = null
-            // Keep the request object passed to markParsing alive. A module
-            // signature/display revision can settle while the translated
-            // state is being published; replacing this object would make the
-            // completed HTML get cached under the transient revision.
+            // Update the active request in place so revisions settled this tick apply to its cached HTML.
             if (currentMarkParsingRequest) {
                 Object.assign(currentMarkParsingRequest, request)
             }
@@ -708,10 +687,7 @@
             && currentMarkParsingRequest.autoTranslationSuppressed === request.autoTranslationSuppressed
             && currentMarkParsingRequest.lastOutputAutoTranslationCandidate === request.lastOutputAutoTranslationCandidate
         ) {
-            // A global display reload can arrive in the same tick as a room
-            // switch. The render already observes the newly selected room's
-            // state; remounting every body here only duplicates the in-flight
-            // work and clears its DOM/cache state.
+            // The in-flight render already uses the selected room's state; restarting it would duplicate work.
             currentMarkParsingRequest.renderRevision = request.renderRevision
             currentMarkParsingRequest.renderCacheKey = request.renderCacheKey
             return currentMarkParsingPromise
@@ -736,9 +712,7 @@
             if (currentMarkParsingPromise === promise) currentMarkParsingSettled = true
         })
         void promise.then(async () => {
-            // Publish bindable control state only after the resolved HTML has
-            // been committed. This avoids recursively starting a duplicate
-            // parse without relying on an arbitrary timer delay.
+            // Wait for HTML to commit before publishing bindable state, avoiding a duplicate parse.
             await tick()
             if (currentMarkParsingPromise !== promise || currentMarkParsingRequest !== request) return
             const updates = request.postRenderStateUpdates?.splice(0) ?? []

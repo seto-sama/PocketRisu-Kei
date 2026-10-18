@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { acceptCompletion, completionStatus, startCompletion, type CompletionSource } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { mount, tick, unmount } from 'svelte'
@@ -10,6 +10,27 @@ import { createImageTagCompletionSource } from 'src/ts/imageGeneration/imageTags
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { createAuth: vi.fn() } }))
 
 const mounted: unknown[] = []
+
+beforeAll(() => {
+    // Happy DOM fires selectionchange synchronously; browsers queue and coalesce it.
+    // https://www.w3.org/TR/selection-api/#selectionchange-event
+    const dispatchEvent = document.dispatchEvent.bind(document)
+    let pending: ReturnType<typeof setTimeout> | undefined
+    const dispatchSpy = vi.spyOn(document, 'dispatchEvent').mockImplementation(event => {
+        if (event.type !== 'selectionchange' || event.eventPhase !== Event.NONE) return dispatchEvent(event)
+        if (pending === undefined) {
+            pending = setTimeout(() => {
+                pending = undefined
+                dispatchEvent(event)
+            }, 0)
+        }
+        return true
+    })
+    return () => {
+        clearTimeout(pending)
+        dispatchSpy.mockRestore()
+    }
+})
 
 async function render(value: string, options: { completionSource?: CompletionSource } = {}) {
     const target = document.createElement('div')
@@ -49,6 +70,19 @@ afterEach(async () => {
 })
 
 describe('CBSCodeEditor', () => {
+    it('updates the editor selection when the user selects DOM text', async () => {
+        const { content, editor } = await render('hello')
+        content.focus()
+        const text = content.querySelector('.cm-line')!.firstChild!
+        const selection = document.getSelection()!
+        selection.setBaseAndExtent(text, 1, text, 3)
+        await vi.waitFor(() => {
+            expect(editor.state.selection.main.from).toBe(1)
+            expect(editor.state.selection.main.to).toBe(3)
+        })
+        expect(selection.toString()).toBe('el')
+    })
+
     it('completes a Korean image tag prefix while preserving following prompt text', async () => {
         const { target, content, editor, onValueChange } = await render('1girl, (장발 out:1.2), blue eyes', {
             completionSource: createImageTagCompletionSource({

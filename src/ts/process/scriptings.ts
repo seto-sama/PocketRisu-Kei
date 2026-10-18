@@ -223,7 +223,9 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('logMain', (value:string) => {
-                console.log(JSON.parse(value))
+                if (import.meta.env.DEV) {
+                    console.log(JSON.parse(value))
+                }
             })
 
             addEffect('reloadDisplay', (id:string) => {
@@ -260,7 +262,6 @@ export async function runScripted(code:string, arg:{
                 lastRequestsCount++
 
                 try {
-                    //for security and other reasons, only get request in 120 char is allowed
                     if(url.length > 120){
                         return JSON.stringify({
                             status: 413,
@@ -291,7 +292,6 @@ export async function runScripted(code:string, arg:{
                         }
                     }
 
-                    //browser fetch
                     const d = await fetchNative(url, {
                         method: "GET"
                     })
