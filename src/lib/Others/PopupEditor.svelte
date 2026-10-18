@@ -1,6 +1,6 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
+    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, DownloadIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
@@ -125,6 +125,7 @@
         popUpEditorStore.onCommit = null
         popUpEditorStore.onSubmit = null
         popUpEditorStore.title = ''
+        popUpEditorStore.description = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
         popUpEditorStore.mode = 'cbs'
@@ -162,7 +163,7 @@
     }
 
     async function requestSubmit() {
-        if (!popUpEditorStore.onCommit || saving) return
+        if ((!popUpEditorStore.onCommit && !popUpEditorStore.onSubmit) || saving) return
 
         saving = true
         try {
@@ -394,12 +395,15 @@
 
 <svelte:window onkeydowncapture={handlePreviewShortcut} />
 
+{#snippet editorDescription()}{popUpEditorStore.description}{/snippet}
+
 <Dialog
     open={popUpEditorStore.open}
     size="xl"
     onRequestClose={() => void requestClose()}
     contentClass="h-[calc(100dvh-2rem)] gap-3 p-3 sm:p-4"
     bodyClass="flex min-h-0 flex-1 flex-col"
+    description={popUpEditorStore.description ? editorDescription : undefined}
 >
     {#snippet title()}
         <span class:font-mono={popUpEditorStore.title !== ''} class:break-all={popUpEditorStore.title !== ''}>
@@ -592,7 +596,7 @@
                     {/if}
                 </aside>
             </div>
-        {:else if popUpEditorStore.mode === 'cbs'}
+        {:else if popUpEditorStore.mode === 'cbs' && popUpEditorStore.onCommit}
             <div
                 class="min-h-0 w-full flex-1 font-mono"
                 class:text-xs={$textAreaTextSize === 0}
@@ -613,6 +617,7 @@
         {:else}
             <textarea
                 bind:value={popUpEditorStore.value}
+                readonly={!popUpEditorStore.onCommit}
                 wrap={wordWrap ? 'soft' : 'off'}
                 class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-lightbg p-3 font-mono leading-relaxed text-maintext outline-none"
                 class:text-xs={$textAreaTextSize === 0}
@@ -665,7 +670,7 @@
                             <span>{language.popupEditorWordWrap}</span>
                             {#if wordWrap}<CheckIcon class="ml-auto" />{/if}
                         </DropdownMenu.Item>
-                        {#if popUpEditorStore.formatJson}
+                        {#if popUpEditorStore.formatJson && popUpEditorStore.onCommit}
                             <DropdownMenu.Item onSelect={formatJson} disabled={saving}>
                                 <AlignLeftIcon />
                                 <span>{language.popupEditorFormatJson}</span>
@@ -677,18 +682,23 @@
             <div class="ml-auto flex items-center gap-2">
                 {#if !popUpEditorStore.hideCancel}
                     <Button size="sm" variant="outline" onclick={() => void requestClose()} disabled={saving || confirmingClose}>
-                        {language.cancel}
+                        {popUpEditorStore.onCommit ? language.cancel : language.close}
                     </Button>
                 {/if}
-                <Button size="sm" variant="primary" onclick={requestSubmit} disabled={saving}>
-                    {#if popUpEditorStore.submitKind === 'send'}
-                        <SendIcon />
-                        {language.send}
-                    {:else}
-                        <SaveIcon />
-                        {language.popupEditorSave}
-                    {/if}
-                </Button>
+                {#if popUpEditorStore.onCommit || popUpEditorStore.onSubmit}
+                    <Button size="sm" variant="primary" onclick={requestSubmit} disabled={saving}>
+                        {#if popUpEditorStore.submitKind === 'download'}
+                            <DownloadIcon />
+                            {language.download}
+                        {:else if popUpEditorStore.submitKind === 'send'}
+                            <SendIcon />
+                            {language.send}
+                        {:else}
+                            <SaveIcon />
+                            {language.popupEditorSave}
+                        {/if}
+                    </Button>
+                {/if}
             </div>
         </div>
     {/snippet}

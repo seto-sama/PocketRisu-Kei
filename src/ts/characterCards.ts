@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
-import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults } from "./storage/database.svelte"
+import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults, isSupportedPromptPresetJSON } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
 import { createEntityId } from 'src/ts/id';
@@ -15,8 +15,10 @@ import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
 import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
-import { exportModuleLegacy, readModule, type RisuModule } from "./process/modules"
+import { exportModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
+import { getFileType } from "../../shared/fileTypes.mjs"
+import { Unzip } from 'fflate'
 
 
 const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
@@ -44,6 +46,75 @@ export async function importCharacter() {
     }
 }
 
+function isOffspecCharacterImportJSON(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const data = value as Record<string, any>
+    return !!((data.char_name || data.name)
+        && (data.char_persona || data.description)
+        && (data.char_greeting || data.first_mes))
+}
+
+function isCharacterImportJSON(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const data = value as Record<string, any>
+    return data.spec === 'chara_card_v2'
+        || data.spec === 'chara_card_v3'
+        || isOffspecCharacterImportJSON(value)
+}
+
+export async function importFile(name:string, data:Uint8Array|File):Promise<boolean>{
+    let type = getFileType(name)
+    if(type === 'image' && /\.(png|jpe?g)$/i.test(name)){
+        data = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer())
+        const chunks = getImageType(data) === 'PNG' ? PngChunk.read(data, ['chara', 'ccv3']) : {}
+        if(chunks.chara || chunks.ccv3){
+            name = `${name}.png`
+        } else {
+            // JPEG CharX exports contain a ZIP after the image. Inspect names without extracting assets.
+            let hasCard = false
+            const archive = new Unzip(file => { if(file.name === 'card.json') hasCard = true })
+            try { archive.push(data, true) } catch { return false }
+            if(!hasCard) return false
+            name = `${name}.charx`
+        }
+        type = 'character'
+    }
+    if(type === 'json'){
+        data = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer())
+        const content = Buffer.from(data).toString('utf-8')
+        let parsed:unknown
+        try { parsed = JSON.parse(content) } catch { return false }
+        if(isCharacterImportJSON(parsed)) type = 'character'
+        else if(isModuleImportJSON(parsed)) type = 'module'
+        else if(await isSupportedPromptPresetJSON(content)) type = 'preset'
+        else return false
+    }
+    if(type === 'character'){
+        try {
+            await importCharacterProcess({ name, data })
+            checkCharOrder()
+        } catch (error) {
+            alertError(error)
+        }
+        return true
+    }
+    if(type !== 'preset' && type !== 'module') return false
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer())
+    if(type === 'preset'){
+        if(await importPreset({ name, data: bytes })){
+            openSettings(SettingsRoute.PromptPreset)
+            notifySuccess(language.successImport)
+        }
+    } else if(await importModule({ name, data: bytes })){
+        openAddonSettings(AddonSettingsTab.Module)
+    }
+    return true
+}
+
 export async function importCharacterProcess<T extends boolean = false>(f:{
     name: string;
     data: Uint8Array|File|ReadableStream<Uint8Array>
@@ -56,11 +127,15 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         }
         const data = f.data instanceof Uint8Array ? f.data : new Uint8Array(await f.data.arrayBuffer())
         const da = JSON.parse(Buffer.from(data).toString('utf-8'))
+        if(!isCharacterImportJSON(da)){
+            alertError(language.errors.noData)
+            return
+        }
         if(await importCharacterCardSpec(da)){
             let db = getDatabase()
             return db.characters.length - 1 as any
         }
-        if((da.char_name || da.name) && (da.char_persona || da.description) && (da.char_greeting || da.first_mes)){
+        if(isOffspecCharacterImportJSON(da)){
             let db = getDatabase()
             db.characters.push(convertOffSpecCards(da))
             setDatabaseLite(db)
@@ -443,34 +518,6 @@ export async function characterURLImport() {
                 handleFiles(files)
             }
         });
-    }
-
-    async function importFile(name:string, data:Uint8Array) {
-        if(name.endsWith('.charx') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')){
-            await importCharacterProcess({
-                name: name,
-                data: data
-            })
-            return
-        }
-        if(name.endsWith('.risupreset') || name.endsWith('.risup')){
-            await importPreset({
-                name: name,
-                data: data
-            })
-            openSettings(SettingsRoute.PromptPreset)
-            notifySuccess(language.successImport)
-            return
-        }
-        if(name.endsWith('risum')){
-            const md = await readModule(Buffer.from(data))
-            md.id = createEntityId()
-            const db = getDatabase()
-            db.modules.push(md)
-            notifySuccess(language.successImport)
-            openAddonSettings(AddonSettingsTab.Module)
-            return
-        }
     }
 
     function getFileName(res : Response) : string {

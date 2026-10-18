@@ -2428,6 +2428,7 @@ driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
     checkAuth,
     checkDownloadAuth,
     isCloudflareTunnelRequest,
+    encodeThumbnail: inlayService.encodeThumbnail,
     getTrashRetentionDays: async () => {
         await ensureCanonicalStorage();
         return storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays;

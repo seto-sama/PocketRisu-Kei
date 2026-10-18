@@ -2738,7 +2738,7 @@ type PresetImportFile = {
     data:Uint8Array
 }
 
-function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
+function isRisuPreset(value:unknown):value is Partial<botPreset>{
     if(!value || typeof value !== 'object' || Array.isArray(value)){
         return false
     }
@@ -2749,6 +2749,29 @@ function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
         || typeof preset.jailbreak === 'string'
         || typeof preset.globalNote === 'string'
         || typeof preset.apiType === 'string'
+}
+
+function isNovelAIPreset(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const preset = value as Record<string, unknown>
+    return typeof preset.presetVersion === 'number'
+        && preset.presetVersion >= 3
+        && !!preset.parameters
+        && typeof preset.parameters === 'object'
+        && !Array.isArray(preset.parameters)
+}
+
+export async function isSupportedPromptPresetJSON(content:string):Promise<boolean>{
+    try {
+        const parsed = JSON.parse(content)
+        if(isNovelAIPreset(parsed) || isRisuPreset(parsed)) return true
+    } catch {
+        return false
+    }
+    const { detectPromptJSONType } = await import('../process/prompt')
+    return detectPromptJSONType(content) !== 'NOTSUPPORTED'
 }
 
 function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
@@ -2763,13 +2786,13 @@ function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
     db.botPresets = appendPresetItem(db.botPresets, pre).items
 }
 
-export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null){
+export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null):Promise<boolean>{
     try{
         const files = input
             ? (Array.isArray(input) ? input : [input])
             : await selectMultipleImportFiles()
         if(files.length === 0){
-            return
+            return false
         }
 
         const nativeFiles = files.filter(file => {
@@ -2792,7 +2815,7 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
             const importedPreset = decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset ?? decoded.pres, 'risupreset')))
             const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
             addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
-            return
+            return true
         }
 
         // Prompt conversion pulls in tokenizer-related code, so load it only when
@@ -2813,17 +2836,17 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
                 throw new Error(`Unsupported prompt preset format: ${unsupported.name}`)
             }
             addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
-            return
+            return true
         }
 
         const conversionFile = conversionFiles[0]
         if(conversionFile.type !== 'NOTSUPPORTED'){
             addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
-            return
+            return true
         }
 
         const importedPreset = JSON.parse(conversionFile.content)
-        if(importedPreset?.presetVersion >= 3){
+        if(isNovelAIPreset(importedPreset)){
             // NovelAI preset
             const pre = {...presetTemplate, ...importedPreset}
             const pr = structuredClone(prebuiltPresets.NAI)
@@ -2845,15 +2868,17 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
             pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
             pr.name = pre.name ?? "Imported"
             addImportedPreset(pr)
-            return
+            return true
         }
 
-        if(!isLegacyRisuPreset(importedPreset)){
+        if(!isRisuPreset(importedPreset)){
             throw new Error(`Unsupported prompt preset format: ${conversionFile.name}`)
         }
         const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
         addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
+        return true
     } catch(error){
         alertError(error)
+        return false
     }
 }

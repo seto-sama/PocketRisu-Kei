@@ -1,5 +1,6 @@
 import express from 'express'
 import { createServer, request, type Server } from 'node:http'
+import { unzipSync } from 'fflate'
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, link, writeFile, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,8 +19,10 @@ let base: string
 let stopTrashCleanup: () => void
 const auth = { 'risu-auth': 'test-token' }
 const trashPath = () => join(root, DRIVE_TRASH_DIRECTORY)
+const encodeThumbnail = vi.fn()
 
 beforeEach(async () => {
+    encodeThumbnail.mockReset().mockResolvedValue({ buffer: Buffer.from('thumbnail') })
     directory = await mkdtemp(join(tmpdir(), 'risu-drive-'))
     root = join(directory, 'drive')
     const app = express()
@@ -31,7 +34,7 @@ beforeEach(async () => {
         return false
     }
     const driveRoutes = installDriveRoutes(app, {
-        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isCloudflareTunnelRequest: isRemoteTunnelRequest,
+        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isCloudflareTunnelRequest: isRemoteTunnelRequest, encodeThumbnail,
     })
     stopTrashCleanup = driveRoutes.stopTrashCleanup
     app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, details: error.details }))
@@ -88,8 +91,10 @@ it('denies authenticated Drive access through Cloudflare tunnels before filesyst
         { route: '', method: 'GET' },
         { route: '/metadata?path=existing.txt', method: 'GET' },
         { route: '/download?path=existing.txt', method: 'GET' },
+        { route: '/thumbnail?path=existing.txt', method: 'GET' },
         { route: '/directory', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'created' }) },
         { route: '/rename', method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'renamed.txt' }) },
+        { route: '/copy', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'copied.txt' }) },
         { route: '/entry', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt' }) },
         { route: '/trash', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' },
         { route: '/file?name=created.txt', method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: 'new contents' },
@@ -128,6 +133,31 @@ it('denies authenticated Drive access through Cloudflare tunnels before filesyst
     expect(JSON.parse(tailscale.body).entries).toEqual([expect.objectContaining({ name: 'existing.txt' })])
 })
 
+it('revalidates thumbnails after file replacement and leaves unavailable previews uncached', async () => {
+    await upload('portrait.PNG', 'first image')
+    const thumbnail = await get('/thumbnail', { path: 'portrait.PNG' })
+    expect(thumbnail.status).toBe(200)
+    expect(thumbnail.headers.get('content-type')).toContain('image/webp')
+    expect(await thumbnail.text()).toBe('thumbnail')
+    const etag = thumbnail.headers.get('etag')!
+    const unchanged = await requestDrive('/thumbnail?path=portrait.PNG', 'GET', { 'if-none-match': etag })
+    expect(unchanged.status).toBe(304)
+    expect(encodeThumbnail).toHaveBeenCalledOnce()
+
+    await upload('portrait.PNG', 'replacement image', '', 'overwrite')
+    const replacement = await get('/thumbnail', { path: 'portrait.PNG' })
+    expect(replacement.status).toBe(200)
+    expect(replacement.headers.get('etag')).not.toBe(etag)
+    expect(encodeThumbnail).toHaveBeenLastCalledWith(Buffer.from('replacement image'))
+
+    await upload('missing-cover.charx', 'not an archive')
+    const unavailable = await get('/thumbnail', { path: 'missing-cover.charx' })
+    expect(unavailable.status).toBe(204)
+    expect(unavailable.headers.has('etag')).toBe(false)
+    expect(unavailable.headers.get('cache-control')).toContain('no-store')
+    expect(encodeThumbnail).toHaveBeenCalledTimes(2)
+})
+
 it('shares nested files, metadata and renames through the filesystem, including empty uploads', async () => {
     expect(await (await get()).json()).toEqual({ path: '', entries: [] })
     expect((await json('/directory', { name: '문서' })).status).toBe(201)
@@ -151,8 +181,122 @@ it('shares nested files, metadata and renames through the filesystem, including 
     const empty = await get('/download', { path: 'empty' })
     expect(empty.status).toBe(200)
     expect((await empty.arrayBuffer()).byteLength).toBe(0)
-    expect((await get('/download', { path: '자료' })).status).toBe(403)
+    const folderDownload = await get('/download', { path: '자료' })
+    expect(folderDownload.status).toBe(200)
+    expect(folderDownload.headers.get('content-type')).toContain('application/zip')
     expect((await get('', { path: 'missing' })).status).toBe(404)
+})
+
+it('copies folder merges through the existing conflict plan and retains the source tree', async () => {
+    await json('/directory', { name: 'source' })
+    await json('/directory', { name: 'target' })
+    await json('/directory', { path: 'source', name: 'empty' })
+    await upload('same.txt', 'source bytes', 'source')
+    await upload('only-source.txt', 'kept in both', 'source')
+    await upload('same.txt', 'target bytes', 'target')
+
+    const conflict = await json('/copy', {
+        path: 'source', name: 'target', destination: '', conflict: 'overwrite',
+    })
+    expect(conflict.status).toBe(409)
+    const details = await conflict.json()
+    expect(details.code).toBe('DRIVE_MERGE_CONFLICT')
+    expect(details.details.conflicts).toEqual([expect.objectContaining({ path: 'target/same.txt' })])
+
+    const copied = await json('/copy', {
+        path: 'source', name: 'target', destination: '', conflict: 'overwrite',
+        merge: { revision: details.details.revision, choices: { 'target/same.txt': 'both' } },
+    })
+    expect(copied.status).toBe(200)
+    expect(await copied.json()).toMatchObject({ entry: { path: 'target', type: 'directory' } })
+    expect(await readFile(join(root, 'source', 'same.txt'), 'utf8')).toBe('source bytes')
+    expect(await readFile(join(root, 'target', 'same.txt'), 'utf8')).toBe('target bytes')
+    expect(await readFile(join(root, 'target', 'same (1).txt'), 'utf8')).toBe('source bytes')
+    expect(await readFile(join(root, 'target', 'only-source.txt'), 'utf8')).toBe('kept in both')
+    expect(await readdir(join(root, 'target', 'empty'))).toEqual([])
+
+    await writeFile(join(root, 'target', 'only-source.txt'), 'changed copy')
+    expect(await readFile(join(root, 'source', 'only-source.txt'), 'utf8')).toBe('kept in both')
+})
+
+it('rejects a copy merge plan if the destination disappears before confirmation', async () => {
+    await json('/directory', { name: 'source' })
+    await json('/directory', { name: 'target' })
+    await upload('same.txt', 'source contents', 'source')
+    await upload('same.txt', 'target contents', 'target')
+    const first = await json('/copy', {
+        path: 'source', name: 'target', conflict: 'overwrite',
+    })
+    expect(first.status).toBe(409)
+    const plan = await first.json()
+
+    await rm(join(root, 'target'), { recursive: true })
+    const stale = await json('/copy', {
+        path: 'source', name: 'target', conflict: 'overwrite',
+        merge: { revision: plan.details.revision, choices: { 'target/same.txt': 'local' } },
+    })
+    expect(stale.status).toBe(409)
+    const refreshed = await stale.json()
+    expect(refreshed.code).toBe('DRIVE_MERGE_CONFLICT')
+    expect(refreshed.details.revision).not.toBe(plan.details.revision)
+    expect(refreshed.details.conflicts).toEqual([])
+    expect(await readFile(join(root, 'source', 'same.txt'), 'utf8')).toBe('source contents')
+    expect(await readdir(root)).not.toContain('target')
+})
+
+it('streams directory downloads as ZIP files with nested files and empty directories', async () => {
+    await json('/directory', { name: 'archive' })
+    await json('/directory', { path: 'archive', name: 'empty' })
+    await json('/directory', { path: 'archive', name: 'nested' })
+    await upload('zero.bin', '', 'archive')
+    await upload('data.txt', 'nested contents', 'archive/nested')
+
+    const response = await get('/download', { path: 'archive' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('archive.zip')
+    const contents = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(contents).sort()).toEqual([
+        'archive/', 'archive/empty/', 'archive/nested/', 'archive/nested/data.txt', 'archive/zero.bin',
+    ])
+    expect(contents['archive/nested/data.txt']).toEqual(new TextEncoder().encode('nested contents'))
+    expect(contents['archive/zero.bin']).toEqual(new Uint8Array())
+})
+
+it('stops a canceled ZIP download and serves the next download normally', async () => {
+    await json('/directory', { name: 'archive' })
+    await writeFile(join(root, 'archive', 'large.bin'), Buffer.alloc(8 * 1024 * 1024, 7))
+
+    await new Promise<void>(resolve => {
+        const client = request(`${base}/download?${new URLSearchParams({ path: 'archive' })}`, { headers: auth }, response => {
+            response.on('error', () => {})
+            response.once('data', () => response.destroy())
+            response.once('close', resolve)
+        })
+        client.on('error', resolve)
+        client.end()
+    })
+
+    const completed = await get('/download', { path: 'archive' })
+    expect(completed.status).toBe(200)
+    expect((await completed.arrayBuffer()).byteLength).toBeGreaterThan(8 * 1024 * 1024)
+})
+
+it('rejects unsafe entries before starting a directory ZIP response', async () => {
+    await json('/directory', { name: 'archive' })
+    await writeFile(join(directory, 'outside.txt'), 'outside')
+    await symlink(join(directory, 'outside.txt'), join(root, 'archive', 'link.txt'))
+    const symbolic = await get('/download', { path: 'archive' })
+    expect(symbolic.status).toBe(403)
+    expect(symbolic.headers.get('content-type')).toContain('application/json')
+    expect(await symbolic.json()).toMatchObject({ code: 'DRIVE_UNSUPPORTED_ENTRY' })
+
+    await rm(join(root, 'archive', 'link.txt'))
+    await link(join(directory, 'outside.txt'), join(root, 'archive', 'hardlink.txt'))
+    const hardlinked = await get('/download', { path: 'archive' })
+    expect(hardlinked.status).toBe(403)
+    expect(hardlinked.headers.get('content-type')).toContain('application/json')
+    expect(await hardlinked.json()).toMatchObject({ code: 'DRIVE_UNSUPPORTED_ENTRY' })
 })
 
 it('requires a conflict choice before replacing existing names, including simultaneous uploads', async () => {

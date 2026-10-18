@@ -177,6 +177,23 @@ describe('server route composition', () => {
             body: JSON.stringify({ path: 'shared.bin', name: 'changed.bin' }),
         })
         expect(cookieMutation.status).toBe(401)
+
+        const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l7sAAAAASUVORK5CYII=', 'base64')
+        expect((await fetch(base + '/api/drive/file?name=portrait.png', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: image,
+        })).status).toBe(201)
+        const thumbnail = await fetch(base + '/api/drive/thumbnail?path=portrait.png', { headers: { cookie } })
+        expect(thumbnail.status).toBe(200)
+        expect(thumbnail.headers.get('content-type')).toContain('image/webp')
+        expect(Buffer.from(await thumbnail.arrayBuffer()).subarray(8, 12).toString()).toBe('WEBP')
+        expect((await fetch(base + '/api/drive/thumbnail?path=portrait.png', {
+            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })).status).toBe(403)
+        await fetch(base + '/api/drive/file?name=disguised.png', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' },
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+        })
+        expect((await fetch(base + '/api/drive/thumbnail?path=disguised.png', { headers: { cookie } })).status).toBe(204)
     })
 
     it('clears request payloads separately from metadata', async () => {

@@ -4,8 +4,12 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
+const { PassThrough } = require('node:stream');
+const { once } = require('node:events');
 const { finished, pipeline } = require('node:stream/promises');
+const { Zip, ZipPassThrough } = require('fflate');
 const { codes, createApiError } = require('../apiErrors.cjs');
+const { readDrivePreview } = require('../drivePreview.cjs');
 const {
     DEFAULT_TRASH_RETENTION_DAYS,
     DRIVE_TRASH_DIRECTORY: TRASH_NAME,
@@ -78,11 +82,13 @@ function installDriveRoutes(app, {
     checkAuth,
     checkDownloadAuth,
     isCloudflareTunnelRequest,
+    encodeThumbnail,
     getTrashRetentionDays = () => DEFAULT_TRASH_RETENTION_DAYS,
 }) {
     const root = path.join(savePath, 'drive');
     const trashManifestPath = path.join(savePath, 'drive-trash.json');
     let mutationQueue = Promise.resolve();
+    let thumbnailQueue = Promise.resolve();
     let trashCleanupTimer;
     let trashCleanupRun;
     let trashCleanupStopped = false;
@@ -118,6 +124,22 @@ function installDriveRoutes(app, {
         const trashEntry = await resolveEntry(TRASH_NAME);
         if (!trashEntry.stat.isDirectory()) throw createApiError(codes.DRIVE_UNAVAILABLE, 500);
         return trashEntry;
+    }
+
+    async function openFile(relativePath) {
+        if (!pathParts(relativePath).length) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        const { absolutePath, stat } = await resolveEntry(relativePath);
+        if (!stat.isFile()) throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
+        const file = await fs.open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0));
+        try {
+            const openedStat = await file.stat();
+            assertEntry(openedStat);
+            if (!openedStat.isFile()) throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
+            return { file, stat: openedStat };
+        } catch (error) {
+            await file.close();
+            throw error;
+        }
     }
 
     async function readTrashManifest() {
@@ -318,15 +340,24 @@ function installDriveRoutes(app, {
         return node;
     }
 
-    async function assertCapturedTree(node, plan) {
+    async function currentCapturedStat(node, changed) {
         const current = await fs.lstat(node.absolutePath).catch(error => {
-            if (error.code === 'ENOENT') throw mergeConflict(plan);
+            if (error.code === 'ENOENT') throw changed();
             throw error;
         });
         assertEntry(current);
         if (JSON.stringify(statFingerprint(current)) !== JSON.stringify(statFingerprint(node.stat))) {
-            throw mergeConflict(plan);
+            throw changed();
         }
+        return current;
+    }
+
+    async function assertCapturedEntry(node, plan) {
+        return currentCapturedStat(node, () => mergeConflict(plan));
+    }
+
+    async function assertCapturedTree(node, plan) {
+        const current = await assertCapturedEntry(node, plan);
         if (!current.isDirectory()) return;
         const names = (await fs.readdir(node.absolutePath)).sort((a, b) => a.localeCompare(b));
         const expectedNames = node.children.map(child => path.posix.basename(child.relativePath)).sort((a, b) => a.localeCompare(b));
@@ -485,6 +516,16 @@ function installDriveRoutes(app, {
                     await fs.mkdir(item.path);
                 } else if (item.kind === 'trash') {
                     await restoreTrashMove(item.move);
+                } else if (item.kind === 'copy') {
+                    const existing = await fs.lstat(item.path).catch(error => {
+                        if (error.code === 'ENOENT') return null;
+                        throw error;
+                    });
+                    if (!existing) continue;
+                    if (JSON.stringify(identityFingerprint(existing)) !== JSON.stringify(item.expectedIdentity)) {
+                        throw new Error(`Cannot roll back changed Drive copy at ${item.path}`);
+                    }
+                    await fs.rm(item.path, { recursive: true });
                 } else {
                     const existingSource = await fs.lstat(item.from).catch(error => {
                         if (error.code === 'ENOENT') return null;
@@ -508,7 +549,79 @@ function installDriveRoutes(app, {
         if (failures.length) console.error('[Drive] Failed to fully roll back folder merge:', failures);
     }
 
-    async function mergeDirectory(sourcePath, destinationPath, merge) {
+    async function copyCapturedTree(node, targetPath, plan) {
+        await assertCapturedEntry(node, plan);
+        if (node.stat.isDirectory()) {
+            await fs.mkdir(targetPath, { mode: 0o700 });
+            try {
+                for (const child of node.children) {
+                    await copyCapturedTree(child, path.join(targetPath, path.posix.basename(child.relativePath)), plan);
+                }
+                await fs.chmod(targetPath, node.stat.mode & 0o777);
+                await fs.utimes(targetPath, node.stat.atime, node.stat.mtime);
+            } catch (error) {
+                await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+                throw error;
+            }
+            return;
+        }
+
+        const source = await fs.open(node.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0));
+        let target;
+        try {
+            const current = await source.stat();
+            assertEntry(current);
+            if (JSON.stringify(statFingerprint(current)) !== JSON.stringify(statFingerprint(node.stat))) {
+                throw mergeConflict(plan);
+            }
+            target = await fs.open(targetPath, 'wx', node.stat.mode & 0o666);
+            try {
+                await pipeline(source.createReadStream({ autoClose: false }), target.createWriteStream());
+                const after = await source.stat();
+                if (JSON.stringify(statFingerprint(after)) !== JSON.stringify(statFingerprint(node.stat))) {
+                    throw mergeConflict(plan);
+                }
+                await fs.utimes(targetPath, node.stat.atime, node.stat.mtime);
+            } catch (error) {
+                await target.close().catch(() => {});
+                target = null;
+                await fs.rm(targetPath, { force: true }).catch(() => {});
+                throw error;
+            }
+        } finally {
+            if (target) await target.close();
+            await source.close();
+        }
+    }
+
+    async function copyStandaloneEntry(sourcePath, targetPath) {
+        const observations = new Map();
+        const source = await captureTree(sourcePath.absolutePath, sourcePath.relativePath, 'source', observations);
+        const plan = {
+            revision: createHash('sha256').update(JSON.stringify([...observations.entries()])).digest('hex'),
+            conflicts: [],
+        };
+        await assertCapturedTree(source, plan);
+        let copiedIdentity;
+        try {
+            await copyCapturedTree(source, targetPath, plan);
+            copiedIdentity = identityFingerprint(await fs.lstat(targetPath));
+            await assertCapturedTree(source, plan);
+        } catch (error) {
+            if (copiedIdentity) {
+                const existing = await fs.lstat(targetPath).catch(caught => {
+                    if (caught.code === 'ENOENT') return null;
+                    throw caught;
+                });
+                if (existing && JSON.stringify(identityFingerprint(existing)) === JSON.stringify(copiedIdentity)) {
+                    await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+                }
+            }
+            throw error;
+        }
+    }
+
+    async function mergeDirectory(sourcePath, destinationPath, merge, { copy = false } = {}) {
         const plan = await collectMergePlan(sourcePath, destinationPath);
         const choices = mergeChoices(plan, merge);
         const journal = [];
@@ -555,14 +668,14 @@ function installDriveRoutes(app, {
             }
             const siblingNames = new Set(node.children.map(child => path.posix.basename(child.source.relativePath)));
             for (const child of node.children) await planOperations(child, siblingNames);
-            emptiedDirectories.push(node);
+            if (!copy) emptiedDirectories.push(node);
         }
         await planOperations(plan.tree);
 
         let trashChanged = false;
         try {
             for (const operation of operations) {
-                await assertCapturedTree(operation.source, plan);
+                if (!copy) await assertCapturedTree(operation.source, plan);
                 if (operation.replace) {
                     await assertCapturedTree(operation.replace, plan);
                     const trashMove = await moveEntryToTrash(
@@ -580,14 +693,21 @@ function installDriveRoutes(app, {
                 });
                 if (targetExists) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
                 await assertCapturedTree(operation.source, plan);
-                await fs.rename(operation.source.absolutePath, operation.targetAbsolutePath);
-                journal.push({
-                    kind: 'move',
-                    from: operation.source.absolutePath,
-                    to: operation.targetAbsolutePath,
-                    expectedIdentity: identityFingerprint(operation.source.stat),
-                });
-                moves.push({ from: operation.source.relativePath, to: operation.targetRelativePath });
+                if (copy) {
+                    await copyCapturedTree(operation.source, operation.targetAbsolutePath, plan);
+                    const copied = await fs.lstat(operation.targetAbsolutePath);
+                    journal.push({ kind: 'copy', path: operation.targetAbsolutePath, expectedIdentity: identityFingerprint(copied) });
+                    await assertCapturedTree(operation.source, plan);
+                } else {
+                    await fs.rename(operation.source.absolutePath, operation.targetAbsolutePath);
+                    journal.push({
+                        kind: 'move',
+                        from: operation.source.absolutePath,
+                        to: operation.targetAbsolutePath,
+                        expectedIdentity: identityFingerprint(operation.source.stat),
+                    });
+                    moves.push({ from: operation.source.relativePath, to: operation.targetRelativePath });
+                }
             }
 
             for (const node of emptiedDirectories) {
@@ -618,7 +738,9 @@ function installDriveRoutes(app, {
         if (trashChanged) void scheduleTrashCleanup();
 
         const { stat } = await resolveEntry(destinationPath.relativePath);
-        return { entry: metadata(destinationPath.relativePath, stat), moves };
+        return copy
+            ? { entry: metadata(destinationPath.relativePath, stat) }
+            : { entry: metadata(destinationPath.relativePath, stat), moves };
     }
 
     async function destination(parent, name, overwrite = false) {
@@ -672,6 +794,217 @@ function installDriveRoutes(app, {
         });
     }
 
+    async function copyFileEntry(sourcePath, parent, name, conflict) {
+        return publishEntry(parent, name, conflict, false, async target => {
+            if (conflict !== 'overwrite') return copyStandaloneEntry(sourcePath, target);
+            const temporaryPath = path.join(path.dirname(target), UPLOAD_PREFIX + randomUUID());
+            try {
+                await copyStandaloneEntry(sourcePath, temporaryPath);
+                await fs.rename(temporaryPath, target);
+            } finally {
+                await fs.rm(temporaryPath, { force: true });
+            }
+        });
+    }
+
+    async function transferEntry(body, copy) {
+        const relativePath = body?.path;
+        const parts = pathParts(relativePath);
+        if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        rejectTrashPath(parts);
+        const name = validateName(body?.name);
+        const conflict = conflictPolicy(body?.conflict);
+        const source = await resolveEntry(relativePath);
+        const sourceParent = parts.slice(0, -1).join('/');
+        const destinationParent = body?.destination === undefined ? sourceParent : body.destination;
+        assertWritableDestination(destinationParent, name);
+        const destinationEntry = await resolveEntry(destinationParent, true);
+        if (source.stat.isDirectory()) {
+            const destinationFromSource = path.relative(source.absolutePath, destinationEntry.absolutePath);
+            if (destinationFromSource === ''
+                || (!path.isAbsolute(destinationFromSource) && destinationFromSource !== '..'
+                    && !destinationFromSource.startsWith(`..${path.sep}`))) {
+                throw createApiError(codes.INVALID_FILE_PATH, 400);
+            }
+        }
+
+        const targetRelativePath = drivePath(destinationParent, name);
+        if (!copy && targetRelativePath === relativePath) {
+            return { entry: metadata(relativePath, source.stat), moves: [] };
+        }
+
+        const existing = await optionalEntry(targetRelativePath, destinationEntry.absolutePath);
+        const mergeProvided = body?.merge !== undefined;
+        if (mergeProvided && conflict !== 'overwrite') {
+            throw createApiError(codes.INVALID_FILE_PATH, 400);
+        }
+        if (mergeProvided && (!source.stat.isDirectory() || (existing && !existing.stat.isDirectory()))) {
+            throw createApiError(codes.DRIVE_NOT_FOUND, 404);
+        }
+        if (copy && targetRelativePath === relativePath && conflict === 'overwrite') {
+            if (mergeProvided) throw createApiError(codes.INVALID_FILE_PATH, 400);
+            return { entry: metadata(relativePath, source.stat) };
+        }
+        if (source.stat.isDirectory() && conflict === 'overwrite'
+            && (mergeProvided || existing?.stat.isDirectory())) {
+            const result = await mergeDirectory(
+                { absolutePath: source.absolutePath, relativePath },
+                {
+                    absolutePath: existing?.absolutePath ?? path.join(destinationEntry.absolutePath, name),
+                    relativePath: targetRelativePath,
+                },
+                body?.merge,
+                { copy },
+            );
+            return copy ? { entry: result.entry } : result;
+        }
+        if (existing && conflict === 'overwrite' && source.stat.isDirectory() !== existing.stat.isDirectory()) {
+            throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+        }
+
+        let entry;
+        if (copy) {
+            entry = source.stat.isFile()
+                ? await copyFileEntry({ absolutePath: source.absolutePath, relativePath }, destinationParent, name, conflict)
+                : await publishEntry(destinationParent, name, conflict, true, target => (
+                    copyStandaloneEntry({ absolutePath: source.absolutePath, relativePath }, target)
+                ));
+        } else {
+            entry = source.stat.isFile()
+                ? await publishFile(source.absolutePath, destinationParent, name, conflict)
+                : await publishEntry(destinationParent, name, conflict, true, target => fs.rename(source.absolutePath, target));
+        }
+        return copy ? { entry } : { entry, moves: [{ from: relativePath, to: entry.path }] };
+    }
+
+    function preflightZipTree(node, archivePath, summary) {
+        const { stat } = node;
+        summary.entries++;
+        if (summary.entries >= 65_535) throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
+        const zipPath = `${archivePath}${stat.isDirectory() ? '/' : ''}`;
+        const nameBytes = Buffer.byteLength(zipPath);
+        if (nameBytes > 65_535) throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
+        summary.bytes += 92 + (nameBytes * 2) + (stat.isFile() ? stat.size : 0);
+        if (!Number.isSafeInteger(summary.bytes) || summary.bytes >= 0xffff_ffff
+            || (stat.isFile() && (!Number.isSafeInteger(stat.size) || stat.size >= 0xffff_ffff))) {
+            throw createApiError(codes.DRIVE_ARCHIVE_TOO_LARGE, 413);
+        }
+        for (const child of node.children) {
+            preflightZipTree(child, `${archivePath}/${path.posix.basename(child.relativePath)}`, summary);
+        }
+    }
+
+    async function streamZipFolder(res, tree) {
+        const archiveChanged = () => createApiError(codes.DRIVE_UNAVAILABLE, 500);
+        const output = new PassThrough({ highWaterMark: 64 * 1024 });
+        const abortController = new AbortController();
+        let zip;
+        let streamError;
+        let blocked;
+        const completion = pipeline(output, res).catch(error => {
+            streamError = error;
+            abortController.abort(error);
+            zip?.terminate();
+            throw error;
+        });
+        completion.catch(() => {});
+        zip = new Zip((error, chunk, final) => {
+            if (error) {
+                streamError = error;
+                output.destroy(error);
+                return;
+            }
+            if (chunk?.length && !output.write(Buffer.from(chunk)) && !blocked) {
+                blocked = once(output, 'drain', { signal: abortController.signal }).then(
+                    () => { blocked = null; },
+                    caught => { streamError = caught; },
+                );
+            }
+            if (final) output.end();
+        });
+
+        const onClose = () => {
+            if (res.writableFinished) return;
+            const error = new Error('Drive download aborted');
+            streamError = error;
+            abortController.abort(error);
+            zip.terminate();
+            output.destroy(error);
+        };
+        res.once('close', onClose);
+
+        async function waitForOutput() {
+            if (blocked) await blocked;
+            if (streamError) throw streamError;
+        }
+
+        async function addDirectory(archivePath) {
+            const file = new ZipPassThrough(`${archivePath}/`);
+            zip.add(file);
+            await waitForOutput();
+            file.push(Buffer.alloc(0), true);
+            await waitForOutput();
+        }
+
+        async function addFile(node, archivePath) {
+            const { file, stat } = await openFile(node.relativePath);
+            try {
+                if (JSON.stringify(statFingerprint(stat)) !== JSON.stringify(statFingerprint(node.stat))) {
+                    throw archiveChanged();
+                }
+                const zipFile = new ZipPassThrough(archivePath);
+                zip.add(zipFile);
+                await waitForOutput();
+                const input = file.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 });
+                let streamed = 0;
+                for await (const chunk of input) {
+                    if (streamed + chunk.length > node.stat.size) throw archiveChanged();
+                    streamed += chunk.length;
+                    zipFile.push(chunk);
+                    await waitForOutput();
+                }
+                if (streamed !== node.stat.size) throw archiveChanged();
+                zipFile.push(Buffer.alloc(0), true);
+                await waitForOutput();
+                const after = await file.stat();
+                if (streamed !== zipFile.size
+                    || JSON.stringify(statFingerprint(node.stat)) !== JSON.stringify(statFingerprint(after))) {
+                    throw archiveChanged();
+                }
+            } finally {
+                await file.close();
+            }
+        }
+
+        async function addTree(node, archivePath) {
+            await currentCapturedStat(node, archiveChanged);
+            if (node.stat.isDirectory()) {
+                await addDirectory(archivePath);
+                for (const child of node.children) {
+                    await addTree(child, `${archivePath}/${path.posix.basename(child.relativePath)}`);
+                }
+                await currentCapturedStat(node, archiveChanged);
+            } else {
+                await addFile(node, archivePath);
+            }
+        }
+
+        try {
+            await addTree(tree, path.posix.basename(tree.relativePath));
+            zip.end();
+            await waitForOutput();
+            await completion;
+        } catch (error) {
+            zip.terminate();
+            output.destroy(error);
+            await completion.catch(() => {});
+            throw error;
+        } finally {
+            res.off('close', onClose);
+            zip.terminate();
+        }
+    }
+
     function route(method, url, handler, download = false) {
         app[method](url, async (req, res, next) => {
             if (!await (download ? checkDownloadAuth : checkAuth)(req, res)) return;
@@ -683,6 +1016,10 @@ function installDriveRoutes(app, {
                 await handler(req, res);
             } catch (error) {
                 if (res.destroyed) return;
+                if (res.headersSent) {
+                    res.destroy(error);
+                    return;
+                }
                 if (!error.statusCode) {
                     const mapping = {
                         ENOENT: [codes.DRIVE_NOT_FOUND, 404],
@@ -751,54 +1088,11 @@ function installDriveRoutes(app, {
     });
 
     route('patch', '/api/drive/rename', async (req, res) => {
-        const relativePath = req.body?.path;
-        const parts = pathParts(relativePath);
-        if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        rejectTrashPath(parts);
-        const name = validateName(req.body?.name);
-        const conflict = conflictPolicy(req.body?.conflict);
-        const result = await mutate(async () => {
-            const { absolutePath, stat } = await resolveEntry(relativePath);
-            const sourceParent = parts.slice(0, -1).join('/');
-            const destinationParent = req.body?.destination === undefined ? sourceParent : req.body.destination;
-            assertWritableDestination(destinationParent, name);
-            const destinationEntry = await resolveEntry(destinationParent, true);
-            if (stat.isDirectory()) {
-                const destinationFromSource = path.relative(absolutePath, destinationEntry.absolutePath);
-                if (destinationFromSource === ''
-                    || (!path.isAbsolute(destinationFromSource) && destinationFromSource !== '..'
-                        && !destinationFromSource.startsWith(`..${path.sep}`))) {
-                    throw createApiError(codes.INVALID_FILE_PATH, 400);
-                }
-            }
-            const targetRelativePath = drivePath(destinationParent, name);
-            if (targetRelativePath === relativePath) {
-                return { entry: metadata(relativePath, stat), moves: [] };
-            }
-            const existing = await optionalEntry(targetRelativePath, destinationEntry.absolutePath);
-            const mergeProvided = req.body?.merge !== undefined;
-            if (mergeProvided && conflict !== 'overwrite') {
-                throw createApiError(codes.INVALID_FILE_PATH, 400);
-            }
-            if (mergeProvided && (!stat.isDirectory() || (existing && !existing.stat.isDirectory()))) {
-                throw createApiError(codes.DRIVE_NOT_FOUND, 404);
-            }
-            if (stat.isDirectory() && conflict === 'overwrite' && (mergeProvided || existing?.stat.isDirectory())) {
-                return mergeDirectory(
-                    { absolutePath, relativePath },
-                    { absolutePath: existing?.absolutePath ?? path.join(destinationEntry.absolutePath, name), relativePath: targetRelativePath },
-                    req.body?.merge,
-                );
-            }
-            if (existing && conflict === 'overwrite' && stat.isDirectory() !== existing.stat.isDirectory()) {
-                throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
-            }
-            const entry = stat.isFile()
-                ? await publishFile(absolutePath, destinationParent, name, conflict)
-                : await publishEntry(destinationParent, name, conflict, true, target => fs.rename(absolutePath, target));
-            return { entry, moves: [{ from: relativePath, to: entry.path }] };
-        });
-        res.json(result);
+        res.json(await mutate(() => transferEntry(req.body, false)));
+    });
+
+    route('post', '/api/drive/copy', async (req, res) => {
+        res.json(await mutate(() => transferEntry(req.body, true)));
     });
 
     route('delete', '/api/drive/entry', async (req, res) => {
@@ -868,20 +1162,64 @@ function installDriveRoutes(app, {
         }
     });
 
+    route('get', '/api/drive/thumbnail', async (req, res) => {
+        const relativePath = req.query.path;
+        const { stat } = await resolveEntry(relativePath);
+        if (!stat.isFile()) throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
+        const fingerprint = JSON.stringify(statFingerprint(stat));
+        const etag = `"${createHash('sha256').update(fingerprint).digest('hex')}"`;
+        res.set('Cache-Control', 'private, no-cache, no-transform');
+        res.set('ETag', etag);
+        if (req.fresh) return res.status(304).end();
+
+        const build = thumbnailQueue.then(async () => {
+            if (res.destroyed) return null;
+            const { file, stat: openedStat } = await openFile(relativePath);
+            try {
+                if (JSON.stringify(statFingerprint(openedStat)) !== fingerprint) return null;
+                try {
+                    const input = await readDrivePreview(file, relativePath, openedStat);
+                    return input && !res.destroyed ? await encodeThumbnail(input) : null;
+                } catch {
+                    return null;
+                }
+            } finally {
+                await file.close();
+            }
+        });
+        thumbnailQueue = build.then(() => {}, () => {});
+        const thumbnail = await build;
+        if (res.destroyed) return;
+        if (!thumbnail) {
+            res.removeHeader('ETag');
+            res.set('Cache-Control', 'no-store, no-transform');
+            return res.status(204).end();
+        }
+        res.type('image/webp');
+        res.set('X-Content-Type-Options', 'nosniff');
+        res.send(thumbnail.buffer);
+    }, true);
+
     route('get', '/api/drive/download', async (req, res) => {
         const relativePath = req.query.path;
-        if (!pathParts(relativePath).length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        const { absolutePath, stat } = await resolveEntry(relativePath);
-        if (!stat.isFile()) throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
-        const file = await fs.open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0));
+        const parts = pathParts(relativePath);
+        if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        const resolved = await resolveEntry(relativePath);
+        if (resolved.stat.isDirectory()) {
+            const tree = await captureTree(resolved.absolutePath, relativePath, 'download', new Map());
+            preflightZipTree(tree, path.posix.basename(relativePath), { entries: 0, bytes: 22 });
+            res.attachment(`${path.posix.basename(relativePath)}.zip`);
+            res.type('application/zip');
+            res.set('X-Content-Type-Options', 'nosniff');
+            await streamZipFolder(res, tree);
+            return;
+        }
+        const { file, stat } = await openFile(relativePath);
         try {
-            const openedStat = await file.stat();
-            assertEntry(openedStat);
-            if (!openedStat.isFile()) throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
-            res.attachment(path.basename(absolutePath));
+            res.attachment(path.posix.basename(relativePath));
             res.type('application/octet-stream');
             res.set('X-Content-Type-Options', 'nosniff');
-            res.set('Content-Length', String(openedStat.size));
+            res.set('Content-Length', String(stat.size));
             await pipeline(file.createReadStream(), res);
         } finally {
             await file.close();

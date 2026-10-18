@@ -1,7 +1,14 @@
+<script lang="ts" module>
+    import type { DriveEntry } from 'src/ts/storage/nodeStorage'
+
+    type ClipboardOperation = 'move' | 'copy'
+    let clipboard = $state.raw<{ entries: DriveEntry[], operation: ClipboardOperation } | null>(null)
+</script>
+
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte'
     import type { HTMLAttributes } from 'svelte/elements'
-    import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, DownloadIcon, FileIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, InfoIcon, PencilIcon, RefreshCwIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
+    import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardPasteIcon, CopyIcon, DownloadIcon, EyeIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, ImportIcon, InfoIcon, PencilIcon, RefreshCwIcon, ScissorsIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { forageStorage } from 'src/ts/storage/autoStorage'
     import { notifyError, notifySuccess } from 'src/ts/alert'
@@ -9,8 +16,11 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
     import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
-    import type { DriveConflict, DriveEntry, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
+    import type { DriveConflict, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
     import { chooseConflictComparison, SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
+    import { getFileType } from '../../../shared/fileTypes.mjs'
+    import ServerDriveEntryIcon from './ServerDriveEntryIcon.svelte'
+    import ServerDrivePreview from './ServerDrivePreview.svelte'
     import Button from '../UI/components/Button.svelte'
     import Input from '../UI/components/Input.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
@@ -23,7 +33,8 @@
     import * as DropdownMenu from '../UI/components/dropdown-menu'
 
     let { open = $bindable(true) }: { open?: boolean } = $props()
-    let storage: NodeStorage
+    let storage = $state.raw<NodeStorage>()
+    let previewFile = $state.raw<File | null>(null)
     let currentPath = $state('')
     let entries = $state<DriveEntry[]>([])
     let loading = $state(true)
@@ -32,6 +43,7 @@
     let busy = $state(false)
     let uploadStatus = $state('')
     let fileInput = $state<HTMLInputElement>()
+    let fileArea = $state<HTMLElement>()
     let loadController: AbortController
     let operationController: AbortController
     let metadataController: AbortController
@@ -87,6 +99,10 @@
     } : null)
     const shortcuts = $derived([...new Set((DBState.db.serverDriveShortcuts ?? []).filter(path => typeof path === 'string' && path !== ''))])
     const disabled = $derived(busy || loading)
+    const cutPaths = $derived(new Set(clipboard?.operation === 'move' ? clipboard.entries.map(entry => entry.path) : []))
+    const canPaste = $derived(!disabled && !inTrash && !!clipboard?.entries.length
+        && !clipboard.entries.some(entry => entry.type === 'directory'
+            && (currentPath === entry.path || currentPath.startsWith(entry.path + '/'))))
     const fileStrokeWidth = 1.5
     const controlCellSize = 40
     const menuClass = 'text-xs [&_[role=menuitem]]:text-xs [&_[role=menuitem]]:gap-1.5 [&_[role=menuitem]]:py-1'
@@ -211,6 +227,48 @@
         }
     }
 
+    function stageSelection(operation: ClipboardOperation) {
+        if (disabled || inTrash || !selectedEntries.length) return
+        clipboard = { operation, entries: selectedEntries.map(entry => ({ ...entry })) }
+    }
+
+    async function paste() {
+        if (!canPaste) return
+        const { entries: sources, operation } = clipboard
+        busy = true
+        const controller = operationController = new AbortController()
+        try {
+            for (const source of sources) {
+                controller.signal.throwIfAborted()
+                if (operation === 'move' && source.path.split('/').slice(0, -1).join('/') === currentPath) continue
+                if (!await relocateEntry(source, source.name, currentPath, controller.signal, operation)) break
+                controller.signal.throwIfAborted()
+                if (operation === 'move') {
+                    const remaining = clipboard.entries.filter(entry => entry.path !== source.path)
+                    clipboard = remaining.length ? { operation, entries: remaining } : null
+                }
+            }
+        } catch (error) {
+            if (!controller.signal.aborted) notifyError(error)
+        } finally {
+            busy = false
+            await refresh()
+        }
+    }
+
+    function handleClipboardKeydown(event: KeyboardEvent) {
+        if (!(event.target instanceof Element) || !event.target.closest('[data-drive-files]')) return
+        if (event.defaultPrevented || disabled || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
+        const key = event.key.toLowerCase()
+        if ((key === 'c' || key === 'x') && selectedEntries.length && !inTrash) {
+            event.preventDefault()
+            stageSelection(key === 'c' ? 'copy' : 'move')
+        } else if (key === 'v' && canPaste) {
+            event.preventDefault()
+            void paste()
+        }
+    }
+
     function startEntryDrag(event: DragEvent, entry: DriveEntry) {
         if (disabled || inTrash || !event.dataTransfer) {
             event.preventDefault()
@@ -277,6 +335,7 @@
             || (event.target as Element).closest('button')) return
         event.preventDefault()
         const area = event.currentTarget
+        area.focus({ preventScroll: true })
         const rect = area.getBoundingClientRect()
         const x = event.clientX - rect.left + area.scrollLeft
         const y = event.clientY - rect.top + area.scrollTop
@@ -376,8 +435,36 @@
 
     function activate(entry: DriveEntry) {
         if (disabled) return
-        if (entry.type === 'directory') void refresh(entry.path)
-        else void download(entry)
+        if (entry.type === 'directory') void refresh(entry.path).then(() => { if (!disposed) fileArea?.focus({ preventScroll: true }) })
+        else void openEntry(entry)
+    }
+
+    function canImport(entry: DriveEntry) {
+        return entry.type === 'file' && (['character', 'preset', 'module', 'json'].includes(getFileType(entry.name))
+            || /\.(png|jpe?g)$/i.test(entry.name))
+    }
+
+    async function openEntry(entry: DriveEntry, action: 'auto' | 'import' | 'preview' = 'auto') {
+        if (disabled || entry.type !== 'file') return
+        busy = true
+        const controller = operationController = new AbortController()
+        try {
+            const data = await storage.readDriveFile(entry.path, controller.signal)
+            controller.signal.throwIfAborted()
+            if (action !== 'preview') {
+                const { importFile } = await import('src/ts/characterCards')
+                controller.signal.throwIfAborted()
+                const imported = await importFile(entry.name, data)
+                controller.signal.throwIfAborted()
+                if (imported) { open = false; return }
+                if (action === 'import') { notifyError(language.errors.noData); return }
+            }
+            previewFile = data
+        } catch (error) {
+            if (!controller.signal.aborted) notifyError(error)
+        } finally {
+            busy = false
+        }
     }
 
     function openNameDialog(entry: DriveEntry | null = null) {
@@ -408,12 +495,17 @@
         }
     }
 
-    async function relocateEntry(source: DriveEntry, name: string, destination: string, signal: AbortSignal) {
+    async function relocateEntry(source: DriveEntry, name: string, destination: string, signal: AbortSignal, operation: ClipboardOperation = 'move') {
+        const targetPath = destination ? `${destination}/${name}` : name
+        if (operation === 'copy' && source.type === 'directory' && source.path === targetPath) {
+            return storage.copyDriveEntry(source.path, name, 'rename', undefined, destination)
+        }
         return resolveConflict({ ...source, name }, async (policy, merge) => {
+            if (operation === 'copy') return storage.copyDriveEntry(source.path, name, policy, merge, destination)
             const result = await storage.renameDriveEntry(source.path, name, policy, merge, destination)
             if (source.type === 'directory') updateShortcuts(result.moves)
             return result.entry
-        }, signal, source.path, destination)
+        }, signal, operation === 'move' ? source.path : undefined, destination)
     }
 
     function updateShortcuts(moves: DriveRenameResult['moves']) {
@@ -535,6 +627,8 @@
     })
 </script>
 
+<svelte:window onkeydown={handleClipboardKeydown} />
+
 {#snippet folderDropdown(path: string)}
     {#if path !== currentPath || hasSubfolders}
         <DropdownMenu.Root onOpenChange={(open) => { void loadFolderMenu(path, open) }}>
@@ -637,7 +731,7 @@
                 <ContextMenu.Trigger disabled={disabled || !!loadError}>
                     {#snippet child({ props })}
                         {@const areaProps = props as HTMLAttributes<HTMLElement>}
-                        <main {...areaProps} {...dropProps(currentPath)} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading}
+                        <main {...areaProps} {...dropProps(currentPath)} bind:this={fileArea} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading} data-drive-files tabindex="-1"
                             onpointerdown={(event) => {
                                 if ((event.target as Element).closest('[data-drive-entry]')) return
                                 areaProps.onpointerdown?.(event)
@@ -659,30 +753,35 @@
                             {:else}
                                 <div class="grid grid-cols-[repeat(auto-fill,6rem)] gap-1">
                                     {#each sortedEntries.slice(0, visibleLimit) as entry (entry.path)}
-                                        {@const EntryIcon = entry.type === 'directory' ? FolderIcon : FileIcon}
+                                        {@const fileType = getFileType(entry.name)}
                                         <ContextMenu.Root onOpenChange={(open) => { if (open) ensureSelected(entry) }}>
                                             <ContextMenu.Trigger disabled={disabled}>
                                                 {#snippet child({ props })}
-                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
+                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" class:opacity-50={cutPaths.has(entry.path)} data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
                                                         aria-label={entry.name} aria-pressed={selectedPathSet.has(entry.path)} disabled={disabled}
                                                         draggable={!disabled && !inTrash} ondragstart={event => startEntryDrag(event, entry)} ondragend={endEntryDrag}
                                                         onclick={(event) => selectEntry(event, entry)} ondblclick={() => activate(entry)}
                                                         onkeydown={(event) => handleEntryKeydown(event, entry)}>
-                                                        <EntryIcon size={32} strokeWidth={fileStrokeWidth} absoluteStrokeWidth class={entry.type === 'directory' ? 'shrink-0 text-warning fill-warning/10' : 'shrink-0 text-primary'} />
+                                                        <ServerDriveEntryIcon {entry} strokeWidth={fileStrokeWidth}
+                                                            thumbnailUrl={entry.type === 'file' && (fileType === 'image' || fileType === 'character') ? storage.driveThumbnailUrl(entry) : ''} />
                                                         <span class="line-clamp-3 w-full break-all text-center">{entry.name}</span>
                                                     </button>
                                                 {/snippet}
                                             </ContextMenu.Trigger>
                                             <ContextMenu.Content class={menuClass} onCloseAutoFocus={(event) => { if (nameOpen || properties || deleteTargets.length) event.preventDefault() }}>
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || inTrash} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={!selectedEntries.length || selectedEntries.some(entry => entry.type !== 'file')} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || !canImport(entry)} onSelect={() => { void openEntry(entry, 'import') }}><ImportIcon size={16} />{language.serverDrive.import}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openEntry(entry, 'preview') }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
                                                 {#if entry.type === 'directory' && !inTrash}
                                                     <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => toggleShortcut(entry.path)}><StarIcon size={16} />{shortcuts.includes(entry.path) ? language.serverDrive.removeShortcut : language.serverDrive.addShortcut}</ContextMenu.Item>
                                                 {/if}
-                                                {#if !inTrash}
-                                                    <ContextMenu.Item variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
-                                                {/if}
+                                                <ContextMenu.Separator />
+                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('move')}><ScissorsIcon size={16} />{language.cut}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('copy')}><CopyIcon size={16} />{language.copy}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={inTrash} variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || inTrash} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
+                                                <ContextMenu.Separator />
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
                                             </ContextMenu.Content>
                                         </ContextMenu.Root>
                                     {/each}
@@ -704,6 +803,8 @@
                     {:else}
                         <ContextMenu.Item onSelect={() => openNameDialog()}><FolderPlusIcon size={16} />{language.serverDrive.newFolder}</ContextMenu.Item>
                         <ContextMenu.Item onSelect={() => fileInput.click()}><UploadIcon size={16} />{language.serverDrive.upload}</ContextMenu.Item>
+                        <ContextMenu.Separator />
+                        <ContextMenu.Item disabled={!canPaste} onSelect={() => { void paste() }}><ClipboardPasteIcon size={16} />{language.paste}</ContextMenu.Item>
                     {/if}
                 </ContextMenu.Content>
             </ContextMenu.Root>
@@ -732,6 +833,10 @@
         <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}</Button>
     {/snippet}
 </AlertDialog>
+
+{#if previewFile}
+    <ServerDrivePreview file={previewFile} onClose={() => { previewFile = null }} />
+{/if}
 
 <Dialog open={properties !== null} onOpenChange={(open) => { if (!open) closeProperties() }} size="sm">
     {#snippet title()}{language.serverDrive.metadata}{/snippet}

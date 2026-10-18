@@ -67,6 +67,20 @@ it('does not start a download when session refresh fails', async () => {
     expect(click).not.toHaveBeenCalled()
 })
 
+it('reads drive imports as authenticated files without starting a browser download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    fetchMock.mockResolvedValueOnce(new Response(bytes))
+    const file = await storage.readDriveFile('자료/한글 &.risum')
+    expect(file.name).toBe('한글 &.risum')
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes)
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.risum' })}`)
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+    expect(click).not.toHaveBeenCalled()
+
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.readDriveFile('private.risup')).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
+})
+
 it('carries folder merge comparisons, choices, and completed moves through the drive API', async () => {
     const entry = { path: 'target/a.txt', name: 'a.txt', type: 'file', size: 12, createdAt: 1, modifiedAt: 2 }
     const plan = { revision: 'revision', conflicts: [{ path: entry.path, existing: entry, incoming: { ...entry, path: 'source/a.txt' } }] }
@@ -83,6 +97,13 @@ it('carries folder merge comparisons, choices, and completed moves through the d
     expect(url).toBe('/api/drive/rename')
     expect(request.method).toBe('PATCH')
     expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ entry })))
+    expect(await storage.copyDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(entry)
+    const [copyUrl, copyRequest] = fetchMock.mock.calls[2]
+    expect(copyUrl).toBe('/api/drive/copy')
+    expect(copyRequest.method).toBe('POST')
+    expect(JSON.parse(copyRequest.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
 })
 
 describe('storage request integration', () => {

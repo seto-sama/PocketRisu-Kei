@@ -734,6 +734,14 @@ export class NodeStorage{
         })
     }
 
+    async copyDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution, destination?: string): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/copy', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name, conflict, merge, destination }),
+        })
+        return result.entry
+    }
+
     async deleteDriveEntry(path: string): Promise<void> {
         await this.driveRequest('/entry', {
             method: 'DELETE', headers: { 'content-type': 'application/json' },
@@ -755,6 +763,17 @@ export class NodeStorage{
 
     async downloadDriveFile(path: string): Promise<void> {
         await this.startCookieDownload(`/api/drive/download?${new URLSearchParams({ path })}`)
+    }
+
+    driveThumbnailUrl(entry: DriveEntry): string {
+        return `/api/drive/thumbnail?${new URLSearchParams({ path: entry.path, v: `${entry.modifiedAt}:${entry.size}` })}`
+    }
+
+    async readDriveFile(path: string, signal?: AbortSignal): Promise<File> {
+        const response = await this.authFetch(`/api/drive/download?${new URLSearchParams({ path })}`, { signal })
+        if (!response.ok) throw await apiRequestError(response)
+        const blob = await response.blob()
+        return new File([blob], path.split('/').pop(), { type: blob.type })
     }
 
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {

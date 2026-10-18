@@ -256,14 +256,32 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
     return normalizePresetTagFields(module)
 }
 
-export async function importModule(){
-    const f = await selectSingleImportFile()
+export function isModuleImportJSON(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const importData = value as Record<string, any>
+    if(importData.type === 'risuModule'){
+        return !!importData.name && !!importData.id
+    }
+    if(importData.type === 'risu' && importData.data && Array.isArray(importData.data)){
+        return true
+    }
+    if(importData.entries){
+        return true
+    }
+    return importData.type === 'regex' && !!importData.data
+}
+
+export async function importModule(input?:{name:string, data:Uint8Array}):Promise<boolean>{
+    const f = input ?? await selectSingleImportFile()
     if(!f){
-        return
+        return false
     }
     let fileData = f.data
+    const fileName = f.name.toLowerCase()
     const db = getDatabase()
-    if(f.name.endsWith('.charx')){
+    if(fileName.endsWith('.charx')){
         try {
             const buf = Buffer.from(fileData)
             const char = await importCharacterProcess({
@@ -273,39 +291,46 @@ export async function importModule(){
             })
             if(!char || typeof char === 'number'){
                 alertError(language.errors.noData)
-                return
+                return false
             }
             const module = convertCharacterToModule(char)
             db.modules.push(normalizePresetTagFields(module))
+            notifySuccess(language.successImport)
+            return true
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
+            return false
         }
-        notifySuccess(language.successImport)
-        return
     }
-    if(f.name.endsWith('.risum')){
+    if(fileName.endsWith('.risum')){
         try {
             const buf = Buffer.from(fileData)
             const module = await readModule(buf)
             db.modules.push(normalizePresetTagFields(module))
             notifySuccess(language.successImport)
+            return true
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
+            return false
         }
-        return
     }
+    let importData:any
     try {
-        const importData = JSON.parse(Buffer.from(fileData).toString())
+        importData = JSON.parse(Buffer.from(fileData).toString())
+    } catch (error) {
+        console.error(error)
+        alertNormal(language.errors.noData)
+        return false
+    }
+    if(!isModuleImportJSON(importData)){
+        alertNormal(language.errors.noData)
+        return false
+    }
+
+    try {
         if(importData.type === 'risuModule'){
-            if(
-                (!importData.name)
-                || (!importData.id)
-            ){
-                alertError(language.errors.noData)
-                return
-            }
             importData.id = createEntityId()
 
             if(importData.lowLevelAccess){
@@ -316,7 +341,7 @@ export async function importModule(){
             }
             db.modules.push(normalizePresetTagFields(importData))
             notifySuccess(language.successImport)
-            return
+            return true
         }
         // importData.type === 'risu' in conflict with HypaV3 preset exports
         // difference: record vs. array
@@ -330,7 +355,7 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
         if(importData.entries){
             const lores:loreBook[] = convertExternalLorebook(importData.entries)
@@ -342,7 +367,7 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
         if(importData.type === 'regex'  && importData.data){
             const regexs:customscript[] = importData.data
@@ -354,13 +379,15 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
     } catch (error) {
         console.error(error)
+        alertNormal(language.errors.noData)
+        return false
     }
 
-    alertNormal(language.errors.noData)
+    return false
 }
 
 function getModuleById(id:string){

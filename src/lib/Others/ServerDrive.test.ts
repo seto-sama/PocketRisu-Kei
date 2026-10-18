@@ -7,17 +7,20 @@ import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
 import { apiErrorCodes } from 'src/ts/network/apiError'
 import { SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
 
-const { storage, notifyError, mdViewport, chooseConflictComparison } = await vi.hoisted(async () => {
+const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, downloadFile, showPopupEditor } = await vi.hoisted(async () => {
     const { writable } = await import('svelte/store')
     return {
         storage: {
-            listDrive: vi.fn(), driveMetadata: vi.fn(), renameDriveEntry: vi.fn(),
+            listDrive: vi.fn(), driveMetadata: vi.fn(), renameDriveEntry: vi.fn(), copyDriveEntry: vi.fn(),
             createDriveDirectory: vi.fn(), uploadDriveFile: vi.fn(), downloadDriveFile: vi.fn(),
-            deleteDriveEntry: vi.fn(), emptyDriveTrash: vi.fn(),
+            deleteDriveEntry: vi.fn(), emptyDriveTrash: vi.fn(), driveThumbnailUrl: vi.fn(), readDriveFile: vi.fn(),
         },
         notifyError: vi.fn(),
         mdViewport: writable(true),
         chooseConflictComparison: vi.fn(),
+        importFile: vi.fn(),
+        downloadFile: vi.fn(),
+        showPopupEditor: vi.fn(),
     }
 })
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { Init: async () => {}, realStorage: storage } }))
@@ -27,12 +30,16 @@ vi.mock('src/ts/storage/saveConflict', async importOriginal => {
     const original = await importOriginal<typeof import('src/ts/storage/saveConflict')>()
     return { ...original, chooseConflictComparison }
 })
+vi.mock('src/ts/characterCards', () => ({ importFile }))
+vi.mock('src/ts/download', async importOriginal => ({
+    ...await importOriginal<typeof import('src/ts/download')>(), downloadFile,
+}))
 vi.mock('src/ts/parser/parser.svelte', () => ({ parseMarkdownSafe: (text: string) => text }))
 vi.mock('src/ts/stores.svelte', async () => {
     const { fromStore, writable } = await import('svelte/store')
     const shortcuts = fromStore(writable<string[]>([]))
     const retention = fromStore(writable(3))
-    return { DBState: { db: {
+    return { showPopupEditor, DBState: { db: {
         get serverDriveShortcuts() { return shortcuts.current },
         set serverDriveShortcuts(value: string[]) { shortcuts.current = value },
         get trashRetentionDays() { return retention.current },
@@ -130,6 +137,8 @@ async function submitName(value: string) {
 
 beforeEach(async () => {
     vi.resetAllMocks()
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:drive-preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     localStorage.clear()
     mdViewport.set(true)
     DBState.db.serverDriveShortcuts = []
@@ -143,6 +152,9 @@ beforeEach(async () => {
             : [...rootEntries, ...files].filter(entry => parentPath(entry.path) === path),
     }))
     storage.emptyDriveTrash.mockImplementation(async () => { trashEntries = [] })
+    storage.driveThumbnailUrl.mockImplementation(entry =>
+        `/thumbnail?path=${encodeURIComponent(entry.path)}&v=${entry.modifiedAt}:${entry.size}`)
+    storage.readDriveFile.mockResolvedValue(new File([], 'import-file'))
     storage.driveMetadata.mockImplementation(async (path: string) => {
         const found = [...rootEntries, ...files].find(entry => entry.path === path)
         return found ? { ...found, size: found.type === 'directory' ? null : 42 } : { ...file, size: 42, path }
@@ -175,6 +187,7 @@ beforeEach(async () => {
         return saved
     })
     chooseConflictComparison.mockResolvedValue([])
+    importFile.mockResolvedValue(true)
     await mountDrive()
 })
 
@@ -202,6 +215,244 @@ it('navigates the grid and shows fresh file properties only when requested from 
     await tick()
     button(language.serverDrive.up).click()
     await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Documents'))
+})
+
+it('requests thumbnails for raster images and charx files, but not presets or modules', async () => {
+    const image = { ...file, name: 'photo.webp', path: 'Documents/photo.webp' }
+    const character = { ...file, name: 'card.charx', path: 'Documents/card.charx' }
+    const preset = { ...file, name: 'prompt.risupreset', path: 'Documents/prompt.risupreset' }
+    const module = { ...file, name: 'addon.risum', path: 'Documents/addon.risum' }
+    files = [...files, image, character, preset, module]
+    await openDocuments()
+
+    const requested = new Set(storage.driveThumbnailUrl.mock.calls.map(([entry]) => entry.name))
+    expect(requested).toEqual(new Set([image.name, character.name]))
+    expect(document.querySelector(`[data-drive-entry="${image.path}"] img`)?.getAttribute('src'))
+        .toContain(encodeURIComponent(image.path))
+    expect(document.querySelector(`[data-drive-entry="${character.path}"] img`)).not.toBeNull()
+    expect(document.querySelector(`[data-drive-entry="${preset.path}"] img`)).toBeNull()
+    expect(document.querySelector(`[data-drive-entry="${module.path}"] img`)).toBeNull()
+    expect(storage.driveMetadata).not.toHaveBeenCalled()
+})
+
+it('falls back after a thumbnail error and requests a new URL after the entry changes', async () => {
+    const image = { ...file, name: 'photo.webp', path: 'Documents/photo.webp' }
+    files = [...files, image]
+    await openDocuments()
+
+    const thumbnail = () => document.querySelector<HTMLImageElement>(`[data-drive-entry="${image.path}"] img`)
+    await vi.waitFor(() => expect(thumbnail()).not.toBeNull())
+    const originalUrl = thumbnail()!.getAttribute('src')
+    thumbnail()!.dispatchEvent(new Event('error'))
+    await vi.waitFor(() => expect(thumbnail()).toBeNull())
+    expect(document.querySelector(`[data-drive-entry="${image.path}"]`)).not.toBeNull()
+
+    files = files.map(entry => entry.path === image.path ? { ...entry, modifiedAt: entry.modifiedAt + 1 } : entry)
+    button(language.serverDrive.refresh).click()
+    await vi.waitFor(() => expect(thumbnail()?.getAttribute('src')).not.toBe(originalUrl))
+})
+
+it.each(['card.charx', 'card.png', 'prompt.risup', 'prompt.risupreset', 'addon.risum', 'character.json'])(
+    'imports %s through the existing file handler', async name => {
+        const imported = { ...file, name, path: `Documents/${name}` }
+        files = [...files, imported]
+        storage.readDriveFile.mockResolvedValueOnce(new File(['contents'], name))
+        await openDocuments()
+
+        entry(name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+        await vi.waitFor(() => expect(importFile).toHaveBeenCalledOnce())
+        expect(storage.readDriveFile).toHaveBeenCalledWith(imported.path, expect.any(AbortSignal))
+        expect(importFile).toHaveBeenCalledWith(name, expect.any(File))
+        expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+        await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    },
+)
+
+it('previews ordinary images and releases the image URL when closed', async () => {
+    const image = { ...file, name: 'photo.png', path: 'Documents/photo.png' }
+    files = [...files, image]
+    storage.readDriveFile.mockResolvedValueOnce(new File(['image'], image.name))
+    importFile.mockResolvedValueOnce(false)
+    await openDocuments()
+
+    entry(image.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    await vi.waitFor(() => expect(dialog(image.name).querySelector('img')?.getAttribute('src')).toBe('blob:drive-preview'))
+    expect(importFile).toHaveBeenCalledWith(image.name, expect.any(File))
+    expect(downloadFile).not.toHaveBeenCalled()
+    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+    button(language.close, dialog(image.name)).click()
+    await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:drive-preview'))
+    expect(dialog(language.serverDrive.title)).toBeDefined()
+})
+
+it('previews a character PNG from the context menu without importing it', async () => {
+    const image = { ...file, name: 'card.png', path: 'Documents/card.png' }
+    files = [...files, image]
+    storage.readDriveFile.mockResolvedValueOnce(new File(['image'], image.name))
+    await openDocuments()
+
+    await contextMenu(image.name)
+    menuItem(language.preview).click()
+
+    await vi.waitFor(() => expect(dialog(image.name).querySelector('img')).not.toBeNull())
+    expect(importFile).not.toHaveBeenCalled()
+    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+})
+
+it('orders folder actions and downloads folders through the download API', async () => {
+    await contextMenu('Documents')
+    expect([...document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent?.trim())).toEqual([
+        language.serverDrive.import, language.preview, language.download, language.serverDrive.addShortcut,
+        language.cut, language.copy, language.serverDrive.moveToTrash, language.serverDrive.rename, language.serverDrive.metadata,
+    ])
+    expect(menuItem(language.serverDrive.import).getAttribute('aria-disabled')).toBe('true')
+    expect(menuItem(language.preview).getAttribute('aria-disabled')).toBe('true')
+    menuItem(language.download).click()
+    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledExactlyOnceWith('Documents'))
+})
+
+it('copies into the current folder using the existing numbered-name conflict choice', async () => {
+    await openDocuments()
+    storage.copyDriveEntry.mockResolvedValueOnce({ ...file, name: 'report (1).txt', path: 'Documents/report (1).txt' })
+    await contextMenu('report.txt')
+    menuItem(language.copy).click()
+    await tick()
+    await contextMenu(document.querySelector('main')!)
+    expect([...document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent?.trim())).toEqual([
+        language.serverDrive.newFolder, language.serverDrive.upload, language.paste,
+    ])
+    menuItem(language.paste).click()
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    button(language.serverDrive.keepBoth, document.querySelector('[role="alertdialog"]')!).click()
+
+    await vi.waitFor(() => expect(storage.copyDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents/report.txt', 'report.txt', 'rename', undefined, 'Documents'))
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+})
+
+it('pastes multiple cut entries in another folder and clears the cut clipboard', async () => {
+    rootEntries = [...rootEntries, { ...folder, name: 'Archive', path: 'Archive' }]
+    files = [...files, { ...file, name: 'a.txt', path: 'Documents/a.txt' }]
+    await openDocuments()
+    entry('report.txt').click()
+    entry('a.txt').dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+    await contextMenu('a.txt')
+    menuItem(language.cut).click()
+    await tick()
+    button(language.serverDrive.up).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('Archive'))
+    entry('Archive').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await vi.waitFor(() => expect(storage.listDrive).toHaveBeenLastCalledWith('Archive', expect.any(AbortSignal)))
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain(language.serverDrive.empty))
+    await contextMenu(document.querySelector('main')!)
+    menuItem(language.paste).click()
+
+    await vi.waitFor(() => expect(storage.renameDriveEntry).toHaveBeenCalledTimes(2))
+    expect(storage.renameDriveEntry.mock.calls.map(([path, name, conflict, merge, destination]) => ({ path, name, conflict, merge, destination }))).toEqual([
+        { path: 'Documents/a.txt', name: 'a.txt', conflict: 'error', merge: undefined, destination: 'Archive' },
+        { path: 'Documents/report.txt', name: 'report.txt', conflict: 'error', merge: undefined, destination: 'Archive' },
+    ])
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('report.txt'))
+    await contextMenu(document.querySelector('main')!)
+    expect(menuItem(language.paste).getAttribute('aria-disabled')).toBe('true')
+    expect(storage.copyDriveEntry).not.toHaveBeenCalled()
+})
+
+it('duplicates a folder with a numbered name when copying it into its current parent', async () => {
+    storage.copyDriveEntry.mockResolvedValueOnce({ ...folder, name: 'Documents (1)', path: 'Documents (1)' })
+    await contextMenu('Documents')
+    menuItem(language.copy).click()
+    await tick()
+    await contextMenu(document.querySelector('main')!)
+    menuItem(language.paste).click()
+
+    await vi.waitFor(() => expect(storage.copyDriveEntry).toHaveBeenCalledExactlyOnceWith('Documents', 'Documents', 'rename', undefined, ''))
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(storage.renameDriveEntry).not.toHaveBeenCalled()
+})
+
+it('opens unsupported JSON in the popup editor after the existing importer declines it', async () => {
+    const json = { ...file, name: 'notes.json', path: 'Documents/notes.json' }
+    files = [...files, json]
+    const contents = '{"note":"hello"}'
+    storage.readDriveFile.mockResolvedValueOnce(new File([contents], json.name))
+    importFile.mockResolvedValueOnce(false)
+    await openDocuments()
+
+    entry(json.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    await vi.waitFor(() => expect(showPopupEditor).toHaveBeenCalledOnce())
+    const options = showPopupEditor.mock.calls[0][0]
+    expect(options).toMatchObject({ value: contents, title: json.name, mode: 'plain', description: '', submitKind: 'download' })
+    expect(options.onCommit).toBeUndefined()
+    expect(downloadFile).not.toHaveBeenCalled()
+    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+    expect(importFile).toHaveBeenCalledOnce()
+    await expect(options.onSubmit()).resolves.toBe(false)
+    await vi.waitFor(() => expect(downloadFile).toHaveBeenCalledWith(json.name, expect.any(File)))
+    expect(storage.readDriveFile).toHaveBeenCalledOnce()
+})
+
+it('places the truncated text notice in the popup editor description', async () => {
+    const text = { ...file, name: 'notes.txt', path: 'Documents/notes.txt' }
+    files = [...files, text]
+    storage.readDriveFile.mockResolvedValueOnce(new File(['x'.repeat(1024 * 1024 + 1)], text.name))
+    importFile.mockResolvedValueOnce(false)
+    await openDocuments()
+
+    entry(text.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    await vi.waitFor(() => expect(showPopupEditor).toHaveBeenCalledOnce())
+    const options = showPopupEditor.mock.calls[0][0]
+    expect(options.value).toHaveLength(1024 * 1024)
+    expect(options.description).toBe(language.serverDrive.previewTruncated)
+    expect(options.onCommit).toBeUndefined()
+})
+
+it.each([
+    ['archive.zip', new Uint8Array([0, 255, 1])],
+    ['document.PDF', '%PDF-1.7\nASCII-only PDF contents'],
+])('keeps binary files such as %s available to download without a preview', async (name, contents) => {
+    const binary = { ...file, name, path: `Documents/${name}` }
+    files = [...files, binary]
+    storage.readDriveFile.mockResolvedValueOnce(new File([contents], binary.name))
+    importFile.mockResolvedValueOnce(false)
+    await openDocuments()
+
+    entry(binary.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    await vi.waitFor(() => expect(dialog(binary.name).textContent).toContain(language.serverDrive.previewUnavailable))
+    expect(downloadFile).not.toHaveBeenCalled()
+    expect(dialog(binary.name).querySelector('iframe')).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    button(language.download, dialog(binary.name)).click()
+    await vi.waitFor(() => expect(downloadFile).toHaveBeenCalledWith(binary.name, expect.any(File)))
+})
+
+it('aborts a pending file read when the explorer unmounts before import', async () => {
+    const character = { ...file, name: 'card.charx', path: 'Documents/card.charx' }
+    files = [...files, character]
+    let completeRead!: (data: File) => void
+    let signal!: AbortSignal
+    storage.readDriveFile.mockImplementationOnce((_path, requestSignal) => {
+        signal = requestSignal
+        return new Promise(resolve => { completeRead = resolve })
+    })
+    await openDocuments()
+
+    entry(character.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await vi.waitFor(() => expect(storage.readDriveFile).toHaveBeenCalledOnce())
+    const pendingRead = storage.readDriveFile.mock.results[0].value as Promise<File>
+    await unmount(component)
+    component = undefined
+    expect(signal.aborted).toBe(true)
+
+    completeRead(new File(['contents'], character.name))
+    await pendingRead
+    await Promise.resolve()
+    expect(importFile).not.toHaveBeenCalled()
+    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
 })
 
 it('keeps the current file area visible until the next folder finishes loading', async () => {

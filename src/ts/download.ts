@@ -14,7 +14,7 @@ export function downloadUrl(url: string, name = ''): void {
     }
 }
 
-export async function downloadFile(name: string, data: Uint8Array | ArrayBuffer | string): Promise<void> {
+export async function downloadFile(name: string, data: Uint8Array | ArrayBuffer | Blob | string): Promise<void> {
     const blob = new Blob([data as BlobPart], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
     try {
