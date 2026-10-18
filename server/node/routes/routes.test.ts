@@ -117,7 +117,13 @@ describe('server route composition', () => {
 
     it('serves feature routes, retains authentication and exposes the same live auth state', async () => {
         const page = await fetch(base)
-        expect(await page.text()).toContain('globalThis.__NODE__ = true')
+        const pageHtml = await page.text()
+        expect(pageHtml).toContain('globalThis.__NODE__ = true')
+        expect(pageHtml).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = false')
+        expect(page.headers.get('cache-control')).toContain('no-store')
+        const remotePage = await fetch(base, { headers: { 'x-forwarded-host': 'preview.trycloudflare.com' } })
+        expect(await remotePage.text()).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = true')
+        expect(remotePage.headers.get('cache-control')).toContain('no-store')
         for (const path of ['/api/active-devices', '/api/logs', '/api/request-logs', '/api/usage', '/api/backup/schedule', '/api/bookmarks', '/api/db/snapshots/limits', '/api/tunnel/status', '/api/update-check']) {
             const response = await fetch(base + path, { headers })
             expect(response.status, path + ': ' + await response.text()).toBe(200)
@@ -140,6 +146,54 @@ describe('server route composition', () => {
         const response = await fetch(base + '/api/provider-contexts/query', { ...request, headers: { ...headers, 'content-type': 'application/json' } })
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ records: [] })
+    })
+
+    it('mounts the drive with server login and cookie downloads while keeping mutations JWT-only', async () => {
+        const uploadUrl = base + '/api/drive/file?name=shared.bin'
+        const upload = await fetch(uploadUrl, {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: Uint8Array.of(0, 128, 255),
+        })
+        expect(upload.status).toBe(201)
+        const listing = await fetch(base + '/api/drive', { headers })
+        expect((await listing.json()).entries).toEqual([expect.objectContaining({ name: 'shared.bin', size: 3 })])
+        const session = await fetch(base + '/api/session', { method: 'POST', headers })
+        const cookie = session.headers.get('set-cookie')!.split(';')[0]
+        const download = await fetch(base + '/api/drive/download?path=shared.bin', { headers: { cookie } })
+        expect(download.status).toBe(200)
+        expect(new Uint8Array(await download.arrayBuffer())).toEqual(Uint8Array.of(0, 128, 255))
+        const remoteCookieDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
+            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })
+        expect(remoteCookieDownload.status).toBe(403)
+        expect(await remoteCookieDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
+        const remoteJwtDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
+            headers: { 'risu-auth': headers['risu-auth'], 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })
+        expect(remoteJwtDownload.status).toBe(403)
+        expect(await remoteJwtDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
+        expect((await fetch(base + '/api/drive/download?path=shared.bin')).status).toBe(401)
+        const cookieMutation = await fetch(base + '/api/drive/rename', {
+            method: 'PATCH', headers: { cookie, 'content-type': 'application/json' },
+            body: JSON.stringify({ path: 'shared.bin', name: 'changed.bin' }),
+        })
+        expect(cookieMutation.status).toBe(401)
+
+        const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l7sAAAAASUVORK5CYII=', 'base64')
+        expect((await fetch(base + '/api/drive/file?name=portrait.png', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: image,
+        })).status).toBe(201)
+        const thumbnail = await fetch(base + '/api/drive/thumbnail?path=portrait.png', { headers: { cookie } })
+        expect(thumbnail.status).toBe(200)
+        expect(thumbnail.headers.get('content-type')).toContain('image/webp')
+        expect(Buffer.from(await thumbnail.arrayBuffer()).subarray(8, 12).toString()).toBe('WEBP')
+        expect((await fetch(base + '/api/drive/thumbnail?path=portrait.png', {
+            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
+        })).status).toBe(403)
+        await fetch(base + '/api/drive/file?name=disguised.png', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' },
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+        })
+        expect((await fetch(base + '/api/drive/thumbnail?path=disguised.png', { headers: { cookie } })).status).toBe(204)
     })
 
     it('clears request payloads separately from metadata', async () => {

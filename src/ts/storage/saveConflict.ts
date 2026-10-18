@@ -3,12 +3,22 @@ import { language } from 'src/lang'
 import { applyDelta } from '../../../shared/guardedDelta.mjs'
 import { mergeWithConflictChoices, type ConflictChoice, type MergeConflict } from './patchRebase'
 import type { DeltaPatch } from './nodeStorage'
+import { presentSaveConflict, type ConflictPresentation } from '../gui/saveConflictPresentation'
 
-export type SaveConflictDialogState = {
+export type ConflictSelection = 'server' | 'local' | 'both' | null
+
+export type ConflictComparisonRequest = {
     title: string
-    items: MergeConflict[]
-    source?: unknown
-    complete: (choices: ConflictChoice[] | null) => void
+    items: ConflictPresentation[]
+    multiple?: boolean
+    description?: string
+    serverLabel?: string
+    localLabel?: string
+    submitLabel?: string
+}
+
+export type SaveConflictDialogState = ConflictComparisonRequest & {
+    complete: (choices: ConflictSelection[] | null) => void
 }
 
 export const saveConflictDialog = writable<SaveConflictDialogState | null>(null)
@@ -39,26 +49,49 @@ export function prepareSaveConflict<T>(base: T | undefined, changes: DeltaPatch[
     }
 }
 
-export async function chooseSaveConflict<T>(base: T | undefined, changes: DeltaPatch['changes'], server: T, title = ''): Promise<T> {
-    const plan = prepareSaveConflict(base, changes, server)
-    if (plan.items.length === 0) return plan.merged
+export async function chooseConflictComparison(
+    request: ConflictComparisonRequest,
+    signal?: AbortSignal,
+): Promise<ConflictSelection[]> {
+    if (signal?.aborted) throw new SaveConflictCancelledError()
+
     const previous = dialogQueue
     let release!: () => void
     dialogQueue = new Promise<void>(resolve => { release = resolve })
     await previous
     try {
-        const choices = await new Promise<ConflictChoice[] | null>(resolve => {
-            saveConflictDialog.set({
-                title: title || language.saveConflict.title,
-                items: plan.items,
-                source: plan.merged,
-                complete: resolve,
-            })
+        if (signal?.aborted) throw new SaveConflictCancelledError()
+        const choices = await new Promise<ConflictSelection[] | null>(resolve => {
+            let settled = false
+            const complete: SaveConflictDialogState['complete'] = selection => {
+                if (settled) return
+                settled = true
+                signal?.removeEventListener('abort', onAbort)
+                saveConflictDialog.update(current => current?.complete === complete ? null : current)
+                resolve(selection)
+            }
+            const onAbort = () => complete(null)
+            signal?.addEventListener('abort', onAbort, { once: true })
+            saveConflictDialog.set({ ...request, complete })
+            if (signal?.aborted) onAbort()
         })
-        if (!choices) throw new SaveConflictCancelledError()
-        return plan.resolve(choices)
+        if (choices === null) throw new SaveConflictCancelledError()
+        return choices
     } finally {
-        saveConflictDialog.set(null)
         release()
     }
+}
+
+export async function chooseSaveConflict<T>(base: T | undefined, changes: DeltaPatch['changes'], server: T, title = ''): Promise<T> {
+    const plan = prepareSaveConflict(base, changes, server)
+    if (plan.items.length === 0) return plan.merged
+    const choices = await chooseConflictComparison({
+        title: title || language.saveConflict.title,
+        items: plan.items.map((item, index) => presentSaveConflict(item, index, plan.merged)),
+    })
+    const exclusiveChoices = choices.map(choice => {
+        if (choice === 'server' || choice === 'local') return choice
+        throw new Error('Exclusive save conflict choices must select one side')
+    })
+    return plan.resolve(exclusiveChoices)
 }

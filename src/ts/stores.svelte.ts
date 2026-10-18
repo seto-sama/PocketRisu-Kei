@@ -280,6 +280,7 @@ export interface PopupEditorMetadata {
 export interface PopupEditorOptions {
     value: string
     title?: string
+    description?: string
     helpKey?: keyof typeof language.help
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
@@ -288,10 +289,10 @@ export interface PopupEditorOptions {
     commitMode?: PopupEditorCommitMode
     debounceMs?: number
     hideCancel?: boolean
-    submitKind?: 'save' | 'send'
-    /** Writes through the same domain commit path used by the source field. */
-    onCommit: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
-    /** Optional action after the latest value has committed (for example, send). */
+    submitKind?: 'save' | 'send' | 'download'
+    /** Writes through the source field's commit path; omit for a read-only viewer. */
+    onCommit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
+    /** Optional action after committing editable content (for example, send or download). */
     onSubmit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
 }
 
@@ -300,6 +301,7 @@ export const popUpEditorStore = $state({
     value: '',
     originalValue: '',
     title: '',
+    description: '',
     helpKey: undefined as PopupEditorOptions['helpKey'],
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
@@ -308,7 +310,7 @@ export const popUpEditorStore = $state({
     commitMode: 'submit' as PopupEditorCommitMode,
     debounceMs: INPUT_COMMIT_DEBOUNCE_MS,
     hideCancel: false,
-    submitKind: 'save' as 'save' | 'send',
+    submitKind: 'save' as NonNullable<PopupEditorOptions['submitKind']>,
     onCommit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>),
     onSubmit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>)
 })
@@ -317,6 +319,7 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.value = options.value
     popUpEditorStore.originalValue = options.value
     popUpEditorStore.title = options.title ?? ''
+    popUpEditorStore.description = options.description ?? ''
     popUpEditorStore.helpKey = options.helpKey
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
@@ -326,7 +329,7 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.debounceMs = options.debounceMs ?? INPUT_COMMIT_DEBOUNCE_MS
     popUpEditorStore.hideCancel = options.hideCancel ?? false
     popUpEditorStore.submitKind = options.submitKind ?? 'save'
-    popUpEditorStore.onCommit = options.onCommit
+    popUpEditorStore.onCommit = options.onCommit ?? null
     popUpEditorStore.onSubmit = options.onSubmit ?? null
     popUpEditorStore.open = true
 }

@@ -40,12 +40,14 @@ it('hands backups and assets to the browser after refreshing only the session co
     await storage.downloadBackupExport({ target: 'upstream' })
     await storage.downloadServerBackup('risu-backup-1.bin')
     await storage.downloadAsset('inlay/image', '한글.png')
+    await storage.downloadDriveFile('자료/한글 &.bin')
     expect(downloads).toEqual([
         { url: '/api/backup/export', name: '' },
         { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
         { url: '/api/backup/export?target=upstream', name: '' },
         { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
         { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
+        { url: `/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.bin' })}`, name: '' },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(downloads.length)
     for (const [url, request] of fetchMock.mock.calls) {
@@ -63,6 +65,45 @@ it('does not start a download when session refresh fails', async () => {
     fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
     await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
     expect(click).not.toHaveBeenCalled()
+})
+
+it('reads drive imports as authenticated files without starting a browser download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    fetchMock.mockResolvedValueOnce(new Response(bytes))
+    const file = await storage.readDriveFile('자료/한글 &.risum')
+    expect(file.name).toBe('한글 &.risum')
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes)
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.risum' })}`)
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+    expect(click).not.toHaveBeenCalled()
+
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.readDriveFile('private.risup')).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
+})
+
+it('carries folder merge comparisons, choices, and completed moves through the drive API', async () => {
+    const entry = { path: 'target/a.txt', name: 'a.txt', type: 'file', size: 12, createdAt: 1, modifiedAt: 2 }
+    const plan = { revision: 'revision', conflicts: [{ path: entry.path, existing: entry, incoming: { ...entry, path: 'source/a.txt' } }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'DRIVE_MERGE_CONFLICT', details: plan }), { status: 409 }))
+    await expect(storage.renameDriveEntry('source', 'target', 'overwrite')).rejects.toMatchObject({
+        code: 'DRIVE_MERGE_CONFLICT', details: plan,
+    })
+
+    const merge = { revision: plan.revision, choices: { [entry.path]: 'both' as const } }
+    const result = { entry, moves: [{ from: 'source/a.txt', to: 'target/a (1).txt' }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(result)))
+    expect(await storage.renameDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(result)
+    const [url, request] = fetchMock.mock.calls[1]
+    expect(url).toBe('/api/drive/rename')
+    expect(request.method).toBe('PATCH')
+    expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ entry })))
+    expect(await storage.copyDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(entry)
+    const [copyUrl, copyRequest] = fetchMock.mock.calls[2]
+    expect(copyUrl).toBe('/api/drive/copy')
+    expect(copyRequest.method).toBe('POST')
+    expect(JSON.parse(copyRequest.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
 })
 
 describe('storage request integration', () => {

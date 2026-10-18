@@ -17,6 +17,7 @@
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         size?: DialogSize;
+        fullscreen?: boolean;
         closable?: boolean;
         /** Escape and backdrop dismissal; disable only for blocking workflows. */
         dismissible?: boolean;
@@ -40,6 +41,7 @@
         open = $bindable(false),
         onOpenChange,
         size = 'default',
+        fullscreen = false,
         closable = true,
         dismissible = true,
         onRequestClose,
@@ -133,7 +135,7 @@
     };
 
     const contentBase =
-        'risu-modal-content-viewport fixed left-1/2 w-[calc(100vw-var(--risu-dialog-viewport-inset))] -translate-x-1/2 -translate-y-1/2 ' +
+        'fixed ' +
         'bg-darkbg border-[length:var(--risu-dialog-border-width)] border-darkborderc rounded-md shadow-lg ' +
         'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none ' +
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
@@ -186,7 +188,9 @@
         <Dialog.Content
             bind:ref={contentRef}
             data-risu-overlay-layer={overlayLayer.allocatedZIndex}
-            class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
+            class={cn(contentBase, 'risu-layer-overlay', fullscreen
+                ? 'inset-0 h-dvh w-full max-h-none max-w-none rounded-none border-0'
+                : ['risu-modal-content-viewport left-1/2 w-[calc(100vw-var(--risu-dialog-viewport-inset))] -translate-x-1/2 -translate-y-1/2', sizeClasses[size]], contentClass)}
             style={overlayStyle}
             escapeKeydownBehavior={dismissible ? 'close' : 'ignore'}
             interactOutsideBehavior={dismissible ? 'close' : 'ignore'}

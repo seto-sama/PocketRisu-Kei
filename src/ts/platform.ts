@@ -14,6 +14,7 @@ export type RisuEnvironmentLabel = "node" | "node(dev)"
 const browserNavigator = navigator as BrowserNavigator
 
 export const isNodeServer: boolean = !!(globalThis as typeof globalThis & { __NODE__?: boolean }).__NODE__
+export const isCloudflareTunnel: boolean = !!(globalThis as typeof globalThis & { __CLOUDFLARE_TUNNEL__?: boolean }).__CLOUDFLARE_TUNNEL__
 export const supportsPatchSync: boolean = !!(globalThis as typeof globalThis & { __PATCH_SYNC__?: boolean }).__PATCH_SYNC__
 export const isMobile: boolean = /Android|iPhone|iPad|iPod|webOS/i.test(browserNavigator.userAgent);
 

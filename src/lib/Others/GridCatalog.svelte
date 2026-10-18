@@ -1,9 +1,6 @@
 <script lang="ts">
     import { onDestroy } from "svelte";
-    import MiniSettingsPopup from "../UI/components/MiniSettingsPopup.svelte";
-    import SettingNumber from "../Setting/Wrappers/SettingNumber.svelte";
-    import type { SettingItem } from "src/ts/setting/types";
-    import { normalizeTrashRetentionDays } from "src/ts/trashRetention";
+    import TrashSettingsPopup from "../UI/components/TrashSettingsPopup.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import { readSidebarOrderFromDom } from "../SideBars/sidebarDrag";
     import type { MoveEvent } from "sortablejs";
@@ -67,16 +64,6 @@
     );
     let deletingCharacterId = $state<string | null>(null);
     let emptyingTrash = $state(false);
-
-    const trashRetentionSetting: SettingItem = $derived({
-        id: 'trashRetentionDays',
-        type: 'number',
-        labelKey: 'trashAutoDeleteSchedule',
-        helpKey: 'trashAutoDeleteSchedule',
-        getValue: (db) => normalizeTrashRetentionDays(db.trashRetentionDays),
-        setValue: (db, value) => { db.trashRetentionDays = normalizeTrashRetentionDays(value); },
-        options: { min: 0, suffix: language.trashRetentionDaysSuffix },
-    });
 
     function setViewMode(mode: 'simple' | 'grid') {
         viewMode = mode;
@@ -291,7 +278,7 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <MiniSettingsPopup>
+                    <TrashSettingsPopup>
                         {#snippet trigger()}
                             <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
                                 <IconButton
@@ -306,8 +293,7 @@
                                 </IconButton>
                             </IconButtonGroup>
                         {/snippet}
-                        <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
-                    </MiniSettingsPopup>
+                    </TrashSettingsPopup>
                 {/if}
             </div>
         </header>

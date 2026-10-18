@@ -7,6 +7,7 @@ const nodeCrypto = require('crypto');
 const { binaryBodyParser } = require('./binaryHttp.cjs');
 const { encodeInlayAsset, decodeInlayAsset } = require('../../src/ts/storage/inlayTransport.ts');
 const { isInlayMediaType, getInlayThumbnailScale } = require('../../shared/inlayTypes.mjs');
+const { getImageType } = require('../../src/ts/media/imageType.ts');
 
 function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, kvList, logger }) {
     const migrationMarker = path.join(inlayDir, '.migrated_to_fs');
@@ -343,6 +344,13 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
     const THUMB_QUALITY = 75;
     const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
+    function encodeThumbnail(buffer) {
+        if (getImageType(buffer) === 'Unknown') throw new Error('Unsupported thumbnail image');
+        return encodeImageBuffer(buffer, {
+            format: 'webp', options: { Q: THUMB_QUALITY }, getScale: getInlayThumbnailScale,
+        });
+    }
+
     async function ensureThumbnail(id, type, frameBuffer = null) {
         const jobKey = `${type}:${id}`;
         const pending = thumbnailJobs.get(jobKey);
@@ -370,9 +378,7 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
             const temporaryPath = path.join(thumbnailDir, `${temporaryBase}.tmp.webp`);
             try {
                 const input = frameBuffer || await fs.readFile(source.filePath);
-                const thumbnail = await encodeImageBuffer(input, {
-                    format: 'webp', options: { Q: THUMB_QUALITY }, getScale: getInlayThumbnailScale,
-                });
+                const thumbnail = await encodeThumbnail(input);
                 await fs.writeFile(temporaryPath, thumbnail.buffer);
                 await fs.rename(temporaryPath, thumbnailPath);
                 return { filePath: thumbnailPath, stat: await fs.stat(thumbnailPath) };
@@ -449,6 +455,7 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
         sumInlayFsBytes,
         normalizeInlayImageSettings,
         encodeInlayImageBuffer,
+        encodeThumbnail,
         ensureThumbnail,
         compressInlays,
     };
