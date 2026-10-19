@@ -13,15 +13,17 @@ vi.mock('../stores.svelte', () => {
 })
 
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage: { realStorage: null },
-    downloadFile: () => {},
+    forageStorage: { realStorage: null, encodeFile: vi.fn(async () => Uint8Array.of(1, 2)) },
+    requestImmediateSave: vi.fn(async () => {}),
     saveAsset: () => Promise.resolve(''),
 }))
+
+vi.mock('../download', () => ({ downloadFile: vi.fn(async () => {}) }))
 
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 vi.mock('../alert', () => ({
-    notifySuccess: () => {},
+    notifySuccess: vi.fn(),
     alertError: () => {},
 }))
 
@@ -32,11 +34,15 @@ vi.mock('../../lang', () => ({
 
 const databaseModule = await import('./database.svelte')
 const storesModule = await import('../stores.svelte')
+const { forageStorage, requestImmediateSave } = await import('../globalApi.svelte')
+const { downloadFile } = await import('../download')
+const { notifySuccess } = await import('../alert')
 const {
     applyHypaPresetIntegration,
     createBotPresetTemplate,
     changeToPreset,
     copyPreset,
+    downloadPreset,
     getActiveBotPreset,
     saveCurrentPreset,
     setDatabase,
@@ -59,6 +65,7 @@ beforeEach(() => {
         activePromptPresetId: 'id-b',
     }
     setDatabase(db)
+    vi.clearAllMocks()
 })
 
 describe('empty database initialization', () => {
@@ -228,6 +235,39 @@ describe('active prompt preset IDs', () => {
         expect(DBState.db.mainPrompt).toBe('edited prompt for C')
         expect(DBState.db.botPresets.find((preset: any) => preset.id === 'id-c').mainPrompt).toBe('edited prompt for C')
     })
+})
+
+test('exports an edited preset snapshot without waiting for unrelated database saves', async () => {
+    let finishEncoding!: (data: Uint8Array) => void
+    vi.mocked(forageStorage.encodeFile).mockReturnValueOnce(new Promise(resolve => { finishEncoding = resolve }))
+    DBState.db.mainPrompt = 'prompt at export'
+    const pending = downloadPreset(1)
+    expect(requestImmediateSave).not.toHaveBeenCalled()
+    expect(downloadFile).not.toHaveBeenCalled()
+    expect(notifySuccess).not.toHaveBeenCalled()
+
+    DBState.db.botPresets = [DBState.db.botPresets[2], DBState.db.botPresets[0], DBState.db.botPresets[1]]
+    DBState.db.mainPrompt = 'later edit'
+    saveCurrentPreset()
+    finishEncoding(Uint8Array.of(1, 2))
+    await pending
+
+    expect(forageStorage.encodeFile).toHaveBeenCalledWith('preset', expect.objectContaining({
+        id: 'id-b', name: 'B', mainPrompt: 'prompt at export', openAIKey: '', proxyKey: '', forceReplaceUrl: '',
+    }))
+    expect(downloadFile).toHaveBeenCalledWith('B_preset.risup', Uint8Array.of(1, 2))
+    expect(notifySuccess).toHaveBeenCalledOnce()
+    expect(getActiveBotPreset()?.mainPrompt).toBe('later edit')
+})
+
+test.each(['encoding', 'download'])('does not report export success after a failed %s', async (stage) => {
+    const error = new Error('Export failed')
+    if (stage === 'encoding') vi.mocked(forageStorage.encodeFile).mockRejectedValueOnce(error)
+    else vi.mocked(downloadFile).mockRejectedValueOnce(error)
+
+    await expect(downloadPreset(1)).rejects.toThrow('Export failed')
+    expect(notifySuccess).not.toHaveBeenCalled()
+    if (stage === 'encoding') expect(downloadFile).not.toHaveBeenCalled()
 })
 
 describe('prompt preset Hypa integration', () => {

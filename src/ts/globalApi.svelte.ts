@@ -443,13 +443,7 @@ export async function saveDb() {
 
     function takeTrackedChanges() {
         const toSave = structuredClone(changeTracker)
-        changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
-        changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
-        changeTracker.root = false
-        changeTracker.botPreset = false
-        changeTracker.modules = false
-        changeTracker.plugins = false
-        changeTracker.pluginCustomStorage = false
+        clearTrackedChanges()
         return toSave
     }
 

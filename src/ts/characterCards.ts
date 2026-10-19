@@ -6,7 +6,8 @@ import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from 
 import { language } from "src/lang"
 import { createEntityId } from 'src/ts/id';
 import { characterFormatUpdate } from "./characters"
-import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
+import { AppendableBuffer, BlankWriter, checkCharOrder, forageStorage, loadAsset, type LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
+import { exportPresetFile, showExportAssetProgress } from './preset/export'
 import { compressImage, getImageType } from "./media"
 import { selectedCharID } from "./stores.svelte"
 import { AddonSettingsTab, openAddonSettings, openSettings, SettingsRoute } from "./routing"
@@ -16,7 +17,7 @@ import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
 import { CharXImporter, CharXWriter } from "./process/processzip"
 import { zip } from "./process/zip"
-import { exportModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
+import { encodeModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
 
@@ -629,10 +630,10 @@ export async function exportChar(charaID:number):Promise<string> {
 
     const option = await alertCardExport()
     if(option.type === ''){
-        exportCharacterCard(char, option.type2 === 'json' ? 'json' : (option.type2 === 'charx' ? 'charx' : option.type2 === 'charxJpeg' ? 'charxJpeg' : 'png'), {spec: 'v3'})
+        await exportCharacterCard(char, option.type2 === 'json' ? 'json' : (option.type2 === 'charx' ? 'charx' : option.type2 === 'charxJpeg' ? 'charxJpeg' : 'png'), {spec: 'v3'})
     }
     else if(option.type === 'ccv2'){
-        exportCharacterCard(char,'png', {spec: 'v2'})
+        await exportCharacterCard(char,'png', {spec: 'v2'})
     }
     else if(option.type !== ''){
         return option.type
@@ -1123,34 +1124,22 @@ function createBaseV2(char:character) {
 
 
 export async function exportCharacterCard(char:character, type:'png'|'json'|'charx'|'charxJpeg' = 'png', arg:{
-    password?:string
     writer?:LocalWriter|VirtualWriter,
+    fileName?:string
     spec?:'v2'|'v3'
     onProgress?:(msg:string, pct:number) => void
 } = {}) {
-    let img = await readImage(char.image)
     const spec:'v2'|'v3' = arg.spec ?? 'v2' //backward compatibility
-    const onProgress = arg.onProgress ?? ((msg:string, pct:number) => {
-        if (pct >= 100) {
-            alertStore.set({ type: 'wait', msg })
-        } else {
-            alertStore.set({ type: 'progress', msg, submsg: pct.toFixed(2) })
-        }
-    })
+    const fileName = arg.fileName ?? `${char.name.replace(/[<>:"/\\|?*\.\,]/g, '')}_export.${type === 'charxJpeg' ? 'jpeg' : type}`
+    const onProgress = (msg: string, completed: number, total: number) => {
+        if (arg.onProgress) arg.onProgress(msg, total > 0 ? completed / total * 100 : 100)
+        else showExportAssetProgress(completed, total)
+    }
     try{
+        let img = await readImage(char.image)
         char.image = ''
         img = type === 'png' ? (await reencodeImage(img)) : img
-        const localWriter = arg.writer ?? (new LocalWriter())
-        if(!arg.writer && type !== 'json'){
-            const nameExt = {
-                'png': ['Image File', 'png'],
-                'json': ['JSON File', 'json'],
-                'charx': ['CharX File', 'charx'],
-                'charxJpeg': ['CharX Embeded Jpeg', 'jpeg']
-            }
-            const ext = nameExt[type]
-            await (localWriter as LocalWriter).init(ext[0], [ext[1]])
-        }
+        const localWriter = arg.writer ?? new VirtualWriter()
         const writer = (type === 'charx' || type === 'charxJpeg') ? (new CharXWriter(localWriter)) : type === 'json' ? (new BlankWriter()) : (new PngChunk.streamWriter(img, localWriter))
         await writer.init()
         if(writer instanceof CharXWriter && type === 'charxJpeg'){
@@ -1159,49 +1148,52 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         let assetIndex = 0
         if(spec === 'v2'){
             const card = await createBaseV2(char)
+            const totalAssets = (card.data.extensions.risuai.emotions?.length ?? 0) + (card.data.extensions.risuai.additionalAssets?.length ?? 0)
+            onProgress('Loading... (Adding Assets)', 0, totalAssets)
             if(card.data.extensions.risuai.emotions && card.data.extensions.risuai.emotions.length > 0){
                 for(let i=0;i<card.data.extensions.risuai.emotions.length;i++){
-                    onProgress('Loading... (Adding Emotions)', i / card.data.extensions.risuai.emotions.length * 100)
                     const key = card.data.extensions.risuai.emotions[i][1]
                     const rData = await readImage(key)
                     const b64encoded = Buffer.from(await compressImage(rData)).toString('base64')
                     assetIndex++
                     card.data.extensions.risuai.emotions[i][1] = `__asset:${assetIndex}`
                     await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
+                    onProgress('Loading... (Adding Emotions)', assetIndex, totalAssets)
                 }
             }
     
             
             if(card.data.extensions.risuai.additionalAssets && card.data.extensions.risuai.additionalAssets.length > 0){
                 for(let i=0;i<card.data.extensions.risuai.additionalAssets.length;i++){
-                    onProgress('Loading... (Adding Additional Assets)', i / card.data.extensions.risuai.additionalAssets.length * 100)
                     const key = card.data.extensions.risuai.additionalAssets[i][1]
                     const rData = await readImage(key)
                     const b64encoded = Buffer.from(await compressImage(rData)).toString('base64')
                     assetIndex++
                     card.data.extensions.risuai.additionalAssets[i][1] = `__asset:${assetIndex}`
                     await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
+                    onProgress('Loading... (Adding Additional Assets)', assetIndex, totalAssets)
                 }
             }
     
             if(type === 'json'){
-                await downloadFile(`${char.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.json`, Buffer.from(JSON.stringify(card, null, 4), 'utf-8'))
-                notifySuccess(language.successExport)
+                await exportPresetFile(fileName, JSON.stringify(card, null, 4))
                 return
             }
     
-            await sleep(10)
-            onProgress('Loading... (Writing)', 100)
+            onProgress('Loading... (Writing)', assetIndex, totalAssets)
 
             await writer.write("chara", Buffer.from(JSON.stringify(card)).toString('base64'))     
         }
         else if(spec === 'v3'){
             const card = createBaseV3(char)
             const seenPaths = new Set<string>()
+            const totalAssets = (card.data.assets ?? []).filter(asset => asset.uri !== 'ccdefault:' && !isKnownUri(asset.uri)).length
+            let completedAssets = 0
+            onProgress('Loading... (Adding Assets)', 0, totalAssets)
             if(card.data.assets && card.data.assets.length > 0){
                 for(let i=0;i<card.data.assets.length;i++){
-                    onProgress('Loading... (Adding Assets)', i / card.data.assets.length * 100)
                     let key = card.data.assets[i].uri
+                    const isPrimaryAvatar = key === 'ccdefault:'
                     let rData:Uint8Array
                     if(key === 'ccdefault:' && type !== 'png'){
                         key = char.image
@@ -1331,16 +1323,18 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                         }
                         await writer.write(path, Buffer.from(await compressImage(rData)))
                     }
+                    if (!isPrimaryAvatar) {
+                        completedAssets++
+                        onProgress('Loading... (Adding Assets)', completedAssets, totalAssets)
+                    }
                 }
             }
             if(type === 'json'){
-                await downloadFile(`${char.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.json`, Buffer.from(JSON.stringify(card, null, 4), 'utf-8'))
-                notifySuccess(language.successExport)
+                await exportPresetFile(fileName, JSON.stringify(card, null, 4))
                 return
             }
 
-            await sleep(10)
-            onProgress('Loading... (Writing)', 100)
+            onProgress('Loading... (Writing)', completedAssets, totalAssets)
 
             if(type === 'charx' || type === 'charxJpeg'){
                 const md:RisuModule = {
@@ -1353,10 +1347,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
                 }
                 delete card.data.extensions.risuai.triggerscript
                 delete card.data.extensions.risuai.customScripts
-                await writer.write("module.risum", await exportModuleLegacy(md, {
-                    alertEnd: false,
-                    saveData: false
-                }))
+                await writer.write("module.risum", await encodeModuleLegacy(md))
                 await writer.write("card.json", Buffer.from(JSON.stringify(card, null, 4)))
             }
             else{
@@ -1365,14 +1356,13 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         }
         await writer.end()
 
-        await sleep(10)
-
         if(!arg.writer){
-            notifySuccess(language.successExport)
+            await exportPresetFile(fileName, (localWriter as VirtualWriter).buf.buffer)
         }
 
     }
     catch(e){
+        if (arg.writer) throw e
         alertError(e)
     }
 }

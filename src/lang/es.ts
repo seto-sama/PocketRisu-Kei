@@ -426,7 +426,7 @@ export const languageSpanish = {
     "userSetting": "Configuración de Usuario",
     "username": "Tu Nombre",
     "userIcon": "Tu Icono",
-    "successExport": "Exportado y descargado exitosamente en tu directorio de descargas",
+    "browserDownloadStarted": "Se ha iniciado la descarga.",
     "successImport": "Importado exitosamente",
     "moduleCreated": "Módulo creado.",
     "moduleUpdated": "Módulo actualizado.",

@@ -426,7 +426,7 @@ export const languageGerman = {
     "userSetting": "Benutzereinstellungen",
     "username": "Ihr Name",
     "userIcon": "Ihr Icon",
-    "successExport": "Erfolgreich exportiert und in Ihrem Download-Verzeichnis gespeichert",
+    "browserDownloadStarted": "Der Download wurde gestartet.",
     "successImport": "Erfolgreich importiert",
     "moduleCreated": "Modul erstellt.",
     "moduleUpdated": "Modul aktualisiert.",

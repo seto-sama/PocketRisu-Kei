@@ -22,6 +22,6 @@ export async function exportAsDataset(){
 
     await downloadFile('dataset.json',Buffer.from(JSON.stringify(dataset, null,4), 'utf-8'))
 
-    notifySuccess(language.successExport)
+    notifySuccess(language.browserDownloadStarted)
     
 }

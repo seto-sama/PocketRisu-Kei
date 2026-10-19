@@ -6,7 +6,7 @@
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
-    import { downloadFile } from "src/ts/globalApi.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import { selectSingleImportFile } from "src/ts/util";
     import {
         getOfficialRegistryId,
@@ -274,7 +274,7 @@
             return;
         }
         const fragment = buildProfileFragment(profile, baseProvider, Date.now());
-        await downloadFile(`${safeFileName(profile.id)}.profile.json`, JSON.stringify(fragment, null, 2));
+        await exportPresetFile(`${safeFileName(profile.id)}.profile.json`, JSON.stringify(fragment, null, 2));
     }
 
     async function importProfile() {

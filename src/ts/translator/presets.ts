@@ -17,7 +17,6 @@ export interface TranslatorPresetStateLike {
 
 export const defaultTranslatorPrompt =
     "You are a translator. translate the following html or text into {{slot}}. do not output anything other than the translation.";
-export const translatorPresetFileExtension = "risutl";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
@@ -180,7 +179,7 @@ export function getCurrentTranslatorPresetFromState<T extends TranslatorPresetSt
     return preset;
 }
 
-async function decodeEncryptedTranslatorPresetFile(data: Uint8Array): Promise<TranslatorPreset> {
+export async function decodeTranslatorPresetFile(data: Uint8Array): Promise<TranslatorPreset> {
     const { forageStorage } = await import('../storage/autoStorage');
     const parsedPreset: unknown = await forageStorage.decodeFile('translator', data);
 
@@ -203,10 +202,6 @@ export async function encodeTranslatorPresetFile(preset: TranslatorPreset): Prom
     return forageStorage.encodeFile('translator', normalizedPreset);
 }
 
-export async function decodeTranslatorPresetFile(data: Uint8Array): Promise<TranslatorPreset> {
-    return await decodeEncryptedTranslatorPresetFile(data);
-}
-
 export function getTranslatorPresetDownloadName(name: string): string {
-    return `translator_preset_${sanitizeFileNamePart(name)}.${translatorPresetFileExtension}`;
+    return `translator_preset_${sanitizeFileNamePart(name)}.risutl`;
 }

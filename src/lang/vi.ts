@@ -426,7 +426,7 @@ export const languageVietnamese = {
     "userSetting": "Thiết lập người dùng",
     "username": "Tên của bạn",
     "userIcon": "Biểu tượng của bạn",
-    "successExport": "Đã xuất thành công và tải xuống thư mục tải xuống của bạn",
+    "browserDownloadStarted": "Đã bắt đầu tải xuống.",
     "successImport": "Đã nhập thành công",
     "moduleCreated": "Đã tạo mô-đun.",
     "moduleUpdated": "Đã cập nhật mô-đun.",

@@ -462,7 +462,6 @@ export const languageChineseTraditional = {
     "userSetting": "使用者設定",
     "username": "您的名稱",
     "userIcon": "您的頭像",
-    "successExport": "已成功匯出並儲存至您的下載資料夾",
     "successImport": "成功匯入",
     "moduleCreated": "模組已建立",
     "moduleUpdated": "模組已更新",

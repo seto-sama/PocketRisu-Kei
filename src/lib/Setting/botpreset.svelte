@@ -77,11 +77,6 @@
         notifySuccess(language.presetDuplicated)
     }
 
-    function exportPreset(index: number) {
-        downloadPreset(index, 'risupreset')
-        notifySuccess(language.presetExported)
-    }
-
     async function deletePreset(index: number) {
         const preset = DBState.db.botPresets[index]
         if (!preset) return
@@ -167,7 +162,7 @@
         onMoveItem={movePreset}
         onSelectItem={handlePresetClick}
         onDuplicateItem={duplicatePreset}
-        onExportItem={exportPreset}
+        onExportItem={downloadPreset}
         onDeleteItem={deletePreset}
         itemRenameable
     >

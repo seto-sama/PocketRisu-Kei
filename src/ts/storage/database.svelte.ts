@@ -11,7 +11,8 @@ import { initializeCharacterRuntimeState } from './persistenceShape';
 import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
-import { downloadFile, forageStorage, requestImmediateSave, saveAsset as saveImageGlobal } from '../globalApi.svelte';
+import { forageStorage, saveAsset as saveImageGlobal } from '../globalApi.svelte';
+import { exportPresetFile } from '../preset/export';
 import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
@@ -2542,22 +2543,15 @@ export function copyThemePreset(id: number){
     if (result.changed) db.themePresets = result.items
 }
 
-export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
-    await requestImmediateSave({ requireSuccess: true })
+export async function downloadThemePreset(id: number){
     const current = getDatabase()
+    if (!current.themePresets[id]) return
     const db = { ...current, themePresets: [...current.themePresets] }
     saveCurrentThemePreset(db)
-    let pres = withExportColorSchemes(structuredClone(db.themePresets[id]))
+    const pres = withExportColorSchemes(structuredClone(db.themePresets[id]))
     pres.customBackground = ''
 
-    if(type === 'json'){
-        downloadFile(pres.name + "_theme.json", await forageStorage.encodeFile('json', pres))
-    } else {
-        const data = await forageStorage.encodeFile('theme', pres)
-        downloadFile(pres.name + "_theme.risutheme", data)
-    }
-
-    notifySuccess(language.successExport)
+    await exportPresetFile(`${pres.name}_theme.json`, forageStorage.encodeFile('json', pres))
 }
 
 export async function importThemePreset(f: {
@@ -2600,41 +2594,17 @@ import type { HypaModel } from '../process/memory/hypamemory';
 import type { SerializableHypaV3Data } from '../process/memory/hypav3';
 import type { OpenAIChat } from '../process/index.svelte';
 
-export async function downloadPreset(id:number, type:'json'|'risupreset'|'return' = 'json'){
+export async function downloadPreset(index:number){
+    const db = getDatabase()
+    if (!db.botPresets[index]) return
     saveCurrentPreset()
-    await requestImmediateSave({ requireSuccess: true })
-    let db = getDatabase()
-    let pres = structuredClone(db.botPresets[id])
+    const pres = structuredClone(db.botPresets[index])
     pres.openAIKey = ''
     pres.forceReplaceUrl = ''
     pres.forceReplaceUrl2 = ''
     pres.proxyKey = ''
 
-    if(type === 'json'){
-        downloadFile(pres.name + "_preset.json", await forageStorage.encodeFile('json', pres))
-    }
-    else if(type === 'risupreset' || type === 'return'){
-        const buf2 = await forageStorage.encodeFile('preset', pres)
-
-        if(type === 'risupreset'){
-            downloadFile(pres.name + "_preset.risup", buf2)
-        }
-        else{
-            return {
-                data: pres,
-                buf: buf2
-            }
-        }
-
-    }
-
-    notifySuccess(language.successExport)
-
-
-    return {
-        data: pres,
-        buf: null
-    }
+    await exportPresetFile(pres.name + "_preset.risup", forageStorage.encodeFile('preset', pres))
 }
 
 

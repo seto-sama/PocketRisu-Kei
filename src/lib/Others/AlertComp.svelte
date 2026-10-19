@@ -8,7 +8,7 @@
     import { ChevronRightIcon } from '@lucide/svelte';
     import { isCharacterHasAssets } from 'src/ts/characterCards';
     import Input from '../UI/components/Input.svelte';
-    import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
+    import { openURL } from 'src/ts/globalApi.svelte';
     import Button from '../UI/components/Button.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
     import AlertDialog from '../UI/components/AlertDialog.svelte';
@@ -21,6 +21,7 @@
     import Switch from "../UI/components/Switch.svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import { pocketKeiVer } from "src/ts/storage/database.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import Textarea from "../UI/components/Textarea.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
@@ -741,10 +742,13 @@
                                                 <CopyIcon size={12} />
                                                 {language.togglePresetMenuDuplicate}
                                             </DropdownMenu.Item>
-                                            <DropdownMenu.Item onSelect={() => {
+                                            <DropdownMenu.Item onSelect={async () => {
                                                 const exportData = { name: preset.name, values: preset.values, promptPresetName: preset.promptPresetName }
-                                                downloadFile(`${preset.name}_toggle.json`, Buffer.from(JSON.stringify(exportData, null, 2), 'utf-8'))
-                                                notifySuccess((language.togglePresetExported as any)(preset.name))
+                                                await exportPresetFile(
+                                                    `${preset.name}_toggle.json`,
+                                                    JSON.stringify(exportData, null, 2),
+                                                    (language.togglePresetExported as any)(preset.name),
+                                                )
                                             }}>
                                                 <DownloadIcon size={12} />
                                                 {language.togglePresetMenuExport}

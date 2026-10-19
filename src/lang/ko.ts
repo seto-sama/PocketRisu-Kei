@@ -763,7 +763,6 @@ export const languageKorean = {
   userSetting: "유저 설정",
   username: "유저 이름",
   userIcon: "유저 아이콘",
-  successExport: "성공적으로 엑스포트하여 다운로드 경로에 다운로드했습니다.",
   successImport: "성공적으로 임포트했습니다.",
   moduleCreated: "모듈이 생성되었습니다.",
   moduleUpdated: "모듈이 수정되었습니다.",
@@ -2183,6 +2182,7 @@ export const languageKorean = {
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
   browserDownloadStarted: "다운로드를 시작합니다.",
+  exportAssetsPreparing: "에셋을 정리하는 중",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",

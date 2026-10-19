@@ -34,7 +34,7 @@ export function exportRegex(script:customscript[]){
         data: script
     }), 'utf-8')
     downloadFile(`regexscript_export.json`,data)
-    notifySuccess(language.successExport)
+    notifySuccess(language.browserDownloadStarted)
 }
 
 export async function importRegex(o:customscript[]):Promise<customscript[]>{

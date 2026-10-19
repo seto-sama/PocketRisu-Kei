@@ -426,7 +426,7 @@ export const languageChinese = {
     "userSetting": "用户设置",
     "username": "你的名称",
     "userIcon": "你的头像",
-    "successExport": "已成功导出并保存至你的下载数据夹",
+    "browserDownloadStarted": "已开始下载。",
     "successImport": "成功导入",
     "moduleCreated": "模块已创建",
     "moduleUpdated": "模块已更新",
