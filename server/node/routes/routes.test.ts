@@ -332,6 +332,44 @@ describe('server route composition', () => {
         expect(decodeInlayAsset(new Uint8Array(await read.arrayBuffer())).bytes).toEqual(inlayBytes)
     })
 
+    it('exports the numeric preset index and restores it as the canonical preset ID', async () => {
+        const initial = (await (await fetch(base + '/api/database', { headers })).json()).database
+        const withPresets = {
+            ...initial,
+            botPresets: [{ id: 'route-preset-a', name: 'A' }, { id: 'route-preset-b', name: 'B' }],
+            activePromptPresetId: 'route-preset-b',
+        }
+        const save = async (database: any) => fetch(base + '/api/database', {
+            method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ changes: createDelta(initial, database) }),
+        })
+
+        expect((await save(withPresets)).status).toBe(200)
+        const exported = await fetch(base + '/api/backup/export', { headers })
+        expect(exported.status).toBe(200)
+        const backup = Buffer.from(await exported.arrayBuffer())
+        const databaseEntry = decodeBackup(backup).find(entry => entry.name === 'database.risudat')!
+        const portable = await decodeRisuSave(databaseEntry.data)
+        expect(portable.botPresetsId).toBe(1)
+        expect(portable).not.toHaveProperty('activePromptPresetId')
+
+        const changed = (await (await fetch(base + '/api/database', { headers })).json()).database
+        expect((await fetch(base + '/api/database', {
+            method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ changes: createDelta(changed, {
+                ...changed, activePromptPresetId: 'route-preset-a',
+            }) }),
+        })).status).toBe(200)
+
+        const restored = await fetch(base + '/api/backup/import', {
+            method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: backup,
+        })
+        expect(restored.status, await restored.text()).toBe(200)
+        const installed = (await (await fetch(base + '/api/database', { headers })).json()).database
+        expect(installed.activePromptPresetId).toBe('route-preset-b')
+        expect(installed).not.toHaveProperty('botPresetsId')
+    })
+
     it('serves backup and original asset downloads through the session cookie', async () => {
         await writeInlay('download-test')
         const session = await fetch(base + '/api/session', {

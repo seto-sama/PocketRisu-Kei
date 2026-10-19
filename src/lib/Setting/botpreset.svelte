@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
+    import { getChatBoundPromptPreset } from "src/ts/chatBindingState";
     import { alertConfirm, notifyError, notifySuccess } from "../../ts/alert";
     import { language } from "../../lang";
     import { changeToPreset, copyPreset, downloadPreset, getCurrentChat, importPreset, saveCurrentPreset } from "../../ts/storage/database.svelte";
@@ -20,9 +20,12 @@
     let selectedFolder = $state<string>('all')
 
     const tags = $derived(DBState.db.promptPresetTags ?? [])
-    const selectedPresetIndex = $derived($presetSelectCallback
-        ? getChatBoundPromptPresetIndex(DBState.db, getCurrentChat())
-        : DBState.db.botPresetsId)
+    const selectedPresetId = $derived($presetSelectCallback
+        ? getChatBoundPromptPreset(DBState.db, getCurrentChat())?.id ?? ''
+        : DBState.db.activePromptPresetId)
+    const selectedPresetIndex = $derived(selectedPresetId
+        ? DBState.db.botPresets.findIndex(preset => preset.id === selectedPresetId)
+        : -1)
 
     function assignPresetToTag(index: number, tagId: string | undefined) {
         DBState.db.botPresets[index].tagIds = togglePresetTag(DBState.db.botPresets[index].tagIds, tagId)
@@ -49,31 +52,29 @@
     let secondPresetIndex = $state<number | null>(null);
 
     function movePreset(fromIndex: number, toIndex: number) {
-        const result = movePresetItem(DBState.db.botPresets, DBState.db.botPresetsId, fromIndex, toIndex);
+        const result = movePresetItem(DBState.db.botPresets, -1, fromIndex, toIndex);
         if (!result.changed) return;
         DBState.db.botPresets = result.items;
-        DBState.db.botPresetsId = result.selectedIndex;
     }
 
     function selectPreset(index: number) {
+        const id = index < 0 ? '' : DBState.db.botPresets[index]?.id
+        if (index >= 0 && !id) return
         const callback = get(presetSelectCallback)
         if (callback) {
             presetSelectCallback.set(null)
-            callback(index)
+            callback(id ?? '')
         } else {
-            changeToPreset(index)
+            if (id) changeToPreset(id)
         }
         close()
     }
 
     function duplicatePreset(index: number) {
-        const before = DBState.db.botPresets.length
-        copyPreset(index)
-        const after = DBState.db.botPresets.length
-        if (after > before) {
-            changeToPreset(after - 1)
-            notifySuccess(language.presetDuplicated)
-        }
+        const id = copyPreset(index)
+        if (!id) return
+        changeToPreset(id)
+        notifySuccess(language.presetDuplicated)
     }
 
     function exportPreset(index: number) {
@@ -92,12 +93,12 @@
 
         // Flush in-flight top-level edits before mutating the preset array.
         saveCurrentPreset()
-        const removingActive = index === DBState.db.botPresetsId
-        const result = removePresetItem(DBState.db.botPresets, DBState.db.botPresetsId, index)
+        const removingActive = preset.id === DBState.db.activePromptPresetId
+        const targetIndex = DBState.db.botPresets.findIndex(item => item.id === preset.id)
+        const result = removePresetItem(DBState.db.botPresets, -1, targetIndex)
         if (!result.changed) return
         DBState.db.botPresets = result.items
-        DBState.db.botPresetsId = result.selectedIndex
-        if (removingActive) changeToPreset(0, false)
+        if (removingActive) DBState.db.activePromptPresetId = ''
         notifySuccess(language.presetDeleted)
     }
 
@@ -198,8 +199,11 @@
                 await importPreset()
                 const after = DBState.db.botPresets.length
                 if (after > before) {
-                    changeToPreset(after - 1)
-                    notifySuccess(language.presetImported)
+                    const id = DBState.db.botPresets[after - 1]?.id
+                    if (id) {
+                        changeToPreset(id)
+                        notifySuccess(language.presetImported)
+                    }
                 }
             }}
         >

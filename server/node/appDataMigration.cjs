@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { importPromptPresetSelection } = require('../../shared/promptPresetSelection.mjs');
 
 const LEGACY_DATABASE_KEY = 'database/database.bin';
 const LEGACY_DATABASE_MIGRATION_KEY = 'legacy-database-bin-to-app-data-v1';
@@ -347,6 +348,22 @@ function createAppDataMigration(options) {
     return { getMarker, run };
 }
 
+function migratePromptPresetSelection({ db, appDataStore }) {
+    db.transaction(() => {
+        const state = appDataStore.getState();
+        if (!state.initialized) return;
+
+        // Removing the index field makes this migration one-time.
+        if (!db.prepare("SELECT 1 FROM app_root_fields WHERE field_key = 'botPresetsId'").get()) return;
+
+        const projection = appDataStore.exportProjection({ includeMessages: false });
+        importPromptPresetSelection(projection);
+        appDataStore.syncStartupProjection(projection, {
+            expectedRevision: state.revision,
+        });
+    })();
+}
+
 module.exports = {
     AppDataMigrationCleanupError,
     AppDataMigrationError,
@@ -354,5 +371,6 @@ module.exports = {
     LEGACY_DATABASE_KEY,
     LEGACY_DATABASE_MIGRATION_KEY,
     createAppDataMigration,
+    migratePromptPresetSelection,
     semanticProjectionHash,
 };

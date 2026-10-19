@@ -12,6 +12,7 @@ const {
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
 const { assertChatIdentity, chatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
 const { ensureDatabasePresetIds, ensureUniqueEntityIds } = require('../../shared/entityIds.mjs');
+const { normalizePromptPresetSelection } = require('../../shared/promptPresetSelection.mjs');
 const {
     classifiedPluginOwner,
     installedV3Plugins,
@@ -83,6 +84,7 @@ function normalizedProjection(value) {
     }
     if (!Array.isArray(normalized.characters)) normalized.characters = [];
     ensureDatabasePresetIds(normalized);
+    normalizePromptPresetSelection(normalized);
     return normalized;
 }
 

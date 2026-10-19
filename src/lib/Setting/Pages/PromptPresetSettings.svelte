@@ -18,8 +18,8 @@
     import Button from "../../UI/components/Button.svelte";
     import { ImageIcon, XIcon } from "@lucide/svelte";
 
-    const activeIndex = $derived(DBState.db.botPresetsId);
-    const activePreset = $derived(DBState.db.botPresets[activeIndex]);
+    const activePresetId = $derived(DBState.db.activePromptPresetId);
+    const activePreset = $derived(DBState.db.botPresets.find(preset => preset.id === activePresetId));
     const basicInfoItems: SettingItem[] = [{
         id: 'promptPreset.name',
         type: 'text',
@@ -29,6 +29,8 @@
     }];
 
     async function uploadIcon() {
+        const targetPresetId = DBState.db.activePromptPresetId;
+        if (!targetPresetId) return;
         const selected = await selectSingleImageFile();
         if (!selected) return;
         const canvas = document.createElement('canvas');
@@ -41,14 +43,15 @@
         canvas.width = 48;
         canvas.height = 48;
         context.drawImage(image, 0, 0, 48, 48);
-        DBState.db.botPresets[activeIndex].image = canvas.toDataURL('image/jpeg', 0.7);
+        const targetPreset = DBState.db.botPresets.find(preset => preset.id === targetPresetId);
+        if (targetPreset) targetPreset.image = canvas.toDataURL('image/jpeg', 0.7);
     }
 </script>
 
 <SettingPage title={language.promptPresetMenu}>
     <PresetHeader
         label={language.currentPromptPreset}
-        activeName={DBState.db.botPresets?.[DBState.db.botPresetsId]?.name ?? '—'}
+        activeName={activePreset?.name ?? '—'}
         onManage={() => openPresetList.set(true)}
     />
     <SettingTabs
@@ -70,15 +73,15 @@
                 <SettingLayout variant="row" title={language.icon}>
                     {#snippet control()}
                         <div class="flex items-center gap-2">
-                            {#if DBState.db.botPresets[activeIndex]?.image}
-                                <img src={DBState.db.botPresets[activeIndex].image} alt="" class="h-8 w-8 rounded object-cover border border-darkborderc" decoding="async" />
+                            {#if activePreset?.image}
+                                <img src={activePreset.image} alt="" class="h-8 w-8 rounded object-cover border border-darkborderc" decoding="async" />
                             {/if}
-                            <Button variant="outline" size="sm" onclick={uploadIcon}>
+                            <Button variant="outline" size="sm" onclick={uploadIcon} disabled={!activePreset}>
                                 <ImageIcon />
-                                {DBState.db.botPresets[activeIndex]?.image ? language.edit : language.select}
+                                {activePreset?.image ? language.edit : language.select}
                             </Button>
-                            {#if DBState.db.botPresets[activeIndex]?.image}
-                                <Button variant="destructive" size="icon-sm" onclick={() => { DBState.db.botPresets[activeIndex].image = undefined; }} aria-label={language.iconRemove}>
+                            {#if activePreset?.image}
+                                <Button variant="destructive" size="icon-sm" onclick={() => { if (activePreset) activePreset.image = undefined; }} aria-label={language.iconRemove}>
                                     <XIcon />
                                 </Button>
                             {/if}

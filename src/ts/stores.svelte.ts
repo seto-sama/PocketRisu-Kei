@@ -44,8 +44,8 @@ export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
-// Binding pickers pass -1 to clear the current chat's binding.
-export const presetSelectCallback = writable<((index: number) => void) | null>(null)
+// Binding pickers pass an empty ID to clear the current chat's binding.
+export const presetSelectCallback = writable<((id: string) => void) | null>(null)
 export const openModelPresetList = writable(false)
 export const requestPreviewOpen = writable(false)
 export const openModelProfileBrowser = writable(false)

@@ -6,6 +6,7 @@ const { createAppDataStore } = require('./appDataStore.cjs');
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const { createChunkStore, CHUNK_MARKER } = require('./chunkStore.cjs');
 const { encodeRisuSaveLegacy } = require('./utils.cjs');
+const { exportPromptPresetSelection } = require('../../shared/promptPresetSelection.mjs');
 
 function createSnapshotKey(db, prefix, now = Date.now()) {
     const exists = db.prepare('SELECT 1 FROM kv WHERE key = ?');
@@ -87,7 +88,9 @@ function createRelationalSnapshot(options) {
             const projection = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(projection);
             return {
-                value: Buffer.from(encodeRisuSaveLegacy(projection)),
+                value: Buffer.from(encodeRisuSaveLegacy(
+                    exportPromptPresetSelection(projection),
+                )),
                 bookmarkCatalog: bookmarkStore.catalog(),
             };
         });

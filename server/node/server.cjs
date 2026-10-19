@@ -32,6 +32,7 @@ const { createAppDataStore } = require('./appDataStore.cjs');
 const {
     AppDataMigrationCleanupError,
     createAppDataMigration,
+    migratePromptPresetSelection,
 } = require('./appDataMigration.cjs');
 const appDataStore = createAppDataStore(sqliteDb);
 
@@ -85,6 +86,10 @@ const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('
 const { normalizeTrashRetentionDays } = require('../../shared/trashRetention.mjs');
 
 const { decodeRisuSave, encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
+const {
+    exportPromptPresetSelection,
+    importPromptPresetSelection,
+} = require('../../shared/promptPresetSelection.mjs');
 const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
 // Install process-level error handlers before any other init so early crashes get logged.
@@ -264,7 +269,9 @@ const createSnapshotState = sqliteDb.transaction(() => {
     const backupKey = makeSnapshotKey();
     const projection = appDataStore.exportProjection({ includeMessages: true });
     bookmarkStore.projectDatabaseCompatibility(projection);
-    kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(projection)));
+    kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(
+        exportPromptPresetSelection(projection),
+    )));
     if (!kvGet(backupKey)) throw new Error('Cannot create snapshot: database blob is missing');
     bookmarkStore.saveSnapshot(backupKey);
     trimSnapshotsToLimits();
@@ -415,6 +422,7 @@ function normalizeOrphanFolderIds(dbObj) {
 
 function normalizeLegacyDatabaseProjection(dbObj) {
     const normalized = normalizeJSON(dbObj);
+    importPromptPresetSelection(normalized);
     assignMissingPersistentIds(normalized);
     normalizeOrphanFolderIds(normalized);
 
@@ -2065,6 +2073,8 @@ async function ensureCanonicalStorage() {
             }
             logger.warn('[AppData] Canonical rows installed; legacy blob cleanup will retry:', error);
         }
+
+        migratePromptPresetSelection({ db: sqliteDb, appDataStore });
 
         if (appDataStore.getState().initialized && bookmarkStore.needsLegacyMigration()) {
             // Bookmarks already have a canonical relational store. Ingest the

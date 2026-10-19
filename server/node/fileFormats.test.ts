@@ -10,6 +10,10 @@ const { encodeFile, decodeFile } = require('./fileFormats.cjs') as {
     encodeFile(format: string, value: unknown): Promise<Uint8Array>
     decodeFile(format: string, data: Uint8Array): Promise<any>
 }
+const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils.cjs') as {
+    decodeRisuSave(data: Uint8Array): Promise<any>
+    encodeRisuSaveLegacy(data: unknown): Uint8Array
+}
 const apiErrorCodes = require('../../shared/apiErrorCodes.json')
 
 const gzipAsync = promisify(gzip)
@@ -92,5 +96,50 @@ describe('server native file formats', () => {
         await expect(decodeFile('save', file)).rejects.toMatchObject({
             code: apiErrorCodes.UNSUPPORTED_REMOTE_SAVE,
         })
+    })
+
+    it('exports the legacy preset index and imports it back as the canonical ID', async () => {
+        const database = {
+            characters: [],
+            botPresets: [{ id: 'preset-a' }, { id: 'preset-b' }],
+            activePromptPresetId: 'preset-b',
+        }
+
+        const encoded = await encodeFile('save', database)
+        const portable = await decodeRisuSave(encoded)
+        const imported = await decodeFile('save', encoded)
+
+        expect(portable.botPresetsId).toBe(1)
+        expect(portable).not.toHaveProperty('activePromptPresetId')
+        expect(imported.activePromptPresetId).toBe('preset-b')
+        expect(imported).not.toHaveProperty('botPresetsId')
+        expect(database.activePromptPresetId).toBe('preset-b')
+        expect(database).not.toHaveProperty('botPresetsId')
+    })
+
+    it('preserves the selected preset when an old backup has no preset IDs', async () => {
+        const imported = await decodeFile('save', encodeRisuSaveLegacy({
+            botPresets: [{ name: 'A' }, { name: 'B' }],
+            botPresetsId: 1,
+        }))
+
+        expect(imported.botPresets[1].id).toEqual(expect.any(String))
+        expect(imported.activePromptPresetId).toBe(imported.botPresets[1].id)
+        expect(imported).not.toHaveProperty('botPresetsId')
+    })
+
+    it.each([-1, 9])('imports no selection for legacy index %s without creating a preset', async index => {
+        const imported = await decodeFile('save', encodeRisuSaveLegacy({
+            botPresets: [{ id: 'preset-a' }],
+            botPresetsId: index,
+        }))
+
+        expect(imported.activePromptPresetId).toBe('')
+        expect(imported.botPresets).toEqual([{ id: 'preset-a' }])
+    })
+
+    it('preserves chat payloads through the generic save codec', async () => {
+        const chat = { id: 'chat-1', message: [{ data: 'Keep this chat.' }] }
+        expect(await decodeFile('save', await encodeFile('save', chat))).toEqual(chat)
     })
 })

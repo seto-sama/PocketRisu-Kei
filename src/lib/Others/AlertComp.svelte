@@ -26,7 +26,7 @@
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
-    import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
+    import { getActiveBotPreset, getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
     import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
@@ -82,7 +82,7 @@
 
     async function applyTogglePreset(preset: TogglePreset) {
         const name = preset.name
-        const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name
+        const currentPromptPresetName = getActiveBotPreset()?.name
         const isMismatch = preset.promptPresetName !== currentPromptPresetName
         const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
         const confirmed = await alertConfirm(msg)
@@ -219,7 +219,8 @@
             <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
                 {#if $alertStore.submsg === 'preset'}
-                    {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
+                    {@const activePromptPreset = getActiveBotPreset()}
+                    {#if cardExportType2 === 'preset' && (activePromptPreset?.image || (activePromptPreset?.regex?.length ?? 0) > 0)}
                         <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
                 {:else if $alertStore.submsg !== 'module'}
@@ -646,7 +647,7 @@
     {#snippet title()}{language.togglePresetSelectTitle}{/snippet}
 
     {#if $togglePresetsOpenStore}
-        {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
+        {@const currentPromptPresetName = getActiveBotPreset()?.name}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-subtext self-start cursor-pointer select-none">
                 <Switch bind:checked={togglePresetShowAll} />
@@ -720,7 +721,7 @@
                                                 const presetName = DBState.db.togglePresets![idx].name
                                                 const confirmed = await alertConfirm((language.togglePresetOverwriteConfirm as any)(presetName))
                                                 if (confirmed) {
-                                                    const promptPreset = DBState.db.botPresets[DBState.db.botPresetsId]
+                                                    const promptPreset = getActiveBotPreset()
                                                     DBState.db.togglePresets![idx].values = snapshotCurrentToggleValues()
                                                     DBState.db.togglePresets![idx].promptPresetName = promptPreset?.name
                                                     DBState.db.togglePresets = [...DBState.db.togglePresets!]
@@ -783,7 +784,7 @@
                         const name = await alertInput(language.togglePresetNamePrompt)
                         if (!name) return
                         DBState.db.togglePresets ??= []
-                        const promptPreset = DBState.db.botPresets[DBState.db.botPresetsId]
+                        const promptPreset = getActiveBotPreset()
                         DBState.db.togglePresets.push({
                             name,
                             values: snapshotCurrentToggleValues(),

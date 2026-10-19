@@ -11,6 +11,10 @@ const { decodeRisuSave, encodeRisuSave, normalizeJSON } = require('../utils.cjs'
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
+const {
+    exportPromptPresetSelection,
+    importPromptPresetSelection,
+} = require('../../../shared/promptPresetSelection.mjs');
 const { STORED_ASSET_PREFIX, collectDatabaseAssetBasenames, assetBasename: statsBasename } = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
 const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
@@ -348,12 +352,15 @@ function installBackupRoutes(app, {
     async function createCompatibleDatabaseValue() {
         const database = await getDatabaseExportSnapshot();
         if (!database) return null;
-        return encodeRisuSave(database);
+        return encodeRisuSave(exportPromptPresetSelection(database));
     }
 
     async function encodePortableDatabase(database, onCompress) {
         const { withExportColorSchemes } = await import('../../shared/colorScheme.js');
-        return encodeRisuSave(withExportColorSchemes(database), onCompress);
+        return encodeRisuSave(
+            withExportColorSchemes(exportPromptPresetSelection(database)),
+            onCompress,
+        );
     }
 
     app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
@@ -1136,11 +1143,12 @@ function installBackupRoutes(app, {
             if (!raw) return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
 
             const database = normalizeJSON(await decodeRisuSave(raw));
+            importPromptPresetSelection(database);
             // New snapshots keep bookmarks in a dedicated snapshot table. Project
             // that historical catalog into the portable file; legacy snapshots
             // already carry their bookmark compatibility fields in the blob.
             bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
-            const blob = await encodeRisuSave(database);
+            const blob = await encodeRisuSave(exportPromptPresetSelection(database));
 
             const dir = getManualSnapshotsDir();
             await fs.mkdir(dir, { recursive: true });

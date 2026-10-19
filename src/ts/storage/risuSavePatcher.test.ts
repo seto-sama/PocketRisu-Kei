@@ -8,8 +8,24 @@ vi.mock('./chatStorage', () => ({
 }))
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
-const { normalizeJSON, RisuSavePatcher } = await import('./risuSave')
+const { normalizeJSON, RisuSavePatcher, decodeRisuSave, encodeRisuSaveLegacy } = await import('./risuSave')
 const { applyPatch } = await import('fast-json-patch')
+
+test('imports a backup selection by ID and keeps the internal save ID-based after reorder', async () => {
+    const imported = await decodeRisuSave(encodeRisuSaveLegacy({
+        characters: [],
+        botPresets: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }],
+        botPresetsId: 1,
+    }))
+    expect(imported.activePromptPresetId).toBe('second')
+    expect(imported).not.toHaveProperty('botPresetsId')
+
+    imported.botPresets.reverse()
+    const restored = await decodeRisuSave(encodeRisuSaveLegacy(imported))
+    expect(restored.activePromptPresetId).toBe('second')
+    expect(restored.botPresets.map(preset => preset.id)).toEqual(['second', 'first'])
+    expect(restored).not.toHaveProperty('botPresetsId')
+})
 
 test('retries an acknowledged chat insertion from the exact saved baseline without duplicates', async () => {
     const old = { id: 'old', name: 'Old', _stub: true }

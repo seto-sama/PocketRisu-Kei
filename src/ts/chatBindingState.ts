@@ -18,10 +18,10 @@ export function getChatBoundPersona(
     return db.personas?.find(persona => persona.id === chat.bindedPersona) ?? null
 }
 
-export function getChatBoundPromptPresetIndex(
+export function getChatBoundPromptPreset(
     db: Pick<Database, 'showPresetInSidebar' | 'botPresets'>,
     chat: Pick<Chat, 'bindedBotPreset'> | undefined,
-): number {
-    if (db.showPresetInSidebar === false || !chat?.bindedBotPreset) return -1
-    return db.botPresets.findIndex(preset => preset.id === chat.bindedBotPreset)
+): Database['botPresets'][number] | null {
+    if (db.showPresetInSidebar === false || !chat?.bindedBotPreset) return null
+    return db.botPresets.find(preset => preset.id === chat.bindedBotPreset) ?? null
 }

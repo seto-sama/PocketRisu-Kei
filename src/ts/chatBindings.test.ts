@@ -28,13 +28,13 @@ import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from './chatB
 describe('current chat bindings', () => {
     beforeEach(() => {
         state.chat = {}
-        state.database.botPresets = [{}]
+        state.database.botPresets = [{ id: 'prompt-id' }]
         state.database.personas = [{}]
         state.notifySuccess.mockClear()
     })
 
     it('binds prompt presets and personas to the current chat', () => {
-        expect(bindPromptPresetToCurrentChat(0)).toBe(true)
+        expect(bindPromptPresetToCurrentChat('prompt-id')).toBe(true)
         expect(bindPersonaToCurrentChat(0)).toBe(true)
 
         expect(state.chat).toMatchObject({
@@ -46,7 +46,7 @@ describe('current chat bindings', () => {
 
     it('clears only the selected binding when the picker selects none', () => {
         state.chat = { bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' }
-        expect(bindPromptPresetToCurrentChat(-1)).toBe(true)
+        expect(bindPromptPresetToCurrentChat('')).toBe(true)
         expect(state.chat).toEqual({ bindedBotPreset: '', bindedPersona: 'persona-id' })
         expect(bindPersonaToCurrentChat(-1)).toBe(true)
         expect(state.chat).toEqual({ bindedBotPreset: '', bindedPersona: '' })
@@ -56,11 +56,11 @@ describe('current chat bindings', () => {
 
     it('does not change bindings for a missing chat or an invalid preset', () => {
         state.chat = { bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' }
-        expect(bindPromptPresetToCurrentChat(99)).toBe(false)
+        expect(bindPromptPresetToCurrentChat('missing')).toBe(false)
         expect(bindPersonaToCurrentChat(-2)).toBe(false)
         expect(state.chat).toEqual({ bindedBotPreset: 'prompt-id', bindedPersona: 'persona-id' })
         state.chat = null
-        expect(bindPromptPresetToCurrentChat(-1)).toBe(false)
+        expect(bindPromptPresetToCurrentChat('')).toBe(false)
         expect(bindPersonaToCurrentChat(-1)).toBe(false)
         expect(state.notifySuccess).not.toHaveBeenCalled()
     })

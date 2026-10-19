@@ -1,4 +1,5 @@
 import { chatMetadataFields } from '../../../shared/chatShape.mjs'
+import { importPromptPresetSelection } from '../../../shared/promptPresetSelection.mjs'
 import { Packr, Unpackr } from "msgpackr/index-no-eval";
 import type { Database } from "./database.svelte";
 import { chatToStub } from "./chatStorage";
@@ -251,6 +252,10 @@ export class RisuSaveEncoder {
 }
 
 export async function decodeRisuSave(data:Uint8Array){
+    return importPromptPresetSelection(await decodeRisuSaveInternal(data))
+}
+
+async function decodeRisuSaveInternal(data:Uint8Array){
     let header: ReturnType<typeof checkHeader> = false
     try {
         header = checkHeader(data)

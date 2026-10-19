@@ -2,6 +2,7 @@
 import crypto from 'node:crypto'
 import Database from './sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Packr } from 'msgpackr'
 import appDataMigrationPkg from './appDataMigration.cjs'
 import appDataStorePkg from './appDataStore.cjs'
 
@@ -10,9 +11,11 @@ const {
     AppDataMigrationVerificationError,
     LEGACY_DATABASE_KEY,
     createAppDataMigration,
+    migratePromptPresetSelection,
     semanticProjectionHash,
 } = appDataMigrationPkg as any
 const { createAppDataStore } = appDataStorePkg as any
+const packr = new Packr({ useRecords: false })
 
 const openDatabases: Database.Database[] = []
 
@@ -270,5 +273,49 @@ describe('legacy database migration barrier', () => {
             revision: 0,
             legacyBlobRemoved: false,
         })
+    })
+})
+
+describe('installed prompt preset selection migration', () => {
+    it('converts an installed numeric selection once without replacing chat bodies', () => {
+        const harness = createHarness()
+        harness.appDataStore.replaceFromProjection({
+            characters: [{
+                chaId: 'character-1',
+                name: 'Character',
+                chats: [{
+                    id: 'chat-1',
+                    name: 'Chat',
+                    message: [{ chatId: 'message-1', data: 'preserve this body' }],
+                }],
+            }],
+            botPresets: [{ id: 'preset-a' }, { id: 'preset-b' }],
+            activePromptPresetId: 'preset-a',
+        })
+
+        // Simulate rows written by the previous release, before the new store
+        // normalizer removes the numeric field.
+        harness.sqlite.prepare(`
+          UPDATE app_root_fields
+          SET field_key = 'botPresetsId', payload = ?, field_kind = 'value', collection = NULL
+          WHERE field_key = 'activePromptPresetId'
+        `).run(packr.pack(1))
+
+        migratePromptPresetSelection({
+            db: harness.sqlite,
+            appDataStore: harness.appDataStore,
+        })
+        const installed = harness.appDataStore.exportProjection()
+        const revision = harness.appDataStore.getState().revision
+        migratePromptPresetSelection({
+            db: harness.sqlite,
+            appDataStore: harness.appDataStore,
+        })
+
+        expect(installed.activePromptPresetId).toBe('preset-b')
+        expect(installed).not.toHaveProperty('botPresetsId')
+        expect(installed.characters[0].chats[0].message[0].data).toBe('preserve this body')
+        expect(harness.appDataStore.exportProjection()).toEqual(installed)
+        expect(harness.appDataStore.getState().revision).toBe(revision)
     })
 })

@@ -49,6 +49,7 @@ function sampleDatabase() {
         nullable: null,
         count: 0,
         botPresets: [{ id: 'preset-1', name: '기본', temperature: 80 }],
+        activePromptPresetId: 'preset-1',
         modules: [{ id: 'module-1', name: 'Lore', lorebook: [] }],
         plugins: [{ name: 'legacy-plugin', version: '1.0.0' }],
         pluginV2: [{ id: 'plugin-v2', name: 'Plugin V2' }],

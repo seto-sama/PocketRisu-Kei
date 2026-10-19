@@ -1,7 +1,7 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate, getActiveBotPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
@@ -537,7 +537,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         value: string,
     }[] = []
     if(DBState.db.promptInfoInsideChat){
-        initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
+        initialPresetNameForPromptInfo = getActiveBotPreset()?.name ?? ''
         initialPromptTogglesForPromptInfo = parseToggleSyntax(getToggleTemplate(DBState.db, nowChatroom, outgoingChat))
             .flatMap(toggle => {
                 const raw = DBState.db.globalChatVariables[`toggle_${toggle.key}`]

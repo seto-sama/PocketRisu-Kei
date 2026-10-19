@@ -39,6 +39,7 @@ import { normalizeGenerationCount } from '../process/automaticReroll';
 import { OUTPUT_REPETITION_DISABLED } from '../process/request/repetitionDetector';
 import { normalizePresetTagFields, normalizePresetTagState, type PresetTag, type PresetTagFields } from '../preset/tags';
 import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem } from '../preset/collection';
+import { normalizePromptPresetSelection } from '../../../shared/promptPresetSelection.mjs';
 
 export { pocketKeiVer } from '../version'
 export let webAppSubVer = ''
@@ -421,9 +422,6 @@ export function setDatabase(data:Database){
         for (const preset of data.botPresets) {
             preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
         }
-    }
-    if(checkNullish(data.botPresetsId)){
-        data.botPresetsId = 0
     }
     if(checkNullish(data.themePresets)){
         let defaultTheme = structuredClone(themePresetTemplate)
@@ -890,6 +888,7 @@ export function setDatabase(data:Database){
 }
 
 function installDatabase(data: Database) {
+    normalizePromptPresetSelection(data)
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
         initializeChatSelection(character)
@@ -1111,12 +1110,7 @@ export interface Database{
     botPresets:botPreset[]
     /** User-defined tags for organizing prompt presets. */
     promptPresetTags?:PresetTag[]
-    /**
-     * @deprecated New code: use getActiveBotPreset() / setActiveBotPresetById() helpers.
-     * Kept as the physical store for upstream RisuAI .bin backup compatibility.
-     * Collection mutations must update it from the shared preset collection result.
-     */
-    botPresetsId:number
+    activePromptPresetId:string
     themePresets:themePreset[]
     /** User-defined tags for organizing theme presets. */
     themePresetTags?:PresetTag[]
@@ -2219,29 +2213,12 @@ export const themePresetTemplate: themePreset = {
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
 }
 
-// ─────────────────────────────────────────────────────────────
-// botPreset id-based helper layer
-//
-// Physical storage stays index-based (db.botPresetsId: number) for upstream
-// RisuAI .bin backup compatibility. New code (chat binding etc.) should use
-// these helpers so reorder/delete operations stay stable: withStableActivePreset
-// preserves the active preset by id while the underlying array is mutated.
-// ─────────────────────────────────────────────────────────────
-
 export function createBotPresetTemplate(): botPreset {
     return clonePresetWithNewId(presetTemplate)
 }
 
 export function getActiveBotPreset(): botPreset | null {
-    const db = getDatabase()
-    if (!Array.isArray(db.botPresets) || db.botPresetsId < 0 || db.botPresetsId >= db.botPresets.length) {
-        return null
-    }
-    return db.botPresets[db.botPresetsId] ?? null
-}
-
-export function getActiveBotPresetId(): string | undefined {
-    return getActiveBotPreset()?.id || undefined
+    return getBotPresetById(getDatabase().activePromptPresetId)
 }
 
 export function getBotPresetById(id: string): botPreset | null {
@@ -2250,55 +2227,17 @@ export function getBotPresetById(id: string): botPreset | null {
     return db.botPresets.find((p) => p?.id === id) ?? null
 }
 
-export function getBotPresetIndexById(id: string): number {
-    const db = getDatabase()
-    if (!id || !Array.isArray(db.botPresets)) return -1
-    return db.botPresets.findIndex((p) => p?.id === id)
-}
-
-export function setActiveBotPresetById(id: string | undefined): void {
-    const db = getDatabase()
-    if (id === undefined) {
-        db.botPresetsId = -1
-        return
-    }
-    const idx = getBotPresetIndexById(id)
-    if (idx >= 0) {
-        db.botPresetsId = idx
-    }
-}
-
-/**
- * Compatibility wrapper for callers that still perform an arbitrary botPresets
- * mutation. New collection UI should use the shared preset collection helpers.
- */
-export function withStableActivePreset(fn: () => void): void {
-    const activeId = getActiveBotPresetId()
-    fn()
-    const db = getDatabase()
-    if (activeId) {
-        const newIdx = getBotPresetIndexById(activeId)
-        db.botPresetsId = newIdx >= 0 ? newIdx : 0
-    } else if (Array.isArray(db.botPresets) && db.botPresetsId >= db.botPresets.length) {
-        db.botPresetsId = Math.max(0, db.botPresets.length - 1)
-    }
-}
-
 export function saveCurrentPreset(){
-    let db = getDatabase()
-    let pres = db.botPresets
-
-    if(db.botPresetsId === -1){
-        return
-    }
-    const currentPreset = pres[db.botPresetsId]
+    const db = getDatabase()
+    const currentPreset = getActiveBotPreset()
+    if (!currentPreset) return
     const savedPreset:botPreset =  {
         // Preserve fields unknown to this version so imported presets can be
         // round-tripped by both database backups and individual preset exports.
         ...currentPreset,
-        id: pres[db.botPresetsId]?.id || createEntityId(),
-        name: pres[db.botPresetsId].name,
-        tagIds: structuredClone(pres[db.botPresetsId]?.tagIds),
+        id: currentPreset.id,
+        name: currentPreset.name,
+        tagIds: structuredClone(currentPreset.tagIds),
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         mainPrompt:db.mainPrompt,
@@ -2352,7 +2291,7 @@ export function saveCurrentPreset(){
         customFlags: structuredClone(db.customFlags),
         enableCustomFlags: db.enableCustomFlags,
         regex: db.presetRegex,
-        image: pres?.[db.botPresetsId]?.image ?? '',
+        image: currentPreset.image ?? '',
         reasonEffort: db.reasoningEffort ?? 0,
         thinkingTokens: db.thinkingTokens ?? null,
         thinkingType: db.thinkingType ?? 'budget',
@@ -2364,17 +2303,7 @@ export function saveCurrentPreset(){
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
     }
-    
-    if(!Array.isArray(pres)){
-        pres = []
-    }
-    if(db.botPresetsId >= pres.length){
-        pres.push(savedPreset)
-    }
-    else{
-        pres[db.botPresetsId] = savedPreset
-    }
-    db.botPresets = pres
+    db.botPresets = db.botPresets.map(preset => preset.id === currentPreset.id ? savedPreset : preset)
 }
 
 export function copyPreset(id:number){
@@ -2386,17 +2315,16 @@ export function copyPreset(id:number){
         return copy
     })
     if (result.changed) db.botPresets = result.items
+    return result.item?.id
 }
 
-export function changeToPreset(id =0, savecurrent = true){
-    if(savecurrent){
-        saveCurrentPreset()
-    }
-    let db = getDatabase()
-    let pres = db.botPresets
-    const newPres = pres[id]
-    db.botPresetsId = id
-    db = setPreset(db, newPres)
+export function changeToPreset(id: string){
+    if (!getBotPresetById(id)) return
+    saveCurrentPreset()
+    const db = getDatabase()
+    const newPres = getBotPresetById(id)!
+    db.activePromptPresetId = id
+    setPreset(db, newPres)
     const chat = getCurrentChat()
     if(chat){
         loadTogglesFromChat(chat)
