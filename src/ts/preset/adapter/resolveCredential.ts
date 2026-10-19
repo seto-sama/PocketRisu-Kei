@@ -75,13 +75,8 @@ export interface PrepareAdapterRequestInput extends AdapterRequestContext {
 export async function prepareAdapterRequest(
     input: PrepareAdapterRequestInput,
 ): Promise<AdapterPreparedRequest> {
-    // Capture the raw SA JSON BEFORE the swap below replaces credential.apiKey
-    // with an OAuth token. buildModelPresetCredential already collapses the
-    // pool / inline / userValues sources into credential.apiKey, so this is the
-    // one place where the SA JSON is available for ALL credential modes — the
-    // Vertex endpoint builder needs it to recover project_id when the preset
-    // uses a pooled/inline key and leaves Project ID blank (the JSON is then
-    // absent from userValues.serviceAccountJson). See vertexEndpoint.ts.
+    // Keep the selected credential's JSON before token resolution so Vertex
+    // derives its project from the same account used for authentication.
     const serviceAccountJson =
         resolvePresetAuth(input.preset).kind === 'google-service-account' &&
         typeof input.credential?.apiKey === 'string'
