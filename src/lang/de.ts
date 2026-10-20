@@ -1003,4 +1003,15 @@ export const languageGerman = {
     secureConnectionRequiredBody: "Öffnen Sie PocketRisu Kei über HTTPS oder verwenden Sie auf dem Servergerät http://localhost oder http://127.0.0.1. Für den Fernzugriff aktivieren Sie Cloudflare Remote Access über die lokale Verbindung.",
 
     selectBotHint: "Wählen Sie einen Bot zum Chatten",
+    risuTosTitle: "Nutzungsbedingungen von RisuAI",
+    risuTosDesc: "Diese Funktion nutzt Server, die von RisuAI betrieben werden.\nPocketRisu Kei ist ein von RisuAI unabhängiges Projekt, und die folgenden Bedingungen sind die von RisuAI, nicht die von PocketRisu Kei. Eine Ablehnung beeinträchtigt die übrigen Funktionen von PocketRisu Kei nicht.",
+    risuTosScope: "Diese Bedingungen gelten nur für:",
+    risuTosScopeRealm: "RisuRealm (Charaktere durchsuchen, suchen, herunterladen und melden)",
+    risuTosScopeMcp: "OAuth-Anmeldung bei MCP-Servern (über den Kontoserver von RisuAI weitergeleitet)",
+    risuTosTerms: "Nutzungsbedingungen von RisuAI",
+    risuTosPrivacy: "Datenschutzerklärung von RisuAI",
+    risuTosAccept: "Akzeptieren",
+    risuTosDecline: "Nicht akzeptieren",
+    risuTosGate: "RisuRealm nutzt Server, die von RisuAI betrieben werden. Akzeptiere die Nutzungsbedingungen von RisuAI, um es zu verwenden.",
+    risuTosGateButton: "Bedingungen ansehen",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

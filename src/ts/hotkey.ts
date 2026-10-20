@@ -2,7 +2,6 @@ import { get } from "svelte/store"
 import { alertRequestData, alertSelect, doingAlert, requestDiagnosticsTabs } from "./alert"
 import { getCurrentChat, getDatabase  } from "./storage/database.svelte"
 import {
-    alertStore,
     botMakerMode,
     openHypaV3PresetList,
     openModelPresetList,
@@ -187,12 +186,6 @@ export function initHotkey() {
             }
             if (requestDialogCloseAction()) {
                 event.preventDefault()
-            }
-        }
-        if (event.key === 'Enter') {
-            const alertType = get(alertStore).type
-            if (alertType === 'ask' || alertType === 'normal' || alertType === 'error') {
-                alertStore.set({ type: 'none', msg: 'yes' })
             }
         }
     })

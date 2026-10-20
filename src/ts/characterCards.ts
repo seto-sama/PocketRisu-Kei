@@ -381,6 +381,10 @@ export const getRealmInfo = async (realmPath:string) => {
     url.searchParams.delete('realm');
     window.history.pushState(null, '', url.toString());
 
+    if(!(await alertTOS())){
+        return
+    }
+
     const res = await fetch(`${hubURL}/hub/info/${realmPath}`)
     if(res.status !== 200){
         notifyError(await res.text())
@@ -1548,6 +1552,10 @@ export async function getRisuHub(arg:{
     signal?: AbortSignal
 }):Promise<hubType[]> {
     try {
+        if(!(await alertTOS())){
+            return []
+        }
+
         const search = `${arg.search} __shared`
         const stringArg = `search==${search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==other`
 
@@ -1604,10 +1612,11 @@ export async function downloadRisuHub(id:string, arg:{
     }
 
     try {
+        if(!(await alertTOS())){
+            return false
+        }
+
         if(!arg.forceRedirect){
-            if(!(await alertTOS())){
-                return false
-            }
             alertStore.set({
                 type: "wait",
                 msg: "Downloading..."
@@ -1660,7 +1669,7 @@ export async function downloadRisuHub(id:string, arg:{
     }
 }
 
-export async function getHubResources(id:string) {
+async function getHubResources(id:string) {
     const res = await fetch(`${hubURL}/resource/${id}`)
     if(res.status !== 200){
         throw (await res.text())

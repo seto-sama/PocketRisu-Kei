@@ -1003,4 +1003,15 @@ export const languageVietnamese = {
     secureConnectionRequiredBody: "Mở PocketRisu Kei bằng HTTPS hoặc dùng http://localhost hoặc http://127.0.0.1 trên thiết bị máy chủ. Để truy cập từ xa, hãy bật Cloudflare Remote Access khi đang kết nối cục bộ.",
 
     selectBotHint: "Chọn một bot để bắt đầu trò chuyện",
+    risuTosTitle: "Điều khoản dịch vụ của RisuAI",
+    risuTosDesc: "Tính năng này sử dụng máy chủ do RisuAI vận hành.\nPocketRisu Kei là dự án độc lập, tách biệt với RisuAI, và các điều khoản dưới đây là của RisuAI, không phải của PocketRisu Kei. Việc từ chối không ảnh hưởng đến các tính năng khác của PocketRisu Kei.",
+    risuTosScope: "Các điều khoản này chỉ áp dụng cho:",
+    risuTosScopeRealm: "RisuRealm (duyệt, tìm kiếm, tải xuống và báo cáo nhân vật)",
+    risuTosScopeMcp: "Đăng nhập OAuth máy chủ MCP (chuyển tiếp qua máy chủ tài khoản của RisuAI)",
+    risuTosTerms: "Điều khoản dịch vụ của RisuAI",
+    risuTosPrivacy: "Chính sách quyền riêng tư của RisuAI",
+    risuTosAccept: "Đồng ý",
+    risuTosDecline: "Không đồng ý",
+    risuTosGate: "RisuRealm sử dụng máy chủ do RisuAI vận hành. Hãy đồng ý với điều khoản dịch vụ của RisuAI để sử dụng.",
+    risuTosGateButton: "Xem điều khoản",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

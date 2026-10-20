@@ -8,10 +8,9 @@
     import { ChevronRightIcon } from '@lucide/svelte';
     import { isCharacterHasAssets } from 'src/ts/characterCards';
     import Input from '../UI/components/Input.svelte';
-    import { openURL } from 'src/ts/globalApi.svelte';
     import Button from '../UI/components/Button.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
-    import AlertDialog from '../UI/components/AlertDialog.svelte';
+    import ConfirmationDialogs from './ConfirmationDialogs.svelte';
     import ProgressDialog from '../UI/components/ProgressDialog.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import Select from "../UI/components/Select.svelte";
@@ -28,7 +27,7 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getActiveBotPreset, getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
-    import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
+    import { alertInput, alertConfirm, alertError, notifySuccess } from "src/ts/alert";
     import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
@@ -68,11 +67,9 @@
         return lines.join('\n')
     });
 
-    let btn
     let input = $state('')
     let cardExportType = $state('realm')
     let cardExportType2 = $state('')
-    let cardLicense = $state('')
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
     let suppressInputFocusRestore = false
@@ -122,7 +119,6 @@
         try {
             await navigator.clipboard.writeText(text)
         } catch {
-            // fallback
             const textarea = document.createElement('textarea')
             textarea.value = text
             document.body.appendChild(textarea)
@@ -140,9 +136,6 @@
         translatedStackTrace = '';
         stackTraceTranslationFailed = false;
         isTranslating = false;
-        if(btn){
-            btn.focus()
-        }
         if($alertStore.type !== 'input'){
             input = ''
         } else {
@@ -151,7 +144,6 @@
         if($alertStore.type !== 'cardexport'){
             cardExportType = ''
             cardExportType2 = ''
-            cardLicense = ''
         }
     });
 
@@ -332,6 +324,7 @@
 
 <Dialog
     open={$alertStore.type === 'error'}
+    onConfirm={() => alertStore.set({ type: 'none', msg: '' })}
     size="lg"
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'error') {
@@ -344,7 +337,7 @@
     {/snippet}
 
     <div class="flex flex-col gap-2">
-        <span class="text-maintext whitespace-pre-wrap wrap-break-word">{$alertStore.msg}</span>
+        <span class="text-maintext wrap-break-word">{$alertStore.msg}</span>
         {#if $alertStore.submsg}
             <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
@@ -387,6 +380,7 @@
 
 <Dialog
     open={$alertStore.type === 'normal'}
+    onConfirm={() => alertStore.set({ type: 'none', msg: '' })}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'normal') {
             alertStore.set({ type: 'none', msg: '' })
@@ -394,7 +388,7 @@
     }}
 >
     <div class="flex flex-col gap-2">
-        <span class="whitespace-pre-wrap">{$alertStore.msg}</span>
+        <span>{$alertStore.msg}</span>
         {#if $alertStore.submsg}
             <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
@@ -429,65 +423,6 @@
 
 </Dialog>
 
-<AlertDialog
-    open={$alertStore.type === 'ask'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'ask') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    <div class="flex flex-col gap-2">
-        <span class="whitespace-pre-wrap text-maintext">{$alertStore.msg}</span>
-        {#if $alertStore.submsg}
-            <span class="whitespace-pre-wrap text-sm text-subtext">{$alertStore.submsg}</span>
-        {/if}
-    </div>
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
-        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
-    {/snippet}
-</AlertDialog>
-
-<AlertDialog
-    open={$alertStore.type === 'pluginconfirm'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'pluginconfirm') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    {#if $alertStore.type === 'pluginconfirm'}
-        {@const parts = $alertStore.msg.split('\n\n')}
-        {@const mainPart = parts[0] ?? ''}
-        {@const confirmMessage = parts[1] ?? ''}
-        {@const mainParts = mainPart.split('\n')}
-        {@const pluginName = mainParts[0] ?? ''}
-        {@const warnings = mainParts.slice(1)}
-        <div class="flex flex-col gap-3">
-            <p class="text-xl font-bold text-maintext">{pluginName}</p>
-            {#if warnings.length > 0}
-                <ul class="list-disc list-inside text-danger text-sm space-y-1">
-                    {#each warnings as warning}
-                        <li>{warning}</li>
-                    {/each}
-                </ul>
-            {/if}
-            {#if confirmMessage}
-                <p class="text-subtext">{confirmMessage}</p>
-            {/if}
-        </div>
-    {/if}
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
-        <Button variant="destructive" onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
-    {/snippet}
-</AlertDialog>
-
 <Dialog
     open={$alertStore.type === 'select'}
     closable={false}
@@ -506,7 +441,7 @@
         {@const options = hasDisplay ? parts.slice(1) : parts}
         <div class="flex flex-col gap-3">
             {#if prompt}
-                <p class="text-maintext whitespace-pre-wrap">{prompt}</p>
+                <p class="text-maintext">{prompt}</p>
             {/if}
             <div class="flex flex-col gap-2">
                 {#each options as label, i}
@@ -523,41 +458,6 @@
     {/if}
 </Dialog>
 
-<AlertDialog
-    open={$alertStore.type === 'confirmMulti'}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'confirmMulti') {
-            alertStore.set({ type: 'none', msg: 'cancel' })
-        }
-    }}
->
-    {#snippet title()}
-        {$alertStore.msg}
-    {/snippet}
-    {#if $alertStore.submsg}
-        {#snippet description()}
-            <span class="whitespace-pre-wrap">{$alertStore.submsg}</span>
-        {/snippet}
-    {/if}
-    {#if $alertStore.type === 'confirmMulti'}
-        {@const actions = $alertStore.actions ?? []}
-        <div class="flex flex-col gap-2">
-            {#each actions as action, i}
-                <Button
-                    variant={action.variant ?? 'default'}
-                    className="w-full"
-                    onclick={() => alertStore.set({ type: 'none', msg: i.toString() })}
-                >
-                    {action.label}
-                </Button>
-            {/each}
-        </div>
-    {/if}
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'cancel' })}>{language.cancel}</Button>
-    {/snippet}
-</AlertDialog>
-
 <Dialog
     open={$alertStore.type === 'input'}
     closable={false}
@@ -569,7 +469,7 @@
 >
     <div class="flex flex-col gap-3">
         {#if $alertStore.msg}
-            <p class="text-maintext whitespace-pre-wrap">{$alertStore.msg}</p>
+            <p class="text-maintext">{$alertStore.msg}</p>
         {/if}
         <Input
             bind:value={input}
@@ -609,37 +509,16 @@
     {/snippet}
 </Dialog>
 
+<ConfirmationDialogs />
+
 <ProgressDialog
-    open={$alertStore.type === 'wait' || $alertStore.type === 'wait2' || $alertStore.type === 'progress'}
+    open={$alertStore.type === 'wait' || $alertStore.type === 'progress'}
     title={$alertStore.title}
     message={$alertStore.msg}
     submessage={$alertStore.type !== 'progress' ? ($alertStore.submsg ?? '') : ''}
     progress={$alertStore.type === 'progress' ? parseFloat($alertStore.submsg ?? '0') : null}
     progressDetail={$alertStore.progressDetail}
 />
-
-<AlertDialog
-    open={$alertStore.type === 'tos'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'tos') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    <!-- svelte-ignore a11y_missing_attribute -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="text-maintext">
-        You should accept
-        <a role="button" tabindex="0" class="text-lightborderc hover:underline cursor-pointer" onclick={() => openURL('https://sv.risuai.xyz/hub/tos')}>Terms of Service</a>
-        to continue.
-    </div>
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>Do not Accept</Button>
-        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>Accept</Button>
-    {/snippet}
-</AlertDialog>
 
 <Dialog
     open={$togglePresetsOpenStore}

@@ -1246,4 +1246,15 @@ export const languageChineseTraditional = {
     "secureConnectionRequiredBody": "請透過 HTTPS 開啟 PocketRisu Kei，或在伺服器裝置上使用 http://localhost 或 http://127.0.0.1。若要遠端存取，請先從本機連線啟用 Cloudflare 遠端存取。",
 
     "selectBotHint": "選擇一個機器人開始聊天",
+    "risuTosTitle": "RisuAI 服務條款",
+    "risuTosDesc": "此功能使用 RisuAI 營運的伺服器。\nPocketRisu Kei 是獨立於 RisuAI 的專案，以下條款是 RisuAI 自己的條款，而非 PocketRisu Kei 的條款。不同意也不影響 PocketRisu Kei 的其他功能。",
+    "risuTosScope": "這些條款僅適用於：",
+    "risuTosScopeRealm": "RisuRealm（瀏覽、搜尋、下載和檢舉角色）",
+    "risuTosScopeMcp": "MCP 伺服器 OAuth 登入（透過 RisuAI 帳號伺服器中繼）",
+    "risuTosTerms": "RisuAI 服務條款",
+    "risuTosPrivacy": "RisuAI 隱私權政策",
+    "risuTosAccept": "同意",
+    "risuTosDecline": "不同意",
+    "risuTosGate": "RisuRealm 使用 RisuAI 營運的伺服器。需要同意 RisuAI 服務條款才能使用。",
+    "risuTosGateButton": "查看條款",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>

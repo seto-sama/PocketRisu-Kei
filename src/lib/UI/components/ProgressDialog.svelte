@@ -48,10 +48,10 @@
     {/snippet}
 
     {#if message}
-        <p class="text-sm text-subtext leading-relaxed whitespace-pre-wrap break-words">{message}</p>
+        <p class="text-sm text-subtext leading-relaxed break-words">{message}</p>
     {/if}
     {#if submessage}
-        <p class="mt-2 text-sm text-subtext leading-relaxed whitespace-pre-wrap break-words">{submessage}</p>
+        <p class="mt-2 text-sm text-subtext leading-relaxed break-words">{submessage}</p>
     {/if}
 
     {@render children?.()}
