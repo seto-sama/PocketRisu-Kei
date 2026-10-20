@@ -6,7 +6,6 @@ import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
-import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
 import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
 import { lgViewport } from './gui/breakpoints'
@@ -227,11 +226,6 @@ export function dismissClaimedLoadingOverlay(): void {
 export const QuickSettings = $state({
     open: false,
     index: 0
-})
-
-export const pluginAlertModalStore = $state({
-    open: false,
-    errors: [] as PluginSafetyErrors[]
 })
 
 export type MenuDef = {

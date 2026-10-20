@@ -463,9 +463,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.bias)){
         data.bias = []
     }
-    if(checkNullish(data.allowV2Plugin)){
-        data.allowV2Plugin = false
-    }
     if(checkNullish(data.showFirstMessagePages)){
         data.showFirstMessagePages = false
     }
@@ -1154,7 +1151,6 @@ export interface Database{
     outputRepetitionLimit:number
     emotionPrompt2:string
     useSayNothing:boolean
-    allowV2Plugin:boolean
     useStreaming:boolean
     voyageApiKey:string
     supaMemoryKey:string

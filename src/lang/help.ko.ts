@@ -55,7 +55,6 @@ export const helpKo = {
         "topP": "Top P는 뉴클레우스 샘플링을 위한 확률 임계값입니다. 모델은 top_p 확률 질량을 가진 토큰의 결과를 고려합니다.",
         "openAIFixer": "OpenAI Fixer는 OpenAI의 일부 문제를 수정하는 플러그인입니다.",
         "sayNothing": "활성화되면 문자열이 입력되지 않을 때 '아무 말도 하지 않음'을 입력합니다.",
-        "allowV2Plugin": "경고: 이 옵션은 보안 위험이 있는 V2.0 및 V2.1 플러그인의 설치 및 실행을 허용합니다. 명시적으로 신뢰하며 아직 V3로 이전할 수 없는 플러그인에만 사용하세요.",
         "imageCompression": "활성화되면 캐릭터 내보내기 시 이미지를 압축합니다. 애니메이션 이미지가 작동하지 않는 경우 이 옵션을 비활성화해보세요.",
         "disableGlobalLorebookRecursiveScanning": "로어북의 재귀 검색 기능을 끕니다. 캐릭터 개별 설정에서 '재귀 검색'을 사용하기로 한 경우 해당 설정이 우선됩니다.",
         "inlayImageCompression": "활성화하면 새 인레이 이미지를 압축 후에 저장합니다. 끄면 원본 크기의 무손실 PNG로 저장합니다.",

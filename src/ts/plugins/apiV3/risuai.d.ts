@@ -1219,10 +1219,6 @@ type ProviderFunction = (
  * Provider options
  */
 interface ProviderOptions {
-    /** Tokenizer name (e.g., 'gpt-4') */
-    tokenizer?: string;
-    /** Custom tokenizer function */
-    tokenizerFunc?: (content: string) => number[] | Promise<number[]>;
     /**
      * Optional model metadata used by the legacy model picker and by
      * Model Presets > Developer. Providers that omit it are still listed using

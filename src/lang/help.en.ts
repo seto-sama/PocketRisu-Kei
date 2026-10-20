@@ -88,7 +88,6 @@ export const helpEn = {
         topP: "Top P is a probability threshold for nucleus sampling. model considers the results of the tokens with top_p probability mass.",
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
-        allowV2Plugin: "Warning: This allows deprecated V2.0 and V2.1 plugins to be installed and run. These plugins may be unsafe. When disabled, installed V2 plugins are switched off and cannot be enabled. Enable only for plugins you explicitly trust and cannot migrate to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
         inlayImageCompression: "When enabled, new inlay images are compressed using the settings below. When disabled, they are saved as lossless PNG at their original size.",

@@ -446,13 +446,6 @@ await (async function() {
         console.error('Failed to initialize risuai properties:', e);
     }
 
-    window.initOldApiGlobal = () => {
-        const keys = risuai._getOldKeys()
-        for(const key of keys){
-            window[key] = risuai[key];
-        }
-    }
-
     Object.freeze(window.postMessage);
 })();
 `;

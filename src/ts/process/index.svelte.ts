@@ -90,7 +90,7 @@ import {
     setGenerationMessageContent,
     setGenerationMessageInfo,
 } from './revenant/recovery';
-import { pluginV2 } from '../plugins/plugins.svelte';
+import { pluginRuntime } from '../plugins/pluginRuntime';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
@@ -108,7 +108,7 @@ export interface OpenAIChat{
 }
 
 async function runChatOutputListeners(characterId: string, roomId: string, messageId: string){
-    if(pluginV2.chatOutput.size === 0) return
+    if(pluginRuntime.chatOutput.size === 0) return
 
     const characterIndex = DBState.db.characters.findIndex(character => character?.chaId === characterId)
     const character = DBState.db.characters[characterIndex]
@@ -119,7 +119,7 @@ async function runChatOutputListeners(characterId: string, roomId: string, messa
     const messageIndex = chat.message.findIndex(message => message?.chatId === messageId)
     const charSnapshot = $state.snapshot(character)
     const chatSnapshot = $state.snapshot(chat)
-    for(const listener of pluginV2.chatOutput){
+    for(const listener of pluginRuntime.chatOutput){
         try {
             await listener({
                 char: charSnapshot,

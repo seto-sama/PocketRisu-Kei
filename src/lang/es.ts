@@ -966,24 +966,6 @@ export const languageSpanish = {
     "translate": "Traducir dirección de código",
     "apply": "Aplicar",
     "add": "Agregar",
-    "pluginRiskDetectedAlert": "PocketRisu Kei detectó código que puede ser dañino y que podría ROBAR TU CLAVE API O DATOS PERSONALES. te recomendamos NO INSTALAR ESTE PLUGIN.",
-    "doNotInstall": "No Instalar",
-    "continueAnyway": "Continuar de Todos Modos",
-    "pluginNoRiskButAlert": "PocketRisu Kei no detectó código dañino, pero ten en cuenta que instalar plugins de fuentes no confiables puede plantear riesgos de seguridad.",
-    "pluginRisksInuserFriendly": {
-        "eval": "Evaluando Código desde Cadenas",
-        "globalAccess": "Accediendo a Variables Globales",
-        "thisOutsideClass": "Usando 'this' Fuera del Contexto de Clase",
-        "errorInVerification": "Errores Durante el Proceso de Verificación",
-        "storageAccess": "Accediendo al Almacenamiento"
-    },
-    "pluginRisksInuserFriendlyDesc": {
-        "eval": "El plugin intenta ejecutar código desde cadenas, las cadenas pueden ser ofuscadas para ocultar código malicioso.",
-        "globalAccess": "El plugin intenta acceder a variables globales, lo que puede llevar a efectos secundarios no deseados o vulnerabilidades de seguridad.",
-        "thisOutsideClass": "El plugin usa la palabra clave 'this' fuera del contexto de clase, lo que puede llevar a un comportamiento no deseado o problemas de seguridad.",
-        "errorInVerification": "Hay errores durante el proceso de verificación del plugin, indicando problemas potenciales con su funcionalidad.",
-        "storageAccess": "El plugin intenta acceder al almacenamiento, lo que podría llevar a fugas de datos o manipulación de datos no autorizada."
-    },
     "generatedByAIDisclaimer": "Este contenido fue generado por IA y puede contener inexactitudes o sesgos.",
     "loadMore": "Cargar más",
     "goToChat": "Ir al chat",
@@ -1012,7 +994,6 @@ export const languageSpanish = {
     "providerPermissionConsent": "El plugin {} está solicitando permiso para acceder al proveedor, lo que podría permitirle realizar llamadas API no autorizadas. ¿Desea permitir esto?",
     "sendChatConsent": "El plugin {} está solicitando permiso para enviar mensajes de chat en su nombre, lo que activará respuestas de IA. ¿Desea permitir esto?",
     "inlayPermissionConsent": "El plugin {} está solicitando permiso para acceder a los recursos inlay, lo que podría exponer archivos adjuntos a los chats. ¿Desea permitir esto?",
-    "pluginV2Warning": "Los plugins V2 y V2.1 se consideran inseguros y dejarán de funcionar en futuras versiones. **Por favor, no use estas versiones de plugins.** Si usted es el desarrollador de este plugin, actualícelo a V3 lo antes posible.",
     "disableAbove": "Mensajes cortados para la IA",
     "hamburgerButtonBottom": "Mover el botón de menú a la parte inferior de la barra lateral",
 

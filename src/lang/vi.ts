@@ -966,24 +966,6 @@ export const languageVietnamese = {
     "translate": "Dịch địa chỉ mã",
     "apply": "Áp dụng",
     "add": "Thêm",
-    "pluginRiskDetectedAlert": "PocketRisu Kei phát hiện mã có thể gây hại, có thể ĂN CẮP KHÓA API HOẶC DỮ LIỆU CÁ NHÂN CỦA BẠN. Chúng tôi khuyên bạn KHÔNG NÊN CÀI ĐẶT PLUGIN NÀY.",
-    "doNotInstall": "Không cài đặt",
-    "continueAnyway": "Vẫn tiếp tục",
-    "pluginNoRiskButAlert": "PocketRisu Kei không phát hiện mã độc hại, nhưng xin lưu ý rằng việc cài đặt plugin từ các nguồn không tin cậy có thể gây rủi ro bảo mật.",
-    "pluginRisksInuserFriendly": {
-        "eval": "Đánh giá mã từ chuỗi",
-        "globalAccess": "Truy cập biến toàn cục",
-        "thisOutsideClass": "Sử dụng 'this' bên ngoài ngữ cảnh lớp",
-        "errorInVerification": "Lỗi trong quá trình xác minh",
-        "storageAccess": "Truy cập bộ nhớ"
-    },
-    "pluginRisksInuserFriendlyDesc": {
-        "eval": "Plugin cố gắng thực thi mã từ chuỗi, chuỗi có thể bị làm mờ để ẩn mã độc hại.",
-        "globalAccess": "Plugin cố gắng truy cập các biến toàn cục, điều này có thể dẫn đến các tác dụng phụ không mong muốn hoặc lỗ hổng bảo mật.",
-        "thisOutsideClass": "Plugin sử dụng từ khóa 'this' bên ngoài ngữ cảnh lớp, điều này có thể dẫn đến hành vi không mong muốn hoặc các vấn đề bảo mật.",
-        "errorInVerification": "Có lỗi trong quá trình xác minh plugin, cho thấy các vấn đề tiềm ẩn với chức năng của nó.",
-        "storageAccess": "Plugin cố gắng truy cập bộ nhớ, điều này có thể dẫn đến rò rỉ dữ liệu hoặc thao tác dữ liệu trái phép."
-    },
     "generatedByAIDisclaimer": "Nội dung này được tạo bởi AI và có thể chứa thông tin không chính xác hoặc thiên kiến.",
     "noRequestLogs": "Không có nhật ký yêu cầu nào.",
     "bookmark": "Dấu trang",
@@ -1011,7 +993,6 @@ export const languageVietnamese = {
     "providerPermissionConsent": "Plugin {} đang yêu cầu quyền truy cập Provider, điều này có thể cho phép nó thực hiện các lệnh gọi API trái phép. Bạn có muốn cho phép không?",
     "sendChatConsent": "Plugin {} đang yêu cầu quyền gửi tin nhắn trò chuyện thay mặt bạn, điều này sẽ kích hoạt phản hồi AI. Bạn có muốn cho phép không?",
     "inlayPermissionConsent": "Plugin {} đang yêu cầu quyền truy cập tài nguyên inlay, điều này có thể làm lộ các tệp đính kèm trong cuộc trò chuyện. Bạn có muốn cho phép không?",
-    "pluginV2Warning": "Plugin V2 và V2.1 bị coi là không an toàn và sẽ ngừng hoạt động trong các phiên bản sau. **Vui lòng không sử dụng các phiên bản plugin này.** Nếu bạn là nhà phát triển của plugin này, vui lòng cập nhật lên V3 càng sớm càng tốt.",
     "trimStartNewChat": "Rút gọn các tin nhắn 'Bắt đầu đoạn chat mới'",
     "newMessageButtonRightCenter": "Trung tâm bên phải",
     "hamburgerButtonBottom": "Di chuyển nút menu xuống dưới cùng của thanh bên",

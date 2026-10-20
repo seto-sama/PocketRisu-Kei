@@ -966,24 +966,6 @@ export const languageChinese = {
     "translate": "翻译代码地址",
     "apply": "应用",
     "add": "追加",
-    "pluginRiskDetectedAlert": "PocketRisu Kei 检测到可能有害的代码，这可能会窃取您的 API 密钥或个人数据。我们建议您不要安装此插件。",
-    "doNotInstall": "不要安装",
-    "continueAnyway": "仍然继续",
-    "pluginNoRiskButAlert": "PocketRisu Kei 没有检测到有害代码，但请注意，从不受信任的来源安装插件可能会带来安全风险。",
-    "pluginRisksInuserFriendly": {
-        "eval": "从字符串评估代码",
-        "globalAccess": "访问全局变量",
-        "thisOutsideClass": "在类上下文之外使用 'this'",
-        "errorInVerification": "验证过程中出错",
-        "storageAccess": "访问存储"
-    },
-    "pluginRisksInuserFriendlyDesc": {
-        "eval": "该插件尝试从字符串执行代码，字符串可能会被混淆以隐藏恶意代码。",
-        "globalAccess": "该插件尝试访问全局变量，这可能导致意外的副作用或安全漏洞。",
-        "thisOutsideClass": "该插件在类上下文之外使用 'this' 关键字，这可能导致意外行为或安全问题。",
-        "errorInVerification": "插件验证过程中出现错误，表明其功能可能存在问题。",
-        "storageAccess": "该插件尝试访问存储，这可能导致数据泄露或未经授权的数据操作。"
-    },
     "generatedByAIDisclaimer": "此内容由 AI 生成，可能包含不准确信息或偏见。",
     "bookmark": "书签",
     "loadMore": "加载更多",
@@ -1012,7 +994,6 @@ export const languageChinese = {
     "providerPermissionConsent": "插件 {} 正在请求访问 Provider 的权限，这可能允许它进行未授权的 API 调用。是否允许？",
     "sendChatConsent": "插件 {} 正在请求代表您发送聊天消息的权限，这将触发 AI 回复。是否允许？",
     "inlayPermissionConsent": "插件 {} 正在请求访问内嵌资源（inlay）的权限，这可能会暴露聊天中附加的文件。是否允许？",
-    "pluginV2Warning": "插件 V2 和 V2.1 被认为是不安全的，将在未来版本中停止工作。**请勿使用这些版本的插件。**如果您是此插件的开发者，请尽快更新到 V3。",
     "trimStartNewChat": "修剪“开始新对话”消息",
     "hamburgerButtonBottom": "将菜单按钮移至侧边栏底部",
 

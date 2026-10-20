@@ -37,47 +37,6 @@ export function initializeChatSelection(character: ChatCharacter, preferLegacy =
     delete legacy.chatPage
 }
 
-/** Legacy plugins still receive their selected index in an isolated API snapshot. */
 export function withChatSelection<T extends ChatCharacter>(character: T): T & { chatPage: number } {
     return character ? { ...character, chatPage: getChatPage(character) } : character as T & { chatPage: number }
-}
-
-const pluginViews = new WeakMap<object, object>()
-
-/** Keep legacy direct mutations local while forwarding other live database edits. */
-export function pluginCharacterSelections<T extends ChatCharacter>(characters: T[]): T[] {
-    const existing = pluginViews.get(characters)
-    if (existing) return existing as T[]
-    const view = new Proxy(characters, {
-        get(target, key, receiver) {
-            const character = Reflect.get(target, key, receiver)
-            if (typeof key !== 'string' || !/^\d+$/.test(key) || !character) return character
-            const existing = pluginViews.get(character)
-            if (existing) return existing
-            const view = new Proxy(character, {
-                get(target, key, receiver) {
-                    return key === 'chatPage' ? getChatPage(target) : Reflect.get(target, key, receiver)
-                },
-                set(target, key, value, receiver) {
-                    if (key !== 'chatPage') return Reflect.set(target, key, value, receiver)
-                    setChatPage(target, value)
-                    return true
-                },
-                ownKeys(target) { return [...new Set([...Reflect.ownKeys(target), 'chatPage'])] },
-                getOwnPropertyDescriptor(target, key) {
-                    return key === 'chatPage'
-                        ? { configurable: true, enumerable: true, writable: true, value: getChatPage(target) }
-                        : Reflect.getOwnPropertyDescriptor(target, key)
-                },
-            })
-            pluginViews.set(character, view)
-            return view
-        },
-        set(target, key, value, receiver) {
-            if (typeof key === 'string' && /^\d+$/.test(key) && value) initializeChatSelection(value, true)
-            return Reflect.set(target, key, value, receiver)
-        },
-    })
-    pluginViews.set(characters, view)
-    return view
 }

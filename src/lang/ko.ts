@@ -1005,7 +1005,6 @@ export const languageKorean = {
   noAlternateGreetings: "설정된 추가 첫 메시지가 없습니다.",
   unrecommended: "비권장",
   chatNotes: "채팅 노트",
-  allowV2Plugin: "플러그인 V2 허용",
   altGreet: "추가 첫 메시지",
   scripts: "스크립트",
   settings: "설정",
@@ -1795,7 +1794,6 @@ export const languageKorean = {
   pluginMemoryDisableAll: "전부 끄기",
   pluginMemoryProceed: "진행",
   pluginMemoryDisabledForSession: "메모리 보호를 위해 일시적으로 꺼짐",
-  pluginV2Blocked: "레거시 플러그인 V2 차단됨",
   alwaysActiveInChat: "언제나 활성화 (현재 챗)",
   childLoreDesc:
     "이것은 캐릭터 로어의 복사본이며, 삭제하거나 원본 로어에서 직접 비활성화하기 전에는 '언제나 활성화' 상태로 유지됩니다.",
@@ -2023,31 +2021,6 @@ export const languageKorean = {
   apply: "적용",
   send: "전송",
   add: "추가",
-  pluginRiskDetectedTitle: "플러그인 위험 감지",
-  pluginRiskDetectedAlert:
-    "API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드가 감지되었습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
-  doNotInstall: "설치하지 않음",
-  continueAnyway: "무시하고 계속",
-  pluginNoRiskButAlert:
-    "위험한 코드는 감지되지 않았지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
-  pluginRisksInuserFriendly: {
-    eval: "문자열에서 코드 실행",
-    globalAccess: "글로벌 변수 접근",
-    thisOutsideClass: "클래스 컨텍스트 외부에서 'this' 사용",
-    errorInVerification: "검증 과정 중 오류 발생",
-    storageAccess: "스토리지 접근",
-  },
-  pluginRisksInuserFriendlyDesc: {
-    eval: "플러그인이 문자열에서 코드를 실행하려고 합니다. 악성 코드를 숨기기 위해 문자열이 난독화되었을 수 있습니다.",
-    globalAccess:
-      "플러그인이 글로벌 변수에 접근하려고 합니다. 이는 의도치 않은 부작용이나 보안 취약점으로 이어질 수 있습니다.",
-    thisOutsideClass:
-      "플러그인이 클래스 컨텍스트 외부에서 'this' 키워드를 사용하고 있습니다. 이는 의도치 않은 동작이나 보안 문제로 이어질 수 있습니다.",
-    errorInVerification:
-      "플러그인의 검증 과정 중 오류가 발생했습니다. 이는 기능상의 잠재적인 문제를 나타냅니다.",
-    storageAccess:
-      "플러그인이 스토리지에 접근하려고 합니다. 이는 데이터 유출이나 무단 데이터 조작으로 이어질 수 있습니다.",
-  },
   generatedByAIDisclaimer:
     "이 콘텐츠는 AI에 의해 생성되었으며 부정확하거나 편향된 정보가 포함될 수 있습니다.",
   autoScrollToNewMessage: "새 메시지로 자동 스크롤",
@@ -2150,13 +2123,11 @@ export const languageKorean = {
   editPlugin: "플러그인 편집",
   enablePlugin: "플러그인 켜기",
   disablePlugin: "플러그인 끄기",
+  pluginApiUnsupported: "플러그인 V2는 지원이 종료되었습니다. 플러그인 V3을 사용해 주세요.",
   removePlugin: "플러그인 삭제",
   updatePlugin: "플러그인 업데이트 설치",
   pluginCreated: "플러그인을 만들었습니다.",
   pluginUpdated: "플러그인을 업데이트했습니다.",
-  pluginV2WarningTitle: "구형 플러그인 API 경고",
-  pluginV2Warning:
-    "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",
   partialBackupFirstConfirm:
     "⚠️ 경고: 부분 로컬 백업 ⚠️\n\n이 백업은 최소한의 필수 정보만 빠르게 저장하는 기능입니다.\n\n포함되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n⚠️ 포함되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- 기타 모든 추가 미디어 파일\n\n이 백업 파일에는 모든 캐릭터 에셋이 포함되지 않습니다!\n완전한 백업이 필요하다면 일반 로컬 백업을 사용하세요.\n\n그래도 계속하시겠습니까?",
   partialBackupSecondConfirm:

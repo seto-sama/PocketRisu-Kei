@@ -1,13 +1,10 @@
-# Plugin 2.0 -> 2.1/3.0 Migration Guide
+# Plugin API 2.x to 3.0 Migration Guide
 
 ## Overview
 
-Originally, Risuai plugins got unlimited access to the global environment, which posed significant security risks. To mitigate these risks, we limited some of the accessible APIs in plugin scripts.
-This is due to the fact that plugins can run arbitrary code, which may lead to security vulnerabilities if they access sensitive API keys or data, especially with planned account systems in the future.
+PocketRisu Kei supports plugin API 3.0. It does not import or execute API 2.0 or 2.1 plugins. Existing older plugin records remain in the database and can be inspected or exported from Plugin Settings.
 
-So plugin 2.1 and 3.0 introduced a new plugin API versioning system. 2.1 is mostly compatible with 2.0, but with some restricted APIs and added safe alternatives. however, 2.1 were just a transitional version, and still have some security issues due to API's structure. 3.0 will introduce API overhaul with many breaking changes, with focus on security and stability.
-
-2.1 can be deprecated in the future, but it will still be supported for a long time for compatibility reasons. however, 3.0 will be the recommended version for new plugins, and 2.1 might show security warnings in future versions.
+This guide describes the older APIs to help migrate their scripts to API 3.0. Some API names originating in 2.1 remain available as compatibility aliases through API 3.0; those are documented in the API 3 section below.
 
 ## Declaring Plugin Version
 
@@ -23,9 +20,11 @@ Plugin 3.0
 //@api 3.0
 ```
 
-If no api version is declared, it will be treated as 2.1. however, it will be mandatory to declare api version in future versions.
+For PocketRisu Kei, declare `//@api 3.0`. Older scripts that omit the declaration or declare API 2.0/2.1 are not supported for import or execution.
 
 ## API 2.1
+
+The following describes the legacy API for migration purposes. It is not supported for plugin execution in PocketRisu Kei.
 
 API 2.1 works like 2.0, mostly compatible and working in same document context, but with some restricted APIs and added safe alternatives.
 
@@ -145,9 +144,9 @@ API 3.0 introduces significant changes to enhance security and stability. It is 
 
 All API v3 methods are accessed through the `risuai` global object. The API uses a sandboxed iframe environment to ensure security isolation.
 
-#### Legacy APIs from v2.1 (Maintained for Compatibility)
+#### API 3.0 Compatibility Aliases from v2.1
 
-The following APIs from v2.1 are still available in v3.0:
+The following names that originated in v2.1 remain available to API 3.0 plugins:
 
 - `risuFetch`: Fetch wrapper with Risuai-specific enhancements
 - `nativeFetch`: Direct native fetch access
@@ -464,15 +463,6 @@ console.log(risuai.apiVersion) // "3.0"
 console.log(risuai.apiVersionCompatibleWith) // ["3.0"]
 ```
 
-#### Internal Methods
-
-```javascript
-// Get legacy API keys (for debugging/compatibility checking)
-const oldKeys = risuai._getOldKeys()
-```
-
-**Note:** Methods prefixed with `_` are internal and subject to change without notice.
-
 #### TTS Hooks (v3.0)
 
 Plugins can intercept Text-to-Speech both before synthesis (transform the text) and before playback (transform or swap the audio):
@@ -715,44 +705,6 @@ API v3.0 implements multiple security layers:
 })()
 ```
 
-### Making Your Plugin Compatible with 2.0, 2.1, and 3.0
+## Current Support
 
-first, declare the api version at the top of your plugin script:
-
-```javascript
-//@api 2.0 2.1 3.0
-```
-
-This will make the software load the plugin in the highest supported api version. then, you can use feature detection to check which api version is currently running, and adjust your code accordingly:
-
-```javascript
-
-(async () => {
-
-  //This works in all api versions, except 1.0, which is deprecated long ago
-  const apiVersion = (typeof risuai !== 'undefined' ? risuai.apiVersion : apiVersion) || '2.0'
-
-  if (apiVersion === '3.0') {
-    // Use API v3.0 features
-    const doc = risuai.getRootDocument();
-    // ...
-  } else if (apiVersion === '2.1') {
-    // Use API v2.1 features
-    const doc = safeDocument;
-    // ...
-  } else {
-    // Use API v2.0 features
-    const doc = document;
-    // ...
-  }
-})();
-```
-
-# Deprecation Schedule
-
-| Version | Deprecation Date | Notes |
-|---------|------------------|-------|
-| 1.0    | Already Deprecated | No longer supported, plugins using this version will not work in current versions. |
-| 2.0     | After Account System Release | Transitional support for legacy plugins, it will quickly be deprecated after account system release. |
-| 2.1     | Unknown (Long-term support) | Will be supported for a long time for compatibility, but security warnings will be shown after 2.0 deprecation. |
-| 3.0     | N/A              | Recommended version for new plugins, will be supported indefinitely, unless major security issues arise. |
+API 3.0 is the only plugin API supported by PocketRisu Kei. Declare `//@api 3.0` and use the API 3.0 interfaces documented in the reference guide.

@@ -3,11 +3,10 @@
     import { DownloadIcon, PlusIcon, TrashIcon, LinkIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon, UploadIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SettingPage from "../../UI/components/SettingPage.svelte";
-    import { alertConfirm, alertMd, notifySuccess } from "src/ts/alert";
-    import { TriangleAlertIcon } from '@lucide/svelte';
+    import { alertConfirm, notifySuccess } from "src/ts/alert";
 
     import { DBState, showPopupEditor } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, isLegacyV2Plugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
+    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, isSupportedPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
     import Input from "../../UI/components/Input.svelte";
@@ -40,11 +39,8 @@
     }
 
     function pluginDescription(plugin: RisuPlugin) {
-        const parts: string[] = []
-        if (plugin.displayName && plugin.displayName !== plugin.name) parts.push(plugin.name)
-        if (plugin.versionOfPlugin) parts.push(plugin.versionOfPlugin)
-        if (plugin.version) parts.push(`API ${plugin.version}`)
-        return parts.join(' / ') || plugin.name
+        const version = plugin.versionOfPlugin?.replace(/^v/i, '')
+        return version ? `${plugin.name} v${version}` : plugin.name
     }
 
     function pluginKey(plugin: RisuPlugin, index: number) {
@@ -154,15 +150,14 @@
         <EmptyState title={language.noPlugins} description="" layout="section" />
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
-        {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
+        {@const pluginUnsupported = !isSupportedPlugin(plugin)}
         {@const memoryPowerLocked = pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore)}
-        {@const legacyPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
-        {@const pluginPowerLocked = memoryPowerLocked || legacyPowerLocked}
+        {@const pluginPowerLocked = memoryPowerLocked || pluginUnsupported}
         {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
-        {@const pluginPowerLabel = memoryPowerLocked
-            ? language.pluginMemoryDisabledForSession
-            : legacyPowerLocked
-                ? language.pluginV2Blocked
+        {@const pluginPowerLabel = pluginUnsupported
+            ? language.pluginApiUnsupported
+            : memoryPowerLocked
+                ? language.pluginMemoryDisabledForSession
                 : pluginPoweredOn
                     ? language.disablePlugin
                     : language.enablePlugin}
@@ -188,15 +183,6 @@
                 <span class="text-xs text-subtext truncate">{pluginDescription(plugin)}</span>
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
-            {#if legacyV2Plugin}
-                <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-warning" onclick={(e) => {
-                    e.stopPropagation()
-                    alertMd(language.pluginV2Warning);
-                }} >
-                    <TriangleAlertIcon />
-                </IconButton>
-            {/if}
-
             {#if plugin.customLink}
                 {#each plugin.customLink as link}
                     {#if typeof link.link === "string" && (link.link.startsWith("http://") || link.link.startsWith("https://"))}
