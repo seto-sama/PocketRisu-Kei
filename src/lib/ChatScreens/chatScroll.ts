@@ -14,12 +14,12 @@ const SCROLL_PHASE_ATTRIBUTE = 'data-chat-scroll-phase'
 const DIRECT_MANIPULATION_ATTRIBUTE = 'data-chat-direct-manipulation'
 const HISTORY_READ_ATTRIBUTE = 'data-chat-history-read'
 const TOUCH_INTENT_THRESHOLD = 4
-export const CHAT_NEAR_BOTTOM_THRESHOLD = 100
+const CHAT_NEAR_BOTTOM_THRESHOLD = 100
 export const CHAT_HISTORY_LOAD_THRESHOLD = 100
 
 type ChatScrollMode = 'bottom-follow' | 'history-read'
 
-export function getScrollDistanceFromBottom(
+function getScrollDistanceFromBottom(
     scrollTop: number,
     scrollHeight: number,
     clientHeight: number,
@@ -27,7 +27,7 @@ export function getScrollDistanceFromBottom(
     return Math.max(0, scrollHeight - clientHeight - scrollTop)
 }
 
-export function isChatScrolledToBottom(
+function isChatScrolledToBottom(
     scrollTop: number,
     scrollHeight: number,
     clientHeight: number,
@@ -47,12 +47,8 @@ export function isChatNearBottom(
         <= Math.max(0, threshold)
 }
 
-export function getScrollPhaseQuantum(devicePixelRatio: number) {
-    return getPhysicalPixelQuantum(devicePixelRatio)
-}
-
-export function normalizeScrollPhaseHeight(height: number, devicePixelRatio: number) {
-    const quantum = getScrollPhaseQuantum(devicePixelRatio)
+function normalizeScrollPhaseHeight(height: number, devicePixelRatio: number) {
+    const quantum = getPhysicalPixelQuantum(devicePixelRatio)
     const normalized = ((height % quantum) + quantum) % quantum
     return normalized > quantum - SCROLL_PHASE_EPSILON ? 0 : normalized
 }
@@ -64,13 +60,13 @@ type ScrollElementOptions = {
 }
 
 type PreserveElementOptions = {
-    edge?: 'top' | 'bottom'
+    edge?: 'top' | 'bottom' | 'viewport-bottom'
     followLayout?: boolean
 }
 
 type LayoutAnchor = {
     element: HTMLElement | null
-    edge: 'top' | 'bottom'
+    fraction: number
     position: number
 }
 
@@ -220,13 +216,13 @@ export function createChatScrollController(
     }
 
     const alignLayoutAnchor = (anchor: LayoutAnchor) => {
-        if (anchor.edge === 'bottom' && !anchor.element) {
+        if (!anchor.element) {
             alignBottom()
             return
         }
-        if (!anchor.element?.isConnected || !container.contains(anchor.element)) return
+        if (!anchor.element.isConnected || !container.contains(anchor.element)) return
         const rect = anchor.element.getBoundingClientRect()
-        const currentPosition = anchor.edge === 'bottom' ? rect.bottom : rect.top
+        const currentPosition = rect.top + rect.height * anchor.fraction
         const delta = currentPosition - anchor.position
         if (Math.abs(delta) > Number.EPSILON) container.scrollTop += delta
     }
@@ -376,7 +372,7 @@ export function createChatScrollController(
         navigationAnchor = options.followLayout
             ? {
                 element,
-                edge: 'top',
+                fraction: 0,
                 position: options.block === 'start'
                     ? containerRect.top
                     : containerRect.bottom - elementRect.height,
@@ -450,12 +446,16 @@ export function createChatScrollController(
         const token = Symbol('chat-layout-anchor')
         const atBottom = isAtBottom()
         const elementRect = element.getBoundingClientRect()
+        const fraction = edge === 'viewport-bottom' && elementRect.height > 0
+            ? Math.max(0, Math.min(1,
+                (container.getBoundingClientRect().bottom - elementRect.top) / elementRect.height))
+            : edge === 'top' ? 0 : 1
         const anchor: LayoutAnchor = atBottom
-            ? { element: null, edge: 'bottom', position: 0 }
+            ? { element: null, fraction: 1, position: 0 }
             : {
                 element,
-                edge,
-                position: edge === 'bottom' ? elementRect.bottom : elementRect.top,
+                fraction,
+                position: elementRect.top + elementRect.height * fraction,
             }
         layoutAnchors.set(token, anchor)
         setMode(atBottom ? 'bottom-follow' : 'history-read')
