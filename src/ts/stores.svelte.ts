@@ -6,7 +6,6 @@ import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
-import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
 import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
 import { lgViewport } from './gui/breakpoints'
@@ -44,8 +43,8 @@ export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
-// Binding pickers pass -1 to clear the current chat's binding.
-export const presetSelectCallback = writable<((index: number) => void) | null>(null)
+// Binding pickers pass an empty ID to clear the current chat's binding.
+export const presetSelectCallback = writable<((id: string) => void) | null>(null)
 export const openModelPresetList = writable(false)
 export const requestPreviewOpen = writable(false)
 export const openModelProfileBrowser = writable(false)
@@ -227,11 +226,6 @@ export function dismissClaimedLoadingOverlay(): void {
 export const QuickSettings = $state({
     open: false,
     index: 0
-})
-
-export const pluginAlertModalStore = $state({
-    open: false,
-    errors: [] as PluginSafetyErrors[]
 })
 
 export type MenuDef = {

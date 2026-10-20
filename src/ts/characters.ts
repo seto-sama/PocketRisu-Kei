@@ -411,7 +411,7 @@ export async function exportChat(page:number){
             await downloadFile(`${char.name}_${date}_chat`.replace(/[<>:"/\\|?*\.\,]/g, "") + '.txt', Buffer.from(stringl, 'utf-8'))
 
         }
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }
@@ -534,7 +534,7 @@ export async function exportAllChats() {
             bookmarkTags: bookmarkExport.tags,
         }), 'utf-8')
         await downloadFile(`${char.name}_all_chats_${date}`.replace(/[<>:"/\\|?*.,]/g, "") + '.json', stringl)
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }

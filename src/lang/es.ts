@@ -426,7 +426,7 @@ export const languageSpanish = {
     "userSetting": "Configuración de Usuario",
     "username": "Tu Nombre",
     "userIcon": "Tu Icono",
-    "successExport": "Exportado y descargado exitosamente en tu directorio de descargas",
+    "browserDownloadStarted": "Se ha iniciado la descarga.",
     "successImport": "Importado exitosamente",
     "moduleCreated": "Módulo creado.",
     "moduleUpdated": "Módulo actualizado.",
@@ -966,24 +966,6 @@ export const languageSpanish = {
     "translate": "Traducir dirección de código",
     "apply": "Aplicar",
     "add": "Agregar",
-    "pluginRiskDetectedAlert": "PocketRisu Kei detectó código que puede ser dañino y que podría ROBAR TU CLAVE API O DATOS PERSONALES. te recomendamos NO INSTALAR ESTE PLUGIN.",
-    "doNotInstall": "No Instalar",
-    "continueAnyway": "Continuar de Todos Modos",
-    "pluginNoRiskButAlert": "PocketRisu Kei no detectó código dañino, pero ten en cuenta que instalar plugins de fuentes no confiables puede plantear riesgos de seguridad.",
-    "pluginRisksInuserFriendly": {
-        "eval": "Evaluando Código desde Cadenas",
-        "globalAccess": "Accediendo a Variables Globales",
-        "thisOutsideClass": "Usando 'this' Fuera del Contexto de Clase",
-        "errorInVerification": "Errores Durante el Proceso de Verificación",
-        "storageAccess": "Accediendo al Almacenamiento"
-    },
-    "pluginRisksInuserFriendlyDesc": {
-        "eval": "El plugin intenta ejecutar código desde cadenas, las cadenas pueden ser ofuscadas para ocultar código malicioso.",
-        "globalAccess": "El plugin intenta acceder a variables globales, lo que puede llevar a efectos secundarios no deseados o vulnerabilidades de seguridad.",
-        "thisOutsideClass": "El plugin usa la palabra clave 'this' fuera del contexto de clase, lo que puede llevar a un comportamiento no deseado o problemas de seguridad.",
-        "errorInVerification": "Hay errores durante el proceso de verificación del plugin, indicando problemas potenciales con su funcionalidad.",
-        "storageAccess": "El plugin intenta acceder al almacenamiento, lo que podría llevar a fugas de datos o manipulación de datos no autorizada."
-    },
     "generatedByAIDisclaimer": "Este contenido fue generado por IA y puede contener inexactitudes o sesgos.",
     "loadMore": "Cargar más",
     "goToChat": "Ir al chat",
@@ -1012,7 +994,6 @@ export const languageSpanish = {
     "providerPermissionConsent": "El plugin {} está solicitando permiso para acceder al proveedor, lo que podría permitirle realizar llamadas API no autorizadas. ¿Desea permitir esto?",
     "sendChatConsent": "El plugin {} está solicitando permiso para enviar mensajes de chat en su nombre, lo que activará respuestas de IA. ¿Desea permitir esto?",
     "inlayPermissionConsent": "El plugin {} está solicitando permiso para acceder a los recursos inlay, lo que podría exponer archivos adjuntos a los chats. ¿Desea permitir esto?",
-    "pluginV2Warning": "Los plugins V2 y V2.1 se consideran inseguros y dejarán de funcionar en futuras versiones. **Por favor, no use estas versiones de plugins.** Si usted es el desarrollador de este plugin, actualícelo a V3 lo antes posible.",
     "disableAbove": "Mensajes cortados para la IA",
     "hamburgerButtonBottom": "Mover el botón de menú a la parte inferior de la barra lateral",
 
@@ -1022,4 +1003,15 @@ export const languageSpanish = {
     secureConnectionRequiredBody: "Abre PocketRisu Kei mediante HTTPS o usa http://localhost o http://127.0.0.1 en el dispositivo servidor. Para acceder de forma remota, activa Cloudflare Remote Access desde la conexión local.",
 
     selectBotHint: "Selecciona un bot para empezar a chatear",
+    risuTosTitle: "Términos de servicio de RisuAI",
+    risuTosDesc: "Esta función usa servidores operados por RisuAI.\nPocketRisu Kei es un proyecto independiente de RisuAI, y los siguientes términos son los de RisuAI, no los de PocketRisu Kei. Rechazarlos no afecta al resto de PocketRisu Kei.",
+    risuTosScope: "Estos términos solo se aplican a:",
+    risuTosScopeRealm: "RisuRealm (explorar, buscar, descargar y denunciar personajes)",
+    risuTosScopeMcp: "Inicio de sesión OAuth de servidores MCP (retransmitido a través del servidor de cuentas de RisuAI)",
+    risuTosTerms: "Términos de servicio de RisuAI",
+    risuTosPrivacy: "Política de privacidad de RisuAI",
+    risuTosAccept: "Aceptar",
+    risuTosDecline: "No aceptar",
+    risuTosGate: "RisuRealm usa servidores operados por RisuAI. Acepta los términos de servicio de RisuAI para usarlo.",
+    risuTosGateButton: "Ver términos",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

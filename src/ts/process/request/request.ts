@@ -5,7 +5,7 @@ import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
-import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
+import { pluginProviderRequestContextKey, pluginRuntime } from "../../plugins/pluginRuntime";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { createEntityId } from 'src/ts/id';
@@ -213,8 +213,8 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             }
         }
 
-        if(pluginV2.replacerbeforeRequest.size > 0){
-            for(const replacer of pluginV2.replacerbeforeRequest){
+        if(pluginRuntime.replacerbeforeRequest.size > 0){
+            for(const replacer of pluginRuntime.replacerbeforeRequest){
                 arg.formated = await replacer(arg.formated, model)
             }
         }
@@ -258,7 +258,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         // throwing plugin cannot lose the side-effect record either.
         if(da.type === 'success' && da.toolExecuted){
             if(arg.escape) da.result = risuEscape(da.result)
-            for(const replacer of pluginV2.replacerafterRequest){
+            for(const replacer of pluginRuntime.replacerafterRequest){
                 try { da.result = await replacer(da.result, model) }
                 catch(e){ console.error('[ModelPreset] after-replacer failed', e) }
             }
@@ -276,8 +276,8 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             da.result = risuEscape(da.result)
         }
 
-        if(da.type === 'success' && pluginV2.replacerafterRequest.size > 0){
-            for(const replacer of pluginV2.replacerafterRequest){
+        if(da.type === 'success' && pluginRuntime.replacerafterRequest.size > 0){
+            for(const replacer of pluginRuntime.replacerafterRequest){
                 da.result = await replacer(da.result, model)
             }
         }
@@ -513,9 +513,6 @@ async function requestPluginPreset(
             model: preset.name,
         }
     }
-    // addProvider exists in API 2.x too. A crafted/imported snapshot must not
-    // turn that legacy provider into a ModelPreset execution path; only a live
-    // API 3.0 metadata registration is eligible.
     if (!isV3PluginModel(modelId)) {
         return {
             type: 'fail',
@@ -670,7 +667,7 @@ async function requestPluginPresetProvider(
         }
     }
 
-    const provider = pluginV2.providers.get(providerName)
+    const provider = pluginRuntime.providers.get(providerName)
     if (!provider) {
         return {
             type: 'fail',

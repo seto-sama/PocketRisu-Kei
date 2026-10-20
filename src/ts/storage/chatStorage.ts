@@ -18,18 +18,7 @@ import {
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
-// ── Stub ↔ Placeholder conversion ───────────────────────────────────────────
-
-/**
- * Convert a ChatStub to a placeholder Chat with safe empty defaults.
- * The placeholder passes all Chat type checks so existing code works unchanged.
- * `_placeholder: true` marks it for hydration and dirty-tracking suppression.
- *
- * Key presence is preserved (mirroring chatToStub) so an explicit null from
- * the server — meaning "user cleared this field" — survives the placeholder
- * round-trip. Otherwise the next chatToStub call would emit a "remove" patch
- * op and the server merge would fall back to a stale fullChat value.
- */
+/** Keep explicit metadata clears while marking a missing body for hydration. */
 export function stubToPlaceholder(stub: ChatStub): Chat {
     const placeholder: Chat = {
         message: [],
@@ -46,13 +35,7 @@ export function stubToPlaceholder(stub: ChatStub): Chat {
     return placeholder
 }
 
-/**
- * Convert a Chat (or placeholder) to a ChatStub for database.bin encoding.
- *
- * Key presence is preserved even when the value is null/undefined so the
- * stub round-trip distinguishes "user cleared" from "field absent". The
- * server merge layer relies on `in` semantics — see mergeChatStubWithFullChat.
- */
+/** Preserve omitted versus explicitly cleared metadata when encoding a stub. */
 export function chatToStub(chat: Chat | ChatStub): ChatStub {
     return toChatStub(chat) as ChatStub
 }
@@ -67,16 +50,7 @@ export function mergeHydratedChatWithMetadata(chat: Chat, metadata: Chat | ChatS
     return merged as Chat
 }
 
-/**
- * Replace all ChatStubs in a character's chats array with placeholder Chats.
- * Call this once after decoding database.bin so runtime code only sees Chat objects.
- *
- * Self-healing for hybrid corruption: if a chat carries the `_stub: true`
- * flag *and* a real message array (legacy v1.4.x disk corruption), strip the
- * flag and keep the Chat as-is. Converting it to a placeholder would call
- * stubToPlaceholder, which resets `message` to `[]` — the corruption would
- * become real data loss the moment the user sees the chat list.
- */
+/** Keep full messages even if a malformed chat also carries the stub flag. */
 export function convertStubsToPlaceholders(chats: ChatOrStub[]): Chat[] {
     return chats.map(c => {
         if (!c) return c as Chat
@@ -88,9 +62,6 @@ export function convertStubsToPlaceholders(chats: ChatOrStub[]): Chat[] {
     })
 }
 
-// Classify a chat slot by shape. Used by the chat-data guard's diagnostic
-// dump to surface hybrid corruption (the `_stub: true` + message pattern that
-// caused widespread chat data loss in v1.4.x).
 export type ChatShape = 'stub' | 'placeholder' | 'hybrid' | 'full' | 'empty' | 'neither'
 
 export function classifyChat(c: any): ChatShape {
@@ -105,7 +76,6 @@ export function classifyChat(c: any): ChatShape {
     return 'neither'
 }
 
-// ── Hydration state ──────────────────────────────────────────────────────────
 
 function chatKey(chaId: string, chatId: string): string {
     return `${chaId}/${chatId}`
@@ -155,12 +125,7 @@ function chatDeltaSave(chaId: string, chatIndex: number, chatId: string) {
     if (!save) {
         save = new DeltaSave(
             request => forageStorage.realStorage.patchChatContent(chaId, chatIndex, chatId, request),
-            (snapshot, result) => {
-                acknowledgeChatCommit(snapshot, result.etag)
-                if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
-                    detail: { characterId: chaId, chatId },
-                }))
-            },
+            (snapshot, result) => acknowledgeChatCommit(snapshot, result.etag),
         )
         chatDeltaSaves.set(key, save)
     }
@@ -172,7 +137,6 @@ export function discardPendingChatSaves() {
     chatDeltaSaves.clear()
 }
 
-// ── Server fetch/save ───────────────────────────────────────────────────────
 
 async function queueChatSave(key: string, save: () => Promise<void>) {
     const previous = chatSaveQueues.get(key)
@@ -297,7 +261,6 @@ export function setChatServerEtag(chaId: string, chatId: string, etag: string): 
     forageStorage.realStorage.setChatEtag(chaId, chatId, etag)
 }
 
-// ── Hydration ───────────────────────────────────────────────────────────────
 
 /**
  * Check if a specific chat is currently being hydrated (for dirty tracking suppression).

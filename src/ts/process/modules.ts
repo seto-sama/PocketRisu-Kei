@@ -1,8 +1,8 @@
 import { Buffer } from 'buffer'
 import { language } from "src/lang"
-import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
+import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
-import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
+import { AppendableBuffer, forageStorage, readImage, saveAsset } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleImportFile, sleep } from "../util"
 import { createEntityId } from "../id"
 import { convertExternalLorebook } from "./lorebook.svelte"
@@ -14,6 +14,7 @@ import { convertCharacterToModule, convertModuleToCharacter } from "../interchan
 import { exportCharacterCard, importCharacterProcess } from "../characterCards"
 import { readDefaultAvatarImage } from "../avatarImage"
 import { normalizePresetTagFields, type PresetTagFields } from "../preset/tags"
+import { exportPresetFile, showExportAssetProgress } from "../preset/export"
 import { getEnabledModules } from './moduleSelection'
 
 export interface MCPModule{
@@ -39,34 +40,24 @@ export interface RisuModule extends PresetTagFields {
     icon?:string
 }
 
-export async function exportModule(module:RisuModule, arg:{
-    alertEnd?:boolean
-} = {}){
-    const alertEnd = arg.alertEnd ?? true
-
+export async function exportModule(module:RisuModule){
+    const moduleName = module.name
     const char = convertModuleToCharacter(module)
     if(!char.image){
         char.image = await saveAsset(await readDefaultAvatarImage())
         char.extentions ??= {}
         char.extentions['moduleNoneImage'] = true
     }
-    const writer = new LocalWriter()
-    await writer.init(module.name + '.module', ['charx'])
     await exportCharacterCard(char, 'charx', {
         spec: 'v3',
-        writer
+        fileName: `${moduleName}.module.charx`
     })
-    if(alertEnd){
-        alertNormal(language.successExport)
-    }
 }
 
-export async function exportModuleLegacy(module:RisuModule, arg:{
-    alertEnd?:boolean
-    saveData?:boolean
-} = {}){
-    const alertEnd = arg.alertEnd ?? true
-    const saveData = arg.saveData ?? true
+export async function encodeModuleLegacy(
+    module:RisuModule,
+    onProgress?:(completed:number, total:number) => void
+):Promise<Uint8Array>{
     const apb = new AppendableBuffer()
     const writeLength = (len:number) => {
         const lenbuf = Buffer.alloc(4)
@@ -80,10 +71,9 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
         apb.append(buf)
     }
 
-    const assets = module.assets ?? []
     module = structuredClone(module)
-    module.assets ??= []
-    module.assets = module.assets.map((asset) => {
+    const assets = module.assets ?? []
+    module.assets = assets.map((asset) => {
         return [asset[0], '', asset[2]] as [string,string,string]
     })
 
@@ -97,32 +87,31 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
     writeLength(mainbuf.length)
     apb.append(mainbuf)
 
+    if(assets.length > 0){
+        onProgress?.(0, assets.length)
+    }
     for(let i=0;i<assets.length;i++){
         const asset = assets[i]
         writeByte(1) //mark as asset
-        alertStore.set({
-            type: 'wait',
-            msg: `Loading... (Adding Assets ${i} / ${assets.length})`
-        })
         let rData = await readImage(asset[1])
         if(!rData){
             rData = new Uint8Array(0) //blank buffer
         }
-        let encoded = await encodeRPack(Buffer.from(await compressImage(rData)))
+        const encoded = await encodeRPack(Buffer.from(await compressImage(rData)))
         writeLength(encoded.length)
         apb.append(encoded)
+        onProgress?.(i + 1, assets.length)
     }
 
     writeByte(0) //end of file
 
-    if(saveData){
-        await downloadFile(module.name + '.risum', apb.buffer)
-    }
-    if(alertEnd){
-        notifySuccess(language.successExport)
-    }
-
     return apb.buffer
+}
+
+export async function exportModuleLegacy(module:RisuModule){
+    const fileName = `${module.name}.risum`
+    const encoded = await encodeModuleLegacy(module, showExportAssetProgress)
+    await exportPresetFile(fileName, encoded)
 }
 
 export async function readModule(buf:Buffer):Promise<RisuModule> {

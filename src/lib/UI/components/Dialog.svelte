@@ -4,12 +4,13 @@
 
 <script lang="ts">
     import type { Snippet } from 'svelte';
-    import { Dialog } from 'bits-ui';
+    import { AlertDialog as BitsAlertDialog, Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { cn } from 'src/lib/utils';
     import { wasLastInteractionKeyboard } from 'src/ts/gui/inputModality';
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
+    import { isTopOverlayLayer } from 'src/ts/gui/overlayStack';
     import IconButton from './IconButton.svelte';
     import IconButtonGroup from './IconButtonGroup.svelte';
 
@@ -23,6 +24,9 @@
         dismissible?: boolean;
         /** Lets callers confirm a user-initiated close before changing `open`. */
         onRequestClose?: () => void;
+        /** Called for an unmodified Enter press while this is the top overlay. */
+        onConfirm?: () => void;
+        role?: 'dialog' | 'alertdialog';
         contentClass?: string;
         bodyClass?: string;
         overlayClass?: string;
@@ -45,6 +49,8 @@
         closable = true,
         dismissible = true,
         onRequestClose,
+        onConfirm,
+        role = 'dialog',
         contentClass = '',
         bodyClass = '',
         overlayClass = '',
@@ -61,6 +67,7 @@
     let restoreFocusOnClose = false;
 
     const overlayLayer = provideOverlayLayer(() => open);
+    const DialogRoot = $derived(role === 'alertdialog' ? BitsAlertDialog.Root : Dialog.Root);
     const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
 
     const focusableSelector = [
@@ -137,7 +144,7 @@
     const contentBase =
         'fixed ' +
         'bg-darkbg border-[length:var(--risu-dialog-border-width)] border-darkborderc rounded-md shadow-lg ' +
-        'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none ' +
+        'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none whitespace-pre-wrap ' +
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
@@ -152,6 +159,10 @@
     }
 
     function handleInteractOutside(event: PointerEvent) {
+        if (!isTopOverlayLayer(overlayLayer.allocatedZIndex)) {
+            event.preventDefault()
+            return
+        }
         const target = event.target
         if (target instanceof Element && target.closest('[data-sonner-toaster]')) {
             // Keep portaled toasts interactive while the dialog is open.
@@ -168,6 +179,14 @@
     }
 
     function handleEscapeKeydown(event: KeyboardEvent) {
+        if (!isTopOverlayLayer(overlayLayer.allocatedZIndex)) {
+            event.preventDefault()
+            return
+        }
+        if (event.repeat) {
+            event.preventDefault()
+            return
+        }
         const target = event.target
         if (target instanceof Element && target.closest('[data-inline-name-editor]')) {
             event.preventDefault()
@@ -177,9 +196,25 @@
         event.preventDefault()
         requestClose()
     }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Enter' || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+        if (!isTopOverlayLayer(overlayLayer.allocatedZIndex) || event.repeat) {
+            if (onConfirm || role === 'alertdialog') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+            }
+            return
+        }
+        if (!onConfirm) return
+
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        onConfirm()
+    }
 </script>
 
-<Dialog.Root bind:open {onOpenChange}>
+<DialogRoot bind:open {onOpenChange}>
     <Dialog.Portal>
         <Dialog.Overlay
             class={cn('risu-modal-backdrop risu-layer-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', overlayClass)}
@@ -196,6 +231,7 @@
             interactOutsideBehavior={dismissible ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
+            onkeydown={handleKeydown}
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}
         >
@@ -232,7 +268,7 @@
                 </div>
             {/if}
             {#if !title}
-                <Dialog.Title class="sr-only">{ariaLabel ?? 'Dialog'}</Dialog.Title>
+                <Dialog.Title class="sr-only">{ariaLabel ?? (role === 'alertdialog' ? 'Alert' : 'Dialog')}</Dialog.Title>
             {/if}
 
             {#if children}
@@ -248,4 +284,4 @@
             {/if}
         </Dialog.Content>
     </Dialog.Portal>
-</Dialog.Root>
+</DialogRoot>

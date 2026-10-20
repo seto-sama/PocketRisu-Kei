@@ -80,7 +80,7 @@
             {/if}
 
             {#if info.popupMessage}
-                <div class="mt-3 text-sm text-subtext leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
+                <div class="mt-3 text-sm text-subtext leading-relaxed border-t border-darkborderc pt-3">
                     {info.popupMessage}
                 </div>
             {/if}

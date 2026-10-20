@@ -334,15 +334,12 @@
     async function preserveMessagePosition(update: () => void | Promise<void>) {
         const release = partialEditRoot
             ? getScrollController()?.preserveElementPosition(partialEditRoot, {
-                edge: 'bottom',
+                edge: 'viewport-bottom',
                 followLayout: true,
             })
             : undefined
         try {
-            const updateResult = update()
-            await updateResult
-            // Commit the initial control DOM before handing later size changes
-            // to the scroll controller's persistent follow-layout anchor.
+            await update()
             await tick()
         }
         finally {

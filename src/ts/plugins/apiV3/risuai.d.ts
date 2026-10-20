@@ -1087,7 +1087,7 @@ interface PluginStorage {
 }
 
 /**
- * Device-local storage that persists outside of save files.
+ * Server-backed plugin storage outside of save files, synced across devices.
  * Uses generic types for flexible value storage.
  * Storage is shared between all plugins under a common prefix.
  *
@@ -1097,7 +1097,7 @@ interface PluginStorage {
  * ```typescript
  * const storage = await risuai.getLocalPluginStorage();
  *
- * // Store any JSON-serializable data
+ * // Store structured values, including binary data
  * await storage.setItem('config', { theme: 'dark', fontSize: 14 });
  *
  * // Retrieve data with type safety
@@ -1121,7 +1121,7 @@ interface SafeLocalPluginStorage {
     /**
      * Sets an item in storage
      * @param key - Storage key
-     * @param value - Value to store (any JSON-serializable value)
+     * @param value - Structured value to store, including Blob, ArrayBuffer, and typed arrays
      * @returns Promise that resolves when item is stored
      */
     setItem<T>(key: string, value: T): Promise<void>;
@@ -1147,15 +1147,15 @@ interface SafeLocalPluginStorage {
 }
 
 /**
- * Device-specific storage shared between plugins
+ * Server-backed string storage shared between plugins and synced across devices
  * Same API as PluginStorage but only supports string values
  *
  * **All methods return Promises** due to iframe message passing.
  *
  * @example
  * ```typescript
- * await risuai.safeLocalStorage.setItem('device_id', 'unique-id');
- * const deviceId = await risuai.safeLocalStorage.getItem('device_id');
+ * await risuai.safeLocalStorage.setItem('shared_setting', 'enabled');
+ * const setting = await risuai.safeLocalStorage.getItem('shared_setting');
  * ```
  */
 interface SafeLocalStorage {
@@ -1219,10 +1219,6 @@ type ProviderFunction = (
  * Provider options
  */
 interface ProviderOptions {
-    /** Tokenizer name (e.g., 'gpt-4') */
-    tokenizer?: string;
-    /** Custom tokenizer function */
-    tokenizerFunc?: (content: string) => number[] | Promise<number[]>;
     /**
      * Optional model metadata used by the legacy model picker and by
      * Model Presets > Developer. Providers that omit it are still listed using
@@ -1470,15 +1466,15 @@ interface RisuaiPluginAPI {
 
     // ========== Storage APIs ==========
 
-    /** Plugin-specific storage (syncs with save files) */
+    /** Plugin-specific storage included in save files and synced across devices */
     pluginStorage: PluginStorage;
 
-    /** Device-specific storage (shared between plugins) */
+    /** Server-backed string storage shared between plugins and synced across devices */
     safeLocalStorage: SafeLocalStorage;
 
     /**
-     * Gets a device-local storage instance shared between plugins
-     * @returns SafeLocalPluginStorage instance for device-local storage
+     * Gets server-backed persistent storage shared between plugins and synced across devices, outside of save files
+     * @returns SafeLocalPluginStorage instance
      *
      * @example
      * ```typescript

@@ -7,6 +7,9 @@ import {
     type PatchItemResult,
     type DeltaPatch,
     type FileFormat,
+    type PluginStorageNamespace,
+    type PluginStorageRequest,
+    type PluginStorageResponse,
 } from "./nodeStorage"
 
 export class AutoStorage{
@@ -91,6 +94,11 @@ export class AutoStorage{
     async getPluginStorageStartupStats() {
         await this.Init()
         return this.realStorage.getPluginStorageStartupStats()
+    }
+
+    async pluginStorageRequest(namespace: PluginStorageNamespace, request: PluginStorageRequest): Promise<PluginStorageResponse> {
+        await this.Init()
+        return this.realStorage.pluginStorageRequest(namespace, request)
     }
 
     setPluginStorageExclusion(exclusion: Parameters<NodeStorage['setPluginStorageExclusion']>[0]) {

@@ -8,6 +8,7 @@
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
+    import { autoSizeTextarea } from 'src/ts/gui/autoSizeTextarea.svelte'
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { loadTogglesFromChat, type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
@@ -589,9 +590,6 @@ import { isMobile } from 'src/ts/platform'
                 }
                 draftLoading = false
             })
-            // Textarea height needs an explicit update after the draft renders.
-            await tick()
-            if (active) updateInputSizeAll()
         })()
         return () => {
             active = false
@@ -1027,8 +1025,7 @@ import { isMobile } from 'src/ts/platform'
             if(targetChatIndex === -1) return
             DBState.db.characters[selectedChar].chats[targetChatIndex].message = cha
 
-            await sleep(10)
-            updateInputSizeAll()
+            await tick()
             foregroundHandedOff = true
             const initialResult = await sendChatMain(
                 undefined,
@@ -1061,11 +1058,7 @@ import { isMobile } from 'src/ts/platform'
             commitMode: 'debounce',
             hideCancel: true,
             submitKind: 'send',
-            onCommit: async (nextValue) => {
-                messageInput = nextValue
-                await tick()
-                updateInputSizeAll()
-            },
+            onCommit: (nextValue) => { messageInput = nextValue },
             onSubmit: (nextValue) => {
                 messageInput = nextValue
                 void send()
@@ -1374,7 +1367,7 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    let inputHeight = $state("44px")
+    let inputHeight = $state('auto')
     let inputOverflow = $state(false)
     let inputEle:HTMLTextAreaElement = $state()
 
@@ -1389,11 +1382,7 @@ import { isMobile } from 'src/ts/platform'
         (boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])?.name || 'User'
     )
 
-    function updateInputSizeAll() {
-        updateInputSize()
-    }
-
-    async function appendTranslationToMessageInput(translation: string) {
+    function appendTranslationToMessageInput(translation: string) {
         const addition = messageInput
             ? `${messageInput.endsWith('\n') ? '' : '\n'}${translation}`
             : translation
@@ -1404,54 +1393,17 @@ import { isMobile } from 'src/ts/platform'
         const end = inputEle.value.length
         inputEle.setSelectionRange(end, end)
         document.execCommand('insertText', false, addition)
-        await tick()
-        updateInputSizeAll()
     }
 
-    // Measure the textarea's content height at a given css width (empty = current
-    // flex width), restoring the override afterwards.
-    function measureHeightAt(cssWidth:string):number {
-        const prev = inputEle.style.width
-        inputEle.style.height = "0"
-        if(cssWidth) inputEle.style.width = cssWidth
-        const h = inputEle.scrollHeight
-        inputEle.style.width = prev
-        return h
-    }
-
-    // Width available between the fixed action buttons. The textarea keeps this
-    // column at every height so multiline input does not create an empty toolbar row.
-    function inlineColWidth():number {
-        const pill = inputEle.parentElement
-        if(!pill) return 0
-        const cs = getComputedStyle(pill)
-        const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-        const gap = parseFloat(cs.columnGap || cs.gap || '0') || 0
-        let used = 0, others = 0
-        for(const c of Array.from(pill.children) as HTMLElement[]){
-            if(c === inputEle) continue
-            used += c.offsetWidth
-            others++
-        }
-        return pill.clientWidth - padX - used - gap * others
-    }
-
-    function updateInputSize() {
-        if(inputEle){
-            const col = inlineColWidth()
-            const ref = col > 0 ? col + "px" : ""
-            const sh = measureHeightAt(ref)
-            // Cap the composer at ~60% of the viewport; beyond that it scrolls.
-            const maxH = Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.6)
-            inputHeight = Math.min(sh, maxH) + "px"
-            inputEle.style.height = inputHeight
-            inputOverflow = sh > maxH
-        }
-    }
-
-    $effect.pre(() => {
-        updateInputSizeAll()
-    });
+    autoSizeTextarea({
+        element: () => inputEle,
+        text: () => messageInput,
+        maxHeight: () => Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.6),
+        onResize: (height, overflow) => {
+            inputHeight = `${height}px`
+            inputOverflow = overflow
+        },
+    })
 
 </script>
 
@@ -1625,7 +1577,6 @@ import { isMobile } from 'src/ts/platform'
                                             messageInput += `{{file::${res.name}::${res.data}}}`
                                         }
                                     }
-                                    updateInputSizeAll()
                                 }}>
                                     <ImagePlusIcon /><span>{language.postFile}</span>
                                 </DropdownMenu.Item>
@@ -1705,14 +1656,12 @@ import { isMobile } from 'src/ts/platform'
                                                 messageInput += `{{file::${res.name}::${res.data}}}`
                                             }
                                         }
-                                        updateInputSizeAll()
                                     }
                                     reader.readAsArrayBuffer(file)
                                 }
                             }
                         }
                     }}
-                          oninput={updateInputSizeAll}
                           onblur={persistDraftNow}
                           style:height={inputHeight}
                 ></textarea>
@@ -1764,7 +1713,6 @@ import { isMobile } from 'src/ts/platform'
                                 {/if}
                                 <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-maintext rounded-md transition-colors risu-interactive-danger" onclick={() => {
                                     fileInput.splice(i, 1)
-                                    updateInputSizeAll()
                                 }}>
                                     <XIcon size={18} />
                                 </button>

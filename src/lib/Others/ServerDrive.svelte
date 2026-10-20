@@ -24,7 +24,6 @@
     import Button from '../UI/components/Button.svelte'
     import Input from '../UI/components/Input.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
-    import AlertDialog from '../UI/components/AlertDialog.svelte'
     import EmptyState from '../UI/components/EmptyState.svelte'
     import IconButton from '../UI/components/IconButton.svelte'
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte'
@@ -824,7 +823,7 @@
     </section>
 </Dialog>
 
-<AlertDialog open={deleteTargets.length > 0 || emptyTrashOpen} onOpenChange={(open) => { if (!open) closeDeleteDialog() }} onCancel={closeDeleteDialog} onConfirm={() => { void deleteSelection() }}>
+<Dialog open={deleteTargets.length > 0 || emptyTrashOpen} onOpenChange={(open) => { if (!open) closeDeleteDialog() }} onConfirm={() => { void deleteSelection() }} closable={false} role="alertdialog" size="sm">
     {#snippet title()}{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}{/snippet}
     {#snippet description()}{emptyTrashOpen ? language.serverDrive.emptyTrashConfirm : language.serverDrive.trashConfirm.replace('{count}', String(deleteTargets.length))}{/snippet}
     {#if deleteTargets.length}<ul class="max-h-40 overflow-y-auto text-sm">{#each deleteTargets as entry (entry.path)}<li class="break-all">{entry.name}</li>{/each}</ul>{/if}
@@ -832,7 +831,7 @@
         <Button variant="outline" onclick={closeDeleteDialog}>{language.cancel}</Button>
         <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}</Button>
     {/snippet}
-</AlertDialog>
+</Dialog>
 
 {#if previewFile}
     <ServerDrivePreview file={previewFile} onClose={() => { previewFile = null }} />
@@ -865,10 +864,10 @@
     </form>
 </Dialog>
 
-<AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) conflict?.complete(null) }} onCancel={() => conflict?.complete(null)}
-    onConfirm={folderMergeConflict ? () => conflict?.complete('overwrite') : undefined}>
+<Dialog open={conflict !== null} onOpenChange={(open) => { if (!open) conflict?.complete(null) }}
+    onConfirm={folderMergeConflict ? () => conflict?.complete('overwrite') : undefined} closable={false} role="alertdialog" size="sm">
     {#snippet title()}{folderMergeConflict ? language.serverDrive.mergeFolders : language.serverDrive.conflictTitle}{/snippet}
-    {#snippet description()}<span class="whitespace-pre-line">{(folderMergeConflict ? language.serverDrive.folderConflict : language.serverDrive.conflictDescription).replace('{name}', conflict?.incoming.name ?? '')}</span>{/snippet}
+    {#snippet description()}{(folderMergeConflict ? language.serverDrive.folderConflict : language.serverDrive.conflictDescription).replace('{name}', conflict?.incoming.name ?? '')}{/snippet}
     {#if conflict && !folderMergeConflict}
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
             <dt class="text-subtext">{language.serverDrive.existing}</dt>
@@ -882,7 +881,7 @@
         {#if !folderMergeConflict}<Button onclick={() => conflict?.complete('rename')}>{language.serverDrive.keepBoth}</Button>{/if}
         <Button variant={folderMergeConflict ? 'primary' : 'destructive'} disabled={!conflict?.existing || conflict.existing.type !== conflict.incoming.type} onclick={() => conflict?.complete('overwrite')}>{folderMergeConflict ? language.yes : language.serverDrive.overwrite}</Button>
     {/snippet}
-</AlertDialog>
+</Dialog>
 
 <style>
     .drive-entry { -webkit-touch-callout: none; }

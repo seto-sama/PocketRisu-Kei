@@ -1,7 +1,7 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate, getActiveBotPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
@@ -90,7 +90,7 @@ import {
     setGenerationMessageContent,
     setGenerationMessageInfo,
 } from './revenant/recovery';
-import { pluginV2 } from '../plugins/plugins.svelte';
+import { pluginRuntime } from '../plugins/pluginRuntime';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
@@ -108,7 +108,7 @@ export interface OpenAIChat{
 }
 
 async function runChatOutputListeners(characterId: string, roomId: string, messageId: string){
-    if(pluginV2.chatOutput.size === 0) return
+    if(pluginRuntime.chatOutput.size === 0) return
 
     const characterIndex = DBState.db.characters.findIndex(character => character?.chaId === characterId)
     const character = DBState.db.characters[characterIndex]
@@ -119,7 +119,7 @@ async function runChatOutputListeners(characterId: string, roomId: string, messa
     const messageIndex = chat.message.findIndex(message => message?.chatId === messageId)
     const charSnapshot = $state.snapshot(character)
     const chatSnapshot = $state.snapshot(chat)
-    for(const listener of pluginV2.chatOutput){
+    for(const listener of pluginRuntime.chatOutput){
         try {
             await listener({
                 char: charSnapshot,
@@ -537,7 +537,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         value: string,
     }[] = []
     if(DBState.db.promptInfoInsideChat){
-        initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
+        initialPresetNameForPromptInfo = getActiveBotPreset()?.name ?? ''
         initialPromptTogglesForPromptInfo = parseToggleSyntax(getToggleTemplate(DBState.db, nowChatroom, outgoingChat))
             .flatMap(toggle => {
                 const raw = DBState.db.globalChatVariables[`toggle_${toggle.key}`]

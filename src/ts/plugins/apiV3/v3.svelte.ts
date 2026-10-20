@@ -1,4 +1,6 @@
-import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginProviderRequestContextKey, pluginV2, type PluginProviderRequestContext, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
+import { handlePluginInstallViaPlugin, type RisuPlugin } from '../plugins.svelte'
+import { allowedDbKeys, createPluginApis } from '../pluginApi.svelte'
+import { pluginProviderRequestContextKey, pluginRuntime, type PluginProviderRequestContext, type PluginProviderArgument, type PluginProviderFunction } from '../pluginRuntime'
 import { getRpcAbortSignalMetadata, SandboxHost, setRpcAbortSignalMetadata } from "./factory";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { getChatPage, initializeChatSelection, withChatSelection } from 'src/ts/storage/chatSelection.svelte';
@@ -635,7 +637,7 @@ async function persistPluginPermissionState() {
     })
 }
 
-type PluginV3ProviderOptions = PluginV2ProviderOptions & {
+type PluginV3ProviderOptions = {
     model?: Partial<LLMModel>
 }
 
@@ -735,7 +737,7 @@ const providerRequestContextMetadataKey = 'risuai.pluginProviderRequestContext'
 
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
-    const oldApis = getV2PluginAPIs();
+    const apis = createPluginApis(plugin.name);
     const pluginRequestContexts = new Map<string, PluginProviderRequestContext>()
     const providerFetchContext = (
         url: string,
@@ -787,7 +789,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 options,
                 options?.abortSignal ?? options?.signal,
             )
-            return oldApis.risuFetch(url, requestContext ? {
+            return apis.risuFetch(url, requestContext ? {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
                 generationRequest: requestContext.generationRequest,
@@ -808,7 +810,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
             }
             const requestContext = providerFetchContext(url, options, options?.signal)
-            return oldApis.nativeFetch(url, requestContext ? {
+            return apis.nativeFetch(url, requestContext ? {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
                 generationRequest: requestContext.generationRequest,
@@ -816,18 +818,15 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 interceptor: requestContext.interceptor,
             } : options);
         },
-        getChar: oldApis.getChar,
-        setChar: oldApis.setChar,
-        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
+        getChar: apis.getChar,
+        setChar: apis.setChar,
+        addProvider: (name: string, func: PluginProviderFunction, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
-            const provs = get(customProviderStore)
-            provs.push(name)
-            const provider = async (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => {
+            const provider = async (arg: PluginProviderArgument, abortSignal?: AbortSignal) => {
                const conf = await getPluginPermission(plugin.name, 'provider', 'periodically');
                if(!conf){
                    return { success: false, content: `Provider permission denied for plugin '${plugin.name}'` };
                }
-               // Sandbox providers must not access the privileged legacy mode.
                arg.mode = 'v3'
                const requestContext = arg[pluginProviderRequestContextKey]
                if (!requestContext || !abortSignal) {
@@ -841,11 +840,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                    () => func(arg, abortSignal),
                );
             }
-            pluginV2.providers.set(name, provider)
-            pluginV2.providerOptions.set(name, options ?? {})
-            customProviderStore.set(provs)
+            pluginRuntime.providers.set(name, provider)
 
-            const modelData:LLMModel = {
+            const modelData:LLMModel = $state({
                 id: `pluginmodel:::${name}`,
                 name: options?.model?.name ?? name,
                 shortName: options?.model?.shortName ?? name,
@@ -856,19 +853,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 flags: options?.model?.flags ?? [LLMFlags.hasFullSystemPrompt],
                 parameters: options?.model?.parameters ?? ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens'],
                 tokenizer:options?.model?.tokenizer ??  LLMTokenizer.Unknown
-            }
+            })
             customV3ProviderMetaStore.push(modelData);
             addPluginUnloadCallback(plugin.name, () => {
-                if(pluginV2.providers.get(name) !== provider) return;
-                pluginV2.providers.delete(name);
-                pluginV2.providerOptions.delete(name);
-
-                const currentProviders = get(customProviderStore);
-                const providerIndex = currentProviders.indexOf(name);
-                if(providerIndex !== -1){
-                    currentProviders.splice(providerIndex, 1);
-                    customProviderStore.set(currentProviders);
-                }
+                if(pluginRuntime.providers.get(name) === provider) pluginRuntime.providers.delete(name);
 
                 const metaIndex = customV3ProviderMetaStore.indexOf(modelData);
                 if(metaIndex !== -1) customV3ProviderMetaStore.splice(metaIndex, 1);
@@ -886,25 +874,29 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             registerTTSPostprocessor(func);
             addPluginUnloadCallback(plugin.name, () => unregisterTTSPostprocessor(func));
         },
-        addRisuScriptHandler: oldApis.addRisuScriptHandler,
-        removeRisuScriptHandler: oldApis.removeRisuScriptHandler,
+        addRisuScriptHandler: (...args: Parameters<typeof apis.addRisuScriptHandler>) => {
+            apis.addRisuScriptHandler(...args)
+            addPluginUnloadCallback(plugin.name, () => apis.removeRisuScriptHandler(...args))
+        },
+        removeRisuScriptHandler: apis.removeRisuScriptHandler,
         addRisuReplacer: async (name:string,func:Function) => {
             const conf = await getPluginPermission(plugin.name, 'replacer', 'periodically');
             if(!conf){
                 return;
             }
-            oldApis.addRisuReplacer(name, func as any);
+            apis.addRisuReplacer(name, func as any);
+            addPluginUnloadCallback(plugin.name, () => apis.removeRisuReplacer(name, func as any));
         },
-        removeRisuReplacer: oldApis.removeRisuReplacer,
+        removeRisuReplacer: apis.removeRisuReplacer,
         addRisuChatListener: async (mode:'output', func:Function) => {
-            oldApis.addRisuChatListener(mode, func as any);
-            addPluginUnloadCallback(plugin.name, () => oldApis.removeRisuChatListener(mode, func as any));
+            apis.addRisuChatListener(mode, func as any);
+            addPluginUnloadCallback(plugin.name, () => apis.removeRisuChatListener(mode, func as any));
         },
-        removeRisuChatListener: oldApis.removeRisuChatListener,
-        setDatabaseLite: (db: Record<string, any>) => oldApis.setDatabaseLite(prepareDatabaseWrite(db)),
-        setDatabase: (db: Record<string, any>) => oldApis.setDatabase(prepareDatabaseWrite(db)),
-        loadPlugins: oldApis.loadPlugins,
-        readImage: oldApis.readImage,
+        removeRisuChatListener: apis.removeRisuChatListener,
+        setDatabaseLite: (db: Record<string, any>) => apis.setDatabaseLite(prepareDatabaseWrite(db)),
+        setDatabase: (db: Record<string, any>) => apis.setDatabase(prepareDatabaseWrite(db)),
+        loadPlugins: apis.loadPlugins,
+        readImage: apis.readImage,
         readInlay: async (id: string) => {
             const conf = await getPluginPermission(plugin.name, 'inlay', 'periodically');
             if(!conf){
@@ -912,7 +904,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
             return await getInlayAsset(id);
         },
-        saveAsset: oldApis.saveAsset,
+        saveAsset: apis.saveAsset,
         getDatabase: async (includeOnly:string[]|'all' = 'all') => {
             const conf = await getPluginPermission(plugin.name, 'db', 'periodically');
             if(!conf){
@@ -990,10 +982,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
         },
 
-        //Deprecated APIs from v2.1
-        //Use getArgument / setArgument instead if possible
-        getArg: oldApis.getArg,
-        setArg: oldApis.setArg,
+        getArg: apis.getArg,
+        setArg: apis.setArg,
         getArgument: async (key:string) => {
             const db = getDatabase()
             for (const p of db.plugins) {
@@ -1093,8 +1083,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const moduleLore = getModuleLorebooks()
             return $state.snapshot(characterLore.concat(chatLore).concat(moduleLore))
         },
-        getCharacter: oldApis.getChar,
-        setCharacter: oldApis.setChar,
+        getCharacter: apis.getChar,
+        setCharacter: apis.setChar,
 
         showContainer: (
             type: 'fullscreen' = 'fullscreen'
@@ -1396,9 +1386,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return getPluginPermission(plugin.name, permission as any);
         },
         //Internal use APIs
-        _getOldKeys: () => {
-            return Object.keys(oldApis)
-        },
         _getPropertiesForInitialization: () => {
             const v = {
                 apiVersion: "3.0",
@@ -1409,38 +1396,30 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             
             return v;
         },
-        _getPluginStorage: oldApis.pluginStorage.getItem,
+        _getPluginStorage: apis.pluginStorage.getItem,
         // Track storage ownership for plugin management.
         _setPluginStorage: (key: string, value: any) => {
-            oldApis.pluginStorage.setItem(key, value)
-            recordOwner('save', key, plugin.name)
+            apis.pluginStorage.setItem(key, value)
+            recordOwner(key, plugin.name)
         },
         _removePluginStorage: (key: string) => {
-            oldApis.pluginStorage.removeItem(key)
-            removeOwner('save', key)
+            apis.pluginStorage.removeItem(key)
+            removeOwner(key)
         },
         _clearPluginStorage: () => {
-            oldApis.pluginStorage.clear()
-            clearOwners('save')
+            apis.pluginStorage.clear()
+            clearOwners()
         },
-        _keyPluginStorage: oldApis.pluginStorage.key,
-        _keysPluginStorage: oldApis.pluginStorage.keys,
-        _lengthPluginStorage: oldApis.pluginStorage.length,
-        _getSafeLocalStorage: oldApis.safeLocalStorage.getItem,
-        _setSafeLocalStorage: (key: string, value: string) => {
-            oldApis.safeLocalStorage.setItem(key, value)
-            recordOwner('local', key, plugin.name)
-        },
-        _removeSafeLocalStorage: (key: string) => {
-            oldApis.safeLocalStorage.removeItem(key)
-            removeOwner('local', key)
-        },
-        _clearSafeLocalStorage: () => {
-            oldApis.safeLocalStorage.clear()
-            clearOwners('local')
-        },
-        _keySafeLocalStorage: oldApis.safeLocalStorage.key,
-        _keysSafeLocalStorage: oldApis.safeLocalStorage.keys,
+        _keyPluginStorage: apis.pluginStorage.key,
+        _keysPluginStorage: apis.pluginStorage.keys,
+        _lengthPluginStorage: apis.pluginStorage.length,
+        _getSafeLocalStorage: apis.safeLocalStorage.getItem,
+        _setSafeLocalStorage: (key: string, value: string) => apis.safeLocalStorage.setItem(key, value),
+        _removeSafeLocalStorage: (key: string) => apis.safeLocalStorage.removeItem(key),
+        _clearSafeLocalStorage: () => apis.safeLocalStorage.clear(),
+        _keySafeLocalStorage: (index: number) => apis.safeLocalStorage.key(index),
+        _keysSafeLocalStorage: apis.safeLocalStorage.keys,
+        _lengthSafeLocalStorage: () => apis.safeLocalStorage.length,
         searchTranslationCache: async (partialKey: string) => {
             return searchLLMCache(partialKey)
         },
@@ -1465,6 +1444,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     'clear': '_clearSafeLocalStorage',
                     'key': '_keySafeLocalStorage',
                     'keys': '_keysSafeLocalStorage',
+                    'length': '_lengthSafeLocalStorage',
                 }
             }
         },
@@ -1594,6 +1574,7 @@ export async function loadV3Plugins(plugins:RisuPlugin[]){
         removeDocumentEventListener(id, entry.pluginName);
     }
     pluginChannels.clear();
+    for (const registrations of Object.values(pluginRuntime)) registrations.clear();
     customV3ProviderMetaStore.length = 0;
     const loadPromises = plugins.map(plugin => executePluginV3(plugin));
     await Promise.all(loadPromises);
@@ -1604,7 +1585,7 @@ export async function reloadV3Plugin(plugin:RisuPlugin){
     await executePluginV3(plugin);
 }
 
-export async function executePluginV3(plugin:RisuPlugin){
+async function executePluginV3(plugin:RisuPlugin){
 
     const alreadyRunning = v3PluginInstances.find(p => p.name === plugin.name);
     if(alreadyRunning){
@@ -1626,10 +1607,6 @@ export async function executePluginV3(plugin:RisuPlugin){
     if (import.meta.env.DEV) {
         console.log(`[RisuAI Plugin: ${plugin.name}] Loaded API V3 plugin.`);
     }
-}
-
-export function getV3PluginInstance(name: string) {
-    return v3PluginInstances.find(p => p.name === name);
 }
 
 globalThis.__debugV3Plugin = (code: string|Function, pluginName: string = '') => {

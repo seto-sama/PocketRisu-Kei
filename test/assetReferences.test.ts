@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { encodeLocalPluginStorageValue } from '../shared/localPluginStorageValue.mjs'
+import { Packr } from 'msgpackr'
 import assetReferences from '../server/node/assetReferences.cjs'
 
 const {
@@ -6,6 +8,12 @@ const {
     collectProtectedAssetBasenames,
     findOrphanAssets,
 } = assetReferences
+
+const pluginStoragePackr = new Packr({ useRecords: false })
+
+function assetRows(...names: string[]) {
+    return names.map((name) => ({ key: `assets/${name}` }))
+}
 
 describe('asset references', () => {
     it('database reference scan protects non-character asset fields', () => {
@@ -28,20 +36,71 @@ describe('asset references', () => {
         ]))
     })
 
-    it('persistent plugin references participate in the same orphan scan', () => {
-        const values = new Map([
-            ['cache/plugin-storage/example.json', Buffer.from('{"path":"assets\\\\plugin-kv.mp3"}')],
-        ])
-        const storage = {
-            listKeys: (prefix: string) => [...values.keys()].filter((key) => key.startsWith(prefix)),
-            getValue: (key: string) => values.get(key),
-        }
-        const protectedAssets = collectProtectedAssetBasenames({ characters: [] }, storage)
+    it('localStorage strings and localForage rich values participate in the same orphan scan', async () => {
+        const entries = [
+            {
+                namespace: 'localStorage',
+                key: 'plugin-string',
+                value: pluginStoragePackr.pack('{"path":"assets\\\\plugin-kv.mp3","assets/key.png":true}'),
+            },
+            {
+                namespace: 'localForage',
+                key: 'plugin-rich-value',
+                value: await encodeLocalPluginStorageValue({ nested: 'assets/localforage.webp' }),
+            },
+        ]
+        const protectedAssets = collectProtectedAssetBasenames({ characters: [] }, entries)
         const orphans = findOrphanAssets([
             { key: 'assets/plugin-kv.mp3', size: 10 },
+            { key: 'assets/key.png', size: 15 },
+            { key: 'assets/localforage.webp', size: 7 },
             { key: 'assets/orphan.png', size: 20 },
         ], protectedAssets)
 
         expect(orphans).toEqual([{ key: 'assets/orphan.png', size: 20 }])
+    })
+
+    it('protects strings in cyclic MessagePack object, Map, and Set values', async () => {
+        const value: any = {
+            path: 'assets/object.png',
+            paths: ['assets/array.png'],
+            map: new Map([['assets/map-key.webp', { path: 'assets/map-value.jpg' }]]),
+            set: new Set(['assets/set.gif']),
+            bytes: new TextEncoder().encode('assets/binary.png'),
+        }
+        value.map.get('assets/map-key.webp').cycle = value
+        value.set.add(value)
+        const protectedAssets = collectProtectedAssetBasenames({}, [{
+            namespace: 'localForage',
+            key: 'plugin-rich-value',
+            value: await encodeLocalPluginStorageValue(value),
+        }])
+
+        expect([...protectedAssets].sort()).toEqual([
+            'array.png', 'map-key.webp', 'map-value.jpg', 'object.png', 'set.gif',
+        ])
+        expect(findOrphanAssets(assetRows(
+            'object.png', 'array.png', 'map-key.webp', 'map-value.jpg', 'set.gif', 'binary.png', 'orphan.png',
+        ), protectedAssets).map((asset: any) => asset.key)).toEqual([
+            'assets/binary.png', 'assets/orphan.png',
+        ])
+    })
+
+    it('does not treat binary byte arrays or Blob contents as asset references', async () => {
+        const value = {
+            bytes: new TextEncoder().encode('assets/typed-array.png'),
+            blob: new Blob(['assets/blob.png'], { type: 'text/plain' }),
+        }
+        const protectedAssets = collectProtectedAssetBasenames({}, [{
+            namespace: 'localForage',
+            key: 'plugin-rich-value',
+            value: await encodeLocalPluginStorageValue(value),
+        }])
+
+        expect([...protectedAssets]).toEqual([])
+        expect(findOrphanAssets(assetRows('typed-array.png', 'blob.png'), protectedAssets)
+            .map((asset: any) => asset.key)).toEqual([
+            'assets/typed-array.png', 'assets/blob.png',
+        ])
     })
 })

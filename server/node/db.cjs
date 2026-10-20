@@ -110,22 +110,34 @@ migrateFromSaveDir();
 // ─── KV operations ────────────────────────────────────────────────────────────
 // kv reads/writes for the DB blob route through chunkStore (get/put/size/copy);
 // the statements below serve the remaining direct-row keys.
-const stmtKvSet    = db.prepare(`INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`);
-const stmtKvDel    = db.prepare(`DELETE FROM kv WHERE key = ?`);
-const stmtKvList   = db.prepare(`SELECT key FROM kv`);
-const stmtKvPrefix = db.prepare(`SELECT key FROM kv WHERE key LIKE ? ESCAPE '\\'`);
-const stmtKvCount = db.prepare(`SELECT COUNT(*) AS total FROM kv`);
-const stmtKvPrefixCount = db.prepare(`SELECT COUNT(*) AS total FROM kv WHERE key LIKE ? ESCAPE '\\'`);
-const stmtKvRecent = db.prepare(`SELECT key FROM kv ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?`);
-const stmtKvPrefixRecent = db.prepare(`
-  SELECT key FROM kv
-  WHERE key LIKE ? ESCAPE '\\'
-  ORDER BY updated_at DESC, rowid DESC
-  LIMIT ? OFFSET ?
-`);
-const stmtKvPrefixSizes = db.prepare(`SELECT key, LENGTH(value) as size FROM kv WHERE key LIKE ? ESCAPE '\\'`);
-const stmtKvDelPrefix = db.prepare(`DELETE FROM kv WHERE key LIKE ? ESCAPE '\\'`);
+const stmtKvSet = db.prepare(`INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`);
 const stmtKvUpdatedAt = db.prepare(`SELECT updated_at FROM kv WHERE key = ?`);
+const queryKvList = prepareKvPrefixQuery('SELECT key FROM kv', 'all');
+const queryKvCount = prepareKvPrefixQuery('SELECT COUNT(*) AS total FROM kv', 'get');
+const queryKvRecent = prepareKvPrefixQuery(
+    'SELECT key FROM kv', 'all', ' ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?'
+);
+const queryKvSizes = prepareKvPrefixQuery('SELECT key, LENGTH(value) AS size FROM kv', 'all');
+const queryKvDelete = prepareKvPrefixQuery('DELETE FROM kv', 'run');
+
+function prepareKvPrefixQuery(sql, method, suffix = '') {
+    const all = db.prepare(sql + suffix);
+    const range = db.prepare(`${sql} WHERE key >= ? AND key < ?${suffix}`);
+    const like = db.prepare(`${sql} WHERE key LIKE ? ESCAPE '\\'${suffix}`);
+
+    return (prefix, ...args) => {
+        if (!prefix) return all[method](...args);
+
+        // An ASCII suffix can be incremented to form a BINARY index upper bound.
+        const last = prefix.charCodeAt(prefix.length - 1);
+        if (last >= 0x20 && last <= 0x7e) {
+            const upper = prefix.slice(0, -1) + String.fromCharCode(last + 1);
+            return range[method](prefix, upper, ...args);
+        }
+        const escaped = prefix.replace(/[\\%_]/g, '\\$&');
+        return like[method](`${escaped}%`, ...args);
+    };
+}
 
 function kvGet(key) {
     // Reassembles chunked values; returns raw value for everything else.
@@ -167,8 +179,7 @@ function kvGetUpdatedAt(key) {
 }
 
 function kvDelPrefix(prefix) {
-    const escaped = prefix.replace(/[\\%_]/g, '\\$&');
-    stmtKvDelPrefix.run(`${escaped}%`);
+    queryKvDelete(prefix);
 }
 
 function kvList(prefix, options = {}) {
@@ -178,31 +189,18 @@ function kvList(prefix, options = {}) {
     const offset = Number.isSafeInteger(options.offset) && options.offset > 0
         ? options.offset
         : 0;
-    if (options.order === 'updated-desc' && limit !== null) {
-        if (prefix) {
-            const escaped = prefix.replace(/[\\%_]/g, '\\$&');
-            return stmtKvPrefixRecent.all(`${escaped}%`, limit, offset).map(r => r.key);
-        }
-        return stmtKvRecent.all(limit, offset).map(r => r.key);
-    }
-    if (prefix) {
-        const escaped = prefix.replace(/[\\%_]/g, '\\$&');
-        return stmtKvPrefix.all(`${escaped}%`).map(r => r.key);
-    }
-    return stmtKvList.all().map(r => r.key);
+    const rows = options.order === 'updated-desc' && limit !== null
+        ? queryKvRecent(prefix, limit, offset)
+        : queryKvList(prefix);
+    return rows.map(r => r.key);
 }
 
 function kvCount(prefix) {
-    if (prefix) {
-        const escaped = prefix.replace(/[\\%_]/g, '\\$&');
-        return stmtKvPrefixCount.get(`${escaped}%`).total;
-    }
-    return stmtKvCount.get().total;
+    return queryKvCount(prefix).total;
 }
 
 function kvListWithSizes(prefix) {
-    const escaped = prefix.replace(/[\\%_]/g, '\\$&');
-    return stmtKvPrefixSizes.all(`${escaped}%`).map(r => ({ key: r.key, size: r.size }));
+    return queryKvSizes(prefix);
 }
 
 function checkpointWal(mode = 'TRUNCATE') {

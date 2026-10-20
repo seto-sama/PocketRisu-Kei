@@ -10,10 +10,14 @@ const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const Database = require('../sqlite.cjs');
+const { decode: decodeMessagePack } = require('msgpackr');
 const { decryptAccountBackup } = require('./accountBackup.cjs');
 
 const DEFAULT_MAX_ENTRY_NAME_BYTES = 1024;
 const HASHED_ASSET_NAME = /^([0-9a-f]{64})\.[^/]+$/;
+const PLUGIN_STORAGE_BACKUP_PREFIX = 'plugin-storage/';
+const PLUGIN_STORAGE_BACKUP_MANIFEST = 'plugin-storage/_manifest';
+const PLUGIN_STORAGE_BACKUP_NAMESPACES = new Set(['localStorage', 'localForage']);
 
 function createBackupRestoreService({
     savePath,
@@ -29,6 +33,7 @@ function createBackupRestoreService({
     createBackupAndRotate,
     invalidateDbCache,
     prepareDatabaseProjection,
+    replacePluginStorage,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -135,6 +140,8 @@ function createBackupRestoreService({
         let databaseRaw = null;
         let encryptionMarker = null;
         let assetsRestored = 0;
+        let hasPluginStorageSnapshot = false;
+        let hasPluginStorageEntries = false;
         let bytesReceived = 0;
         const seenEntryNames = new Set();
         const seenStorageKeys = new Set();
@@ -156,6 +163,8 @@ function createBackupRestoreService({
         let stageKv;
         let getStagedKv;
         let iterateStagedKv;
+        let stagePluginStorage;
+        let iterateStagedPluginStorage;
         let liveInlaysMoved = false;
         let stagedInlaysPromoted = false;
         let restoreCommitted = false;
@@ -223,6 +232,15 @@ function createBackupRestoreService({
                     value BLOB NOT NULL
                 )
             `);
+            stagingDb.exec(`
+                CREATE TABLE plugin_storage_entries (
+                    namespace TEXT NOT NULL,
+                    storage_key TEXT NOT NULL,
+                    payload BLOB NOT NULL,
+                    owner TEXT,
+                    PRIMARY KEY (namespace, storage_key)
+                )
+            `);
             stageKv = stagingDb.prepare(
                 'INSERT INTO entries(key, value) VALUES (?, ?)',
             );
@@ -231,6 +249,12 @@ function createBackupRestoreService({
             );
             iterateStagedKv = stagingDb.prepare(
                 'SELECT key, value FROM entries ORDER BY rowid',
+            );
+            stagePluginStorage = stagingDb.prepare(
+                'INSERT INTO plugin_storage_entries(namespace, storage_key, payload, owner) VALUES (?, ?, ?, ?)',
+            );
+            iterateStagedPluginStorage = stagingDb.prepare(
+                'SELECT namespace, storage_key, payload, owner FROM plugin_storage_entries ORDER BY rowid',
             );
             await flushPendingDb();
             for await (const chunk of dataSource) {
@@ -326,6 +350,61 @@ function createBackupRestoreService({
                         encryptionMarker = Buffer.from(data);
                     } else if (name === 'database.risudat') {
                         databaseRaw = Buffer.from(data);
+                    } else if (name === PLUGIN_STORAGE_BACKUP_MANIFEST) {
+                        let manifest;
+                        try {
+                            manifest = JSON.parse(data.toString('utf-8'));
+                        } catch {
+                            throw new Error('Invalid plugin storage backup manifest');
+                        }
+                        if (manifest?.version !== 1
+                            || !Array.isArray(manifest.namespaces)
+                            || manifest.namespaces.length !== PLUGIN_STORAGE_BACKUP_NAMESPACES.size
+                            || new Set(manifest.namespaces).size !== manifest.namespaces.length
+                            || manifest.namespaces.some((namespace) =>
+                                !PLUGIN_STORAGE_BACKUP_NAMESPACES.has(namespace))) {
+                            throw new Error('Unsupported plugin storage backup manifest');
+                        }
+                        hasPluginStorageSnapshot = true;
+                    } else if (name.startsWith(PLUGIN_STORAGE_BACKUP_PREFIX)) {
+                        const parts = name.split('/');
+                        if (parts.length !== 3 || !PLUGIN_STORAGE_BACKUP_NAMESPACES.has(parts[1])) {
+                            throw new Error(`Invalid plugin storage backup entry name: ${name}`);
+                        }
+                        const encodedKey = parts[2];
+                        if (!/^[A-Za-z0-9_-]*$/.test(encodedKey)) {
+                            throw new Error(`Invalid plugin storage backup key: ${name}`);
+                        }
+                        const keyBytes = Buffer.from(encodedKey, 'base64url');
+                        if (keyBytes.toString('base64url') !== encodedKey) {
+                            throw new Error(`Invalid plugin storage backup key: ${name}`);
+                        }
+                        const key = keyBytes.toString('utf-8');
+                        if (!Buffer.from(key, 'utf-8').equals(keyBytes)) {
+                            throw new Error(`Invalid UTF-8 plugin storage backup key: ${name}`);
+                        }
+                        let decoded;
+                        try {
+                            decoded = decodeMessagePack(data);
+                        } catch {
+                            throw new Error(`Invalid plugin storage backup payload: ${name}`);
+                        }
+                        if (!decoded || typeof decoded !== 'object'
+                            || !(Buffer.isBuffer(decoded.value) || decoded.value instanceof Uint8Array)
+                            || (decoded.owner !== undefined && typeof decoded.owner !== 'string')) {
+                            throw new Error(`Invalid plugin storage backup payload: ${name}`);
+                        }
+                        try {
+                            stagePluginStorage.run(
+                                parts[1], key, Buffer.from(decoded.value), decoded.owner ?? null,
+                            );
+                        } catch (error) {
+                            if (/UNIQUE|PRIMARY KEY/i.test(String(error?.message))) {
+                                throw new Error(`Duplicate backup plugin storage key: ${parts[1]}/${encodedKey}`);
+                            }
+                            throw error;
+                        }
+                        hasPluginStorageEntries = true;
                     } else if (!name.startsWith('inlay_thumb/')) {
                         const storageKey = resolveBackupStorageKey(name);
                         const storageValue = storageKey.startsWith('coldstorage/')
@@ -365,6 +444,9 @@ function createBackupRestoreService({
             }
             if (databaseRaw === null) {
                 throw new Error('Backup does not contain database.risudat');
+            }
+            if (!hasPluginStorageSnapshot && hasPluginStorageEntries) {
+                throw new Error('Plugin storage backup entries require a manifest');
             }
             const inlayMetadata = new Map([...legacyInlayInfoMap, ...explicitSidecarMap]);
             for (const [id, info] of inlayMetadata) {
@@ -443,6 +525,19 @@ function createBackupRestoreService({
                 installResult = preparedDatabase.install();
                 if (installResult && typeof installResult.then === 'function') {
                     throw new TypeError('prepared database install() must be synchronous');
+                }
+                if (hasPluginStorageSnapshot) {
+                    function* stagedPluginStorage() {
+                        for (const row of iterateStagedPluginStorage.iterate()) {
+                            yield {
+                                namespace: row.namespace,
+                                key: row.storage_key,
+                                value: Buffer.from(row.payload),
+                                ...(typeof row.owner === 'string' ? { owner: row.owner } : {}),
+                            };
+                        }
+                    }
+                    replacePluginStorage(stagedPluginStorage());
                 }
             });
             replaceLiveState();

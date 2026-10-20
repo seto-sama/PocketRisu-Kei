@@ -12,7 +12,7 @@
     import { exportModule, exportModuleLegacy, importModule, type RisuModule } from "src/ts/process/modules";
     import { clearCharacterModuleConnections, setGlobalModuleEnabled } from "src/ts/process/moduleSelection";
     import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
-    import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
+    import { alertConfirm, alertError, alertSelect, notifySuccess } from "src/ts/alert";
     import Input from "../../../UI/components/Input.svelte";
     import { builtInMCPIds, importMCPModule, type BuiltInMCPId } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
@@ -219,9 +219,13 @@
     async function downloadModule(index: number) {
         const rmodule = DBState.db.modules[index]
         if (!rmodule || rmodule.mcp) return
-        const selection = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
-        if (selection === 0) await exportModule(rmodule)
-        else if (selection === 1) await exportModuleLegacy(rmodule)
+        try {
+            const selection = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
+            if (selection === 0) await exportModule(rmodule)
+            else if (selection === 1) await exportModuleLegacy(rmodule)
+        } catch (error) {
+            alertError(error)
+        }
     }
 
     async function deleteModule(index: number) {

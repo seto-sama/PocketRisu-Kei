@@ -1,6 +1,6 @@
 'use strict';
 
-const { kvList, kvGet, db: sqliteDb, kvSize, chunkStorageStats, reclaimableChunkBytes, isDbBlobChunked, kvListWithSizes, kvDel, checkpointWal, estimateVacuumRequiredBytes, gcChunks, vacuumDatabase } = require('../db.cjs');
+const { kvList, db: sqliteDb, kvSize, chunkStorageStats, reclaimableChunkBytes, isDbBlobChunked, kvListWithSizes, kvDel, checkpointWal, estimateVacuumRequiredBytes, gcChunks, vacuumDatabase } = require('../db.cjs');
 const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, assetBasename: statsBasename, collectDatabaseAssetBasenames, collectPersistentPluginAssetBasenames } = require('../assetReferences.cjs');
 const fs = require('fs/promises');
 const path = require('path');
@@ -23,8 +23,6 @@ function installMaintenanceRoutes(app, {
     queueStorageOperation,
     flushPendingDb,
 }) {
-    const assetReferenceStorage = { listKeys: kvList, getValue: kvGet };
-
     const DB_BLOB_KEY = 'database/database.bin';
 
     const ASSET_PREFIXES = [
@@ -168,13 +166,13 @@ function installMaintenanceRoutes(app, {
                 }
             } catch { /* backups dir may not exist */ }
 
-            // Quick estimates from in-memory cache only — never decode the BLOB just for stats.
+            // Use the cached projection, then scan plugin values for asset references.
             let orphan = { count: 0, totalSize: 0, available: false };
             const stripped = storageState.dbCache[DB_HEX_KEY];
             if (stripped && Array.isArray(stripped.characters)) {
                 const victims = findOrphanAssets(
                     storedAssets,
-                    collectProtectedAssetBasenames(stripped, assetReferenceStorage),
+                    collectProtectedAssetBasenames(stripped, appDataStore.exportPluginStorage()),
                 );
                 orphan.count = victims.length;
                 orphan.totalSize = victims.reduce((sum, asset) => sum + asset.size, 0);
@@ -268,7 +266,7 @@ function installMaintenanceRoutes(app, {
 
             const orphanAssets = findOrphanAssets(
                 kvListWithSizes(STORED_ASSET_PREFIX),
-                collectProtectedAssetBasenames(dbObj, assetReferenceStorage),
+                collectProtectedAssetBasenames(dbObj, appDataStore.exportPluginStorage()),
             );
 
             characters.sort((a, b) => b.totalBytes - a.totalBytes);
@@ -349,11 +347,13 @@ function installMaintenanceRoutes(app, {
 
                 const storedAssets = kvListWithSizes(STORED_ASSET_PREFIX);
                 const explicitAssetReferences = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
+                const pluginAssetReferences = collectPersistentPluginAssetBasenames(appDataStore.exportPluginStorage());
+                for (const basename of pluginAssetReferences) explicitAssetReferences.add(basename);
                 if (explicitAssetReferences.size === 0 && storedAssets.length > 0) {
                     return { error: 'Reference scan produced no references — refusing to purge' };
                 }
                 const databaseReferences = collectDatabaseAssetBasenames(dbObj);
-                for (const basename of collectPersistentPluginAssetBasenames(assetReferenceStorage)) {
+                for (const basename of pluginAssetReferences) {
                     databaseReferences.add(basename);
                 }
 

@@ -7,6 +7,10 @@ const { gzip } = require('node:zlib');
 const { promisify } = require('node:util');
 const { decode, encode } = require('msgpackr');
 const { decodeRisuSave, encodeRisuSave, decompressBuffer } = require('./utils.cjs');
+const {
+    exportPromptPresetSelection,
+    importPromptPresetSelection,
+} = require('../../shared/promptPresetSelection.mjs');
 
 const gzipAsync = promisify(gzip);
 const rpackMapPath = path.resolve(__dirname, '../shared/rpack_map.bin');
@@ -93,7 +97,7 @@ async function decodeCompressedContainer(data) {
 
 async function encodeFile(format, value) {
     if (format === 'json') return Buffer.from(JSON.stringify(value, null, 2), 'utf8');
-    if (format === 'save') return encodeRisuSave(value);
+    if (format === 'save') return encodeRisuSave(exportPromptPresetSelection(value));
     const config = Object.hasOwn(presetFormats, format) ? presetFormats[format] : undefined;
     if (!config) throw new Error(`Unsupported file format: ${format}`);
 
@@ -107,7 +111,9 @@ async function encodeFile(format, value) {
 
 async function decodeFile(format, data) {
     if (format === 'json') return JSON.parse(Buffer.from(data).toString('utf8'));
-    if (format === 'save') return decodeRisuSave(data);
+    if (format === 'save') {
+        return importPromptPresetSelection(await decodeRisuSave(data));
+    }
     const config = Object.hasOwn(presetFormats, format) ? presetFormats[format] : undefined;
     if (!config) throw new Error(`Unsupported file format: ${format}`);
 

@@ -68,7 +68,7 @@ export async function SaveSettingsOnlyBackup(){
         const estimate = await forageStorage.settingsBackupEstimate()
         alertClear()
 
-        const baseBytes = estimate.dbBytes + estimate.baseAssets.bytes
+        const baseBytes = estimate.dbBytes + estimate.pluginStorageBytes + estimate.baseAssets.bytes
         if(estimate.moduleAssets.count > 0){
             const choice = await alertConfirmMulti(
                 language.backupSettingsOnly,

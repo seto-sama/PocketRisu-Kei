@@ -319,8 +319,9 @@ export const displayOtherHomeItems: SettingItem[] = [
         labelKey: 'hidePublicStats',
         helpKey: 'hidePublicStats',
         bindKey: 'hidePublicStats',
+        options: { reverse: true },
         onChange: (hidden) => { void syncPublicStatsVisibility(!!hidden); },
-        keywords: ['statistics', 'stats', 'privacy', 'network', 'hide'],
+        keywords: ['statistics', 'stats', 'privacy', 'network', 'send', 'openrouter'],
     },
 ];
 
@@ -364,8 +365,8 @@ export const displayOtherQuoteItems: SettingItem[] = [
         type: 'check',
         labelKey: 'unformatQuotes',
         helpKey: 'unformatQuotes',
-        getValue: (db) => !db.unformatQuotes,
-        setValue: (db, enabled) => { db.unformatQuotes = !enabled; },
+        bindKey: 'unformatQuotes',
+        options: { reverse: true },
         keywords: ['quotes', 'formatting', 'enable'],
     },
     { id: 'display.blockquoteStyling', type: 'check', labelKey: 'blockquoteStyling', helpKey: 'blockquoteStyling', bindKey: 'blockquoteStyling', keywords: ['blockquote', 'quote'] },

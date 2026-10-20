@@ -1,9 +1,6 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 
-// Mock heavy dependencies so importing database.svelte doesn't drag in the
-// full Svelte/forage/globalApi stack. We do NOT mock database.svelte itself —
-// these tests exercise the real botPreset id helpers and the active-preset
-// stability invariant that PR S3 establishes.
+// Isolate preset state transitions from storage and plugin startup.
 
 vi.mock('../stores.svelte', () => {
     const state: { db: any } = { db: {} }
@@ -16,15 +13,17 @@ vi.mock('../stores.svelte', () => {
 })
 
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage: { realStorage: null },
-    downloadFile: () => {},
+    forageStorage: { realStorage: null, encodeFile: vi.fn(async () => Uint8Array.of(1, 2)) },
+    requestImmediateSave: vi.fn(async () => {}),
     saveAsset: () => Promise.resolve(''),
 }))
+
+vi.mock('../download', () => ({ downloadFile: vi.fn(async () => {}) }))
 
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 vi.mock('../alert', () => ({
-    notifySuccess: () => {},
+    notifySuccess: vi.fn(),
     alertError: () => {},
 }))
 
@@ -35,16 +34,20 @@ vi.mock('../../lang', () => ({
 
 const databaseModule = await import('./database.svelte')
 const storesModule = await import('../stores.svelte')
+const { forageStorage, requestImmediateSave } = await import('../globalApi.svelte')
+const { downloadFile } = await import('../download')
+const { notifySuccess } = await import('../alert')
 const {
     applyHypaPresetIntegration,
     createBotPresetTemplate,
-    getActiveBotPresetId,
-    getBotPresetIndexById,
+    changeToPreset,
+    copyPreset,
+    downloadPreset,
+    getActiveBotPreset,
     saveCurrentPreset,
     setDatabase,
+    setDatabaseLite,
     setPreset,
-    setActiveBotPresetById,
-    withStableActivePreset,
 } = databaseModule
 const { DBState } = storesModule as any
 
@@ -53,14 +56,16 @@ function makePreset(id: string, name: string) {
 }
 
 beforeEach(() => {
-    DBState.db = {
+    const db: any = {
         botPresets: [
             makePreset('id-a', 'A'),
             makePreset('id-b', 'B'),
             makePreset('id-c', 'C'),
         ],
-        botPresetsId: 1,
+        activePromptPresetId: 'id-b',
     }
+    setDatabase(db)
+    vi.clearAllMocks()
 })
 
 describe('empty database initialization', () => {
@@ -161,7 +166,7 @@ describe('legacy prompt-preset model fields', () => {
                 subModel: 'legacy-sub',
                 futureField: { enabled: true },
             }],
-            botPresetsId: 0,
+            activePromptPresetId: 'legacy',
         }
         setDatabase(db)
         db.aiModel = 'current-main'
@@ -174,67 +179,95 @@ describe('legacy prompt-preset model fields', () => {
     })
 })
 
-describe('id lookup helpers', () => {
-    test('setActiveBotPresetById selects the preset with the requested stable id', () => {
-        setActiveBotPresetById('id-c')
-        expect(getActiveBotPresetId()).toBe('id-c')
-    })
-
-    test('setActiveBotPresetById(undefined) sets the no-active sentinel', () => {
-        setActiveBotPresetById(undefined)
-        expect(DBState.db.botPresetsId).toBe(-1)
-    })
-})
-
-describe('withStableActivePreset', () => {
-    test('preserves active id when array is reordered', () => {
-        // botPresetsId=1 (id-b) is active. Move 'B' from index 1 to index 0.
-        withStableActivePreset(() => {
-            const arr = DBState.db.botPresets
-            const moved = arr.splice(1, 1)[0]
-            arr.splice(0, 0, moved)
-            DBState.db.botPresets = arr
-        })
-        // After reorder, B is at index 0. botPresetsId should follow.
-        expect(DBState.db.botPresetsId).toBe(0)
-        expect(getActiveBotPresetId()).toBe('id-b')
-    })
-
-    test('preserves active id when a non-active preset is removed', () => {
-        // botPresetsId=1 (id-b). Remove id-a (index 0).
-        withStableActivePreset(() => {
-            DBState.db.botPresets.splice(0, 1)
-        })
-        // B should still be active (now at index 0).
-        expect(getActiveBotPresetId()).toBe('id-b')
-        expect(DBState.db.botPresetsId).toBe(0)
-    })
-
-    test('clamps to 0 when the active preset itself is removed', () => {
-        // botPresetsId=1 (id-b). Remove id-b.
-        withStableActivePreset(() => {
-            DBState.db.botPresets.splice(1, 1)
-        })
-        // active id was id-b which no longer exists → fall back to 0.
-        expect(DBState.db.botPresetsId).toBe(0)
-        expect(getActiveBotPresetId()).toBe('id-a')
-    })
-
-})
-
-describe('id migration safety', () => {
-    test('helpers cope with presets missing an id (treat as not findable)', () => {
+describe('active prompt preset IDs', () => {
+    test('keeps the selected preset through reorder, edits, and duplication', () => {
         DBState.db.botPresets = [
-            { name: 'no-id-preset' },
-            makePreset('id-x', 'X'),
+            DBState.db.botPresets[2],
+            DBState.db.botPresets[0],
+            DBState.db.botPresets[1],
         ]
-        DBState.db.botPresetsId = 0
-        // Active preset has no id → getActiveBotPresetId returns undefined,
-        // setupping the migration path (setDatabase will fix it on next load).
-        expect(getActiveBotPresetId()).toBeUndefined()
-        // Lookup by id still works for the indexed entry.
-        expect(getBotPresetIndexById('id-x')).toBe(1)
+        DBState.db.mainPrompt = 'edited prompt for B'
+
+        saveCurrentPreset()
+
+        expect(DBState.db.activePromptPresetId).toBe('id-b')
+        expect(getActiveBotPreset()?.id).toBe('id-b')
+        expect(DBState.db.botPresets.find((preset: any) => preset.id === 'id-b').mainPrompt).toBe('edited prompt for B')
+        expect(DBState.db.botPresets.find((preset: any) => preset.id === 'id-a').mainPrompt).not.toBe('edited prompt for B')
+
+        const copyId = copyPreset(2)
+        expect(copyId).toBeTruthy()
+        expect(copyId).not.toBe('id-b')
+        changeToPreset(copyId!)
+        expect(DBState.db.activePromptPresetId).toBe(copyId)
+        expect(DBState.db.mainPrompt).toBe('edited prompt for B')
     })
+
+    test('skips saving when the selected preset was deleted', () => {
+        const otherPresetsBefore = DBState.db.botPresets
+            .filter((preset: any) => preset.id !== 'id-b')
+            .map((preset: any) => ({ id: preset.id, mainPrompt: preset.mainPrompt }))
+        DBState.db.botPresets = DBState.db.botPresets.filter((preset: any) => preset.id !== 'id-b')
+        DBState.db.mainPrompt = 'orphaned root edit'
+
+        saveCurrentPreset()
+
+        expect(getActiveBotPreset()).toBeNull()
+        expect(DBState.db.botPresets.map((preset: any) => ({ id: preset.id, mainPrompt: preset.mainPrompt })))
+            .toEqual(otherPresetsBefore)
+    })
+
+    test('validates a target before saving and preserves edits when switching or reselecting', () => {
+        const presetB = DBState.db.botPresets.find((preset: any) => preset.id === 'id-b')
+        DBState.db.mainPrompt = 'edited prompt for B'
+
+        changeToPreset('missing')
+        expect(DBState.db.activePromptPresetId).toBe('id-b')
+        expect(presetB.mainPrompt).not.toBe('edited prompt for B')
+
+        changeToPreset('id-c')
+        expect(DBState.db.activePromptPresetId).toBe('id-c')
+        expect(DBState.db.botPresets.find((preset: any) => preset.id === 'id-b').mainPrompt).toBe('edited prompt for B')
+
+        DBState.db.mainPrompt = 'edited prompt for C'
+        changeToPreset('id-c')
+        expect(DBState.db.activePromptPresetId).toBe('id-c')
+        expect(DBState.db.mainPrompt).toBe('edited prompt for C')
+        expect(DBState.db.botPresets.find((preset: any) => preset.id === 'id-c').mainPrompt).toBe('edited prompt for C')
+    })
+})
+
+test('exports an edited preset snapshot without waiting for unrelated database saves', async () => {
+    let finishEncoding!: (data: Uint8Array) => void
+    vi.mocked(forageStorage.encodeFile).mockReturnValueOnce(new Promise(resolve => { finishEncoding = resolve }))
+    DBState.db.mainPrompt = 'prompt at export'
+    const pending = downloadPreset(1)
+    expect(requestImmediateSave).not.toHaveBeenCalled()
+    expect(downloadFile).not.toHaveBeenCalled()
+    expect(notifySuccess).not.toHaveBeenCalled()
+
+    DBState.db.botPresets = [DBState.db.botPresets[2], DBState.db.botPresets[0], DBState.db.botPresets[1]]
+    DBState.db.mainPrompt = 'later edit'
+    saveCurrentPreset()
+    finishEncoding(Uint8Array.of(1, 2))
+    await pending
+
+    expect(forageStorage.encodeFile).toHaveBeenCalledWith('preset', expect.objectContaining({
+        id: 'id-b', name: 'B', mainPrompt: 'prompt at export', openAIKey: '', proxyKey: '', forceReplaceUrl: '',
+    }))
+    expect(downloadFile).toHaveBeenCalledWith('B_preset.risup', Uint8Array.of(1, 2))
+    expect(notifySuccess).toHaveBeenCalledOnce()
+    expect(getActiveBotPreset()?.mainPrompt).toBe('later edit')
+})
+
+test.each(['encoding', 'download'])('does not report export success after a failed %s', async (stage) => {
+    const error = new Error('Export failed')
+    if (stage === 'encoding') vi.mocked(forageStorage.encodeFile).mockRejectedValueOnce(error)
+    else vi.mocked(downloadFile).mockRejectedValueOnce(error)
+
+    await expect(downloadPreset(1)).rejects.toThrow('Export failed')
+    expect(notifySuccess).not.toHaveBeenCalled()
+    if (stage === 'encoding') expect(downloadFile).not.toHaveBeenCalled()
 })
 
 describe('prompt preset Hypa integration', () => {
@@ -252,7 +285,7 @@ describe('prompt preset Hypa integration', () => {
         const db = setup()
         db.hypaPresetIntegration = 'Story memory'
         saveCurrentPreset()
-        const saved = structuredClone(db.botPresets[db.botPresetsId])
+        const saved = structuredClone(db.botPresets.find((preset: any) => preset.id === db.activePromptPresetId))
         expect(saved.hypaPresetIntegration).toBe('Story memory')
 
         setPreset(db, { ...makePreset('other', 'Other'), hypaPresetIntegration: 'Default' })
@@ -279,5 +312,32 @@ describe('prompt preset Hypa integration', () => {
         applyHypaPresetIntegration(db)
         expect(db.hypaV3PresetId).toBe(1)
         expect(db.hypaV3).toBe(false)
+    })
+})
+
+describe('prompt preset selection normalization', () => {
+    test.each([
+        { kind: 'full', install: setDatabase },
+        { kind: 'lite', install: setDatabaseLite },
+    ])('$kind install normalizes absent, empty, and dangling selection IDs', ({ install }) => {
+        const makeDatabase = (selection?: string) => ({
+            botPresets: [makePreset('id-a', 'A'), makePreset('id-b', 'B')],
+            ...(selection === undefined ? {} : { activePromptPresetId: selection }),
+        }) as any
+
+        const missingSelection = makeDatabase()
+        missingSelection.botPresetsId = 1
+        install(missingSelection)
+        expect(missingSelection.activePromptPresetId).toBe('id-a')
+        expect(missingSelection).not.toHaveProperty('botPresetsId')
+
+        const noSelection = makeDatabase('')
+        install(noSelection)
+        expect(noSelection.activePromptPresetId).toBe('')
+
+        const danglingSelection = makeDatabase('deleted-id')
+        install(danglingSelection)
+        expect(danglingSelection.activePromptPresetId).toBe('')
+        expect(danglingSelection.botPresets.map((preset: any) => preset.id)).toEqual(['id-a', 'id-b'])
     })
 })

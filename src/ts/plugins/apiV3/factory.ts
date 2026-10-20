@@ -50,8 +50,34 @@ export function getRpcAbortSignalMetadata(signal: AbortSignal | undefined, key: 
     return signal ? rpcAbortSignalMetadata.get(signal)?.[key] : undefined;
 }
 
+function collectTransferables(obj: any, transferables: Transferable[] = [], seen = new WeakSet<object>(transferables)): Transferable[] {
+    if (!obj || typeof obj !== 'object' || seen.has(obj)) return transferables;
+    seen.add(obj);
+    if (obj instanceof ArrayBuffer
+        || obj instanceof MessagePort
+        || (typeof ImageBitmap !== 'undefined' && obj instanceof ImageBitmap)
+        || (typeof WritableStream !== 'undefined' && obj instanceof WritableStream)
+        || (typeof TransformStream !== 'undefined' && obj instanceof TransformStream)
+        || (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
+        transferables.push(obj);
+    } else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
+        collectTransferables(obj.buffer, transferables, seen);
+    } else if (obj instanceof Map) {
+        for (const [key, value] of obj) {
+            collectTransferables(key, transferables, seen);
+            collectTransferables(value, transferables, seen);
+        }
+    } else if (Array.isArray(obj) || obj instanceof Set) {
+        for (const value of obj) collectTransferables(value, transferables, seen);
+    } else if (obj.constructor === Object) {
+        for (const value of Object.values(obj)) collectTransferables(value, transferables, seen);
+    }
+    return transferables;
+}
+
 const GUEST_BRIDGE_SCRIPT = `
 await (async function() {
+    const collectTransferables = ${collectTransferables.toString()};
     const pendingRequests = new Map();
     const callbackRegistry = new Map();
     const callbackIdByFunction = new WeakMap();
@@ -134,28 +160,6 @@ await (async function() {
         return val;
     }
 
-    function collectTransferables(obj, transferables = []) {
-        if (!obj || typeof obj !== 'object') return transferables;
-
-        if (obj instanceof ArrayBuffer ||
-            obj instanceof MessagePort ||
-            obj instanceof ImageBitmap ||
-            (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
-            transferables.push(obj);
-        }
-        else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
-            transferables.push(obj.buffer);
-        }
-        else if (Array.isArray(obj)) {
-            obj.forEach(item => collectTransferables(item, transferables));
-        }
-        else if (obj.constructor === Object) {
-            Object.values(obj).forEach(value => collectTransferables(value, transferables));
-        }
-
-        return transferables;
-    }
-
     function replaceStreamsWithPorts(obj) {
         const ports = [];
         const cleanups = [];
@@ -219,14 +223,14 @@ await (async function() {
         if (obj.constructor === Object) {
             const out = {};
             for (const k of Object.keys(obj)) out[k] = replace(obj[k]);
-            return { result: out, ports, cleanups };
+            return { result: ports.length ? out : obj, ports, cleanups };
         }
 
         return { result: obj, ports, cleanups };
     }
 
     function reconstructStreamsFromPorts(obj, ports) {
-        if (!obj || typeof obj !== 'object') return obj;
+        if (!obj || typeof obj !== 'object' || ports.length === 0) return obj;
 
         function reconstruct(val) {
             if (!val || val.__type !== 'STREAM_PORT' || typeof val.portIndex !== 'number') return val;
@@ -442,13 +446,6 @@ await (async function() {
         console.error('Failed to initialize risuai properties:', e);
     }
 
-    window.initOldApiGlobal = () => {
-        const keys = risuai._getOldKeys()
-        for(const key of keys){
-            window[key] = risuai[key];
-        }
-    }
-
     Object.freeze(window.postMessage);
 })();
 `;
@@ -502,31 +499,6 @@ export class SandboxHost {
             }, '*');
         });
     }
-
-    private collectTransferables(obj: any, transferables: Transferable[] = []): Transferable[] {
-        if (!obj || typeof obj !== 'object') return transferables;
-
-        if (obj instanceof ArrayBuffer ||
-            obj instanceof MessagePort ||
-            obj instanceof ImageBitmap ||
-            obj instanceof WritableStream ||
-            obj instanceof TransformStream ||
-            (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
-            transferables.push(obj);
-        }
-        else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
-            transferables.push(obj.buffer);
-        }
-        else if (Array.isArray(obj)) {
-            obj.forEach(item => this.collectTransferables(item, transferables));
-        }
-        else if (obj.constructor === Object) {
-            Object.values(obj).forEach(value => this.collectTransferables(value, transferables));
-        }
-
-        return transferables;
-    }
-
 
     private serialize(val: any): any {
         if (
@@ -616,7 +588,7 @@ export class SandboxHost {
                             reqId,
                             args: sanitizedArgs
                         };
-                        const transferables = this.collectTransferables(message);
+                        const transferables = collectTransferables(message);
                         this.iframe.contentWindow?.postMessage(message, '*', transferables);
                     });
                 };
@@ -719,14 +691,14 @@ export class SandboxHost {
         if (obj.constructor === Object) {
             const out: any = {};
             for (const k of Object.keys(obj)) out[k] = replace(obj[k]);
-            return { result: out, ports, cleanups };
+            return { result: ports.length ? out : obj, ports, cleanups };
         }
 
         return { result: obj, ports, cleanups };
     }
 
     private reconstructStreamsFromPorts(obj: any, ports: readonly MessagePort[]): any {
-        if (!obj || typeof obj !== 'object') return obj;
+        if (!obj || typeof obj !== 'object' || ports.length === 0) return obj;
 
         const reconstruct = (val: any): any => {
             if (val?.__type !== 'STREAM_PORT' || typeof val.portIndex !== 'number') return val;
@@ -886,7 +858,7 @@ export class SandboxHost {
                     const { result: streamResult, ports: streamPorts, cleanups } = this.replaceStreamsWithPorts(response.result);
                     response.result = streamResult;
                     streamCleanups = cleanups;
-                    transferables = this.collectTransferables(response, streamPorts);
+                    transferables = collectTransferables(response, streamPorts);
 
                 } catch (err: any) {
                     rollbackStreams();

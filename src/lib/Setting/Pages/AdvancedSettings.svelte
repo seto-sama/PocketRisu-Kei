@@ -30,10 +30,7 @@
         'adv.allowExt',
         'adv.cssErr',
     ]);
-    const laboratoryPrimaryItemIds = [
-        'adv.newImgBeta',
-        'adv.allowV2Plugin',
-    ];
+    const laboratoryPrimaryItemIds = ['adv.newImgBeta'];
     const laboratoryPrimaryItemIdSet = new Set(laboratoryPrimaryItemIds);
     const laboratoryWarningItemIds = new Set(['adv.warn']);
     const movedItemIds = new Set([...requestItemIds, ...lorebookItemIds, ...dataDisplayItemIds]);

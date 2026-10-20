@@ -3,6 +3,7 @@
 const {
     assetBasename,
     collectDatabaseAssetBasenames,
+    collectPersistentPluginAssetBasenames,
 } = require('./assetReferences.cjs');
 
 function stripToSettingsOnly(database) {
@@ -13,17 +14,21 @@ function stripToSettingsOnly(database) {
     };
 }
 
-/** Build the database and exact asset allow-list used by estimate and export. */
 function buildSettingsBackupPlan({
     database,
     assetRows,
     includeModuleAssets = true,
+    pluginStorage = [],
 }) {
     const trimmed = stripToSettingsOnly(database);
     const withModuleAssets = collectDatabaseAssetBasenames(trimmed);
     const withoutModuleAssets = collectDatabaseAssetBasenames(trimmed, {
         includeModuleAssets: false,
     });
+    for (const basename of collectPersistentPluginAssetBasenames(pluginStorage)) {
+        withModuleAssets.add(basename);
+        withoutModuleAssets.add(basename);
+    }
     const includedAssetNames = includeModuleAssets
         ? withModuleAssets
         : withoutModuleAssets;

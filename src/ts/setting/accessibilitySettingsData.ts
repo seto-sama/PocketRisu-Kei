@@ -251,13 +251,12 @@ export const accessibilitySettingsItems: SettingItem[] = [
         id: 'acc.disableToggleBinding',
         type: 'check',
         labelKey: 'disableToggleBinding',
-        // Keep the stored disable flag compatible with existing databases.
-        getValue: (db) => !db.disableToggleBinding,
-        setValue: (db, visible) => { db.disableToggleBinding = !visible; },
+        bindKey: 'disableToggleBinding',
+        options: { reverse: true },
         helpKey: 'disableToggleBinding',
         keywords: ['sidebar', 'toggle', 'binding', 'chat', 'show'],
-        onChange: (visible) => {
-            if (visible) {
+        onChange: (disabled) => {
+            if (!disabled) {
                 const chat = getCurrentChat();
                 if (chat) loadTogglesFromChat(chat);
             }

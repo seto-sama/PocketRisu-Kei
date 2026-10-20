@@ -1,8 +1,9 @@
 import { Buffer } from 'buffer'
 import { getDatabase, saveImage, setDatabase } from "./storage/database.svelte"
-import { selectSingleImageFile, selectSingleImportFile, sleep } from "./util"
-import { alertConfirm, alertError, alertStore, notifySuccess, notifyError } from "./alert"
-import { AppendableBuffer, downloadFile, requestImmediateSave } from "./globalApi.svelte"
+import { selectSingleImageFile, selectSingleImportFile } from "./util"
+import { alertConfirm, alertError, notifySuccess, notifyError } from "./alert"
+import { AppendableBuffer, requestImmediateSave } from "./globalApi.svelte"
+import { exportPresetFile } from "./preset/export"
 import { language } from "src/lang"
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
@@ -113,52 +114,26 @@ interface PersonaCard {
     note?: string
 }
 
-export async function exportUserPersona(personaIndex?: number) {
-    if (personaIndex !== undefined && getDatabase().selectedPersona === personaIndex) {
+export async function exportUserPersona(personaIndex: number) {
+    const db = getDatabase()
+    if (db.selectedPersona === personaIndex) {
         saveUserPersona()
     }
-    let db = getDatabase({ snapshot: true })
-    const persona = personaIndex === undefined
-        ? {
-            name: db.username,
-            personaPrompt: db.personaPrompt,
-            note: db.userNote,
-            icon: db.userIcon,
-        }
-        : db.personas[personaIndex]
+    const persona = db.personas[personaIndex]
     if (!persona || !persona.name || !persona.personaPrompt) {
         notifyError(language.personaExportEmpty)
         return
     }
 
-    let img = await readAvatarImageOrDefault(persona.icon)
-
-    let card: PersonaCard = structuredClone({
-        name: persona.name,
-        personaPrompt: persona.personaPrompt,
-        note: persona.note,
-    })
-
-    alertStore.set({
-        type: 'wait',
-        msg: 'Loading... (Writing Exif)'
-    })
-
-    await sleep(10)
+    const { name, personaPrompt, note, icon } = persona
+    const card: PersonaCard = { name, personaPrompt, note }
+    let img = await readAvatarImageOrDefault(icon)
 
     img = (await PngChunk.write(await reencodeImage(img), {
         "persona": Buffer.from(JSON.stringify(card)).toString('base64')
     })) as Uint8Array
 
-    alertStore.set({
-        type: 'wait',
-        msg: 'Loading... (Writing)'
-    })
-
-    await sleep(10)
-    await downloadFile(`${persona.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.png`, img)
-
-    notifySuccess(language.successExport)
+    await exportPresetFile(`${name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.png`, img)
 }
 
 export async function importUserPersona() {

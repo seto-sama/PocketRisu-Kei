@@ -10,7 +10,7 @@ import { selectSingleImportFile } from "../util";
 import { type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
 import { getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { hasLuaEditListener, runLuaEditTrigger } from "./scriptings";
-import { pluginV2 } from "../plugins/plugins.svelte";
+import { pluginRuntime } from "../plugins/pluginRuntime";
 import { runTrigger } from "./triggers";
 
 const dreg = /{{data}}/g
@@ -34,7 +34,7 @@ export function exportRegex(script:customscript[]){
         data: script
     }), 'utf-8')
     downloadFile(`regexscript_export.json`,data)
-    notifySuccess(language.successExport)
+    notifySuccess(language.browserDownloadStarted)
 }
 
 export async function importRegex(o:customscript[]):Promise<customscript[]>{
@@ -121,8 +121,8 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
         }
     }
 
-    if(pluginV2[mode].size > 0){
-        for(const plugin of pluginV2[mode]){
+    if(pluginRuntime[mode].size > 0){
+        for(const plugin of pluginRuntime[mode]){
             const res = await plugin(data)
             if(res !== null && res !== undefined){
                 data = res

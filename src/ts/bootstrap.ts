@@ -8,7 +8,7 @@ import { checkRisuUpdate } from "./update";
 import { syncPublicStatsVisibility } from "./publicStats";
 import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
+import { alertError, alertMd, waitAlert, alertConfirm, alertInput } from "./alert";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
@@ -216,13 +216,6 @@ export async function loadData() {
             }, 5_000)
             checkRisuUpdate()
             syncPublicStatsVisibility(db.hidePublicStats)
-            if (import.meta.env.VITE_RISU_TOS === 'TRUE') {
-                alertTOS().then((a) => {
-                    if (a === false) {
-                        location.reload()
-                    }
-                })
-            }
         } catch (error) {
             alertError(error)
         }

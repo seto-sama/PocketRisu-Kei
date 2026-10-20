@@ -3,7 +3,7 @@
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelProfileBrowser, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
-    import { downloadFile } from "src/ts/globalApi.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import { getOfficialRegistryId, getOfficialRegistry, isOfficialRegistryId } from "src/ts/preset/registry";
     import { buildFragmentFromSnapshot, getProfileUpdateStatus } from "src/ts/preset/customProfiles";
     import { replaceModelPresetProfile } from "src/ts/preset/profileUpdate";
@@ -192,7 +192,7 @@
     async function exportPreset() {
         const fragment = buildFragmentFromSnapshot(preset.profileSnapshot, preset.name, Date.now());
         const name = (preset.name || 'profile').replace(/[^a-z0-9._-]/gi, '_');
-        await downloadFile(`${name}.profile.json`, JSON.stringify(fragment, null, 2));
+        await exportPresetFile(`${name}.profile.json`, JSON.stringify(fragment, null, 2));
     }
 
 </script>

@@ -49,6 +49,7 @@ function sampleDatabase() {
         nullable: null,
         count: 0,
         botPresets: [{ id: 'preset-1', name: '기본', temperature: 80 }],
+        activePromptPresetId: 'preset-1',
         modules: [{ id: 'module-1', name: 'Lore', lorebook: [] }],
         plugins: [{ name: 'legacy-plugin', version: '1.0.0' }],
         pluginV2: [{ id: 'plugin-v2', name: 'Plugin V2' }],
@@ -64,6 +65,82 @@ function sampleDatabase() {
 
 afterEach(() => {
     while (openDatabases.length > 0) openDatabases.pop()?.close()
+})
+
+describe('plugin storage namespaces', () => {
+    it('migrates the old table and KV records without changing values or overwriting newer storage', () => {
+        const sqlite = new Database(':memory:')
+        openDatabases.push(sqlite)
+        sqlite.exec(`
+          CREATE TABLE app_data_state (id INTEGER PRIMARY KEY, schema_version INTEGER, revision INTEGER,
+            initialized INTEGER, updated_at INTEGER);
+          INSERT INTO app_data_state VALUES (1, 1, 8, 0, 0);
+          CREATE TABLE app_plugin_storage (storage_key TEXT PRIMARY KEY, payload BLOB, revision INTEGER);
+          CREATE TABLE kv (key TEXT PRIMARY KEY, value BLOB);
+        `)
+        const saved = new Packr({ useRecords: false }).pack({ preserved: true })
+        sqlite.prepare('INSERT INTO app_plugin_storage VALUES (?, ?, ?)').run('shared', saved, 8)
+        const key = Buffer.from('shared').toString('base64url')
+        const kvWrite = sqlite.prepare('INSERT INTO kv VALUES (?, ?)')
+        const raw = Buffer.from('{"legacy":true}')
+        kvWrite.run(`cache/plugin-storage/${key}.json`, raw)
+        kvWrite.run(`cache/plugin-storage-meta/${key}.json`, Buffer.from('{"plugin":"owner"}'))
+        kvWrite.run('cache/unrelated/value', Buffer.from('keep'))
+
+        const store = createAppDataStore(sqlite)
+        expect(store.getState()).toMatchObject({ schemaVersion: 2, revision: 8 })
+        expect(sqlite.prepare("SELECT payload FROM app_plugin_storage WHERE namespace = 'includedInSave'").get())
+            .toMatchObject({ payload: saved })
+        expect(store.getPluginStorage('localForage', 'shared')).toEqual(raw)
+        expect(store.listPluginStorage('localForage')).toEqual([{ key: 'shared', owner: 'owner' }])
+        expect(sqlite.prepare('SELECT key FROM kv').all()).toEqual([{ key: 'cache/unrelated/value' }])
+
+        store.writePluginStorage('localForage', 'shared', Buffer.from('new'))
+        kvWrite.run(`cache/plugin-storage/${key}.json`, raw)
+        const reloaded = createAppDataStore(sqlite)
+        expect(reloaded.getPluginStorage('localForage', 'shared')).toEqual(Buffer.from('new'))
+    })
+
+    it('isolates identical keys and keeps on-demand storage outside save replacement and sync', () => {
+        const { store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        const before = store.projectionEtag()
+        store.writePluginStorage('localStorage', 'zero', Buffer.from('string'), 'first')
+        store.writePluginStorage('localForage', 'zero', Buffer.from('binary'), 'second')
+        expect(store.projectionEtag()).toBe(before)
+        expect(store.exportProjection().pluginCustomStorage.zero).toBe(0)
+
+        const changed = sampleDatabase()
+        changed.pluginCustomStorage.zero = 7
+        store.syncStartupProjection(changed)
+        store.replaceFromProjection(changed)
+        expect(store.getPluginStorage('localStorage', 'zero')).toEqual(Buffer.from('string'))
+        expect(store.getPluginStorage('localForage', 'zero')).toEqual(Buffer.from('binary'))
+        store.writePluginStorage('localStorage', 'zero', Buffer.from('edited'))
+        expect(store.listPluginStorage('localStorage')).toEqual([{ key: 'zero', owner: 'first' }])
+        store.clearPluginStorage('localStorage')
+        expect(store.getPluginStorage('localStorage', 'zero')).toBeNull()
+        expect(store.getPluginStorage('localForage', 'zero')).toEqual(Buffer.from('binary'))
+        store.clear()
+        expect(store.getPluginStorage('localForage', 'zero')).toEqual(Buffer.from('binary'))
+    })
+
+    it('imports without overwriting server values and rolls back invalid replacement entries', () => {
+        const { store } = createStore()
+        store.writePluginStorage('localStorage', 'same', Buffer.from('server'), 'owner')
+        store.importPluginStorage('localStorage', [
+            { key: 'same', value: Buffer.from('browser') },
+            { key: '', value: Buffer.from('empty key') },
+        ])
+        expect(store.getPluginStorage('localStorage', 'same')).toEqual(Buffer.from('server'))
+        expect(store.getPluginStorage('localStorage', '')).toEqual(Buffer.from('empty key'))
+        const before = Array.from(store.exportPluginStorage())
+        expect(() => store.replacePluginStorage([
+            { namespace: 'localForage', key: 'valid', value: Buffer.from('data') },
+            { namespace: 'includedInSave', key: 'invalid', value: Buffer.from('data') },
+        ])).toThrow('Unsupported plugin storage namespace')
+        expect(Array.from(store.exportPluginStorage())).toEqual(before)
+    })
 })
 
 describe('relational app data projection', () => {
@@ -246,7 +323,7 @@ describe('relational app data projection', () => {
         expect(store.exportProjection()).toEqual(source)
         expect(Object.keys(store.exportProjection())).toEqual(Object.keys(source))
         expect(store.getState()).toMatchObject({
-            schemaVersion: 1,
+            schemaVersion: 2,
             revision: 1,
             initialized: true,
         })

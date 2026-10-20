@@ -2,6 +2,7 @@ import { createHash, createCipheriv } from 'node:crypto'
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { encode as encodeMessagePack } from 'msgpackr'
 import Database from '../sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import pkg from './index.cjs'
@@ -54,6 +55,14 @@ function backupEntry(name: string, value: Buffer) {
     header.writeUInt32LE(nameBuffer.length, 0)
     header.writeUInt32LE(value.length, 4)
     return Buffer.concat([header.subarray(0, 4), nameBuffer, header.subarray(4), value])
+}
+
+function pluginStorageBackupEntry(namespace: string, key: string, value: Buffer, owner?: string) {
+    const encodedKey = Buffer.from(key, 'utf-8').toString('base64url')
+    return backupEntry(
+        `plugin-storage/${namespace}/${encodedKey}`,
+        encodeMessagePack({ value, ...(owner ? { owner } : {}) }),
+    )
 }
 
 function freshDb() {
@@ -228,6 +237,71 @@ describe('restoreMissingAssetsFromBackupFile', () => {
 })
 
 describe('createBackupRestoreService', () => {
+    it('applies plugin storage snapshots present in the backup, including empty snapshots', async () => {
+        const restoredPluginStorage: Array<Array<{ namespace: string; key: string; value: Buffer; owner?: string }>> = []
+        const harness = await fullRestoreHarness(async () => ({ install() {} }), {
+            replacePluginStorage: (entries: Iterable<any>) => {
+                restoredPluginStorage.push([...entries])
+            },
+        })
+        const manifest = backupEntry('plugin-storage/_manifest', Buffer.from(JSON.stringify({
+            version: 1,
+            namespaces: ['localStorage', 'localForage'],
+        })))
+        const backup = Buffer.concat([
+            manifest,
+            pluginStorageBackupEntry('localStorage', 'plugin/a:設定', Buffer.from([0, 255, 12]), 'plugin-a'),
+            pluginStorageBackupEntry('localForage', '', Buffer.from('opaque-localforage-bytes')),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+
+        async function* chunks(value: Buffer) { yield value }
+        await harness.service.importBackupFromSource(chunks(backup))
+        expect(restoredPluginStorage[0]).toEqual([
+            {
+                namespace: 'localStorage',
+                key: 'plugin/a:設定',
+                value: Buffer.from([0, 255, 12]),
+                owner: 'plugin-a',
+            },
+            {
+                namespace: 'localForage',
+                key: '',
+                value: Buffer.from('opaque-localforage-bytes'),
+            },
+        ])
+
+        const emptySnapshot = Buffer.concat([
+            manifest,
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+        await harness.service.importBackupFromSource(chunks(emptySnapshot))
+        expect(restoredPluginStorage[1]).toEqual([])
+
+        await harness.service.importBackupFromSource(chunks(
+            backupEntry('database.risudat', Buffer.from('database')),
+        ))
+        expect(restoredPluginStorage).toHaveLength(2)
+
+        const incompleteSnapshot = Buffer.concat([
+            backupEntry('plugin-storage/_manifest', Buffer.from(JSON.stringify({
+                version: 1,
+                namespaces: ['localStorage'],
+            }))),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+        await expect(harness.service.importBackupFromSource(chunks(incompleteSnapshot)))
+            .rejects.toThrow('Unsupported plugin storage backup manifest')
+
+        const unmarkedEntry = Buffer.concat([
+            pluginStorageBackupEntry('localStorage', 'new-key', Buffer.from('value')),
+            backupEntry('database.risudat', Buffer.from('database')),
+        ])
+        await expect(harness.service.importBackupFromSource(chunks(unmarkedEntry)))
+            .rejects.toThrow('Plugin storage backup entries require a manifest')
+        expect(restoredPluginStorage).toHaveLength(2)
+    })
+
     it('owns the full backup restore flow and replaces the old asset set', async () => {
         const newAsset = Buffer.from('new asset')
         const database = Buffer.from('database')

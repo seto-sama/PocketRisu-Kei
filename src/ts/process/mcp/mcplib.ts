@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import { createEntityId } from 'src/ts/id';
 import { fetchNative, openURL } from "../../globalApi.svelte"
-import { alertInput } from "../../alert";
+import { alertInput, alertTOS } from "../../alert";
 
 export type MCPPrompt = {
     name: string;              // Unique identifier for the prompt
@@ -633,6 +633,10 @@ export class MCPClient{
                     return
                 }
             }
+        }
+
+        if(!(await alertTOS())){
+            throw new Error("RisuAI Terms of Service not accepted")
         }
 
         const OauthDiscovery = new URL(this.url)

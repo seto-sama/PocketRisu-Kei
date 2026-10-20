@@ -1,125 +1,186 @@
-import { toGetter } from "../globalApi.svelte";
-import { clearPersistentPrefix, decodeStorageKeyComponent, listPersistentKeys, makeEncodedStorageKey, readPersistentJson, removePersistentKey, writePersistentJson } from "../storage/persistentKv";
-import { recordOwner, removeOwner, clearOwners } from "./pluginStorageMeta";
+import { decode, encode } from 'msgpackr/index-no-eval';
+import { forageStorage } from '../storage/autoStorage';
+import type { PluginStorageNamespace, PluginStorageRequest, PluginStorageResponse } from '../storage/nodeStorage';
+import { decodeLocalPluginStorageValue, encodeLocalPluginStorageValue } from '../../../shared/localPluginStorageValue.mjs';
 
-const pluginStorage = new Map<string, unknown>();
-const pluginStoragePrefix = 'cache/plugin-storage/';
+const pendingStorageOperations = new Map<PluginStorageNamespace, Promise<unknown>>();
+let migrationPending: Promise<void> | null = null;
 
-export class SafeLocalStorage {
-    getItem(key: string): string | null {
-        return localStorage.getItem(`safe_plugin_${key}`);
-    }
-    setItem(key: string, value: string): void {
-        localStorage.setItem(`safe_plugin_${key}`, value);
-    }
-    removeItem(key: string): void {
-        localStorage.removeItem(`safe_plugin_${key}`);
-    }
-    //not a standard localStorage method, but useful
-    keys(): string[] {
-        const keys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('safe_plugin_')) {
-                keys.push(key.substring('safe_plugin_'.length));
-            }
-        }
-        return keys;
-    }
-
-    key(index: number): string | null {
-        const safeKeys = this.keys();
-        return safeKeys[index] || null;
-    }
-
-    clear(): void {
-        const keys = this.keys();
-        for (const key of keys) {
-            this.removeItem(key);
-        }
-    }
-
-    get length(): number {
-        return this.keys().length;
-    }
-
-
+function queueStorageOperation<T>(namespace: PluginStorageNamespace, operation: () => Promise<T>): Promise<T> {
+    const previous = pendingStorageOperations.get(namespace) ?? Promise.resolve();
+    const next = previous.then(operation, operation);
+    pendingStorageOperations.set(namespace, next);
+    const cleanup = () => {
+        if (pendingStorageOperations.get(namespace) === next) pendingStorageOperations.delete(namespace);
+    };
+    void next.then(cleanup, cleanup);
+    return next;
 }
 
+async function request(namespace: PluginStorageNamespace, body: PluginStorageRequest): Promise<PluginStorageResponse> {
+    await ensurePluginStorageMigration();
+    return forageStorage.pluginStorageRequest(namespace, body);
+}
+
+function requireValueResponse(response: PluginStorageResponse): Uint8Array | null {
+    if (!('value' in response)) throw new Error('Invalid plugin storage value response');
+    return response.value;
+}
+
+function requireSuccessResponse(response: PluginStorageResponse): void {
+    if (!('success' in response) || response.success !== true) throw new Error('Invalid plugin storage mutation response');
+}
+
+function requireEntriesResponse(response: PluginStorageResponse): Array<{ key: string, owner?: string }> {
+    if (!('entries' in response)) throw new Error('Invalid plugin storage list response');
+    return response.entries;
+}
+
+function listNamespaceKeys(namespace: PluginStorageNamespace): Promise<string[]> {
+    return queueStorageOperation(namespace, async () => (
+        requireEntriesResponse(await request(namespace, { op: 'list' })).map(entry => entry.key)
+    ));
+}
+
+function clearNamespace(namespace: PluginStorageNamespace): Promise<void> {
+    return queueStorageOperation(namespace, async () => {
+        requireSuccessResponse(await request(namespace, { op: 'clear' }));
+    });
+}
+
+/** Import the old browser-local keys once; server import leaves existing values untouched. */
+export function ensurePluginStorageMigration(): Promise<void> {
+    if (migrationPending) return migrationPending;
+    const migration = (async () => {
+        const prefix = 'safe_plugin_';
+        const legacyOwnerKey = 'risu_plugin_storage_owners';
+        const ownerSnapshot = localStorage.getItem(legacyOwnerKey);
+        let owners: Record<string, { plugin?: unknown }> = {};
+        try {
+            const parsed = JSON.parse(ownerSnapshot || '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) owners = parsed;
+        } catch {}
+
+        const legacy: Array<{ storageKey: string, value: string, owner?: string }> = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const storageKey = localStorage.key(i);
+            if (!storageKey?.startsWith(prefix)) continue;
+            const value = localStorage.getItem(storageKey);
+            if (value === null) continue;
+            const key = storageKey.slice(prefix.length);
+            const plugin = owners[key]?.plugin;
+            legacy.push({ storageKey, value, owner: typeof plugin === 'string' && plugin ? plugin : undefined });
+        }
+
+        if (legacy.length) {
+            const response = await forageStorage.pluginStorageRequest('localStorage', {
+                op: 'import',
+                entries: legacy.map(({ storageKey, value, owner }) => ({
+                    key: storageKey.slice(prefix.length),
+                    value: encode(value),
+                    ...(owner ? { owner } : {}),
+                })),
+            });
+            requireSuccessResponse(response);
+        }
+
+        for (const entry of legacy) {
+            if (localStorage.getItem(entry.storageKey) === entry.value) localStorage.removeItem(entry.storageKey);
+        }
+        if (ownerSnapshot !== null && localStorage.getItem(legacyOwnerKey) === ownerSnapshot) {
+            localStorage.removeItem(legacyOwnerKey);
+        }
+    })();
+    migrationPending = migration;
+    void migration.catch(() => {
+        if (migrationPending === migration) migrationPending = null;
+    });
+    return migration;
+}
+
+export class SafeLocalStorage {
+    constructor(private owner?: string) {}
+
+    async getItem(key: string): Promise<string | null> {
+        const storageKey = String(key);
+        return queueStorageOperation('localStorage', async () => {
+            const data = requireValueResponse(await request('localStorage', { op: 'get', key: storageKey }));
+            return data === null ? null : decode(data) as string;
+        });
+    }
+
+    async setItem(key: string, value: string): Promise<void> {
+        const storageKey = String(key);
+        const snapshot = encode(String(value));
+        return queueStorageOperation('localStorage', async () => {
+            requireSuccessResponse(await request('localStorage', {
+                op: 'set', key: storageKey, value: snapshot, ...(this.owner ? { owner: this.owner } : {}),
+            }));
+        });
+    }
+
+    async removeItem(key: string): Promise<void> {
+        const storageKey = String(key);
+        return queueStorageOperation('localStorage', async () => {
+            requireSuccessResponse(await request('localStorage', { op: 'remove', key: storageKey }));
+        });
+    }
+
+    async keys(): Promise<string[]> {
+        return listNamespaceKeys('localStorage');
+    }
+
+    async key(index: number): Promise<string | null> {
+        const safeKeys = await this.keys();
+        return safeKeys[index] ?? null;
+    }
+
+    async clear(): Promise<void> {
+        await clearNamespace('localStorage');
+    }
+
+    get length(): Promise<number> {
+        return this.keys().then(keys => keys.length);
+    }
+}
 
 export class SafeLocalPluginStorage {
     __classType = 'REMOTE_REQUIRED' as const;
-    // The originating plugin, set when the instance is created via the V3
-    // getLocalPluginStorage() API. Used to tag new writes with their origin in
-    // the sidecar meta store. Undefined (e.g. when instantiated by the built-in
-    // storage viewer) means writes don't touch ownership metadata.
-    private owner?: string;
-    constructor(owner?: string) {
-        this.owner = owner;
-    }
-    async getItem<T>(key: string): Promise<T | null> {
-        const cacheKey = `safe_plugin_${key}`;
-        if (pluginStorage.has(cacheKey)) {
-            return (pluginStorage.get(cacheKey) as T) ?? null;
-        }
-        const payload = await readPersistentJson<T>(makeEncodedStorageKey(pluginStoragePrefix, key));
-        if (payload !== null) {
-            pluginStorage.set(cacheKey, payload);
-        }
-        return payload;
-    }
-    async setItem<T>(key: string, value: T): Promise<void> {
-        const cacheKey = `safe_plugin_${key}`;
-        pluginStorage.set(cacheKey, value);
-        await writePersistentJson(makeEncodedStorageKey(pluginStoragePrefix, key), value);
-        if (this.owner) await recordOwner('idb', key, this.owner);
-    }
-    async removeItem(key: string): Promise<void> {
-        pluginStorage.delete(`safe_plugin_${key}`);
-        await removePersistentKey(makeEncodedStorageKey(pluginStoragePrefix, key));
-        if (this.owner) await removeOwner('idb', key);
-    }
-    async keys(): Promise<string[]> {
-        const keys: string[] = [];
-        const storageKeys = await listPersistentKeys(pluginStoragePrefix);
-        for (const key of storageKeys) {
-            const encodedKey = key.slice(pluginStoragePrefix.length, -'.json'.length);
-            keys.push(decodeStorageKeyComponent(encodedKey));
-        }
-        return keys;
-    }
-    async clear(): Promise<void> {
-        for (const key of [...pluginStorage.keys()]) {
-            if (key.startsWith('safe_plugin_')) {
-                pluginStorage.delete(key);
-            }
-        }
-        await clearPersistentPrefix(pluginStoragePrefix);
-        if (this.owner) await clearOwners('idb');
-    }
-}
+    constructor(private owner?: string) {}
 
-export const SafeIdbFactory = {
-    databases: async (): Promise<{ name: string; version: number }[]> => {
-        if ('databases' in indexedDB) {
-            const r = await indexedDB.databases();
-            return r.filter(db => db.name && db.name.startsWith('safe_plugin_')).map(db => ({
-                name: db.name!.substring('safe_plugin_'.length),
-                version: db.version
+    async getItem<T>(key: string): Promise<T | null> {
+        return queueStorageOperation('localForage', async () => {
+            const data = requireValueResponse(await request('localForage', { op: 'get', key }));
+            if (!data) return null;
+            return decodeLocalPluginStorageValue(data) as T;
+        });
+    }
+
+    async setItem<T>(key: string, value: T): Promise<void> {
+        const snapshot = encodeLocalPluginStorageValue(value).then(
+            data => ({ data }), error => ({ error }),
+        );
+        return queueStorageOperation('localForage', async () => {
+            const result = await snapshot;
+            if ('error' in result) throw result.error;
+            requireSuccessResponse(await request('localForage', {
+                op: 'set', key, value: result.data, ...(this.owner ? { owner: this.owner } : {}),
             }));
-        } else {
-            return [];
-        }
-    },
-    deleteDatabase: async (name: string): Promise<IDBOpenDBRequest> => {
-        return indexedDB.deleteDatabase(`safe_plugin_${name}`);
-    },
-    open: (name: string, version?: number): IDBOpenDBRequest => {
-        return indexedDB.open(`safe_plugin_${name}`, version);
-    },
-    cmp: (first: string, second: string): number => {
-        // The same prefix on both strings would not change their ordering.
-        return indexedDB.cmp(first, second);
+        });
+    }
+
+    async removeItem(key: string): Promise<void> {
+        return queueStorageOperation('localForage', async () => {
+            requireSuccessResponse(await request('localForage', { op: 'remove', key }));
+        });
+    }
+
+    async keys(): Promise<string[]> {
+        return listNamespaceKeys('localForage');
+    }
+
+    async clear(): Promise<void> {
+        await clearNamespace('localForage');
     }
 }
 
@@ -291,154 +352,3 @@ export const tagWhitelist = [
     'view',
     'vkern',
 ];
-
-const restrictElement = <T extends Node>(element: T): T => {
-    //since we already trimed out, just return the element
-    return element;
-}
-
-const restrictNodeList = <T extends Element, Q extends NodeListOf<T>|HTMLCollectionOf<T> >(nodeList: Q): Q => {
-    return nodeList;
-}
-
-export const SafeDocument = {
-    body: document.body,
-    characterSet: document.characterSet,
-    doctype: document.doctype,
-    documentElement: document.documentElement,
-    documentURI: document.documentURI,
-    location: document.location,
-    readyState: document.readyState,
-    title: document.title,
-    head: document.head,
-    createElement: (tagName: string): HTMLElement => {
-        if (import.meta.env.DEV) {
-            console.log('Creating element:', tagName);
-        }
-        tagName = tagName.toLowerCase().trim();
-        if (!tagWhitelist.includes(tagName.toLowerCase())) {
-            throw new Error(`Creation of <${tagName}> elements is not allowed in plugin context.`);
-        }
-        if(tagName.toLowerCase() === 'a'){
-            console.error(`
-                Creation of <a> elements is restricted. due to potential security risks. Creating a <div> instead.
-                Use document.createAnchorElement(href: string) from the plugin API to create safe anchor elements.
-            `);
-            return restrictElement(document.createElement('div')) as HTMLElement;
-        }
-        return restrictElement(document.createElement(tagName));
-    },
-    createTextNode: (data: string): Text => {
-        return restrictElement(document.createTextNode(data));
-    },
-    createElementNS: (namespaceURI: string, qualifiedName: string): Element => {
-        if (import.meta.env.DEV) {
-            console.log('Creating namespaced element:', qualifiedName);
-        }
-        qualifiedName = qualifiedName.toLowerCase().trim();
-        if (!tagWhitelist.includes(qualifiedName.toLowerCase())) {
-            throw new Error(`Creation of <${qualifiedName}> elements is not allowed in plugin context.`);
-        }
-        if(qualifiedName.toLowerCase() === 'a'){
-            console.error(`
-                Creation of <a> elements is restricted. due to potential security risks. Creating a <div> instead.
-                Use document.createAnchorElement(href: string) from the plugin API to create safe anchor elements.
-            `);
-            return restrictElement(document.createElementNS(namespaceURI, 'div'));
-        }
-        return restrictElement(document.createElementNS(namespaceURI, qualifiedName));
-    },
-    createAnchorElement: (href: string): HTMLAnchorElement => {
-        const anchor = document.createElement('a');
-
-        try {
-            const hrefURL = new URL(href, document.baseURI);
-            if(hrefURL.protocol !== 'http:' && hrefURL.protocol !== 'https:'){
-                throw new Error(`Only http and https links are allowed for anchor elements in plugin context.`);
-            }
-            new URL(href);
-        } catch {
-            throw new Error(`Invalid URL provided for anchor element in plugin context.`);
-        }
-
-        anchor.href = href;
-        return toGetter(() => anchor, {
-            restrictChildren: [
-                'ownerDocument',
-                'href',
-                'download',
-                'hash',
-                'host',
-                'hostname',
-                'hreflang',
-                'origin',
-                'password',
-                'pathname',
-                'ping',
-                'port',
-                'protocol',
-                'referrerPolicy',
-                'rel',
-                'relList',
-                'search',
-                'target',
-                'text',
-                'type',
-                'username'
-            ]
-        }) as HTMLAnchorElement;
-    },
-
-    createRange: (): Range => {
-        return (document.createRange());
-    },
-    createDocumentFragment: (): DocumentFragment => {
-        return restrictElement(document.createDocumentFragment());
-    },
-    querySelector: (selectors: string): Element | null => {
-        return restrictElement(document.querySelector(selectors));
-    },
-    querySelectorAll: (selectors: string): NodeListOf<Element> => {
-        return restrictNodeList(document.querySelectorAll(selectors));
-    },
-    getElementById: (elementId: string): HTMLElement | null => {
-        return restrictElement(document.getElementById(elementId));
-    },
-    getElementsByClassName: (classNames: string): HTMLCollectionOf<Element> => {
-        return restrictNodeList(document.getElementsByClassName(classNames))
-    },
-    getElementsByTagName: (qualifiedName: string): HTMLCollectionOf<Element> => {
-        return restrictNodeList(document.getElementsByTagName(qualifiedName));
-    },
-    getElementsByName: (elementName: string): NodeListOf<Element> => {
-        return restrictNodeList(document.getElementsByName(elementName));
-    },
-    createComment: (data: string): Comment => {
-        return restrictElement(document.createComment(data));
-    },
-    elementFromPoint: (x: number, y: number): Element | null => {
-        return restrictElement(document.elementFromPoint(x, y));
-    },
-    elementsFromPoint: (x: number, y: number): Element[] => {
-        return document.elementsFromPoint(x, y).map(el => restrictElement(el));
-    },
-    hasFocus: (): boolean => {
-        return document.hasFocus();
-    },
-    addEventListener: (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void => {
-        const allowedEvents = ['click', 'keydown', 'keyup', 'input', 'change', 'submit', 'focus', 'blur', 'mouseover', 'mouseout', 'mousemove', 'mousedown', 'mouseup'];
-        if(!allowedEvents.includes(type)) {
-            console.warn(`Event type '${type}' is not allowed in plugin context.`);
-            return;
-        }
-        document.addEventListener(type, listener, options);
-    },
-    removeEventListener: (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void => {
-        const allowedEvents = ['click', 'keydown', 'keyup', 'input', 'change', 'submit', 'focus', 'blur', 'mouseover', 'mouseout', 'mousemove', 'mousedown', 'mouseup'];
-        if(!allowedEvents.includes(type)) {
-            console.warn(`Event type '${type}' is not allowed in plugin context.`);
-            return;
-        }
-        document.removeEventListener(type, listener, options);
-    }
-}

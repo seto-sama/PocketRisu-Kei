@@ -82,6 +82,9 @@ export interface SegmentOption {
  * Type-specific options for setting items
  */
 export interface SettingOptions {
+    // check
+    reverse?: boolean;
+
     // number, slider
     min?: number;
     max?: number;

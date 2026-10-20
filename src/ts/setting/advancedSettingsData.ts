@@ -1,7 +1,6 @@
 
 import type { SettingItem } from './types';
 import { DEFAULT_PLUGIN_STORAGE_WARNING_MB, getPluginStorageWarningMB, setPluginStorageWarningMB } from '../plugins/pluginMemorySafety';
-import { loadPlugins } from '../plugins/plugins.svelte';
 import { GENERATION_COUNT_MAX, GENERATION_COUNT_MIN } from '../process/automaticReroll';
 import {
     OUTPUT_REPETITION_MAX,
@@ -56,13 +55,6 @@ export const advancedSettingsItems: SettingItem[] = [
     // Toggles
     { id: 'adv.sayNothing', type: 'check', labelKey: 'sayNothing', bindKey: 'useSayNothing', helpKey: 'sayNothing' },
     { id: 'adv.newImgBeta', type: 'check', labelKey: 'newImageHandlingBeta', bindKey: 'newImageHandlingBeta', helpKey: 'newImageHandlingBeta' },
-    {
-        id: 'adv.allowV2Plugin', type: 'check', labelKey: 'allowV2Plugin', bindKey: 'allowV2Plugin',
-        helpKey: 'allowV2Plugin', helpUnrecommended: true,
-        onChange: () => {
-            void loadPlugins();
-        }
-    },
     // Experimental Section
     {
         id: 'adv.pluginStorageWarning', type: 'number', labelKey: 'pluginMemoryWarningTitle',

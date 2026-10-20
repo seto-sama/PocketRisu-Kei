@@ -3,16 +3,17 @@ import { defaultColorScheme, exportColorSchemeWithAliases, withExportColorScheme
 
 vi.mock('../stores.svelte', () => ({ DBState: { db: {} }, selectedCharID: { subscribe: () => () => {} }, selIdState: { selId: -1 } }))
 const { forageStorage, requestImmediateSave } = vi.hoisted(() => {
-    const encodeFile = vi.fn(async (format: string, value: unknown) => new TextEncoder().encode(
-        format === 'json' ? JSON.stringify(value, null, 2) : JSON.stringify({ format, value }),
+    const encodeFile = vi.fn(async (_format: string, value: unknown) => new TextEncoder().encode(
+        JSON.stringify(value, null, 2),
     ))
     const forageStorage = { realStorage: null, encodeFile }
     const requestImmediateSave = vi.fn(async () => {})
     return { forageStorage, requestImmediateSave }
 })
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage, downloadFile: vi.fn(), saveAsset: async () => '', requestImmediateSave,
+    forageStorage, saveAsset: async () => '', requestImmediateSave,
 }))
+vi.mock('../download', () => ({ downloadFile: vi.fn(async () => {}) }))
 vi.mock('../storage/autoStorage', () => ({ forageStorage }))
 vi.mock('../alert', () => ({ notifySuccess: () => {}, alertError: () => {}, alertConfirm: async () => true, alertWait: () => {} }))
 vi.mock('../../lang', () => ({ language: {}, changeLanguage: () => {} }))
@@ -25,18 +26,6 @@ function assertScheme(value, source: typeof defaultColorScheme = scheme) {
 }
 
 describe('export color compatibility', () => {
-    it('stops exporting when the current changes cannot be saved', async () => {
-        const { downloadThemePreset } = await import('../storage/database.svelte')
-        const { downloadFile } = await import('../globalApi.svelte')
-        const { DBState } = await import('../stores.svelte')
-        DBState.db = { colorScheme: scheme, themePresets: [{ name: 'Saved', colorScheme: scheme }], themePresetsId: 0 } as any
-        vi.mocked(downloadFile).mockClear()
-        requestImmediateSave.mockRejectedValueOnce(new Error('Save failed'))
-
-        await expect(downloadThemePreset(0, 'risutheme')).rejects.toThrow('Save failed')
-        expect(requestImmediateSave).toHaveBeenCalledWith({ requireSuccess: true })
-        expect(downloadFile).not.toHaveBeenCalled()
-    })
     it('copies active and saved colors, retaining extensions and preferring canonical values', () => {
         const source = { colorScheme: { ...scheme, bgcolor: '#000000' }, themePresets: [{ colorScheme: scheme }] }
         const before = structuredClone(source)
@@ -56,7 +45,7 @@ describe('export color compatibility', () => {
     })
     it('exports every built-in palette without leaking display metadata into the DB or file', async () => {
         const { DBState } = await import('../stores.svelte')
-        const { downloadFile } = await import('../globalApi.svelte')
+        const { downloadFile } = await import('../download')
         const { colorSchemes, changeColorScheme, exportColorScheme } = await import('./colorscheme')
         for (const [name, definition] of Object.entries(colorSchemes)) {
             DBState.db = {} as any
@@ -67,33 +56,27 @@ describe('export color compatibility', () => {
                 expect(DBState.db.colorScheme).not.toHaveProperty(key)
             }
             const before = structuredClone(DBState.db)
-            exportColorScheme()
+            await exportColorScheme()
             const result = JSON.parse(vi.mocked(downloadFile).mock.calls.at(-1)![1] as string)
             assertScheme(result, normalizeColorScheme(definition.colors))
             for (const key of ['label', 'legacy', 'colors']) expect(result).not.toHaveProperty(key)
             expect(DBState.db).toEqual(before)
         }
     })
-    it('exports theme JSON and native files through the shared codec without changing saved presets', async () => {
+    it('exports current and saved theme JSON without changing presets or waiting for database saves', async () => {
         const { DBState } = await import('../stores.svelte')
-        const { downloadFile } = await import('../globalApi.svelte')
-        const { exportColorScheme } = await import('./colorscheme')
+        const { downloadFile } = await import('../download')
         const { downloadThemePreset } = await import('../storage/database.svelte')
         const db = { colorScheme: scheme, colorSchemeName: 'custom', theme: 'standard', themePresetsId: 0, themePresets: [{ name: 'Active', colorScheme: { ...scheme, lightbg: '#999999' } }, { name: 'Saved', colorScheme: scheme }] }
         DBState.db = db as any
         const before = structuredClone(db)
-        exportColorScheme()
-        assertScheme(JSON.parse(vi.mocked(downloadFile).mock.calls.at(-1)![1] as string))
         for (const id of [0, 1]) {
-            await downloadThemePreset(id, 'json')
+            await downloadThemePreset(id)
             const json = JSON.parse(new TextDecoder().decode(vi.mocked(downloadFile).mock.calls.at(-1)![1] as Uint8Array))
             assertScheme(json.colorScheme)
-
-            await downloadThemePreset(id, 'risutheme')
-            const native = JSON.parse(new TextDecoder().decode(vi.mocked(downloadFile).mock.calls.at(-1)![1] as Uint8Array))
-            expect(native.format).toBe('theme')
-            assertScheme(native.value.colorScheme)
+            expect(downloadFile).toHaveBeenLastCalledWith(`${db.themePresets[id].name}_theme.json`, expect.any(Uint8Array))
             expect(db).toEqual(before)
         }
+        expect(requestImmediateSave).not.toHaveBeenCalled()
     })
 })

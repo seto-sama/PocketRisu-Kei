@@ -309,10 +309,6 @@ function hello(): string {
     }
 
     async function simulatePluginPermissionFlow() {
-        // Mirrors apiV3/v3.svelte.ts:602-612 — real plugin permission consent
-        // path uses alertConfirm() with language.xxxConsent strings, not the
-        // (unused) alertPluginConfirm. Cycles through several permission types
-        // so all consent translations get exercised.
         const requests = [
             { label: 'DB 접근', key: 'getFullDatabaseConsent' },
             { label: '메인 Document 접근', key: 'mainDomAccessConsent' },

@@ -6,6 +6,7 @@ vi.mock('../process/revenant/transport', () => ({ fetchViaGenerationJob: mocks.g
 vi.mock('../stores.svelte', () => ({ DBState: { db: {} }, bodyIntercepterStore: [] }))
 vi.mock('../storage/autoStorage', () => ({ forageStorage: { createAuth: mocks.auth } }))
 import { fetchNative } from './nativeFetch'
+import { DBState } from '../stores.svelte'
 import { WORKFLOW_LLM_EXECUTION } from './transportTypes'
 
 let fetchMock: ReturnType<typeof vi.fn>
@@ -14,8 +15,49 @@ beforeEach(() => {
     fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     mocks.auth.mockResolvedValue('token')
+    DBState.db.hidePublicStats = false
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks() })
+
+it('follows the current statistics preference when request headers are reused', async () => {
+    fetchMock.mockImplementation(async () => new Response('{}'))
+    const headers = { Authorization: 'Bearer secret' }
+
+    for (const hidden of [false, true]) {
+        DBState.db.hidePublicStats = hidden
+        await fetchNative('https://openrouter.ai/api/v1/chat/completions', { body: '{}', headers })
+
+        const sent = new Headers(fetchMock.mock.lastCall![1].headers)
+        expect(sent.get('X-Title')).toBe(hidden ? null : 'PocketRisu')
+        expect(sent.get('HTTP-Referer')).toBe(hidden ? null : 'https://github.com/PocketRisu/PocketRisu')
+        expect(sent.get('Authorization')).toBe('Bearer secret')
+    }
+})
+
+it('omits PocketRisu identification from requests to other services', async () => {
+    fetchMock.mockResolvedValue(new Response('{}'))
+
+    await fetchNative('https://openrouter.ai.example/api/v1/chat/completions', { body: '{}' })
+
+    const sent = new Headers(fetchMock.mock.calls[0][1].headers)
+    expect(sent.get('X-Title')).toBeNull()
+    expect(sent.get('HTTP-Referer')).toBeNull()
+})
+
+it.each([false, true])('respects the statistics preference in server proxy headers: hidden=%s', async (hidden) => {
+    DBState.db.hidePublicStats = hidden
+    fetchMock.mockResolvedValue(new Response('{}'))
+
+    await fetchNative('https://openrouter.ai/api/v1/chat/completions', {
+        body: '{}',
+        llmExecutionPolicy: { kind: 'ephemeral', durability: 'off', providerRoute: 'server' },
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/proxy2')
+    const headers = new Headers(JSON.parse(decodeURIComponent(fetchMock.mock.calls[0][1].headers['risu-header'])))
+    expect(headers.get('X-Title')).toBe(hidden ? null : 'PocketRisu')
+    expect(headers.get('HTTP-Referer')).toBe(hidden ? null : 'https://github.com/PocketRisu/PocketRisu')
+})
 
 it('bounds a silent direct plugin request without duplicating its POST through the proxy', async () => {
     fetchMock.mockImplementation(() => new Promise(() => {}))

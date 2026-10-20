@@ -39,7 +39,7 @@ vi.mock('src/ts/process/mcp/mcp', async importOriginal => ({
     encodeToolCall: async () => '<tool_call>Synthetic saved tool result</tool_call>',
 }))
 
-import { pluginProviderRequestContextKey, pluginV2 } from 'src/ts/plugins/plugins.svelte'
+import { pluginProviderRequestContextKey, pluginRuntime } from 'src/ts/plugins/pluginRuntime'
 import { customV3ProviderMetaStore } from 'src/ts/plugins/apiV3/v3.svelte'
 import {
     modelPresetRequestFailurePolicy,
@@ -95,8 +95,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
     afterEach(() => vi.unstubAllGlobals())
     beforeEach(() => {
         vi.clearAllMocks()
-        pluginV2.providers.clear()
-        pluginV2.providerOptions.clear()
+        pluginRuntime.providers.clear()
         customV3ProviderMetaStore.length = 0
         requestStatuses.set(new Map())
         stopStatusTimer()
@@ -163,7 +162,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
             parameters: ['temperature'],
             tokenizer: LLMTokenizer.Unknown,
         })
-        pluginV2.providers.set('test-provider', async (args, abortSignal) => {
+        pluginRuntime.providers.set('test-provider', async (args, abortSignal) => {
             received = args
             receivedSignal = abortSignal
             return { success: true, content: 'plugin reply' }
@@ -197,7 +196,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
     })
 
     test('blocks a legacy addProvider function without API 3.0 metadata', async () => {
-        pluginV2.providers.set('test-provider', async () => {
+        pluginRuntime.providers.set('test-provider', async () => {
             return { success: true, content: 'must not run' }
         })
         const result = await testModelPreset(pluginPreset(), 'hello')
@@ -216,7 +215,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
             parameters: [],
             tokenizer: LLMTokenizer.Unknown,
         })
-        pluginV2.providers.set('test-provider', async () => ({
+        pluginRuntime.providers.set('test-provider', async () => ({
             success: true,
             content: new ReadableStream<string>({
                 start(controller) {
@@ -248,7 +247,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
             flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
             parameters: [], tokenizer: LLMTokenizer.Unknown,
         })
-        pluginV2.providers.set('test-provider', async () => ({
+        pluginRuntime.providers.set('test-provider', async () => ({
             success: true,
             content: streaming ? new ReadableStream<string>({
                 start(controller) {

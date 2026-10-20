@@ -113,7 +113,13 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         throw new Error('Body is required for POST and PUT requests')
     }
 
-    const headers = arg.headers ?? {}
+    let headers = arg.headers ?? {}
+    if (!DBState.db.hidePublicStats && new URL(url, globalThis.location?.href).hostname === 'openrouter.ai') {
+        const identifiedHeaders = new Headers(headers)
+        identifiedHeaders.set('X-Title', 'PocketRisu')
+        identifiedHeaders.set('HTTP-Referer', 'https://github.com/PocketRisu/PocketRisu')
+        headers = Object.fromEntries(identifiedHeaders.entries())
+    }
     let realBody: Uint8Array | undefined
     if (arg.method === 'GET' || arg.method === 'DELETE') {
         realBody = undefined
@@ -180,7 +186,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
                         id: revenantJobId,
                         timestamp: startedAt,
                         body: fetchLogBody,
-                        header: JSON.stringify(arg.headers ?? {}, null, 2),
+                        header: JSON.stringify(headers, null, 2),
                         response: 'Streamed Fetch',
                         responseType: 'stream',
                         success: true,

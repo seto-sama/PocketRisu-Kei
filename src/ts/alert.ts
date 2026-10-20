@@ -9,10 +9,6 @@ import { PRODUCT_NAME } from "./branding"
 import { nativeConsoleError } from "./log-capture"
 import type { ButtonVariant } from "../lib/UI/components/Button.types"
 
-/**
- * Action descriptor for dialog buttons. Reusable across any alert type
- * that renders a list of pressable actions (confirmMulti, future variants).
- */
 export interface AlertAction {
     label: string
     variant?: ButtonVariant
@@ -25,11 +21,10 @@ export interface AlertSelectOptions {
 }
 
 export interface alertData{
-    type: 'error'|'normal'|'none'|'ask'|'wait'
-            |'input'|'wait2'|'markdown'|'select'
-            |'tos'|'cardexport'|'requestdata'|'addchar'|'selectModule'
-            |'progress'|'pluginconfirm'
-            |'confirmMulti',
+    type: 'error'|'normal'|'none'|'wait'
+            |'input'|'markdown'|'select'
+            |'cardexport'|'requestdata'|'addchar'|'selectModule'
+            |'progress',
     msg: string,
     title?: string,
     progressDetail?: string,
@@ -37,7 +32,6 @@ export interface alertData{
     datalist?: [string, string][],
     stackTrace?: string;
     defaultValue?: string
-    actions?: AlertAction[]
     hideConfirm?: boolean
     closeOnOutsideClick?: boolean
 }
@@ -67,14 +61,47 @@ export const alertStore = {
     }
 }
 
-// Shared acceptance cache for both global startup TOS and Realm download confirmation.
-const TOS_ACCEPTANCE_STORAGE_KEY = 'tos2'
+type ConfirmationContent =
+    | { kind: 'confirm'; message: string; description?: string }
+    | { kind: 'multi'; message: string; description?: string; actions: AlertAction[] }
+    | { kind: 'terms' }
 
-// Normalize any value (string / Error / plain object / primitive) into a
-// human-readable message and an optional stack trace. Shared by alertError
-// and the notify* family so callers can pass raw catch() values safely —
-// a raw Error object would otherwise end up as `[object Object]` in the
-// toast title and get dropped by the server's string-message filter.
+type ConfirmationDialog = ConfirmationContent & {
+    id: symbol
+    complete: (result: boolean | number) => void
+}
+
+const confirmationState = writable<ConfirmationDialog[]>([])
+export const confirmationDialogs = { subscribe: confirmationState.subscribe }
+
+function requestConfirmation(content: ConfirmationContent): Promise<boolean | number> {
+    return new Promise(resolve => {
+        const id = Symbol('confirmation')
+        const dialog: ConfirmationDialog = {
+            ...content,
+            id,
+            complete(result) {
+                confirmationState.update(dialogs => dialogs.filter(dialog => dialog.id !== id))
+                resolve(result)
+            },
+        }
+        confirmationState.update(dialogs => [...dialogs, dialog])
+    })
+}
+
+const RISU_TOS_STORAGE_KEY = 'risuTosRevision'
+const RISU_TOS_REVISION = '2026-04-11'
+
+function readRisuTosAccepted(): boolean {
+    try {
+        return localStorage.getItem(RISU_TOS_STORAGE_KEY) === RISU_TOS_REVISION
+    } catch {
+        return false
+    }
+}
+
+export const risuTosAccepted = writable(readRisuTosAccepted())
+
 function normalizeErrorMessage(msg: unknown): { message: string; stack?: string } {
     if (typeof msg === 'string') return { message: msg }
     try {
@@ -95,9 +122,7 @@ function normalizeErrorMessage(msg: unknown): { message: string; stack?: string 
 }
 
 export function alertError(msg: unknown) {
-    // Use nativeConsoleError (pre-monkey-patch) so devtools still shows the error
-    // but log-capture does not also persist it — alertError below calls addLog
-    // explicitly with source='blocking-alert', avoiding a duplicate entry.
+    // Avoid logging the same error through both console capture and addLog.
     nativeConsoleError(`[${PRODUCT_NAME} v${pocketKeiVer}]`, msg)
     let { message: errorMessage, stack: stackTrace } = normalizeErrorMessage(msg)
     errorMessage = errorMessage.trim()
@@ -105,23 +130,16 @@ export function alertError(msg: unknown) {
         errorMessage = 'Unknown error'
     }
 
-    const ignoredErrors = [
-        '{}'
-    ]
-
-    if(ignoredErrors.includes(errorMessage)){
+    if(errorMessage === '{}'){
         return
     }
 
     let submsg = ''
 
-    //check if it's a known error
     if(errorMessage.includes('Failed to fetch') || errorMessage.includes("NetworkError when attempting to fetch resource.")){
         submsg = language.errors.networkFetch
     }
 
-    // Persist error to system-logs.db alongside the blocking modal. UX remains blocking;
-    // logging is a parallel concern.
     addLog({
         level: 'error',
         message: errorMessage,
@@ -154,10 +172,7 @@ export function alertNormal(msg:string){
 }
 
 export async function alertNormalWait(msg:string){
-    alertStoreImported.set({
-        'type': 'normal',
-        'msg': msg
-    })
+    alertNormal(msg)
     await waitAlert()
 }
 
@@ -189,14 +204,6 @@ export async function alertSelect(msg:string[], options?:string|AlertSelectOptio
     return get(alertStoreImported).msg
 }
 
-export async function alertErrorWait(msg:string){
-    alertStoreImported.set({
-        'type': 'wait2',
-        'msg': msg
-    })
-    await waitAlert()
-}
-
 export function alertMd(msg:string, options: { closeOnly?: boolean } = {}){
     alertStoreImported.set({
         'type': 'markdown',
@@ -206,35 +213,18 @@ export function alertMd(msg:string, options: { closeOnly?: boolean } = {}){
 }
 
 export function doingAlert(){
-    return get(alertStoreImported).type !== 'none' && get(alertStoreImported).type !== 'wait'
+    return get(confirmationState).length > 0 ||
+        (get(alertStoreImported).type !== 'none' && get(alertStoreImported).type !== 'wait')
 }
 
-// ─── Non-blocking notify* family ────────────────────────────────────────────
-// Pairs a sonner toast with a persistent log entry. Pick the level that fits
-// the message; blocking equivalents (alertError, alertConfirm, alertInput)
-// stay in place for cases that require user acknowledgement.
-
-// Clear any in-flight wait/progress modal before showing a notify*. The legacy
-// alertNormal side-effect of overwriting alertStore used to do this implicitly;
-// without it, a lingering "Loading..." modal stays on screen after the toast
-// fires. Only clears transitional states — input/ask/etc. stay intact.
-//
-// TODO(refactor): this is a workaround for the two-layer UI state (alertStore
-// modals + sonner toasts). The cleaner fix is migrating wait/progress to
-// sonner's toast.loading/toast.promise and dropping them from alertStore, so
-// the two systems do not need explicit coordination. Tracked for a follow-up
-// branch, out of scope for the alert-to-notify migration.
+// Finish progress feedback without dismissing dialogs awaiting user input.
 function clearTransitionalAlert() {
     const current = get(alertStoreImported).type
-    if (current === 'wait' || current === 'wait2' || current === 'progress') {
+    if (current === 'wait' || current === 'progress') {
         alertStoreImported.set({ type: 'none', msg: '' })
     }
 }
 
-// notify* accept `unknown` so catch-block callers (notifyError(err)) work
-// safely. Raw Error objects were previously stringified as `[object Object]`
-// by sonner and dropped by the server's string-message filter — now they
-// normalize to .message + .stack (stack → description unless caller overrides).
 export function notifyError(msg: unknown, opts?: NotifyOptions) {
     clearTransitionalAlert()
     const { message, stack } = normalizeErrorMessage(msg)
@@ -265,7 +255,6 @@ export function notifyInfo(msg: unknown, opts?: NotifyOptions) {
 }
 
 export function notifySuccess(msg: unknown, opts?: Pick<NotifyOptions, 'description'>) {
-    // Intentionally not logged (decision 4-2): success feedback has low timeline value.
     clearTransitionalAlert()
     const { message } = normalizeErrorMessage(msg)
     toast.success(message, opts?.description ? { description: opts.description } : undefined)
@@ -289,54 +278,15 @@ export function alertClear(){
 }
 
 export async function alertConfirm(msg:string, description?:string){
-
-    alertStoreImported.set({
-        'type': 'ask',
-        'msg': msg,
-        'submsg': description,
-    })
-
-    await waitAlert()
-
-    return get(alertStoreImported).msg === 'yes'
+    return await requestConfirmation({ kind: 'confirm', message: msg, description }) === true
 }
 
-/**
- * Confirm dialog with multiple actions and a cancel button.
- * Renders prompt as title, actions as stacked buttons in body, and a single
- * outline Cancel button in the footer. Bare strings render with the `default`
- * variant; pass `{label, variant}` to opt into destructive/primary/etc.
- *
- * @returns index of the picked action, or -1 if cancelled.
- */
 export async function alertConfirmMulti(prompt:string, actions:(string | AlertAction)[], description?:string){
     const normalized: AlertAction[] = actions.map(a =>
         typeof a === 'string' ? { label: a, variant: 'default' } : a
     )
-    alertStoreImported.set({
-        'type': 'confirmMulti',
-        'msg': prompt,
-        'submsg': description,
-        'actions': normalized,
-    })
-
-    await waitAlert()
-
-    const raw = get(alertStoreImported).msg
-    const n = parseInt(raw)
-    return isNaN(n) ? -1 : n
-}
-
-export async function alertPluginConfirm(msg:string){
-
-    alertStoreImported.set({
-        'type': 'pluginconfirm',
-        'msg': msg
-    })
-
-    await waitAlert()
-
-    return get(alertStoreImported).msg === 'yes'
+    const result = await requestConfirmation({ kind: 'multi', message: prompt, description, actions: normalized })
+    return typeof result === 'number' ? result : -1
 }
 
 export async function alertCardExport(type:string = ''){
@@ -360,31 +310,21 @@ export async function alertCardExport(type:string = ''){
             return { type: parsed.type, type2: parsed.type2 }
         }
     } catch {
-        // Treat malformed or legacy empty results as cancellation.
     }
 
     return { type: 'cancel', type2: '' }
 }
 
-export async function alertTOS(){
-
-    if(localStorage.getItem(TOS_ACCEPTANCE_STORAGE_KEY) === 'true'){
-        return true
+export async function alertTOS(): Promise<boolean> {
+    if (get(risuTosAccepted)) return true
+    const accepted = await requestConfirmation({ kind: 'terms' }) === true
+    if (accepted) {
+        try {
+            localStorage.setItem(RISU_TOS_STORAGE_KEY, RISU_TOS_REVISION)
+        } catch {}
+        risuTosAccepted.set(true)
     }
-
-    alertStoreImported.set({
-        'type': 'tos',
-        'msg': 'tos'
-    })
-
-    await waitAlert()
-
-    if(get(alertStoreImported).msg === 'yes'){
-        localStorage.setItem(TOS_ACCEPTANCE_STORAGE_KEY, 'true')
-        return true
-    }
-
-    return false
+    return accepted
 }
 
 export async function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
@@ -408,12 +348,7 @@ export async function alertModuleSelect(){
         'msg': ''
     })
 
-    while(true){
-        if (get(alertStoreImported).type === 'none'){
-            break
-        }
-        await sleep(20)
-    }
+    await waitAlert()
 
     return get(alertStoreImported).msg
 }
@@ -427,22 +362,10 @@ export function alertRequestData(info:AlertGenerationInfoStoreData){
 }
 
 export async function alertTogglePresets(): Promise<void> {
-    // Toggle preset selector lives in its own store (togglePresetsOpenStore)
-    // rather than alertStore. This way, alertConfirm / alertInput triggered
-    // from inside the toggle preset menu overlay on top instead of replacing
-    // the alertStore singleton, so the legacy reopenPresets() round-trip
-    // disappears.
-    //
-    // Returns void: applying a preset now happens directly in AlertComp's
-    // onclick handler (via applyToggleValues) rather than being threaded
-    // back through this function's return value.
     return new Promise<void>(resolve => {
         togglePresetsOpenStore.set(true)
         const unsub = togglePresetsOpenStore.subscribe(v => {
             if (!v) {
-                // subscribe fires once on subscribe with current value (true),
-                // then again only on changes. Skip initial true and resolve
-                // once the consumer flips it back to false.
                 unsub()
                 resolve()
             }

@@ -32,7 +32,6 @@
     import { hypaV3ProgressStore } from "./ts/stores.svelte";
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
     import HypaV3Progress from './lib/Others/HypaV3Progress.svelte';
-    import PluginAlertModal from './lib/Others/PluginAlertModal.svelte';
     import PopupEditor from './lib/Others/PopupEditor.svelte';
     import UpdatePopup from './lib/Others/UpdatePopup.svelte';
     import BootBackupPrompt from './lib/Others/BootBackupPrompt.svelte';
@@ -284,7 +283,6 @@
     {#if $hypaV3ProgressStore.open}
         <HypaV3Progress />
     {/if}
-    <PluginAlertModal />
     <LoadingOverlay />
     <UpdatePopup />
     <BootBackupPrompt />

@@ -426,7 +426,7 @@ export const languageChinese = {
     "userSetting": "用户设置",
     "username": "你的名称",
     "userIcon": "你的头像",
-    "successExport": "已成功导出并保存至你的下载数据夹",
+    "browserDownloadStarted": "已开始下载。",
     "successImport": "成功导入",
     "moduleCreated": "模块已创建",
     "moduleUpdated": "模块已更新",
@@ -966,24 +966,6 @@ export const languageChinese = {
     "translate": "翻译代码地址",
     "apply": "应用",
     "add": "追加",
-    "pluginRiskDetectedAlert": "PocketRisu Kei 检测到可能有害的代码，这可能会窃取您的 API 密钥或个人数据。我们建议您不要安装此插件。",
-    "doNotInstall": "不要安装",
-    "continueAnyway": "仍然继续",
-    "pluginNoRiskButAlert": "PocketRisu Kei 没有检测到有害代码，但请注意，从不受信任的来源安装插件可能会带来安全风险。",
-    "pluginRisksInuserFriendly": {
-        "eval": "从字符串评估代码",
-        "globalAccess": "访问全局变量",
-        "thisOutsideClass": "在类上下文之外使用 'this'",
-        "errorInVerification": "验证过程中出错",
-        "storageAccess": "访问存储"
-    },
-    "pluginRisksInuserFriendlyDesc": {
-        "eval": "该插件尝试从字符串执行代码，字符串可能会被混淆以隐藏恶意代码。",
-        "globalAccess": "该插件尝试访问全局变量，这可能导致意外的副作用或安全漏洞。",
-        "thisOutsideClass": "该插件在类上下文之外使用 'this' 关键字，这可能导致意外行为或安全问题。",
-        "errorInVerification": "插件验证过程中出现错误，表明其功能可能存在问题。",
-        "storageAccess": "该插件尝试访问存储，这可能导致数据泄露或未经授权的数据操作。"
-    },
     "generatedByAIDisclaimer": "此内容由 AI 生成，可能包含不准确信息或偏见。",
     "bookmark": "书签",
     "loadMore": "加载更多",
@@ -1012,7 +994,6 @@ export const languageChinese = {
     "providerPermissionConsent": "插件 {} 正在请求访问 Provider 的权限，这可能允许它进行未授权的 API 调用。是否允许？",
     "sendChatConsent": "插件 {} 正在请求代表您发送聊天消息的权限，这将触发 AI 回复。是否允许？",
     "inlayPermissionConsent": "插件 {} 正在请求访问内嵌资源（inlay）的权限，这可能会暴露聊天中附加的文件。是否允许？",
-    "pluginV2Warning": "插件 V2 和 V2.1 被认为是不安全的，将在未来版本中停止工作。**请勿使用这些版本的插件。**如果您是此插件的开发者，请尽快更新到 V3。",
     "trimStartNewChat": "修剪“开始新对话”消息",
     "hamburgerButtonBottom": "将菜单按钮移至侧边栏底部",
 
@@ -1022,4 +1003,15 @@ export const languageChinese = {
     secureConnectionRequiredBody: "请通过 HTTPS 访问 PocketRisu Kei，或在服务器设备上使用 http://localhost 或 http://127.0.0.1。若要远程访问，请先从本地连接启用 Cloudflare 远程访问。",
 
     selectBotHint: "选择一个机器人开始聊天",
+    risuTosTitle: "RisuAI 服务条款",
+    risuTosDesc: "此功能使用 RisuAI 运营的服务器。\nPocketRisu Kei 是独立于 RisuAI 的项目，以下条款是 RisuAI 自己的条款，而非 PocketRisu Kei 的条款。不同意也不影响 PocketRisu Kei 的其他功能。",
+    risuTosScope: "这些条款仅适用于：",
+    risuTosScopeRealm: "RisuRealm（浏览、搜索、下载和举报角色）",
+    risuTosScopeMcp: "MCP 服务器 OAuth 登录（通过 RisuAI 账户服务器中转）",
+    risuTosTerms: "RisuAI 服务条款",
+    risuTosPrivacy: "RisuAI 隐私政策",
+    risuTosAccept: "同意",
+    risuTosDecline: "不同意",
+    risuTosGate: "RisuRealm 使用 RisuAI 运营的服务器。需要同意 RisuAI 服务条款才能使用。",
+    risuTosGateButton: "查看条款",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

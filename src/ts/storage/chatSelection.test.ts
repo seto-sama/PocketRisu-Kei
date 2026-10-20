@@ -43,19 +43,12 @@ describe('device chat selection', () => {
         expect(getChatPage(character([]))).toBe(0)
     })
 
-    it('preserves legacy plugin reads, edits and serialized output without storing chatPage', async () => {
-        const { getChatPage, initializeChatSelection, pluginCharacterSelections, withChatSelection } = await import('./chatSelection.svelte')
+    it('applies the selected chat from a plugin snapshot without storing chatPage', async () => {
+        const { getChatPage, initializeChatSelection, setChatPage, withChatSelection } = await import('./chatSelection.svelte')
         const original = character()
-        const characters = [original]
-        const legacy = pluginCharacterSelections(characters) as Array<typeof original & { chatPage: number }>
-        legacy[0].chatPage = 1
-        legacy[0].name = 'Plugin edit'
-        expect(original.name).toBe('Plugin edit')
-        expect(withChatSelection(original).chatPage).toBe(1)
-        expect(JSON.parse(JSON.stringify(legacy))[0]).toEqual({ ...original, chatPage: 1 })
-        expect(original).not.toHaveProperty('chatPage')
-
+        setChatPage(original, 1)
         const snapshot = withChatSelection(original)
+        expect(snapshot.chatPage).toBe(1)
         snapshot.chatPage = 2
         initializeChatSelection(snapshot, true)
         expect(getChatPage(original)).toBe(2)

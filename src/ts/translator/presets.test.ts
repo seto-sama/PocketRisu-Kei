@@ -155,7 +155,7 @@ describe("translator preset file codec", () => {
         encodeFile.mockResolvedValue(encoded);
         decodeFile.mockResolvedValue(preset);
 
-        expect(await encodeTranslatorPresetFile(preset)).toBe(encoded);
+        expect(await encodeTranslatorPresetFile(preset)).toEqual(encoded);
         expect(encodeFile).toHaveBeenCalledWith("translator", expect.objectContaining({
             name: "My Preset",
             prompt: "Translate into {{slot}}.",

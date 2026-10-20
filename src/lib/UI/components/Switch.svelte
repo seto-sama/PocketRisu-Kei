@@ -1,29 +1,11 @@
 <script lang="ts">
-    // shadcn-svelte Switch — 1:1 port of _reference/shadcn-components/switch/.
-    // Visual classes inlined from shadcn-styles vega .cn-switch / .cn-switch-thumb,
-    // with two mechanical translations:
-    //   - shadcn semantic tokens → RisuAI theme tokens
-    //       bg-primary → bg-primary (RisuAI's primary token — dynamic per theme,
-    //         maps to ColorScheme.primary; carries the "on/active" fill role),
-    //       bg-input → bg-button (brighter than dialog background darkbg
-    //         so the inactive track stays visible against panel surfaces),
-    //       border-ring/ring-ring → border-lightborderc/ring-lightborderc,
-    //       border-destructive/ring-destructive → border-danger/ring-danger,
-    //       bg-background → bg-themewhite (thumb is a light disc on the track —
-    //         standard toggle UX has thumb always near-white regardless of
-    //         theme; mapping bg-background → bg-maintext would render a black
-    //         thumb in light/monokai-light themes which is jarring and unlike
-    //         any platform toggle convention)
-    //   - data-checked: / data-unchecked: → data-[state=checked]: / data-[state=unchecked]:
-    //       bits-ui v2 emits a single data-state="checked|unchecked" attribute,
-    //       not the independent boolean attributes shadcn vega selectors target.
-    // dark: variants are dropped because RisuAI ships a single dark theme.
     import { Switch as SwitchPrimitive } from 'bits-ui';
     import { cn } from 'src/lib/utils';
 
     interface Props {
         ref?: HTMLButtonElement | null;
         checked?: boolean;
+        reverse?: boolean; // Invert the display while keeping bound values and callbacks unchanged.
         size?: 'default' | 'sm';
         disabled?: boolean;
         name?: string;
@@ -37,6 +19,7 @@
     let {
         ref = $bindable(null),
         checked = $bindable(),
+        reverse = false,
         size = 'default',
         disabled = false,
         name,
@@ -50,15 +33,15 @@
 
 <SwitchPrimitive.Root
     bind:ref
-    checked={checked ?? false}
+    checked={reverse ? !checked : !!checked}
     {disabled}
     {name}
     {value}
     {required}
     aria-label={ariaLabel}
     onCheckedChange={(value) => {
-        checked = value;
-        onCheckedChange?.(value);
+        checked = reverse ? !value : value;
+        onCheckedChange?.(checked);
     }}
     data-slot="switch"
     data-size={size}

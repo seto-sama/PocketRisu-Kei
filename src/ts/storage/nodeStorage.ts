@@ -24,6 +24,11 @@ import type {
 const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
+async function ensurePluginStorageMigration(): Promise<void> {
+    const { ensurePluginStorageMigration: migrate } = await import('../plugins/pluginSafeClass')
+    await migrate()
+}
+
 function serverErrorMessage(body: any, fallback: string): string {
     return localizedApiErrorMessage({
         code: typeof body?.code === 'string' ? body.code : undefined,
@@ -129,6 +134,20 @@ export interface PluginStorageExclusion {
     unclassified?: boolean
 }
 
+export type PluginStorageNamespace = 'localStorage' | 'localForage'
+export type PluginStorageRequest =
+    | { op: 'get', key: string }
+    | { op: 'set', key: string, value: Uint8Array, owner?: string }
+    | { op: 'remove', key: string }
+    | { op: 'clear' }
+    | { op: 'list' }
+    | { op: 'import', entries: Array<{ key: string, value: Uint8Array, owner?: string }> }
+
+export type PluginStorageResponse =
+    | { value: Uint8Array | null }
+    | { success: true }
+    | { entries: Array<{ key: string, owner?: string }> }
+
 export interface ExportBackupOptions {
     target?: 'upstream'
     mode?: 'settings' | 'partial'
@@ -146,6 +165,7 @@ export type FileFormat = 'save' | 'preset' | 'theme' | 'translator' | 'json'
 
 export interface SettingsBackupEstimate {
     dbBytes: number
+    pluginStorageBytes: number
     baseAssets: { count: number, bytes: number }
     moduleAssets: { count: number, bytes: number, moduleCount: number }
 }
@@ -569,6 +589,16 @@ export class NodeStorage{
         return await response.json() as PluginStorageStartupStats
     }
 
+    async pluginStorageRequest(namespace: PluginStorageNamespace, request: PluginStorageRequest): Promise<PluginStorageResponse> {
+        const response = await this.authFetch(`/api/plugin-storage/${namespace}`, {
+            method: 'POST',
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE, accept: BINARY_MESSAGE_CONTENT_TYPE },
+            body: encode(request),
+        })
+        if (!response.ok) throw await storageRequestError('pluginStorageRequest', response)
+        return decode(new Uint8Array(await response.arrayBuffer())) as PluginStorageResponse
+    }
+
     // Cleanup reads must not advance the autosave baseline.
     async scanContentReferences(kind: ContentReferenceKind, candidates: string[]) {
         const response = await this.authFetch('/api/database/content-references', {
@@ -582,7 +612,7 @@ export class NodeStorage{
     }
 
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const headers:Record<string, string> = { accept: 'application/json' }
+        const headers:Record<string, string> = { accept: BINARY_MESSAGE_CONTENT_TYPE }
         if (this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
         }
@@ -594,7 +624,7 @@ export class NodeStorage{
             throw await storageRequestError('getDatabaseProjection', response)
         }
 
-        const data = await response.json() as DatabaseProjection<T>
+        const data = decode(new Uint8Array(await response.arrayBuffer())) as DatabaseProjection<T>
         this._lastDbEtag = data.etag ?? null
         this._lastDbRevision = Number.isSafeInteger(data.revision) ? data.revision : null
         return data
@@ -604,8 +634,8 @@ export class NodeStorage{
     async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
         const response = await this.authFetch('/api/database', {
             method: 'PUT',
-            body: JSON.stringify({ database, expectedRevision }),
-            headers: { 'content-type': 'application/json' },
+            body: encode({ database, expectedRevision }),
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
         })
         if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
@@ -653,9 +683,10 @@ export class NodeStorage{
     ): Promise<PatchItemResult> {
         if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
+        const binary = method === 'PATCH'
 
         const headers: Record<string, string> = {
-            'content-type': 'application/json',
+            'content-type': binary ? BINARY_MESSAGE_CONTENT_TYPE : 'application/json',
         }
         if (tracksDatabase && this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
@@ -665,7 +696,7 @@ export class NodeStorage{
         }
         const da = await this.authFetch(endpoint, {
             method,
-            body: JSON.stringify(patchData),
+            body: binary ? encode(patchData) : JSON.stringify(patchData),
             headers,
         })
 
@@ -743,6 +774,7 @@ export class NodeStorage{
         opts?: ExportBackupOptions,
         onProgress?: (progress: BackupProgress) => void,
     ): Promise<{ missingAssets: string[] }> {
+        await ensurePluginStorageMigration()
         const params = new URLSearchParams()
         if(opts?.target === 'upstream') params.set('target', 'upstream')
         if(opts?.mode) params.set('mode', opts.mode)
@@ -869,12 +901,14 @@ export class NodeStorage{
     }
 
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
+        await ensurePluginStorageMigration()
         const response = await this.authFetch('/api/backup/export/settings-estimate')
         if(!response.ok) throw new Error(`settings estimate error: ${response.status}`)
         return await response.json()
     }
 
     async prepareImport(size: number): Promise<void> {
+        await ensurePluginStorageMigration()
         const da = await this.authFetch('/api/backup/import/prepare', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -960,6 +994,7 @@ export class NodeStorage{
         note = '',
         onProgress?: (progress: BackupProgress) => void
     ): Promise<{ok: boolean, filename: string, size: number}> {
+        await ensurePluginStorageMigration()
         const da = await this.authFetch('/api/backup/server/save', {
             method: 'POST',
             headers: {

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { alertConfirm, alertInput, alertNormal, notifyInfo } from "src/ts/alert";
+    import { alertConfirm, alertInput, alertNormal, alertTOS, notifyInfo } from "src/ts/alert";
     import { hubURL, realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
     
     import { DBState } from 'src/ts/stores.svelte';
@@ -123,6 +123,7 @@
                 <PaperclipIcon />
             </IconButton>
             <IconButton tone="destructive" aria-label="Report character" onclick={(async () => {
+                if(!(await alertTOS())) return
                 const conf = await alertConfirm('Report this character?')
                 if(conf){
                     const report = await alertInput('Write a report text that would be sent to the admin (for copywrite issues, use email)')

@@ -443,13 +443,7 @@ export async function saveDb() {
 
     function takeTrackedChanges() {
         const toSave = structuredClone(changeTracker)
-        changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
-        changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
-        changeTracker.root = false
-        changeTracker.botPreset = false
-        changeTracker.modules = false
-        changeTracker.plugins = false
-        changeTracker.pluginCustomStorage = false
+        clearTrackedChanges()
         return toSave
     }
 
@@ -581,7 +575,7 @@ export async function saveDb() {
             saveTimeoutExecute()
         })
         $effect(() => {
-            DBState.db.botPresetsId
+            DBState.db.activePromptPresetId
             try { deepTouch(DBState.db.botPresets) } catch (e) {
                 console.warn('[Save] deepTouch(botPresets) failed:', e)
                 return
@@ -891,7 +885,7 @@ export async function saveDb() {
                 if (toSave.root) {
                     for (const key in localDb) {
                         if (
-                            key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
+                            key !== 'characters' && key !== 'botPresets' && key !== 'activePromptPresetId' && key !== 'modules' &&
                             key !== 'plugins' && key !== 'pluginCustomStorage'
                         ) {
                             mergedDb[key] = structuredClone(localDb[key])
@@ -901,7 +895,7 @@ export async function saveDb() {
 
                 if (toSave.botPreset) {
                     mergedDb.botPresets = structuredClone(localDb.botPresets)
-                    mergedDb.botPresetsId = localDb.botPresetsId
+                    mergedDb.activePromptPresetId = localDb.activePromptPresetId
                 }
                 if (toSave.modules) mergedDb.modules = structuredClone(localDb.modules)
                 if (toSave.plugins) mergedDb.plugins = structuredClone(localDb.plugins)

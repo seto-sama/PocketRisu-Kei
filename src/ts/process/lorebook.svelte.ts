@@ -755,7 +755,7 @@ export async function exportLoreBook(mode:'global'|'local'){
 
         await downloadFile(`lorebook_export.json`, stringl)
 
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }

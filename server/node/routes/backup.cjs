@@ -7,11 +7,21 @@ const { existsSync, mkdirSync, createReadStream } = require('fs');
 const { randomUUID } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { encode: encodeMessagePack } = require('msgpackr');
 const { decodeRisuSave, encodeRisuSave, normalizeJSON } = require('../utils.cjs');
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
-const { STORED_ASSET_PREFIX, collectDatabaseAssetBasenames, assetBasename: statsBasename } = require('../assetReferences.cjs');
+const {
+    exportPromptPresetSelection,
+    importPromptPresetSelection,
+} = require('../../../shared/promptPresetSelection.mjs');
+const {
+    STORED_ASSET_PREFIX,
+    collectDatabaseAssetBasenames,
+    collectPersistentPluginAssetBasenames,
+    assetBasename: statsBasename,
+} = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
 const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
 
@@ -172,6 +182,10 @@ function installBackupRoutes(app, {
 
     const BACKUP_ENTRY_NAME_MAX_BYTES = 1024;
 
+    const PLUGIN_STORAGE_BACKUP_NAMESPACES = Object.freeze(['localStorage', 'localForage']);
+    // Older and upstream backups omit this marker so restore preserves local plugin state.
+    const PLUGIN_STORAGE_BACKUP_MANIFEST = 'plugin-storage/_manifest';
+
     const BACKUP_DISK_HEADROOM = 2;
 
     const BACKUP_NDJSON_HEARTBEAT_MS = Math.max(
@@ -284,6 +298,7 @@ function installBackupRoutes(app, {
         createBackupAndRotate: createPreReplacementSnapshot,
         invalidateDbCache,
         prepareDatabaseProjection: prepareImportedDatabaseProjection,
+        replacePluginStorage: (entries) => appDataStore.replacePluginStorage(entries),
         normalizeInlayExt,
         isSafeInlayId,
         decodeDataUri,
@@ -294,24 +309,32 @@ function installBackupRoutes(app, {
         maxEntryNameBytes: BACKUP_ENTRY_NAME_MAX_BYTES,
     });
 
-    async function createSettingsBackupPlan(includeModuleAssets = true) {
+    async function createSettingsBackupPlan(includeModuleAssets = true, includePluginStorage = true) {
         const snapshot = await queueStorageOperation(async () => {
             await prepareDatabaseExport();
             if (!appDataStore.getState().initialized) return null;
             return {
                 database: appDataStore.exportProjection({ includeMessages: false }),
                 assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
+                pluginStorage: includePluginStorage
+                    ? Array.from(appDataStore.exportPluginStorage())
+                    : [],
             };
         });
         if (!snapshot) return null;
-        return buildSettingsBackupPlan({
+        const plan = buildSettingsBackupPlan({
             ...snapshot,
             includeModuleAssets,
         });
+        return {
+            ...plan,
+            pluginStorage: snapshot.pluginStorage,
+        };
     }
 
-    async function createPartialBackupPlan() {
-        const database = await getDatabaseExportSnapshot();
+    async function createPartialBackupPlan(includePluginStorage = true) {
+        const snapshot = await getDatabaseExportSnapshot(includePluginStorage);
+        const database = snapshot?.database;
         if (!database) return null;
 
         const imageDatabase = {
@@ -323,6 +346,9 @@ function installBackupRoutes(app, {
             botPresets: (database.botPresets ?? []).map((preset) => ({ image: preset?.image })),
         };
         const referencedNames = collectDatabaseAssetBasenames(imageDatabase, { assetsOnly: true });
+        for (const name of collectPersistentPluginAssetBasenames(snapshot.pluginStorage)) {
+            referencedNames.add(name);
+        }
         const pngNames = new Set(Array.from(referencedNames).filter((name) => name.endsWith('.png')));
         const assetRows = kvListWithSizes(STORED_ASSET_PREFIX);
         const includedAssets = assetRows.filter((asset) => pngNames.has(statsBasename(asset.key)));
@@ -335,25 +361,66 @@ function installBackupRoutes(app, {
         };
     }
 
-    async function getDatabaseExportSnapshot() {
+    async function getDatabaseExportSnapshot(includePluginStorage = false) {
         return queueStorageOperation(async () => {
             await prepareDatabaseExport();
             if (!appDataStore.getState().initialized) return null;
             const database = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(database);
-            return database;
+            return {
+                database,
+                pluginStorage: includePluginStorage ? Array.from(appDataStore.exportPluginStorage()) : [],
+            };
         });
     }
 
+    function createPluginStorageBackupEntries(rows) {
+        const entries = [{
+            kind: 'buffer',
+            backupName: PLUGIN_STORAGE_BACKUP_MANIFEST,
+            sortKey: PLUGIN_STORAGE_BACKUP_MANIFEST,
+            buffer: Buffer.from(JSON.stringify({
+                version: 1,
+                namespaces: PLUGIN_STORAGE_BACKUP_NAMESPACES,
+            })),
+        }];
+
+        for (const row of rows) {
+            const encodedKey = Buffer.from(row.key, 'utf-8').toString('base64url');
+            const backupName = `plugin-storage/${row.namespace}/${encodedKey}`;
+            if (Buffer.byteLength(backupName, 'utf-8') > BACKUP_ENTRY_NAME_MAX_BYTES) {
+                throw new Error(`Plugin storage backup entry name too long: ${row.namespace}`);
+            }
+            const buffer = encodeMessagePack({
+                value: Buffer.from(row.value),
+                ...(typeof row.owner === 'string' ? { owner: row.owner } : {}),
+            });
+            entries.push({
+                kind: 'buffer',
+                backupName,
+                sortKey: backupName,
+                buffer,
+            });
+        }
+
+        return entries.map((entry) => ({
+            ...entry,
+            size: entry.buffer.length,
+        }));
+    }
+
     async function createCompatibleDatabaseValue() {
-        const database = await getDatabaseExportSnapshot();
-        if (!database) return null;
-        return encodeRisuSave(database);
+        const snapshot = await getDatabaseExportSnapshot();
+        if (!snapshot) return null;
+        return encodeRisuSave(exportPromptPresetSelection(snapshot.database));
     }
 
     async function encodePortableDatabase(database, onCompress) {
         const { withExportColorSchemes } = await import('../../shared/colorScheme.js');
-        return encodeRisuSave(withExportColorSchemes(database), onCompress);
+        return encodeRisuSave(
+            withExportColorSchemes(exportPromptPresetSelection(database)),
+            onCompress,
+        );
     }
 
     app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
@@ -362,7 +429,9 @@ function installBackupRoutes(app, {
             const plan = await createSettingsBackupPlan();
             if (!plan) return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
             const encodedDatabase = await encodePortableDatabase(plan.database);
-            res.json({ ...plan.breakdown, dbBytes: encodedDatabase.length });
+            const pluginStorageBytes = createPluginStorageBackupEntries(plan.pluginStorage)
+                .reduce((sum, entry) => sum + entry.size, 0);
+            res.json({ ...plan.breakdown, dbBytes: encodedDatabase.length, pluginStorageBytes });
         } catch (error) { next(error); }
     });
 
@@ -371,27 +440,28 @@ function installBackupRoutes(app, {
     const MAX_PREPARED_EXPORTS = 4;
 
     async function prepareBackupExport(options, onProgress) {
-        // ?target=upstream excludes application-specific inlay namespaces (inlay/,
-        // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
-        // which upstream RisuAI's import treats as a path under assets/ and
-        // fails with ENOENT. The export becomes lossy on inlay images but
-        // imports cleanly into upstream.
+        // ?target=upstream excludes application-specific inlay namespaces and
+        // plugin storage entries. The database still contains includedInSave
+        // under pluginCustomStorage for RisuAI compatibility.
         const target = options.target === 'upstream' ? 'upstream' : 'pocketrisu';
         const settingsOnly = options.mode === 'settings';
         const partialOnly = options.mode === 'partial';
         const includeModuleAssets = options.moduleAssets !== '0';
         onProgress?.({ stage: 'saving' });
         const settingsPlan = settingsOnly
-            ? await createSettingsBackupPlan(includeModuleAssets)
+            ? await createSettingsBackupPlan(includeModuleAssets, target !== 'upstream')
             : null;
-        const partialPlan = partialOnly ? await createPartialBackupPlan() : null;
+        const partialPlan = partialOnly ? await createPartialBackupPlan(target !== 'upstream') : null;
         if ((settingsOnly && !settingsPlan) || (partialOnly && !partialPlan)) {
             throw createApiError(API_ERROR_CODES.DATABASE_NOT_FOUND, 500);
         }
 
+        const fullSnapshot = !settingsPlan && !partialPlan
+            ? await getDatabaseExportSnapshot(target !== 'upstream')
+            : null;
         const database = settingsPlan?.database
             ?? partialPlan?.database
-            ?? await getDatabaseExportSnapshot();
+            ?? fullSnapshot?.database;
         if (!database) throw createApiError(API_ERROR_CODES.DATABASE_NOT_FOUND, 500);
 
         onProgress?.({ stage: 'preparing' });
@@ -429,6 +499,11 @@ function installBackupRoutes(app, {
             sortKey: entry.key,
             size: entry.size,
         }));
+        const pluginStorageEntries = target === 'upstream' || partialOnly
+            ? []
+            : createPluginStorageBackupEntries(
+                settingsPlan?.pluginStorage ?? fullSnapshot?.pluginStorage,
+            );
         const namespacedEntries = [
             ...(settingsPlan?.includedAssets ?? partialPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
                 .map((entry) => ({
@@ -439,6 +514,7 @@ function installBackupRoutes(app, {
                     size: entry.size,
                 })),
             ...(settingsOnly || partialOnly ? [] : listColdStorageBackupEntries()),
+            ...pluginStorageEntries,
             ...inlayMetaEntries,
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
@@ -915,6 +991,9 @@ function installBackupRoutes(app, {
             }
             const dbObj = appDataStore.exportProjection({ includeMessages: true });
             const referencedBasenames = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
+            for (const basename of collectPersistentPluginAssetBasenames(appDataStore.exportPluginStorage())) {
+                referencedBasenames.add(basename);
+            }
             const currentBasenames = new Set(
                 kvList('assets/').map((key) => statsBasename(key)),
             );
@@ -1136,11 +1215,12 @@ function installBackupRoutes(app, {
             if (!raw) return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
 
             const database = normalizeJSON(await decodeRisuSave(raw));
+            importPromptPresetSelection(database);
             // New snapshots keep bookmarks in a dedicated snapshot table. Project
             // that historical catalog into the portable file; legacy snapshots
             // already carry their bookmark compatibility fields in the blob.
             bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
-            const blob = await encodeRisuSave(database);
+            const blob = await encodeRisuSave(exportPromptPresetSelection(database));
 
             const dir = getManualSnapshotsDir();
             await fs.mkdir(dir, { recursive: true });
