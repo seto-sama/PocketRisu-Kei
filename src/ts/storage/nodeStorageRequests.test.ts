@@ -180,10 +180,10 @@ describe('storage request integration', () => {
         await storage.patchDatabase(delta)
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, etag: 'chat' })))
         expect(await storage.patchChatContent('character', 99, 'stable-chat', delta)).toEqual({ etag: 'chat' })
-        for (const [, request] of fetchMock.mock.calls) {
+        for (const [index, [, request]] of fetchMock.mock.calls.entries()) {
             expect(request.method).toBe('PATCH')
-            expect(JSON.parse(request.body)).toEqual(delta)
-            expect(new Headers(request.headers).get('content-type')).toBe('application/json')
+            expect(index === 0 ? decode(request.body) : JSON.parse(request.body)).toEqual(delta)
+            expect(new Headers(request.headers).get('content-type')).toBe(index === 0 ? 'application/octet-stream' : 'application/json')
             expect(new Headers(request.headers).has('x-chat-if-match')).toBe(false)
         }
         expect(new Headers(fetchMock.mock.calls[1][1].headers).get('x-chat-id')).toBe('stable-chat')
@@ -356,7 +356,7 @@ it('carries hash diagnostics through the existing patch request without another 
         revision: 9, hashDiagnostics,
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(patch)
+    expect(decode(fetchMock.mock.calls[0][1].body)).toEqual(patch)
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
         hashDiagnostics: { keys: null, characters: [] },
     }), { status: 409 }))

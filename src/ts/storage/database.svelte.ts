@@ -1441,10 +1441,7 @@ export interface Database{
     verbosity:number
     hubServerType?:string
     pluginCustomStorage:{[key:string]:any}
-    // Best-effort "which plugin last wrote this key" sidecar for the save-file
-    // plugin storage. Additive metadata only — never wraps the value itself, so
-    // existing plugins read their keys unchanged. Populated for new V3 writes;
-    // legacy/V2 keys stay unrecorded. See pluginStorageMeta.ts.
+    // Ownership stays separate so existing plugin storage values keep their shape.
     pluginStorageMeta?:{[key:string]:{plugin:string,updatedAt:number}}
     showInputActionBar?: boolean
     chatLoadInitialPages?: number

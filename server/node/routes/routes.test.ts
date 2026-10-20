@@ -72,14 +72,21 @@ describe('server route composition', () => {
         expect(login.status).toBe(200)
         headers = { 'risu-auth': (await login.json()).token, 'x-sync-client-id': 'route-test' }
         const initialized = await fetch(base + '/api/database', {
-            method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
-            body: JSON.stringify({ database: { characters: [{
-                chaId: characterId,
-                chats: [{ id: chatId, message: [
-                    { chatId: 'route-message-1', role: 'user', data: 'hello' },
-                    { chatId: 'route-message-2', role: 'char', data: 'answer' },
-                ] }],
-            }] }, expectedRevision: 0 }),
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' },
+            body: encode({ database: {
+                characters: [{
+                    chaId: characterId,
+                    chats: [{ id: chatId, message: [
+                        { chatId: 'route-message-1', role: 'user', data: 'hello' },
+                        { chatId: 'route-message-2', role: 'char', data: 'answer' },
+                    ] }],
+                }],
+                pluginCustomStorage: {
+                    'transport-test/json-string': '{ "id": 9007199254740993, "prompt": "keep this JSON text" }\n',
+                    'transport-test/scalar': 17,
+                    'transport-test/object': { enabled: true, values: ['한글', 3] },
+                },
+            }, expectedRevision: 0 }),
         })
         expect(initialized.status, await initialized.text()).toBe(200)
     }, 30_000)
@@ -530,5 +537,122 @@ describe('server route composition', () => {
         expect((await patchDb({ ...db, globalChatVariables: { toggleA: 'off' } })).status).toBe(409)
         const saved = await (await fetch(base + '/api/database', { headers })).json()
         expect(saved.database.globalChatVariables).toEqual({ toggleA: 'on', toggleB: 'on' })
+    })
+
+    it('uses MessagePack for database reads and requests while keeping backups compatible', async () => {
+        const binaryHeaders = { ...headers, accept: 'application/octet-stream' }
+        const readBinaryProjection = async (extraHeaders: Record<string, string> = {}) => {
+            const response = await fetch(base + '/api/database', {
+                headers: { ...binaryHeaders, ...extraHeaders },
+            })
+            expect(response.status, await response.clone().text()).toBe(200)
+            expect(response.headers.get('content-type')).toContain('application/octet-stream')
+            return decode(new Uint8Array(await response.arrayBuffer())) as any
+        }
+
+        const initial = await readBinaryProjection()
+        expect(initial.database.pluginCustomStorage).toEqual({
+            'transport-test/json-string': '{ "id": 9007199254740993, "prompt": "keep this JSON text" }\n',
+            'transport-test/scalar': 17,
+            'transport-test/object': { enabled: true, values: ['한글', 3] },
+        })
+
+        const masked = await readBinaryProjection({ 'x-risu-plugin-storage-exclusion': 'all' })
+        expect(masked.database.pluginCustomStorage).toEqual({})
+
+        const patchDatabase = (baseDatabase: any, afterDatabase: any, maskedWrite = false) => fetch(base + '/api/database', {
+            method: 'PATCH',
+            headers: {
+                ...headers,
+                'content-type': 'application/octet-stream',
+                ...(maskedWrite ? { 'x-risu-plugin-storage-exclusion': 'all' } : {}),
+            },
+            body: encode({ changes: createDelta(baseDatabase, afterDatabase) }),
+        })
+
+        const firstChange = await patchDatabase(
+            masked.database,
+            {
+                ...masked.database,
+                globalChatVariables: {
+                    ...(masked.database.globalChatVariables ?? {}),
+                    binaryTransportFirst: 'first',
+                },
+            },
+            true,
+        )
+        expect(firstChange.status, await firstChange.clone().text()).toBe(200)
+        expect(await firstChange.json()).toMatchObject({ success: true })
+
+        const independentChange = await patchDatabase(
+            masked.database,
+            {
+                ...masked.database,
+                globalChatVariables: {
+                    ...(masked.database.globalChatVariables ?? {}),
+                    binaryTransportSecond: 'independent',
+                },
+            },
+            true,
+        )
+        expect(independentChange.status, await independentChange.clone().text()).toBe(200)
+        expect(await independentChange.json()).toMatchObject({ success: true })
+
+        const overlappingChange = await patchDatabase(
+            masked.database,
+            {
+                ...masked.database,
+                globalChatVariables: {
+                    ...(masked.database.globalChatVariables ?? {}),
+                    binaryTransportFirst: 'conflicting',
+                },
+            },
+            true,
+        )
+        expect(overlappingChange.status).toBe(409)
+        expect(await overlappingChange.json()).toMatchObject({
+            conflicts: [['globalChatVariables', 'binaryTransportFirst']],
+        })
+
+        const pluginCustomStorage = {
+            ...initial.database.pluginCustomStorage,
+            'transport-test/json-string': '{ "id": 9007199254740993, "updated": true }\n',
+            'transport-test/scalar': 0,
+            'transport-test/boolean': false,
+        }
+        const pluginWrite = await patchDatabase(initial.database, { ...initial.database, pluginCustomStorage })
+        expect(pluginWrite.status, await pluginWrite.clone().text()).toBe(200)
+
+        const current = await readBinaryProjection()
+        expect(current.database).toMatchObject({
+            globalChatVariables: {
+                binaryTransportFirst: 'first',
+                binaryTransportSecond: 'independent',
+            },
+            pluginCustomStorage,
+        })
+
+        const exported = await fetch(base + '/api/backup/export', { headers })
+        expect(exported.status, await exported.clone().text()).toBe(200)
+        const backup = Buffer.from(await exported.arrayBuffer())
+        const databaseEntry = decodeBackup(backup).find(entry => entry.name === 'database.risudat')!
+        const portable = await decodeRisuSave(databaseEntry.data)
+        expect(portable.pluginCustomStorage).toEqual(pluginCustomStorage)
+    })
+
+    it('authenticates binary database requests and rejects malformed MessagePack without writing', async () => {
+        const before = await (await fetch(base + '/api/database', { headers })).json()
+        const options = { method: 'PATCH', body: Uint8Array.of(0xc1) }
+        const unauthorized = await fetch(base + '/api/database', {
+            ...options, headers: { 'content-type': 'application/octet-stream' },
+        })
+        expect(unauthorized.status).toBe(401)
+        const malformed = await fetch(base + '/api/database', {
+            ...options, headers: { ...headers, 'content-type': 'application/octet-stream' },
+        })
+        expect(malformed.status).toBe(400)
+        const after = await (await fetch(base + '/api/database', { headers })).json()
+        expect(after.revision).toBe(before.revision)
+        expect(after.database).toEqual(before.database)
     })
 })

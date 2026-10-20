@@ -1,9 +1,23 @@
 import { toGetter } from "../globalApi.svelte";
-import { clearPersistentPrefix, decodeStorageKeyComponent, listPersistentKeys, makeEncodedStorageKey, readPersistentJson, removePersistentKey, writePersistentJson } from "../storage/persistentKv";
+import { clearPersistentPrefix, decodeStorageKeyComponent, listPersistentKeys, makeEncodedStorageKey, readPersistentBytes, removePersistentKey, writePersistentBytes } from "../storage/persistentKv";
 import { recordOwner, removeOwner, clearOwners } from "./pluginStorageMeta";
+import { decodeLocalPluginStorageValue, encodeLocalPluginStorageValue, LOCAL_PLUGIN_STORAGE_PREFIX } from '../../../shared/localPluginStorageValue.mjs';
 
-const pluginStorage = new Map<string, unknown>();
-const pluginStoragePrefix = 'cache/plugin-storage/';
+// Cache encoded bytes so iframe buffer transfers never detach the stored value.
+const pluginStorage = new Map<string, Uint8Array>();
+const pendingStorageOperations = new Map<string, Promise<unknown>>();
+let storageClear: Promise<unknown> = Promise.resolve();
+let storageEnumeration: Promise<unknown> = Promise.resolve();
+
+function queueStorageOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const next = Promise.allSettled([pendingStorageOperations.get(key), storageClear, storageEnumeration]).then(operation);
+    pendingStorageOperations.set(key, next);
+    const cleanup = () => {
+        if (pendingStorageOperations.get(key) === next) pendingStorageOperations.delete(key);
+    };
+    void next.then(cleanup, cleanup);
+    return next;
+}
 
 export class SafeLocalStorage {
     getItem(key: string): string | null {
@@ -15,7 +29,6 @@ export class SafeLocalStorage {
     removeItem(key: string): void {
         localStorage.removeItem(`safe_plugin_${key}`);
     }
-    //not a standard localStorage method, but useful
     keys(): string[] {
         const keys: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
@@ -29,7 +42,7 @@ export class SafeLocalStorage {
 
     key(index: number): string | null {
         const safeKeys = this.keys();
-        return safeKeys[index] || null;
+        return safeKeys[index] ?? null;
     }
 
     clear(): void {
@@ -42,60 +55,57 @@ export class SafeLocalStorage {
     get length(): number {
         return this.keys().length;
     }
-
-
 }
-
 
 export class SafeLocalPluginStorage {
     __classType = 'REMOTE_REQUIRED' as const;
-    // The originating plugin, set when the instance is created via the V3
-    // getLocalPluginStorage() API. Used to tag new writes with their origin in
-    // the sidecar meta store. Undefined (e.g. when instantiated by the built-in
-    // storage viewer) means writes don't touch ownership metadata.
-    private owner?: string;
-    constructor(owner?: string) {
-        this.owner = owner;
-    }
+    constructor(private owner?: string) {}
     async getItem<T>(key: string): Promise<T | null> {
-        const cacheKey = `safe_plugin_${key}`;
-        if (pluginStorage.has(cacheKey)) {
-            return (pluginStorage.get(cacheKey) as T) ?? null;
-        }
-        const payload = await readPersistentJson<T>(makeEncodedStorageKey(pluginStoragePrefix, key));
-        if (payload !== null) {
-            pluginStorage.set(cacheKey, payload);
-        }
-        return payload;
+        return queueStorageOperation(key, async () => {
+            const data = pluginStorage.get(key) ?? await readPersistentBytes(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key));
+            if (!data) return null;
+            const value = decodeLocalPluginStorageValue(data) as T;
+            pluginStorage.set(key, data);
+            return value;
+        });
     }
     async setItem<T>(key: string, value: T): Promise<void> {
-        const cacheKey = `safe_plugin_${key}`;
-        pluginStorage.set(cacheKey, value);
-        await writePersistentJson(makeEncodedStorageKey(pluginStoragePrefix, key), value);
-        if (this.owner) await recordOwner('idb', key, this.owner);
+        // Snapshot before an earlier write or clear can delay this operation.
+        const encoded = encodeLocalPluginStorageValue(value).then(
+            data => ({ data }), error => ({ error }),
+        );
+        return queueStorageOperation(key, async () => {
+            const result = await encoded;
+            if ('error' in result) throw result.error;
+            await writePersistentBytes(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key), result.data);
+            pluginStorage.set(key, result.data);
+            if (this.owner) await recordOwner('idb', key, this.owner);
+        });
     }
     async removeItem(key: string): Promise<void> {
-        pluginStorage.delete(`safe_plugin_${key}`);
-        await removePersistentKey(makeEncodedStorageKey(pluginStoragePrefix, key));
-        if (this.owner) await removeOwner('idb', key);
+        return queueStorageOperation(key, async () => {
+            await removePersistentKey(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key));
+            pluginStorage.delete(key);
+            if (this.owner) await removeOwner('idb', key);
+        });
     }
     async keys(): Promise<string[]> {
-        const keys: string[] = [];
-        const storageKeys = await listPersistentKeys(pluginStoragePrefix);
-        for (const key of storageKeys) {
-            const encodedKey = key.slice(pluginStoragePrefix.length, -'.json'.length);
-            keys.push(decodeStorageKeyComponent(encodedKey));
-        }
-        return keys;
+        const pending = [...pendingStorageOperations.values(), storageClear, storageEnumeration];
+        const enumeration = Promise.allSettled(pending).then(async () => {
+            const storageKeys = await listPersistentKeys(LOCAL_PLUGIN_STORAGE_PREFIX);
+            return storageKeys.map(key => decodeStorageKeyComponent(key.slice(LOCAL_PLUGIN_STORAGE_PREFIX.length, -'.json'.length)));
+        });
+        storageEnumeration = enumeration;
+        return enumeration;
     }
     async clear(): Promise<void> {
-        for (const key of [...pluginStorage.keys()]) {
-            if (key.startsWith('safe_plugin_')) {
-                pluginStorage.delete(key);
-            }
-        }
-        await clearPersistentPrefix(pluginStoragePrefix);
-        if (this.owner) await clearOwners('idb');
+        const pending = [...pendingStorageOperations.values(), storageClear, storageEnumeration];
+        storageClear = Promise.allSettled(pending).then(async () => {
+            pluginStorage.clear();
+            await clearPersistentPrefix(LOCAL_PLUGIN_STORAGE_PREFIX);
+            if (this.owner) await clearOwners('idb');
+        });
+        await storageClear;
     }
 }
 

@@ -1,34 +1,18 @@
-// Best-effort "origin plugin" tagging for plugin storage.
-//
-// Plugin data lives in a single global namespace with no record of which
-// plugin wrote which key. We cannot reconstruct ownership for existing data,
-// but for NEW writes the V3 API does know the calling plugin. This module
-// stores that origin as a SIDECAR — a separate map keyed by storage key —
-// alongside the value, never wrapping the value itself. Reads of the actual
-// value are untouched, so existing plugins keep working.
-//
-// The sidecar must live in the SAME backend as the data it describes, so its
-// lifecycle/travel matches (save → travels with the save file; local/idb →
-// device-local). Hence one store per backend:
-//   - save  → db.pluginStorageMeta (persisted in the save's ROOT block)
-//   - local → a single localStorage JSON blob (not safe_plugin_* prefixed, so
-//             it never shows up in the viewer's local listing)
-//   - idb   → persistentKv under a dedicated prefix (separate from the data
-//             prefix, so it never shows up in the viewer's idb listing)
+// Keep ownership metadata in the value's backend so backups and deletion share its lifecycle.
 
 import { getDatabase } from "../storage/database.svelte";
 import {
     listPersistentKeys,
     makeEncodedStorageKey,
     decodeStorageKeyComponent,
-    readPersistentJson,
+    readPersistentJsonBatch,
     writePersistentJson,
     removePersistentKey,
     clearPersistentPrefix,
 } from "../storage/persistentKv";
 
 export type PluginStorageBackend = "save" | "local" | "idb";
-export interface PluginOwnerRecord {
+interface PluginOwnerRecord {
     plugin: string;
     updatedAt: number;
 }
@@ -36,7 +20,6 @@ export interface PluginOwnerRecord {
 const LOCAL_META_KEY = "risu_plugin_storage_owners";
 const IDB_META_PREFIX = "cache/plugin-storage-meta/";
 
-// ── local backend blob helpers ──────────────────────────────────────────────
 function readLocalMeta(): Record<string, PluginOwnerRecord> {
     try {
         return JSON.parse(localStorage.getItem(LOCAL_META_KEY) || "{}");
@@ -51,7 +34,6 @@ function writeLocalMeta(map: Record<string, PluginOwnerRecord>): void {
     } catch {}
 }
 
-// ── write side (called from V3 storage wrappers) ────────────────────────────
 export function recordOwner(backend: PluginStorageBackend, key: string, plugin: string): void | Promise<void> {
     if (!plugin) return;
     const record: PluginOwnerRecord = { plugin, updatedAt: Date.now() };
@@ -98,30 +80,18 @@ export function clearOwners(backend: PluginStorageBackend): void | Promise<void>
     return clearPersistentPrefix(IDB_META_PREFIX);
 }
 
-// ── read side (called from the viewer) ──────────────────────────────────────
-// Returns a { storageKey → plugin name } map for the given backend.
 export async function getOwners(backend: PluginStorageBackend): Promise<Record<string, string>> {
-    const out: Record<string, string> = {};
+    let records: [string, PluginOwnerRecord][];
     if (backend === "save") {
-        const meta = getDatabase({ snapshot: true }).pluginStorageMeta ?? {};
-        for (const key of Object.keys(meta)) {
-            if (meta[key]?.plugin) out[key] = meta[key].plugin;
-        }
-        return out;
+        records = Object.entries(getDatabase().pluginStorageMeta ?? {});
+    } else if (backend === "local") {
+        records = Object.entries(readLocalMeta());
+    } else {
+        const keys = await listPersistentKeys(IDB_META_PREFIX);
+        const stored = await readPersistentJsonBatch<PluginOwnerRecord>(keys);
+        records = [...stored].map(([fullKey, record]) => [
+            decodeStorageKeyComponent(fullKey.slice(IDB_META_PREFIX.length, -".json".length)), record,
+        ]);
     }
-    if (backend === "local") {
-        const map = readLocalMeta();
-        for (const key of Object.keys(map)) {
-            if (map[key]?.plugin) out[key] = map[key].plugin;
-        }
-        return out;
-    }
-    const storageKeys = await listPersistentKeys(IDB_META_PREFIX);
-    for (const fullKey of storageKeys) {
-        const encoded = fullKey.slice(IDB_META_PREFIX.length, -".json".length);
-        const rawKey = decodeStorageKeyComponent(encoded);
-        const record = await readPersistentJson<PluginOwnerRecord>(fullKey);
-        if (record?.plugin) out[rawKey] = record.plugin;
-    }
-    return out;
+    return Object.fromEntries(records.filter(([, record]) => record?.plugin).map(([key, record]) => [key, record.plugin]));
 }

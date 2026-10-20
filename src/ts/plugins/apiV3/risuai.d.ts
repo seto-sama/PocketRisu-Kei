@@ -1087,7 +1087,7 @@ interface PluginStorage {
 }
 
 /**
- * Device-local storage that persists outside of save files.
+ * Persistent plugin storage outside of save files.
  * Uses generic types for flexible value storage.
  * Storage is shared between all plugins under a common prefix.
  *
@@ -1097,7 +1097,7 @@ interface PluginStorage {
  * ```typescript
  * const storage = await risuai.getLocalPluginStorage();
  *
- * // Store any JSON-serializable data
+ * // Store structured values, including binary data
  * await storage.setItem('config', { theme: 'dark', fontSize: 14 });
  *
  * // Retrieve data with type safety
@@ -1121,7 +1121,7 @@ interface SafeLocalPluginStorage {
     /**
      * Sets an item in storage
      * @param key - Storage key
-     * @param value - Value to store (any JSON-serializable value)
+     * @param value - Structured value to store, including Blob, ArrayBuffer, and typed arrays
      * @returns Promise that resolves when item is stored
      */
     setItem<T>(key: string, value: T): Promise<void>;
@@ -1477,8 +1477,8 @@ interface RisuaiPluginAPI {
     safeLocalStorage: SafeLocalStorage;
 
     /**
-     * Gets a device-local storage instance shared between plugins
-     * @returns SafeLocalPluginStorage instance for device-local storage
+     * Gets persistent storage shared between plugins, outside of save files
+     * @returns SafeLocalPluginStorage instance
      *
      * @example
      * ```typescript

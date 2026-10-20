@@ -582,7 +582,7 @@ export class NodeStorage{
     }
 
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const headers:Record<string, string> = { accept: 'application/json' }
+        const headers:Record<string, string> = { accept: BINARY_MESSAGE_CONTENT_TYPE }
         if (this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
         }
@@ -594,7 +594,7 @@ export class NodeStorage{
             throw await storageRequestError('getDatabaseProjection', response)
         }
 
-        const data = await response.json() as DatabaseProjection<T>
+        const data = decode(new Uint8Array(await response.arrayBuffer())) as DatabaseProjection<T>
         this._lastDbEtag = data.etag ?? null
         this._lastDbRevision = Number.isSafeInteger(data.revision) ? data.revision : null
         return data
@@ -604,8 +604,8 @@ export class NodeStorage{
     async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
         const response = await this.authFetch('/api/database', {
             method: 'PUT',
-            body: JSON.stringify({ database, expectedRevision }),
-            headers: { 'content-type': 'application/json' },
+            body: encode({ database, expectedRevision }),
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
         })
         if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
@@ -653,9 +653,10 @@ export class NodeStorage{
     ): Promise<PatchItemResult> {
         if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
+        const binary = method === 'PATCH'
 
         const headers: Record<string, string> = {
-            'content-type': 'application/json',
+            'content-type': binary ? BINARY_MESSAGE_CONTENT_TYPE : 'application/json',
         }
         if (tracksDatabase && this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
@@ -665,7 +666,7 @@ export class NodeStorage{
         }
         const da = await this.authFetch(endpoint, {
             method,
-            body: JSON.stringify(patchData),
+            body: binary ? encode(patchData) : JSON.stringify(patchData),
             headers,
         })
 

@@ -1,15 +1,5 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    // System → Plugin Storage tab. Built-in replacement for the community
-    // "plugin-storage-viewer" plugin. Plugin data is stored in a single global
-    // namespace (not per-plugin), so this is a flat key/value manager over the
-    // three backends a plugin can write to:
-    //   - save:  db.pluginCustomStorage  (travels with the save file)
-    //   - local: localStorage `safe_plugin_*`  (device-local, strings only)
-    //   - idb:   SafeLocalPluginStorage  (IndexedDB, device-local, JSON)
-    // Origin plugin is best-effort: new V3 writes are tagged into a sidecar
-    // meta store (pluginStorageMeta), but legacy/V2 keys have no record and show
-    // as unknown. Edit/delete are allowed directly, guarded by confirm.
     import Button from '../../UI/components/Button.svelte'
     import Input from '../../UI/components/Input.svelte'
     import Select from '../../UI/components/Select.svelte'
@@ -22,27 +12,22 @@
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
     import { getDatabase } from 'src/ts/storage/database.svelte'
     import { SafeLocalStorage, SafeLocalPluginStorage } from 'src/ts/plugins/pluginSafeClass'
-    import { getOwners, removeOwner } from 'src/ts/plugins/pluginStorageMeta'
+    import { getOwners, removeOwner, type PluginStorageBackend } from 'src/ts/plugins/pluginStorageMeta'
     import { language } from 'src/lang'
     import { showPopupEditor } from 'src/ts/stores.svelte'
-
-    type BackendId = 'save' | 'local' | 'idb'
+    import { describePluginStorageValue, type PluginStorageDisplay } from './pluginStorageDisplay'
 
     // Sentinel filter value for entries with no recorded origin plugin.
     const UNKNOWN = '__risu_unknown__'
     const LIST_LIMIT = 100
     const DELETE_PREVIEW_LIMIT = 160
 
-    interface Entry {
+    interface Entry extends PluginStorageDisplay {
         key: string
-        raw: unknown
-        str: string
-        size: number
-        type: string
         owner?: string
     }
 
-    const BACKENDS: { id: BackendId; label: () => string; desc: () => string }[] = [
+    const BACKENDS: { id: PluginStorageBackend; label: () => string; desc: () => string }[] = [
         { id: 'save', label: () => language.pluginStorageBackendSave, desc: () => language.pluginStorageBackendSaveDesc },
         { id: 'local', label: () => language.pluginStorageBackendLocal, desc: () => language.pluginStorageBackendLocalDesc },
         { id: 'idb', label: () => language.pluginStorageBackendIdb, desc: () => language.pluginStorageBackendIdbDesc },
@@ -51,8 +36,8 @@
     const safeLocal = new SafeLocalStorage()
     const idb = new SafeLocalPluginStorage()
 
-    let backend = $state<BackendId>('save')
-    const backendInfo = $derived(BACKENDS.find(item => item.id === backend) ?? BACKENDS[0])
+    let backend = $state<PluginStorageBackend>('save')
+    const backendInfo = $derived(BACKENDS.find(item => item.id === backend)!)
     let entries = $state<Entry[]>([])
     let loading = $state(false)
     let loadError = $state<string | null>(null)
@@ -77,8 +62,6 @@
     })
     const displayed = $derived(filtered.slice(0, LIST_LIMIT))
 
-    // True when any search/owner filter narrows the list — drives the bulk
-    // button label (delete-shown vs clear-all).
     const isFiltered = $derived(
         searchQuery.trim() !== '' || ownerFilter !== '',
     )
@@ -86,44 +69,12 @@
         Number(ownerFilter !== ''),
     )
 
-    // Distinct origin plugins present in the current backend, for the filter.
     const ownerOptions = $derived.by(() => {
         const set = new Set<string>()
         for (const e of entries) if (e.owner) set.add(e.owner)
         return [...set].sort((a, b) => a.localeCompare(b))
     })
     const hasUnknown = $derived(entries.some((e) => !e.owner))
-
-    // ── helpers ────────────────────────────────────────────────────────────
-    function valueToString(val: unknown): string {
-        if (typeof val === 'string') return val
-        if (val === null || val === undefined) return ''
-        try {
-            return JSON.stringify(val)
-        } catch {
-            return String(val)
-        }
-    }
-
-    function detectType(raw: string): string {
-        if (!raw) return 'empty'
-        try {
-            const parsed = JSON.parse(raw)
-            if (Array.isArray(parsed)) return 'array'
-            if (typeof parsed === 'object' && parsed !== null) return 'object'
-            return typeof parsed
-        } catch {
-            return 'string'
-        }
-    }
-
-    function prettyPrint(raw: string): string {
-        try {
-            return JSON.stringify(JSON.parse(raw), null, 2)
-        } catch {
-            return raw
-        }
-    }
 
     function formatSize(bytes: number): string {
         if (bytes < 1024) return bytes + ' B'
@@ -142,7 +93,6 @@
         return characters.slice(0, DELETE_PREVIEW_LIMIT).join('') + '…'
     }
 
-    // ── backend access ───────────────────────────────────────────────────────
     async function backendSet(key: string, value: unknown): Promise<void> {
         if (backend === 'save') {
             const db = getDatabase()
@@ -173,7 +123,6 @@
         await removeOwner(backend, key)
     }
 
-    // ── actions ────────────────────────────────────────────────────────────
     async function load() {
         const token = ++loadToken
         loading = true
@@ -182,9 +131,6 @@
         loadTotal = 0
         entries = []
         try {
-            // Resolve the key list and a per-key value reader ONCE. Previously
-            // the save backend re-snapshotted the entire DB on every key, which
-            // froze the UI on large saves before anything could paint.
             let keys: string[]
             let read: (key: string) => unknown | Promise<unknown>
             if (backend === 'save') {
@@ -201,20 +147,17 @@
             if (token !== loadToken) return
             loadTotal = keys.length
 
-            // Best-effort origin map (key → plugin name). Empty for legacy/V2
-            // keys written before tagging existed.
             const owners = await getOwners(backend)
             if (token !== loadToken) return
 
-            // Yield once so the page shell paints before the stringify loop.
             await new Promise((r) => setTimeout(r))
 
             const list: Entry[] = []
             for (let i = 0; i < keys.length; i++) {
                 const key = keys[i]
                 const raw = await read(key)
-                const str = valueToString(raw)
-                list.push({ key, raw, str, size: str.length * 2, type: detectType(str), owner: owners[key] })
+                const display = describePluginStorageValue(raw)
+                list.push({ key, ...display, owner: owners[key] })
                 loadProgress = i + 1
                 // Periodically yield to keep the UI responsive and let the
                 // progress bar update.
@@ -237,32 +180,31 @@
 
     function openEditor(entry: Entry) {
         showPopupEditor({
-            value: prettyPrint(entry.str),
+            value: entry.jsonEditable && entry.type !== 'string'
+                ? JSON.stringify(JSON.parse(entry.str), null, 2) : entry.str,
             title: entry.key,
-            formatJson: true,
+            description: entry.jsonEditable ? undefined : language.pluginStorageReadOnlyDesc,
+            formatJson: entry.jsonEditable,
             mode: 'plain',
             commitMode: 'submit',
             metadata: [
                 { label: language.pluginStorageMetaType, value: entry.type },
-                { label: language.pluginStorageMetaSize, value: formatSize(entry.size) },
-                { label: language.pluginStorageMetaChars, value: entry.str.length.toLocaleString() },
+                { label: entry.binarySize ? language.pluginStorageMetaBinarySize : language.pluginStorageMetaSize, value: formatSize(entry.size) },
+                ...(entry.mimeType ? [{ label: language.pluginStorageMetaMime, value: entry.mimeType }] : []),
+                ...(!entry.binarySize ? [{ label: language.pluginStorageMetaChars, value: entry.str.length.toLocaleString() }] : []),
+                ...(!entry.jsonEditable ? [{ label: language.pluginStorageMetaAccess, value: language.pluginStorageReadOnly }] : []),
                 { label: language.pluginStorageOwner, value: entry.owner ?? language.pluginStorageOwnerUnknown },
             ],
-            onCommit: (editText) => saveEdit(entry, editText),
+            ...(entry.jsonEditable ? { onCommit: (editText: string) => saveEdit(entry, editText) } : {}),
         })
     }
 
     async function saveEdit(entry: Entry, editText: string): Promise<boolean> {
         try {
             let saveValue: unknown
-            if (backend === 'local') {
-                // localStorage holds strings; normalize valid JSON, keep raw otherwise.
+            if (entry.type === 'string') {
                 saveValue = editText
-                try {
-                    saveValue = JSON.stringify(JSON.parse(editText))
-                } catch {}
             } else {
-                // save/idb keep parsed JSON when possible, raw string otherwise.
                 try {
                     saveValue = JSON.parse(editText)
                 } catch {
@@ -311,16 +253,7 @@
         if (!ok) return
 
         try {
-            if (backend === 'save') {
-                // Drop all values in one pass to avoid re-resolving the reactive
-                // DB per key, then clean up the origin records.
-                const db = getDatabase()
-                db.pluginCustomStorage ??= {}
-                for (const e of targets) delete db.pluginCustomStorage[e.key]
-                for (const e of targets) await removeOwner('save', e.key)
-            } else {
-                for (const e of targets) await backendRemove(e.key)
-            }
+            for (const entry of targets) await backendRemove(entry.key)
             await load()
             notifySuccess(language.pluginStorageBulkDeleted(targets.length))
         } catch (e) {
@@ -331,7 +264,7 @@
     }
 
     // Load on mount and whenever the backend tab changes; reset search per tab.
-    let loadedBackend: BackendId | null = null
+    let loadedBackend: PluginStorageBackend | null = null
     $effect(() => {
         const currentBackend = backend
         if (currentBackend === loadedBackend) return
@@ -422,6 +355,10 @@
                         <span class="uppercase tracking-wide shrink-0">{entry.type}</span>
                         <span aria-hidden="true">·</span>
                         <span class="shrink-0 tabular-nums">{formatSize(entry.size)}</span>
+                        {#if entry.mimeType}
+                            <span aria-hidden="true">·</span>
+                            <span class="truncate max-w-40" title={entry.mimeType}>{entry.mimeType}</span>
+                        {/if}
                     </div>
                 </div>
                 {#snippet control()}<button

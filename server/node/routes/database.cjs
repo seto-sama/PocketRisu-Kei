@@ -5,6 +5,9 @@ const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../rem
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../../shared/contentReferences.mjs');
 const { apiErrorMessage, codes } = require('../apiErrors.cjs');
+const { encode, decode } = require('msgpackr');
+const { binaryBodyParser } = require('../binaryHttp.cjs');
+const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../../src/ts/network/binaryMessage.ts');
 
 function installDatabaseRoutes(app, {
     appDataStore,
@@ -29,6 +32,27 @@ function installDatabaseRoutes(app, {
         restoreGenerationOwnedMetadata,
         findChatInternalFieldOps,
     });
+
+    const databaseRequestBody = [
+        async (req, res, next) => {
+            try {
+                if (await checkAuth(req, res)) next();
+            } catch (error) {
+                next(error);
+            }
+        },
+        binaryBodyParser('100mb'),
+        (req, res, next) => {
+            if (req.is(BINARY_MESSAGE_CONTENT_TYPE)) {
+                try {
+                    req.body = decode(req.body);
+                } catch (error) {
+                    return res.status(400).json({ error: error.message });
+                }
+            }
+            next();
+        },
+    ];
 
     function sendDatabaseProjectionError(res, error) {
         if (!(error instanceof DatabaseProjectionServiceError)) return false;
@@ -90,17 +114,22 @@ function installDatabaseRoutes(app, {
         if (!await checkAuth(req, res)) return;
         try {
             await ensureCanonicalStorage();
-            res.json(databaseProjectionService.getStartupProjection({
+            const projection = databaseProjectionService.getStartupProjection({
                 remote: isCloudflareTunnelRequest(req),
                 ...pluginStorageProjectionOptions(req),
-            }));
+            });
+            res.vary('Accept');
+            if (req.accepts(['application/json', BINARY_MESSAGE_CONTENT_TYPE]) === BINARY_MESSAGE_CONTENT_TYPE) {
+                res.type(BINARY_MESSAGE_CONTENT_TYPE).send(encode(projection));
+            } else {
+                res.json(projection);
+            }
         } catch (error) {
             if (!sendDatabaseProjectionError(res, error)) next(error);
         }
     });
 
-    app.put('/api/database', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
+    app.put('/api/database', databaseRequestBody, async (req, res, next) => {
         if (!requireSyncClientId(req, res)) return;
         try {
             const result = await queueStorageOperation(async () => {
@@ -123,8 +152,7 @@ function installDatabaseRoutes(app, {
         }
     });
 
-    app.patch('/api/database', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
+    app.patch('/api/database', databaseRequestBody, async (req, res, next) => {
         if (!requireSyncClientId(req, res)) return;
         try {
             const projectionOptions = {

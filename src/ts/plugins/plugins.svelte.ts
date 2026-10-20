@@ -792,9 +792,7 @@ export const getV2PluginAPIs = () => {
         },
         pluginStorage: {
             getItem: (key: string) => {
-                const db = getDatabase({ snapshot: true });
-                db.pluginCustomStorage ??= {}
-                return db.pluginCustomStorage[key] || null;
+                return $state.snapshot(getDatabase().pluginCustomStorage?.[key]) ?? null;
             },
             setItem: (key: string, value: string) => {
                 const db = getDatabase();
@@ -802,29 +800,20 @@ export const getV2PluginAPIs = () => {
                 db.pluginCustomStorage[key] = value;
             },
             removeItem: (key: string) => {
-                const db = getDatabase();
-                db.pluginCustomStorage ??= {}
-                delete db.pluginCustomStorage[key];
+                delete getDatabase().pluginCustomStorage?.[key];
             },
             clear: () => {
                 const db = getDatabase();
                 db.pluginCustomStorage = {};
             },
             key: (index: number) => {
-                const db = getDatabase();
-                db.pluginCustomStorage ??= {}
-                const keys = Object.keys(db.pluginCustomStorage);
-                return keys[index] || null;
+                return Object.keys(getDatabase().pluginCustomStorage ?? {})[index] ?? null;
             },
             keys: () => {
-                const db = getDatabase();
-                db.pluginCustomStorage ??= {}
-                return Object.keys(db.pluginCustomStorage);
+                return Object.keys(getDatabase().pluginCustomStorage ?? {});
             },
             length: () => {
-                const db = getDatabase();
-                db.pluginCustomStorage ??= {}
-                return Object.keys(db.pluginCustomStorage).length;
+                return Object.keys(getDatabase().pluginCustomStorage ?? {}).length;
             }
         },
         setDatabaseLite: (newDb: any) => {

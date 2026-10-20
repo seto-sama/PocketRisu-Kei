@@ -1,8 +1,8 @@
 'use strict';
 
 const STORED_ASSET_PREFIX = 'assets/';
-const PLUGIN_ASSET_STORAGE_PREFIX = 'cache/plugin-storage/';
 const ASSET_PATH_PATTERN = /assets(?:\/|\\+)[\w-]+\.\w+/g;
+const { decodeLocalPluginStorageValue, LOCAL_PLUGIN_STORAGE_PREFIX } = require('../../shared/localPluginStorageValue.mjs');
 
 function assetBasename(value) {
     if (!value) return '';
@@ -10,15 +10,38 @@ function assetBasename(value) {
 }
 
 function extractAssetReferences(value) {
-    let text;
-    if (typeof value === 'string') text = value;
-    else {
-        try { text = JSON.stringify(value) ?? ''; } catch { return []; }
-    }
-    return Array.from(
-        text.matchAll(ASSET_PATH_PATTERN),
-        (match) => match[0].replace(/\\+/g, '/'),
-    );
+    const references = [];
+    const seen = new WeakSet();
+    const visit = (entry) => {
+        if (typeof entry === 'string') {
+            for (const match of entry.matchAll(ASSET_PATH_PATTERN)) {
+                references.push(match[0].replace(/\\+/g, '/'));
+            }
+            return;
+        }
+        if (!entry || typeof entry !== 'object') return;
+        if ((typeof Blob === 'function' && entry instanceof Blob) ||
+            entry instanceof ArrayBuffer || ArrayBuffer.isView(entry) ||
+            (typeof SharedArrayBuffer === 'function' && entry instanceof SharedArrayBuffer)) return;
+        if (seen.has(entry)) return;
+        seen.add(entry);
+
+        if (entry instanceof Map) {
+            for (const [key, value] of entry) {
+                visit(key);
+                visit(value);
+            }
+        } else if (entry instanceof Set) {
+            for (const value of entry) visit(value);
+        } else {
+            for (const [key, value] of Object.entries(entry)) {
+                visit(key);
+                visit(value);
+            }
+        }
+    };
+    visit(value);
+    return references;
 }
 
 function collectDatabaseAssetBasenames(
@@ -95,11 +118,11 @@ function collectDatabaseAssetBasenames(
 
 function collectPersistentPluginAssetBasenames({ listKeys, getValue }) {
     const references = new Set();
-    for (const key of listKeys(PLUGIN_ASSET_STORAGE_PREFIX)) {
+    for (const key of listKeys(LOCAL_PLUGIN_STORAGE_PREFIX)) {
         try {
             const raw = getValue(key);
             if (!raw) continue;
-            const value = Buffer.isBuffer(raw) ? raw.toString('utf-8') : String(raw);
+            const value = decodeLocalPluginStorageValue(raw);
             for (const reference of extractAssetReferences(value)) {
                 const basename = assetBasename(reference);
                 if (basename) references.add(basename);
@@ -121,9 +144,7 @@ function findOrphanAssets(assetRows, protectedBasenames) {
 
 module.exports = {
     STORED_ASSET_PREFIX,
-    PLUGIN_ASSET_STORAGE_PREFIX,
     assetBasename,
-    extractAssetReferences,
     collectDatabaseAssetBasenames,
     collectPersistentPluginAssetBasenames,
     collectProtectedAssetBasenames,
