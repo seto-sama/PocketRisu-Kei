@@ -322,7 +322,7 @@ export const helpEn = {
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         hidePublicStats:
-            "Hide usage statistics on the home screen and do not contact the external public-statistics service.",
+            "Send the PocketRisu identifier to the PocketRisu statistics server and with OpenRouter requests, and show PocketRisu user statistics on the home screen.",
         showRequestStatus:
             "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
         customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",

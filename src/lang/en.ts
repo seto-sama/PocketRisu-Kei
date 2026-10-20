@@ -1153,7 +1153,7 @@ export const languageEnglish = {
     location: "Location",
     noEffect: "No Effect",
     hideRealm: "Start RisuRealm Collapsed",
-    hidePublicStats: "Hide Statistics",
+    hidePublicStats: "Send Statistics",
     hideAllImages: "Hide All Images",
     preloadChatImages: "Preload Images",
     popularityLevel: "{} Popularity",

@@ -1219,7 +1219,7 @@ export const languageKorean = {
   location: "위치",
   noEffect: "효과 없음",
   hideRealm: "신규 캐릭터 숨기기",
-  hidePublicStats: "통계 정보 숨기기",
+  hidePublicStats: "통계 정보 보내기",
   hideAllImages: "모든 이미지 숨기기",
   preloadChatImages: "이미지 미리 로딩",
   popularityLevel: "인기도 {}",

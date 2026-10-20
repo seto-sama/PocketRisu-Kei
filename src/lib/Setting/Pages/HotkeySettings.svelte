@@ -40,9 +40,9 @@
                     {#if hotkey.disabled}
                         <div class="flex h-8 items-center">
                             <Switch
-                                checked={false}
+                                reverse
+                                bind:checked={hotkey.disabled}
                                 ariaLabel={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
-                                onCheckedChange={(checked) => hotkey.disabled = !checked}
                             />
                         </div>
                     {:else}
