@@ -1087,7 +1087,7 @@ interface PluginStorage {
 }
 
 /**
- * Persistent plugin storage outside of save files.
+ * Server-backed plugin storage outside of save files, synced across devices.
  * Uses generic types for flexible value storage.
  * Storage is shared between all plugins under a common prefix.
  *
@@ -1147,15 +1147,15 @@ interface SafeLocalPluginStorage {
 }
 
 /**
- * Device-specific storage shared between plugins
+ * Server-backed string storage shared between plugins and synced across devices
  * Same API as PluginStorage but only supports string values
  *
  * **All methods return Promises** due to iframe message passing.
  *
  * @example
  * ```typescript
- * await risuai.safeLocalStorage.setItem('device_id', 'unique-id');
- * const deviceId = await risuai.safeLocalStorage.getItem('device_id');
+ * await risuai.safeLocalStorage.setItem('shared_setting', 'enabled');
+ * const setting = await risuai.safeLocalStorage.getItem('shared_setting');
  * ```
  */
 interface SafeLocalStorage {
@@ -1466,14 +1466,14 @@ interface RisuaiPluginAPI {
 
     // ========== Storage APIs ==========
 
-    /** Plugin-specific storage (syncs with save files) */
+    /** Plugin-specific storage included in save files and synced across devices */
     pluginStorage: PluginStorage;
 
-    /** Device-specific storage (shared between plugins) */
+    /** Server-backed string storage shared between plugins and synced across devices */
     safeLocalStorage: SafeLocalStorage;
 
     /**
-     * Gets persistent storage shared between plugins, outside of save files
+     * Gets server-backed persistent storage shared between plugins and synced across devices, outside of save files
      * @returns SafeLocalPluginStorage instance
      *
      * @example

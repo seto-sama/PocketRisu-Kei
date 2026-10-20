@@ -2320,6 +2320,10 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     clearPersistFailure,
 });
 
+require('./routes/pluginStorage.cjs').installPluginStorageRoutes(app, {
+    appDataStore, checkAuth, requireSyncClientId, queueStorageOperation, ensureCanonicalStorage,
+});
+
 require('./routes/database.cjs').installDatabaseRoutes(app, {
     appDataStore,
     checkAuth,

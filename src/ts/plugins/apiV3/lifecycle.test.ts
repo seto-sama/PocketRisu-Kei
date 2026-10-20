@@ -15,6 +15,7 @@ import { DBState } from '../../stores.svelte'
 import { loadPlugins } from '../plugins.svelte'
 import { pluginRuntime } from '../pluginRuntime'
 import { customV3ProviderMetaStore, loadV3Plugins, reloadV3Plugin } from './v3.svelte'
+import { forageStorage } from '../../storage/autoStorage'
 
 beforeEach(() => {
     bridge.apis.length = 0
@@ -55,8 +56,31 @@ it('connects V3 providers, hooks, and storage through the sandbox and cleans the
     const aliases = api._getAliases()
     api[aliases.pluginStorage.setItem]('json', '{ "keep": "string" }')
     expect(api[aliases.pluginStorage.getItem]('json')).toBe('{ "keep": "string" }')
-    api[aliases.safeLocalStorage.setItem]('key', 'value')
-    expect(api[aliases.safeLocalStorage.length]()).toBe(1)
+    const values = new Map<string, Uint8Array>()
+    vi.spyOn(forageStorage, 'pluginStorageRequest').mockImplementation(async (_namespace, request) => {
+        if (request.op === 'set') {
+            values.set(request.key, request.value)
+            return { success: true }
+        }
+        if (request.op === 'list') {
+            return { entries: [...values.keys()].map(key => ({ key })) }
+        }
+        if (request.op === 'get') return { value: values.get(request.key) ?? null }
+        if (request.op === 'remove') {
+            values.delete(request.key)
+            return { success: true }
+        }
+        if (request.op === 'clear') {
+            values.clear()
+            return { success: true }
+        }
+        if (request.op === 'import') return { success: true }
+        throw new Error('Unexpected plugin storage operation')
+    })
+    await api[aliases.safeLocalStorage.setItem]('key', 'value')
+    expect(await api[aliases.safeLocalStorage.getItem]('key')).toBe('value')
+    expect(await api[aliases.safeLocalStorage.key](0)).toBe('key')
+    expect(await api[aliases.safeLocalStorage.length]()).toBe(1)
 
     await loadV3Plugins([])
     expect(pluginRuntime.providers.size).toBe(0)

@@ -11,13 +11,12 @@
     } from '@lucide/svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
     import { getDatabase } from 'src/ts/storage/database.svelte'
-    import { SafeLocalStorage, SafeLocalPluginStorage } from 'src/ts/plugins/pluginSafeClass'
+    import { ensurePluginStorageMigration, SafeLocalStorage, SafeLocalPluginStorage } from 'src/ts/plugins/pluginSafeClass'
     import { getOwners, removeOwner, type PluginStorageBackend } from 'src/ts/plugins/pluginStorageMeta'
     import { language } from 'src/lang'
     import { showPopupEditor } from 'src/ts/stores.svelte'
     import { describePluginStorageValue, type PluginStorageDisplay } from './pluginStorageDisplay'
 
-    // Sentinel filter value for entries with no recorded origin plugin.
     const UNKNOWN = '__risu_unknown__'
     const LIST_LIMIT = 100
     const DELETE_PREVIEW_LIMIT = 160
@@ -28,23 +27,22 @@
     }
 
     const BACKENDS: { id: PluginStorageBackend; label: () => string; desc: () => string }[] = [
-        { id: 'save', label: () => language.pluginStorageBackendSave, desc: () => language.pluginStorageBackendSaveDesc },
-        { id: 'local', label: () => language.pluginStorageBackendLocal, desc: () => language.pluginStorageBackendLocalDesc },
-        { id: 'idb', label: () => language.pluginStorageBackendIdb, desc: () => language.pluginStorageBackendIdbDesc },
+        { id: 'includedInSave', label: () => language.pluginStorageBackendSave, desc: () => language.pluginStorageBackendSaveDesc },
+        { id: 'localStorage', label: () => language.pluginStorageBackendLocal, desc: () => language.pluginStorageBackendLocalDesc },
+        { id: 'localForage', label: () => language.pluginStorageBackendIdb, desc: () => language.pluginStorageBackendIdbDesc },
     ]
 
     const safeLocal = new SafeLocalStorage()
-    const idb = new SafeLocalPluginStorage()
+    const localForage = new SafeLocalPluginStorage()
 
-    let backend = $state<PluginStorageBackend>('save')
+    let backend = $state<PluginStorageBackend>('includedInSave')
     const backendInfo = $derived(BACKENDS.find(item => item.id === backend)!)
     let entries = $state<Entry[]>([])
     let loading = $state(false)
     let loadError = $state<string | null>(null)
     let loadProgress = $state(0)
     let loadTotal = $state(0)
-    // Monotonic token: a newer load() invalidates any in-flight older one
-    // (e.g. when the user switches backend tabs mid-load).
+    // Ignore stale loads when the selected backend changes mid-load.
     let loadToken = 0
     let searchQuery = $state('')
     let ownerFilter = $state('')   // '' = all; UNKNOWN = no recorded origin; else plugin name
@@ -93,37 +91,35 @@
         return characters.slice(0, DELETE_PREVIEW_LIMIT).join('') + '…'
     }
 
-    async function backendSet(key: string, value: unknown): Promise<void> {
-        if (backend === 'save') {
+    async function backendSet(namespace: PluginStorageBackend, key: string, value: unknown, owner?: string): Promise<void> {
+        if (namespace === 'includedInSave') {
             const db = getDatabase()
             db.pluginCustomStorage ??= {}
             db.pluginCustomStorage[key] = value
             return
         }
-        if (backend === 'local') {
-            safeLocal.setItem(key, value as string)
+        if (namespace === 'localStorage') {
+            await new SafeLocalStorage(owner).setItem(key, value as string)
             return
         }
-        await idb.setItem(key, value)
+        await new SafeLocalPluginStorage(owner).setItem(key, value)
     }
 
-    async function backendRemove(key: string): Promise<void> {
-        // Drop the value, then its origin record so the sidecar doesn't keep a
-        // dangling entry. (The idb instance here has no owner, so its own
-        // removeItem won't touch meta — we clean it explicitly.)
-        if (backend === 'save') {
+    async function backendRemove(namespace: PluginStorageBackend, key: string): Promise<void> {
+        if (namespace === 'includedInSave') {
             const db = getDatabase()
             db.pluginCustomStorage ??= {}
             delete db.pluginCustomStorage[key]
-        } else if (backend === 'local') {
-            safeLocal.removeItem(key)
+            removeOwner(key)
+        } else if (namespace === 'localStorage') {
+            await safeLocal.removeItem(key)
         } else {
-            await idb.removeItem(key)
+            await localForage.removeItem(key)
         }
-        await removeOwner(backend, key)
     }
 
     async function load() {
+        const namespace = backend
         const token = ++loadToken
         loading = true
         loadError = null
@@ -131,23 +127,24 @@
         loadTotal = 0
         entries = []
         try {
+            await ensurePluginStorageMigration()
             let keys: string[]
             let read: (key: string) => unknown | Promise<unknown>
-            if (backend === 'save') {
+            if (namespace === 'includedInSave') {
                 const store = $state.snapshot(getDatabase().pluginCustomStorage ?? {}) as Record<string, unknown>
                 keys = Object.keys(store)
                 read = (k) => store[k] ?? null
-            } else if (backend === 'local') {
-                keys = safeLocal.keys()
+            } else if (namespace === 'localStorage') {
+                keys = await safeLocal.keys()
                 read = (k) => safeLocal.getItem(k)
             } else {
-                keys = await idb.keys()
-                read = (k) => idb.getItem(k)
+                keys = await localForage.keys()
+                read = (k) => localForage.getItem(k)
             }
             if (token !== loadToken) return
             loadTotal = keys.length
 
-            const owners = await getOwners(backend)
+            const owners = await getOwners(namespace)
             if (token !== loadToken) return
 
             await new Promise((r) => setTimeout(r))
@@ -159,8 +156,7 @@
                 const display = describePluginStorageValue(raw)
                 list.push({ key, ...display, owner: owners[key] })
                 loadProgress = i + 1
-                // Periodically yield to keep the UI responsive and let the
-                // progress bar update.
+                // Yield periodically so progress updates can render.
                 if ((i & 63) === 63) {
                     await new Promise((r) => setTimeout(r))
                     if (token !== loadToken) return
@@ -179,6 +175,7 @@
     }
 
     function openEditor(entry: Entry) {
+        const namespace = backend
         showPopupEditor({
             value: entry.jsonEditable && entry.type !== 'string'
                 ? JSON.stringify(JSON.parse(entry.str), null, 2) : entry.str,
@@ -195,11 +192,11 @@
                 ...(!entry.jsonEditable ? [{ label: language.pluginStorageMetaAccess, value: language.pluginStorageReadOnly }] : []),
                 { label: language.pluginStorageOwner, value: entry.owner ?? language.pluginStorageOwnerUnknown },
             ],
-            ...(entry.jsonEditable ? { onCommit: (editText: string) => saveEdit(entry, editText) } : {}),
+            ...(entry.jsonEditable ? { onCommit: (editText: string) => saveEdit(namespace, entry, editText) } : {}),
         })
     }
 
-    async function saveEdit(entry: Entry, editText: string): Promise<boolean> {
+    async function saveEdit(namespace: PluginStorageBackend, entry: Entry, editText: string): Promise<boolean> {
         try {
             let saveValue: unknown
             if (entry.type === 'string') {
@@ -211,7 +208,7 @@
                     saveValue = editText
                 }
             }
-            await backendSet(entry.key, saveValue)
+            await backendSet(namespace, entry.key, saveValue, entry.owner)
             const savedKey = entry.key
             await load()
             notifySuccess(language.pluginStorageSaved(savedKey))
@@ -223,13 +220,14 @@
     }
 
     async function removeEntry(entry: Entry) {
+        const namespace = backend
         const ok = await alertConfirm(
             language.pluginStorageDeleteConfirm(entry.key),
             language.pluginStorageValuePreview(deletePreview(entry.str)),
         )
         if (!ok) return
         try {
-            await backendRemove(entry.key)
+            await backendRemove(namespace, entry.key)
             await load()
             notifySuccess(language.pluginStorageDeleted)
         } catch (e) {
@@ -237,10 +235,9 @@
         }
     }
 
-    // With filters active, bulk-delete only the capped entries actually shown.
-    // With no filter this remains an explicit full-backend clear.
     async function removeFiltered() {
-        // Snapshot before load() swaps the reactive arrays out from under us.
+        // Keep the deletion set and namespace stable while confirmation is open.
+        const namespace = backend
         const targets = isFiltered ? displayed.slice() : entries.slice()
         if (targets.length === 0) return
 
@@ -253,7 +250,7 @@
         if (!ok) return
 
         try {
-            for (const entry of targets) await backendRemove(entry.key)
+            for (const entry of targets) await backendRemove(namespace, entry.key)
             await load()
             notifySuccess(language.pluginStorageBulkDeleted(targets.length))
         } catch (e) {
@@ -263,7 +260,7 @@
         }
     }
 
-    // Load on mount and whenever the backend tab changes; reset search per tab.
+    // Load on mount and whenever the backend selection changes; reset search each time.
     let loadedBackend: PluginStorageBackend | null = null
     $effect(() => {
         const currentBackend = backend

@@ -737,7 +737,7 @@ const providerRequestContextMetadataKey = 'risuai.pluginProviderRequestContext'
 
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
-    const apis = createPluginApis();
+    const apis = createPluginApis(plugin.name);
     const pluginRequestContexts = new Map<string, PluginProviderRequestContext>()
     const providerFetchContext = (
         url: string,
@@ -1400,33 +1400,24 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         // Track storage ownership for plugin management.
         _setPluginStorage: (key: string, value: any) => {
             apis.pluginStorage.setItem(key, value)
-            recordOwner('save', key, plugin.name)
+            recordOwner(key, plugin.name)
         },
         _removePluginStorage: (key: string) => {
             apis.pluginStorage.removeItem(key)
-            removeOwner('save', key)
+            removeOwner(key)
         },
         _clearPluginStorage: () => {
             apis.pluginStorage.clear()
-            clearOwners('save')
+            clearOwners()
         },
         _keyPluginStorage: apis.pluginStorage.key,
         _keysPluginStorage: apis.pluginStorage.keys,
         _lengthPluginStorage: apis.pluginStorage.length,
         _getSafeLocalStorage: apis.safeLocalStorage.getItem,
-        _setSafeLocalStorage: (key: string, value: string) => {
-            apis.safeLocalStorage.setItem(key, value)
-            recordOwner('local', key, plugin.name)
-        },
-        _removeSafeLocalStorage: (key: string) => {
-            apis.safeLocalStorage.removeItem(key)
-            removeOwner('local', key)
-        },
-        _clearSafeLocalStorage: () => {
-            apis.safeLocalStorage.clear()
-            clearOwners('local')
-        },
-        _keySafeLocalStorage: apis.safeLocalStorage.key,
+        _setSafeLocalStorage: (key: string, value: string) => apis.safeLocalStorage.setItem(key, value),
+        _removeSafeLocalStorage: (key: string) => apis.safeLocalStorage.removeItem(key),
+        _clearSafeLocalStorage: () => apis.safeLocalStorage.clear(),
+        _keySafeLocalStorage: (index: number) => apis.safeLocalStorage.key(index),
         _keysSafeLocalStorage: apis.safeLocalStorage.keys,
         _lengthSafeLocalStorage: () => apis.safeLocalStorage.length,
         searchTranslationCache: async (partialKey: string) => {

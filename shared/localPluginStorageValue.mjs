@@ -1,7 +1,5 @@
 import { addExtension, Packr } from 'msgpackr'
 
-export const LOCAL_PLUGIN_STORAGE_PREFIX = 'cache/plugin-storage/'
-
 const FORMAT_MAGIC = new Uint8Array([0x89, 0x4c, 0x50, 0x53]) // invalid UTF-8 + "LPS"
 const FORMAT_VERSION = 1
 const HEADER_LENGTH = FORMAT_MAGIC.length + 1

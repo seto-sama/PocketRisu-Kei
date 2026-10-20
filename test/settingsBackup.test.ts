@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { encode } from 'msgpackr'
 import settingsBackup from '../server/node/settingsBackup.cjs'
 
 const { buildSettingsBackupPlan } = settingsBackup
@@ -34,6 +35,16 @@ function createPlan(includeModuleAssets: boolean) {
 }
 
 describe('settings backup', () => {
+    it('counts plugin-referenced module assets in the base estimate and exports them when module assets are excluded', () => {
+        const plan = buildSettingsBackupPlan({
+            database, assetRows, includeModuleAssets: false,
+            pluginStorage: [{ namespace: 'localStorage', value: encode('assets/module-only.png') }],
+        })
+        expect(plan.includedAssets.map((asset: { key: string }) => asset.key)).toContain('assets/module-only.png')
+        expect(plan.breakdown.baseAssets).toEqual({ count: 3, bytes: 90 })
+        expect(plan.breakdown.moduleAssets.bytes).toBe(0)
+    })
+
     it('module asset option never drops assets with another settings owner', () => {
         const withModules = createPlan(true)
         const withoutModules = createPlan(false)

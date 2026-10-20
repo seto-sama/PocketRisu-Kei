@@ -641,10 +641,10 @@ await Risuai.setArgument('max_retries', 5);
 
 ### Plugin Storage (Recommended)
 
-`pluginStorage` is **save-file specific** and **syncs between devices**:
+`pluginStorage` stores values in the current save file and syncs them across devices. This is the `includedInSave` namespace, so it is the only plugin-storage namespace included in Original-compatible backups:
 
 ```javascript
-// All operations are synchronous (wrapper around sync storage)
+// All operations are asynchronous
 await Risuai.pluginStorage.setItem('user_preference', 'dark_mode');
 await Risuai.pluginStorage.setItem('last_sync', Date.now().toString());
 
@@ -663,22 +663,20 @@ await Risuai.pluginStorage.clear(); // Remove all items
 
 ### Safe Local Storage
 
-`safeLocalStorage` is **device-specific** and **shared between plugins**:
+`safeLocalStorage` stores strings on the server and syncs them across devices. Plugins share its `localStorage` namespace; it is separate from the save file and is not included in Original-compatible backups:
 
 ```javascript
-// Same API as pluginStorage
-await Risuai.safeLocalStorage.setItem('device_id', 'unique-id');
-const deviceId = await Risuai.safeLocalStorage.getItem('device_id');
+await Risuai.safeLocalStorage.setItem('shared_setting', 'enabled');
+const setting = await Risuai.safeLocalStorage.getItem('shared_setting');
 ```
 
 **Use `safeLocalStorage` when:**
-- Data should stay on one device
-- Storing device-specific settings
+- You need shared string storage outside the current save file
 - Sharing data between plugins
 
 ### Local Plugin Storage
 
-`getLocalPluginStorage()` returns a `SafeLocalPluginStorage` instance: device-local storage that supports any JSON-serializable value (unlike `safeLocalStorage` which is strings-only), with generic type support:
+`getLocalPluginStorage()` returns a `SafeLocalPluginStorage` instance backed by the server's `localForage` namespace. It syncs across devices, supports rich values including binary data, and stays separate from save files and Original-compatible backups:
 
 ```javascript
 const storage = await Risuai.getLocalPluginStorage();
@@ -699,7 +697,7 @@ await storage.clear();
 
 **Use `getLocalPluginStorage()` when:**
 - You need to store structured objects (not just strings)
-- Data should stay on one device
+- You need binary or other rich values outside the current save file
 
 ### Database Access
 
@@ -1251,7 +1249,7 @@ Always handle errors gracefully:
 
 ### 3. Use Plugin Storage for Persistence
 
-Prefer `pluginStorage` over `safeLocalStorage` for syncable data:
+Use `pluginStorage` for values that belong in the save and its Original-compatible backups. Use `safeLocalStorage` or `getLocalPluginStorage()` for server-backed values outside save files; all three sync across devices:
 
 ```javascript
 //  Good - syncs across devices
@@ -1555,15 +1553,16 @@ await element.removeEventListener('click', listenerId);
 
 **Problem:** Confusing `pluginStorage` with `safeLocalStorage`.
 
-- **`pluginStorage`**: Save-file specific, syncs across devices
-- **`safeLocalStorage`**: Device-specific, shared between plugins
+- **`pluginStorage`**: Stored in the save file; syncs across devices and is included in Original-compatible backups
+- **`safeLocalStorage`**: Server-backed shared string namespace; syncs across devices and is excluded from save backups
+- **`getLocalPluginStorage()`**: Server-backed shared rich-value namespace; syncs across devices and is excluded from save backups
 
 ```javascript
 // For user preferences (syncs)
 Risuai.pluginStorage.setItem('preference', 'value');
 
-// For device-specific data
-Risuai.safeLocalStorage.setItem('device_id', 'uuid');
+// For shared string data outside save files
+Risuai.safeLocalStorage.setItem('shared_display_name', 'Risu');
 ```
 
 ### Script tags being removed from HTML

@@ -2,7 +2,8 @@
 
 const STORED_ASSET_PREFIX = 'assets/';
 const ASSET_PATH_PATTERN = /assets(?:\/|\\+)[\w-]+\.\w+/g;
-const { decodeLocalPluginStorageValue, LOCAL_PLUGIN_STORAGE_PREFIX } = require('../../shared/localPluginStorageValue.mjs');
+const { decode } = require('msgpackr');
+const { decodeLocalPluginStorageValue } = require('../../shared/localPluginStorageValue.mjs');
 
 function assetBasename(value) {
     if (!value) return '';
@@ -116,13 +117,13 @@ function collectDatabaseAssetBasenames(
     return references;
 }
 
-function collectPersistentPluginAssetBasenames({ listKeys, getValue }) {
+function collectPersistentPluginAssetBasenames(entries) {
     const references = new Set();
-    for (const key of listKeys(LOCAL_PLUGIN_STORAGE_PREFIX)) {
+    for (const entry of entries) {
         try {
-            const raw = getValue(key);
-            if (!raw) continue;
-            const value = decodeLocalPluginStorageValue(raw);
+            const value = entry.namespace === 'localForage'
+                ? decodeLocalPluginStorageValue(entry.value)
+                : decode(entry.value);
             for (const reference of extractAssetReferences(value)) {
                 const basename = assetBasename(reference);
                 if (basename) references.add(basename);
@@ -132,9 +133,9 @@ function collectPersistentPluginAssetBasenames({ listKeys, getValue }) {
     return references;
 }
 
-function collectProtectedAssetBasenames(dbObj, storage) {
+function collectProtectedAssetBasenames(dbObj, pluginStorage) {
     const references = collectDatabaseAssetBasenames(dbObj);
-    for (const basename of collectPersistentPluginAssetBasenames(storage)) references.add(basename);
+    for (const basename of collectPersistentPluginAssetBasenames(pluginStorage)) references.add(basename);
     return references;
 }
 

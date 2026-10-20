@@ -22,20 +22,12 @@ function encodeKeyComponent(value: string) {
         .replace(/=+$/g, "");
 }
 
-function decodeKeyComponent(value: string) {
-    const padded = value
-        .replace(/-/g, "+")
-        .replace(/_/g, "/")
-        .padEnd(Math.ceil(value.length / 4) * 4, "=");
-    return Buffer.from(padded, "base64").toString("utf-8");
-}
-
-export async function readPersistentBytes(storageKey: string): Promise<Uint8Array | null> {
+async function readPersistentBytes(storageKey: string): Promise<Uint8Array | null> {
     await ensureStorageReady();
     return await forageStorage.getItem(storageKey) ?? null;
 }
 
-export async function writePersistentBytes(storageKey: string, value: Uint8Array): Promise<void> {
+async function writePersistentBytes(storageKey: string, value: Uint8Array): Promise<void> {
     await ensureStorageReady();
     await forageStorage.setItem(storageKey, value);
 }
@@ -104,8 +96,4 @@ export async function makeHashedStorageKey(prefix: string, rawKey: string): Prom
 
 export function makeEncodedStorageKey(prefix: string, rawKey: string): string {
     return `${prefix}${encodeKeyComponent(rawKey)}.json`;
-}
-
-export function decodeStorageKeyComponent(encodedKey: string): string {
-    return decodeKeyComponent(encodedKey);
 }

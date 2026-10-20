@@ -78,13 +78,13 @@ If your plugin relies on any of the above APIs, you will need to modify your cod
 - `addEventListener` (proxied to the main window)
 - `removeEventListener` (proxied to the main window)
 
-`safeLocalStorage`: A secure wrapper around localStorage that restricts access to internal data. still it can be shared between plugins. can also be accessed using `localStorage`.
+`safeLocalStorage`: A secure, server-backed string namespace that syncs across devices and is shared between plugins. It can also be accessed using `localStorage`.
 
 `safeIdbFactory`: A secure wrapper around IndexedDB that restricts access to internal databases. still it can be shared between plugins. can also be accessed using `indexedDB`.
 
 `safeDocument`: A secure wrapper around the Document object that restricts access to sensitive data and methods. still it can be used to create elements, query elements, and manipulate the DOM. can also be accessed using `document`.
 
-`pluginStorage`: A storage object specific to the plugin, which is shared plugins. unlike `safeLocalStorage`, its data is safed safe file wise, not device wise, making it syncable between devices using the same save file.
+`pluginStorage`: A storage object shared between plugins. It is stored with the current save file and syncs across devices using that save. It is the only plugin-storage namespace included in Original-compatible backups.
 - `getItem(key: string): any | null`
 - `setItem(key: string, value: any): void`
 - `removeItem(key: string): void`
@@ -157,7 +157,7 @@ The following names that originated in v2.1 remain available to API 3.0 plugins:
 - `removeRisuScriptHandler`: Remove a script handler
 - `addRisuReplacer`: Add a custom text replacer
 - `removeRisuReplacer`: Remove a text replacer
-- `safeLocalStorage`: Secure localStorage wrapper (device-specific)
+- `safeLocalStorage`: Secure localStorage wrapper (server-backed and synced across devices)
 - `getDatabase`: Get database with limited access
 - `pluginStorage`: Plugin-specific storage (save file-specific, syncable)
 - `setDatabaseLite`: Set database (lightweight)

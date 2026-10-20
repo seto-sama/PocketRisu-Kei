@@ -655,4 +655,44 @@ describe('server route composition', () => {
         expect(after.revision).toBe(before.revision)
         expect(after.database).toEqual(before.database)
     })
+
+    it('persists plugin namespaces independently and authenticates binary storage operations', async () => {
+        const call = async (namespace: string, request: unknown) => {
+            const response = await fetch(`${base}/api/plugin-storage/${namespace}`, {
+                method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream' },
+                body: encode(request),
+            })
+            expect(response.status, await response.clone().text()).toBe(200)
+            return decode(new Uint8Array(await response.arrayBuffer()))
+        }
+        const before = await (await fetch(base + '/api/database', { headers })).json()
+        for (const [namespace, value] of [['localStorage', 'string'], ['localForage', 'binary']]) {
+            await call(namespace, { op: 'set', key: 'shared', value: Buffer.from(value), owner: namespace })
+            expect((await call(namespace, { op: 'get', key: 'shared' })).value).toEqual(Uint8Array.from(Buffer.from(value)))
+        }
+        await call('localStorage', { op: 'import', entries: [{ key: 'shared', value: Buffer.from('old browser value') }] })
+        expect((await call('localStorage', { op: 'get', key: 'shared' })).value).toEqual(Uint8Array.from(Buffer.from('string')))
+        expect(await call('localStorage', { op: 'list' })).toEqual({ entries: [{ key: 'shared', owner: 'localStorage' }] })
+        await call('localStorage', { op: 'clear' })
+        expect(await call('localStorage', { op: 'get', key: 'shared' })).toEqual({ value: null })
+        expect((await call('localForage', { op: 'get', key: 'shared' })).value).toEqual(Uint8Array.from(Buffer.from('binary')))
+        await call('localForage', { op: 'remove', key: 'shared' })
+
+        const unauthorized = await fetch(base + '/api/plugin-storage/localStorage', {
+            method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: encode({ op: 'clear' }),
+        })
+        expect(unauthorized.status).toBe(401)
+        for (const [namespace, request] of [
+            ['includedInSave', { op: 'clear' }],
+            ['localStorage', { op: 'set', key: 'invalid', value: 'requires bytes' }],
+        ] as const) {
+            const invalid = await fetch(`${base}/api/plugin-storage/${namespace}`, {
+                method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: encode(request),
+            })
+            expect(invalid.status).toBe(400)
+        }
+        const after = await (await fetch(base + '/api/database', { headers })).json()
+        expect(after.revision).toBe(before.revision)
+        expect(after.database).toEqual(before.database)
+    })
 })

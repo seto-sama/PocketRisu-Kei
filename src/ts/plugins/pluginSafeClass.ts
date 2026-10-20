@@ -1,110 +1,186 @@
-import { clearPersistentPrefix, decodeStorageKeyComponent, listPersistentKeys, makeEncodedStorageKey, readPersistentBytes, removePersistentKey, writePersistentBytes } from "../storage/persistentKv";
-import { recordOwner, removeOwner, clearOwners } from "./pluginStorageMeta";
-import { decodeLocalPluginStorageValue, encodeLocalPluginStorageValue, LOCAL_PLUGIN_STORAGE_PREFIX } from '../../../shared/localPluginStorageValue.mjs';
+import { decode, encode } from 'msgpackr/index-no-eval';
+import { forageStorage } from '../storage/autoStorage';
+import type { PluginStorageNamespace, PluginStorageRequest, PluginStorageResponse } from '../storage/nodeStorage';
+import { decodeLocalPluginStorageValue, encodeLocalPluginStorageValue } from '../../../shared/localPluginStorageValue.mjs';
 
-// Cache encoded bytes so iframe buffer transfers never detach the stored value.
-const pluginStorage = new Map<string, Uint8Array>();
-const pendingStorageOperations = new Map<string, Promise<unknown>>();
-let storageClear: Promise<unknown> = Promise.resolve();
-let storageEnumeration: Promise<unknown> = Promise.resolve();
+const pendingStorageOperations = new Map<PluginStorageNamespace, Promise<unknown>>();
+let migrationPending: Promise<void> | null = null;
 
-function queueStorageOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
-    const next = Promise.allSettled([pendingStorageOperations.get(key), storageClear, storageEnumeration]).then(operation);
-    pendingStorageOperations.set(key, next);
+function queueStorageOperation<T>(namespace: PluginStorageNamespace, operation: () => Promise<T>): Promise<T> {
+    const previous = pendingStorageOperations.get(namespace) ?? Promise.resolve();
+    const next = previous.then(operation, operation);
+    pendingStorageOperations.set(namespace, next);
     const cleanup = () => {
-        if (pendingStorageOperations.get(key) === next) pendingStorageOperations.delete(key);
+        if (pendingStorageOperations.get(namespace) === next) pendingStorageOperations.delete(namespace);
     };
     void next.then(cleanup, cleanup);
     return next;
 }
 
-export class SafeLocalStorage {
-    getItem(key: string): string | null {
-        return localStorage.getItem(`safe_plugin_${key}`);
-    }
-    setItem(key: string, value: string): void {
-        localStorage.setItem(`safe_plugin_${key}`, value);
-    }
-    removeItem(key: string): void {
-        localStorage.removeItem(`safe_plugin_${key}`);
-    }
-    keys(): string[] {
-        const keys: string[] = [];
+async function request(namespace: PluginStorageNamespace, body: PluginStorageRequest): Promise<PluginStorageResponse> {
+    await ensurePluginStorageMigration();
+    return forageStorage.pluginStorageRequest(namespace, body);
+}
+
+function requireValueResponse(response: PluginStorageResponse): Uint8Array | null {
+    if (!('value' in response)) throw new Error('Invalid plugin storage value response');
+    return response.value;
+}
+
+function requireSuccessResponse(response: PluginStorageResponse): void {
+    if (!('success' in response) || response.success !== true) throw new Error('Invalid plugin storage mutation response');
+}
+
+function requireEntriesResponse(response: PluginStorageResponse): Array<{ key: string, owner?: string }> {
+    if (!('entries' in response)) throw new Error('Invalid plugin storage list response');
+    return response.entries;
+}
+
+function listNamespaceKeys(namespace: PluginStorageNamespace): Promise<string[]> {
+    return queueStorageOperation(namespace, async () => (
+        requireEntriesResponse(await request(namespace, { op: 'list' })).map(entry => entry.key)
+    ));
+}
+
+function clearNamespace(namespace: PluginStorageNamespace): Promise<void> {
+    return queueStorageOperation(namespace, async () => {
+        requireSuccessResponse(await request(namespace, { op: 'clear' }));
+    });
+}
+
+/** Import the old browser-local keys once; server import leaves existing values untouched. */
+export function ensurePluginStorageMigration(): Promise<void> {
+    if (migrationPending) return migrationPending;
+    const migration = (async () => {
+        const prefix = 'safe_plugin_';
+        const legacyOwnerKey = 'risu_plugin_storage_owners';
+        const ownerSnapshot = localStorage.getItem(legacyOwnerKey);
+        let owners: Record<string, { plugin?: unknown }> = {};
+        try {
+            const parsed = JSON.parse(ownerSnapshot || '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) owners = parsed;
+        } catch {}
+
+        const legacy: Array<{ storageKey: string, value: string, owner?: string }> = [];
         for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('safe_plugin_')) {
-                keys.push(key.substring('safe_plugin_'.length));
-            }
+            const storageKey = localStorage.key(i);
+            if (!storageKey?.startsWith(prefix)) continue;
+            const value = localStorage.getItem(storageKey);
+            if (value === null) continue;
+            const key = storageKey.slice(prefix.length);
+            const plugin = owners[key]?.plugin;
+            legacy.push({ storageKey, value, owner: typeof plugin === 'string' && plugin ? plugin : undefined });
         }
-        return keys;
+
+        if (legacy.length) {
+            const response = await forageStorage.pluginStorageRequest('localStorage', {
+                op: 'import',
+                entries: legacy.map(({ storageKey, value, owner }) => ({
+                    key: storageKey.slice(prefix.length),
+                    value: encode(value),
+                    ...(owner ? { owner } : {}),
+                })),
+            });
+            requireSuccessResponse(response);
+        }
+
+        for (const entry of legacy) {
+            if (localStorage.getItem(entry.storageKey) === entry.value) localStorage.removeItem(entry.storageKey);
+        }
+        if (ownerSnapshot !== null && localStorage.getItem(legacyOwnerKey) === ownerSnapshot) {
+            localStorage.removeItem(legacyOwnerKey);
+        }
+    })();
+    migrationPending = migration;
+    void migration.catch(() => {
+        if (migrationPending === migration) migrationPending = null;
+    });
+    return migration;
+}
+
+export class SafeLocalStorage {
+    constructor(private owner?: string) {}
+
+    async getItem(key: string): Promise<string | null> {
+        const storageKey = String(key);
+        return queueStorageOperation('localStorage', async () => {
+            const data = requireValueResponse(await request('localStorage', { op: 'get', key: storageKey }));
+            return data === null ? null : decode(data) as string;
+        });
     }
 
-    key(index: number): string | null {
-        const safeKeys = this.keys();
+    async setItem(key: string, value: string): Promise<void> {
+        const storageKey = String(key);
+        const snapshot = encode(String(value));
+        return queueStorageOperation('localStorage', async () => {
+            requireSuccessResponse(await request('localStorage', {
+                op: 'set', key: storageKey, value: snapshot, ...(this.owner ? { owner: this.owner } : {}),
+            }));
+        });
+    }
+
+    async removeItem(key: string): Promise<void> {
+        const storageKey = String(key);
+        return queueStorageOperation('localStorage', async () => {
+            requireSuccessResponse(await request('localStorage', { op: 'remove', key: storageKey }));
+        });
+    }
+
+    async keys(): Promise<string[]> {
+        return listNamespaceKeys('localStorage');
+    }
+
+    async key(index: number): Promise<string | null> {
+        const safeKeys = await this.keys();
         return safeKeys[index] ?? null;
     }
 
-    clear(): void {
-        const keys = this.keys();
-        for (const key of keys) {
-            this.removeItem(key);
-        }
+    async clear(): Promise<void> {
+        await clearNamespace('localStorage');
     }
 
-    get length(): number {
-        return this.keys().length;
+    get length(): Promise<number> {
+        return this.keys().then(keys => keys.length);
     }
 }
 
 export class SafeLocalPluginStorage {
     __classType = 'REMOTE_REQUIRED' as const;
     constructor(private owner?: string) {}
+
     async getItem<T>(key: string): Promise<T | null> {
-        return queueStorageOperation(key, async () => {
-            const data = pluginStorage.get(key) ?? await readPersistentBytes(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key));
+        return queueStorageOperation('localForage', async () => {
+            const data = requireValueResponse(await request('localForage', { op: 'get', key }));
             if (!data) return null;
-            const value = decodeLocalPluginStorageValue(data) as T;
-            pluginStorage.set(key, data);
-            return value;
+            return decodeLocalPluginStorageValue(data) as T;
         });
     }
+
     async setItem<T>(key: string, value: T): Promise<void> {
-        // Snapshot before an earlier write or clear can delay this operation.
-        const encoded = encodeLocalPluginStorageValue(value).then(
+        const snapshot = encodeLocalPluginStorageValue(value).then(
             data => ({ data }), error => ({ error }),
         );
-        return queueStorageOperation(key, async () => {
-            const result = await encoded;
+        return queueStorageOperation('localForage', async () => {
+            const result = await snapshot;
             if ('error' in result) throw result.error;
-            await writePersistentBytes(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key), result.data);
-            pluginStorage.set(key, result.data);
-            if (this.owner) await recordOwner('idb', key, this.owner);
+            requireSuccessResponse(await request('localForage', {
+                op: 'set', key, value: result.data, ...(this.owner ? { owner: this.owner } : {}),
+            }));
         });
     }
+
     async removeItem(key: string): Promise<void> {
-        return queueStorageOperation(key, async () => {
-            await removePersistentKey(makeEncodedStorageKey(LOCAL_PLUGIN_STORAGE_PREFIX, key));
-            pluginStorage.delete(key);
-            if (this.owner) await removeOwner('idb', key);
+        return queueStorageOperation('localForage', async () => {
+            requireSuccessResponse(await request('localForage', { op: 'remove', key }));
         });
     }
+
     async keys(): Promise<string[]> {
-        const pending = [...pendingStorageOperations.values(), storageClear, storageEnumeration];
-        const enumeration = Promise.allSettled(pending).then(async () => {
-            const storageKeys = await listPersistentKeys(LOCAL_PLUGIN_STORAGE_PREFIX);
-            return storageKeys.map(key => decodeStorageKeyComponent(key.slice(LOCAL_PLUGIN_STORAGE_PREFIX.length, -'.json'.length)));
-        });
-        storageEnumeration = enumeration;
-        return enumeration;
+        return listNamespaceKeys('localForage');
     }
+
     async clear(): Promise<void> {
-        const pending = [...pendingStorageOperations.values(), storageClear, storageEnumeration];
-        storageClear = Promise.allSettled(pending).then(async () => {
-            pluginStorage.clear();
-            await clearPersistentPrefix(LOCAL_PLUGIN_STORAGE_PREFIX);
-            if (this.owner) await clearOwners('idb');
-        });
-        await storageClear;
+        await clearNamespace('localForage');
     }
 }
 

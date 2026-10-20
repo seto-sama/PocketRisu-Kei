@@ -48,7 +48,7 @@ function applyDatabaseWrite(newDb: Record<string, any>) {
     return db
 }
 
-export const createPluginApis = () => {
+export const createPluginApis = (pluginName: string) => {
     return {
         risuFetch: globalFetch,
         nativeFetch: fetchNative,
@@ -120,7 +120,7 @@ export const createPluginApis = () => {
                 }
             }
         },
-        safeLocalStorage: new SafeLocalStorage(),
+        safeLocalStorage: new SafeLocalStorage(pluginName),
         pluginStorage: {
             getItem: (key: string) => {
                 return $state.snapshot(getDatabase().pluginCustomStorage?.[key]) ?? null;

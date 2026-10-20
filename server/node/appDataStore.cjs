@@ -18,9 +18,19 @@ const {
     installedV3Plugins,
 } = require('./pluginStorageProjection.cjs');
 
-const APP_DATA_SCHEMA_VERSION = 1;
+const APP_DATA_SCHEMA_VERSION = 2;
 const STATE_ROW_ID = 1;
 const MISSING_CHAT_ETAG = 'missing';
+const PLUGIN_STORAGE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS app_plugin_storage (
+    namespace TEXT NOT NULL CHECK (namespace IN ('includedInSave', 'localStorage', 'localForage')),
+    storage_key TEXT NOT NULL,
+    payload BLOB NOT NULL,
+    revision INTEGER NOT NULL,
+    owner TEXT,
+    PRIMARY KEY (namespace, storage_key)
+  )
+`;
 
 const packr = new Packr({ useRecords: false });
 const unpackr = new Unpackr({ int64AsType: 'number', useRecords: false });
@@ -158,6 +168,18 @@ function createAppDataStore(db) {
     }
 
     db.pragma('foreign_keys = ON');
+    const pluginStorageColumns = db.prepare('PRAGMA table_info(app_plugin_storage)').all();
+    if (pluginStorageColumns.length && !pluginStorageColumns.some(column => column.name === 'namespace')) {
+        db.transaction(() => {
+            db.exec(`
+              ALTER TABLE app_plugin_storage RENAME TO app_plugin_storage_legacy;
+              ${PLUGIN_STORAGE_TABLE_SQL};
+              INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision)
+                SELECT 'includedInSave', storage_key, payload, revision FROM app_plugin_storage_legacy;
+              DROP TABLE app_plugin_storage_legacy;
+            `);
+        })();
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS app_data_state (
         id             INTEGER PRIMARY KEY CHECK (id = 1),
@@ -210,11 +232,7 @@ function createAppDataStore(db) {
         revision  INTEGER NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS app_plugin_storage (
-        storage_key TEXT PRIMARY KEY,
-        payload     BLOB NOT NULL,
-        revision    INTEGER NOT NULL
-      );
+      ${PLUGIN_STORAGE_TABLE_SQL};
 
       CREATE TABLE IF NOT EXISTS app_characters (
         character_id TEXT PRIMARY KEY,
@@ -273,7 +291,10 @@ function createAppDataStore(db) {
     `);
 
     const installedState = stateRow.get(STATE_ROW_ID);
-    if (installedState.schema_version !== APP_DATA_SCHEMA_VERSION) {
+    if (installedState.schema_version === 1) {
+        db.prepare('UPDATE app_data_state SET schema_version = ? WHERE id = ?')
+            .run(APP_DATA_SCHEMA_VERSION, STATE_ROW_ID);
+    } else if (installedState.schema_version !== APP_DATA_SCHEMA_VERSION) {
         throw new Error(
             `Unsupported app data schema ${installedState.schema_version}; `
             + `expected ${APP_DATA_SCHEMA_VERSION}`,
@@ -302,8 +323,8 @@ function createAppDataStore(db) {
       VALUES (?, ?, ?, ?)
     `);
     const insertPluginStorage = db.prepare(`
-      INSERT INTO app_plugin_storage (storage_key, payload, revision)
-      VALUES (?, ?, ?)
+      INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision)
+      VALUES ('includedInSave', ?, ?, ?)
     `);
     const insertCharacter = db.prepare(`
       INSERT INTO app_characters (character_id, position, payload, revision)
@@ -329,7 +350,7 @@ function createAppDataStore(db) {
         db.prepare('DELETE FROM app_modules').run();
         db.prepare('DELETE FROM app_plugins').run();
         db.prepare('DELETE FROM app_personas').run();
-        db.prepare('DELETE FROM app_plugin_storage').run();
+        db.prepare("DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave'").run();
     });
 
     function getState() {
@@ -501,11 +522,11 @@ function createAppDataStore(db) {
     `);
     const selectPersonas = db.prepare('SELECT payload FROM app_personas ORDER BY position');
     const selectPluginStorage = db.prepare(`
-      SELECT storage_key, payload FROM app_plugin_storage ORDER BY rowid
+      SELECT storage_key, payload FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
     `);
     const selectPluginStorageSizes = db.prepare(`
       SELECT storage_key, LENGTH(payload) AS bytes
-      FROM app_plugin_storage ORDER BY rowid
+      FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
     `);
     const selectRootValue = db.prepare(`
       SELECT payload FROM app_root_fields WHERE field_key = ?
@@ -763,7 +784,7 @@ function createAppDataStore(db) {
       DELETE FROM app_plugins WHERE collection = ?
     `);
     const deletePersonas = db.prepare('DELETE FROM app_personas');
-    const deletePluginStorage = db.prepare('DELETE FROM app_plugin_storage');
+    const deletePluginStorage = db.prepare("DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave'");
 
     const selectSyncCharacters = db.prepare(`
       SELECT character_id, position, payload, revision
@@ -879,7 +900,7 @@ function createAppDataStore(db) {
         modules: createPayloadRowSync('app_modules', 'item_key'),
         plugins: createPayloadRowSync('app_plugins', 'item_key', ['collection']),
         personas: createPayloadRowSync('app_personas', 'item_key'),
-        'plugin-storage': createPayloadRowSync('app_plugin_storage', 'storage_key', [], false),
+        'plugin-storage': createPayloadRowSync('app_plugin_storage', 'storage_key', ['namespace'], false),
         messages: createPayloadRowSync('app_messages', 'message_key', ['character_id', 'chat_id']),
     };
 
@@ -895,7 +916,9 @@ function createAppDataStore(db) {
             ? Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {})
                 .map(([key, value]) => ({ key, value }))
             : keyedItems(value, collectionItemKey);
-        payloadRowSync[special.kind](special.collection ? [special.collection] : [], items, revision);
+        const scope = special.kind === 'plugin-storage' ? ['includedInSave']
+            : special.collection ? [special.collection] : [];
+        payloadRowSync[special.kind](scope, items, revision);
     }
 
     function sameOrderedIds(currentRows, desiredItems, currentKey, desiredKey) {
@@ -1300,6 +1323,112 @@ function createAppDataStore(db) {
         return hashProjection(projection);
     }
 
+    function assertPluginStorageNamespace(namespace) {
+        if (namespace !== 'localStorage' && namespace !== 'localForage') {
+            throw new TypeError(`Unsupported plugin storage namespace: ${namespace}`);
+        }
+    }
+
+    const selectNamespacedPluginStorage = db.prepare(`
+      SELECT payload FROM app_plugin_storage WHERE namespace = ? AND storage_key = ?
+    `);
+    const listNamespacedPluginStorage = db.prepare(`
+      SELECT storage_key AS key, owner FROM app_plugin_storage WHERE namespace = ? ORDER BY rowid
+    `);
+    const upsertNamespacedPluginStorage = db.prepare(`
+      INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT (namespace, storage_key) DO UPDATE SET
+        payload = excluded.payload, revision = app_plugin_storage.revision + 1,
+        owner = COALESCE(excluded.owner, app_plugin_storage.owner)
+    `);
+    const importNamespacedPluginStorage = db.prepare(`
+      INSERT OR IGNORE INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
+      VALUES (?, ?, ?, 1, ?)
+    `);
+    const deleteNamespacedPluginStorage = db.prepare(`
+      DELETE FROM app_plugin_storage WHERE namespace = ? AND storage_key = ?
+    `);
+    const clearNamespacedPluginStorage = db.prepare('DELETE FROM app_plugin_storage WHERE namespace = ?');
+    const exportNamespacedPluginStorage = db.prepare(`
+      SELECT namespace, storage_key AS key, payload AS value, owner
+      FROM app_plugin_storage WHERE namespace != 'includedInSave' ORDER BY rowid
+    `);
+
+    function getPluginStorage(namespace, key) {
+        assertPluginStorageNamespace(namespace);
+        return selectNamespacedPluginStorage.get(namespace, key)?.payload ?? null;
+    }
+
+    function listPluginStorage(namespace) {
+        assertPluginStorageNamespace(namespace);
+        return listNamespacedPluginStorage.all(namespace).map(({ key, owner }) => ({
+            key, ...(owner ? { owner } : {}),
+        }));
+    }
+
+    function writePluginStorage(namespace, key, value, owner, options = {}) {
+        assertPluginStorageNamespace(namespace);
+        if (typeof key !== 'string' || !(value instanceof Uint8Array)
+            || (owner !== undefined && typeof owner !== 'string')) {
+            throw new TypeError('Invalid plugin storage entry');
+        }
+        const statement = options.ifAbsent ? importNamespacedPluginStorage : upsertNamespacedPluginStorage;
+        statement.run(namespace, key, Buffer.from(value), owner || null);
+    }
+
+    function removePluginStorage(namespace, key) {
+        assertPluginStorageNamespace(namespace);
+        deleteNamespacedPluginStorage.run(namespace, key);
+    }
+
+    function clearPluginStorage(namespace) {
+        assertPluginStorageNamespace(namespace);
+        clearNamespacedPluginStorage.run(namespace);
+    }
+
+    function* exportPluginStorage() {
+        yield* exportNamespacedPluginStorage.iterate();
+    }
+
+    const replacePluginStorage = db.transaction(entries => {
+        clearPluginStorage('localStorage');
+        clearPluginStorage('localForage');
+        for (const { namespace, key, value, owner } of entries) {
+            writePluginStorage(namespace, key, value, owner ?? undefined);
+        }
+    });
+
+    const importPluginStorage = db.transaction((namespace, entries) => {
+        for (const { key, value, owner } of entries) {
+            writePluginStorage(namespace, key, value, owner, { ifAbsent: true });
+        }
+    });
+
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get()) {
+        db.transaction(() => {
+            const prefix = 'cache/plugin-storage/';
+            const keys = db.prepare('SELECT key FROM kv WHERE substr(key, 1, ?) = ?')
+                .all(prefix.length, prefix);
+            const read = db.prepare('SELECT value FROM kv WHERE key = ?');
+            const remove = db.prepare('DELETE FROM kv WHERE key = ?');
+            for (const { key } of keys) {
+                const encodedKey = key.slice(prefix.length, -'.json'.length);
+                const decodedKey = Buffer.from(encodedKey, 'base64url').toString('utf-8');
+                if (!key.endsWith('.json') || Buffer.from(decodedKey).toString('base64url') !== encodedKey) continue;
+                const metadataKey = `cache/plugin-storage-meta/${encodedKey}.json`;
+                let owner;
+                try {
+                    owner = JSON.parse(read.get(metadataKey)?.value?.toString('utf-8') ?? '{}').plugin;
+                } catch {}
+                writePluginStorage('localForage', decodedKey, read.get(key).value,
+                    typeof owner === 'string' ? owner : undefined, { ifAbsent: true });
+                remove.run(key);
+                remove.run(metadataKey);
+            }
+        })();
+    }
+
     return {
         clear,
         commitChat,
@@ -1312,6 +1441,14 @@ function createAppDataStore(db) {
         hasChat,
         listCharacterStorage,
         listModuleStorage,
+        getPluginStorage,
+        listPluginStorage,
+        writePluginStorage,
+        removePluginStorage,
+        clearPluginStorage,
+        exportPluginStorage,
+        replacePluginStorage,
+        importPluginStorage,
         pluginStorageFootprint,
         projectionEtag,
         projectionEtagFor,

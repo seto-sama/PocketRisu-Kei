@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encodeLocalPluginStorageValue } from '../shared/localPluginStorageValue.mjs'
+import { Packr } from 'msgpackr'
 import assetReferences from '../server/node/assetReferences.cjs'
 
 const {
@@ -8,12 +9,7 @@ const {
     findOrphanAssets,
 } = assetReferences
 
-function createStorage(values: Map<string, unknown>) {
-    return {
-        listKeys: (prefix: string) => [...values.keys()].filter((key) => key.startsWith(prefix)),
-        getValue: (key: string) => values.get(key),
-    }
-}
+const pluginStoragePackr = new Packr({ useRecords: false })
 
 function assetRows(...names: string[]) {
     return names.map((name) => ({ key: `assets/${name}` }))
@@ -40,14 +36,24 @@ describe('asset references', () => {
         ]))
     })
 
-    it('persistent plugin references participate in the same orphan scan', () => {
-        const values = new Map([
-            ['cache/plugin-storage/example.json', Buffer.from('{"path":"assets\\\\plugin-kv.mp3","assets/key.png":true}')],
-        ])
-        const protectedAssets = collectProtectedAssetBasenames({ characters: [] }, createStorage(values))
+    it('localStorage strings and localForage rich values participate in the same orphan scan', async () => {
+        const entries = [
+            {
+                namespace: 'localStorage',
+                key: 'plugin-string',
+                value: pluginStoragePackr.pack('{"path":"assets\\\\plugin-kv.mp3","assets/key.png":true}'),
+            },
+            {
+                namespace: 'localForage',
+                key: 'plugin-rich-value',
+                value: await encodeLocalPluginStorageValue({ nested: 'assets/localforage.webp' }),
+            },
+        ]
+        const protectedAssets = collectProtectedAssetBasenames({ characters: [] }, entries)
         const orphans = findOrphanAssets([
             { key: 'assets/plugin-kv.mp3', size: 10 },
             { key: 'assets/key.png', size: 15 },
+            { key: 'assets/localforage.webp', size: 7 },
             { key: 'assets/orphan.png', size: 20 },
         ], protectedAssets)
 
@@ -64,10 +70,11 @@ describe('asset references', () => {
         }
         value.map.get('assets/map-key.webp').cycle = value
         value.set.add(value)
-        const values = new Map([
-            ['cache/plugin-storage/example/value', await encodeLocalPluginStorageValue(value)],
-        ])
-        const protectedAssets = collectProtectedAssetBasenames({}, createStorage(values))
+        const protectedAssets = collectProtectedAssetBasenames({}, [{
+            namespace: 'localForage',
+            key: 'plugin-rich-value',
+            value: await encodeLocalPluginStorageValue(value),
+        }])
 
         expect([...protectedAssets].sort()).toEqual([
             'array.png', 'map-key.webp', 'map-value.jpg', 'object.png', 'set.gif',
@@ -84,10 +91,11 @@ describe('asset references', () => {
             bytes: new TextEncoder().encode('assets/typed-array.png'),
             blob: new Blob(['assets/blob.png'], { type: 'text/plain' }),
         }
-        const values = new Map([
-            ['cache/plugin-storage/example/value', await encodeLocalPluginStorageValue(value)],
-        ])
-        const protectedAssets = collectProtectedAssetBasenames({}, createStorage(values))
+        const protectedAssets = collectProtectedAssetBasenames({}, [{
+            namespace: 'localForage',
+            key: 'plugin-rich-value',
+            value: await encodeLocalPluginStorageValue(value),
+        }])
 
         expect([...protectedAssets]).toEqual([])
         expect(findOrphanAssets(assetRows('typed-array.png', 'blob.png'), protectedAssets)

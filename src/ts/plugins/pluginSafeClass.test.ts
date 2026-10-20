@@ -1,71 +1,74 @@
-import { Buffer } from 'buffer'
+import { decode, encode } from 'msgpackr/index-no-eval'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+type RecordValue = { value: Uint8Array, owner?: string }
+
 const storageHarness = vi.hoisted(() => {
-    const values = new Map<string, Uint8Array>()
+    const values = new Map<string, Map<string, RecordValue>>()
     const control = {
+        writeFailureKey: null as string | null,
         writeDelayKey: null as string | null,
         writeDelayGate: null as Promise<void> | null,
         writeDelayStarted: null as (() => void) | null,
-        writeFailureKey: null as string | null,
-        removeDelayKey: null as string | null,
-        removeDelayGate: null as Promise<void> | null,
-        removeDelayStarted: null as (() => void) | null,
-        removeFailureKey: null as string | null,
+        importFailure: false,
     }
-
+    const getNamespace = (namespace: string) => {
+        let entries = values.get(namespace)
+        if (!entries) values.set(namespace, entries = new Map())
+        return entries
+    }
     const forageStorage = {
-        Init: vi.fn(async () => {}),
-        getItem: vi.fn(async (key: string) => {
-            const value = values.get(key)
-            return value ? new Uint8Array(value) : null
+        pluginStorageRequest: vi.fn(async (namespace: string, request: any): Promise<any> => {
+            const entries = getNamespace(namespace)
+            if (request.op === 'get') {
+                const record = entries.get(request.key)
+                return { value: record ? new Uint8Array(record.value) : null }
+            }
+            if (request.op === 'set') {
+                if (control.writeDelayKey === request.key) {
+                    control.writeDelayKey = null
+                    control.writeDelayStarted?.()
+                    await control.writeDelayGate
+                }
+                if (control.writeFailureKey === request.key) {
+                    control.writeFailureKey = null
+                    throw new Error('injected storage write failure')
+                }
+                const existing = entries.get(request.key)
+                entries.set(request.key, {
+                    value: new Uint8Array(request.value),
+                    owner: request.owner ?? existing?.owner,
+                })
+                return { success: true }
+            }
+            if (request.op === 'remove') {
+                entries.delete(request.key)
+                return { success: true }
+            }
+            if (request.op === 'clear') {
+                entries.clear()
+                return { success: true }
+            }
+            if (request.op === 'list') {
+                return { entries: [...entries].map(([key, record]) => ({ key, owner: record.owner })) }
+            }
+            if (request.op === 'import') {
+                if (control.importFailure) throw new Error('injected import failure')
+                for (const entry of request.entries) {
+                    if (!entries.has(entry.key)) entries.set(entry.key, {
+                        value: new Uint8Array(entry.value), owner: entry.owner,
+                    })
+                }
+                return { success: true }
+            }
+            throw new Error(`unknown operation ${request.op}`)
         }),
-        getItems: vi.fn(async (keys: string[]) => keys.filter(key => values.has(key))
-            .map(key => ({ key, value: new Uint8Array(values.get(key)!) }))),
-        setItem: vi.fn(async (key: string, value: Uint8Array) => {
-            if (control.writeDelayKey === key) {
-                control.writeDelayKey = null
-                control.writeDelayStarted?.()
-                await control.writeDelayGate
-            }
-            if (control.writeFailureKey === key) {
-                control.writeFailureKey = null
-                throw new Error('injected storage write failure')
-            }
-            values.set(key, new Uint8Array(value))
-        }),
-        removeItem: vi.fn(async (key: string) => {
-            if (control.removeDelayKey === key) {
-                control.removeDelayKey = null
-                control.removeDelayStarted?.()
-                await control.removeDelayGate
-            }
-            if (control.removeFailureKey === key) {
-                control.removeFailureKey = null
-                throw new Error('injected storage delete failure')
-            }
-            values.delete(key)
-        }),
-        keys: vi.fn(async (prefix = '') =>
-            [...values.keys()].filter(key => key.startsWith(prefix))),
     }
-
     return { values, control, forageStorage }
 })
 
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: storageHarness.forageStorage }))
-vi.mock('src/ts/parser/parser.svelte', () => ({ hasher: vi.fn(async () => new Uint8Array()) }))
-vi.mock('src/ts/globalApi.svelte', () => ({ toGetter: (getter: () => unknown) => getter() }))
 vi.mock('src/ts/storage/database.svelte', () => ({ getDatabase: () => ({}) }))
-
-const PREFIX = 'cache/plugin-storage/'
-
-function persistentKey(key: string): string {
-    return `${PREFIX}${Buffer.from(key, 'utf-8').toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/g, '')}.json`
-}
 
 function deferred() {
     let resolve!: () => void
@@ -73,164 +76,155 @@ function deferred() {
     return { promise, resolve }
 }
 
-async function createStorage(owner?: string) {
-    const { SafeLocalPluginStorage } = await import('./pluginSafeClass')
-    return new SafeLocalPluginStorage(owner)
+async function createStorages(owner?: string) {
+    const { SafeLocalPluginStorage, SafeLocalStorage } = await import('./pluginSafeClass')
+    return {
+        local: new SafeLocalStorage(owner),
+        forage: new SafeLocalPluginStorage(owner),
+    }
 }
 
 beforeEach(() => {
     storageHarness.values.clear()
     Object.assign(storageHarness.control, {
+        writeFailureKey: null,
         writeDelayKey: null,
         writeDelayGate: null,
         writeDelayStarted: null,
-        writeFailureKey: null,
-        removeDelayKey: null,
-        removeDelayGate: null,
-        removeDelayStarted: null,
-        removeFailureKey: null,
+        importFailure: false,
     })
+    localStorage.clear()
     vi.clearAllMocks()
     vi.resetModules()
 })
 
-describe('SafeLocalPluginStorage', () => {
-    it('reads legacy JSON values through the storage API', async () => {
-        const storage = await createStorage()
-        storageHarness.values.set(
-            persistentKey('old-value'),
-            new TextEncoder().encode(JSON.stringify({ legacy: true })),
-        )
-        expect(await storage.getItem('old-value')).toEqual({ legacy: true })
-    })
-
-    it('preserves falsy and undefined values while returning null for missing keys', async () => {
-        const storage = await createStorage()
-        for (const value of [0, false, '', null, undefined]) {
-            await storage.setItem('value', value)
-            expect(await storage.getItem('value')).toBe(value)
-        }
-        expect(await storage.getItem('missing')).toBeNull()
-    })
-
-    it('keeps ownership metadata aligned with writes, removals, and clearing', async () => {
-        const storage = await createStorage('plugin')
-        const { getOwners } = await import('./pluginStorageMeta')
-        await storage.setItem('first', { count: 1 })
-        await storage.setItem('second', new Blob(['asset']))
-        expect(await getOwners('idb')).toEqual({ first: 'plugin', second: 'plugin' })
-
-        const viewer = await createStorage()
-        await viewer.setItem('first', { count: 2 })
-        expect(await getOwners('idb')).toEqual({ first: 'plugin', second: 'plugin' })
-
-        await storage.removeItem('first')
-        expect(await getOwners('idb')).toEqual({ second: 'plugin' })
-        await storage.clear()
-        expect(await storage.keys()).toEqual([])
-        expect(await getOwners('idb')).toEqual({})
-    })
-
-    it('round-trips Blob and ArrayBuffer values after a module reload', async () => {
-        const storage = await createStorage()
-        const buffer = Uint8Array.of(0, 7, 128, 255).buffer
-        await storage.setItem('rich-value', {
+describe('server-backed plugin storage', () => {
+    it('isolates namespaces and round-trips rich localForage values', async () => {
+        const { local, forage } = await createStorages()
+        await local.setItem('shared-key', 'local string')
+        await forage.setItem('shared-key', {
             blob: new Blob(['plugin payload'], { type: 'application/octet-stream' }),
-            buffer,
+            buffer: Uint8Array.of(0, 7, 128, 255).buffer,
         })
 
-        vi.resetModules()
-        const reloadedStorage = await createStorage()
-        const restored = await reloadedStorage.getItem<{
-            blob: Blob
-            buffer: ArrayBuffer
-        }>('rich-value')
-
+        expect(await local.getItem('shared-key')).toBe('local string')
+        const restored = await forage.getItem<{ blob: Blob, buffer: ArrayBuffer }>('shared-key')
         expect(restored?.blob).toBeInstanceOf(Blob)
         expect(await restored?.blob.text()).toBe('plugin payload')
         expect(restored?.blob.type).toBe('application/octet-stream')
-        expect(restored?.buffer).toBeInstanceOf(ArrayBuffer)
         expect([...new Uint8Array(restored!.buffer)]).toEqual([0, 7, 128, 255])
+        expect(await local.keys()).toEqual(['shared-key'])
+        expect(await forage.keys()).toEqual(['shared-key'])
     })
 
-    it('returns fresh buffers so a transferred result cannot detach cached data', async () => {
-        const storage = await createStorage()
-        await storage.setItem('buffer', Uint8Array.of(1, 2, 3, 254).buffer)
+    it('stores ownership with the remote value and clears it with that value', async () => {
+        const { forage } = await createStorages('plugin')
+        const { getOwners } = await import('./pluginStorageMeta')
+        const { local } = await createStorages('plugin')
+        await local.setItem('local-key', 'value')
+        expect(await getOwners('localStorage')).toEqual({ 'local-key': 'plugin' })
 
-        const first = (await storage.getItem<ArrayBuffer>('buffer'))!
-        structuredClone(first, { transfer: [first] })
-        const second = (await storage.getItem<ArrayBuffer>('buffer'))!
-        expect([...new Uint8Array(second)]).toEqual([1, 2, 3, 254])
+        await forage.setItem('first', { count: 1 })
+        await forage.setItem('second', new Blob(['asset']))
+        expect(await getOwners('localForage')).toEqual({ first: 'plugin', second: 'plugin' })
+
+        const viewer = await createStorages()
+        await viewer.forage.setItem('first', { count: 2 })
+        expect(await getOwners('localForage')).toEqual({ first: 'plugin', second: 'plugin' })
+
+        await forage.removeItem('first')
+        expect(await getOwners('localForage')).toEqual({ second: 'plugin' })
+        await forage.clear()
+        expect(await forage.keys()).toEqual([])
+        expect(await getOwners('localForage')).toEqual({})
     })
 
-    it('snapshots values at submission and applies same-key writes in order', async () => {
-        const storage = await createStorage()
+    it('snapshots submitted values and applies same-key writes in order', async () => {
+        const { forage } = await createStorages()
         const input = Uint8Array.of(4, 5, 6)
-        const snapshotWrite = storage.setItem('snapshot', input.buffer)
+        const snapshotWrite = forage.setItem('snapshot', input.buffer)
         input[0] = 99
         await snapshotWrite
-        expect([...new Uint8Array((await storage.getItem<ArrayBuffer>('snapshot'))!)]).toEqual([4, 5, 6])
+        expect([...new Uint8Array((await forage.getItem<ArrayBuffer>('snapshot'))!)]).toEqual([4, 5, 6])
 
-        const key = persistentKey('ordered')
         const firstWriteStarted = deferred()
         const releaseFirstWrite = deferred()
-        storageHarness.control.writeDelayKey = key
+        storageHarness.control.writeDelayKey = 'ordered'
         storageHarness.control.writeDelayGate = releaseFirstWrite.promise
         storageHarness.control.writeDelayStarted = firstWriteStarted.resolve
 
-        const firstWrite = storage.setItem('ordered', { revision: 1 })
+        const firstWrite = forage.setItem('ordered', { revision: 1 })
         await firstWriteStarted.promise
         const secondValue = { revision: 2, bytes: Uint8Array.of(8, 9) }
-        const secondWrite = storage.setItem('ordered', secondValue)
+        const secondWrite = forage.setItem('ordered', secondValue)
         secondValue.revision = 99
         releaseFirstWrite.resolve()
         await Promise.all([firstWrite, secondWrite])
 
-        expect(await storage.getItem('ordered')).toEqual({ revision: 2, bytes: Uint8Array.of(8, 9) })
+        expect(await forage.getItem('ordered')).toEqual({ revision: 2, bytes: Uint8Array.of(8, 9) })
     })
 
-    it('keeps the last persisted value when a set fails', async () => {
-        const storage = await createStorage()
-        await storage.setItem('stable', { revision: 1 })
-        storageHarness.control.writeFailureKey = persistentKey('stable')
+    it('keeps the persisted value when a remote set fails', async () => {
+        const { forage } = await createStorages()
+        await forage.setItem('stable', { revision: 1 })
+        storageHarness.control.writeFailureKey = 'stable'
 
-        await expect(storage.setItem('stable', { revision: 2 })).rejects.toThrow('injected storage write failure')
-        expect(await storage.getItem('stable')).toEqual({ revision: 1 })
-        expect(await storageHarness.forageStorage.getItem(persistentKey('stable')))
-            .toEqual(storageHarness.values.get(persistentKey('stable')))
+        await expect(forage.setItem('stable', { revision: 2 })).rejects.toThrow('injected storage write failure')
+        expect(await forage.getItem('stable')).toEqual({ revision: 1 })
     })
 
-    it('waits for every clear deletion before allowing writes after a failed delete', async () => {
-        const storage = await createStorage()
-        const failedKey = persistentKey('delete-fails')
-        const delayedKey = persistentKey('delete-waits')
-        storageHarness.values.set(failedKey, new TextEncoder().encode('1'))
-        storageHarness.values.set(delayedKey, new TextEncoder().encode('2'))
-        storageHarness.control.removeFailureKey = failedKey
-        const deleteStarted = deferred()
-        const releaseDelete = deferred()
-        storageHarness.control.removeDelayKey = delayedKey
-        storageHarness.control.removeDelayGate = releaseDelete.promise
-        storageHarness.control.removeDelayStarted = deleteStarted.resolve
+    it('orders clear and later writes after an unfinished write', async () => {
+        const { forage, local } = await createStorages()
+        const writeStarted = deferred()
+        const releaseWrite = deferred()
+        storageHarness.control.writeDelayKey = 'before'
+        storageHarness.control.writeDelayGate = releaseWrite.promise
+        storageHarness.control.writeDelayStarted = writeStarted.resolve
 
-        let clearFinished = false
-        const clearOutcome = storage.clear().then(
-            () => { clearFinished = true; return 'fulfilled' },
-            () => { clearFinished = true; return 'rejected' },
-        )
-        await deleteStarted.promise
-        const laterWrite = storage.setItem('after-clear', { safe: true })
-        await Promise.resolve()
+        const before = forage.setItem('before', 'old')
+        await writeStarted.promise
+        const clear = forage.clear()
+        const after = forage.setItem('after', 'new')
+        const keys = forage.keys()
+        await local.setItem('separate', 'untouched')
+        releaseWrite.resolve()
 
-        expect(clearFinished).toBe(false)
-        expect(storageHarness.forageStorage.setItem).not.toHaveBeenCalled()
+        await Promise.all([before, clear, after])
+        expect(await keys).toEqual(['after'])
+        expect(await forage.getItem('after')).toBe('new')
+        expect(await local.getItem('separate')).toBe('untouched')
+    })
 
-        releaseDelete.resolve()
-        expect(await clearOutcome).toBe('rejected')
-        await laterWrite
+    it('migrates legacy localStorage values and owners insert-if-absent', async () => {
+        const server = storageHarness.values.get('localStorage') ?? new Map()
+        storageHarness.values.set('localStorage', server)
+        server.set('existing', { value: encode('server value'), owner: 'server-plugin' })
+        localStorage.setItem('safe_plugin_existing', 'old local value')
+        localStorage.setItem('safe_plugin_legacy', 'legacy value')
+        localStorage.setItem('risu_plugin_storage_owners', JSON.stringify({
+            legacy: { plugin: 'old-plugin', updatedAt: 1 },
+        }))
 
-        expect(storageHarness.values.has(failedKey)).toBe(true)
-        expect(storageHarness.values.has(delayedKey)).toBe(false)
-        expect(await storage.getItem('after-clear')).toEqual({ safe: true })
+        const { local } = await createStorages()
+        expect(await local.getItem('existing')).toBe('server value')
+        expect(await local.getItem('legacy')).toBe('legacy value')
+        expect(localStorage.getItem('safe_plugin_existing')).toBeNull()
+        expect(localStorage.getItem('safe_plugin_legacy')).toBeNull()
+        expect(localStorage.getItem('risu_plugin_storage_owners')).toBeNull()
+        const { getOwners } = await import('./pluginStorageMeta')
+        expect(await getOwners('localStorage')).toEqual({ existing: 'server-plugin', legacy: 'old-plugin' })
+        expect(decode(server.get('legacy')!.value)).toBe('legacy value')
+    })
+
+    it('keeps legacy browser data when import fails and retries safely', async () => {
+        localStorage.setItem('safe_plugin_retry', 'still here')
+        storageHarness.control.importFailure = true
+        const { local } = await createStorages()
+        await expect(local.getItem('retry')).rejects.toThrow('injected import failure')
+        expect(localStorage.getItem('safe_plugin_retry')).toBe('still here')
+
+        storageHarness.control.importFailure = false
+        expect(await local.getItem('retry')).toBe('still here')
+        expect(localStorage.getItem('safe_plugin_retry')).toBeNull()
     })
 })
