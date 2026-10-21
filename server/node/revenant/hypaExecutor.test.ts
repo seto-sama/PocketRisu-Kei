@@ -45,13 +45,17 @@ function recipe() {
 }
 
 describe('server HypaV3 selection executor', () => {
-    it('counts JSON-tokenizer prompts without the removed MLC WASM runtime', async () => {
+    it.each([
+        ['claude', 'Hello world', 5],
+        ['tik', '안녕하세요, 세계! Hello world.', 11],
+        ['llama', '안녕하세요, 세계! Hello world.', 11],
+    ] as const)('counts %s prompts with the configured overhead', async (tokenizer, text, expected) => {
         const countTokens = await createSummaryTokenCounter({
-            tokenizer: 'claude',
+            tokenizer,
             chatAdditionalTokens: 3,
         })
 
-        expect(await countTokens('Hello world')).toBe(5)
+        expect(await countTokens(text)).toBe(expected)
     })
 
     it('selects important and semantically similar summaries and creates a resumable checkpoint', async () => {

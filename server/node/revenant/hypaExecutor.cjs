@@ -23,7 +23,7 @@ let tikTokenizer;
 
 async function getRegistryTokenizer(type) {
     if (type === 'tik' || LEGACY_TOKENIZERS.has(type)) {
-        tikTokenizer ??= get_encoding('cl100k_base');
+        tikTokenizer ??= get_encoding('o200k_base');
         return tikTokenizer;
     }
     const definition = TOKENIZER_FILES[type];
