@@ -1767,6 +1767,7 @@ export const languageEnglish = {
     modelPresetOtherGroup: "Other",
     modelPresetEchoMessage: "Echo Message",
     modelPresetEchoDelay: "Echo Delay (Seconds)",
+    modelPresetEchoTokensPerSecond: "Echo Tokens per Second",
     modelPresetPromptPresetFirst: "Prefer prompt preset",
     modelPresetPromptParamsFirst: "Prefer prompt parameters",
     modelPresetGlobalBinding: "Default model preset binding",

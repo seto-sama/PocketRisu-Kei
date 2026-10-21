@@ -7,6 +7,7 @@ const { setTimeout: delay } = require('timers/promises');
 require('sucrase/register/ts');
 const source = file => require(path.join(__dirname, '../../../src/ts', file));
 const { compileModelPreset } = source('preset/runtime/compilePreset.ts');
+const { buildEchoRequest } = source('preset/runtime/echo.ts');
 const { resolveModelPresetCredential } = source('preset/runtime/credential.ts');
 const { modelsDevUsageIdentity } = source('preset/runtime/usageIdentity.ts');
 const { convertInterfaceToSchemaCore } = source('process/templates/jsonSchemaCore.ts');
@@ -160,11 +161,7 @@ function createServerProviderActionExecutor(options) {
             if (compiled.backend === 'echo') {
                 const response = await fetchImpl('https://echo.invalid/v1/chat/completions', {
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                        message: preset.userValues?.echoMessage ?? 'Echo Message',
-                        delayMs: Math.max(0, Number(preset.userValues?.echoDelay) || 0) * 1000,
-                        model: preset.name,
-                    }),
+                    body: JSON.stringify(buildEchoRequest(preset, false, messages)),
                 });
                 const result = await response.json();
                 return { success: true, result: String(result.choices?.[0]?.message?.content ?? '') };

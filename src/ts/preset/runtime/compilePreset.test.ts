@@ -237,7 +237,9 @@ describe('compileModelPreset', () => {
         ['plugin', 'plugin'],
         ['echo', 'echo'],
     ] as const)('keeps %s on its dedicated backend', (adapterKind, backend) => {
-        expect(compileModelPreset(preset(adapterKind)).backend).toBe(backend)
+        const compiled = compileModelPreset(preset(adapterKind))
+        expect(compiled.backend).toBe(backend)
+        expect(compiled.availability.streaming).toBe(true)
     })
 
     test('compiles Plugin streaming and prompt behavior from its snapshot', () => {

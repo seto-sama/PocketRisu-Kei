@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { decodeJournalChunk } from '../../../src/ts/process/revenant/transport/protocol'
 import streamPkg from './generationStream.cjs'
 import generationPkg from './generation.cjs'
+import { buildEchoRequest } from '../../../src/ts/preset/runtime/echo'
+import type { ModelPreset } from '../../../src/ts/preset/types'
 
 const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournalEvent } = streamPkg as {
     notifyRevenantJournalWaiters: (job: any) => void
@@ -231,13 +233,19 @@ describe('revenant workflow-dependent main dispatch', () => {
         }, 'model', 'workflow-1')).toBeUndefined()
     })
 
-    it('replaces the deferred Hypa prompt in a JSON provider request', () => {
-        const body = Buffer.from(JSON.stringify({
-            messages: [
-                { role: 'system', content: `prefix ${placeholder} suffix` },
-                { role: 'user', content: 'hello' },
-            ],
-        }))
+    it.each(['http', 'echo'])('replaces the deferred Hypa prompt in a %s provider request', backend => {
+        const messages = [
+            { role: 'system', content: `prefix ${placeholder} suffix` },
+            { role: 'user', content: 'hello' },
+        ]
+        const request = backend === 'echo'
+            ? buildEchoRequest({
+                name: 'Echo',
+                profileSnapshot: { schema: [] },
+                userValues: { echoMessage: 'Echo reply' },
+            } as unknown as ModelPreset, false, messages)
+            : { messages }
+        const body = Buffer.from(JSON.stringify(request))
         const resolved = resolveRevenantWorkflowRequestBody(body, dependency, {
             kind: 'hypav3-selection',
             status: 'completed',
@@ -251,12 +259,12 @@ describe('revenant workflow-dependent main dispatch', () => {
                 }],
             },
         })
-        expect(JSON.parse(Buffer.from(resolved).toString('utf8'))).toEqual({
-            messages: [
-                { role: 'system', content: 'prefix selected memory suffix' },
-                { role: 'user', content: 'hello' },
-            ],
-        })
+        const resolvedRequest = JSON.parse(Buffer.from(resolved).toString('utf8'))
+        expect(resolvedRequest.messages).toEqual([
+            { role: 'system', content: 'prefix selected memory suffix' },
+            { role: 'user', content: 'hello' },
+        ])
+        if (backend === 'echo') expect(resolvedRequest.message).toBe('Echo reply')
     })
 
     it('rejects dispatch before completion or without the exact placeholder', () => {

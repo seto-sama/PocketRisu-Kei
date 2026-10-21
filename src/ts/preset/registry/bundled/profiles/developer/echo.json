@@ -16,7 +16,7 @@
   ],
   "sortOrder": 9000,
   "modelId": "echo_model",
-  "updatedAt": 1785240662478,
+  "updatedAt": 1792579620248,
   "endpoint": {
     "kind": "static",
     "url": "local://echo"
@@ -27,7 +27,8 @@
   },
   "defaults": {
     "echoMessage": "Echo Message",
-    "echoDelay": 0
+    "echoDelay": 0,
+    "echoTokensPerSecond": 30
   },
   "schema": [
     {
@@ -46,13 +47,26 @@
       "type": "number",
       "label": "Echo Delay (Seconds)",
       "labelKey": "modelPresetEchoDelay",
-      "description": "Delay before the preset returns its echo message. The default is 0 seconds.",
+      "description": "Time before the first token when streaming, or before the complete reply when streaming is off. The default is 0 seconds.",
       "min": 0,
       "step": 0.1,
       "descriptionI18n": {
-        "ko": "Echo 메시지를 반환하기 전 기다릴 시간입니다. 기본값은 0초입니다."
+        "ko": "해당 시간만큼 기다린 후 응답을 시작합니다. 기본값은 0초입니다."
       },
       "default": 0
+    },
+    {
+      "key": "echoTokensPerSecond",
+      "type": "integer",
+      "label": "Echo Tokens per Second",
+      "labelKey": "modelPresetEchoTokensPerSecond",
+      "description": "Simulated output tokens per second using the o200k_base tokenizer. Effective while streaming is enabled.",
+      "descriptionI18n": {
+        "ko": "응답 스트리밍이 켜져 있을 때, 해당 속도로 응답을 출력합니다."
+      },
+      "min": 1,
+      "step": 1,
+      "default": 30
     }
   ],
   "uiSchema": {
@@ -83,10 +97,20 @@
         "layout": "row",
         "group": "echo",
         "order": 2
+      },
+      {
+        "key": "echoTokensPerSecond",
+        "widget": "number-input",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "echo",
+        "order": 3
       }
     ]
   },
-  "capabilities": [],
+  "capabilities": [
+    "streaming"
+  ],
   "limits": {
     "known": true,
     "contextWindowTokens": 0,

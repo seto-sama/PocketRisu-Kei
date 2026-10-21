@@ -98,6 +98,13 @@ export async function* streamChatRequest(
         'OpenAI-compatible stream response has no body',
     )
 
+    yield* parseChatEventStream(stream, preset)
+}
+
+export async function* parseChatEventStream(
+    stream: ReadableStream<Uint8Array>,
+    preset: ModelPreset,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const reasoningOutput = resolveReasoningOutputOptions(preset)
     const thinkTagParser = reasoningOutput.thinkTagFallback
         ? new ThinkTagStreamParser()

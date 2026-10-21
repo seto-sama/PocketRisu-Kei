@@ -34,6 +34,8 @@ import {
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
 import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
+import { parseChatEventStream } from 'src/ts/preset/adapter/openaiCompatible';
+import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,
     normalizeOutputRepetitionLimit,
@@ -428,28 +430,37 @@ async function requestEchoPreset(
     arg: RequestDataArgumentExtended,
     preset: ModelPreset,
     abortSignal: AbortSignal | null,
+    supportsStreaming: boolean,
 ): Promise<requestDataResponse> {
-    const rawDelay = preset.userValues?.echoDelay
-    const delay = typeof rawDelay === 'number' ? rawDelay : 0
-    const rawMessage = preset.userValues?.echoMessage
-    const message = typeof rawMessage === 'string' ? rawMessage : "Echo Message"
+    const request = buildEchoRequest(preset, resolvePresetStreaming(preset, arg, supportsStreaming), arg.formated)
 
     arg.revenantAdapterKind = 'echo'
-    arg.revenantStreaming = false
+    arg.revenantStreaming = request.stream
     try {
         const response = await makeModelTransportFetch(arg, preset)(
             'https://echo.invalid/v1/chat/completions',
             {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    message,
-                    delayMs: Math.max(0, delay * 1000),
-                    model: preset.name,
-                }),
+                body: JSON.stringify(request),
                 signal: abortSignal ?? undefined,
             },
         )
+        if (response.ok && request.stream) {
+            if (!response.body) throw new Error('Echo stream response has no body')
+            const body = response.body
+            const stream = applyOutputRepetitionDetection(new ReadableStream<StreamResponseChunk>({
+                start(controller) {
+                    return pumpPresetStream(parseChatEventStream(body, preset), controller, {
+                        intervalMs: STREAM_FLUSH_INTERVAL_MS,
+                        formatReasoning: text => formatPresetReasoning([{ text }]),
+                    })
+                },
+            }), arg.onOutputRepetitionDetected)
+            return preset.decoupledStreaming
+                ? { type: 'success', result: await collectStreamingText(stream), model: preset.name }
+                : { type: 'streaming', result: stream, model: preset.name }
+        }
         const body = await response.json() as {
             choices?: Array<{ message?: { content?: unknown } }>
             error?: { message?: unknown }
@@ -908,17 +919,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 type: 'success',
                 result: JSON.stringify({
                     adapterKind: 'echo',
-                    message: typeof preset.userValues?.echoMessage === 'string'
-                        ? preset.userValues.echoMessage
-                        : "Echo Message",
-                    delay: typeof preset.userValues?.echoDelay === 'number'
-                        ? preset.userValues.echoDelay
-                        : 0,
+                    ...buildEchoRequest(preset, resolvePresetStreaming(preset, arg, compiled.features.streaming), arg.formated),
                 }),
                 model: preset.name,
             }
         }
-        return requestEchoPreset(arg, preset, abortSignal)
+        return requestEchoPreset(arg, preset, abortSignal, compiled.features.streaming)
     }
     // HTTP streaming adapters expose their ReadableStream before the lazy
     // async generator reaches fetchNative. Track the durable-registration

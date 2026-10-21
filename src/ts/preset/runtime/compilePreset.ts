@@ -138,7 +138,7 @@ export function compileModelPreset(
     const audioOutput = adapterKind === 'google-gemini'
         && hasPresetFlag(preset, 'hasAudioOutput')
     const availability: CompiledPresetAvailability = {
-        streaming: adapterKind === 'plugin'
+        streaming: adapterKind === 'plugin' || adapterKind === 'echo'
             ? declared.has('streaming')
             : adapter?.support.streaming === true
                 && (!capabilitiesDeclared || declared.has('streaming')),
