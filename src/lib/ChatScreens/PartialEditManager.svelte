@@ -3,6 +3,7 @@
     import { onDestroy, tick, untrack } from 'svelte';
     import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
+    import { setMessageContent } from 'src/ts/storage/messageContent';
     import { language } from 'src/lang';
     import { iconButtonSizeValues } from '../UI/components/IconButton.svelte';
     import Button from '../UI/components/Button.svelte';
@@ -499,10 +500,7 @@
                 }));
                 return;
             }
-            message.data = newData;
-            if (message.swipes && message.swipeId !== undefined) {
-                message.swipes[message.swipeId] = newData;
-            }
+            setMessageContent(message, newData);
             invalidateChatMessageRender(target.messageIndex);
         });
     }

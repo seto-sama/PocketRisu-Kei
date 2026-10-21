@@ -1,4 +1,5 @@
 import type { Chat, customscript } from '../../../storage/database.svelte'
+import { setMessageContent } from '../../../storage/messageContent'
 import { renderRevenantTemplate } from './headlessParser'
 import type { RevenantPostprocessRecipe } from '../types'
 
@@ -96,7 +97,7 @@ export function runRevenantOutputTransform(
                 }
                 else if ((output.startsWith('@@inject') || item.actions.includes('inject'))) {
                     const target = chat.message.findIndex(message => message?.chatId === recipe.messageChatId)
-                    if (target >= 0) chat.message[target].data = text
+                    if (target >= 0) setMessageContent(chat.message[target], text)
                     text = text.replace(regex, '')
                 }
                 else {

@@ -11,6 +11,9 @@ const { runRevenantOutputTransform } = require(path.join(
 const { renderRevenantTemplate } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'headlessParser.ts',
 ));
+const { buildRerollSwipeMetadata } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'recovery', 'chatGenerationTarget.ts',
+));
 
 function renderRevenantPostprocessPrompt(prompt, recipe, chat) {
     return renderRevenantTemplate(String(prompt ?? ''), recipe, chat).text;
@@ -73,6 +76,9 @@ function applyGeneratedMessage(chat, recipe, job, text) {
             ...current,
             swipes: [...previousSwipes, text],
             swipeId: previousSwipes.length,
+            swipeMetadata: targetIndex >= 0 && Array.isArray(current.swipeMetadata)
+                ? current.swipeMetadata
+                : buildRerollSwipeMetadata(snapshot.targetMessage, { chatId: recipe.messageChatId }),
         });
         const insertAt = targetIndex >= 0 ? targetIndex : Math.max(0, snapshot.targetIndex);
         result.message.splice(

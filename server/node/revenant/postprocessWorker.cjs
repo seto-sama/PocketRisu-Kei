@@ -9,6 +9,7 @@ const {
     runRevenantTriggerStage,
     renderRevenantPostprocessPrompt,
 } = require('./postprocessPipeline.cjs');
+const { findLastActiveResponseIndex, setMessageContent } = require('../../../src/ts/storage/messageContent.ts');
 
 function recipeWithMutations(recipe, ...patches) {
     let character = recipe.character;
@@ -337,8 +338,8 @@ function createRevenantPostprocessWorker(options) {
                         }
                         else {
                             currentChat = structuredClone(currentChat);
-                            const target = currentChat.message.findLast(message => message?.role === 'char');
-                            if (target) target.data += response.result;
+                            const target = currentChat.message[findLastActiveResponseIndex(currentChat.message)];
+                            if (target) setMessageContent(target, target.data + response.result);
                             updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
                                 status: 'completed',
                                 metadata: {
@@ -361,9 +362,7 @@ function createRevenantPostprocessWorker(options) {
                     ...(outputStep.metadata.foregroundEffects || []),
                     ...(triggerStep.metadata.foregroundEffects || []),
                 ];
-                const finalMessage = [...(currentChat.message || [])]
-                    .reverse()
-                    .find(message => message?.role === 'char');
+                const finalMessage = currentChat.message[findLastActiveResponseIndex(currentChat.message)];
                 if (
                     recipe.character?.inlayViewScreen
                     && finalMessage?.data

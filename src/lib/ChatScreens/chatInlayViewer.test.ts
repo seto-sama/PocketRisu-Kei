@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Message } from 'src/ts/storage/database.svelte'
+import { removeActiveSwipe } from 'src/ts/storage/messageSwipes'
 import {
     collectChatInlayViewerEntries,
     isEmptyChatInlayMessage,
     removeChatInlayOccurrence,
-    removeCurrentEmptyInlaySwipe,
 } from './chatInlayViewer'
 
 describe('chat inlay viewer references', () => {
@@ -48,7 +48,7 @@ describe('chat inlay viewer references', () => {
             ],
         }
 
-        expect(removeCurrentEmptyInlaySwipe(message)).toBe(true)
+        expect(removeActiveSwipe(message)).toBe(true)
         expect(message).toMatchObject({ data: '{{inlayed::remaining}}', chatId: 'remaining-id', time: 10 })
         expect(collectChatInlayViewerEntries('', [message])).toEqual([
             { id: 'remaining', messageIndex: 0, occurrence: 0 },
@@ -56,17 +56,5 @@ describe('chat inlay viewer references', () => {
         expect(message.swipes).toBeUndefined()
         expect(message.swipeId).toBeUndefined()
         expect(message.swipeMetadata).toBeUndefined()
-    })
-
-    it('leaves a single-swipe message for the caller to delete', () => {
-        const message: Message = {
-            role: 'char',
-            data: '{{inlayed::only}}',
-            swipes: ['{{inlayed::only}}'],
-            swipeId: 0,
-        }
-
-        expect(removeCurrentEmptyInlaySwipe(message)).toBe(false)
-        expect(message.swipes).toEqual(['{{inlayed::only}}'])
     })
 })

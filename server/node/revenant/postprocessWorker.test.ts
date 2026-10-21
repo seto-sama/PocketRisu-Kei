@@ -225,7 +225,13 @@ describe('revenant postprocess worker', () => {
     })
 
     it('renders IGP against the completed chat and uses its auxiliary preset', async () => {
-        const chat = { id: 'room-1', message: [{ role: 'char', data: 'answer' }] }
+        const chat = { id: 'room-1', message: [{
+            role: 'char', data: 'answer', swipes: ['old answer', 'answer'], swipeId: 1,
+        }, {
+            role: 'char', data: 'branch info', isComment: true,
+        }, {
+            role: 'char', data: 'disabled answer', disabled: true,
+        }] }
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'completed', metadata: { text: 'answer', chat } },
             'trigger.output': {
@@ -268,6 +274,7 @@ describe('revenant postprocess worker', () => {
             repository,
             renderPrompt,
             onWorkflowUpdated,
+            materializeGeneration: vi.fn(),
             logger: { error: vi.fn() },
         })
 
@@ -297,6 +304,17 @@ describe('revenant postprocess worker', () => {
                 expect.objectContaining({ key: 'igp', status: 'waiting_client' }),
             ]),
         }))
+
+        steps.igp = {
+            status: 'pending',
+            metadata: { responses: { 'igp.provider': { success: true, result: '-appended' } } },
+        }
+        await worker.pump()
+
+        expect(steps.igp.metadata.chat.message[0]).toMatchObject({
+            data: 'answer-appended', swipes: ['old answer', 'answer-appended'], swipeId: 1,
+        })
+        expect(steps.igp.metadata.chat.message.slice(1)).toEqual(chat.message.slice(1))
     })
 
     it('waits for a client to run completion UI effects before materializing', async () => {

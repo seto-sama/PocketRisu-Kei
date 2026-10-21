@@ -85,9 +85,10 @@ function mergeGenerationChatResult(baseChat, resultChat, currentChat, operation)
     const resultById = new Map(resultMessages
         .filter(message => message?.chatId)
         .map(message => [message.chatId, message]));
+    const generated = resultById.get(messageChatId);
 
     for (const before of baseMessages) {
-        if (!before?.chatId || ownedIds.has(before.chatId)) continue;
+        if (!before?.chatId || (generated && ownedIds.has(before.chatId))) continue;
         const after = resultById.get(before.chatId);
         if (isDeepStrictEqual(before, after)) continue;
         const currentIndex = messageIndexById(mergedMessages, before.chatId);
@@ -117,7 +118,6 @@ function mergeGenerationChatResult(baseChat, resultChat, currentChat, operation)
         }
     }
 
-    const generated = resultMessages.find(message => message?.chatId === messageChatId);
     if (generated) {
         let targetIndex = messageIndexById(mergedMessages, messageChatId);
         if (targetIndex < 0 && ownedBaseId) {

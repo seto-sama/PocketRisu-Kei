@@ -69,6 +69,63 @@ describe('revenant terminal postprocess pipeline', () => {
         })
     })
 
+    it.each(['lua', 'v2'])('keeps the active reroll swipe in sync after %s edits its body', async source => {
+        const input = recipe()
+        const previous = {
+            role: 'char', data: 'old answer', chatId: 'old-response',
+            swipes: ['old answer'], swipeId: 0,
+        }
+        input.rerollSnapshot = { targetIndex: 1, targetMessage: previous, trailingMessages: [] }
+        input.character.triggerscript = [{
+            type: 'output', conditions: [], lowLevelAccess: true,
+            effect: source === 'lua'
+                ? [{ type: 'triggerlua', code: 'function onOutput(id) setChat(id, 1, "edited answer") end' }]
+                : [{
+                    type: 'v2ModifyChat', indent: 0, index: '1', indexType: 'value',
+                    value: 'edited answer', valueType: 'value',
+                }],
+        }] as any
+        const output = await runRevenantOutputStage({
+            text: 'new answer', recipe: input, job: {},
+            transformOutput: pipelinePkg.runRevenantOutputTransform,
+        })
+
+        const trigger = await runRevenantTriggerStage({ recipe: input, text: output.text, chat: output.chat })
+
+        expect(trigger.status).toBe('completed')
+        expect(trigger.chat.message[1]).toMatchObject({
+            data: 'edited answer', swipes: ['old answer', 'edited answer'], swipeId: 1,
+        })
+        expect(previous.swipes).toEqual(['old answer'])
+    })
+
+    it.each(['lua', 'v2'])('restores the previous swipe when %s deletes only the latest reroll message', async source => {
+        const input = recipe()
+        const previous = {
+            role: 'char', data: 'old answer', chatId: 'old-response',
+            generationInfo: { model: 'previous model' }, time: 10,
+        }
+        input.rerollSnapshot = { targetIndex: 1, targetMessage: previous, trailingMessages: [] }
+        input.character.triggerscript = [{
+            type: 'output', conditions: [], lowLevelAccess: true,
+            effect: source === 'lua'
+                ? [{ type: 'triggerlua', code: 'function onOutput(id) removeChat(id, 1) end' }]
+                : [{ type: 'v2CutChat', indent: 0, start: '0', startType: 'value', end: '1', endType: 'value' }],
+        }] as any
+        const output = await runRevenantOutputStage({
+            text: 'new answer', recipe: input,
+            job: { completedAt: 20, generationInfo: { model: 'current model' } },
+            transformOutput: pipelinePkg.runRevenantOutputTransform,
+        })
+
+        const trigger = await runRevenantTriggerStage({ recipe: input, text: output.text, chat: output.chat })
+
+        expect(trigger.status).toBe('completed')
+        expect(trigger.chat.message).toHaveLength(2)
+        expect(trigger.chat.message[1]).toMatchObject(previous)
+        expect(trigger.chat.message[1]).not.toHaveProperty('swipes')
+    })
+
     it('preserves per-swipe diagnostics from the generation placeholder', async () => {
         const input = recipe()
         input.messageChatId = 'generation-2'

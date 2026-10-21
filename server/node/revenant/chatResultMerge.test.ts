@@ -31,14 +31,14 @@ describe('generation chat result rebase', () => {
         ])
     })
 
-    it('rejects concurrent edits to the reroll target', () => {
+    it.each([false, true])('rejects concurrent edits to the reroll target when deleted: %s', deleted => {
         const base = {
             id: 'room',
             message: [{ chatId: 'target', role: 'char', data: 'original', swipes: ['original'], swipeId: 0 }],
         }
         const result = {
             id: 'room',
-            message: [{ chatId: 'generated', role: 'char', data: 'rerolled', swipes: ['original', 'rerolled'], swipeId: 1 }],
+            message: deleted ? [] : [{ chatId: 'generated', role: 'char', data: 'rerolled', swipes: ['original', 'rerolled'], swipeId: 1 }],
         }
         const current = {
             id: 'room',
@@ -53,7 +53,7 @@ describe('generation chat result rebase', () => {
         })).toThrow('overlaps concurrent chat edits')
     })
 
-    it('rebases a reroll swipe while preserving a different edited message', () => {
+    it.each(['rerolled', ''])('rebases a reroll swipe containing %j while preserving a different edited message', text => {
         const target = {
             chatId: 'target', role: 'char', data: 'original', swipes: ['original'], swipeId: 0,
         }
@@ -65,8 +65,8 @@ describe('generation chat result rebase', () => {
             ],
         }
         const rerolled = {
-            chatId: 'generated', role: 'char', data: 'rerolled',
-            swipes: ['original', 'rerolled'], swipeId: 1,
+            chatId: 'generated', role: 'char', data: text,
+            swipes: ['original', text], swipeId: 1,
         }
         const result = { id: 'room', message: [base.message[0], rerolled] }
         const current = structuredClone(base)
@@ -79,5 +79,28 @@ describe('generation chat result rebase', () => {
 
         expect(merged.message[0].data).toBe('edited old message')
         expect(merged.message[1]).toEqual(rerolled)
+    })
+
+    it.each([false, true])('removes the reroll history cut by output triggers, keeping earlier messages: %s', keepEarlier => {
+        const target = {
+            chatId: 'target', role: 'char', data: 'original',
+            swipes: ['first answer', 'original'], swipeId: 1,
+        }
+        const trailing = { chatId: 'comment', role: 'user', data: 'note', isComment: true }
+        const base = {
+            id: 'room',
+            message: [{ chatId: 'user', role: 'user', data: 'question' }, target, trailing],
+        }
+        const result = { id: 'room', message: keepEarlier ? [base.message[0]] : [] }
+        const current = structuredClone(base)
+        if (keepEarlier) current.message[0].data = 'edited question'
+
+        const merged = mergeGenerationChatResult(base, result, current, {
+            messageChatId: 'generated',
+            rerollSnapshot: { targetMessage: target, targetIndex: 1, trailingMessages: [trailing] },
+        })
+
+        expect(merged.message).toEqual(keepEarlier ? [current.message[0]] : [])
+        expect(merged.isStreaming).toBe(false)
     })
 })

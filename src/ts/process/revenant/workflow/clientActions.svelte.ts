@@ -6,6 +6,7 @@ import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
 import type { ModelPreset } from '../../../preset/types'
 import { getDatabase, type Chat, type character } from '../../../storage/database.svelte'
+import { findLastActiveResponseIndex, setMessageContent } from '../../../storage/messageContent'
 import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
@@ -256,10 +257,10 @@ async function executeClientAction(
                     catch { /* Notifications are best-effort foreground effects. */ }
                 }
                 else if (effect.kind === 'inlay.screen' && resultChat) {
-                    const target = resultChat.message.findLast(message => message?.role === 'char')
+                    const target = resultChat.message[findLastActiveResponseIndex(resultChat.message)]
                     if (target?.data) {
                         const inlay = runInlayScreen(character, target.data)
-                        target.data = inlay.promise ? await inlay.promise : inlay.text
+                        setMessageContent(target, inlay.promise ? await inlay.promise : inlay.text)
                     }
                 }
                 else if (effect.kind === 'emotion.auto') {

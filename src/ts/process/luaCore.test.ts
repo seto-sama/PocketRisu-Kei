@@ -74,12 +74,43 @@ describe('Lua core', () => {
             data: 'after',
             time: 20,
             chatId: 'message-1',
-            swipes: ['before', 'alternate'],
+            swipes: ['before', 'after'],
             swipeId: 1,
             generationInfo: { model: 'model-a' },
         })
         expect(harness.chat.message[1]).toMatchObject({ role: 'user', data: 'added' })
         expect(() => assertChatIdentity({ ...harness.chat, id: 'room' }, 'room')).not.toThrow()
+    })
+
+    it('replaces the whole chat without inferring a swipe deletion from its shorter length', () => {
+        const harness = apiHarness()
+        harness.chat.message = [
+            { role: 'user', data: 'question', chatId: 'user-1' },
+            { role: 'char', data: 'selected', swipes: ['previous', 'selected'], swipeId: 1 },
+        ]
+
+        harness.functions.setFullChatMain('allowed', JSON.stringify([{ role: 'user', data: 'question' }]))
+
+        expect(harness.chat.message).toMatchObject([{ role: 'user', data: 'question', chatId: 'user-1' }])
+        expect(harness.chat.message).toHaveLength(1)
+    })
+
+    it.each(['edited', ''])('updates only the selected swipe through setChat with %j', content => {
+        const harness = apiHarness()
+        harness.chat.message[0] = {
+            role: 'char', data: 'selected', chatId: 'message-1',
+            swipes: ['other', 'selected'], swipeId: 1,
+            swipeMetadata: [{ chatId: 'response-1' }, { chatId: 'response-2' }],
+        }
+
+        harness.functions.setChat('denied', 0, 'denied')
+        expect(harness.chat.message[0].data).toBe('selected')
+        harness.functions.setChat('allowed', 0, content)
+
+        expect(harness.chat.message[0]).toMatchObject({
+            data: content, swipes: ['other', content], swipeId: 1,
+            swipeMetadata: [{ chatId: 'response-1' }, { chatId: 'response-2' }],
+        })
     })
 
     it('does not retain state from a previous cached-engine invocation', () => {

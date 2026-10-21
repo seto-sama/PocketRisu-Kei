@@ -45,6 +45,7 @@
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, LanguagesIcon, LinkIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+    import { setMessageContent } from 'src/ts/storage/messageContent';
 
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
@@ -324,10 +325,7 @@
     async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])].message[idx]
         const canonicalMessage = canonicalizeInlayTokens(nextMessage)
-        msg.data = canonicalMessage
-        if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = canonicalMessage
-        }
+        setMessageContent(msg, canonicalMessage)
     }
 
     async function preserveMessagePosition(update: () => void | Promise<void>) {

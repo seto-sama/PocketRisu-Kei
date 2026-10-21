@@ -2,6 +2,8 @@
     import { getChatBoundPersona } from "src/ts/chatBindingState";
 
     import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+    import { setMessageContent } from 'src/ts/storage/messageContent';
+    import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
 
     import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
@@ -88,7 +90,6 @@ import { isMobile } from 'src/ts/platform'
         collectChatInlayViewerEntries,
         isEmptyChatInlayMessage,
         removeChatInlayOccurrence,
-        removeCurrentEmptyInlaySwipe,
         type ChatInlayViewerEntry,
     } from './chatInlayViewer';
 
@@ -297,12 +298,9 @@ import { isMobile } from 'src/ts/platform'
             if (!message) return
             const next = removeChatInlayOccurrence(message.data, entry)
             if (!isEmptyChatInlayMessage(next)) {
-                message.data = next
-                if (message.swipes && message.swipeId !== undefined) {
-                    message.swipes[message.swipeId] = next
-                }
+                setMessageContent(message, next)
                 invalidateChatMessageRender(entry.messageIndex)
-            } else if (removeCurrentEmptyInlaySwipe(message)) {
+            } else if (removeActiveSwipe(message)) {
                 invalidateSwipeMessage(message, entry.messageIndex)
             } else if (currentChatSlot) {
                 currentChatSlot.message = currentChatSlot.message.filter((_, index) => index !== entry.messageIndex)
@@ -1210,29 +1208,7 @@ import { isMobile } from 'src/ts/platform'
 
     function deleteSwipe(idx?: number) {
         const lastMsg = getSwipeTargetMsg(idx)
-        if (!lastMsg || !lastMsg.swipes || lastMsg.swipes.length <= 1) return
-
-        const swipeIdx = lastMsg.swipeId ?? 0
-        lastMsg.swipes.splice(swipeIdx, 1)
-        lastMsg.swipeMetadata?.splice(swipeIdx, 1)
-
-        if (swipeIdx >= lastMsg.swipes.length) {
-            lastMsg.swipeId = lastMsg.swipes.length - 1
-        }
-        lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
-
-        if (lastMsg.swipes.length === 1) {
-            const remainingMetadata = lastMsg.swipeMetadata?.[0]
-            if (remainingMetadata) {
-                lastMsg.chatId = remainingMetadata.chatId ?? lastMsg.chatId
-                lastMsg.time = remainingMetadata.time ?? lastMsg.time
-                lastMsg.generationInfo = remainingMetadata.generationInfo ?? lastMsg.generationInfo
-                lastMsg.promptInfo = remainingMetadata.promptInfo ?? lastMsg.promptInfo
-            }
-            delete lastMsg.swipes
-            delete lastMsg.swipeId
-            delete lastMsg.swipeMetadata
-        }
+        if (!lastMsg || !removeActiveSwipe(lastMsg)) return
         invalidateSwipeMessage(lastMsg, idx)
     }
 

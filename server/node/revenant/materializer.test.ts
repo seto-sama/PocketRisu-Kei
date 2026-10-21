@@ -117,14 +117,14 @@ describe('revenant canonical materializer', () => {
         expect(jobs.get('standalone-job').materializedAt).toBeUndefined()
     })
 
-    it('persists the completed server trigger chat without a client message body', async () => {
+    it.each([false, true])('persists the completed server trigger chat when messages removed: %s', async removed => {
         const stored = {
             id: 'room-1',
             message: [{ role: 'user', data: 'hello', chatId: 'user-1' }],
         }
         const canonical = {
             id: 'room-1',
-            message: [
+            message: removed ? [] : [
                 { role: 'user', data: 'hello', chatId: 'user-1' },
                 { role: 'char', data: 'server result', chatId: 'message-1' },
             ],
@@ -171,7 +171,11 @@ describe('revenant canonical materializer', () => {
 
         const result = await service.materialize('job-1')
 
-        expect(result.message).toMatchObject({ data: 'server result', chatId: 'message-1' })
+        if (removed) {
+            expect(result.message).toBeUndefined()
+        } else {
+            expect(result.message).toMatchObject({ data: 'server result', chatId: 'message-1' })
+        }
         expect(commitGenerationResult).toHaveBeenCalledWith(expect.objectContaining({
             job: expect.objectContaining({ jobId: 'job-1' }),
             workflow: expect.objectContaining({ workflowId: 'workflow-1' }),

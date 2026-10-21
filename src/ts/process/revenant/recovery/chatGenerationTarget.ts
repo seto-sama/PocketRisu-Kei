@@ -6,6 +6,7 @@ import type {
     MessageSwipeMetadata,
 } from '../../../storage/database.svelte'
 import type { RevenantRerollSnapshot } from '../types'
+import { setMessageContent } from '../../../storage/messageContent'
 
 export interface GenerationMessageTargetOptions {
     messageChatId: string
@@ -70,15 +71,7 @@ export function getActiveSwipeMetadata(message: Message): MessageSwipeMetadata |
 export function setGenerationMessageContent(message: Message, content: string): void {
     delete message.isRecovering
     delete message.recoveryDisplayData
-    message.data = content
-    if (
-        Array.isArray(message.swipes)
-        && Number.isInteger(message.swipeId)
-        && (message.swipeId as number) >= 0
-        && (message.swipeId as number) < message.swipes.length
-    ) {
-        message.swipes[message.swipeId as number] = content
-    }
+    setMessageContent(message, content)
 }
 
 /** Install the generation-owned placeholder before prompt/provider work starts. */

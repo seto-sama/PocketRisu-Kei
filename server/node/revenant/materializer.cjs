@@ -176,14 +176,16 @@ function createRevenantMaterializer(options) {
         const chat = structuredClone(serverChat);
         const mutationPatch = completedServerMutationPatch(workflow);
         const materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
-        if (!materializedMessage || typeof materializedMessage.data !== 'string') {
+        if (materializedMessage && typeof materializedMessage.data !== 'string') {
             throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
         }
-        applyRevenantStageTimingToMessage(
-            materializedMessage,
-            workflow,
-            job.completedAt || job.updatedAt,
-        );
+        if (materializedMessage) {
+            applyRevenantStageTimingToMessage(
+                materializedMessage,
+                workflow,
+                job.completedAt || job.updatedAt,
+            );
+        }
         const hypaMemory = workflow?.steps
             ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
             ?.metadata?.hypaMemory;

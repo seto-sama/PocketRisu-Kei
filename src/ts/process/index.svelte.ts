@@ -3,6 +3,7 @@ import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
 import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate, getActiveBotPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
+import { setMessageContent } from '../storage/messageContent';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
 import { selectActiveChatMessages } from "../chatContextTokens";
@@ -232,7 +233,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     function runCurrentChatFunction(chat:Chat){
         chat.message = chat.message.map((v) => {
-            v.data = risuChatParser(v.data, {chara: currentChar, runVar: true})
+            setMessageContent(v, risuChatParser(v.data, {chara: currentChar, runVar: true}))
             return v
         })
         return chat
@@ -2113,14 +2114,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             throw new Error('Generation chat is no longer available')
         }
         const inlayr = runInlayScreen(currentChar, inlayTarget.message.data)
-        inlayTarget.message.data = inlayr.text
+        setMessageContent(inlayTarget.message, inlayr.text)
         if(inlayr.promise){
             const t = await inlayr.promise
             const refreshedInlayTarget = ensureLiveGenerationTarget()
             if(!refreshedInlayTarget){
                 throw new Error('Generation chat is no longer available')
             }
-            refreshedInlayTarget.message.data = t
+            setMessageContent(refreshedInlayTarget.message, t)
         }
         if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
             await sayTTS(currentChar, result)
@@ -2208,7 +2209,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         },'emotion', abortSignal)
 
         if(rq.type === 'success'){
-            DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq.result
+            const target = DBState.db.characters[selectedChar].chats[selectedChat].message.at(-1)
+            if (target) setMessageContent(target, target.data + rq.result)
             await setWorkflowStep('igp', 'completed')
         }
         else{

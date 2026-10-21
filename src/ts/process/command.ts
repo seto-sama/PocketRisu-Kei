@@ -1,4 +1,5 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
+import { setMessageContent } from 'src/ts/storage/messageContent'
 import { get } from "svelte/store";
 import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeChat, setDatabase } from "../storage/database.svelte";
 import { selectedCharID } from "../stores.svelte";
@@ -121,7 +122,8 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
         case 'comment': {
             // Risu stores comments as a block in the previous message.
             const addition = `<Comment>\n${arg}\n</Comment>`
-            currentChat.message[currentChat.message.length-1].data += addition
+            const message = currentChat.message[currentChat.message.length-1]
+            setMessageContent(message, message.data + addition)
             setDatabase(db)
             return pipe
         }

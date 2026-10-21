@@ -1,4 +1,5 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
+import { setMessageContent } from 'src/ts/storage/messageContent'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
@@ -208,7 +209,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                         const targetMessage = selchar?.chats?.[getChatPage(selchar)]?.message?.[chatID]
                         // Chat sync may replace this message while scripts await;
                         // skip injection if its original index no longer exists.
-                        if(targetMessage) targetMessage.data = data
+                        if(targetMessage) setMessageContent(targetMessage, data)
                         data = data.replace(reg, "")
                     }
                     else if(
