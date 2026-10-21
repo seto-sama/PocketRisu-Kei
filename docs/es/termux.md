@@ -35,7 +35,7 @@ PocketRisu compila la aplicación localmente en el teléfono, por lo que el tiem
 ### Utilice la versión de Termux de F-Droid o GitHub Releases
 
 > ⚠️ **La versión de Termux de Play Store no se puede utilizar.**
-> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que PocketRisu necesita (Node.js 24.15+).
+> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que PocketRisu necesita (Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x)).
 
 Instale Termux desde una de las siguientes fuentes:
 

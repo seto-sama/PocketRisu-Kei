@@ -35,7 +35,7 @@ PocketRisu xây dựng ứng dụng cục bộ trên điện thoại, vì vậy 
 ### Sử dụng phiên bản Termux từ F-Droid hoặc GitHub Releases
 
 > ⚠️ **Không thể sử dụng phiên bản Termux trên Play Store.**
-> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà PocketRisu cần (Node.js 24.15+).
+> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà PocketRisu cần (Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x)).
 
 Cài đặt Termux từ một trong các nguồn sau:
 

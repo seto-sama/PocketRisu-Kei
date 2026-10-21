@@ -21,7 +21,7 @@ PocketRisu kann auf vier Arten installiert werden.
 | **CPU**     | 1 Kern               | 2+ Kerne                                   |
 | **RAM**     | 1 GB (nur Ausführen) | 4+ GB (inkl. Build)                        |
 | **Disk**    | 1 GB                 | 2+ GB                                      |
-| **Node.js** | 24.15+               | (nicht erforderlich für Portable/Docker)   |
+| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (nicht erforderlich für Portable/Docker)   |
 
 Das Portable-Paket und Docker benötigen keinen Build-Schritt und können mit 1 GB RAM laufen. Direkte Builds (Git Clone, Installationsskript) verbrauchen während des Builds viel Speicher; 4 GB oder mehr werden empfohlen.
 
@@ -150,11 +150,11 @@ Holt den Quellcode und baut automatisch mit Node.js. Läuft auf Linux/macOS-Serv
 
 ### Voraussetzungen
 
-Node.js 24.15 oder höher ist erforderlich:
+Node.js 24.x (24.22.1 oder höher) oder 26.x (26.12.1 oder höher) ist erforderlich:
 
 ```bash
 node --version
-# v24.15.0 oder höher
+# v24.22.1+ (24.x) oder v26.12.1+ (26.x)
 ```
 
 Installieren Sie von der [offiziellen Node.js-Website](https://nodejs.org/), falls nicht vorhanden.

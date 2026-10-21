@@ -95,12 +95,6 @@ const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 // Install process-level error handlers before any other init so early crashes get logged.
 installProcessHandlers();
 
-// Node.js version check
-const [nodeMajor] = process.version.slice(1).split('.').map(Number);
-if (nodeMajor < 24) {
-    logger.warn(`[Server] Node.js ${process.version} is below the recommended version (v24.x). Consider upgrading for best compatibility.`);
-}
-
 // Configuration flags for patch-based sync
 const enablePatchSync = true;
 

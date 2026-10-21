@@ -33,7 +33,7 @@ PocketRisu builds the application locally on the phone, so build time depends on
 ### Use the F-Droid or GitHub Releases build of Termux
 
 > ⚠️ **The Play Store version of Termux cannot be used.**
-> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages PocketRisu needs (Node.js 24.15+).
+> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages PocketRisu needs (Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x)).
 
 Install Termux from one of:
 

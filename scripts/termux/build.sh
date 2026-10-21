@@ -11,8 +11,6 @@ fi
 echo "[1/5] Installing Termux packages..."
 pkg install -y nodejs-lts python make clang pkg-config tar curl
 
-node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 24 || (major === 24 && minor < 15)) { console.error('Node.js 24.15.0+ is required. Update the Termux nodejs-lts package.'); process.exit(1); }"
-
 echo "[2/5] Enabling pnpm via corepack..."
 corepack enable
 corepack install --global pnpm@12.4.0

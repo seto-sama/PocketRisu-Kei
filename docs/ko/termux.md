@@ -33,7 +33,7 @@ PocketRisu는 폰에서 애플리케이션을 직접 빌드하므로, 빌드 시
 ### Termux는 F-Droid 또는 GitHub Releases 버전을 사용
 
 > ⚠️ **Play Store의 Termux는 사용할 수 없습니다.**
-> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 24.15 이상 등)가 설치되지 않습니다.
+> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x))가 설치되지 않습니다.
 
 다음 두 곳 중 하나에서 Termux를 받습니다.
 
