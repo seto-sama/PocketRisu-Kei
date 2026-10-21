@@ -6,7 +6,7 @@
     import { ChevronDownIcon, FilterIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import SettingRow from './SettingRow.svelte';
-    import { isEventFromInteractiveChild } from 'src/lib/utils';
+    import { cn, isEventFromInteractiveChild } from 'src/lib/utils';
 
     let {
         variant,
@@ -198,8 +198,8 @@
         </div>
     </div>
 {:else if variant === 'section'}
-    <section class={first ? 'mt-2' : 'mt-8'}>
-        <h3 class="text-base font-bold mb-1">{title}</h3>
+    <section class={cn(!embedded && (first ? 'mt-2' : 'mt-8'), className)}>
+        {#if title}<h3 class="text-base font-bold mb-1">{title}</h3>{/if}
         {@render children?.()}
     </section>
 {:else}

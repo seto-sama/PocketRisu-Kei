@@ -14,7 +14,7 @@ export class RegistryProfileNotFoundError extends Error {
 
     constructor(profileId: string) {
         super(`Registry profile "${profileId}" was not found. ` +
-            `Refresh models.dev or import the custom profile again.`)
+            `Refresh the model registry or select another profile.`)
         this.name = 'RegistryProfileNotFoundError'
         this.profileId = profileId
     }

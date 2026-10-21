@@ -88,13 +88,11 @@ vi.mock('src/ts/globalApi.svelte', () => ({
     getFileSrc: async (value: string) => value,
 }))
 vi.mock('src/ts/gui/colorscheme', () => ({ ColorSchemeTypeStore: storeMocks.HideIconStore }))
-vi.mock('src/ts/model/modellist', () => ({ getModelInfo: () => ({ shortName: 'model' }) }))
 vi.mock('src/ts/process/scriptings', () => ({ runLuaButtonTrigger: interactionMocks.runLuaButtonTrigger }))
 vi.mock('src/ts/process/scripts', () => ({ risuChatParser: (value: string) => value }))
 vi.mock('src/ts/process/triggers', () => ({ runTrigger: interactionMocks.runTrigger }))
 vi.mock('src/ts/process/tts', () => ({ sayTTS: vi.fn() }))
 vi.mock('src/ts/util', () => ({
-    capitalize: (value: string) => value,
     getUserIcon: () => '',
     getUserName: () => 'User',
     sleep: async () => {},
@@ -276,7 +274,8 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
 }
 
 describe('Chat editing', () => {
-    it('shows request information only when the setting is enabled', async () => {
+    it('shows the stored model name as text only when request information is enabled', async () => {
+        const model = 'pluginmodel:::my <model> & preset'
         const renderChat = (requestInfoInsideChat: boolean) => {
             DBState.db.requestInfoInsideChat = requestInfoInsideChat
             const target = document.createElement('div')
@@ -289,7 +288,7 @@ describe('Chat editing', () => {
                     role: 'char',
                     idx: -1,
                     firstMessage: true,
-                    messageGenerationInfo: { model: 'test-model' },
+                    messageGenerationInfo: { model },
                     totalLength: 1,
                 },
             })
@@ -299,11 +298,13 @@ describe('Chat editing', () => {
 
         const disabledTarget = renderChat(false)
         await tick()
-        expect(disabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).toBeNull()
+        expect(disabledTarget.querySelector(`.chat-generation-info button[aria-label="${model}"]`)).toBeNull()
 
         const enabledTarget = renderChat(true)
         await tick()
-        expect(enabledTarget.querySelector('.chat-generation-info button[aria-label="model"]')).not.toBeNull()
+        const infoButton = enabledTarget.querySelector(`.chat-generation-info button[aria-label="${model}"]`)
+        expect(infoButton?.textContent).toContain(model)
+        expect(infoButton?.querySelector('model')).toBeNull()
     })
 
     it('keeps user translation toggles while retaining cached room restores', async () => {

@@ -98,59 +98,64 @@
     </Button>
 </div>
 
-<Dialog bind:open size="lg">
+<Dialog
+    bind:open
+    size="lg"
+    contentClass="overflow-hidden"
+    bodyClass="flex min-h-0 flex-col gap-4"
+>
     {#snippet title()}{language.modelProviderFilterDialogTitle}{/snippet}
     {#snippet description()}{language.modelProviderFilterDialogDescription}{/snippet}
 
     {#if providers.length === 0}
         <EmptyState title={language.modelProviderFilterEmpty} description="" layout="section" density="compact" />
     {:else}
-        <div class="flex flex-col gap-3">
-            <div class="flex items-center gap-2">
-                <div class="relative flex-1 min-w-0">
-                    <SearchIcon
-                        size={16}
-                        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtext pointer-events-none"
-                    />
-                    <Input
-                        bind:value={query}
-                        placeholder={language.modelProviderFilterSearch}
-                        aria-label={language.modelProviderFilterSearch}
-                        className="pl-8"
-                    />
-                </div>
+        <SettingLayout variant="search" className="shrink-0">
+            <div class="relative flex min-w-0 items-center">
+                <SearchIcon
+                    size={16}
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtext pointer-events-none"
+                />
+                <Input
+                    bind:value={query}
+                    placeholder={language.modelProviderFilterSearch}
+                    aria-label={language.modelProviderFilterSearch}
+                    className="pl-8"
+                />
+            </div>
+            {#snippet control()}
                 <Button variant="outline" onclick={() => setAllProvidersVisible(true)}>
                     {language.modelProviderFilterShowAll}
                 </Button>
                 <Button variant="outline" onclick={() => setAllProvidersVisible(false)}>
                     {language.modelProviderFilterHideAll}
                 </Button>
-            </div>
+            {/snippet}
+        </SettingLayout>
 
-            <SettingLayout variant="list">
-                {#if filteredProviders.length === 0}
-                    <EmptyState layout="section" density="compact" />
-                {:else}
-                    {#each filteredProviders as provider (provider.id)}
-                        <SettingLayout variant="item" className="py-2.5">
-                            <div class="flex flex-1 flex-col min-w-0">
-                                <span class="text-sm text-maintext truncate">{provider.label}</span>
-                                <span class="text-xs text-subtext truncate">
-                                    {provider.id} · {language.modelProviderFilterProfileCount(provider.profileCount)}
-                                </span>
-                            </div>
-                            {#snippet control()}
-                                <Switch
-                                    checked={!draftHiddenProviderSet.has(provider.id)}
-                                    ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
-                                    onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
-                                />
-                            {/snippet}
-                        </SettingLayout>
-                    {/each}
-                {/if}
-            </SettingLayout>
-        </div>
+        <SettingLayout variant="list" className="min-h-0 overflow-y-auto! overscroll-contain [&>*]:shrink-0">
+            {#if filteredProviders.length === 0}
+                <EmptyState layout="section" density="compact" />
+            {:else}
+                {#each filteredProviders as provider (provider.id)}
+                    <SettingLayout variant="item" className="py-2.5">
+                        <div class="flex flex-1 flex-col min-w-0">
+                            <span class="text-sm text-maintext truncate">{provider.label}</span>
+                            <span class="text-xs text-subtext truncate">
+                                {provider.id} · {language.modelProviderFilterProfileCount(provider.profileCount)}
+                            </span>
+                        </div>
+                        {#snippet control()}
+                            <Switch
+                                checked={!draftHiddenProviderSet.has(provider.id)}
+                                ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
+                                onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
+                            />
+                        {/snippet}
+                    </SettingLayout>
+                {/each}
+            {/if}
+        </SettingLayout>
     {/if}
 
     {#snippet footer()}

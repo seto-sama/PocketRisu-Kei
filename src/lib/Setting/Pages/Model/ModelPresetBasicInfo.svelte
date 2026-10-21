@@ -1,29 +1,42 @@
 <script lang="ts">
-    import { CopyIcon, DownloadIcon, RefreshCwIcon, Trash2Icon } from "@lucide/svelte";
+    import { RefreshCwIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser, openModelPresetEditId } from "src/ts/stores.svelte";
+    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser } from "src/ts/stores.svelte";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
-    import { exportPresetFile } from "src/ts/preset/export";
     import { getOfficialRegistryId, getOfficialRegistry, isOfficialRegistryId } from "src/ts/preset/registry";
-    import { buildFragmentFromSnapshot, getProfileUpdateStatus } from "src/ts/preset/customProfiles";
+    import { getProfileUpdateStatus } from "src/ts/preset/customProfiles";
     import { replaceModelPresetProfile } from "src/ts/preset/profileUpdate";
     import { localizeDescription } from "src/ts/preset/registry/i18n";
     import { pluginProfileDisplayId } from "src/ts/preset/pluginModels";
     import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
-    import type { ModelPreset } from "src/ts/preset/types";
+    import type { ModelPreset, RegistryCapability } from "src/ts/preset/types";
     import type { SettingItem } from "src/ts/setting/types";
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
     import Button from "../../../UI/components/Button.svelte";
     import Badge from "../../../UI/components/Badge.svelte";
-    import { clonePresetWithNewId, duplicatePresetItem, removePresetItem } from "src/ts/preset/collection";
+    import Tooltip from "../../../UI/components/Tooltip.svelte";
 
     interface Props {
         preset: ModelPreset;
-        onAfterDelete?: () => void;
+        onDelete: (id: string) => void | Promise<void>;
     }
 
-    let { preset = $bindable(), onAfterDelete = () => {} }: Props = $props();
+    let { preset = $bindable(), onDelete }: Props = $props();
+    const capabilityHelpKeys = {
+        streaming: 'modelCapabilityStreamingHelp',
+        vision: 'modelCapabilityVisionHelp',
+        'image-output': 'modelCapabilityImageOutputHelp',
+        tools: 'modelCapabilityToolsHelp',
+        json: 'modelCapabilityJsonHelp',
+        reasoning: 'modelCapabilityReasoningHelp',
+    } satisfies Record<Exclude<RegistryCapability, 'cache'>, keyof typeof language.help>;
+    const visibleCapabilities = $derived(
+        (preset.profileSnapshot.capabilities ?? []).filter(
+            (cap): cap is Exclude<RegistryCapability, 'cache'> => cap !== 'cache',
+        ),
+    );
     const compiled = $derived.by(() => {
         try {
             return compileModelPreset(preset);
@@ -61,36 +74,6 @@
     const hasInfoFields = $derived(
         preset.profileSnapshot.uiSchema.fields.some(field => field?.visibility === 'info')
     );
-
-    function duplicate() {
-        const src = preset;
-        const idx = DBState.db.modelPresets.findIndex(p => p.id === src.id);
-        if (idx < 0) return;
-        const result = duplicatePresetItem(DBState.db.modelPresets, idx, source => {
-            const copy = clonePresetWithNewId(source);
-            copy.name = `${source.name} ${language.copy}`;
-            copy.createdAt = Date.now();
-            copy.updatedAt = Date.now();
-            return copy;
-        });
-        if (!result.changed || !result.item) return;
-        DBState.db.modelPresets = result.items;
-        notifySuccess(language.presetDuplicated);
-        // Jump straight into the new copy's editor (parent watches this store).
-        openModelPresetEditId.set(result.item.id);
-    }
-
-    async function remove() {
-        const ok = await alertConfirm(`${language.presetDeleteConfirm}\n${preset.name}`);
-        if (!ok) return;
-        const idx = DBState.db.modelPresets.findIndex(p => p.id === preset.id);
-        if (idx < 0) return;
-        const result = removePresetItem(DBState.db.modelPresets, -1, idx, 0);
-        if (!result.changed) return;
-        DBState.db.modelPresets = result.items;
-        notifySuccess(language.presetDeleted);
-        onAfterDelete();
-    }
 
     // Resolve the preset's source profile in its registry (official=models.dev,
     // else the persisted custom cache) — drives the update hint, updated-at
@@ -189,18 +172,10 @@
         notifySuccess(language.profileReplaced);
     }
 
-    async function exportPreset() {
-        const fragment = buildFragmentFromSnapshot(preset.profileSnapshot, preset.name, Date.now());
-        const name = (preset.name || 'profile').replace(/[^a-z0-9._-]/gi, '_');
-        await exportPresetFile(`${name}.profile.json`, JSON.stringify(fragment, null, 2));
-    }
-
 </script>
 
 <div>
-    <h3 class="text-base font-bold mt-4 mb-1 text-maintext">{language.profileSection}</h3>
-
-    <section>
+    <SettingLayout variant="section" title={language.profileSection} first>
         <SettingRenderer items={basicInfoItems} target={preset} layout="row" />
 
         {#if hasInfoFields}
@@ -219,68 +194,78 @@
         {#if streamingAvailable}
             <SettingRenderer items={responseItems} target={preset} layout="row" hideFirstDivider={false} />
         {/if}
-    </section>
+    </SettingLayout>
 
-    <div class="flex flex-col gap-1 p-3 mt-8 rounded-md border border-darkborderc bg-darkbg/40">
-        <div class="flex items-center justify-between gap-2">
-            <span class="text-sm text-maintext truncate">{profileDisplayId}</span>
-            {#if updateStatus === 'updatable'}
-                <Button variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</Button>
-            {:else if updateStatus === 'missing'}
-                <Badge variant="warning">{language.profileSourceMissing}</Badge>
+    <SettingLayout variant="section" title={language.personaManagement}>
+        <div class="flex flex-col gap-1 p-3 mt-3 rounded-md border border-darkborderc bg-darkbg/40">
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-sm text-maintext truncate">{profileDisplayId}</span>
+                {#if updateStatus === 'updatable'}
+                    <Button variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</Button>
+                {:else if updateStatus === 'missing'}
+                    <Badge variant="warning">{language.profileSourceMissing}</Badge>
+                {/if}
+            </div>
+            {#if description}
+                <div class="text-xs text-subtext">{description}</div>
+            {/if}
+            <div class="text-xs text-subtext">
+                {language.profileProviderLabel}: {preset.profileSnapshot.providerBaseId}
+            </div>
+            {#if showDefaultModel}
+                <div class="text-xs text-subtext">Default model: {preset.profileSnapshot.modelId}</div>
+            {/if}
+            {#if installedLabel}
+                <div class="text-xs text-subtext">
+                    {language.profileUpdatedAtLabel}: {installedLabel}{#if updateStatus === 'updatable' && latestLabel && latestLabel !== installedLabel}{' '}({language.profileLatestVersionLabel}: {latestLabel}){/if}
+                </div>
+            {/if}
+            {#if modelReleaseDate}
+                <div class="text-xs text-subtext">
+                    {language.profileModelReleaseDateLabel}: {modelReleaseDate}
+                </div>
+            {/if}
+            {#if dataCutoff}
+                <div class="text-xs text-subtext">
+                    {language.profileDataCutoffLabel}: {dataCutoff}
+                </div>
+            {/if}
+            {#if visibleCapabilities.length > 0}
+                <div class="flex flex-wrap gap-1 mt-1">
+                    {#each visibleCapabilities as cap}
+                        <Tooltip>
+                            {#snippet trigger(props)}
+                                <span
+                                    {...props}
+                                    role="button"
+                                    tabindex="0"
+                                    class="cursor-help text-xs px-2 py-0.5 rounded border border-darkborderc text-subtext"
+                                >{cap}</span>
+                            {/snippet}
+                            {language.help[capabilityHelpKeys[cap]]}
+                        </Tooltip>
+                    {/each}
+                </div>
             {/if}
         </div>
-        {#if description}
-            <div class="text-xs text-subtext">{description}</div>
-        {/if}
-        <div class="text-xs text-subtext">
-            {language.profileProviderLabel}: {preset.profileSnapshot.providerBaseId}
-        </div>
-        {#if showDefaultModel}
-            <div class="text-xs text-subtext">Default model: {preset.profileSnapshot.modelId}</div>
-        {/if}
-        {#if installedLabel}
-            <div class="text-xs text-subtext">
-                {language.profileUpdatedAtLabel}: {installedLabel}{#if updateStatus === 'updatable' && latestLabel && latestLabel !== installedLabel}{' '}({language.profileLatestVersionLabel}: {latestLabel}){/if}
-            </div>
-        {/if}
-        {#if modelReleaseDate}
-            <div class="text-xs text-subtext">
-                {language.profileModelReleaseDateLabel}: {modelReleaseDate}
-            </div>
-        {/if}
-        {#if dataCutoff}
-            <div class="text-xs text-subtext">
-                {language.profileDataCutoffLabel}: {dataCutoff}
-            </div>
-        {/if}
-        {#if preset.profileSnapshot.capabilities && preset.profileSnapshot.capabilities.length > 0}
-            <div class="flex flex-wrap gap-1 mt-1">
-                {#each preset.profileSnapshot.capabilities as cap}
-                    <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-subtext">{cap}</span>
-                {/each}
-            </div>
-        {/if}
-        <div class="flex gap-2 mt-2">
-            <Button size="sm" className="flex-1" onclick={replaceProfile}>
-                <RefreshCwIcon class="shrink-0" />
-                <span class="ml-1">{language.profileReplace}</span>
-            </Button>
-            <Button size="sm" className="flex-1" onclick={exportPreset}>
-                <DownloadIcon class="shrink-0" />
-                <span class="ml-1">{language.profileExport}</span>
-            </Button>
-        </div>
-    </div>
 
-    <div class="flex flex-col gap-2 mt-8">
-        <Button variant="default" size="default" className="w-full" onclick={duplicate}>
-            <CopyIcon/>
-            <span class="ml-1">{language.presetDuplicate}</span>
-        </Button>
-        <Button variant="destructive" size="default" className="w-full" onclick={remove}>
-            <Trash2Icon/>
-            <span class="ml-1">{language.presetDelete}</span>
-        </Button>
-    </div>
+        <div class="[&>*:first-child]:border-t-0">
+            <SettingLayout
+                variant="row"
+                title={language.profileReplace}
+                description={language.help.modelPresetProfileReplaceHelp}
+                actionLabel={language.profileReplace}
+                actionIcon={RefreshCwIcon}
+                onAction={replaceProfile}
+            />
+            <SettingLayout
+                variant="row"
+                title={language.presetDelete}
+                description={language.help.modelPresetDeleteHelp}
+                actionLabel={language.presetDelete}
+                actionVariant="destructive"
+                onAction={() => onDelete(preset.id)}
+            />
+        </div>
+    </SettingLayout>
 </div>

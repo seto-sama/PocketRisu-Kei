@@ -3,7 +3,7 @@ import { isNodeServer } from '../../platform'
 import { asBuffer } from '../../util'
 import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
-import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
+import { customV3ProviderMetaStore } from "../../plugins/apiV3/v3.svelte";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginRuntime } from "../../plugins/pluginRuntime";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
@@ -313,17 +313,6 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     }
 }
 
-export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[], preserveResponseIds?: ReadonlySet<string>){
-    const flags = Array.isArray(modelInfo) ? modelInfo : modelInfo.flags
-    return formatPresetMessages(formated, {
-        foldSystemPrompt: !flags.includes(LLMFlags.hasFullSystemPrompt),
-        keepFirstSystemPrompt: flags.includes(LLMFlags.hasFirstSystemPrompt),
-        alternateRole: flags.includes(LLMFlags.requiresAlternateRole),
-        startWithUserInput: flags.includes(LLMFlags.mustStartWithUserInput),
-    }, getDatabase(), preserveResponseIds)
-}
-
-
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     // Normalize at the shared request boundary so main and auxiliary callers
     // behave consistently. Structured tool-call follow-up turns are created
@@ -506,30 +495,16 @@ async function requestPluginPreset(
 
     const modelId = preset.profileSnapshot.modelId
     const providerName = pluginProviderName(modelId)
-    if (!providerName) {
+    if (!providerName || !customV3ProviderMetaStore.some(model => model.id === modelId)) {
         return {
             type: 'fail',
             result: language.pluginModelUnavailable,
             model: preset.name,
         }
     }
-    if (!isV3PluginModel(modelId)) {
-        return {
-            type: 'fail',
-            result: language.pluginModelUnavailable,
-            model: preset.name,
-        }
-    }
-
-    const foldSystem = compiled.behavior.foldSystemPrompt
-    const flags: LLMFlags[] = []
-    if (!foldSystem) flags.push(LLMFlags.hasFullSystemPrompt)
-    else if (compiled.behavior.keepFirstSystemPrompt) flags.push(LLMFlags.hasFirstSystemPrompt)
-    if (compiled.behavior.alternateRole) flags.push(LLMFlags.requiresAlternateRole)
-    if (compiled.behavior.startWithUserInput) flags.push(LLMFlags.mustStartWithUserInput)
 
     try {
-        arg.formated = reformater(structuredClone(arg.formated), flags)
+        arg.formated = formatPresetMessages(structuredClone(arg.formated), compiled.behavior, getDatabase())
     } catch (err) {
         return {
             type: 'fail',
@@ -1022,16 +997,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    const foldSystem = compiled.behavior.foldSystemPrompt
-    const presetFlags: LLMFlags[] = []
-    if (!foldSystem) presetFlags.push(LLMFlags.hasFullSystemPrompt)
-    else if (compiled.behavior.keepFirstSystemPrompt) presetFlags.push(LLMFlags.hasFirstSystemPrompt)
-    if (compiled.behavior.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
-    if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
     // Clone before folding so retries cannot merge text into the original history.
     try {
-        arg.formated = reformater(
-            structuredClone(arg.formated), presetFlags,
+        arg.formated = formatPresetMessages(
+            structuredClone(arg.formated), compiled.behavior, getDatabase(),
             new Set(contexts.map(context => context.responseId)),
         )
     } catch (err) {
@@ -1080,12 +1049,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    // previewBody never calls the chat endpoint and never runs tools — it just
-    // builds and returns the prepared request. (One caveat: a google-service-
-    // account profile may still perform an OAuth token exchange during credential
-    // resolution if its token cache is empty/expired — that exchange is not the
-    // chat request. API-key profiles make no network call here.) Mirrors the
-    // classic adapters' previewBody handling.
+    // Preview skips chat requests and tools. Service-account credential resolution
+    // may still refresh an expired OAuth token before reaching this point.
     if (arg.previewBody) {
         try {
             const prepared = await adapter.preview(

@@ -48,7 +48,6 @@
 
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
-    import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
@@ -56,7 +55,7 @@
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
 
-    import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
+    import { getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { createEntityId } from 'src/ts/id';
@@ -909,9 +908,7 @@
             {@const diagnosticGenerationInfo = diagnosticMessage
                 ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
                 : messageGenerationInfo}
-            {@const modelLabel = diagnosticGenerationInfo?.model
-                ? capitalize(getModelInfo(diagnosticGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))
-                : language.requestDiagnostics.unavailable}
+            {@const modelLabel = diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable}
             <IconButton
                 expanded
                 className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
@@ -1073,9 +1070,7 @@
                 {autoTranslationSuppressed}
                 {lastOutputAutoTranslationCandidate}
                 {adjacentSwipeMessages}
-                modelShortName={
-                    messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
-                }
+                modelShortName={messageGenerationInfo?.model ?? ''}
                 role={role ?? null}
                 onTranslationTaskChange={updateTranslationTasks}
                 onTranslationCancelAvailabilityChange={(cancel) => cancelTranslationRequest = cancel}
@@ -1296,7 +1291,8 @@
 
                 const isUserMessage = role === 'user'
                 const displayName = isUserMessage ? getUserName() : name
-                const modelInfo = messageGenerationInfo ? capitalize(getModelInfo(messageGenerationInfo.model).shortName) : (isUserMessage ? 'User' : 'AI')
+                const modelInfo = doc.createElement('span')
+                modelInfo.textContent = messageGenerationInfo?.model || (isUserMessage ? 'User' : 'AI')
                 
                 let finalIconDataUrl = iconDataUrl
                 let finalHasValidImage = hasValidImage
@@ -1353,7 +1349,7 @@
 <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1rem; text-align: center;">
     ${finalHasValidImage ? `<img style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; margin-bottom: 0.75rem; object-fit: cover;" src="${finalIconDataUrl}" alt="profile">` : ''}
     <h3 style="color: ${root.style.getPropertyValue('--risu-theme-maintext')}; font-weight: 600; font-size: 1.5rem; margin: 0 0 0.5rem 0;">${displayName}</h3>
-    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo}</span>` : ''}
+    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo.innerHTML}</span>` : ''}
 </div>
 <div style="border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; padding-top: 1rem;">
     ${doc.body.innerHTML}

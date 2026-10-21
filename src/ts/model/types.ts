@@ -113,24 +113,3 @@ export interface LLMModel{
     keyIdentifier?: string
     endpoint?: string
 }
-
-export const ProviderNames = new Map<LLMProvider, string>([
-    [LLMProvider.OpenAI, 'OpenAI'],
-    [LLMProvider.Anthropic, 'Anthropic'],
-    [LLMProvider.GoogleCloud, 'Google Cloud'],
-    [LLMProvider.VertexAI, 'Vertex AI'],
-    [LLMProvider.AsIs, 'As Is'],
-    [LLMProvider.Mistral, 'MistralAI'],
-    [LLMProvider.NovelList, 'NovelList'],
-    [LLMProvider.NovelAI, 'NovelAI'],
-    [LLMProvider.Horde, 'Horde'],
-    [LLMProvider.AWS, 'AWS'],
-    [LLMProvider.DeepSeek, 'DeepSeek'],
-    [LLMProvider.DeepInfra, 'DeepInfra'],
-    [LLMProvider.Echo, 'For Developer'],
-    [LLMProvider.NanoGPT, 'NanoGPT']
-])
-
-export const OpenAIParameters:LLMParameter[] = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty']
-export const GPT5Parameters:LLMParameter[] = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'reasoning_effort','verbosity']
-export const ClaudeParameters:LLMParameter[] = ['temperature', 'top_k', 'top_p']

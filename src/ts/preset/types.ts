@@ -205,10 +205,8 @@ export type RegistryTokenizer =
 
 export interface ModelProfile {
     id: string
-    // Precise timestamp (epoch millis) of the profile's last revision. Basis for
-    // the per-preset "update available" hint (custom-profiles plan): compared
-    // against the preset's recorded sourceProfile.profileUpdatedAt. Optional —
-    // legacy/unstamped profiles compare as "unknown" (no hint).
+    // Revision timestamp compared with sourceProfile.profileUpdatedAt for update
+    // hints. Profiles without a timestamp have an unknown revision.
     updatedAt?: number
     displayName: string
     displayNameI18n?: Record<string, string>
@@ -311,13 +309,6 @@ export interface ModelPreset extends PresetTagFields {
     // bound chats are never routed through the tool loop. Only meaningful when
     // the profile declares the 'tools' capability. Tool runs force non-streaming.
     toolUse?: boolean
-    // Per-ModelPreset model-ability flags. The classic (custom model) path lets
-    // users toggle LLMFlags directly; the preset path had no equivalent, so it
-    // could neither attach images nor normalize system/role for models that need
-    // it (e.g. Ollama Gemma3 — no native system role). These mirror the relevant
-    // LLMFlags and feed reformater()/the vision gate in requestModelPreset. All
-    // default off → byte-identical to the prior text-only, no-attachment behavior.
-    //
     // Send attached images. Additive opt-in for profiles whose snapshot does not
     // declare the 'vision' capability (e.g. ollama / openai-compatible); profiles
     // that DO declare 'vision' already send images and ignore this.
@@ -328,18 +319,16 @@ export interface ModelPreset extends PresetTagFields {
     gptVisionQuality?: 'auto' | 'low' | 'medium' | 'high'
     // Fold non-leading system messages into user turns (role + content rewrite via
     // db.systemRoleReplacement/ContentReplacement). For models without a native
-    // system role. Maps to the absence of LLMFlags.hasFullSystemPrompt.
+    // system role.
     foldSystemPrompt?: boolean
     // When folding, keep the leading system block as a real system message instead
-    // of rewriting it. Only meaningful with foldSystemPrompt on. Maps to
-    // LLMFlags.hasFirstSystemPrompt.
+    // of rewriting it. Only meaningful with foldSystemPrompt on.
     keepFirstSystemPrompt?: boolean
     // Merge consecutive same-role turns into one. For models that require strictly
-    // alternating roles (e.g. Gemma). Maps to LLMFlags.requiresAlternateRole.
+    // alternating roles (e.g. Gemma).
     alternateRole?: boolean
     // Prepend an empty user turn when the conversation does not start with user.
-    // For models that reject a non-user first turn. Maps to
-    // LLMFlags.mustStartWithUserInput.
+    // For models that reject a non-user first turn.
     startWithUserInput?: boolean
     // Per-ModelPreset input (context) token budget — how much prompt to send,
     // mirroring the global db.maxContext but per binding. Empty → 65000 default,

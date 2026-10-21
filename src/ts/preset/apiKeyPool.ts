@@ -1,6 +1,7 @@
 import { getDatabase } from 'src/ts/storage/database.svelte'
 import type { ApiKeyPoolEntry, BaseProviderDefinition } from './types'
 import { createEntityId } from 'src/ts/id';
+import { isAlwaysVisibleSpecialProfile } from './registry/providerFilter'
 
 const API_KEY_PROVIDER_ALIASES: Readonly<Record<string, string>> = {
     'cloudflare-workers-ai': 'cloudflare',
@@ -33,6 +34,7 @@ export function listApiKeyProviderOptions(
 ): ApiKeyProviderOption[] {
     const options = new Map<string, ApiKeyProviderOption>()
     for (const provider of Object.values(baseProviders)) {
+        if (isAlwaysVisibleSpecialProfile(provider)) continue
         const groupId = provider.providerGroupId ?? provider.id
         if (hiddenProviderIds.has(groupId)) continue
 

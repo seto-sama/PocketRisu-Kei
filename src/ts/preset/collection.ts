@@ -55,9 +55,12 @@ export function duplicatePresetItem<T>(
 export function removePresetItem<T>(
     items: T[],
     selectedIndex: number,
-    index: number,
+    target: number | string,
     minimumItems = 1,
 ): PresetCollectionResult<T> {
+    const index = typeof target === 'string'
+        ? items.findIndex(item => presetId(item) === target)
+        : target
     if (items.length <= minimumItems || !items[index]) {
         return { items, selectedIndex, changed: false }
     }

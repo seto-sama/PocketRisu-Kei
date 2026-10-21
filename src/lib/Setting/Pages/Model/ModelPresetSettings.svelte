@@ -10,6 +10,7 @@
     import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
     import Textarea from "../../../UI/components/Textarea.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
+    import SettingLayout from "../../Wrappers/SettingLayout.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import type { RegistryFieldSchema, RegistryUiField, RegistryUiGroup } from "src/ts/preset/types";
     import { tokenizerList } from "src/ts/tokenizer";
@@ -322,12 +323,12 @@
         notifySuccess(language.presetDuplicated);
     }
 
-    async function remove(index: number) {
-        const preset = DBState.db.modelPresets[index];
+    async function remove(id: string) {
+        const preset = DBState.db.modelPresets.find(preset => preset.id === id);
         if (!preset) return;
         const ok = await alertConfirm(`${language.removeConfirm}${preset.name}`);
         if (!ok) return;
-        const result = removePresetItem(DBState.db.modelPresets, -1, index, 0);
+        const result = removePresetItem(DBState.db.modelPresets, -1, id, 0);
         if (!result.changed) return;
         DBState.db.modelPresets = result.items;
         notifySuccess(language.presetDeleted);
@@ -501,7 +502,10 @@
 
         {#if editingPreset}
             {#if submenu === 0}
-                <ModelPresetBasicInfo preset={editingPreset} onAfterDelete={() => { editingId = null }} />
+                <ModelPresetBasicInfo
+                    preset={editingPreset}
+                    onDelete={remove}
+                />
             {:else if submenu === 1}
                 <SchemaFormRenderer
                     schema={editingPreset.profileSnapshot.schema}
@@ -515,8 +519,7 @@
                 />
             {:else if submenu === 2}
                 {#if showCacheSection}
-                    <div class="mb-6">
-                        <h3 class="text-sm font-semibold text-subtext uppercase tracking-wide">{language.modelPresetCacheSection}</h3>
+                    <SettingLayout variant="section" title={language.modelPresetCacheSection} first>
                         <SettingRenderer items={cacheItems.slice(0, 3)} target={editingPreset} layout="row" />
                         <Alert variant="warning">
                             {#snippet icon()}<TriangleAlertIcon />{/snippet}
@@ -527,57 +530,56 @@
                                 <div class="p-2"><SettingRenderer items={cacheItems.slice(3)} target={editingPreset} layout="row" /></div>
                             </Accordion>
                         {/if}
-                    </div>
+                    </SettingLayout>
                 {/if}
                 <SchemaFormRenderer
                     schema={editingPreset.profileSnapshot.schema}
                     uiSchema={editingPreset.profileSnapshot.uiSchema}
                     userValues={editingPreset.userValues}
                     visibility="advanced"
+                    first={!showCacheSection}
                     preset={editingPreset}
                     extraSchema={[...abilityControls.schema, ...anthropicRequestSchema]}
                     extraUiGroups={advancedExtraGroups}
                     extraUiFields={[...abilityControls.uiFields, ...anthropicRequestUiFields]}
                     extraValues={editingPreset}
                 />
-                <div class="mt-6">
-                    <h3 class="text-base font-bold mb-1 text-maintext">{language.modelPresetOtherGroup}</h3>
+                <SettingLayout variant="section" title={language.modelPresetOtherGroup}>
                     <SettingRenderer items={advancedPresetItems} target={editingPreset} layout="row" />
-                </div>
+                </SettingLayout>
             {:else if submenu === 3}
-                <div class="flex flex-col gap-4 mb-6">
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-sm text-maintext">{language.modelPresetTestTitle}</span>
-                        <span class="text-xs text-subtext">{language.help.modelPresetTestHelp}</span>
-                    </div>
-                    <Textarea
-                        commitMode="input"
-                        bind:value={testMessage}
-                        placeholder={language.modelPresetTestDefault}
-                        fullwidth
-                        autocomplete="off"
-                        height="24"
-                    />
-                    <Button
-                        variant="default"
-                        size="default"
-                        className="self-start"
-                        disabled={testing || testMessage.trim().length === 0}
-                        onclick={runTest}
-                    >
-                        {testing ? language.modelPresetTestSending : language.modelPresetTestSend}
-                    </Button>
+                <SettingLayout variant="section" title={language.modelPresetTestTitle} first>
+                    <div class="flex flex-col gap-4 mb-6">
+                        <p class="text-xs text-subtext">{language.help.modelPresetTestHelp}</p>
+                        <Textarea
+                            commitMode="input"
+                            bind:value={testMessage}
+                            placeholder={language.modelPresetTestDefault}
+                            fullwidth
+                            autocomplete="off"
+                            height="24"
+                        />
+                        <Button
+                            variant="default"
+                            size="default"
+                            className="self-start"
+                            disabled={testing || testMessage.trim().length === 0}
+                            onclick={runTest}
+                        >
+                            {testing ? language.modelPresetTestSending : language.modelPresetTestSend}
+                        </Button>
 
-                    {#if testResult}
-                        <div class="flex flex-col gap-1 rounded-md border p-3 text-sm {testResult.ok ? 'bg-success/20 border-success/40' : 'bg-danger/20 border-danger/40'}">
-                            <span class="font-medium {testResult.ok ? 'text-success' : 'text-danger'}">
-                                {testResult.ok ? language.modelPresetTestSuccess : language.modelPresetTestFail}
-                                <span class="text-subtext font-normal ml-1">({testResult.latencyMs}ms)</span>
-                            </span>
-                            <span class="text-maintext whitespace-pre-wrap warp-break-words">{testResult.message}</span>
-                        </div>
-                    {/if}
-                </div>
+                        {#if testResult}
+                            <div class="flex flex-col gap-1 rounded-md border p-3 text-sm {testResult.ok ? 'bg-success/20 border-success/40' : 'bg-danger/20 border-danger/40'}">
+                                <span class="font-medium {testResult.ok ? 'text-success' : 'text-danger'}">
+                                    {testResult.ok ? language.modelPresetTestSuccess : language.modelPresetTestFail}
+                                    <span class="text-subtext font-normal ml-1">({testResult.latencyMs}ms)</span>
+                                </span>
+                                <span class="text-maintext whitespace-pre-wrap warp-break-words">{testResult.message}</span>
+                            </div>
+                        {/if}
+                    </div>
+                </SettingLayout>
             {/if}
         {/if}
     {:else}
@@ -661,7 +663,7 @@
                                 </div>
                                 <div class="text-subtext risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
-                                    remove(i)
+                                    remove(preset.id)
                                 }} onkeydown={(e) => {
                                     if (e.key === 'Enter' && e.currentTarget instanceof HTMLElement) {
                                         e.currentTarget.click()

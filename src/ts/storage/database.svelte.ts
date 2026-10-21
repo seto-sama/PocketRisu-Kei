@@ -2582,7 +2582,7 @@ export async function importThemePreset(f: {
 
 import type { RisuModule } from '../process/modules';
 import { DBState, selectedCharID } from '../stores.svelte';
-import { LLMFlags, LLMFormat, LLMTokenizer } from '../model/modellist';
+import { LLMFormat, type LLMFlags } from '../model/types';
 import type { HypaModel } from '../process/memory/hypamemory';
 import type { SerializableHypaV3Data } from '../process/memory/hypav3';
 import type { OpenAIChat } from '../process/index.svelte';

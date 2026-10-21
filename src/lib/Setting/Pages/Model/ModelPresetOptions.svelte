@@ -1,6 +1,5 @@
 <script lang="ts">
     import SettingRenderer from "../../SettingRenderer.svelte";
-    import SoundGroup from "../Sound/SoundGroup.svelte";
     import { alertClear, alertConfirm, alertStore, notifyError, notifySuccess } from "src/ts/alert";
     import { language } from "src/lang";
     import { DBState } from "src/ts/stores.svelte";
@@ -100,15 +99,15 @@
     }
 </script>
 
-<SoundGroup
+<SettingLayout
+    variant="section"
     title={language.modelPresetGroupRegistry}
-    className=""
-    titleClass="text-base font-bold mt-2 mb-1"
+    first
 >
     <SettingRenderer items={modelPresetRegistryOptionsItems} layout="row" />
-</SoundGroup>
+</SettingLayout>
 
-<SoundGroup title={language.modelPresetBindingGroup}>
+<SettingLayout variant="section" title={language.modelPresetBindingGroup}>
     <div class="flex items-center justify-between gap-3 py-3">
         <div class="flex flex-col gap-0.5 min-w-0">
             <span class="text-sm text-maintext">{language.modelPresetGlobalBinding}</span>
@@ -147,8 +146,8 @@
             { label: language.modelPresetOverwriteSubmodelShort, onclick: () => overwriteChatBindings('sub') },
         ]}
     />
-</SoundGroup>
+</SettingLayout>
 
-<SoundGroup title={language.modelPresetGroupOther}>
+<SettingLayout variant="section" title={language.modelPresetGroupOther}>
     <SettingRenderer items={modelPresetOtherOptionsItems} layout="row" />
-</SoundGroup>
+</SettingLayout>
