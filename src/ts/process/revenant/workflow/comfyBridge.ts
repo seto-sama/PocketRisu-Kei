@@ -7,6 +7,7 @@ import {
 } from '../transport/client'
 import { getComfyBridgeId } from './comfyBridgeId'
 import { createEntityId } from '../../../id'
+import { createComfyUrl } from '../../../network/comfyUrl'
 
 const HANDLE_KEY = 'risu-comfy-bridge-handles'
 const MAX_STORED_HANDLES = 32
@@ -38,14 +39,6 @@ function writeHandle(jobId: string, handle?: StoredHandle): void {
         }
         globalThis.localStorage?.setItem(HANDLE_KEY, JSON.stringify(handles))
     } catch {}
-}
-
-function createComfyUrl(base: string, path: string, query?: Record<string, string>): URL {
-    const root = new URL(base)
-    if (!['http:', 'https:'].includes(root.protocol)) throw new Error('Invalid local ComfyUI URL')
-    const url = base.endsWith('/api') ? new URL(`${base}${path}`) : new URL(path, root)
-    if (query) url.search = new URLSearchParams(query).toString()
-    return url
 }
 
 async function directFetch(url: URL, init: {

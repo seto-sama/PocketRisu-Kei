@@ -123,17 +123,21 @@ export function classifyPluginProviderFetch(
     const method = (options?.method ?? (options?.body === undefined ? 'GET' : 'POST')).toUpperCase()
     if (method !== 'POST') return { generation: false }
 
-    const text = requestBodyText(options?.body)
-    const body = requestBodyObject(options?.body, text)
     const { hostname, pathname } = requestUrl(url)
+    const generationEndpoint = isGenerationEndpoint(pathname)
+    if (!workflowDependencyPlaceholder && !generationEndpoint && isAncillaryEndpoint(pathname)) {
+        return { generation: false }
+    }
+    const text = requestBodyText(options?.body)
+    if (workflowDependencyPlaceholder && !text?.includes(workflowDependencyPlaceholder)) {
+        return { generation: false }
+    }
+    const body = requestBodyObject(options?.body, text)
+    if (!workflowDependencyPlaceholder && !generationEndpoint && !hasGenerationBodyShape(body)) {
+        return { generation: false }
+    }
+
     const headers = requestHeaders(options?.headers)
-    const generation = workflowDependencyPlaceholder
-        ? text?.includes(workflowDependencyPlaceholder) === true
-        : isGenerationEndpoint(pathname)
-            || (!isAncillaryEndpoint(pathname) && hasGenerationBodyShape(body))
-
-    if (!generation) return { generation: false }
-
     const streaming = body?.['stream'] === true
         || pathname.endsWith(':streamgeneratecontent')
         || pathname.endsWith('/invoke-with-response-stream')

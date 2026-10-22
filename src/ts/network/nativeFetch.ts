@@ -10,7 +10,7 @@ export interface FetchNativeArgs {
     serverProviderAuth?: import('./transportTypes').ServerProviderAuth
     body?: string | Uint8Array | ArrayBuffer
     headers?: Record<string, string>
-    method?: 'POST' | 'GET' | 'PUT' | 'DELETE'
+    method?: 'POST' | 'GET' | 'HEAD' | 'PUT' | 'PATCH' | 'DELETE'
     signal?: AbortSignal
     useRisuTk?: boolean
     chatId?: string
@@ -19,6 +19,7 @@ export interface FetchNativeArgs {
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
     llmExecutionPolicy?: LLMExecutionPolicy
+    redirect?: 'error'
 }
 
 type NativeFetchLogAdapter = {
@@ -90,9 +91,8 @@ async function fetchViaProxy2(
             ...(DBState?.db?.requestLocation ? { 'risu-location': DBState.db.requestLocation } : {}),
         }
         if (realBody) {
-            proxyHeaders['Content-Type'] = headers['Content-Type']
-                ?? headers['content-type']
-                ?? 'application/json'
+            // The proxy receives bytes; the upstream MIME type travels in risu-header.
+            proxyHeaders['Content-Type'] = 'application/octet-stream'
         }
         signal.throwIfAborted()
         return fetch('/proxy2', {
@@ -121,7 +121,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         headers = Object.fromEntries(identifiedHeaders.entries())
     }
     let realBody: Uint8Array | undefined
-    if (arg.method === 'GET' || arg.method === 'DELETE') {
+    if (arg.method === 'GET' || arg.method === 'HEAD' || arg.method === 'DELETE') {
         realBody = undefined
     } else if (typeof arg.body === 'string') {
         let body = arg.body
@@ -155,6 +155,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         headers,
         method: arg.method,
         signal,
+        redirect: arg.redirect,
     }), { signal: requestSignal, idleTimeoutMs: requestIdleTimeoutMs(arg.requestTimeoutMs) })
     try {
         const revenantRequest = arg.generationRequest

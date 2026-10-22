@@ -296,6 +296,7 @@ await (async function() {
     
     
     window.addEventListener('message', async (event) => {
+        if (event.source !== window.parent) return;
         const data = event.data;
         if (!data) return;
 
@@ -454,7 +455,7 @@ export class SandboxHost {
     private iframe: HTMLIFrameElement;
     private apiFactory: any;
     private nonce = createEntityId();
-    private csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src * 'unsafe-inline'; default-src 'none'; img-src * data: blob:; font-src * data: blob:; media-src * data: blob:; base-uri 'none';`;
+    private csp: string;
 
     private instanceRegistry = new Map<string, any>();
     private abortControllers = new Map<string, AbortController>();
@@ -470,6 +471,9 @@ export class SandboxHost {
 
     constructor(apiFactory: any) {
         this.apiFactory = apiFactory;
+        const appOrigin = new URL(window.location.href).origin;
+        const resourceOrigin = appOrigin === 'null' ? '' : `${appOrigin}/assets/ `;
+        this.csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src ${resourceOrigin}'unsafe-inline'; default-src 'none'; img-src ${resourceOrigin}data: blob:; font-src ${resourceOrigin}data: blob:; media-src ${resourceOrigin}data: blob:; form-action 'none'; base-uri 'none';`;
     }
 
     public executeInIframe(code: string): Promise<any> {

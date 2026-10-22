@@ -59,6 +59,24 @@ it.each([false, true])('respects the statistics preference in server proxy heade
     expect(headers.get('HTTP-Referer')).toBe(hidden ? null : 'https://github.com/PocketRisu/PocketRisu')
 })
 
+it.each([
+    { body: 'grant_type=jwt-bearer&assertion=test', contentType: 'application/x-www-form-urlencoded', bytes: [...new TextEncoder().encode('grant_type=jwt-bearer&assertion=test')] },
+    { body: Uint8Array.of(9, 0, 0x80, 0xff, 9).subarray(1, 4), contentType: 'application/octet-stream', bytes: [0, 0x80, 0xff] },
+    { body: Uint8Array.of(0xff, 0, 0x80).buffer, contentType: 'application/vnd.example.raw', bytes: [0xff, 0, 0x80] },
+])('preserves request bytes in server-routed nativeFetch ($contentType)', async test => {
+    fetchMock.mockResolvedValue(new Response('received'))
+    await fetchNative('https://provider.example/request', {
+        method: 'POST', body: test.body, headers: { 'Content-Type': test.contentType },
+        llmExecutionPolicy: { kind: 'ephemeral', durability: 'off', providerRoute: 'server' },
+    })
+    const [url, options] = fetchMock.mock.lastCall!
+    expect(url).toBe('/proxy2')
+    expect([...new Uint8Array(await new Response(options.body).arrayBuffer())]).toEqual(test.bytes)
+    expect(new Headers(options.headers).get('content-type')).toBe('application/octet-stream')
+    const targetHeaders = new Headers(JSON.parse(decodeURIComponent(options.headers['risu-header'])))
+    expect(targetHeaders.get('content-type')).toBe(test.contentType)
+})
+
 it('bounds a silent direct plugin request without duplicating its POST through the proxy', async () => {
     fetchMock.mockImplementation(() => new Promise(() => {}))
     const failed = expect(fetchNative('https://provider.example/generate', { body: '{}' }))
@@ -81,6 +99,17 @@ it('keeps the existing network fallback and bounds the authenticated proxy respo
     expect(fetchMock.mock.calls[1][0]).toBe('/proxy2')
     expect(fetchMock.mock.calls[1][1].headers['risu-auth']).toBe('token')
     expect(vi.getTimerCount()).toBe(0)
+})
+
+it('blocks redirects on an explicitly direct plugin request', async () => {
+    fetchMock.mockRejectedValue(new TypeError('redirect blocked'))
+    await expect(fetchNative('http://localhost:8188/prompt', {
+        body: '{}', redirect: 'error',
+        llmExecutionPolicy: { kind: 'ephemeral', durability: 'off', providerRoute: 'direct' },
+    })).rejects.toThrow('redirect blocked')
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0][1].redirect).toBe('error')
+    expect(mocks.auth).not.toHaveBeenCalled()
 })
 
 it('respects a longer request timeout for a response body that stops sending data', async () => {

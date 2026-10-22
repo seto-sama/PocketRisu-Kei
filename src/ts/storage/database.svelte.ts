@@ -915,12 +915,7 @@ export function getDatabase(options:getDatabaseOptions = {}):Database{
 }
 
 export function getCurrentCharacter(options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
-    if(!db.characters){
-        db.characters = []
-    }
-    const char = db.characters?.[get(selectedCharID)]
-    return char
+    return getCharacterByIndex(get(selectedCharID), options)
 }
 
 export function setCurrentCharacter(char:character){
@@ -932,12 +927,12 @@ export function setCurrentCharacter(char:character){
 }
 
 export function getCharacterByIndex(index:number,options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
+    const db = getDatabase()
     if(!db.characters){
         db.characters = []
     }
     const char = db.characters?.[index]
-    return char
+    return options.snapshot && char ? $state.snapshot(char) as character : char
 }
 
 export function setCharacterByIndex(index:number,char:character){

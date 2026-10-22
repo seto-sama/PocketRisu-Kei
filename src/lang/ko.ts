@@ -2101,10 +2101,11 @@ export const languageKorean = {
     `플러그인 ${appendKoreanJosa(pluginName, "이/가")} 사용자 대신 채팅 메시지를 전송할 권한을 요청합니다. AI 응답이 트리거됩니다. 허용하시겠습니까?`,
   inlayPermissionConsent: (pluginName: string) =>
     `플러그인 ${appendKoreanJosa(pluginName, "이/가")} 인레이 에셋 접근 권한을 요청합니다. 채팅에 첨부된 파일이 노출될 수 있습니다. 허용하시겠습니까?`,
+  pluginPermissionDenyGuide: '플러그인 "{}"의 권한 요청을 거부했습니다. 거부한 권한은 다시 묻지 않습니다.\n\n변경하려면 설정 > 플러그인에서 해당 플러그인의 권한 초기화 버튼을 누르세요.',
   resetPluginPermission: "권한 설정 초기화",
   resetPluginPermissionConfirm:
-    '플러그인 "{}"에 저장된 권한 허가 기록을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
-  resetPluginPermissionDone: '"{}"의 권한 허가 기록을 초기화했습니다',
+    '플러그인 "{}"의 권한 응답(허용 / 거부)을 초기화할까요?\n\n다음에 권한을 요청할 때 다시 묻게 됩니다.',
+  resetPluginPermissionDone: '"{}"의 권한 응답을 초기화했습니다',
   createPlugin: "플러그인 만들기",
   importPlugin: "플러그인 불러오기",
   exportPlugin: "플러그인 내보내기",

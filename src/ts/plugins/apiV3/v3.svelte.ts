@@ -3,6 +3,7 @@ import { allowedDbKeys, createPluginApis } from '../pluginApi.svelte'
 import { pluginProviderRequestContextKey, pluginRuntime, type PluginProviderRequestContext, type PluginProviderArgument, type PluginProviderFunction } from '../pluginRuntime'
 import { getRpcAbortSignalMetadata, SandboxHost, setRpcAbortSignalMetadata } from "./factory";
 import { getDatabase } from "src/ts/storage/database.svelte";
+import { getCurrentImageGenerationPreset } from "src/ts/imageGeneration/presets";
 import { getChatPage, initializeChatSelection, withChatSelection } from 'src/ts/storage/chatSelection.svelte';
 import { getChatFromIndex, setChatToIndex } from './chatAccess.svelte';
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
@@ -12,7 +13,7 @@ import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburge
 import { automaticPluginSidebarMenuKey, pluginSidebarMenuKey, rememberPluginSidebarMenuItem, removeSidebarMenuKeys } from "src/ts/sidebarMenuOrder";
 import { createEntityId, ensureUniqueEntityIds } from 'src/ts/id';
 import { sleep } from "src/ts/util";
-import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
+import { alertConfirm, alertError, alertNormal, alertNormalWait } from "src/ts/alert";
 import { language } from "src/lang";
 import { checkCharOrder, forageStorage, getFetchLogs } from "src/ts/globalApi.svelte";
 import { changeColorScheme, normalizeColorScheme, updateColorScheme, updateTextThemeAndCSS, withLegacyColorSchemeAliases, type ColorScheme, type LegacyColorScheme } from "src/ts/gui/colorscheme";
@@ -42,12 +43,13 @@ import {
     type TTSHookFn,
 } from "src/ts/process/ttsHooks";
 import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
+import { authorizePluginRequest } from './pluginNetworkPolicy';
 import { resolveProviderRequestContext, withProviderRequestContext } from './providerRequestContext';
+import type { FetchNativeArgs } from 'src/ts/network/nativeFetch';
+import { readGlobalFetchResponse } from 'src/ts/network/fetchResult';
+import { EPHEMERAL_SERVER_LLM_EXECUTION, type LLMExecutionPolicy } from 'src/ts/network/transportTypes';
 import { getInlayAsset } from "src/ts/process/files/inlays";
 import {
-    clearPluginPermissionStateFor,
-    permissionKeyOf,
-    permissionLastGrantKeyOf,
     PluginPermissionDialogQueue,
     type PluginPermissionDesc,
 } from "./pluginPermissionState";
@@ -72,49 +74,44 @@ function prepareDatabaseWrite(db: Record<string, any>): Record<string, any> {
     return prepared
 }
 
-type DocumentEventListenerEntry = {
+type PluginEventListenerEntry = {
     pluginName: string;
+    eventTarget: EventTarget;
     type: string;
     listener: EventListenerOrEventListenerObject;
     options: AddEventListenerOptions;
 };
-const documentEventListeners = new Map<string, DocumentEventListenerEntry>();
+const pluginEventListeners = new Map<string, PluginEventListenerEntry>();
 
-const removeDocumentEventListener = (id: string, pluginName: string) => {
-    const entry = documentEventListeners.get(id);
-    if(!entry || entry.pluginName !== pluginName) return;
-    document.removeEventListener(entry.type, entry.listener, entry.options);
-    documentEventListeners.delete(id);
-}
-
-const registerDocumentEventListener = (
-    id: string,
-    entry: DocumentEventListenerEntry,
-) => {
-    documentEventListeners.set(id, entry);
-    document.addEventListener(entry.type, entry.listener, entry.options);
-    return id;
+const removePluginEventListener = (id: string) => {
+    const entry = pluginEventListeners.get(id);
+    if(!entry) return;
+    entry.eventTarget.removeEventListener(entry.type, entry.listener, entry.options);
+    pluginEventListeners.delete(id);
 }
 
 // Keyboard events are delayed below to reduce their fingerprinting value.
-const immediateDocumentEventTypes = new Set([
+const immediateEventTypes = new Set([
     'click', 'dblclick', 'contextmenu', 'mousedown', 'mouseup', 'mousemove',
     'mouseover', 'mouseleave', 'pointercancel', 'pointerdown', 'pointerenter',
     'pointerleave', 'pointermove', 'pointerout', 'pointerover', 'pointerup',
     'scroll', 'scrollend',
 ]);
-const delayedDocumentEventTypes = new Set(['keydown', 'keyup', 'keypress']);
+const delayedEventTypes = new Set(['keydown', 'keyup', 'keypress']);
 
 class SafeElement {
     #element: HTMLElement;
+    #eventTarget: EventTarget;
+    #eventIds = new Set<string>();
     protected readonly pluginName: string;
     __classType = 'REMOTE_REQUIRED' as const;
 
-    constructor(element: HTMLElement, pluginName: string) {
+    constructor(element: HTMLElement, pluginName: string, eventTarget: EventTarget = element) {
         if(element.getAttribute('freezed')){
             throw new Error("This element cannot be accessed by SafeELement")
         }
         this.#element = element;
+        this.#eventTarget = eventTarget;
         this.pluginName = pluginName;
     }
 
@@ -325,40 +322,34 @@ class SafeElement {
 
         }
 
-        if(immediateDocumentEventTypes.has(type)){
-            const modifiedListener = (event: any) => {
-                listener(trimEvent(event))
-            }
-            return registerDocumentEventListener(id, {
-                pluginName: this.pluginName, type, listener: modifiedListener, options: realOptions,
-            });
-        }
-        else if(delayedDocumentEventTypes.has(type)){
-            const modifiedListener = (event: any) => {
-                let delay = 0;
-                try {
-                    delay = (crypto.getRandomValues(new Uint32Array(1))[0] / 100) % 100; //0-99 ms              
-                } catch (error) {}
-                setTimeout(() => {
-                    if (!documentEventListeners.has(id)) return;
-                    listener(trimEvent(event));
-                }, delay);
-            }
-            return registerDocumentEventListener(id, {
-                pluginName: this.pluginName, type, listener: modifiedListener, options: realOptions,
-            });
-        }
-        else{
+        if (!immediateEventTypes.has(type) && !delayedEventTypes.has(type)) {
             throw new Error(`Event listener of type '${type}' is not allowed for security reasons.`);
-        }        
+        }
+        const modifiedListener = (event: Event) => {
+            if (!delayedEventTypes.has(type)) {
+                listener(trimEvent(event));
+                return;
+            }
+            let delay = 0;
+            try {
+                delay = (crypto.getRandomValues(new Uint32Array(1))[0] / 100) % 100;
+            } catch {}
+            setTimeout(() => {
+                if (pluginEventListeners.has(id)) listener(trimEvent(event));
+            }, delay);
+        };
+        pluginEventListeners.set(id, {
+            pluginName: this.pluginName, eventTarget: this.#eventTarget,
+            type, listener: modifiedListener, options: realOptions,
+        });
+        this.#eventIds.add(id);
+        this.#eventTarget.addEventListener(type, modifiedListener, realOptions);
+        return id;
     }
 
-    public removeEventListener(type:string, id:string, options?: boolean | EventListenerOptions) {
-        const entry = documentEventListeners.get(id);
-        if(!entry || entry.pluginName !== this.pluginName) return;
-        const realOptions = typeof options === 'boolean' ? { capture: options } : options || {};
-        if(entry.type !== type || !!entry.options.capture !== !!realOptions.capture) return;
-        removeDocumentEventListener(id, this.pluginName);
+    public removeEventListener(_type: string, id: string, _options?: boolean | EventListenerOptions) {
+        // Listener IDs determine removal; type/options remain for API compatibility.
+        if (this.#eventIds.delete(id)) removePluginEventListener(id);
     }
 
     public matches (selector: string): boolean {
@@ -369,7 +360,7 @@ class SafeElement {
 class SafeDocument extends SafeElement {
     __classType = 'REMOTE_REQUIRED' as const;
     constructor(document: Document, pluginName: string) {
-        super(document.documentElement, pluginName);
+        super(document.documentElement, pluginName, document);
     }
     createElement(tagName: string): SafeElement {
         if(!tagWhitelist.includes(tagName.toLowerCase())) {
@@ -555,8 +546,8 @@ const unloadV3Plugin = async (pluginName: string) => {
             sleep(1000)
         ])
     }
-    for(const [id, entry] of documentEventListeners){
-        if(entry.pluginName === pluginName) removeDocumentEventListener(id, pluginName);
+    for(const [id, entry] of pluginEventListeners){
+        if(entry.pluginName === pluginName) removePluginEventListener(id);
     }
     // Failed registration may leave channels without an unload callback.
     pluginChannels.delete(pluginName);
@@ -567,73 +558,43 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
 }
 
-// Encoded (plugin name, permission) pairs avoid collisions with free-text plugin names.
-const permissionGivenPlugins: Set<string> = new Set();
-const permissionDeniedPlugins: Set<string> = new Set();
-const permissionCache = new Map<string, boolean | number>();
+// PocketRisu keeps both decisions until reset; scope them to the executing code.
+const pluginPermissions = new Map<string, boolean>();
 const pluginPermissionStateKey = 'cache/plugin-permissions/state.json';
 let pluginPermissionLoadPromise: Promise<void> | null = null;
 
 async function ensurePluginPermissionStateLoaded() {
-    if (!pluginPermissionLoadPromise) {
-        pluginPermissionLoadPromise = (async () => {
-            const payload = await readPersistentJson<{
-                given: string[]
-                denied: string[]
-                cache: [string, boolean | number][]
-            }>(pluginPermissionStateKey)
-            if (!payload) {
-                return
-            }
-            permissionGivenPlugins.clear()
-            permissionDeniedPlugins.clear()
-            permissionCache.clear()
-            for (const pluginName of payload.given ?? []) {
-                permissionGivenPlugins.add(pluginName)
-            }
-            for (const pluginName of payload.denied ?? []) {
-                permissionDeniedPlugins.add(pluginName)
-            }
-            for (const [key, value] of payload.cache ?? []) {
-                permissionCache.set(key, value)
-            }
-        })()
-    }
+    pluginPermissionLoadPromise ??= (async () => {
+        const payload = await readPersistentJson<{
+            decisions?: [string, boolean][]
+        }>(pluginPermissionStateKey)
+        for (const [key, granted] of payload?.decisions ?? []) {
+            pluginPermissions.set(key, granted)
+        }
+    })()
     await pluginPermissionLoadPromise
 }
 
 export async function resetAllPluginPermissions() {
-    permissionGivenPlugins.clear()
-    permissionDeniedPlugins.clear()
-    permissionCache.clear()
-    pluginPermissionLoadPromise = Promise.resolve()
+    await ensurePluginPermissionStateLoaded()
+    pluginPermissions.clear()
     await removePersistentKey(pluginPermissionStateKey)
 }
 
 export async function resetPluginPermission(pluginName: string) {
+    const plugin = DBState.db.plugins?.find(plugin => plugin.name === pluginName)
+    if (!plugin?.script) return
+    const prefix = `${await hasher(new TextEncoder().encode(plugin.script))}_`
     await ensurePluginPermissionStateLoaded()
-    clearPluginPermissionStateFor({
-        given: permissionGivenPlugins,
-        denied: permissionDeniedPlugins,
-        cache: permissionCache,
-    }, pluginName)
-    const plugin = DBState.db.plugins?.find(p => p.name === pluginName)
-    if (plugin?.script) {
-        const scriptHashBase = await hasher(new TextEncoder().encode(plugin.script))
-        for (const key of [...permissionCache.keys()]) {
-            if (key.startsWith(scriptHashBase + '_')) {
-                permissionCache.delete(key)
-            }
-        }
+    for (const key of pluginPermissions.keys()) {
+        if (key.startsWith(prefix)) pluginPermissions.delete(key)
     }
     await persistPluginPermissionState()
 }
 
 async function persistPluginPermissionState() {
     await writePersistentJson(pluginPermissionStateKey, {
-        given: [...permissionGivenPlugins],
-        denied: [...permissionDeniedPlugins],
-        cache: [...permissionCache.entries()]
+        decisions: [...pluginPermissions],
     })
 }
 
@@ -648,49 +609,17 @@ export const customV3ProviderMetaStore:LLMModel[] = $state([])
 // Plugins share alertStore, so concurrent permission dialogs would overwrite each other.
 const pluginPermissionDialogQueue = new PluginPermissionDialogQueue()
 
-const isPermissionResolved = async (
+const getPluginPermission = async (
     pluginName: string,
+    scriptHash: string,
     permissionDesc: PluginPermissionDesc,
-    requiresReconfirm: boolean,
-): Promise<{ resolved: boolean; value: boolean; context: string }> => {
-    const permissionKey = permissionKeyOf(pluginName, permissionDesc);
-    if (!requiresReconfirm && permissionGivenPlugins.has(permissionKey)) {
-        return { resolved: true, value: true, context: '' }
-    }
-    if (!requiresReconfirm && permissionDeniedPlugins.has(permissionKey)) {
-        return { resolved: true, value: false, context: '' }
-    }
-
-    const pluginHash = await hasher(
-        new TextEncoder().encode(
-            DBState.db.plugins.find(p => p.name === pluginName)?.script
-        )
-    ) + `_${permissionDesc}`;
-
-    if (!requiresReconfirm && permissionCache.get(pluginHash)) {
-        permissionGivenPlugins.add(permissionKey);
-        return { resolved: true, value: true, context: pluginHash }
-    }
-
-    return { resolved: false, value: false, context: pluginHash }
-}
-
-const getPluginPermission = async (pluginName: string, permissionDesc: PluginPermissionDesc, reconfirm: boolean|'periodically' = false) => {
+) => {
     await ensurePluginPermissionStateLoaded()
-
-    // A preceding queued request may renew permission before this one runs.
-    const computeRequiresReconfirm = () => {
-        if(reconfirm === 'periodically'){
-            const lastGrantTime = permissionCache.get(permissionLastGrantKeyOf(pluginName, permissionDesc)) as number | undefined;
-            return !lastGrantTime || Date.now() - lastGrantTime > 3 * 24 * 60 * 60 * 1000; //3 days
-        }
-        return reconfirm === true;
-    }
-
+    const permissionKey = `${scriptHash}_${permissionDesc}`
     return pluginPermissionDialogQueue.request(
-        () => isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm()),
-        async (pluginHash): Promise<boolean> => {
-            let alertTitle =
+        async () => pluginPermissions.get(permissionKey),
+        async (): Promise<boolean> => {
+            const alertTitle =
                 permissionDesc === 'fetchLogs' ? language.fetchLogConsent(pluginName)
                 : permissionDesc === 'db' ? language.getFullDatabaseConsent(pluginName)
                 : permissionDesc === 'mainDom' ? language.mainDomAccessConsent(pluginName)
@@ -702,53 +631,73 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
             if(alertTitle === 'Error'){
                 return false;
             }
-            const permissionKey = permissionKeyOf(pluginName, permissionDesc);
             const conf = await alertConfirm(alertTitle)
-            if(conf && pluginHash){
-                permissionGivenPlugins.add(permissionKey);
-                permissionDeniedPlugins.delete(permissionKey);
-                permissionCache.set(pluginHash, true);
-                if(reconfirm === 'periodically'){
-                    permissionCache.set(permissionLastGrantKeyOf(pluginName, permissionDesc), Date.now());
-                }
-                await persistPluginPermissionState()
-                return true;
-            }
-            permissionDeniedPlugins.add(permissionKey);
+            pluginPermissions.set(permissionKey, conf);
             await persistPluginPermissionState()
-            return false;
+            if (!conf) await alertNormalWait(language.pluginPermissionDenyGuide.replace("{}", pluginName))
+            return conf;
         },
     )
 }
 
-const urlBlacklist = [
-    'risuai.xyz',
-    'risuai.net',
-    'sionyw.com',
-]
-
-const authorizationHeaders = [
-    'x-api-key',
-    'authorization',
-    'proxy-authorization',
-]
-
 const providerRequestContextMetadataKey = 'risuai.pluginProviderRequestContext'
+
+type SanitizedPluginFetchOptions = Pick<FetchNativeArgs,
+    'body' | 'headers' | 'method' | 'signal' | 'requestTimeoutMs'
+> & {
+    method: NonNullable<FetchNativeArgs['method']>
+    headers: Record<string, string>
+    rawResponse?: boolean
+}
+
+const pluginDirectRequestPolicy = {
+    kind: 'ephemeral',
+    durability: 'off',
+    providerRoute: 'direct',
+} as const satisfies LLMExecutionPolicy
+
+function sanitizePluginFetchOptions(options: any): SanitizedPluginFetchOptions {
+    return {
+        method: options?.method?.toUpperCase() ?? 'POST',
+        body: options?.body,
+        headers: Object.fromEntries(new Headers(options?.headers).entries()),
+        signal: options?.signal,
+        requestTimeoutMs: options?.requestTimeoutMs,
+    }
+}
+
+function sanitizeRisuFetchOptions(options: any): SanitizedPluginFetchOptions {
+    const form = options?.body instanceof URLSearchParams
+    const normalized = sanitizePluginFetchOptions(options)
+    normalized.headers['content-type'] ??= form ? 'application/x-www-form-urlencoded' : 'application/json'
+    return {
+        ...normalized,
+        body: form ? options.body.toString() : JSON.stringify(options?.body) ?? '',
+        signal: options?.abortSignal ?? options?.signal,
+        rawResponse: options?.rawResponse,
+    }
+}
 
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const apis = createPluginApis(plugin.name);
+    const pluginName = plugin.name
+    const pluginScript = plugin.script
+    let scriptHash: Promise<string> | undefined
+    const getPermission = async (permission: PluginPermissionDesc) => {
+        scriptHash ??= hasher(new TextEncoder().encode(pluginScript))
+        return getPluginPermission(pluginName, await scriptHash, permission)
+    }
     const pluginRequestContexts = new Map<string, PluginProviderRequestContext>()
+    const activeProviderRequestContext = (signal: AbortSignal | undefined): PluginProviderRequestContext | undefined => {
+        const contextToken = getRpcAbortSignalMetadata(signal, providerRequestContextMetadataKey)
+        return resolveProviderRequestContext(pluginRequestContexts, contextToken)
+    }
     const providerFetchContext = (
         url: string,
         options: PluginProviderFetchOptions | undefined,
-        signal: AbortSignal | undefined,
+        requestContext: PluginProviderRequestContext | undefined,
     ): PluginProviderRequestContext | undefined => {
-        const contextToken = getRpcAbortSignalMetadata(signal, providerRequestContextMetadataKey)
-        // Some older API 3.0 providers do not forward addProvider's
-        // AbortSignal. Preserve the existing unambiguous single-request
-        // fallback, but never attach it to auth/cache/metadata fetches.
-        const requestContext = resolveProviderRequestContext(pluginRequestContexts, contextToken)
         if (!requestContext) return undefined
         const classification = classifyPluginProviderFetch(
             url,
@@ -770,73 +719,86 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             } : undefined,
         }
     }
+    const getConfiguredComfyUrls = () => {
+        try {
+            const settings = getCurrentImageGenerationPreset(getDatabase()).settings
+            const url = settings.sdProvider === 'comfyui' ? settings.comfyUiUrl : ''
+            return typeof url === 'string' && url.trim() ? [url] : []
+        } catch {
+            return []
+        }
+    }
+    const fetchPluginNetwork = async (url: string, safeOptions: SanitizedPluginFetchOptions, legacyStringBody?: string) => {
+        const providerContext = activeProviderRequestContext(safeOptions.signal)
+        const { url: authorizedUrl, useServer } = authorizePluginRequest(url, {
+            keiUrl: window.location.href,
+            comfyUrls: getConfiguredComfyUrls(),
+            providerActive: !!providerContext,
+            method: safeOptions.method,
+        })
+        const generationContext = useServer
+            ? providerFetchContext(authorizedUrl, legacyStringBody === undefined
+                ? safeOptions : { ...safeOptions, body: legacyStringBody }, providerContext)
+            : undefined
+        const { rawResponse: _rawResponse, ...nativeOptions } = safeOptions
+        const requestOptions: FetchNativeArgs = {
+            ...nativeOptions,
+            // globalFetch's generation path forwards pre-encoded strings verbatim.
+            ...(legacyStringBody !== undefined && generationContext?.generationRequest && generationContext.interceptor
+                ? { body: legacyStringBody } : {}),
+            llmExecutionPolicy: useServer
+                ? generationContext?.llmExecutionPolicy
+                    ? { ...generationContext.llmExecutionPolicy, providerRoute: 'server' }
+                    : EPHEMERAL_SERVER_LLM_EXECUTION
+                : pluginDirectRequestPolicy,
+            ...(useServer ? {} : { redirect: 'error' }),
+            ...(generationContext ? {
+                chatId: generationContext.chatId,
+                generationRequest: generationContext.generationRequest,
+                interceptor: generationContext.interceptor,
+            } : {}),
+        }
+        return await apis.nativeFetch(authorizedUrl, requestOptions)
+    }
     return {
-        risuFetch: (url, options) => {
+        risuFetch: async (url, options) => {
             console.error(`[DEPRECATION WARNING] risuFetch is deprecated and will be removed in future versions. Please use nativeFetch instead.`)
-            for(const blocked of urlBlacklist){
-                if(url.toLowerCase().includes(blocked)){
-                    throw new Error(`Requests to ${blocked} are blocked for security reasons.`);
-                }
+            let safeOptions: SanitizedPluginFetchOptions
+            try {
+                safeOptions = sanitizeRisuFetchOptions(options)
+                const response = await fetchPluginNetwork(url, safeOptions,
+                    typeof options?.body === 'string' ? options.body : undefined)
+                return await readGlobalFetchResponse(response, safeOptions.rawResponse)
+            } catch (error) {
+                return { ok: false, data: `${error}`, headers: {}, status: 400 }
             }
-            const headers = options?.headers || {};
-            for(const headerName in headers){
-                if(authorizationHeaders.includes(headerName.toLowerCase())){
-                    console.warn(`Request contains potentially sensitive header '${headerName}'. handling of such headers may be changed to only work with nativeFetch.`);
-                }
-            }
-            const requestContext = providerFetchContext(
-                url,
-                options,
-                options?.abortSignal ?? options?.signal,
-            )
-            return apis.risuFetch(url, requestContext ? {
-                ...(options ?? {}),
-                chatId: requestContext.chatId,
-                generationRequest: requestContext.generationRequest,
-                llmExecutionPolicy: requestContext.llmExecutionPolicy,
-                interceptor: requestContext.interceptor,
-            } : options);
         },
-        nativeFetch: (url, options) => {
-            for(const blocked of urlBlacklist){
-                if(url.toLowerCase().includes(blocked)){
-                    throw new Error(`Requests to ${blocked} are blocked for security reasons.`);
-                }
-            }
-            const headers = options?.headers || {};
-            for(const headerName in headers){
-                if(authorizationHeaders.includes(headerName.toLowerCase())){
-                    console.warn(`Request contains potentially sensitive header '${headerName}'. handling of such headers may be changed to use server-side approch with write-only api access in the future for better security.`);
-                }
-            }
-            const requestContext = providerFetchContext(url, options, options?.signal)
-            return apis.nativeFetch(url, requestContext ? {
-                ...(options ?? {}),
-                chatId: requestContext.chatId,
-                generationRequest: requestContext.generationRequest,
-                llmExecutionPolicy: requestContext.llmExecutionPolicy,
-                interceptor: requestContext.interceptor,
-            } : options);
+        nativeFetch: async (url, options) => {
+            const safeOptions = sanitizePluginFetchOptions(options)
+            return fetchPluginNetwork(url, safeOptions)
         },
         getChar: apis.getChar,
         setChar: apis.setChar,
         addProvider: (name: string, func: PluginProviderFunction, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             const provider = async (arg: PluginProviderArgument, abortSignal?: AbortSignal) => {
-               const conf = await getPluginPermission(plugin.name, 'provider', 'periodically');
+               const conf = await getPermission('provider');
                if(!conf){
                    return { success: false, content: `Provider permission denied for plugin '${plugin.name}'` };
                }
                arg.mode = 'v3'
                const requestContext = arg[pluginProviderRequestContextKey]
-               if (!requestContext || !abortSignal) {
+               if (!requestContext) {
                    return await func(arg, abortSignal);
                }
 
                const contextToken = createEntityId()
-               setRpcAbortSignalMetadata(abortSignal, providerRequestContextMetadataKey, contextToken)
+               const contextSignal = abortSignal ?? new AbortController().signal
+               if (abortSignal) {
+                   setRpcAbortSignalMetadata(abortSignal, providerRequestContextMetadataKey, contextToken)
+               }
                return await withProviderRequestContext(
-                   pluginRequestContexts, contextToken, requestContext, abortSignal,
+                   pluginRequestContexts, contextToken, requestContext, contextSignal,
                    () => func(arg, abortSignal),
                );
             }
@@ -880,7 +842,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         removeRisuScriptHandler: apis.removeRisuScriptHandler,
         addRisuReplacer: async (name:string,func:Function) => {
-            const conf = await getPluginPermission(plugin.name, 'replacer', 'periodically');
+            const conf = await getPermission('replacer');
             if(!conf){
                 return;
             }
@@ -889,16 +851,22 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         removeRisuReplacer: apis.removeRisuReplacer,
         addRisuChatListener: async (mode:'output', func:Function) => {
+            const conf = await getPermission('replacer');
+            if(!conf) return;
             apis.addRisuChatListener(mode, func as any);
             addPluginUnloadCallback(plugin.name, () => apis.removeRisuChatListener(mode, func as any));
         },
         removeRisuChatListener: apis.removeRisuChatListener,
-        setDatabaseLite: (db: Record<string, any>) => apis.setDatabaseLite(prepareDatabaseWrite(db)),
+        setDatabaseLite: (db: Record<string, any>) => {
+            const prepared = prepareDatabaseWrite(db)
+            delete prepared.plugins
+            return apis.setDatabaseLite(prepared)
+        },
         setDatabase: (db: Record<string, any>) => apis.setDatabase(prepareDatabaseWrite(db)),
         loadPlugins: apis.loadPlugins,
         readImage: apis.readImage,
         readInlay: async (id: string) => {
-            const conf = await getPluginPermission(plugin.name, 'inlay', 'periodically');
+            const conf = await getPermission('inlay');
             if(!conf){
                 return null;
             }
@@ -906,7 +874,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         saveAsset: apis.saveAsset,
         getDatabase: async (includeOnly:string[]|'all' = 'all') => {
-            const conf = await getPluginPermission(plugin.name, 'db', 'periodically');
+            const conf = await getPermission('db');
             if(!conf){
                 return null;
             }
@@ -1114,7 +1082,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             iframe.style.display = "none";
         },
         getRootDocument: async () => {
-            const conf = await getPluginPermission(plugin.name, 'mainDom');
+            const conf = await getPermission('mainDom');
             if(!conf){
                 return null;
             }
@@ -1159,7 +1127,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         registerBodyIntercepter: async (callback: (body: any, type: string) => any) => {
 
-            if(await getPluginPermission(plugin.name, 'replacer') === false){
+            if(await getPermission('replacer') === false){
                 return null;
             }
             
@@ -1346,7 +1314,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         getFetchLogs: async () => {
             const unsafeFetchLog = getFetchLogs()
-            const conf = await getPluginPermission(plugin.name, 'fetchLogs');
+            const conf = await getPermission('fetchLogs');
             if(!conf){
                 return null;
             }
@@ -1383,7 +1351,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         checkCharOrder: checkCharOrder,
         requestPluginPermission: (permission:string) => {
-            return getPluginPermission(plugin.name, permission as any);
+            return getPermission(permission as PluginPermissionDesc);
         },
         //Internal use APIs
         _getPropertiesForInitialization: () => {
@@ -1462,7 +1430,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }, options.mode)
         },
         sendChat: async (message: string) => {
-            const conf = await getPluginPermission(plugin.name, 'sendChat');
+            const conf = await getPermission('sendChat');
             if(!conf){
                 return false;
             }
@@ -1570,8 +1538,8 @@ export async function loadV3Plugins(plugins:RisuPlugin[]){
         await unloadV3Plugin(instance.name);
     }));
     // Failed startup may leave resources without a recorded runtime instance.
-    for(const [id, entry] of documentEventListeners){
-        removeDocumentEventListener(id, entry.pluginName);
+    for(const id of pluginEventListeners.keys()){
+        removePluginEventListener(id);
     }
     pluginChannels.clear();
     for (const registrations of Object.values(pluginRuntime)) registrations.clear();

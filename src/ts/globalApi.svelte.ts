@@ -1,3 +1,4 @@
+import { readGlobalFetchResponse } from './network/fetchResult';
 import { getChatPage, setChatPage } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { checkNullish, sleep } from "./util"
@@ -1639,21 +1640,7 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
         const body = arg.body instanceof URLSearchParams ? arg.body.toString() : JSON.stringify(arg.body);
 
         const response = await fetch(furl, { body, headers, method: arg.method ?? "POST", signal: arg.abortSignal });
-        const isSuccess = response.ok && response.status >= 200 && response.status < 300;
-
-        if (arg.rawResponse) {
-            const data = new Uint8Array(await response.arrayBuffer());
-            return { ok: isSuccess, data, headers: Object.fromEntries(response.headers), status: response.status };
-        }
-
-        const text = await response.text();
-        try {
-            const data = JSON.parse(text);
-            return { ok: isSuccess, data, headers: Object.fromEntries(response.headers), status: response.status };
-        } catch (error) {
-            const errorMsg = text.startsWith('<!DOCTYPE') ? "Responded HTML. Is your URL, API key, and password correct?" : text;
-            return { ok: false, data: errorMsg, headers: Object.fromEntries(response.headers), status: response.status };
-        }
+        return await readGlobalFetchResponse(response, arg.rawResponse);
     } catch (error) {
         return { ok: false, data: `${error}`, headers: {}, status: 400 };
     }
