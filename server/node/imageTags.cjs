@@ -122,7 +122,10 @@ function createImageTagService({ cacheDir, fetchImpl = fetch, now = Date.now }) 
 
     async function fetchBytes(url, limit, timeoutMs) {
         const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
-        if (!response.ok || !response.body) throw new Error(`Image tag download failed: HTTP ${response.status}`);
+        if (!response.ok || !response.body) {
+            await response.body?.cancel();
+            throw new Error(`Image tag download failed: HTTP ${response.status}`);
+        }
         const chunks = [];
         let size = 0;
         const reader = response.body.getReader();

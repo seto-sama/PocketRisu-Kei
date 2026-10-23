@@ -7,8 +7,9 @@ const os = require('os');
 const fs = require('fs/promises');
 const { Transform, Readable } = require('stream');
 const { pipeline } = require('stream/promises');
-const { execSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const { checkpointWal } = require('../db.cjs');
+const { decompressFile } = require('../utils/decompressFile.cjs');
 
 function installSystemRoutes(app, {
     checkAuth,
@@ -63,7 +64,10 @@ function installSystemRoutes(app, {
             const currentVersion = getCurrentVersion();
             const headers = { 'User-Agent': UPDATE_USER_AGENT, Accept: 'application/vnd.github+json' };
             const res = await fetch(UPDATE_CHECK_URL, { headers });
-            if (!res.ok) return null;
+            if (!res.ok) {
+                await res.body?.cancel();
+                return null;
+            }
             const data = await res.json();
             const updateInfo = normalizeGitHubRelease(data, currentVersion);
 
@@ -130,7 +134,11 @@ function installSystemRoutes(app, {
     app.get('/api/public-stats', async (req, res) => {
         try {
             const r = await fetch(PUBLIC_STATS_URL);
-            if (!r.ok) { res.status(r.status).json({ error: 'upstream error' }); return; }
+            if (!r.ok) {
+                await r.body?.cancel();
+                res.status(r.status).json({ error: 'upstream error' });
+                return;
+            }
             const data = await r.json();
             res.json(data);
         } catch {
@@ -209,7 +217,10 @@ function installSystemRoutes(app, {
 
             send('downloading', 0, 'Starting download...');
             const dlRes = await fetch(assetInfo.url, { redirect: 'follow' });
-            if (!dlRes.ok) throw new Error(`Download failed: ${dlRes.status} ${dlRes.statusText}`);
+            if (!dlRes.ok) {
+                await dlRes.body?.cancel();
+                throw new Error(`Download failed: ${dlRes.status} ${dlRes.statusText}`);
+            }
 
             const totalSize = parseInt(dlRes.headers.get('content-length'), 10) || 0;
             const fileStream = require('fs').createWriteStream(archivePath);
@@ -240,19 +251,7 @@ function installSystemRoutes(app, {
             const extractDir = path.join(tmpDir, 'extracted');
             await fs.mkdir(extractDir, { recursive: true });
 
-            if (process.platform === 'win32') {
-                try {
-                    // Windows 10 1803+ has tar.exe built-in, handles zip, much faster than PowerShell
-                    execSync(`tar -xf "${archivePath}" -C "${extractDir}"`, { timeout: 300000 });
-                } catch {
-                    execSync(
-                        `powershell -NoProfile -Command "Expand-Archive -Force -Path '${archivePath}' -DestinationPath '${extractDir}'"`,
-                        { timeout: 300000 },
-                    );
-                }
-            } else {
-                execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { timeout: 300000 });
-            }
+            await decompressFile(archivePath, extractDir);
 
             // Resolve possibly nested root directory (same as updater.cjs resolveExtractedRoot)
             const entries = await fs.readdir(extractDir);
