@@ -20,11 +20,9 @@ import { zip } from "./process/zip"
 import { encodeModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
 import { readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
+import { getRealmProxyUrl } from './network/proxy'
 
 
-const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
-const NIGHTLY_HUB_URL = 'https://nightly.sv.risuai.xyz'
-export const hubURL = '/hub-proxy';
 export const realmURL = 'https://realm.risuai.net';
 
 export async function importCharacter() {
@@ -385,7 +383,7 @@ export const getRealmInfo = async (realmPath:string) => {
         return
     }
 
-    const res = await fetch(`${hubURL}/hub/info/${realmPath}`)
+    const res = await fetch(getRealmProxyUrl(`/hub/info/${realmPath}`))
     if(res.status !== 200){
         notifyError(await res.text())
         return
@@ -1559,7 +1557,7 @@ export async function getRisuHub(arg:{
         const search = `${arg.search} __shared`
         const stringArg = `search==${search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==other`
 
-        const da = await fetch(hubURL + '/realm/' + encodeURIComponent(stringArg), {
+        const da = await fetch(getRealmProxyUrl('/realm/' + encodeURIComponent(stringArg)), {
             signal: arg.signal,
             headers: {
                 "x-risuai-info": pocketKeiVer + ';node'
@@ -1670,7 +1668,7 @@ export async function downloadRisuHub(id:string, arg:{
 }
 
 async function getHubResources(id:string) {
-    const res = await fetch(`${hubURL}/resource/${id}`)
+    const res = await fetch(getRealmProxyUrl(`/resource/${id}`))
     if(res.status !== 200){
         throw (await res.text())
     }

@@ -57,6 +57,7 @@ async function directFetch(url: URL, init: {
             body: init.body,
             headers: init.headers,
             signal: controller.signal,
+            redirect: 'error',
         })
     } finally {
         if (timer) clearTimeout(timer)

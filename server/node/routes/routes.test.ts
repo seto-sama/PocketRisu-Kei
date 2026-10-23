@@ -9,6 +9,7 @@ import { encodeInlayAsset, decodeInlayAsset } from '../../../src/ts/storage/inla
 import { encodeBinaryMessage } from '../../../src/ts/network/binaryMessage'
 import { MAX_GENERATION_BODY_BYTES } from '../../../src/ts/process/revenant/transport/protocol'
 import { createDelta } from '../../../shared/guardedDelta.mjs'
+import { PROXY_PATH, getRealmProxyUrl } from '../../../shared/proxy.mjs'
 import { pocketKeiVer } from '../../../src/ts/version'
 import { decodeBackup } from '../../../test/compat/helpers/decode'
 import Database from '../sqlite.cjs'
@@ -38,9 +39,17 @@ describe('server route composition', () => {
         child = spawn(process.execPath, ['-e', `
             const http = require('node:http');
             const nativeFetch = globalThis.fetch;
-            globalThis.fetch = (input, init) => String(input) === 'https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest'
-                ? Promise.resolve(new Response(JSON.stringify({ tag_name: ${JSON.stringify(`kei-v${pocketKeiVer}`)} }), { status: 200 }))
-                : nativeFetch(input, init);
+            globalThis.fetch = (input, init) => {
+                if (String(input) === 'https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest') {
+                    return Promise.resolve(new Response(JSON.stringify({ tag_name: ${JSON.stringify(`kei-v${pocketKeiVer}`)} }), { status: 200 }));
+                }
+                if (String(input) === 'https://sv.risuai.xyz/proxy-test') {
+                    return Promise.resolve(new Response('realm-proxy'.repeat(256), {
+                        headers: { 'content-type': 'text/plain', 'cache-control': 'public, max-age=60' },
+                    }));
+                }
+                return nativeFetch(input, init);
+            };
             const listen = http.Server.prototype.listen;
             http.Server.prototype.listen = function (...args) {
                 this.once('listening', () => process.send({ port: this.address().port }));
@@ -146,6 +155,17 @@ describe('server route composition', () => {
         expect(session.status).toBe(200)
         const restored = await fetch(base + '/api/test_auth', { headers: { cookie: session.headers.get('set-cookie')!.split(';')[0] } })
         expect((await restored.json()).status).toBe('success')
+    })
+
+    it('mounts anonymous Realm paths without compressing proxied responses and keeps general requests authenticated', async () => {
+        const response = await fetch(base + getRealmProxyUrl('/proxy-test'), {
+            headers: { 'accept-encoding': 'gzip' },
+        })
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-encoding')).toBeNull()
+        expect(response.headers.get('cache-control')).toBe('public, max-age=60')
+        expect(await response.text()).toBe('realm-proxy'.repeat(256))
+        expect((await fetch(base + PROXY_PATH)).status).toBe(401)
     })
 
     it('round-trips native preset files through the mounted authenticated routes', async () => {

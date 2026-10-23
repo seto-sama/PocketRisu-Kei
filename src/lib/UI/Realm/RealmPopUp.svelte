@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon } from "@lucide/svelte";
+    import { BookIcon, ImageIcon, PaperclipIcon, SmileIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { alertConfirm, alertInput, alertNormal, alertTOS, notifyInfo } from "src/ts/alert";
-    import { hubURL, realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
+    import { notifyInfo } from "src/ts/alert";
+    import { realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
+    import { getRealmProxyUrl } from "src/ts/network/proxy";
     
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
@@ -58,7 +59,7 @@
                     <span class="text-4xl">?</span>
                 </div>
             {:else}
-                <img class="h-36 w-36 shrink-0 rounded-md object-cover object-top" alt={openedData.name} src={`${hubURL}/resource/` + openedData.img}>
+                <img class="h-36 w-36 shrink-0 rounded-md object-cover object-top" alt={openedData.name} src={getRealmProxyUrl(`/resource/${openedData.img}`)}>
             {/if}
             <MultiLangDisplay
                 value={openedData.desc}
@@ -121,23 +122,6 @@
                     notifyInfo(language.clipboardSuccess)
             })}>
                 <PaperclipIcon />
-            </IconButton>
-            <IconButton tone="destructive" aria-label="Report character" onclick={(async () => {
-                if(!(await alertTOS())) return
-                const conf = await alertConfirm('Report this character?')
-                if(conf){
-                    const report = await alertInput('Write a report text that would be sent to the admin (for copywrite issues, use email)')
-                    const da = await fetch(hubURL + '/hub/report', {
-                        method: "POST",
-                        body: JSON.stringify({
-                            id: openedData.id,
-                            report: report
-                        })
-                    })
-                    alertNormal(await da.text())
-                }
-            })}>
-                <FlagIcon />
             </IconButton>
         </IconButtonGroup>
     </div>

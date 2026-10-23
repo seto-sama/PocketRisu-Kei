@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchWithRequestTimeout, DEFAULT_REQUEST_TIMEOUT_MS, requestIdleTimeoutMs } from '../shared/requestTimeout.mjs'
+import { createRequestTimeoutSignal, fetchWithRequestTimeout, DEFAULT_REQUEST_TIMEOUT_MS, requestIdleTimeoutMs } from '../shared/requestTimeout.mjs'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 const pending = () => new Promise<Response>(() => {})
 
 describe('shared request timeout lifecycle', () => {
+    it('disconnects caller cancellation and clears the deadline when a request finishes', () => {
+        const caller = new AbortController()
+        const timeout = createRequestTimeoutSignal(caller.signal, 100)
+        timeout.cleanup()
+        caller.abort(new Error('Caller cancelled a later request'))
+        expect(timeout.signal?.aborted).toBe(false)
+        expect(vi.getTimerCount()).toBe(0)
+    })
+
     it('bounds even a request that ignores abort', async () => {
         let signal: AbortSignal
         const request = fetchWithRequestTimeout(async value => { signal = value; return pending() }, { firstResponseTimeoutMs: 30 })

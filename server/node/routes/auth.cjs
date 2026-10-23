@@ -4,6 +4,7 @@ const { writeFileSync } = require('fs');
 const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
 const { codes: API_ERROR_CODES, sendApiError } = require('../apiErrors.cjs');
+const express = require('express');
 
 function installAuthRoutes(app, {
     SESSION_FILE,
@@ -19,6 +20,7 @@ function installAuthRoutes(app, {
     syncClientDevices,
     passwordPath,
 }) {
+    const parseAuthBody = express.json({ limit: '16kb' });
     function saveSessions() {
         try { writeFileSync(SESSION_FILE, JSON.stringify([...sessions])) }
         catch { /* non-critical */ }
@@ -102,12 +104,12 @@ function installAuthRoutes(app, {
         }
     })
 
-    app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, async (req, res) => {
+    app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, parseAuthBody, async (req, res) => {
         if(authState.password === ''){
             sendApiError(res, 400, API_ERROR_CODES.AUTH_PASSWORD_NOT_SET)
             return;
         }
-        if(req.body.password && req.body.password.trim() === authState.password.trim()){
+        if(typeof req.body?.password === 'string' && req.body.password.trim() === authState.password.trim()){
             res.send({status:'success', token: createServerJwt()})
         }
         else{
@@ -162,7 +164,7 @@ function installAuthRoutes(app, {
         })
     })
 
-    app.post('/api/crypto', async (req, res) => {
+    app.post('/api/crypto', parseAuthBody, async (req, res) => {
         try {
             const hash = nodeCrypto.createHash('sha256')
             hash.update(Buffer.from(req.body.data, 'utf-8'))
@@ -172,8 +174,18 @@ function installAuthRoutes(app, {
         }
     })
 
-    app.post('/api/set_password', async (req, res) => {
+    app.post('/api/set_password', (req, res, next) => {
+        if (authState.password !== '') {
+            sendApiError(res, 409, API_ERROR_CODES.AUTH_PASSWORD_ALREADY_SET);
+            return;
+        }
+        next();
+    }, parseAuthBody, async (req, res) => {
         if(authState.password === ''){
+            if (typeof req.body?.password !== 'string' || !req.body.password.trim()) {
+                sendApiError(res, 400, API_ERROR_CODES.AUTH_INVALID_PASSWORD);
+                return;
+            }
             authState.password = req.body.password
             writeFileSync(passwordPath, authState.password, 'utf-8')
             res.send({status: 'success'})

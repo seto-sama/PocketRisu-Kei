@@ -20,4 +20,4 @@ function decodeBinaryRequest(req, res, decode = decodeBinaryMessage) {
     }
 }
 
-module.exports = { decodeBinaryRequest, binaryBodyParser };
+module.exports = { decodeBinaryRequest, binaryBodyParser, BINARY_MESSAGE_CONTENT_TYPE };

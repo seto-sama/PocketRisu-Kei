@@ -1,4 +1,4 @@
-import { readGlobalFetchResponse } from './network/fetchResult';
+export { globalFetch } from './network/globalFetch';
 import { getChatPage, setChatPage } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { checkNullish, sleep } from "./util"
@@ -8,11 +8,11 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
-import { characterURLImport, hubURL } from "./characterCards";
+import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { discardPendingChatSaves, fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
@@ -58,7 +58,6 @@ import { updateGuisize } from "./gui/guisize";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { updateLorebooks } from "./characters";
 import { moduleUpdate } from "./process/modules";
-import { isLocalNetworkUrl } from "./network/localNetwork";
 import {
     createFetchLogEntry,
     clearServerFetchLogs as clearServerFetchLogsRequest,
@@ -73,7 +72,6 @@ import {
     type FetchLogSummary,
     type RequestLogClearScope,
 } from "./requestLogStore";
-import { type RevenantGenerationRequest } from "./process/revenant";
 import {
     configureRevenantGenerationClient,
 } from "./process/revenant/transport";
@@ -120,31 +118,6 @@ let fileCache: {
 } = {
     origin: [],
     res: []
-}
-
-function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number | undefined) {
-    if (!timeoutMs || timeoutMs <= 0) {
-        return {
-            signal,
-            cleanup: () => {}
-        }
-    }
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    if (signal) {
-        if (signal.aborted) {
-            controller.abort()
-        } else {
-            signal.addEventListener('abort', () => controller.abort(), { once: true })
-        }
-    }
-
-    return {
-        signal: controller.signal,
-        cleanup: () => clearTimeout(timeoutId)
-    }
 }
 
 /** Resolve an asset path to a browser-usable source. */
@@ -1508,150 +1481,6 @@ export async function getFetchData(id: string): Promise<FetchLog | null> {
         // Non-Node/browser-only environments have no persistent request-log API.
         return null;
     }
-}
-
-const knownHostes = ["localhost", "127.0.0.1", "0.0.0.0"];
-
-interface GlobalFetchArgs {
-    plainFetchForce?: boolean;
-    plainFetchDeforce?: boolean;
-    body?: any;
-    headers?: { [key: string]: string };
-    rawResponse?: boolean;
-    method?: 'POST' | 'GET';
-    abortSignal?: AbortSignal;
-    useRisuToken?: boolean;
-    chatId?: string;
-    generationRequest?: RevenantGenerationRequest;
-    interceptor?: string;
-    requestTimeoutMs?: number;
-    networkRoute?: 'auto' | 'local_network';
-    llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy;
-}
-
-interface GlobalFetchResult {
-    ok: boolean;
-    data: any;
-    headers: { [key: string]: string };
-    status: number;
-}
-
-/** Route a request through native, proxy, or plain fetch according to its options. */
-export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promise<GlobalFetchResult> {
-    try {
-        if (arg.abortSignal?.aborted) { return { ok: false, data: 'aborted', headers: {}, status: 400 }; }
-
-        const urlHost = new URL(url).hostname
-        const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
-        const forcePlainFetch = (knownHostes.includes(urlHost) || arg.plainFetchForce) && !arg.plainFetchDeforce && !useLocalNetworkRoute
-
-        if (arg.generationRequest && arg.interceptor) {
-            const response = await fetchNative(url, {
-                body: typeof arg.body === 'string' ? arg.body : JSON.stringify(arg.body),
-                headers: arg.headers,
-                method: arg.method,
-                signal: arg.abortSignal,
-                chatId: arg.chatId,
-                generationRequest: arg.generationRequest,
-                interceptor: arg.interceptor,
-                requestTimeoutMs: arg.requestTimeoutMs,
-                networkRoute: arg.networkRoute,
-                llmExecutionPolicy: arg.llmExecutionPolicy,
-            })
-            const text = await response.text()
-            let data: any = text
-            try {
-                data = JSON.parse(text)
-            } catch {}
-            const responseHeaders: Record<string, string> = {}
-            response.headers.forEach((value, key) => {
-                responseHeaders[key] = value
-            })
-            return {
-                ok: response.ok,
-                data,
-                headers: responseHeaders,
-                status: response.status,
-            }
-        }
-
-        if(arg.interceptor){
-            for (const interceptor of bodyIntercepterStore) {
-                try {
-                    arg.body = await interceptor.callback(arg.body, arg.interceptor) || arg.body
-                }
-                catch (e) {
-                    console.error(e)
-                }
-            }
-        }
-
-        const timeoutSignal = buildTimeoutSignal(arg.abortSignal, arg.requestTimeoutMs)
-        const requestArg = timeoutSignal.signal === arg.abortSignal
-            ? arg
-            : { ...arg, abortSignal: timeoutSignal.signal }
-
-        try {
-            if (useLocalNetworkRoute) {
-                return await fetchWithProxy(url, requestArg);
-            }
-
-            if (forcePlainFetch) {
-                return await fetchWithPlainFetch(url, requestArg);
-            }
-            return await fetchWithProxy(url, requestArg);
-        } finally {
-            timeoutSignal.cleanup()
-        }
-
-    } catch (error) {
-        console.error(error);
-        return { ok: false, data: `${error}`, headers: {}, status: 400 };
-    }
-}
-
-async function fetchWithPlainFetch(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
-    try {
-        const headers = { 'Content-Type': 'application/json', ...arg.headers };
-        const response = await fetch(new URL(url), { body: JSON.stringify(arg.body), headers, method: arg.method ?? "POST", signal: arg.abortSignal });
-        const data = arg.rawResponse ? new Uint8Array(await response.arrayBuffer()) : await response.json();
-        const ok = response.ok && response.status >= 200 && response.status < 300;
-        return { ok, data, headers: Object.fromEntries(response.headers), status: response.status };
-    } catch (error) {
-        return { ok: false, data: `${error}`, headers: {}, status: 400 };
-    }
-}
-
-async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
-    try {
-        const furl = `/proxy2`;
-        arg.headers["Content-Type"] ??= arg.body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json";
-        const headers = {
-            "risu-header": encodeURIComponent(JSON.stringify(arg.headers)),
-            "risu-url": encodeURIComponent(url),
-            "Content-Type": arg.body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json",
-            ...(arg.useRisuToken && { "x-risu-tk": "use" }),
-            ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
-        };
-
-        // Add risu-auth header for Node.js server
-        headers["risu-auth"] = await createRequiredNodeAuth();
-
-        const body = arg.body instanceof URLSearchParams ? arg.body.toString() : JSON.stringify(arg.body);
-
-        const response = await fetch(furl, { body, headers, method: arg.method ?? "POST", signal: arg.abortSignal });
-        return await readGlobalFetchResponse(response, arg.rawResponse);
-    } catch (error) {
-        return { ok: false, data: `${error}`, headers: {}, status: 400 };
-    }
-}
-
-async function createRequiredNodeAuth() {
-    const auth = await forageStorage.createAuth()
-    if (!auth) {
-        throw new Error('Node auth unavailable')
-    }
-    return auth
 }
 
 export function getBasename(data: string) {

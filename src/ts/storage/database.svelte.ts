@@ -1425,7 +1425,6 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
-    requestLocation:string
     newImageHandlingBeta?: boolean
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean

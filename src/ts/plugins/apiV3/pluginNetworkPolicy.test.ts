@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getRealmProxyUrl, PROXY_PATH } from '../../../../shared/proxy.mjs'
 import { authorizePluginRequest } from './pluginNetworkPolicy'
 
 const policy = {
@@ -13,7 +14,12 @@ describe('authorizePluginRequest', () => {
             .toEqual({ url: 'https://kei.example/assets/plugin/icon.png', useServer: false })
         expect(authorizePluginRequest('https://kei.example/assets/file.bin', { ...policy, method: 'HEAD' }))
             .toEqual({ url: 'https://kei.example/assets/file.bin', useServer: false })
-        for (const url of ['/api/characters', '/proxy2', '/hub-proxy/resource', '/assets']) {
+        for (const url of [
+            '/api/characters',
+            PROXY_PATH,
+            getRealmProxyUrl('/resource'),
+            '/assets',
+        ]) {
             expect(() => authorizePluginRequest(url, { ...policy, method: 'GET' })).toThrow()
         }
         expect(() => authorizePluginRequest('/assets/icon.png', { ...policy, method: 'POST' })).toThrow()

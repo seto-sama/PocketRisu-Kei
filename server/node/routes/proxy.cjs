@@ -1,318 +1,125 @@
 'use strict';
 
-const { binaryBodyParser } = require('../binaryHttp.cjs');
-
-const path = require('path');
-const { existsSync, readFileSync, writeFileSync } = require('fs');
-const fs = require('fs/promises');
-const { executeUpstreamRequest } = require('../upstreamRequest.cjs');
+const express = require('express');
+const { executeHttpRequest, executeUpstreamRequest, filterUpstreamResponseHeaders } = require('../upstreamRequest.cjs');
+const { PROXY_PATH, REALM_PROXY_PATH, REALM_ORIGIN } = require('../../../shared/proxy.mjs');
 const { requestIdleTimeoutMs } = require('../../../shared/requestTimeout.mjs');
 const { pipeline } = require('stream/promises');
 const { logger } = require('../logs/logs.cjs');
 
-function installProxyRoutes(app, {
-    checkAuth,
-    isCloudflareTunnelRequest,
-}) {
-    const hubURL = 'https://sv.risuai.xyz';
+const REALM_REQUEST_HEADERS = ['accept', 'accept-language', 'content-type', 'x-risuai-info'];
+const PROXY_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-    const authCodePath = path.join(process.cwd(), 'save', '__authcode')
+function getRequestTimeoutMs(header) {
+    const timeoutMs = Number.parseInt(Array.isArray(header) ? header[0] : header, 10);
+    return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : null;
+}
 
-    function getRequestTimeoutMs(timeoutHeader) {
-        const raw = Array.isArray(timeoutHeader) ? timeoutHeader[0] : timeoutHeader;
-        if (!raw) {
-            return null;
-        }
-        const timeoutMs = Number.parseInt(raw, 10);
-        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-            return null;
-        }
-        return timeoutMs;
+function createProxyRequestController(res, timeoutMs) {
+    const controller = new AbortController();
+    const onClose = () => {
+        if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', onClose);
+    // Authentication may have awaited while the client disconnected.
+    if (res.destroyed) onClose();
+    const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+    return {
+        signal: controller.signal,
+        cleanup() {
+            clearTimeout(timer);
+            res.off('close', onClose);
+        },
+    };
+}
+
+function executeRealmRequest(path, req, signal) {
+    const headers = { origin: REALM_ORIGIN };
+    for (const name of REALM_REQUEST_HEADERS) {
+        if (req.headers[name]) headers[name] = req.headers[name];
     }
+    return executeHttpRequest(signal => fetch(REALM_ORIGIN + path, {
+        method: req.method, headers, signal, redirect: 'manual',
+    }), {
+        signal,
+        filterHeaders: headers => filterUpstreamResponseHeaders(headers, { preserveCacheControl: true }),
+    });
+}
 
-    function createProxyRequestController(res, timeoutMs) {
-        const controller = new AbortController();
-        const onClose = () => {
-            if (!res.writableEnded) controller.abort();
-        };
-        res.once('close', onClose);
-        // Authentication may have awaited while the client disconnected.
-        if (res.destroyed) onClose();
-        const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+function installProxyRoutes(app, { checkAuth, outboundPolicy }) {
+    const parseBody = express.raw({ type: () => true, limit: '2gb' });
 
-        return {
-            signal: controller.signal,
-            cleanup: () => {
-                clearTimeout(timer);
-                res.removeListener('close', onClose);
+    async function prepareRequest(req, res, next) {
+        res.locals.skipCompression = true;
+        const realm = res.locals.proxyRealmPath !== undefined;
+        const methods = realm ? ['GET', 'HEAD'] : PROXY_METHODS;
+        if (!methods.includes(req.method)) return res.set('Allow', methods.join(', ')).sendStatus(405);
+        if (realm) {
+            if (!res.locals.proxyRealmPath.startsWith('/')) {
+                return res.status(400).json({ error: 'Invalid Realm path' });
             }
-        };
+            return next();
+        }
+        if (await checkAuth(req, res)) return parseBody(req, res, next);
     }
 
-    const reverseProxyFunc = async (req, res, next) => {
-        if(!await checkAuth(req, res)){
-            return;
-        }
-
-        const urlParam = req.headers['risu-url'] ? decodeURIComponent(req.headers['risu-url']) : req.query.url;
-
-        if (!urlParam) {
-            res.status(400).send({
-                error:'URL has no param'
-            });
-            return;
-        }
-        const timeoutMs = getRequestTimeoutMs(req.headers['risu-timeout-ms']);
-        const requestController = createProxyRequestController(res, timeoutMs);
-        let originalResponse;
+    async function handleRequest(req, res) {
+        const realmPath = res.locals.proxyRealmPath;
+        const realm = realmPath !== undefined;
+        const timeoutMs = realm ? null : getRequestTimeoutMs(req.headers['risu-timeout-ms']);
+        const controller = createProxyRequestController(res, timeoutMs);
+        let url = req.headers['risu-url'] || req.query.url;
         try {
-        const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
-        if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
-            header['x-risu-tk'] = req.headers['x-risu-tk'];
-        }
-        if (req.headers['risu-location'] && !header['risu-location']) {
-            header['risu-location'] = req.headers['risu-location'];
-        }
-        if(!header['x-forwarded-for']){
-            header['x-forwarded-for'] = req.ip
-        }
-
-        if(req.headers['authorization']?.startsWith('X-SERVER-REGISTER')){
-            if(!existsSync(authCodePath)){
-                delete header['authorization']
-            }
-            else{
-                const authCode = await fs.readFile(authCodePath, {
-                    encoding: 'utf-8'
-                })
-                header['authorization'] = `Bearer ${authCode}`
-            }
-        }
-            let requestBody = undefined;
-            if (req.method !== 'GET' && req.method !== 'HEAD') {
-                if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
-                    requestBody = req.body;
-                }
-                else if (req.body !== undefined) {
-                    requestBody = JSON.stringify(req.body);
-                }
-            }
-            originalResponse = await executeUpstreamRequest({
-                url: urlParam,
-                method: req.method,
-                headers: header,
-                body: requestBody,
-                signal: requestController.signal,
-                idleTimeoutMs: requestIdleTimeoutMs(timeoutMs),
-            });
-            res.header(originalResponse.headers);
-            res.status(originalResponse.status);
-            await pipeline(originalResponse.body, res);
-
-
-        }
-        catch (err) {
-            if (res.destroyed) return;
-            if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
-                if (!res.headersSent) {
-                    res.status(504).send({
-                        error: err.name === 'TimeoutError' ? err.message : timeoutMs
-                            ? `Proxy request timed out after ${timeoutMs}ms`
-                            : 'Proxy request aborted'
-                    });
-                } else {
-                    res.destroy(err);
-                }
-                return;
-            }
-            // Pass the actual `err` (not err.cause) so logger.* can tag it and the
-            // Express error middleware knows to skip. The cause chain is preserved
-            // via formatErrorWithCause in normalizeArgs.
-            logger.error(`[Proxy] ${req.method} ${urlParam}`, err);
-            next(err);
-            return;
-        } finally {
-            requestController.cleanup();
-        }
-    }
-
-    let accessTokenCache = {
-        token: null,
-        expiry: 0
-    }
-
-    async function getSionywAccessToken() {
-        if(accessTokenCache.token && Date.now() < accessTokenCache.expiry){
-            return accessTokenCache.token;
-        }
-        //Schema of the client data file
-        // {
-        //     refresh_token: string;
-        //     client_id: string;
-        //     client_secret: string;
-        // }
-
-        const clientDataPath = path.join(process.cwd(), 'save', '__sionyw_client_data.json');
-        let refreshToken = ''
-        let clientId = ''
-        let clientSecret = ''
-        if(!existsSync(clientDataPath)){
-            throw new Error('No Sionyw client data found');
-        }
-        const clientDataRaw = readFileSync(clientDataPath, 'utf-8');
-        const clientData = JSON.parse(clientDataRaw);
-        refreshToken = clientData.refresh_token;
-        clientId = clientData.client_id;
-        clientSecret = clientData.client_secret;
-
-        //Oauth Refresh Token Flow
-
-        const tokenResponse = await fetch('account.sionyw.com/account/api/oauth/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                grant_type: 'refresh_token',
-                refresh_token: refreshToken,
-                client_id: clientId,
-                client_secret: clientSecret
-            })
-        })
-
-        if(!tokenResponse.ok){
-            throw new Error('Failed to refresh Sionyw access token');
-        }
-
-        const tokenData = await tokenResponse.json();
-
-        //Update the refresh token in the client data file
-        if(tokenData.refresh_token && tokenData.refresh_token !== refreshToken){
-            clientData.refresh_token = tokenData.refresh_token;
-            writeFileSync(clientDataPath, JSON.stringify(clientData), 'utf-8');
-        }
-
-        accessTokenCache.token = tokenData.access_token;
-        accessTokenCache.expiry = Date.now() + (tokenData.expires_in * 1000) - (5 * 60 * 1000); //5 minutes early
-
-        return tokenData.access_token;
-    }
-
-    async function hubProxyFunc(req, res) {
-        const excludedHeaders = [
-            'content-encoding',
-            'content-length',
-            'transfer-encoding'
-        ];
-
-        try {
-            let externalURL = '';
-
-            const pathHeader = req.headers['x-risu-node-path'];
-            if (pathHeader) {
-                if (isCloudflareTunnelRequest(req)) {
-                    res.status(403).send({ error: 'x-risu-node-path is not allowed through tunnel requests' });
-                    return;
-                }
-                const decodedPath = decodeURIComponent(pathHeader);
-                externalURL = decodedPath;
+            let response;
+            if (realm) {
+                response = await executeRealmRequest(realmPath, req, controller.signal);
             } else {
-                const pathAndQuery = req.originalUrl.replace(/^\/hub-proxy/, '');
-                externalURL = hubURL + pathAndQuery;
-            }
-
-            const headersToSend = { ...req.headers };
-            delete headersToSend.host;
-            delete headersToSend.connection;
-            delete headersToSend['content-length'];
-            delete headersToSend['x-risu-node-path'];
-
-            const hubOrigin = new URL(hubURL).origin;
-            headersToSend.origin = hubOrigin;
-
-            //if Authorization header is "Server-Auth, set the token to be Server-Auth
-            if(headersToSend['Authorization'] === 'X-Node-Server-Auth'){
-                //this requires password auth
-                if(!await checkAuth(req, res)){
-                    return;
-                }
-
-                headersToSend['Authorization'] = "Bearer " + await getSionywAccessToken();
-                delete headersToSend['risu-auth'];
-            }
-
-
-            const response = await fetch(externalURL, {
-                method: req.method,
-                headers: headersToSend,
-                body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-                redirect: 'manual',
-                duplex: 'half'
-            });
-
-            for (const [key, value] of response.headers.entries()) {
-                // Skip encoding-related headers to prevent double decoding
-                if (excludedHeaders.includes(key.toLowerCase())) {
-                    continue;
-                }
-                res.setHeader(key, value);
-            }
-            res.status(response.status);
-
-            if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
-                const redirectUrl = response.headers.get('location');
-                const newHeaders = { ...headersToSend };
-                const redirectResponse = await fetch(redirectUrl, {
+                if (req.headers['risu-url']) url = decodeURIComponent(url);
+                if (!url) return res.status(400).json({ error: 'URL has no param' });
+                response = await executeUpstreamRequest({
+                    url,
                     method: req.method,
-                    headers: newHeaders,
-                    body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-                    redirect: 'manual',
-                    duplex: 'half'
+                    headers: req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : {},
+                    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : req.body,
+                    signal: controller.signal,
+                    idleTimeoutMs: requestIdleTimeoutMs(timeoutMs),
+                    outboundPolicy,
                 });
-                for (const [key, value] of redirectResponse.headers.entries()) {
-                    if (excludedHeaders.includes(key.toLowerCase())) {
-                        continue;
-                    }
-                    res.setHeader(key, value);
-                }
-                res.status(redirectResponse.status);
-                if (redirectResponse.body) {
-                    await pipeline(redirectResponse.body, res);
-                } else {
-                    res.end();
-                }
-                return;
             }
-
-            if (response.body) {
-                await pipeline(response.body, res);
-            } else {
-                res.end();
-            }
-
+            res.status(response.status).set(response.headers);
+            if (response.body) await pipeline(response.body, res);
+            else res.end();
         } catch (error) {
-            logger.error("[Hub Proxy] Error:", error);
-            if (!res.headersSent) {
-                res.status(502).send({ error: 'Proxy request failed: ' + error.message });
-            } else {
-                res.end();
+            if (res.destroyed) return;
+            if (res.headersSent) return res.destroy(error);
+            if (realm) {
+                logger.error('[Realm Proxy] Error:', error);
+                return res.status(502).json({ error: 'Proxy request failed: ' + error.message });
             }
+            if (error?.code === 'OUTBOUND_TARGET_BLOCKED') {
+                return res.status(403).json({ error: error.message });
+            }
+            if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+                return res.status(504).json({
+                    error: error.name === 'TimeoutError' ? error.message : timeoutMs
+                        ? `Proxy request timed out after ${timeoutMs}ms` : 'Proxy request aborted',
+                });
+            }
+            logger.error(`[Proxy] ${req.method} ${url}`, error);
+            throw error;
+        } finally {
+            controller.cleanup();
         }
     }
 
-    app.get('/proxy2', binaryBodyParser('2gb'), reverseProxyFunc);
-
-    app.get('/hub-proxy/*splat', hubProxyFunc);
-
-    app.post('/proxy2', binaryBodyParser('2gb'), reverseProxyFunc);
-
-    app.put('/proxy2', binaryBodyParser('2gb'), reverseProxyFunc);
-
-    app.patch('/proxy2', binaryBodyParser('2gb'), reverseProxyFunc);
-
-    app.delete('/proxy2', binaryBodyParser('2gb'), reverseProxyFunc);
-
-    app.post('/hub-proxy/*splat', binaryBodyParser('2gb'), hubProxyFunc);
+    const router = express.Router();
+    router.use(REALM_PROXY_PATH, (req, res, next) => {
+        // Preserve the raw upstream path and query, including encoded separators.
+        res.locals.proxyRealmPath = req.url;
+        return prepareRequest(req, res, next);
+    }, handleRequest);
+    router.all(PROXY_PATH, prepareRequest, handleRequest);
+    app.use(router);
 }
 
 module.exports = { installProxyRoutes };

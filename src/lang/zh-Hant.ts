@@ -1031,7 +1031,6 @@ export const languageChineseTraditional = {
     "dynamic": "動態",
     "assetStyle": "資源樣式",
     "insertAssetPrompt": "插入資源提示詞",
-    "requestLocation": "請求位置",
     "newImageHandlingBeta": "新版圖片處理 (Beta)",
     "bookmarks": "書籤",
     "noBookmarks": "無書籤",

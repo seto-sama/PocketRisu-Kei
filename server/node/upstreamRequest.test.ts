@@ -4,6 +4,7 @@ const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
     filterUpstreamResponseHeaders,
+    filterUpstreamRequestHeaders,
 } = require('./upstreamRequest.cjs')
 
 async function readRemainingText(reader: ReadableStreamDefaultReader<Uint8Array>) {
@@ -26,6 +27,7 @@ describe('filterUpstreamResponseHeaders', () => {
             'Content-Security-Policy': "default-src 'none'",
             'Cache-Control': 'private',
             'X-Upstream': 'kept',
+            'Set-Cookie': 'session=upstream; Path=/',
         }))
 
         expect(filtered).toEqual({
@@ -33,6 +35,15 @@ describe('filterUpstreamResponseHeaders', () => {
             'x-upstream': 'kept',
         })
     })
+})
+
+test('keeps provider authorization while stripping local credentials and transport headers case-insensitively', () => {
+    expect(filterUpstreamRequestHeaders({
+        Authorization: 'Bearer model-key', 'X-Api-Key': 'provider-key',
+        'Risu-Auth': 'kei-token', Cookie: 'session=kei', Host: 'kei.local',
+        Connection: 'x-hop', 'X-Hop': 'private', 'Content-Length': '999',
+        'X-Forwarded-For': '127.0.0.1',
+    })).toEqual({ authorization: 'Bearer model-key', 'x-api-key': 'provider-key' })
 })
 
 describe('executeEchoProviderRequest', () => {
@@ -112,9 +123,14 @@ test('the existing upstream executor surfaces idle body failures and retains res
     vi.useFakeTimers()
     try {
         let signal: AbortSignal
-        const response = await executeUpstreamRequest({ url: 'https://provider.example', method: 'GET', idleTimeoutMs: 100 },
+        const release = vi.fn()
+        const response = await executeUpstreamRequest({
+            url: 'https://provider.example', method: 'GET', idleTimeoutMs: 100,
+            outboundPolicy: { prepare: async (url: string) => ({ url, dispatcher: {}, release }) },
+        },
             async (_url: string, init: RequestInit) => {
                 signal = init.signal!
+                expect(init.redirect).toBe('error')
                 return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream', 'content-length': '99' } })
             })
         expect(response.headers).toEqual({ 'content-type': 'text/event-stream' })
@@ -123,6 +139,7 @@ test('the existing upstream executor surfaces idle body failures and retains res
         await vi.advanceTimersByTimeAsync(100)
         await failed
         expect(signal!.aborted).toBe(true)
+        expect(release).toHaveBeenCalledOnce()
         expect(vi.getTimerCount()).toBe(0)
     } finally { vi.useRealTimers() }
 })
