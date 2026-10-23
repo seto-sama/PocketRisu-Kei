@@ -420,13 +420,13 @@ function normalizeOrphanFolderIds(dbObj) {
     return changed;
 }
 
-function normalizeLegacyDatabaseProjection(dbObj) {
+function normalizeLegacyDatabaseProjection(dbObj, options) {
     const normalized = normalizeJSON(dbObj);
     importPromptPresetSelection(normalized);
     assignMissingPersistentIds(normalized);
     normalizeOrphanFolderIds(normalized);
 
-    const coldRestoreResult = restoreColdStorageInDb(normalized);
+    const coldRestoreResult = restoreColdStorageInDb(normalized, options);
     return { database: normalized, coldRestoreResult };
 }
 

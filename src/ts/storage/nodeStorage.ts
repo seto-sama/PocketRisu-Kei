@@ -96,6 +96,13 @@ export interface PersistWarning {
     source: string
 }
 
+export interface BackupRestoreResult {
+    ok: boolean
+    assetsRestored: number
+    coldStorageFailed?: number
+    pluginStorageColdFailed?: number
+}
+
 export interface PatchItemResult {
     conflictCode?: string
     currentHash?: string
@@ -920,7 +927,7 @@ export class NodeStorage{
     async importBackup(
         file: Blob,
         onProgress?: (loaded: number, total: number) => void
-    ): Promise<{ok: boolean, assetsRestored: number, coldStorageFailed?: number}> {
+    ): Promise<BackupRestoreResult> {
         await this.prepareImport(file.size)
         const authHeader = await this.createAuth()
 
@@ -943,7 +950,7 @@ export class NodeStorage{
 
             let parsedIndex = 0
             let leftover = ''
-            let result: {ok: boolean, assetsRestored: number, coldStorageFailed?: number} | null = null
+            let result: BackupRestoreResult | null = null
             let serverErrorMsg: string | null = null
 
             const drainNdjson = () => {
@@ -1019,7 +1026,7 @@ export class NodeStorage{
     async restoreServerBackup(
         filename: string,
         onProgress?: (bytes: number, totalBytes: number) => void
-    ): Promise<{ok: boolean, assetsRestored: number, coldStorageFailed?: number}> {
+    ): Promise<BackupRestoreResult> {
         const da = await this.authFetch('/api/backup/server/restore', {
             method: 'POST',
             headers: {

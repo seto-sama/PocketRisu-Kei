@@ -469,11 +469,8 @@ function createBackupRestoreService({
             if (encryptionMarker !== null) {
                 databaseRaw = await decryptAccountBackup(databaseRaw, encryptionMarker);
             }
-            // Two-phase hook contract: preparation may decode/normalize
-            // asynchronously but must not mutate live state. It returns a
-            // synchronous install() that replaces relational app/bookmark rows
-            // inside the outer transaction below. Imported cold-storage/REMOTE
-            // data is available only through this staged, read-only accessor.
+            // Prepare against staged data; synchronous install() keeps relational
+            // writes in the same transaction as the remaining replacement.
             const preparedDatabase = await prepareDatabaseProjection(databaseRaw, {
                 getStagedValue(key) {
                     const row = getStagedKv.get(key);
@@ -505,7 +502,6 @@ function createBackupRestoreService({
             stagedInlaysPromoted = true;
             await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 
-            let installResult;
             const replaceLiveState = sqliteDb.transaction(() => {
                 kvDelPrefix('assets/');
                 kvDelPrefix('inlay/');
@@ -520,9 +516,13 @@ function createBackupRestoreService({
                 kvDel('database/database.bin');
                 clearEntities();
                 for (const row of iterateStagedKv.iterate()) {
+                    if (preparedDatabase.discardedStorageKeys?.has(row.key)) {
+                        assetsRestored -= 1;
+                        continue;
+                    }
                     kvSet(row.key, row.value);
                 }
-                installResult = preparedDatabase.install();
+                const installResult = preparedDatabase.install();
                 if (installResult && typeof installResult.then === 'function') {
                     throw new TypeError('prepared database install() must be synchronous');
                 }
@@ -546,11 +546,8 @@ function createBackupRestoreService({
 
             invalidateDbCache();
 
-            const coldStorageFailed = Number(
-                installResult?.coldStorageFailed
-                    ?? preparedDatabase.coldStorageFailed
-                    ?? 0,
-            ) || 0;
+            const coldStorageFailed = Number(preparedDatabase.coldStorageFailed ?? 0) || 0;
+            const pluginStorageColdFailed = Number(preparedDatabase.pluginStorageColdFailed ?? 0) || 0;
 
             try {
                 checkpointWal('TRUNCATE');
@@ -566,7 +563,10 @@ function createBackupRestoreService({
                     `[Backup Import] ${coldStorageFailed} cold storage reference(s) could not be restored`,
                 );
             }
-            return { assetsRestored, bytesReceived, coldStorageFailed };
+            if (pluginStorageColdFailed > 0) {
+                logger.error(`[Backup Import] ${pluginStorageColdFailed} plugin storage item(s) could not be restored`);
+            }
+            return { assetsRestored, bytesReceived, coldStorageFailed, pluginStorageColdFailed };
         } catch (error) {
             if (!restoreCommitted) await restorePreviousInlays();
             throw error;

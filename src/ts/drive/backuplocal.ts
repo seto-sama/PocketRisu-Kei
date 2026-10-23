@@ -1,6 +1,6 @@
 import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, waitAlert, notifySuccess } from "../alert";
 import { forageStorage, requestImmediateSave } from "../globalApi.svelte";
-import { getSyncClientId, type BackupProgress, type ExportBackupOptions } from "../storage/nodeStorage";
+import { getSyncClientId, type BackupProgress, type BackupRestoreResult, type ExportBackupOptions } from "../storage/nodeStorage";
 import { language } from "src/lang";
 import { apiRequestError } from "../network/apiError";
 import { selectFileByDom } from "../util";
@@ -127,6 +127,21 @@ export async function SavePartialLocalBackup(){
     await SaveLocalBackup({ mode: 'partial' })
 }
 
+export async function finishBackupRestore(result: BackupRestoreResult) {
+    const failures = [
+        result.coldStorageFailed ? `${result.coldStorageFailed} character(s)` : '',
+        result.pluginStorageColdFailed ? `${result.pluginStorageColdFailed} plugin storage item(s)` : '',
+    ].filter(Boolean).join(' and ')
+    if (failures) {
+        alertError(`Warning: ${failures} could not be restored from cold storage. The restored save may be incomplete. The app will now reload.`)
+        await waitAlert()
+    } else {
+        alertWait("Success, Refreshing your app.");
+    }
+    location.search = ''
+    location.reload()
+}
+
 export async function LoadLocalBackup(){
     try {
         const [file] = await selectFileByDom(['bin']);
@@ -149,14 +164,7 @@ export async function LoadLocalBackup(){
                 alertWait(message, title)
             }
         })
-        if (result.coldStorageFailed && result.coldStorageFailed > 0) {
-            alertError(`Warning: ${result.coldStorageFailed} character(s) could not be restored from cold storage. The imported save may be incomplete. The app will now reload.`)
-            await waitAlert()
-        } else {
-            alertWait("Success, Refreshing your app.");
-        }
-        location.search = ''
-        location.reload()
+        await finishBackupRestore(result)
     } catch (error) {
         alertError(error)
     }

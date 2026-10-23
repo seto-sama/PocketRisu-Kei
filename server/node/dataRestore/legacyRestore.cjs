@@ -1,6 +1,7 @@
 'use strict';
 
 const zlib = require('zlib');
+const { RESERVED_KEYS, resolveUpstreamPluginStorage } = require('./upstreamPluginStorage.cjs');
 
 const COLD_STORAGE_HEADER = '\uEF01COLDSTORAGE\uEF01';
 
@@ -74,10 +75,10 @@ function createLegacyRestoreService({
             });
             return encodeColdStorageCanonicalBuffer(coldData);
         } catch (error) {
-            // Keep unreadable entries in KV so database references can remain
-            // as recovery breadcrumbs after an import.
+            // Keep bytes through staging so the referencing domain can report
+            // and handle an unreadable item during restoration.
             logger.warn?.(
-                `[ColdStorage] preserving unreadable backup entry ${sourceLabel}:`,
+                `[ColdStorage] unreadable backup entry ${sourceLabel}:`,
                 error.message,
             );
             return Buffer.from(buffer);
@@ -85,14 +86,14 @@ function createLegacyRestoreService({
     }
 
     function readColdStorageJsonEntry(nameOrKey, options = {}) {
-        const { migrateLegacy = false, allowPlainJsonFallback = false } = options;
+        const { migrateLegacy = false, allowPlainJsonFallback = false, getValue = kvGet } = options;
         const canonicalKey = normalizeColdStorageStorageKey(nameOrKey);
         const legacyBackupKey = `${canonicalKey}.json`;
         let storageKey = canonicalKey;
-        let value = kvGet(canonicalKey);
+        let value = getValue(canonicalKey);
         if (!value) {
             storageKey = legacyBackupKey;
-            value = kvGet(legacyBackupKey);
+            value = getValue(legacyBackupKey);
         }
         if (!value) return null;
         const parsed = parseColdStorageJsonBuffer(value, storageKey, {
@@ -139,10 +140,10 @@ function createLegacyRestoreService({
         });
     }
 
-    function restoreColdStorageCharacter(character) {
+    function restoreColdStorageCharacter(character, readEntry) {
         if (!character?.coldstorage) return true;
         const key = character.coldstorage;
-        const entry = readColdStorageJsonEntry(key, { migrateLegacy: true });
+        const entry = readEntry(key);
         if (!entry) {
             logger.error(`[ColdStorage] character data not found for key: ${key}`);
             return false;
@@ -199,95 +200,73 @@ function createLegacyRestoreService({
         delete char.coldStoragedChats;
     }
 
-    function restoreColdStorageCharactersInDb(dbObj) {
-        const result = { restored: 0, failed: 0, failedNames: [] };
+    function restoreColdStorageCharactersInDb(dbObj, readEntry) {
+        const result = { failed: 0 };
         if (!Array.isArray(dbObj?.characters)) return result;
         for (let i = 0; i < dbObj.characters.length; i++) {
             const char = dbObj.characters[i];
             if (!char?.coldstorage) continue;
-            if (restoreColdStorageCharacter(char)) {
-                result.restored++;
-            } else {
+            if (!restoreColdStorageCharacter(char, readEntry)) {
                 result.failed++;
-                result.failedNames.push(char.name || `(index ${i})`);
                 promoteFailedColdStorageStub(char);
             }
         }
         return result;
     }
 
-    function restoreColdPluginStorageInDb(dbObj) {
-        const result = { restored: 0, failed: 0, failedKeys: [] };
+    function restoreColdPluginStorageInDb(dbObj, readEntry) {
+        const result = { failed: 0, discardedStorageKeys: new Set() };
         const storage = dbObj?.pluginCustomStorage;
-        const coldPluginMap = storage?._coldplugin;
         if (!storage || typeof storage !== 'object' || Array.isArray(storage)
-            || !coldPluginMap || typeof coldPluginMap !== 'object'
-            || Array.isArray(coldPluginMap)) {
+            || !RESERVED_KEYS.some(key => Object.prototype.hasOwnProperty.call(storage, key))) {
             return result;
         }
-
-        const remaining = [];
-        for (const [key, coldId] of Object.entries(coldPluginMap)) {
-            let entry = null;
+        const resolved = resolveUpstreamPluginStorage(storage, id => readEntry(id)?.coldData);
+        for (const id of resolved.coldIds) {
             try {
-                if (typeof coldId === 'string' && coldId) {
-                    entry = readColdStorageJsonEntry(coldId, { migrateLegacy: true });
-                }
-            } catch (error) {
-                logger.error(
-                    `[ColdStorage] plugin storage key "${key}" (${coldId}) could not be read:`,
-                    error.message,
-                );
-            }
-
-            if (!entry) {
-                remaining.push([key, coldId]);
-                result.failed++;
-                result.failedKeys.push(key);
-                continue;
-            }
-
+                const key = normalizeColdStorageStorageKey(id);
+                result.discardedStorageKeys.add(key);
+            } catch (_) { /* Invalid ids cannot name an imported cold entry. */ }
+        }
+        for (const key of RESERVED_KEYS) delete storage[key];
+        for (const [key, value] of resolved.values) {
             Object.defineProperty(storage, key, {
                 configurable: true,
                 enumerable: true,
                 writable: true,
-                value: entry.coldData,
+                value,
             });
-            result.restored++;
         }
-
-        if (remaining.length > 0) {
-            storage._coldplugin = Object.fromEntries(remaining);
-        } else {
-            delete storage._coldplugin;
+        result.failed = resolved.failures.length;
+        for (const { key, reason } of resolved.failures) {
+            logger.error(`[ColdStorage] plugin storage key "${key}" could not be restored: ${reason}`);
         }
         return result;
     }
 
-    function restoreColdStorageInDb(dbObj) {
-        const pluginStorage = restoreColdPluginStorageInDb(dbObj);
-        const characters = restoreColdStorageCharactersInDb(dbObj);
+    function restoreColdStorageInDb(dbObj, { getStagedValue } = {}) {
+        const readEntry = key => readColdStorageJsonEntry(key, {
+            getValue: getStagedValue ?? kvGet,
+            migrateLegacy: !getStagedValue,
+        });
+        const pluginStorage = restoreColdPluginStorageInDb(dbObj, readEntry);
+        const characters = restoreColdStorageCharactersInDb(dbObj, readEntry);
         for (const character of Array.isArray(dbObj?.characters) ? dbObj.characters : []) {
             for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
-                if (!restoreColdStorageChat(chat)) {
+                if (!restoreColdStorageChat(chat, readEntry)) {
                     throw new Error(
                         `Cold storage chat restore failed for ${character?.chaId ?? 'unknown'}/${chat?.id ?? 'unknown'}`,
                     );
                 }
             }
         }
-        return {
-            restored: pluginStorage.restored + characters.restored,
-            failed: pluginStorage.failed + characters.failed,
-            pluginStorage,
-            characters,
-        };
+        return { pluginStorage, characters };
     }
 
-    function restoreColdStorageChat(chat) {
+    function restoreColdStorageChat(chat, readEntry = key => readColdStorageJsonEntry(key, { migrateLegacy: true })) {
         if (!chat?.message?.[0]?.data?.startsWith(COLD_STORAGE_HEADER)) return true;
         const key = chat.message[0].data.slice(COLD_STORAGE_HEADER.length);
-        const entry = readColdStorageJsonEntry(key, { migrateLegacy: true });
+        const entry = readEntry(key);
         if (!entry) {
             logger.error(`[ColdStorage] data not found for key: ${key}`);
             return false;

@@ -16,7 +16,7 @@ const {
         importBackupFromSource: (
             source: AsyncIterable<Buffer>,
             options?: { totalBytes?: number },
-        ) => Promise<{ assetsRestored: number; bytesReceived: number; coldStorageFailed: number }>
+        ) => Promise<{ assetsRestored: number; bytesReceived: number; coldStorageFailed: number; pluginStorageColdFailed: number }>
     }
     createLegacyRestoreService: (dependencies: Record<string, any>) => any
     restoreMissingAssetsFromBackupFile: (options: {
@@ -79,6 +79,8 @@ async function fullRestoreHarness(
     }) => Promise<{
         install(): unknown
         coldStorageFailed?: number
+        pluginStorageColdFailed?: number
+        discardedStorageKeys?: Set<string>
     }>,
     overrides: Record<string, any> = {},
 ) {
@@ -318,7 +320,6 @@ describe('createBackupRestoreService', () => {
                     liveAssetSeenDuringInstall = get.get('assets/new.png')?.value ?? null
                     db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
                         .run('new projection')
-                    return { coldStorageFailed: 0 }
                 },
             }
         })
@@ -341,6 +342,7 @@ describe('createBackupRestoreService', () => {
             assetsRestored: 1,
             bytesReceived: backup.length,
             coldStorageFailed: 0,
+            pluginStorageColdFailed: 0,
         })
         expect(preparedRaw).toEqual(database)
         expect(stagedAssetSeen).toEqual(newAsset)
@@ -387,7 +389,7 @@ describe('createBackupRestoreService', () => {
         } finally { harness.db.close() }
     })
 
-    it('restores plugin, character, and chat cold storage during import while retaining failed plugin references', async () => {
+    it('restores staged plugin, character, and chat data and discards plugin cold originals and failures', async () => {
         const pluginColdId = 'plugin-cold-id'
         const missingColdId = 'plugin-missing-id'
         const corruptColdId = 'plugin-corrupt-id'
@@ -398,10 +400,11 @@ describe('createBackupRestoreService', () => {
             pluginCustomStorage: {
                 _coldplugin: {
                     'memory/state': pluginColdId,
+                    'memory/restored': 'plugin-restored-id',
                     'memory/missing': missingColdId,
                     'memory/corrupt': corruptColdId,
                 },
-                'memory/state': 'stale inline value',
+                'memory/state': 'new inline value',
                 'other/value': 'kept inline',
             },
             characters: [{
@@ -411,15 +414,19 @@ describe('createBackupRestoreService', () => {
             }],
         }
         let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
-        let coldRestoreResult: any
-        harness = await fullRestoreHarness(async () => ({
-            install() {
-                coldRestoreResult = harness.coldStorage.restoreColdStorageInDb(database)
-                return { coldStorageFailed: coldRestoreResult.failed }
-            },
-        }))
+        harness = await fullRestoreHarness(async (_raw, context) => {
+            const coldRestoreResult = harness.coldStorage.restoreColdStorageInDb(database, context)
+            expect(harness.get.get(`coldstorage/${pluginColdId}`)).toBeUndefined()
+            return {
+                coldStorageFailed: coldRestoreResult.characters.failed,
+                pluginStorageColdFailed: coldRestoreResult.pluginStorage.failed,
+                discardedStorageKeys: coldRestoreResult.pluginStorage.discardedStorageKeys,
+                install() {},
+            }
+        })
         const backup = Buffer.concat([
             backupEntry(`coldstorage/${pluginColdId}.json`, Buffer.from(JSON.stringify({ entries: [1, 2] }))),
+            backupEntry('coldstorage/plugin-restored-id.json', Buffer.from(JSON.stringify({ entries: [3] }))),
             backupEntry(`coldstorage/${corruptColdId}.json`, corruptColdValue),
             backupEntry(`coldstorage/${characterColdId}.json`, Buffer.from(JSON.stringify({
                 character: {
@@ -440,22 +447,13 @@ describe('createBackupRestoreService', () => {
         async function* chunks() { yield backup }
         const result = await harness.service.importBackupFromSource(chunks())
 
-        expect(result.coldStorageFailed).toBe(2)
-        expect(coldRestoreResult).toMatchObject({
-            restored: 2,
-            failed: 2,
-            pluginStorage: { restored: 1, failed: 2 },
-            characters: { restored: 1, failed: 0 },
-        })
+        expect(result.coldStorageFailed).toBe(0)
+        expect(result.pluginStorageColdFailed).toBe(2)
         expect(database.pluginCustomStorage).toEqual({
-            'memory/state': { entries: [1, 2] },
+            'memory/state': 'new inline value',
+            'memory/restored': { entries: [3] },
             'other/value': 'kept inline',
-            _coldplugin: {
-                'memory/missing': missingColdId,
-                'memory/corrupt': corruptColdId,
-            },
         })
-        expect(database.pluginCustomStorage).not.toHaveProperty('memory/corrupt')
         expect(database.characters[0]).toMatchObject({
             name: 'Restored character',
             chats: [{
@@ -464,24 +462,106 @@ describe('createBackupRestoreService', () => {
                 localLore: ['restored lore'],
             }],
         })
-        expect(harness.get.get(`coldstorage/${pluginColdId}`)).toBeDefined()
-        expect(harness.get.get(`coldstorage/${corruptColdId}`).value).toEqual(corruptColdValue)
-        expect(harness.get.get(`coldstorage/${missingColdId}`)).toBeUndefined()
+        expect(harness.db.prepare("SELECT key FROM kv WHERE key LIKE 'coldstorage/%' ORDER BY key").all())
+            .toEqual([{ key: `coldstorage/${characterColdId}` }, { key: `coldstorage/${chatColdId}` }])
+    })
+
+    it('imports Original plugin blocks into canonical storage without reading old server cold data', async () => {
+        const { createAppDataStore } = require('../appDataStore.cjs')
+        const { decodeRisuSave } = require('../utils/risuSave.cjs')
+        const largeValue = { text: 'sidecar value' }
+        const database = {
+            characters: [],
+            pluginCustomStorage: {
+                same: 'new inline value',
+                _coldpluginIndex: 'index-id',
+                _coldplugin: { same: 'shadowed-id', legacy: 'legacy-id', missing: 'legacy-stale-id' },
+            },
+        }
+        const expected = {
+            same: 'new inline value', small: { enabled: true }, zero: 0,
+            flag: false, empty: '', nil: null, large: largeValue, legacy: 'legacy value',
+        }
+        let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
+        let store: any
+        harness = await fullRestoreHarness(async (raw, context) => {
+            const decoded = await decodeRisuSave(raw)
+            const result = harness.coldStorage.restoreColdStorageInDb(decoded, context)
+            expect(store.exportProjection().pluginCustomStorage).toEqual({ existing: 'replaced by backup' })
+            return {
+                pluginStorageColdFailed: result.pluginStorage.failed,
+                coldStorageFailed: result.characters.failed,
+                discardedStorageKeys: result.pluginStorage.discardedStorageKeys,
+                install: () => store.replaceFromProjection(decoded),
+            }
+        })
+        store = createAppDataStore(harness.db)
+        store.replaceFromProjection({ characters: [], pluginCustomStorage: { existing: 'replaced by backup' } })
+        harness.db.prepare('INSERT INTO kv (key, value) VALUES (?, ?)')
+            .run('coldstorage/missing-id', harness.coldStorage.encodeColdStorageCanonicalBuffer('old server value'))
+        const index = {
+            type: 'risu-plugin-storage-index', version: 1,
+            entries: [
+                { k: 'same', s: 'invalid shadowed JSON' },
+                { k: 'small', s: '"superseded entry"' },
+                { k: 'small', s: '{"enabled":true}' },
+                { k: 'zero', s: '0' }, { k: 'flag', s: 'false' },
+                { k: 'empty', s: '""' }, { k: 'nil', s: 'null' },
+                { k: 'large', l: 'large-id', s: '"ignored inline JSON"' },
+                { k: 'missing', l: 'missing-id' }, { k: 'corrupt', s: 'not JSON' },
+            ],
+            trash: [{ id: 'trash-id', at: 0 }],
+        }
+        const originalSave = Buffer.concat([
+            Buffer.from('RISUSAVE\0'),
+            ...[
+                { type: 1, name: 'root', value: { characters: [] } },
+                { type: 11, name: 'pluginStorage', value: database.pluginCustomStorage },
+            ].map(({ type, name, value }) => {
+                const payload = Buffer.from(JSON.stringify(value))
+                const header = Buffer.alloc(7 + Buffer.byteLength(name))
+                header[0] = type
+                header[2] = Buffer.byteLength(name)
+                header.write(name, 3)
+                header.writeUInt32LE(payload.length, 3 + Buffer.byteLength(name))
+                return Buffer.concat([header, payload])
+            }),
+        ])
+        const backup = Buffer.concat([
+            backupEntry('database.risudat', originalSave),
+            backupEntry('coldstorage_index-id.json', Buffer.from(JSON.stringify(index))),
+            backupEntry('coldstorage_large-id.json', Buffer.from(JSON.stringify(largeValue))),
+            backupEntry('coldstorage_legacy-id.json', Buffer.from(JSON.stringify('legacy value'))),
+            backupEntry('coldstorage_legacy-stale-id.json', Buffer.from(JSON.stringify('stale fallback'))),
+            backupEntry('coldstorage_trash-id.json', Buffer.from(JSON.stringify('deleted value'))),
+        ])
+        async function* chunks() { yield backup }
+        try {
+            expect(await harness.service.importBackupFromSource(chunks())).toMatchObject({
+                coldStorageFailed: 0, pluginStorageColdFailed: 2,
+            })
+            expect(harness.db.prepare("SELECT key FROM kv WHERE key LIKE 'coldstorage/%'").all()).toEqual([])
+            const stored = store.exportProjection().pluginCustomStorage
+            expect(stored).toEqual(expected)
+        } finally { harness.db.close() }
     })
 
     it('rolls back imported cold storage when projection installation fails', async () => {
         const coldId = 'plugin-cold-id'
         let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
-        harness = await fullRestoreHarness(async () => ({
-            install() {
-                harness.coldStorage.restoreColdStorageInDb({
-                    pluginCustomStorage: { _coldplugin: { 'memory/state': coldId } },
-                })
-                harness.db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
-                    .run('partially installed')
-                throw new Error('projection install failed')
-            },
-        }))
+        harness = await fullRestoreHarness(async (_raw, context) => {
+            const result = harness.coldStorage.restoreColdStorageInDb({
+                pluginCustomStorage: { _coldplugin: { 'memory/state': coldId } },
+            }, context)
+            return {
+                discardedStorageKeys: result.pluginStorage.discardedStorageKeys,
+                install() {
+                    harness.db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
+                        .run('partially installed')
+                    throw new Error('projection install failed')
+                },
+            }
+        })
         const oldColdValue = harness.coldStorage.encodeColdStorageCanonicalBuffer({ old: true })
         harness.db.prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, 1)')
             .run('coldstorage/old-cold-id', oldColdValue)
@@ -581,6 +661,27 @@ describe('createBackupRestoreService', () => {
 })
 
 describe('createLegacyRestoreService', () => {
+    it('discards an unsupported plugin index while restoring independent legacy values', () => {
+        const service = createLegacyRestoreService({ logger: { error() {} } })
+        const staged = new Map([
+            ['coldstorage/index', service.encodeColdStorageCanonicalBuffer({
+                type: 'risu-plugin-storage-index', version: 2, entries: [], trash: [],
+            })],
+            ['coldstorage/legacy', service.encodeColdStorageCanonicalBuffer(false)],
+        ])
+        const database = {
+            pluginCustomStorage: {
+                existing: 'kept', _coldpluginIndex: 'index', _coldplugin: { legacy: 'legacy' },
+            },
+        }
+        const result = service.restoreColdStorageInDb(database, {
+            getStagedValue: (key: string) => staged.get(key) ?? null,
+        })
+
+        expect(result.pluginStorage.failed).toBe(1)
+        expect(database).toEqual({ pluginCustomStorage: { existing: 'kept', legacy: false } })
+    })
+
     it('accepts OriginalRisu underscore cold-storage names and restores characters', () => {
         const db = freshDb()
         const set = db.prepare(
@@ -620,11 +721,7 @@ describe('createLegacyRestoreService', () => {
             }],
         }
 
-        expect(service.restoreColdStorageInDb(database)).toMatchObject({
-            restored: 1,
-            failed: 0,
-            characters: { restored: 1, failed: 0, failedNames: [] },
-        })
+        service.restoreColdStorageInDb(database)
         expect(database.characters[0].name).toBe('Restored')
         expect(database.characters[0].coldstorage).toBeUndefined()
     })

@@ -255,25 +255,22 @@ function installBackupRoutes(app, {
         }
     }
 
-    async function prepareImportedDatabaseProjection(raw) {
+    async function prepareImportedDatabaseProjection(raw, context) {
         const decoded = await decodeRisuSave(Buffer.from(raw));
-        const prepared = normalizeJSON(decoded);
-        if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
+        if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
             throw new TypeError('Imported database projection must be an object');
         }
+        const { database, coldRestoreResult } = normalizeLegacyDatabaseProjection(decoded, context);
 
         return {
+            coldStorageFailed: coldRestoreResult.characters.failed,
+            pluginStorageColdFailed: coldRestoreResult.pluginStorage.failed,
+            discardedStorageKeys: coldRestoreResult.pluginStorage.discardedStorageKeys,
             install() {
-                const { database, coldRestoreResult } =
-                    normalizeLegacyDatabaseProjection(prepared);
                 bookmarkStore.replaceDatabaseCompatibility(database);
-                const installed = appDataStore.replaceFromProjection(database, {
+                return appDataStore.replaceFromProjection(database, {
                     expectedRevision: appDataStore.getState().revision,
                 });
-                return {
-                    ...installed,
-                    coldStorageFailed: coldRestoreResult.failed,
-                };
             },
         };
     }
@@ -706,6 +703,7 @@ function installBackupRoutes(app, {
                     ok: true,
                     assetsRestored: result.assetsRestored,
                     coldStorageFailed: result.coldStorageFailed,
+                    pluginStorageColdFailed: result.pluginStorageColdFailed,
                 }) + '\n');
                 res.end();
             } else {
@@ -718,6 +716,7 @@ function installBackupRoutes(app, {
                     ok: true,
                     assetsRestored: result.assetsRestored,
                     coldStorageFailed: result.coldStorageFailed,
+                    pluginStorageColdFailed: result.pluginStorageColdFailed,
                 });
             }
         } catch (error) {
@@ -930,6 +929,7 @@ function installBackupRoutes(app, {
                 ok: true,
                 assetsRestored: result.assetsRestored,
                 coldStorageFailed: result.coldStorageFailed,
+                pluginStorageColdFailed: result.pluginStorageColdFailed,
             }) + '\n');
             res.end();
         } catch (error) {
