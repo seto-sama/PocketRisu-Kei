@@ -3,7 +3,7 @@
 const { writeFileSync } = require('fs');
 const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
-const { codes: API_ERROR_CODES, sendApiError } = require('../apiErrors.cjs');
+const { codes: API_ERROR_CODES, sendApiError } = require('../utils/apiErrors.cjs');
 const express = require('express');
 
 function installAuthRoutes(app, {

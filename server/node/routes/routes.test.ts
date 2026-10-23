@@ -15,7 +15,7 @@ import { decodeBackup } from '../../../test/compat/helpers/decode'
 import Database from '../sqlite.cjs'
 import appDataStorePkg from '../appDataStore.cjs'
 
-const { decodeRisuSave } = createRequire(import.meta.url)('../utils.cjs') as {
+const { decodeRisuSave } = createRequire(import.meta.url)('../utils/risuSave.cjs') as {
     decodeRisuSave(data: Uint8Array): Promise<any>
 }
 

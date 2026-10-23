@@ -1,17 +1,18 @@
 'use strict';
 
 const { installAssetBatchRoutes } = require('./batch.cjs');
-const { binaryBodyParser } = require('../../binaryHttp.cjs');
+const { binaryBodyParser } = require('../../utils/binaryHttp.cjs');
 
 const { logger } = require('../../logs/logs.cjs');
-const { encodeRisuSaveLegacy, normalizeJSON, decodeRisuSave, calculateHash } = require('../../utils.cjs');
+const { encodeRisuSaveLegacy, decodeRisuSave } = require('../../utils/risuSave.cjs');
+const { normalizeJSON, calculateHash } = require('../../utils/json.cjs');
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
 const { createReadStream } = require('fs');
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { applyPatch } = require('fast-json-patch');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 
 function installAssetRoutes(app, {
     saveTimers,

@@ -27,7 +27,7 @@ const {
     isUnregisteredWorkflowExpired,
     shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
     const {

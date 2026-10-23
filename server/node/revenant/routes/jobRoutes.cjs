@@ -28,8 +28,8 @@ const {
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../protocol.cjs');
-const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { decodeBinaryRequest, binaryBodyParser } = require('../../utils/binaryHttp.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 const { createProviderCapacityError } = require('../capacity.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {

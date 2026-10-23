@@ -2,7 +2,8 @@
 
 const crypto = require('crypto');
 const API_ERROR_CODES = require('../../shared/apiErrorCodes.json');
-const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
+const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
+const { normalizeJSON } = require('./utils/json.cjs');
 const { assertChatIdentity, chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../../shared/chatShape.mjs');
 const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { stripChatCompatibility } = require('./bookmarkStore.cjs');

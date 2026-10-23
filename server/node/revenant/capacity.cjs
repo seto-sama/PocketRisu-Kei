@@ -1,6 +1,6 @@
 'use strict';
 
-const { apiErrorMessage, codes } = require('../apiErrors.cjs');
+const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 
 const BASE_REVENANT_CAPACITY = 32;
 

@@ -5,7 +5,7 @@ const Database = require('./sqlite.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const { createChunkStore, CHUNK_MARKER } = require('./chunkStore.cjs');
-const { encodeRisuSaveLegacy } = require('./utils.cjs');
+const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 const { exportPromptPresetSelection } = require('../../shared/promptPresetSelection.mjs');
 
 function createSnapshotKey(db, prefix, now = Date.now()) {

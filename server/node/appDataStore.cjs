@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { createContentReferenceCollector, validateReferenceCandidates, matchContentReferences } = require('../../shared/contentReferences.mjs');
 const { Packr, Unpackr } = require('msgpackr');
-const { normalizeJSON } = require('./utils.cjs');
+const { normalizeJSON } = require('./utils/json.cjs');
 const {
     chatToStub,
     computeChatEtag,

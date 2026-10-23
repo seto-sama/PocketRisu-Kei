@@ -10,7 +10,7 @@ const { encodeFile, decodeFile } = require('./fileFormats.cjs') as {
     encodeFile(format: string, value: unknown): Promise<Uint8Array>
     decodeFile(format: string, data: Uint8Array): Promise<any>
 }
-const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils.cjs') as {
+const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils/risuSave.cjs') as {
     decodeRisuSave(data: Uint8Array): Promise<any>
     encodeRisuSaveLegacy(data: unknown): Uint8Array
 }

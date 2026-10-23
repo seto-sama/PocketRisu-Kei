@@ -2,7 +2,7 @@
 
 const { filterRemoteOnlyFolders } = require('../remoteDatabaseFilter.cjs');
 const { normalizePreview } = require('../bookmarkStore.cjs');
-const { codes, sendApiError } = require('../apiErrors.cjs');
+const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installBookmarksRoutes(app, {
     isCloudflareTunnelRequest,

@@ -4,9 +4,9 @@ const { createDatabaseProjectionService, DatabaseProjectionServiceError } = requ
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../../shared/contentReferences.mjs');
-const { apiErrorMessage, codes } = require('../apiErrors.cjs');
+const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 const { encode, decode } = require('msgpackr');
-const { binaryBodyParser } = require('../binaryHttp.cjs');
+const { binaryBodyParser } = require('../utils/binaryHttp.cjs');
 const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../../src/ts/network/binaryMessage.ts');
 
 function installDatabaseRoutes(app, {

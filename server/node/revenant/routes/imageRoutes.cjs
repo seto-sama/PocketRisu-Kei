@@ -4,8 +4,8 @@ const {
     BINARY_MESSAGE_CONTENT_TYPE, encodeBinaryMessage,
     MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES, MAX_IMAGE_RESULT_MESSAGE_BYTES,
 } = require('../protocol.cjs');
-const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { decodeBinaryRequest, binaryBodyParser } = require('../../utils/binaryHttp.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 
 function installImageGenerationJobRoutes(app, { checkProxyAuth, requireSyncClientId, service }) {
     const { jobs, publicJob, createJob, setProgress, finishBridgeJob, completeBridgeJob } = service;

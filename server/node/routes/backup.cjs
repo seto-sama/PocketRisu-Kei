@@ -8,7 +8,8 @@ const { randomUUID } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { encode: encodeMessagePack } = require('msgpackr');
-const { decodeRisuSave, encodeRisuSave, normalizeJSON } = require('../utils.cjs');
+const { decodeRisuSave, encodeRisuSave } = require('../utils/risuSave.cjs');
+const { normalizeJSON } = require('../utils/json.cjs');
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
@@ -23,7 +24,7 @@ const {
     assetBasename: statsBasename,
 } = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installBackupRoutes(app, {
     checkDownloadAuth,

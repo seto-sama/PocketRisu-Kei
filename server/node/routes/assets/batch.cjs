@@ -1,6 +1,6 @@
 'use strict';
 
-const { binaryBodyParser, decodeBinaryRequest } = require('../../binaryHttp.cjs');
+const { binaryBodyParser, decodeBinaryRequest } = require('../../utils/binaryHttp.cjs');
 const { encodeAssetBatch, decodeAssetBatch, MAX_ASSET_BATCH_BYTES } = require('../../../../src/ts/storage/assetTransport.ts');
 const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../../../src/ts/network/binaryMessage.ts');
 

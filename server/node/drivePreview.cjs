@@ -1,7 +1,7 @@
 'use strict';
 
 const { getFileType } = require('../../shared/fileTypes.mjs');
-const { getZip } = require('./zip.cjs');
+const { getZip } = require('./utils/zip.cjs');
 
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_ZIP_INDEX_BYTES = 8 * 1024 * 1024;

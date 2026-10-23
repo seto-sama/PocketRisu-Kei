@@ -6,7 +6,7 @@ const path = require('node:path');
 const { gzip } = require('node:zlib');
 const { promisify } = require('node:util');
 const { decode, encode } = require('msgpackr');
-const { decodeRisuSave, encodeRisuSave, decompressBuffer } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSave, decompressBuffer } = require('./utils/risuSave.cjs');
 const {
     exportPromptPresetSelection,
     importPromptPresetSelection,

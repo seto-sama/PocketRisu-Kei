@@ -1,7 +1,7 @@
 'use strict';
 
 const { DatabaseSync } = require('node:sqlite');
-const { apiErrorMessage, codes: API_ERROR_CODES } = require('./apiErrors.cjs');
+const { apiErrorMessage, codes: API_ERROR_CODES } = require('./utils/apiErrors.cjs');
 
 let savepointSequence = 0;
 

@@ -5,7 +5,7 @@ const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, a
 const fs = require('fs/promises');
 const path = require('path');
 const { logger } = require('../logs/logs.cjs');
-const { codes, sendApiError } = require('../apiErrors.cjs');
+const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installMaintenanceRoutes(app, {
     checkAuth,

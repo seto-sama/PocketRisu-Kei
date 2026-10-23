@@ -3,7 +3,7 @@ import Database from './sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
-import utilsPkg from './utils.cjs'
+import jsonPkg from './utils/json.cjs'
 import { createPatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs'
 import { createDelta } from '../../shared/guardedDelta.mjs'
 
@@ -14,7 +14,7 @@ const {
     DatabaseProjectionValidationError,
     createDatabaseProjectionService,
 } = projectionServicePkg as any
-const { calculateHash } = utilsPkg as any
+const { calculateHash } = jsonPkg as any
 
 const openDatabases: Database.Database[] = []
 

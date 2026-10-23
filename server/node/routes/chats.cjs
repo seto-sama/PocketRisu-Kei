@@ -1,9 +1,9 @@
 'use strict';
 
 const { isChatHiddenFromRemote } = require('../remoteDatabaseFilter.cjs');
-const { encodeRisuSaveLegacy } = require('../utils.cjs');
+const { encodeRisuSaveLegacy } = require('../utils/risuSave.cjs');
 const { computeChatEtag, CanonicalChatCommitError } = require('../chatStore.cjs');
-const { codes, sendApiError } = require('../apiErrors.cjs');
+const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installChatsRoutes(app, {
     checkAuth,

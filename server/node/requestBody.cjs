@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { BINARY_MESSAGE_CONTENT_TYPE } = require('./binaryHttp.cjs');
+const { BINARY_MESSAGE_CONTENT_TYPE } = require('./utils/binaryHttp.cjs');
 
 function installAuthenticatedBodyParsing(app, { checkAuth }) {
     const authenticate = async (req, res, next) => {

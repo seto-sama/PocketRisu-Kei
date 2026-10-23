@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./utils/apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
@@ -90,7 +90,8 @@ const { applyGenerationInputMetadata } = require('./revenant/generationInputMeta
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
 const { normalizeTrashRetentionDays } = require('../../shared/trashRetention.mjs');
 
-const { decodeRisuSave, encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
+const { normalizeJSON } = require('./utils/json.cjs');
 const {
     exportPromptPresetSelection,
     importPromptPresetSelection,

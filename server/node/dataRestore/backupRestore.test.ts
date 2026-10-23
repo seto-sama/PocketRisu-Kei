@@ -641,7 +641,7 @@ const accountMarker = backupEntry('encryption.risudat', Buffer.from(JSON.stringi
 
 describe('encrypted account backup restore', () => {
     it.each([true, false])('decrypts before projection validation, marker first: %s', async markerFirst => {
-        const { encodeRisuSave, decodeRisuSave } = require('../utils.cjs')
+        const { encodeRisuSave, decodeRisuSave } = require('../utils/risuSave.cjs')
         const plaintext = Buffer.from(await encodeRisuSave({ characters: [], language: 'ko' }))
         const key = 'fixture-account-key'
         const snapshot = vi.fn()

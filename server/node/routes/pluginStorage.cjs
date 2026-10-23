@@ -1,7 +1,7 @@
 'use strict';
 
 const { encode, decode } = require('msgpackr');
-const { binaryBodyParser, decodeBinaryRequest } = require('../binaryHttp.cjs');
+const { binaryBodyParser, decodeBinaryRequest } = require('../utils/binaryHttp.cjs');
 
 function installPluginStorageRoutes(app, {
     appDataStore, checkAuth, requireSyncClientId, queueStorageOperation, ensureCanonicalStorage,
