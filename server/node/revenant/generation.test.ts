@@ -154,6 +154,33 @@ describe('revenant durable dispatch validation', () => {
             target: { ...operation.target, swipeId: 2.5 },
         })).toBeUndefined()
     })
+
+    it('validates durable Lua callback input before accepting the operation context', () => {
+        const operation = {
+            kind: 'lua-llm',
+            operationId: 'lua-operation-1',
+            executionKey: 'execution-1',
+            replayKey: 'replay-1',
+            characterId: 'character-1',
+            roomId: 'room-1',
+            mode: 'onFormSubmit',
+            code: 'function onFormSubmit(id, key, meta) end',
+            lowLevelAccess: true,
+            data: 'contact-form',
+            meta: { data: { name: ['Alice', 'Bob'] } },
+            anchorMessageId: 'message-1',
+            callIndex: 0,
+        }
+        expect(normalizeRevenantOperationContext('otherAx', operation)).toEqual(operation)
+        expect(normalizeRevenantOperationContext('otherAx', {
+            ...operation,
+            data: 42,
+        })).toBeUndefined()
+        expect(normalizeRevenantOperationContext('otherAx', {
+            ...operation,
+            meta: null,
+        })).toBeUndefined()
+    })
 })
 
 describe('manual image workflow validation', () => {
@@ -185,6 +212,27 @@ describe('manual image workflow validation', () => {
         expect(normalizeRevenantWorkflowContext(
             context,
             'character-2',
+            'image-generation:room-1',
+        )).toBeUndefined()
+    })
+
+    it('accepts optional portrait or landscape orientation and rejects other values', () => {
+        for (const orientation of ['portrait', 'landscape'] as const) {
+            const orientedContext = { ...context, orientation }
+            expect(normalizeRevenantWorkflowContext(
+                orientedContext,
+                'character-1',
+                'image-generation:room-1',
+            )).toEqual(orientedContext)
+        }
+        expect(normalizeRevenantWorkflowContext(
+            { ...context, orientation: 'square' },
+            'character-1',
+            'image-generation:room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            { ...context, orientation: null },
+            'character-1',
             'image-generation:room-1',
         )).toBeUndefined()
     })
@@ -493,6 +541,48 @@ describe('revenant workflow validation', () => {
             'character-1',
             'room-1',
         )).toBeUndefined()
+    })
+
+    it('validates all Lua auxiliary and module provider snapshots with one schema', () => {
+        const extended = {
+            ...workflowContext,
+            postprocess: {
+                ...workflowContext.postprocess,
+                auxProviders: {
+                    emotion: { backend: 'plugin', modelPreset: { id: 'emotion' } },
+                    memory: { backend: 'http', modelPreset: { id: 'memory' } },
+                    otherAx: { backend: 'echo', modelPreset: { id: 'otherAx' } },
+                    submodel: { backend: 'plugin', modelPreset: { id: 'submodel' } },
+                    translate: { backend: 'http', modelPreset: { id: 'translate' } },
+                },
+                moduleProviders: {
+                    'module-1': { backend: 'plugin', modelPreset: { id: 'module' } },
+                },
+            },
+        }
+
+        expect(normalizeRevenantWorkflowContext(
+            extended, 'character-1', 'room-1',
+        )).toEqual(extended)
+        expect(normalizeRevenantWorkflowContext({
+            ...extended,
+            postprocess: {
+                ...extended.postprocess,
+                auxProviders: {
+                    ...extended.postprocess.auxProviders,
+                    invalid: { backend: 'http', modelPreset: { id: 'invalid' } },
+                },
+            },
+        }, 'character-1', 'room-1')).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext({
+            ...extended,
+            postprocess: {
+                ...extended.postprocess,
+                moduleProviders: {
+                    'module-1': { backend: 'invalid', modelPreset: { id: 'module' } },
+                },
+            },
+        }, 'character-1', 'room-1')).toBeUndefined()
     })
 
     it('requires a guarded delta for workflow input', () => {

@@ -278,6 +278,7 @@ async function executeRevenantOutputTriggers(options) {
                             recipe,
                             chat,
                             responses,
+                            moduleId: trigger.moduleId,
                             lowLevelAccess: trigger.lowLevelAccess === true,
                             actionNamespace: prefix,
                         });

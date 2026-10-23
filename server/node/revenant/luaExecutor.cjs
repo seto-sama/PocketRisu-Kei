@@ -18,14 +18,19 @@ const { renderRevenantTemplate } = require(path.join(
 const { invokeLuaMode, registerLuaCoreApis, registerLuaEffectApis } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaCore.ts',
 ));
+const { isImageOrientation } = require('../../../src/ts/imageGeneration/orientation.ts');
 const {
     normalizeLuaLlmPrompt,
+    luaLlmResult,
     normalizeLuaLlmResult,
     parseLuaLlmOptions,
+    resolveLuaAxLlmMode,
     serializeLuaLlmResult,
 } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaLlmCore.ts',
 ));
+
+const luaLlmError = message => JSON.stringify(luaLlmResult(false, message, true));
 
 let factoryPromise;
 
@@ -52,6 +57,7 @@ async function executeRevenantLua(options) {
         meta = {},
         actionNamespace = 'lua',
     } = options;
+    const moduleId = typeof options.moduleId === 'string' ? options.moduleId : undefined;
     let data = options.data;
     let chat = structuredClone(options.chat || recipe.chat);
     const foregroundEffects = [];
@@ -73,12 +79,22 @@ async function executeRevenantLua(options) {
         chat.scriptstate ||= {};
         chat.scriptstate[`$${key}`] = String(value);
     };
-    const providerFor = mode => recipe.auxProviders?.[mode] || {
+    const mainProvider = {
         backend: recipe.providerBackend,
         modelPreset: recipe.modelPreset,
     };
+    const moduleProviders = recipe.moduleProviders;
+    const moduleProvider = moduleId
+        && moduleProviders
+        && Object.prototype.hasOwnProperty.call(moduleProviders, moduleId)
+        ? moduleProviders[moduleId]
+        : undefined;
+    const providerFor = mode => {
+        if (moduleProvider) return moduleProvider;
+        return mode === 'model' ? mainProvider : recipe.auxProviders?.[mode];
+    };
     const factory = await getFactory();
-    const engine = await factory.createEngine({ injectObjects: true, functionTimeout: 5000 });
+    const engine = await factory.createEngine({ injectObjects: true, enableProxy: false, functionTimeout: 5000 });
     const declare = (name, fn) => engine.global.set(name, fn);
     const effectHandlers = {};
     const addEffect = (name, handler) => { effectHandlers[name] = handler; };
@@ -134,13 +150,25 @@ async function executeRevenantLua(options) {
         return serializeLuaLlmResult(result);
     });
     addEffect('axLLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
-        const provider = providerFor('otherAx');
+        const options = parseLuaLlmOptions(llmOptions);
+        let mode;
+        try {
+            mode = resolveLuaAxLlmMode(options);
+        }
+        catch (error) {
+            return luaLlmError(error instanceof Error ? error.message : String(error));
+        }
+        const provider = providerFor(mode);
+        if (!provider?.modelPreset) {
+            return luaLlmError(`No auxiliary provider is configured for mode: ${mode}`);
+        }
         const result = action('provider.axllm', {
             backend: provider.backend,
             modelPreset: provider.modelPreset,
+            mode,
             prompt: normalizeLuaLlmPrompt(prompt),
             useMultimodal: useMultimodal === true,
-            options: parseLuaLlmOptions(llmOptions),
+            options,
         });
         return serializeLuaLlmResult(result);
     });
@@ -152,9 +180,14 @@ async function executeRevenantLua(options) {
         }));
     });
     addEffect('request', async (_id, url) => action('network.request', { url: String(url) }));
-    addEffect('generateImage', async (_id, prompt, negativePrompt = '') => (
-        action('image.generate', { prompt: String(prompt), negativePrompt: String(negativePrompt) })
-    ));
+    addEffect('generateImage', async (_id, prompt, negativePrompt = '', options) => {
+        const orientation = options?.orientation;
+        if (orientation !== undefined && !isImageOrientation(orientation)) return 'Error: Image orientation must be landscape or portrait, received ' + orientation;
+        return action('image.generate', {
+            prompt: String(prompt), negativePrompt: String(negativePrompt),
+            ...(orientation !== undefined ? { orientation } : {}),
+        });
+    });
     addEffect('getCharacterImageMain', async () => action('asset.character-image', {}));
     addEffect('getPersonaImageMain', async () => action('asset.persona-image', {}));
     addEffect('getPersonaName', () => recipe.database.username ?? 'User');

@@ -88,6 +88,7 @@ function installRevenantWorkflowRoutes(app, deps) {
                             payload: {
                                 prompt: context.prompt,
                                 negativePrompt: context.negativePrompt,
+                                orientation: context.orientation,
                                 seed: context.seed,
                                 target: context.target,
                                 messageId: context.messageId,

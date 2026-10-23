@@ -14,7 +14,11 @@ const { convertInterfaceToSchemaCore } = source('process/templates/jsonSchemaCor
 const { formatPresetMessages } = source('process/request/formatMessages.ts');
 const { toAdapterMessage } = source('process/request/modelPresetMessages.ts');
 const { parseChatMLCore } = source('parser/chatMLCore.ts');
-const { normalizeLuaLlmPrompt, extractLuaLlmInlays } = source('process/luaLlmCore.ts');
+const {
+    LUA_AX_LLM_MODES,
+    normalizeLuaLlmPrompt,
+    extractLuaLlmInlays,
+} = source('process/luaLlmCore.ts');
 const { renderRevenantTemplate } = source('process/revenant/postprocess/headlessParser.ts');
 const { GENERATION_REQUEST_DEFAULT_TIMEOUT_MS } = require('./generationConfig.cjs');
 const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
@@ -118,11 +122,15 @@ function createServerProviderActionExecutor(options) {
                 const targetUrl = sanitizeGenerationTargetUrl(String(url));
                 if (!targetUrl) throw new Error('Invalid provider target URL');
                 const jobId = randomUUID();
+                let jobType = payload.mode === 'submodel' ? 'submodel' : 'otherAx';
+                if (action.kind === 'provider.axllm' && LUA_AX_LLM_MODES.includes(payload.mode)) {
+                    jobType = payload.mode;
+                }
+                if (action.kind === 'provider.igp') jobType = 'emotion';
+                if (operationContext?.kind === 'hypav3-summary') jobType = 'memory';
                 repository.createGenerationJob({
                     jobId, chatId: jobId,
-                    jobType: operationContext?.kind === 'hypav3-summary' ? 'memory'
-                        : payload.mode === 'submodel' ? 'submodel'
-                        : action.kind === 'provider.igp' ? 'emotion' : 'otherAx',
+                    jobType,
                     characterId: workflow.characterId, roomId: workflow.roomId,
                     workflowId: workflow.workflowId,
                     workflowStepKey: `client-action:${action.actionId}`.slice(0, 128),

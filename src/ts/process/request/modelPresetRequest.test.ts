@@ -44,6 +44,7 @@ import { customV3ProviderMetaStore } from 'src/ts/plugins/apiV3/v3.svelte'
 import {
     modelPresetRequestFailurePolicy,
     requestModelPresetData,
+    requestChatDataMain,
     resolvePresetStreaming,
     testModelPreset,
 } from './request'
@@ -100,6 +101,26 @@ describe('plugin-backed ModelPreset dispatch', () => {
         requestStatuses.set(new Map())
         stopStatusTimer()
         delete mockDb.showRequestStatus
+    })
+
+    test('resolves an auxiliary request from its captured chat instead of the current selection', async () => {
+        const preset = pluginPreset()
+        mockDb.modelPresets = [preset]
+        customV3ProviderMetaStore.push({
+            id: 'pluginmodel:::test-provider', name: 'Test provider',
+            provider: LLMProvider.AsIs, format: LLMFormat.Plugin,
+            flags: [LLMFlags.hasFullSystemPrompt], parameters: [], tokenizer: LLMTokenizer.Unknown,
+        })
+        pluginRuntime.providers.set('test-provider', async () => ({ success: true, content: 'captured reply' }))
+        try {
+            const result = await requestChatDataMain({
+                formated: [{ role: 'user', content: 'hello' }], bias: {},
+                currentChat: { id: 'origin', modelBinding: { main: preset.id, sub: preset.id } } as never,
+            }, 'memory')
+            expect(result).toMatchObject({ type: 'success', result: 'captured reply' })
+        } finally {
+            delete mockDb.modelPresets
+        }
     })
 
     test('defaults standalone LLM calls to a consumed non-streaming result', () => {

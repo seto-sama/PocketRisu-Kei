@@ -1,11 +1,20 @@
 'use strict';
 
+const path = require('path');
 const HYPA_CONCURRENT_REQUEST_MIN = 1;
 const HYPA_CONCURRENT_REQUEST_MAX = 12;
 const HYPA_QUERY_CHAT_COUNT_MIN = 1;
 const HYPA_QUERY_CHAT_COUNT_MAX = 12;
 
 const { applyPatch } = require('fast-json-patch');
+require('sucrase/register/ts');
+const { LUA_AX_LLM_MODES } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaLlmCore.ts',
+));
+const { isRevenantLuaLlmOperation } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'operations.ts',
+));
+const { isImageOrientation } = require('../../../src/ts/imageGeneration/orientation.ts');
 
 const JOB_TYPES = new Set([
     'model', 'submodel', 'memory', 'emotion', 'otherAx', 'translate',
@@ -35,6 +44,26 @@ const SERVER_TOKENIZERS = new Set([
     'novellist', 'gemma', 'deepseek',
 ]);
 const CHAT_PATCH_OPERATIONS = new Set(['add', 'remove', 'replace']);
+
+function isObjectRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isProviderSnapshot(value) {
+    return isObjectRecord(value)
+        && ['http', 'plugin', 'echo'].includes(value.backend)
+        && value.modelPreset
+        && typeof value.modelPreset === 'object';
+}
+
+function isProviderSnapshotMap(value, isValidKey) {
+    return value == null || (
+        isObjectRecord(value)
+        && Object.entries(value).every(([key, provider]) => (
+            isValidKey(key) && isProviderSnapshot(provider)
+        ))
+    );
+}
 
 function isHypaChatMemo(value) {
     return value === null || typeof value === 'string';
@@ -138,6 +167,7 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
             || typeof value.prompt !== 'string'
             || !value.prompt.trim()
             || typeof value.negativePrompt !== 'string'
+            || (value.orientation !== undefined && !isImageOrientation(value.orientation))
             || (value.seed !== undefined && (!Number.isFinite(value.seed) || value.seed < 0))
             || typeof value.label !== 'string'
             || typeof value.comfyBridgeId !== 'string'
@@ -162,19 +192,10 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || !['http', 'plugin', 'echo'].includes(value.postprocess.providerBackend)
         || !value.postprocess.modelPreset
         || typeof value.postprocess.modelPreset !== 'object'
-        || (value.postprocess.auxProviders != null && (
-            !value.postprocess.auxProviders
-            || typeof value.postprocess.auxProviders !== 'object'
-            || Array.isArray(value.postprocess.auxProviders)
-            || Object.entries(value.postprocess.auxProviders).some(([mode, provider]) => (
-                !['submodel', 'emotion', 'otherAx'].includes(mode)
-                || provider == null
-                || typeof provider !== 'object'
-                || !['http', 'plugin', 'echo'].includes(provider.backend)
-                || !provider.modelPreset
-                || typeof provider.modelPreset !== 'object'
-            ))
+        || !isProviderSnapshotMap(value.postprocess.auxProviders, mode => (
+            LUA_AX_LLM_MODES.includes(mode)
         ))
+        || !isProviderSnapshotMap(value.postprocess.moduleProviders, moduleId => !!moduleId)
         || value.postprocess.character?.chaId !== characterId
         || value.postprocess.character.chats !== undefined
         || value.postprocess.character.chatPage !== undefined
@@ -283,17 +304,7 @@ function normalizeRevenantOperationContext(jobType, value) {
             ) return undefined;
             break;
         case 'lua-llm':
-            if (
-                typeof value.executionKey !== 'string'
-                || typeof value.replayKey !== 'string'
-                || typeof value.characterId !== 'string'
-                || typeof value.roomId !== 'string'
-                || typeof value.mode !== 'string'
-                || typeof value.code !== 'string'
-                || typeof value.lowLevelAccess !== 'boolean'
-                || typeof value.anchorMessageId !== 'string'
-                || !Number.isInteger(value.callIndex)
-            ) return undefined;
+            if (!isRevenantLuaLlmOperation(value)) return undefined;
             break;
         default:
             return undefined;

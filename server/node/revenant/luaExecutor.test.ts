@@ -87,11 +87,22 @@ describe('revenant headless Lua executor', () => {
         expect(result).toMatchObject({ status: 'completed', data: `${input}:3` })
     })
 
-    it('suspends plugin provider calls as a replayable client action', async () => {
+    it('replays provider and similarity results as Lua tables without JS constructors', async () => {
         const code = `
             onOutput = async(function(id)
                 local result = simpleLLM(id, 'dynamic prompt'):await()
+                assert(type(result) == 'table')
+                assert(result.constructor == nil)
+                assert(result.success == true)
                 setChatVar(id, 'result', result.result)
+                local scores = similarity(id, 'query', {'first', 'second'}):await()
+                assert(type(scores) == 'table' and scores.constructor == nil)
+                local names = {}
+                for _, score in ipairs(scores) do
+                    assert(type(score) == 'table' and score.constructor == nil)
+                    table.insert(names, score[1])
+                end
+                setChatVar(id, 'ranked', table.concat(names, ','))
             end)
         `
         const waiting = await executeRevenantLua({
@@ -112,21 +123,52 @@ describe('revenant headless Lua executor', () => {
             data: '',
             recipe: recipe('plugin'),
             chat: recipe().chat,
-            responses: { 'lua.provider.simplellm:0': { success: true, result: 'client result' } },
+            responses: {
+                'lua.provider.simplellm:0': { success: true, result: 'client result' },
+                'lua.utility.similarity-list:1': [['second', 0.9], ['first', 0.4]],
+            },
         })
         expect(completed.status).toBe('completed')
-        expect(completed.chat.scriptstate).toEqual({ $result: 'client result' })
+        expect(completed.chat.scriptstate).toEqual({ $result: 'client result', $ranked: 'second,first' })
     })
 
-    it('uses the snapshotted otherAx provider for Lua axLLM calls', async () => {
+    it('selects each snapshotted auxiliary provider mode from a real Lua axLLM call', async () => {
+        const modes = ['emotion', 'memory', 'submodel', 'translate'] as const
+        const input = recipe('plugin') as any
+        input.auxProviders = Object.fromEntries(modes.map(mode => [mode, {
+            backend: 'plugin', modelPreset: { id: `${mode}-preset` },
+        }]))
+
+        for (const mode of modes) {
+            const waiting = await executeRevenantLua({
+                code: `
+                    onOutput = async(function(id)
+                        axLLM(id, {{ role = 'user', content = 'judge' }}, false, { mode = '${mode}' })
+                    end)
+                `,
+                mode: 'output', data: '', recipe: input, chat: input.chat,
+            })
+
+            expect(waiting.action).toMatchObject({
+                kind: 'provider.axllm',
+                payload: {
+                    backend: 'plugin',
+                    modelPreset: { id: `${mode}-preset` },
+                    mode,
+                },
+            })
+        }
+    })
+
+    it('uses the default otherAx mode when axLLM options omit mode', async () => {
         const input = recipe('plugin') as any
         input.auxProviders = {
-            otherAx: { backend: 'plugin', modelPreset: { id: 'ax-preset' } },
+            otherAx: { backend: 'plugin', modelPreset: { id: 'default-ax-preset' } },
         }
         const waiting = await executeRevenantLua({
             code: `
                 onOutput = async(function(id)
-                    axLLM(id, {{ role = 'user', content = 'judge' }}):await()
+                    axLLM(id, {{ role = 'user', content = 'judge' }})
                 end)
             `,
             mode: 'output', data: '', recipe: input, chat: input.chat,
@@ -136,12 +178,132 @@ describe('revenant headless Lua executor', () => {
             kind: 'provider.axllm',
             payload: {
                 backend: 'plugin',
-                modelPreset: { id: 'ax-preset' },
+                modelPreset: { id: 'default-ax-preset' },
+                mode: 'otherAx',
                 prompt: [{ role: 'user', content: 'judge' }],
                 useMultimodal: false,
                 options: {},
             },
         })
+    })
+
+    it('returns Lua failure envelopes for invalid modes and missing auxiliary snapshots', async () => {
+        const runAndReadError = async (options: any) => {
+            const result = await executeRevenantLua({
+                code: `
+                    onOutput = async(function(id)
+                        local response = axLLM(id, {{ role = 'user', content = 'judge' }}, false, ${options})
+                        setChatVar(id, 'success', tostring(response.success))
+                        setChatVar(id, 'result', response.result)
+                    end)
+                `,
+                mode: 'output', data: '', recipe: recipe('plugin'), chat: recipe().chat,
+            })
+            expect(result.status).toBe('completed')
+            expect(result.chat.scriptstate.$success).toBe('false')
+            return result.chat.scriptstate.$result
+        }
+
+        await expect(runAndReadError("{ mode = 'invalid' }")).resolves.toBe(
+            'Error: Invalid axLLM mode: invalid',
+        )
+        await expect(runAndReadError("{ mode = 'memory' }")).resolves.toBe(
+            'Error: No auxiliary provider is configured for mode: memory',
+        )
+    })
+
+    it('prefers a module provider snapshot over the selected auxiliary provider', async () => {
+        const input = recipe('plugin') as any
+        input.auxProviders = {
+            memory: { backend: 'plugin', modelPreset: { id: 'memory-preset' } },
+        }
+        input.moduleProviders = {
+            'module-1': { backend: 'plugin', modelPreset: { id: 'module-preset' } },
+        }
+        const waiting = await executeRevenantLua({
+            code: `
+                onOutput = async(function(id)
+                    axLLM(id, {{ role = 'user', content = 'judge' }}, false, { mode = 'memory' })
+                end)
+            `,
+            mode: 'output', data: '', recipe: input, chat: input.chat,
+            moduleId: 'module-1',
+        })
+
+        expect(waiting.action).toMatchObject({
+            kind: 'provider.axllm',
+            payload: {
+                mode: 'memory',
+                backend: 'plugin',
+                modelPreset: { id: 'module-preset' },
+            },
+        })
+    })
+
+    it('retains the selected mode across a normal action replay', async () => {
+        const input = recipe('plugin') as any
+        input.auxProviders = {
+            memory: { backend: 'plugin', modelPreset: { id: 'memory-preset' } },
+        }
+        const code = `
+            onOutput = async(function(id)
+                local response = axLLM(id, {{ role = 'user', content = 'judge' }}, false, { mode = 'memory' })
+                setChatVar(id, 'result', response.result)
+            end)
+        `
+        const waiting = await executeRevenantLua({
+            code, mode: 'output', data: '', recipe: input, chat: input.chat,
+        })
+        const replayed = await executeRevenantLua({
+            code, mode: 'output', data: '', recipe: input, chat: input.chat,
+            responses: {
+                [waiting.action.actionId]: { success: true, result: 'memory reply' },
+            },
+        })
+
+        expect(waiting.action.payload.mode).toBe('memory')
+        expect(replayed.status).toBe('completed')
+        expect(replayed.chat.scriptstate.$result).toBe('memory reply')
+    })
+
+    it.each([
+        ['unset', undefined],
+        ['portrait', 'portrait'],
+        ['landscape', 'landscape'],
+    ] as const)('forwards %s orientation from a real Lua generateImage call', async (_name, orientation) => {
+        const options = orientation ? `, { orientation = '${orientation}' }` : ''
+        const waiting = await executeRevenantLua({
+            code: `
+                onOutput = async(function(id)
+                    generateImage(id, 'prompt', 'negative'${options}):await()
+                end)
+            `,
+            mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+        const expectedPayload: Record<string, unknown> = {
+            prompt: 'prompt', negativePrompt: 'negative',
+        }
+        if (orientation) expectedPayload.orientation = orientation
+
+        expect(waiting.action).toMatchObject({
+            kind: 'image.generate', payload: expectedPayload,
+        })
+    })
+
+    it('returns a Lua error for an invalid generateImage orientation without creating an action', async () => {
+        const result = await executeRevenantLua({
+            code: `
+                onOutput = async(function(id)
+                    local response = generateImage(id, 'prompt', 'negative', { orientation = 'diagonal' }):await()
+                    setChatVar(id, 'image-error', response)
+                end)
+            `,
+            mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(result.chat.scriptstate['$image-error']).toBe('Error: Image orientation must be landscape or portrait, received diagonal')
+        expect(result.action).toBeUndefined()
     })
 
     it('preserves a replayable client action when Lua pcall catches its suspension', async () => {

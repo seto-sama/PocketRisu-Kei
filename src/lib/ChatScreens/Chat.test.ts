@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { requestImmediateSave } from '../../ts/globalApi.svelte'
+import { getChatPage, setChatPage } from '../../ts/storage/chatSelection.svelte'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -55,7 +57,7 @@ const parserMocks = vi.hoisted(() => ({
 }))
 
 const interactionMocks = vi.hoisted(() => ({
-    runLuaButtonTrigger: vi.fn(),
+    runLuaInteractionTrigger: vi.fn(),
     runTrigger: vi.fn(),
 }))
 
@@ -80,6 +82,7 @@ const translatorMocks = vi.hoisted(() => ({
 vi.mock('src/ts/stores.svelte', () => storeMocks)
 vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport: storeMocks.mdViewport }))
 vi.mock('src/ts/globalApi.svelte', () => ({
+    requestImmediateSave: vi.fn(async () => {}),
     aiLawApplies: () => false,
     changeChatTo: vi.fn(),
     chatFoldedStateMessageIndex: { index: -1 },
@@ -88,7 +91,7 @@ vi.mock('src/ts/globalApi.svelte', () => ({
     getFileSrc: async (value: string) => value,
 }))
 vi.mock('src/ts/gui/colorscheme', () => ({ ColorSchemeTypeStore: storeMocks.HideIconStore }))
-vi.mock('src/ts/process/scriptings', () => ({ runLuaButtonTrigger: interactionMocks.runLuaButtonTrigger }))
+vi.mock('src/ts/process/scriptings', () => ({ runLuaInteractionTrigger: interactionMocks.runLuaInteractionTrigger }))
 vi.mock('src/ts/process/scripts', () => ({ risuChatParser: (value: string) => value }))
 vi.mock('src/ts/process/triggers', () => ({ runTrigger: interactionMocks.runTrigger }))
 vi.mock('src/ts/process/tts', () => ({ sayTTS: vi.fn() }))
@@ -138,8 +141,9 @@ vi.mock('../../ts/translator/translator', () => ({
     translateHTML: translatorMocks.translateHTML,
 }))
 vi.mock('../../ts/storage/database.svelte', () => ({
+    getDatabase: () => storeMocks.DBState.db,
     getCurrentCharacter: () => storeMocks.DBState.db.characters[0],
-    getCurrentChat: () => storeMocks.DBState.db.characters[0].chats[0],
+    getCurrentChat: () => { const character = storeMocks.DBState.db.characters[0]; return character.chats[getChatPage(character)] },
     getStickyChatToolbarVariant: (theme: string) =>
         theme === '' ? 'footer' : theme === 'standardRisu' || theme === 'waifu' ? 'floating' : null,
     normalizeChat: (chat: unknown) => chat,
@@ -1554,19 +1558,67 @@ describe('Chat editing', () => {
         )).toBe(false)
     })
 
-    it('does not automatically retranslate content changed by an internal Lua button', async () => {
+    it('submits grouped fields and the submitter to Lua and commits the original chat after switching', async () => {
+        const html = '<form risu-form="settings"><input name="choice" value="first"><input name="choice" value="second"><input name="__proto__" value="safe"><button name="intent" value="save">Save</button></form>'
+        const character = DBState.db.characters[0]
+        character.chaId = 'character-1'
+        const origin = character.chats[0]
+        origin.id = 'origin'
+        origin.message[0].data = html
+        const other = { ...origin, id: 'other', message: [{ role: 'user', data: 'Other', chatId: 'other-message' }] }
+        character.chats.push(other as never)
+        setChatPage(character, 0)
+        let complete!: (result: { chat: typeof origin }) => void
+        interactionMocks.runLuaInteractionTrigger.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        mountedComponents.push(mount(Chat, { target, props: { message: html, name: 'User', role: 'user', idx: 0, totalLength: 1 } }))
+        await waitForParserCalls(1)
+
+        const form = target.querySelector('form')!
+        const event = new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: form.querySelector('button') })
+        form.dispatchEvent(event)
+        expect(event.defaultPrevented).toBe(true)
+        await vi.waitFor(() => expect(interactionMocks.runLuaInteractionTrigger).toHaveBeenCalledTimes(1))
+        const args = interactionMocks.runLuaInteractionTrigger.mock.calls[0]
+        expect(args.slice(0, 4)).toEqual(['form', character, 'settings', origin])
+        expect(args[4].data).toEqual({ choice: ['first', 'second'], ['__proto__']: 'safe', intent: 'save' })
+        setChatPage(character, 1)
+        complete({ chat: { ...origin, scriptstate: { $submitted: 'yes' } } })
+        await vi.waitFor(() => expect(character.chats[0].scriptstate?.$submitted).toBe('yes'))
+        expect(character.chats[1].scriptstate).toBeUndefined()
+    })
+
+    it.each([
+        ['post', undefined, true],
+        ['dialog', undefined, false],
+        ['post', 'dialog', false],
+        ['dialog', 'post', true],
+    ])('handles unbound form submission with method %s and override %s', async (method, override, prevented) => {
+        const html = `<form method="${method}"><button ${override ? `formmethod="${override}"` : ''}>Submit</button></form>`
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        mountedComponents.push(mount(Chat, { target, props: { message: html, name: 'User', role: 'user', idx: 0, totalLength: 1 } }))
+        await waitForParserCalls(1)
+        const form = target.querySelector('form')!
+        const event = new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: form.querySelector('button') })
+        form.dispatchEvent(event)
+        expect(event.defaultPrevented).toBe(prevented)
+        expect(interactionMocks.runLuaInteractionTrigger).not.toHaveBeenCalled()
+    })
+
+    it.each([false, true])('updates internal Lua button output without retranslation or a redundant save (already saved: %s)', async chatSaved => {
         const buttonMessage = '<button risu-btn="change-view">Change</button>'
         DBState.db.translator = 'en'
         DBState.db.translatorType = 'llm'
         DBState.db.characters[0].chaId = 'character-1'
         DBState.db.characters[0].chats[0].id = 'room-1'
         DBState.db.characters[0].chats[0].message[0].data = buttonMessage
-        interactionMocks.runLuaButtonTrigger.mockImplementation(async () => {
-            // Simulate CBS/Lua state becoming visible before the trigger
-            // promise itself settles.
+        interactionMocks.runLuaInteractionTrigger.mockImplementation(async () => {
+            // Reactive updates can arrive before the trigger finishes.
             storeMocks.ReloadGUIPointer.set(1)
             await Promise.resolve()
-            return { chat: DBState.db.characters[0].chats[0] }
+            return { chat: DBState.db.characters[0].chats[0], chatSaved }
         })
 
         const target = document.createElement('div')
@@ -1591,12 +1643,13 @@ describe('Chat editing', () => {
 
         target.querySelector<HTMLButtonElement>('[risu-btn="change-view"]')?.click()
         await vi.waitFor(() => {
-            expect(interactionMocks.runLuaButtonTrigger).toHaveBeenCalledTimes(1)
+            expect(interactionMocks.runLuaInteractionTrigger).toHaveBeenCalledTimes(1)
             expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
         })
         await new Promise(resolve => setTimeout(resolve, 30))
 
         expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
+        expect(requestImmediateSave).toHaveBeenCalledTimes(chatSaved ? 0 : 1)
     })
 
     it('updates every non-final editor independently in a four-message blank chat', async () => {

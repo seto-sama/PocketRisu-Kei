@@ -1384,7 +1384,7 @@ export async function ParseMarkdown(
 
 const trimPurifyConfig = {
     ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
+    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-form', 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
 }
 
 const trimCache = new Map<string, string>()

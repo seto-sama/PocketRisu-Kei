@@ -1,6 +1,8 @@
 'use strict';
 
 const { getZip } = require('../zip.cjs');
+require('sucrase/register/ts');
+const { orientImageDimensions } = require('../../../src/ts/imageGeneration/orientation.ts');
 
 const {
     MAX_IMAGE_RESULT_BYTES: MAX_RESULT_BYTES,
@@ -182,7 +184,7 @@ function createImageGenerationJobService({
         return job;
     }
 
-    function novelAIRequest(settings, prompt, negativePrompt, seed, apiKey, references = {}) {
+    function novelAIRequest(settings, prompt, negativePrompt, seed, apiKey, references = {}, orientation) {
         const config = settings.NAIImgConfig || {};
         const model = String(settings.NAIImgModel || 'nai-diffusion-3');
         const supportsV3 = model.includes('nai-diffusion-3')
@@ -196,8 +198,7 @@ function createImageGenerationJobService({
             controlnet_strength: 1,
             dynamic_thresholding: supportsV3 ? config.decrisp : false,
             n_samples: 1,
-            width: config.width,
-            height: config.height,
+            ...orientImageDimensions(config.width, config.height, orientation),
             sampler: config.sampler,
             steps: config.steps,
             scale: config.scale,
@@ -309,7 +310,7 @@ function createImageGenerationJobService({
         const provider = arg.settings?.sdProvider;
         const request = provider === 'novelai'
             ? novelAIRequest(
-                arg.settings, arg.prompt, arg.negativePrompt, arg.seed, arg.apiKey, arg.references,
+                arg.settings, arg.prompt, arg.negativePrompt, arg.seed, arg.apiKey, arg.references, arg.orientation,
             )
             : provider === 'comfyui'
                 ? comfyUIRequest(arg.settings, arg.prompt, arg.negativePrompt, arg.seed, arg.bridgeId)

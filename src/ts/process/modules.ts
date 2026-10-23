@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertWait, notifySuccess } from "../alert"
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
+import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type character, type Chat, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
 import { AppendableBuffer, forageStorage, readImage, saveAsset } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleImportFile, sleep } from "../util"
 import { createEntityId } from "../id"
@@ -396,13 +396,13 @@ function getModuleById(id:string){
     return null
 }
 
-export function getModules(){
-    return getEnabledModules(getDatabase(), getCurrentCharacter(), getCurrentChat())
+export function getModules(character = getCurrentCharacter(), chat = getCurrentChat()){
+    return getEnabledModules(getDatabase(), character, chat)
 }
 
 
-export function getModuleLorebooks() {
-    const modules = getModules()
+export function getModuleLorebooks(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let lorebooks: loreBook[] = []
     for (const module of modules) {
         if(!module){
@@ -430,8 +430,8 @@ export function getModuleAssets() {
 }
 
 
-export function getModuleTriggers() {
-    const modules = getModules()
+export function getModuleTriggers(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let triggers: triggerscript[] = []
     for (const module of modules) {
         if(!module){
@@ -449,8 +449,8 @@ export function getModuleTriggers() {
     return triggers
 }
 
-export function getModuleRegexScripts() {
-    const modules = getModules()
+export function getModuleRegexScripts(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let customscripts: customscript[] = []
     for (const module of modules) {
         if(!module){

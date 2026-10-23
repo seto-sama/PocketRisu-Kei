@@ -49,9 +49,10 @@
 
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
-    import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
+    import { runLuaInteractionTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
+    import { commitTriggerChat } from 'src/ts/process/triggerOrigin'
     import { sayTTS } from "src/ts/process/tts"
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
@@ -64,7 +65,7 @@
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, type Chat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import Textarea from "../UI/components/Textarea.svelte"
@@ -776,6 +777,41 @@
         return RenderGUIHtml(DBState.db.guiHTML)
     })
 
+    async function applyInteraction(
+        characterId: string,
+        chatId: string,
+        run: () => Promise<{ chat: Chat, chatSaved?: boolean } | null | undefined>,
+    ) {
+        resetTranslationState()
+        const result = await run()
+        if (result && (result.chatSaved || await commitTriggerChat({ characterId, chatId }, result.chat))) {
+            invalidateChatMessageRender(idx)
+        }
+    }
+
+    async function handleFormSubmitWithin(event: SubmitEvent) {
+        const form = event.target
+        if (!(form instanceof HTMLFormElement)) return
+        const method = event.submitter?.getAttribute('formmethod') ?? form.method
+        if (method.toLowerCase() !== 'dialog') event.preventDefault()
+        const key = form.getAttribute('risu-form')
+        const character = getCurrentCharacter()
+        const chat = getCurrentChat()
+        if (!key || !character?.chaId || !chat?.id) return
+
+        const data: Record<string, FormDataEntryValue | FormDataEntryValue[]> = Object.create(null)
+        for (const [name, value] of new FormData(form, event.submitter)) {
+            if (Object.hasOwn(data, name)) {
+                const previous = data[name]
+                if (Array.isArray(previous)) previous.push(value)
+                else data[name] = [previous, value]
+            }
+            else data[name] = value
+        }
+        await applyInteraction(character.chaId, chat.id, () =>
+            runLuaInteractionTrigger('form', character, key, chat, { data }))
+    }
+
     async function handleButtonTriggerWithin(event: UIEvent) {
         const currentChar = getCurrentCharacter()
         if(!currentChar){
@@ -795,31 +831,16 @@
         const triggerName = origin.getAttribute('risu-trigger')
         const triggerId = origin.getAttribute('risu-id')
         const btnEvent = origin.getAttribute('risu-btn')
+        if (!triggerName && !btnEvent) return
 
-        // Reset translation before the trigger's reactive updates can start another request.
-        resetTranslationState()
-
-        const triggerResult =
+        await applyInteraction(characterId, roomId, () =>
             triggerName ?
-                await runTrigger(currentChar, 'manual', {
+                runTrigger(currentChar, 'manual', {
                     chat: currentChat,
                     manualName: triggerName,
                     triggerId: triggerId || undefined,
                 }) :
-            btnEvent ?
-                await runLuaButtonTrigger(currentChar, btnEvent) :
-            null
-
-        if(triggerResult) {
-            const targetCharacter = DBState.db.characters.find(character =>
-                character?.chaId === characterId)
-            const targetChatIndex = targetCharacter?.chats?.findIndex(chat =>
-                chat?.id === roomId) ?? -1
-            if (targetCharacter && targetChatIndex >= 0) {
-                targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
-            }
-            invalidateChatMessageRender(idx)
-        }
+                runLuaInteractionTrigger('button', currentChar, btnEvent, currentChat))
         
         if(triggerName && triggerId) {
             setTimeout(() => {
@@ -1750,7 +1771,7 @@
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState.db.characters?.[selIdState.selId])]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     onclickcapture={handleButtonTriggerWithin}>
+     onclickcapture={handleButtonTriggerWithin} onsubmitcapture={handleFormSubmitWithin}>
     <div
         class="text-maintext grow max-w-full sm:px-4"
         class:py-2={isBranchedFromComment}
@@ -1806,7 +1827,7 @@
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState.db.characters?.[selIdState.selId])]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     onclickcapture={handleButtonTriggerWithin}>
+     onclickcapture={handleButtonTriggerWithin} onsubmitcapture={handleFormSubmitWithin}>
     <div
         class="text-maintext mt-1 ml-4 mr-4 mb-1 px-2 bg-transparent grow flexium items-start max-w-full"
         class:py-1={isBranchedFromComment}

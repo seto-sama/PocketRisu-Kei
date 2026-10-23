@@ -1390,6 +1390,7 @@ async function executeServerImageAction({ workflow, action }) {
         apiKey: config.apiKey,
         prompt: requestPrompt,
         negativePrompt,
+        orientation: payload.orientation,
         seed,
         references,
         bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,

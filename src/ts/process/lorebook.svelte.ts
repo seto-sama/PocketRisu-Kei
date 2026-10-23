@@ -1,9 +1,9 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
-import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
+import { getChatVarOf, setChatVarOf } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
-import type { Message, loreBook } from "../storage/database.svelte";
+import type { Chat, character, Message, loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { findCharacterbyId, pickHashRand, selectSingleImportFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
@@ -78,15 +78,17 @@ export function addLorebookFolder(type:number) {
 export async function loadLoreBookV3Prompt(options: {
     includeModuleLorebooks?: boolean
     updateActivationState?: boolean
+    character?: character
+    chat?: Chat
 } = {}){
-    const selectedID = get(selectedCharID)
-    const char = DBState.db.characters[selectedID]
-    const page = getChatPage(char)
+    const char = options.character ?? DBState.db.characters[get(selectedCharID)]
+    const chat = options.chat ?? char.chats[getChatPage(char)]
+    const getVar = (key: string) => getChatVarOf(chat, key, char.defaultVariables)
     const characterLore = char.globalLore ?? []
-    const chatLore = char.chats[page].localLore ?? []
-    const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
+    const chatLore = chat.localLore ?? []
+    const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks(char, chat)
     const fullLore = structuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
-    const currentChat = char.chats[page].message.filter(message => message.kind !== 'imageGeneration')
+    const currentChat = chat.message.filter(message => message.kind !== 'imageGeneration')
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false
@@ -332,7 +334,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return
                     }
                     case 'keep_activate_after_match':{
-                        const vara = getChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
                         if(vara === 'true'){
                             forceState = 'activate'
                         }
@@ -342,7 +344,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return false
                     }
                     case 'dont_activate_after_match': {
-                        const vara = getChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
                         if(vara === 'true'){
                             forceState = 'deactivate'
                         }
@@ -384,7 +386,7 @@ export async function loadLoreBookV3Prompt(options: {
                         if(Number.isNaN(int)){
                             return false
                         }
-                        if(((char.chats[page].fmIndex ?? -1) + 1) !== int){
+                        if(((chat.fmIndex ?? -1) + 1) !== int){
                             activated = false
                         }
                         return
@@ -583,10 +585,10 @@ export async function loadLoreBookV3Prompt(options: {
                 activatedIndexes.push(i)
 
                 if(keepActivateAfterMatch && options.updateActivationState !== false){
-                    setChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVarOf(chat, '__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
                 if(dontActivateAfterMatch && options.updateActivationState !== false){
-                    setChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVarOf(chat, '__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
 
 

@@ -94,7 +94,11 @@ describe('Node image generation jobs', () => {
         })
     })
 
-    it('builds and unwraps a server-owned NovelAI image request', async () => {
+    it.each([
+        ['unset', undefined, 832, 1216],
+        ['portrait', 'portrait', 832, 1216],
+        ['landscape', 'landscape', 1216, 832],
+    ] as const)('builds a NovelAI request with %s orientation without changing saved dimensions', async (_name, orientation, width, height) => {
         const routes = new Map<string, Function>()
         const app = {
             post: (path: string, ...handlers: Function[]) => routes.set(`POST ${path}`, handlers.at(-1)!),
@@ -107,27 +111,31 @@ describe('Node image generation jobs', () => {
             checkProxyAuth: async () => true,
             logger: { warn: vi.fn() },
         })
+        const settings = {
+            sdProvider: 'novelai',
+            NAIImgModel: 'nai-diffusion-3',
+            NAIImgConfig: { width: 832, height: 1216, steps: 28 },
+            NAII2I: false,
+        }
 
         const result = await service.executeImageGeneration({
             jobId: 'workflow:image',
-            settings: {
-                sdProvider: 'novelai',
-                NAIImgModel: 'nai-diffusion-3',
-                NAIImgConfig: { width: 832, height: 1216, steps: 28 },
-                NAII2I: false,
-            },
+            settings,
             apiKey: 'secret',
             prompt: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::',
             negativePrompt: 'blur',
             seed: 42,
+            orientation,
         })
 
         expect([...result.image]).toEqual([9, 8, 7])
+        expect(settings.NAIImgConfig).toEqual({ width: 832, height: 1216, steps: 28 })
         const request = JSON.parse(String((upstream.mock.calls[0]?.[1] as RequestInit).body))
         expect(request).toMatchObject({
             input: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::',
             action: 'generate',
             parameters: {
+                width, height,
                 negative_prompt: 'blur', seed: 42, steps: 28,
                 v4_prompt: {
                     caption: { base_caption: 'portrait (group), 0.6::artist:toriyama_akira::, 1.2::masterpiece::' },

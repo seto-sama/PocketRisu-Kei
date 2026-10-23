@@ -1,4 +1,4 @@
-import { createEntityId } from 'src/ts/id';
+import { createEntityId } from '../../id';
 import type { ModelModeExtended } from './types'
 
 export interface RevenantTranslationOperation {
@@ -37,6 +37,8 @@ export interface RevenantLuaLlmOperation {
     mode: string
     code: string
     lowLevelAccess: boolean
+    data?: string
+    meta?: object
     moduleId?: string
     anchorMessageId: string
     callIndex: number
@@ -117,8 +119,10 @@ export function isRevenantLuaLlmOperation(
         && typeof context.mode === 'string'
         && typeof context.code === 'string'
         && typeof context.lowLevelAccess === 'boolean'
+        && (context.data === undefined || typeof context.data === 'string')
+        && (context.meta === undefined || (context.meta !== null && typeof context.meta === 'object'))
         && typeof context.anchorMessageId === 'string'
-        && typeof context.callIndex === 'number'
+        && Number.isInteger(context.callIndex)
 }
 
 export function isRevenantOperationContext(

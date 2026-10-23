@@ -57,7 +57,43 @@ describe('revenant output trigger executor', () => {
                 payload: {
                     backend: 'plugin',
                     modelPreset: { id: 'ax-preset' },
+                    mode: 'otherAx',
                 },
+            },
+        })
+    })
+
+    it('uses the source module provider snapshot for module Lua axLLM calls', async () => {
+        const input = recipe()
+        input.character.triggerscript = []
+        input.auxProviders = {
+            memory: { backend: 'plugin', modelPreset: { id: 'memory-preset' } },
+        }
+        input.moduleProviders = {
+            'module-1': { backend: 'plugin', modelPreset: { id: 'module-preset' } },
+        }
+        input.moduleTriggers = [{
+            type: 'output', conditions: [], lowLevelAccess: true, moduleId: 'module-1',
+            effect: [{
+                type: 'triggerlua',
+                code: `
+                    onOutput = async(function(id)
+                        axLLM(id, {{ role = 'user', content = 'status' }}, false, { mode = 'memory' })
+                    end)
+                `,
+            }],
+        }] as any
+
+        const waiting = await executeRevenantOutputTriggers({
+            recipe: input, chat: input.chat, text: 'answer',
+        })
+
+        expect(waiting.action).toMatchObject({
+            kind: 'provider.axllm',
+            payload: {
+                mode: 'memory',
+                backend: 'plugin',
+                modelPreset: { id: 'module-preset' },
             },
         })
     })
