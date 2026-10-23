@@ -35,11 +35,7 @@ function installDatabaseRoutes(app, {
 
     const databaseRequestBody = [
         async (req, res, next) => {
-            try {
-                if (await checkAuth(req, res)) next();
-            } catch (error) {
-                next(error);
-            }
+            if (await checkAuth(req, res)) next();
         },
         binaryBodyParser('100mb'),
         (req, res, next) => {
@@ -94,20 +90,16 @@ function installDatabaseRoutes(app, {
         }
     }
 
-    app.post('/api/database/content-references', async (req, res, next) => {
+    app.post('/api/database/content-references', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         const { kind, candidates } = req.body ?? {};
         try { validateReferenceCandidates(kind, candidates); }
         catch (error) { return res.status(400).json({ error: error.message }); }
-        try {
-            const result = await queueStorageOperation(async () => {
-                await ensureCanonicalStorage();
-                return appDataStore.scanContentReferences(kind, candidates);
-            });
-            res.set('Cache-Control', 'no-store').json(result);
-        } catch (error) {
-            next(error);
-        }
+        const result = await queueStorageOperation(async () => {
+            await ensureCanonicalStorage();
+            return appDataStore.scanContentReferences(kind, candidates);
+        });
+        res.set('Cache-Control', 'no-store').json(result);
     });
 
     app.get('/api/database', async (req, res, next) => {
@@ -191,19 +183,15 @@ function installDatabaseRoutes(app, {
         }
     });
 
-    app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
+    app.post('/api/db/flush', sessionAuthMiddleware, async (req, res) => {
         if (!requireSyncClientId(req, res)) return;
-        try {
-            await queueStorageOperation(async () => {
-                await flushPendingDb();
-                res.send({
-                    success: true,
-                    etag: storageState.dbEtag ?? undefined
-                });
+        await queueStorageOperation(async () => {
+            await flushPendingDb();
+            res.send({
+                success: true,
+                etag: storageState.dbEtag ?? undefined
             });
-        } catch (error) {
-            next(error);
-        }
+        });
     });
 }
 

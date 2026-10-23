@@ -262,17 +262,13 @@ function installAssetRoutes(app, {
         }
     })
 
-    app.get('/api/plugin-storage/startup-stats', async (req, res, next) => {
+    app.get('/api/plugin-storage/startup-stats', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            await ensureCanonicalStorage();
-            res.json(appDataStore.pluginStorageFootprint());
-        } catch (error) {
-            next(error);
-        }
+        await ensureCanonicalStorage();
+        res.json(appDataStore.pluginStorageFootprint());
     });
 
-    app.get('/api/read', async (req, res, next) => {
+    app.get('/api/read', async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
         }
@@ -286,47 +282,43 @@ function installAssetRoutes(app, {
             sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
-        try {
-            const key = Buffer.from(filePath, 'hex').toString('utf-8');
-            // database.bin is a compatibility projection of canonical storage.
-            if (key === 'database/database.bin') {
-                await ensureCanonicalStorage();
-                if (!appDataStore.getState().initialized) {
-                    storageState.dbEtag = MISSING_DATABASE_ETAG;
-                    res.setHeader('x-db-etag', storageState.dbEtag);
-                    return res.send();
-                }
-                let projection = appDataStore.exportProjection({ includeMessages: true });
-                bookmarkStore.projectDatabaseCompatibility(projection);
-                if (isCloudflareTunnelRequest(req)) {
-                    projection = normalizeJSON(filterRemoteOnlyFolders(projection));
-                }
-                const value = Buffer.from(encodeRisuSaveLegacy(projection));
-                storageState.dbEtag = computeBufferEtag(value);
-                if (req.headers['if-none-match'] === storageState.dbEtag) {
-                    return res.status(304).end();
-                }
+        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        // database.bin is a compatibility projection of canonical storage.
+        if (key === 'database/database.bin') {
+            await ensureCanonicalStorage();
+            if (!appDataStore.getState().initialized) {
+                storageState.dbEtag = MISSING_DATABASE_ETAG;
                 res.setHeader('x-db-etag', storageState.dbEtag);
-                res.setHeader('Content-Type', 'application/octet-stream');
-                return res.send(value);
+                return res.send();
             }
-            let value = null;
-            if (key.startsWith('inlay/')) {
-                value = await readInlayAssetPayload(key.slice('inlay/'.length));
-            } else if (key.startsWith('inlay_info/')) {
-                value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
-            } else {
-                value = kvGet(key);
+            let projection = appDataStore.exportProjection({ includeMessages: true });
+            bookmarkStore.projectDatabaseCompatibility(projection);
+            if (isCloudflareTunnelRequest(req)) {
+                projection = normalizeJSON(filterRemoteOnlyFolders(projection));
             }
-            if (value === null) return res.send();
+            const value = Buffer.from(encodeRisuSaveLegacy(projection));
+            storageState.dbEtag = computeBufferEtag(value);
+            if (req.headers['if-none-match'] === storageState.dbEtag) {
+                return res.status(304).end();
+            }
+            res.setHeader('x-db-etag', storageState.dbEtag);
             res.setHeader('Content-Type', 'application/octet-stream');
-            res.send(value);
-        } catch (error) {
-            next(error);
+            return res.send(value);
         }
+        let value = null;
+        if (key.startsWith('inlay/')) {
+            value = await readInlayAssetPayload(key.slice('inlay/'.length));
+        } else if (key.startsWith('inlay_info/')) {
+            value = await readInlayInfoPayload(key.slice('inlay_info/'.length));
+        } else {
+            value = kvGet(key);
+        }
+        if (value === null) return res.send();
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.send(value);
     });
 
-    app.get('/api/remove', async (req, res, next) => {
+    app.get('/api/remove', async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
         }
@@ -339,68 +331,60 @@ function installAssetRoutes(app, {
             sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
-        try {
-            const key = Buffer.from(filePath, 'hex').toString('utf-8');
-            if (key === 'database/database.bin') {
-                return res.status(410).json({
-                    error: 'database.bin is a virtual import/export projection and cannot be removed',
-                    code: 'DATABASE_BIN_PROJECTION_ONLY',
-                });
-            }
-            if (key.startsWith('inlay/')) {
-                const id = key.slice('inlay/'.length)
-                await deleteInlayFile(id)
-                kvDel(key);
-                kvDel(`inlay_thumb/${id}`);
-                kvDel(`inlay_info/${id}`);
-                return res.send({ success: true });
-            }
-            if (key.startsWith('inlay_info/')) {
-                await fs.unlink(getInlaySidecarPath(key.slice('inlay_info/'.length))).catch(() => {});
-            }
-            kvDel(key);
-            res.send({ success: true });
-        } catch (error) {
-            next(error);
+        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        if (key === 'database/database.bin') {
+            return res.status(410).json({
+                error: 'database.bin is a virtual import/export projection and cannot be removed',
+                code: 'DATABASE_BIN_PROJECTION_ONLY',
+            });
         }
+        if (key.startsWith('inlay/')) {
+            const id = key.slice('inlay/'.length)
+            await deleteInlayFile(id)
+            kvDel(key);
+            kvDel(`inlay_thumb/${id}`);
+            kvDel(`inlay_info/${id}`);
+            return res.send({ success: true });
+        }
+        if (key.startsWith('inlay_info/')) {
+            await fs.unlink(getInlaySidecarPath(key.slice('inlay_info/'.length))).catch(() => {});
+        }
+        kvDel(key);
+        res.send({ success: true });
     });
 
-    app.get('/api/list', async (req, res, next) => {
+    app.get('/api/list', async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
         }
-        try {
-            const keyPrefix = req.headers['key-prefix'] || '';
-            const requestedLimit = Number(req.headers['key-limit']);
-            const requestedOffset = Number(req.headers['key-offset']);
-            const listOptions = req.headers['key-order'] === 'updated-desc'
-                && Number.isSafeInteger(requestedLimit)
-                && requestedLimit > 0
-                ? {
-                    order: 'updated-desc',
-                    limit: Math.min(requestedLimit, 5000),
-                    offset: Number.isSafeInteger(requestedOffset) && requestedOffset > 0
-                        ? requestedOffset
-                        : 0,
-                }
-                : undefined;
-            let data;
-            if (keyPrefix === 'inlay/') {
-                data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
-            } else {
-                data = kvList(keyPrefix || undefined, listOptions);
+        const keyPrefix = req.headers['key-prefix'] || '';
+        const requestedLimit = Number(req.headers['key-limit']);
+        const requestedOffset = Number(req.headers['key-offset']);
+        const listOptions = req.headers['key-order'] === 'updated-desc'
+            && Number.isSafeInteger(requestedLimit)
+            && requestedLimit > 0
+            ? {
+                order: 'updated-desc',
+                limit: Math.min(requestedLimit, 5000),
+                offset: Number.isSafeInteger(requestedOffset) && requestedOffset > 0
+                    ? requestedOffset
+                    : 0,
             }
-            res.send({
-                success: true,
-                content: data,
-                total: keyPrefix === 'inlay/' ? data.length : kvCount(keyPrefix || undefined),
-            });
-        } catch (error) {
-            next(error);
+            : undefined;
+        let data;
+        if (keyPrefix === 'inlay/') {
+            data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
+        } else {
+            data = kvList(keyPrefix || undefined, listOptions);
         }
+        res.send({
+            success: true,
+            content: data,
+            total: keyPrefix === 'inlay/' ? data.length : kvCount(keyPrefix || undefined),
+        });
     });
 
-    app.post('/api/write', binaryBodyParser('2gb'), async (req, res, next) => {
+    app.post('/api/write', binaryBodyParser('2gb'), async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
         }
@@ -415,140 +399,136 @@ function installAssetRoutes(app, {
             sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
-        try {
-            await queueStorageOperation(async () => {
-                const key = Buffer.from(filePath, 'hex').toString('utf-8');
-                let databaseForEtag = null;
+        await queueStorageOperation(async () => {
+            const key = Buffer.from(filePath, 'hex').toString('utf-8');
+            let databaseForEtag = null;
 
-                if (key === 'database/database.bin') {
-                    const ifMatch = req.headers['x-if-match'];
-                    await ensureCanonicalStorage();
-                    let currentEtag = MISSING_DATABASE_ETAG;
-                    if (appDataStore.getState().initialized) {
-                        let currentDb = appDataStore.exportProjection({ includeMessages: true });
-                        bookmarkStore.projectDatabaseCompatibility(currentDb);
-                        if (isCloudflareTunnelRequest(req)) {
-                            currentDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
-                        }
-                        currentEtag = computeDatabaseEtagFromObject(currentDb);
+            if (key === 'database/database.bin') {
+                const ifMatch = req.headers['x-if-match'];
+                await ensureCanonicalStorage();
+                let currentEtag = MISSING_DATABASE_ETAG;
+                if (appDataStore.getState().initialized) {
+                    let currentDb = appDataStore.exportProjection({ includeMessages: true });
+                    bookmarkStore.projectDatabaseCompatibility(currentDb);
+                    if (isCloudflareTunnelRequest(req)) {
+                        currentDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
                     }
-                    if (appDataStore.getState().initialized && !ifMatch) {
-                        res.status(428).send({
-                            error: 'x-if-match is required for compatibility database import',
-                            code: 'DATABASE_IMPORT_PRECONDITION_REQUIRED',
-                            currentEtag,
-                        });
-                        return;
-                    }
-                    if (ifMatch && ifMatch !== currentEtag) {
-                        res.status(409).send({
-                            error: 'ETag mismatch - concurrent modification detected',
-                            currentEtag
-                        });
-                        return;
-                    }
+                    currentEtag = computeDatabaseEtagFromObject(currentDb);
                 }
-
-                if (key.startsWith('inlay/')) {
-                    const id = key.slice('inlay/'.length)
-                    let decoded;
-                    try {
-                        decoded = decodeInlayAsset(fileContent);
-                    } catch (error) {
-                        return res.status(400).send({ error: error.message });
-                    }
-                    const { metadata: parsed, bytes: buffer } = decoded;
-                    const type = parsed.type;
-                    const ext = normalizeInlayExt(parsed.ext);
-                    await writeInlayFile(id, ext, buffer, {
-                        ext,
-                        name: typeof parsed?.name === 'string' ? parsed.name : id,
-                        type,
-                        height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-                        width: typeof parsed?.width === 'number' ? parsed.width : undefined,
+                if (appDataStore.getState().initialized && !ifMatch) {
+                    res.status(428).send({
+                        error: 'x-if-match is required for compatibility database import',
+                        code: 'DATABASE_IMPORT_PRECONDITION_REQUIRED',
+                        currentEtag,
                     });
-                    kvDel(key);
-                    kvDel(`inlay_thumb/${id}`);
-                    kvDel(`inlay_info/${id}`);
-                } else if (key.startsWith('inlay_info/')) {
-                    const id = key.slice('inlay_info/'.length)
-                    const parsed = JSON.parse(Buffer.from(fileContent).toString('utf-8'));
-                    await writeInlaySidecar(id, parsed);
-                    kvDel(key);
-                } else if (key === 'database/database.bin') {
-                    // Compatibility import; ordinary saves use PATCH /api/database.
-                    try {
-                        let incomingDb = normalizeLegacyDatabaseProjection(
-                            await decodeRisuSave(fileContent),
-                        ).database;
-                        const currentDb = appDataStore.getState().initialized
-                            ? appDataStore.exportProjection({ includeMessages: true })
-                            : { characters: [] };
-                        if (isCloudflareTunnelRequest(req)) {
-                            incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
-                            restoreGenerationOwnedMetadata(incomingDb, currentDb);
-                        }
-                        const stubOnly = [];
-                        for (const character of incomingDb.characters ?? []) {
-                            for (const chat of character?.chats ?? []) {
-                                if (chat?._stub === true && !Array.isArray(chat.message)) {
-                                    stubOnly.push(`${character.chaId}/${chat.id}`);
-                                }
-                            }
-                        }
-                        if (stubOnly.length > 0) {
-                            return res.status(400).json({
-                                error: 'Compatibility import requires full chat content',
-                                chats: stubOnly.slice(0, 5),
-                            });
-                        }
-                        sqliteDb.transaction(() => {
-                            if (!isCloudflareTunnelRequest(req)) {
-                                bookmarkStore.replaceDatabaseCompatibility(incomingDb);
-                            } else {
-                                // Remote imports cannot replace server-owned bookmarks.
-                                bookmarkStore.stripDatabaseCompatibility(incomingDb);
-                            }
-                            appDataStore.replaceFromProjection(incomingDb, {
-                                expectedRevision: appDataStore.getState().revision,
-                            });
-                        })();
-                        databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
-                        bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
-                    } catch (e) {
-                        logger.error('[Write] Compatibility database import failed:', e);
-                        if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
-                            res.status(400).json({ error: e.message, code: e.code });
-                        } else {
-                            res.status(500).json({ error: 'Database import failed' });
-                        }
-                        return;
-                    }
-                } else {
-                    kvSet(key, fileContent);
+                    return;
                 }
-
-                if (key === 'database/database.bin') {
-                    refreshCanonicalDatabaseCache({ invalidateChats: true });
-                    const visibleForEtag = isCloudflareTunnelRequest(req)
-                        ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
-                        : databaseForEtag;
-                    storageState.dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
-                    createBackupAndRotate();
-                    broadcastDatabaseInvalidated(req);
+                if (ifMatch && ifMatch !== currentEtag) {
+                    res.status(409).send({
+                        error: 'ETag mismatch - concurrent modification detected',
+                        currentEtag
+                    });
+                    return;
                 }
+            }
 
-                res.send({
-                    success: true,
-                    etag: key === 'database/database.bin' ? storageState.dbEtag : undefined
+            if (key.startsWith('inlay/')) {
+                const id = key.slice('inlay/'.length)
+                let decoded;
+                try {
+                    decoded = decodeInlayAsset(fileContent);
+                } catch (error) {
+                    return res.status(400).send({ error: error.message });
+                }
+                const { metadata: parsed, bytes: buffer } = decoded;
+                const type = parsed.type;
+                const ext = normalizeInlayExt(parsed.ext);
+                await writeInlayFile(id, ext, buffer, {
+                    ext,
+                    name: typeof parsed?.name === 'string' ? parsed.name : id,
+                    type,
+                    height: typeof parsed?.height === 'number' ? parsed.height : undefined,
+                    width: typeof parsed?.width === 'number' ? parsed.width : undefined,
                 });
+                kvDel(key);
+                kvDel(`inlay_thumb/${id}`);
+                kvDel(`inlay_info/${id}`);
+            } else if (key.startsWith('inlay_info/')) {
+                const id = key.slice('inlay_info/'.length)
+                const parsed = JSON.parse(Buffer.from(fileContent).toString('utf-8'));
+                await writeInlaySidecar(id, parsed);
+                kvDel(key);
+            } else if (key === 'database/database.bin') {
+                // Compatibility import; ordinary saves use PATCH /api/database.
+                try {
+                    let incomingDb = normalizeLegacyDatabaseProjection(
+                        await decodeRisuSave(fileContent),
+                    ).database;
+                    const currentDb = appDataStore.getState().initialized
+                        ? appDataStore.exportProjection({ includeMessages: true })
+                        : { characters: [] };
+                    if (isCloudflareTunnelRequest(req)) {
+                        incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
+                        restoreGenerationOwnedMetadata(incomingDb, currentDb);
+                    }
+                    const stubOnly = [];
+                    for (const character of incomingDb.characters ?? []) {
+                        for (const chat of character?.chats ?? []) {
+                            if (chat?._stub === true && !Array.isArray(chat.message)) {
+                                stubOnly.push(`${character.chaId}/${chat.id}`);
+                            }
+                        }
+                    }
+                    if (stubOnly.length > 0) {
+                        return res.status(400).json({
+                            error: 'Compatibility import requires full chat content',
+                            chats: stubOnly.slice(0, 5),
+                        });
+                    }
+                    sqliteDb.transaction(() => {
+                        if (!isCloudflareTunnelRequest(req)) {
+                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
+                        } else {
+                            // Remote imports cannot replace server-owned bookmarks.
+                            bookmarkStore.stripDatabaseCompatibility(incomingDb);
+                        }
+                        appDataStore.replaceFromProjection(incomingDb, {
+                            expectedRevision: appDataStore.getState().revision,
+                        });
+                    })();
+                    databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
+                    bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
+                } catch (e) {
+                    logger.error('[Write] Compatibility database import failed:', e);
+                    if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
+                        res.status(400).json({ error: e.message, code: e.code });
+                    } else {
+                        res.status(500).json({ error: 'Database import failed' });
+                    }
+                    return;
+                }
+            } else {
+                kvSet(key, fileContent);
+            }
+
+            if (key === 'database/database.bin') {
+                refreshCanonicalDatabaseCache({ invalidateChats: true });
+                const visibleForEtag = isCloudflareTunnelRequest(req)
+                    ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
+                    : databaseForEtag;
+                storageState.dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
+                createBackupAndRotate();
+                broadcastDatabaseInvalidated(req);
+            }
+
+            res.send({
+                success: true,
+                etag: key === 'database/database.bin' ? storageState.dbEtag : undefined
             });
-        } catch (error) {
-            next(error);
-        }
+        });
     });
 
-    app.post('/api/patch', async (req, res, next) => {
+    app.post('/api/patch', async (req, res) => {
         if (!enablePatchSync) {
             res.status(404).send({ error: 'Patch sync is not enabled' });
             return;

@@ -17,11 +17,7 @@ function sendFileFormatError(res, error) {
 
 function installFileFormatRoutes(app, { checkAuth }) {
     const authenticate = async (req, res, next) => {
-        try {
-            if (await checkAuth(req, res)) next();
-        } catch (error) {
-            next(error);
-        }
+        if (await checkAuth(req, res)) next();
     };
 
     app.post('/api/file-formats/:format/encode', authenticate, binaryBodyParser(FILE_FORMAT_BODY_LIMIT), async (req, res) => {
