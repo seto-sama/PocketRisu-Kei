@@ -1,6 +1,6 @@
 'use strict';
 
-const { getZip } = require('../zip.cjs');
+const { getZip } = require('../utils/zip.cjs');
 require('sucrase/register/ts');
 const { orientImageDimensions } = require('../../../src/ts/imageGeneration/orientation.ts');
 

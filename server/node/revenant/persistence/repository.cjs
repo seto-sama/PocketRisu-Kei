@@ -44,7 +44,6 @@ const {
     stmtGetWorkflow,
     stmtGetActiveWorkflowForRoom,
     stmtCountActiveWorkflows,
-    stmtGetLatestWorkflowForRoom,
     stmtListWorkflowSteps,
     stmtGetWorkflowStep,
     stmtListReadyChatWorkflowJobs,
@@ -154,13 +153,6 @@ function getGenerationWorkflow(workflowId, includeSteps = true) {
 function getActiveGenerationWorkflow(characterId, roomId, includeSteps = true) {
     return rowToWorkflow(
         stmtGetActiveWorkflowForRoom.get(characterId, roomId),
-        includeSteps,
-    );
-}
-
-function getLatestGenerationWorkflow(characterId, roomId, includeSteps = true) {
-    return rowToWorkflow(
-        stmtGetLatestWorkflowForRoom.get(characterId, roomId),
         includeSteps,
     );
 }
@@ -1015,7 +1007,6 @@ module.exports = {
     getGenerationWorkflow,
     getGenerationWorkflowInputChat,
     getActiveGenerationWorkflow,
-    getLatestGenerationWorkflow,
     listReadyChatWorkflowJobs,
     claimGenerationWorkflowStep,
     claimGenerationWorkflowClientAction,

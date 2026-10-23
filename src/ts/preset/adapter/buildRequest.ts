@@ -115,7 +115,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     return applyAuth(prepared, resolvePresetAuth(ctx.preset), ctx.credential)
 }
 
-function resolveEndpointUrl(
+export function resolveEndpointUrl(
     snapshot: ResolvedModelProfileSnapshot,
     userValues: Record<string, unknown>,
     serviceAccountJson?: string,

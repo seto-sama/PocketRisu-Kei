@@ -3,20 +3,42 @@
 const { fetchWithRequestTimeout } = require('../../shared/requestTimeout.mjs');
 const { get_encoding } = require('@dqbd/tiktoken');
 const { defaults: echoDefaults } = require('../../src/ts/preset/registry/bundled/profiles/developer/echo.json');
+const { createOutboundPolicy } = require('./outboundPolicy.cjs');
+const defaultOutboundPolicy = createOutboundPolicy();
 
 let echoTokenizer;
 
+const BLOCKED_REQUEST_HEADERS = new Set([
+    'host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive',
+    'upgrade', 'te', 'trailer', 'cookie', 'cookie2', 'proxy-authorization',
+    'origin', 'referer', 'forwarded', 'x-forwarded-for', 'x-forwarded-host',
+    'x-forwarded-proto', 'x-node-server-auth', 'x-server-register', 'x-risu-node-path',
+]);
+
 const BLOCKED_RESPONSE_HEADERS = new Set([
-    'cache-control',
     'clear-site-data',
     'content-encoding',
     'content-length',
     'content-security-policy',
     'content-security-policy-report-only',
     'transfer-encoding',
+    'set-cookie',
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'upgrade',
 ]);
 
-function filterUpstreamResponseHeaders(headers) {
+function filterUpstreamRequestHeaders(input) {
+    const headers = new Headers(input || {});
+    const connectionHeaders = new Set((headers.get('connection') || '').split(',').map(name => name.trim().toLowerCase()));
+    for (const name of [...headers.keys()]) {
+        if (name.startsWith('risu-') || connectionHeaders.has(name) || BLOCKED_REQUEST_HEADERS.has(name)) headers.delete(name);
+    }
+    return Object.fromEntries(headers);
+}
+
+function filterUpstreamResponseHeaders(headers, { preserveCacheControl = false } = {}) {
     const filtered = {};
     const entries = typeof headers?.entries === 'function'
         ? headers.entries()
@@ -24,29 +46,63 @@ function filterUpstreamResponseHeaders(headers) {
     for (const [rawKey, rawValue] of entries) {
         const key = String(rawKey).toLowerCase();
         if (BLOCKED_RESPONSE_HEADERS.has(key) || rawValue === undefined) continue;
+        if (key === 'cache-control' && !preserveCacheControl) continue;
         filtered[key] = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue);
     }
     return filtered;
 }
 
+async function executeHttpRequest(request, { signal, idleTimeoutMs, onClose, filterHeaders }) {
+    let closed = false;
+    const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        signal?.removeEventListener('abort', cleanup);
+        onClose?.();
+    };
+    if (onClose) signal?.addEventListener('abort', cleanup, { once: true });
+    try {
+        const response = idleTimeoutMs
+            ? await fetchWithRequestTimeout(request, { signal, idleTimeoutMs })
+            : await request(signal);
+        const reader = onClose ? response.body?.getReader() : undefined;
+        const body = reader ? new ReadableStream({
+            async pull(controller) {
+                try {
+                    const { done, value } = await reader.read();
+                    if (done) { cleanup(); controller.close(); }
+                    else controller.enqueue(value);
+                } catch (error) { cleanup(); controller.error(error); }
+            },
+            async cancel(reason) {
+                try { await reader.cancel(reason); }
+                finally { cleanup(); }
+            },
+        }, { highWaterMark: 0 }) : response.body;
+        if (!reader) cleanup();
+        return { status: response.status, headers: filterHeaders(response.headers), body };
+    } catch (error) {
+        cleanup();
+        throw error;
+    }
+}
+
 async function executeUpstreamRequest(arg, fetchImpl = globalThis.fetch) {
-    const request = signal => fetchImpl(arg.url, {
+    const target = await (arg.outboundPolicy || defaultOutboundPolicy).prepare(arg.url);
+    return executeHttpRequest(signal => fetchImpl(target.url, {
         method: arg.method,
-        headers: arg.headers,
+        headers: filterUpstreamRequestHeaders(arg.headers),
         body: arg.body,
         signal,
-        redirect: arg.redirect || 'follow',
+        dispatcher: target.dispatcher,
+        redirect: 'error',
+    }), {
+        signal: arg.signal,
+        // Durable generation owns its deadline; proxy requests also bound idle reads.
+        idleTimeoutMs: arg.idleTimeoutMs,
+        onClose: target.release,
+        filterHeaders: filterUpstreamResponseHeaders,
     });
-    // Durable generation already owns its deadline; ordinary proxy requests
-    // opt into an idle bound without changing that job lifecycle.
-    const response = arg.idleTimeoutMs
-        ? await fetchWithRequestTimeout(request, { signal: arg.signal, idleTimeoutMs: arg.idleTimeoutMs })
-        : await request(arg.signal);
-    return {
-        status: response.status,
-        headers: filterUpstreamResponseHeaders(response.headers),
-        body: response.body,
-    };
 }
 
 function abortableTimer(delayMs, signal) {
@@ -65,11 +121,7 @@ function abortableTimer(delayMs, signal) {
     });
 }
 
-/**
- * Local test provider that still uses the ordinary durable generation job.
- * Its OpenAI-compatible wire response is journaled, projected, materialized,
- * cancelled, and recovered by exactly the same lifecycle as a real provider.
- */
+// Keep Echo responses on the same job/journal path as network providers.
 async function executeEchoProviderRequest(arg) {
     let input = {};
     try {
@@ -138,7 +190,9 @@ async function executeEchoProviderRequest(arg) {
 }
 
 module.exports = {
+    executeHttpRequest,
     executeEchoProviderRequest,
     executeUpstreamRequest,
     filterUpstreamResponseHeaders,
+    filterUpstreamRequestHeaders,
 };

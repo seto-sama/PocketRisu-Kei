@@ -2,6 +2,7 @@
 
 const path = require('path');
 const crypto = require('crypto');
+const { setTimeout: delay } = require('node:timers/promises');
 const { executeRevenantLua } = require('./luaExecutor.cjs');
 const { resolveReplayAction } = require('./replayAction.cjs');
 
@@ -206,7 +207,7 @@ async function executeRevenantOutputTriggers(options) {
                             resend = true;
                             break;
                         case 'utility.wait':
-                            await new Promise(resolve => setTimeout(resolve, Number(payload.durationMs) || 0));
+                            await delay(Number(payload.durationMs) || 0);
                             break;
                         case 'trigger.run': {
                             if (recursionDepth >= 10 && !trigger.lowLevelAccess) break;

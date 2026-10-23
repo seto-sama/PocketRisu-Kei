@@ -99,6 +99,16 @@ it('rejects bad initial downloads, retries, and repairs a corrupt persistent cac
     expect(fetchImpl).toHaveBeenCalledTimes(6)
 })
 
+it('cancels an unsuccessful download body before retrying', async () => {
+    const { fetchImpl, now } = remote()
+    const cancel = vi.fn()
+    fetchImpl.mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 503 }))
+    const service = createImageTagService({ cacheDir: await directory(), fetchImpl, now })
+    await expect(service.search('hair')).rejects.toThrow('HTTP 503')
+    expect(cancel).toHaveBeenCalledOnce()
+    expect((await service.search('hair'))[0].name).toBe('hair')
+})
+
 it('checks once per day and keeps searches responsive while adopting a verified new filename', async () => {
     const cacheDir = await directory()
     const { state, fetchImpl, now } = remote()

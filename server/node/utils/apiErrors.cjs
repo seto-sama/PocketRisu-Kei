@@ -1,7 +1,7 @@
 'use strict';
 
-const codes = require('../../shared/apiErrorCodes.json');
-const defaultMessages = require('../../shared/apiErrorMessages.json');
+const codes = require('../../../shared/apiErrorCodes.json');
+const defaultMessages = require('../../../shared/apiErrorMessages.json');
 
 for (const code of Object.values(codes)) {
     if (typeof defaultMessages[code] !== 'string' || !defaultMessages[code]) {

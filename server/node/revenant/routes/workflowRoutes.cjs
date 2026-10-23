@@ -27,7 +27,7 @@ const {
     isUnregisteredWorkflowExpired,
     shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
     const {
@@ -50,7 +50,7 @@ function installRevenantWorkflowRoutes(app, deps) {
     const sendWorkflowNotFound = res =>
         sendApiError(res, 404, codes.REVENANT_WORKFLOW_NOT_FOUND);
 
-    app.post('/api/generation/workflows', async (req, res, next) => {
+    app.post('/api/generation/workflows', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const characterId = typeof req.body?.characterId === 'string' ? req.body.characterId : '';
@@ -61,100 +61,96 @@ function installRevenantWorkflowRoutes(app, deps) {
             res.status(400).send({ error: 'characterId, roomId, plan, and workflow context are required' });
             return;
         }
-        try {
-            // Once the user explicitly starts another generation, output from
-            // older terminal workflows must never be drained back into this
-            // room. A cancelled partial that lost to a swipe deletion is
-            // superseded here, before the new durable input base is captured.
-            acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
-            const input = {
-                workflowId: randomUUID(),
-                characterId,
-                roomId,
-                plan,
-                context,
-            };
-            let result = createGenerationWorkflow(input);
-            if (!result.busy && context.kind === 'image-generation') {
-                const actionId = `image-generation:${context.operationId}`;
-                updateGenerationWorkflowStep(result.workflow.workflowId, 'image.generate', {
-                    status: 'running',
-                    metadata: {
+        // Once the user explicitly starts another generation, output from
+        // older terminal workflows must never be drained back into this
+        // room. A cancelled partial that lost to a swipe deletion is
+        // superseded here, before the new durable input base is captured.
+        acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
+        const input = {
+            workflowId: randomUUID(),
+            characterId,
+            roomId,
+            plan,
+            context,
+        };
+        let result = createGenerationWorkflow(input);
+        if (!result.busy && context.kind === 'image-generation') {
+            const actionId = `image-generation:${context.operationId}`;
+            updateGenerationWorkflowStep(result.workflow.workflowId, 'image.generate', {
+                status: 'running',
+                metadata: {
+                    schemaVersion: 1,
+                    action: {
                         schemaVersion: 1,
-                        action: {
-                            schemaVersion: 1,
-                            actionId,
-                            kind: 'image.generate',
-                            payload: {
-                                prompt: context.prompt,
-                                negativePrompt: context.negativePrompt,
-                                orientation: context.orientation,
-                                seed: context.seed,
-                                target: context.target,
-                                messageId: context.messageId,
-                                bridgeId: context.comfyBridgeId,
-                            },
+                        actionId,
+                        kind: 'image.generate',
+                        payload: {
+                            prompt: context.prompt,
+                            negativePrompt: context.negativePrompt,
+                            orientation: context.orientation,
+                            seed: context.seed,
+                            target: context.target,
+                            messageId: context.messageId,
+                            bridgeId: context.comfyBridgeId,
                         },
                     },
+                },
+            });
+            result = { ...result, workflow: getGenerationWorkflow(result.workflow.workflowId) };
+            scheduleImageGenerationWorkflow(result.workflow.workflowId);
+        }
+        if (result.busy) {
+            const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+            if (
+                isUnregisteredWorkflowExpired(result.workflow, jobs)
+                || shouldSupersedeFailedActiveWorkflow(result.workflow, jobs)
+            ) {
+                await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
+                result = createGenerationWorkflow({
+                    ...input,
+                    workflowId: randomUUID(),
                 });
-                result = { ...result, workflow: getGenerationWorkflow(result.workflow.workflowId) };
-                scheduleImageGenerationWorkflow(result.workflow.workflowId);
             }
-            if (result.busy) {
-                const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
-                if (
-                    isUnregisteredWorkflowExpired(result.workflow, jobs)
-                    || shouldSupersedeFailedActiveWorkflow(result.workflow, jobs)
-                ) {
-                    await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
-                    notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
-                    acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
-                    result = createGenerationWorkflow({
-                        ...input,
-                        workflowId: randomUUID(),
-                    });
-                }
-            }
-            if (result.busy) {
-                const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
-                const hasMainJob = hasRegisteredMainJob(jobs);
-                const retryAfterMs = getUnregisteredWorkflowRetryAfterMs(
+        }
+        if (result.busy) {
+            const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+            const hasMainJob = hasRegisteredMainJob(jobs);
+            const retryAfterMs = getUnregisteredWorkflowRetryAfterMs(
+                result.workflow,
+                jobs,
+            );
+            res.status(409).send({
+                error: 'A generation workflow is already active for this room',
+                ...(hasMainJob ? { workflow: result.workflow } : {}),
+                ...(retryAfterMs === undefined ? {} : {
+                    busyReason: 'main_job_unregistered',
+                    retryAfterMs,
+                }),
+            });
+            return;
+        }
+        if (context.inputCommit) {
+            try {
+                const workflow = await commitWorkflowInput(
                     result.workflow,
-                    jobs,
+                    context.inputCommit,
+                    req,
                 );
-                res.status(409).send({
-                    error: 'A generation workflow is already active for this room',
-                    ...(hasMainJob ? { workflow: result.workflow } : {}),
-                    ...(retryAfterMs === undefined ? {} : {
-                        busyReason: 'main_job_unregistered',
-                        retryAfterMs,
-                    }),
+                result = {
+                    ...result,
+                    workflow,
+                };
+            } catch (error) {
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                res.status(error?.httpStatus || 500).send({
+                    error: error?.message || 'Failed to commit workflow input',
                 });
                 return;
             }
-            if (context.inputCommit) {
-                try {
-                    const workflow = await commitWorkflowInput(
-                        result.workflow,
-                        context.inputCommit,
-                        req,
-                    );
-                    result = {
-                        ...result,
-                        workflow,
-                    };
-                } catch (error) {
-                    notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
-                    res.status(error?.httpStatus || 500).send({
-                        error: error?.message || 'Failed to commit workflow input',
-                    });
-                    return;
-                }
-            }
-            res.send({ workflow: result.workflow });
-        } catch (error) {
-            next(error);
         }
+        res.send({ workflow: result.workflow });
     });
 
     app.get('/api/generation/workflows/active', async (req, res) => {

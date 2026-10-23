@@ -270,12 +270,6 @@ function createGenerationStatements(db) {
     const stmtCountActiveWorkflows = db.prepare(`
         SELECT COUNT(*) AS count FROM generation_workflows WHERE status = 'active'
     `);
-    const stmtGetLatestWorkflowForRoom = db.prepare(`
-        SELECT * FROM generation_workflows
-        WHERE character_id = ? AND room_id = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-    `);
     const stmtListWorkflowSteps = db.prepare(`
         SELECT * FROM generation_workflow_steps
         WHERE workflow_id = ?
@@ -538,7 +532,6 @@ function createGenerationStatements(db) {
         stmtGetWorkflow,
         stmtGetActiveWorkflowForRoom,
         stmtCountActiveWorkflows,
-        stmtGetLatestWorkflowForRoom,
         stmtListWorkflowSteps,
         stmtGetWorkflowStep,
         stmtListReadyChatWorkflowJobs,

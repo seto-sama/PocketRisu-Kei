@@ -1,9 +1,15 @@
 'use strict';
 
 const path = require('path');
-const { existsSync } = require('fs');
-const { execSync, spawn } = require('child_process');
+const { existsSync, createWriteStream } = require('node:fs');
+const fs = require('node:fs/promises');
+const { execFile, spawn } = require('node:child_process');
+const { promisify } = require('node:util');
+const { pipeline } = require('node:stream/promises');
+const { decompressFile } = require('../utils/decompressFile.cjs');
 const { logger } = require('../logs/logs.cjs');
+
+const execFileAsync = promisify(execFile);
 
 function installTunnelRoutes(app, {
     checkAuth,
@@ -23,31 +29,16 @@ function installTunnelRoutes(app, {
         'win32-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe', type: 'bin' },
     };
 
-    function findCloudflaredBinary() {
+    async function findCloudflaredBinary() {
         const ext = process.platform === 'win32' ? '.exe' : '';
         const bundled = path.join(process.cwd(), 'bin', 'cloudflared' + ext);
         if (existsSync(bundled)) return bundled;
         try {
-            execSync(process.platform === 'win32' ? 'where cloudflared' : 'which cloudflared', { stdio: 'pipe' });
+            await execFileAsync(process.platform === 'win32' ? 'where' : 'which', ['cloudflared']);
             return 'cloudflared';
         } catch {
             return null;
         }
-    }
-
-    function followRedirects(url) {
-        return new Promise((resolve, reject) => {
-            const mod = url.startsWith('https') ? require('https') : require('http');
-            mod.get(url, { headers: { 'User-Agent': 'pocketrisu' } }, (res) => {
-                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    followRedirects(res.headers.location).then(resolve, reject);
-                } else if (res.statusCode === 200) {
-                    resolve(res);
-                } else {
-                    reject(new Error(`HTTP ${res.statusCode}`));
-                }
-            }).on('error', reject);
-        });
     }
 
     async function downloadCloudflared() {
@@ -59,31 +50,25 @@ function installTunnelRoutes(app, {
         const binDir = path.join(process.cwd(), 'bin');
         const dest = path.join(binDir, 'cloudflared' + ext);
 
-        if (!existsSync(binDir)) require('fs').mkdirSync(binDir, { recursive: true });
+        await fs.mkdir(binDir, { recursive: true });
 
         console.log(`[Tunnel] Downloading cloudflared for ${key}...`);
-        const res = await followRedirects(asset.url);
-
-        if (asset.type === 'tgz') {
-            const tmpPath = path.join(binDir, '_cloudflared.tgz');
-            await new Promise((resolve, reject) => {
-                const ws = require('fs').createWriteStream(tmpPath);
-                res.pipe(ws);
-                ws.on('finish', () => { ws.close(); resolve(); });
-                ws.on('error', reject);
-            });
-            execSync(`tar -xzf "${tmpPath}" -C "${binDir}"`, { stdio: 'pipe' });
-            require('fs').unlinkSync(tmpPath);
-        } else {
-            await new Promise((resolve, reject) => {
-                const ws = require('fs').createWriteStream(dest);
-                res.pipe(ws);
-                ws.on('finish', () => { ws.close(); resolve(); });
-                ws.on('error', reject);
-            });
+        const downloadDir = await fs.mkdtemp(path.join(binDir, '.cloudflared-'));
+        const binaryPath = path.join(downloadDir, 'cloudflared' + ext);
+        const downloadPath = asset.type === 'tgz' ? path.join(downloadDir, 'cloudflared.tgz') : binaryPath;
+        try {
+            const response = await fetch(asset.url, { headers: { 'User-Agent': 'pocketrisu' } });
+            if (response.status !== 200 || !response.body) {
+                await response.body?.cancel();
+                throw new Error(`HTTP ${response.status}`);
+            }
+            await pipeline(response.body, createWriteStream(downloadPath));
+            if (asset.type === 'tgz') await decompressFile(downloadPath, downloadDir);
+            if (process.platform !== 'win32') await fs.chmod(binaryPath, 0o755);
+            await fs.rename(binaryPath, dest);
+        } finally {
+            await fs.rm(downloadDir, { recursive: true, force: true }).catch(() => {});
         }
-
-        if (process.platform !== 'win32') require('fs').chmodSync(dest, 0o755);
         console.log('[Tunnel] cloudflared downloaded successfully.');
         return dest;
     }
@@ -106,14 +91,14 @@ function installTunnelRoutes(app, {
             return res.status(409).json({ error: 'Tunnel is already ' + tunnelState.tunnelStatus });
         }
 
-        let cfPath = findCloudflaredBinary();
+        tunnelState.tunnelStatus = 'starting';
+        tunnelState.tunnelError = null;
+        tunnelState.tunnelUrl = null;
+        let cfPath = await findCloudflaredBinary();
 
-        // Auto-download if not found
         if (!cfPath) {
             tunnelState.tunnelStatus = 'downloading';
-            tunnelState.tunnelError = null;
             res.json({ status: 'downloading' });
-
             try {
                 cfPath = await downloadCloudflared();
             } catch (e) {
@@ -122,14 +107,9 @@ function installTunnelRoutes(app, {
                 tunnelState.tunnelError = `Failed to download cloudflared: ${e.message}`;
                 return;
             }
-            // After download, start the tunnel (response already sent)
             startTunnelProcess(cfPath);
             return;
         }
-
-        tunnelState.tunnelStatus = 'starting';
-        tunnelState.tunnelError = null;
-        tunnelState.tunnelUrl = null;
         startTunnelProcess(cfPath);
         res.json({ status: 'starting' });
     });
@@ -137,18 +117,18 @@ function installTunnelRoutes(app, {
     function startTunnelProcess(cfPath) {
         const port = process.env.PORT || 6001;
         tunnelState.tunnelStatus = 'starting';
-        tunnelState.tunnelError = null;
-        tunnelState.tunnelUrl = null;
 
         try {
             const originScheme = tunnelState.serverIsHttps ? 'https' : 'http';
             const args = ['tunnel', '--url', `${originScheme}://localhost:${port}`];
             if (tunnelState.serverIsHttps) args.push('--no-tls-verify');
-            tunnelState.tunnelProcess = spawn(cfPath, args, {
+            const child = spawn(cfPath, args, {
                 stdio: ['ignore', 'pipe', 'pipe']
             });
+            tunnelState.tunnelProcess = child;
 
-            tunnelState.tunnelProcess.stderr.on('data', (chunk) => {
+            child.stderr.on('data', (chunk) => {
+                if (tunnelState.tunnelProcess !== child) return;
                 const text = chunk.toString();
                 const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
                 if (match && tunnelState.tunnelStatus === 'starting') {
@@ -159,15 +139,18 @@ function installTunnelRoutes(app, {
                 }
             });
 
-            tunnelState.tunnelProcess.on('error', (err) => {
+            child.on('error', (err) => {
+                if (tunnelState.tunnelProcess !== child) return;
                 logger.error('[Tunnel] Process error:', err.message);
                 tunnelState.tunnelStatus = 'error';
                 tunnelState.tunnelError = err.message;
                 tunnelState.tunnelProcess = null;
+                tunnelState.tunnelUrl = null;
                 if (tunnelState.tunnelStartTimeout) { clearTimeout(tunnelState.tunnelStartTimeout); tunnelState.tunnelStartTimeout = null; }
             });
 
-            tunnelState.tunnelProcess.on('exit', (code) => {
+            child.on('exit', (code) => {
+                if (tunnelState.tunnelProcess !== child) return;
                 if (tunnelState.tunnelStatus === 'running' || tunnelState.tunnelStatus === 'starting') {
                     console.log(`[Tunnel] Process exited with code ${code}`);
                     tunnelState.tunnelStatus = 'error';

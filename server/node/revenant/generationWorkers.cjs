@@ -207,7 +207,8 @@ function createGenerationWorkers(options) {
             for (const item of listQueuedGenerationWorkflowExecutions(20)) {
                 const recipe = item.recipe;
                 const expectedIds = new Set(recipe.expectedOperationIds);
-                const jobs = listGenerationWorkflowJobs(item.workflowId).filter(job =>
+                const workflowJobs = listGenerationWorkflowJobs(item.workflowId);
+                const jobs = workflowJobs.filter(job =>
                     job.operationContext?.kind === 'hypav3-summary'
                     && job.operationContext.batchId === recipe.batchId
                     && expectedIds.has(job.operationContext.operationId));
@@ -215,7 +216,7 @@ function createGenerationWorkers(options) {
                 if (workflow?.status !== 'active') continue;
                 // No summary can start until the dependent main request is
                 // durable. Reloading after this point only drops observers.
-                if (!listGenerationWorkflowJobs(item.workflowId).some(job =>
+                if (!workflowJobs.some(job =>
                     job.workflowStepKey === 'model.main' && ['queued', 'generating'].includes(job.status))) continue;
                 for (const request of recipe.summaryRequests) {
                     const key = `${item.workflowId}:${request.operationId}`;

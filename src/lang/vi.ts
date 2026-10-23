@@ -950,7 +950,6 @@ export const languageVietnamese = {
     "dynamic": "Động",
     "assetStyle": "Phong cách tài sản",
     "insertAssetPrompt": "Chèn lời nhắc tài sản",
-    "requestLocation": "Yêu cầu vị trí",
     "newImageHandlingBeta": "Xử lý hình ảnh mới (Beta)",
     "bookmarks": "Dấu trang",
     "noBookmarks": "Không có dấu trang",

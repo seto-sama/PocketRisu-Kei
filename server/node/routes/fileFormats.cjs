@@ -3,7 +3,7 @@
 require('sucrase/register/ts');
 const { decode, encode } = require('msgpackr');
 const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../../src/ts/network/binaryMessage.ts');
-const { binaryBodyParser } = require('../binaryHttp.cjs');
+const { binaryBodyParser } = require('../utils/binaryHttp.cjs');
 const { decodeFile, encodeFile } = require('../fileFormats.cjs');
 const FILE_FORMAT_BODY_LIMIT = '100mb';
 
@@ -17,11 +17,7 @@ function sendFileFormatError(res, error) {
 
 function installFileFormatRoutes(app, { checkAuth }) {
     const authenticate = async (req, res, next) => {
-        try {
-            if (await checkAuth(req, res)) next();
-        } catch (error) {
-            next(error);
-        }
+        if (await checkAuth(req, res)) next();
     };
 
     app.post('/api/file-formats/:format/encode', authenticate, binaryBodyParser(FILE_FORMAT_BODY_LIMIT), async (req, res) => {

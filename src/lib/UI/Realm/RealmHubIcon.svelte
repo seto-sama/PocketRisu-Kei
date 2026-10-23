@@ -1,6 +1,7 @@
 <script lang="ts">
     import { BookIcon, ImageIcon, SmileIcon } from "@lucide/svelte";
-    import { hubURL, type hubType } from "src/ts/characterCards";
+    import { type hubType } from "src/ts/characterCards";
+    import { getRealmProxyUrl } from "src/ts/network/proxy";
     import { DBState } from "src/ts/stores.svelte";
     import { parseMultilangString } from "src/ts/util";
     import Button from "../components/Button.svelte";
@@ -27,7 +28,7 @@
     <ContextMenu.Trigger class="block w-full">
         {#if iconOnly}
             <CharacterMasonryIcon
-                src={`${hubURL}/resource/` + chara.img}
+                src={getRealmProxyUrl(`/resource/${chara.img}`)}
                 name={chara.name}
                 hideImage={DBState.db.hideAllImages}
                 onclick={onClick}
@@ -40,7 +41,7 @@
                         <span class="text-4xl">?</span>
                     </div>
                 {:else}
-                    <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={`${hubURL}/resource/` + chara.img}>
+                    <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={getRealmProxyUrl(`/resource/${chara.img}`)}>
                 {/if}
                 <div class="flex flex-col grow min-w-0">
                     <span class="text-maintext text-lg min-w-0 max-w-full text-ellipsis whitespace-nowrap overflow-hidden text-start">{chara.name}</span>

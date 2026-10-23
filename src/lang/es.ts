@@ -950,7 +950,6 @@ export const languageSpanish = {
     "dynamic": "Dinámico",
     "assetStyle": "Estilo de Activo",
     "insertAssetPrompt": "Insertar Prompt de Activo",
-    "requestLocation": "Ubicación de Solicitud",
     "newImageHandlingBeta": "Nuevo Manejo de Imágenes (Beta)",
     "bookmarks": "Marcadores",
     "noBookmarks": "Sin Marcadores",

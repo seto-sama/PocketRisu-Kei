@@ -7,7 +7,7 @@ const {
     decodeRisuSave,
     encodeRisuSave,
     encodeRisuSaveLegacy,
-} = require('./utils.cjs')
+} = require('./risuSave.cjs')
 const magicHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7)
 const magicCompressedHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 8)
 const magicStreamCompressedHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 9)

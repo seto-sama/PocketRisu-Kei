@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const compression = require('compression');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./utils/apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
@@ -35,6 +35,10 @@ const {
     migratePromptPresetSelection,
 } = require('./appDataMigration.cjs');
 const appDataStore = createAppDataStore(sqliteDb);
+const { createConfiguredLocalUrlProvider } = require('./configuredNetworkTargets.cjs');
+const outboundPolicy = require('./outboundPolicy.cjs').createOutboundPolicy({
+    getAllowedLocalUrls: createConfiguredLocalUrlProvider(appDataStore),
+});
 
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const bookmarkStore = createBookmarkStore(sqliteDb);
@@ -45,6 +49,7 @@ const { recordGenerationUsage } = require('./logs/usageDb.cjs');
 const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
+    filterUpstreamRequestHeaders,
 } = require('./upstreamRequest.cjs');
 const { REVENANT_CAPACITY } = require('./revenant/capacity.cjs');
 
@@ -85,7 +90,8 @@ const { applyGenerationInputMetadata } = require('./revenant/generationInputMeta
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
 const { normalizeTrashRetentionDays } = require('../../shared/trashRetention.mjs');
 
-const { decodeRisuSave, encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
+const { normalizeJSON } = require('./utils/json.cjs');
 const {
     exportPromptPresetSelection,
     importPromptPresetSelection,
@@ -649,11 +655,9 @@ async function scheduleCanonicalChatPersist({ characterId, chatId, chat }) {
 }
 
 function shouldCompress(req, res) {
-    // Proxy/hub-proxy: pass through external responses without compression.
-    // Original upstream server has no compression middleware at all,
-    // so proxy responses were never compressed in the first place.
+    // Keep proxied responses and streaming downloads uncompressed.
     const url = req.originalUrl || req.url;
-    if (url.startsWith('/proxy2') || url.startsWith('/hub-proxy') || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
+    if (res.locals.skipCompression || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
         return false;
     }
 
@@ -691,9 +695,6 @@ app.use('/assets', express.static(path.join(process.cwd(), 'dist/assets'), {
     immutable: true,
 }));
 app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
-
-app.use(express.json({ limit: '100mb' }));
-app.use(express.text({ limit: '100mb' }));
 
 const sslPath = path.join(process.cwd(), 'server/node/ssl/certificate');
 
@@ -1030,17 +1031,12 @@ async function isAuthorizedProxyRequest(req) {
     return await checkAuth(req, null, true);
 }
 
-async function checkProxyAuth(req, res) {
-    return await checkAuth(req, res);
-}
-
 function sanitizeGenerationTargetUrl(raw) {
     if (typeof raw !== 'string' || raw.trim() === '') return null;
     try {
         const parsed = new URL(raw);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-        parsed.username = '';
-        parsed.password = '';
+        if (parsed.username || parsed.password) return null;
         return parsed.toString();
     } catch {
         return null;
@@ -1050,22 +1046,10 @@ function sanitizeGenerationTargetUrl(raw) {
 // --- Generation: request/response helpers ---
 
 function normalizeForwardHeaders(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-        return {};
-    }
-    const normalized = {};
-    for (const [key, value] of Object.entries(input)) {
-        if (typeof key !== 'string') continue;
-        if (typeof value === 'string') {
-            normalized[key] = value;
-        }
-    }
-    delete normalized['risu-auth'];
-    delete normalized['risu-timeout-ms'];
-    delete normalized['host'];
-    delete normalized['connection'];
-    delete normalized['content-length'];
-    return normalized;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+    return filterUpstreamRequestHeaders(Object.fromEntries(
+        Object.entries(input).filter(([, value]) => typeof value === 'string'),
+    ));
 }
 
 function normalizeGenerationJobTimeoutMs(timeoutMs) {
@@ -1612,6 +1596,7 @@ async function runGenerationProviderJob(job, arg) {
             headers,
             body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
             signal: job.abortController.signal,
+            outboundPolicy,
         };
         const upstreamResponse = arg.adapterKind === 'echo'
             ? await executeEchoProviderRequest(providerRequest)
@@ -2226,8 +2211,27 @@ async function estimateServerBackupSize(dbBytesOverride = null, inlayBytesOverri
     return total;
 }
 
+require('./routes/auth.cjs').installAuthRoutes(app, {
+    SESSION_FILE,
+    sessions,
+    loginBlockedUntil,
+    LOGIN_FAILURE_WINDOW_MS,
+    jwtSecret,
+    authState,
+    checkAuth,
+    parseSessionCookie,
+    sessionExpiresAt,
+    getSyncClientIdFromRequest,
+    syncClientDevices,
+    passwordPath,
+});
+
+require('./requestBody.cjs').installAuthenticatedBodyParsing(app, {
+    checkAuth: checkDownloadAuth,
+});
+
 installImageGenerationJobRoutes(app, {
-    checkProxyAuth, requireSyncClientId, service: imageGenerationJobService,
+    checkProxyAuth: checkAuth, requireSyncClientId, service: imageGenerationJobService,
 });
 
 require('./routes/imageTags.cjs').installImageTagRoutes(app, {
@@ -2236,7 +2240,7 @@ require('./routes/imageTags.cjs').installImageTagRoutes(app, {
 });
 
 installRevenantGenerationRoutes(app, {
-    checkProxyAuth,
+    checkProxyAuth: checkAuth,
     requireSyncClientId,
     isSyncClientConnected,
     sanitizeGenerationTargetUrl,
@@ -2266,22 +2270,7 @@ require('./routes/web.cjs').installWebRoutes(app, {
 
 require('./routes/proxy.cjs').installProxyRoutes(app, {
     checkAuth,
-    isCloudflareTunnelRequest,
-});
-
-require('./routes/auth.cjs').installAuthRoutes(app, {
-    SESSION_FILE,
-    sessions,
-    loginBlockedUntil,
-    LOGIN_FAILURE_WINDOW_MS,
-    jwtSecret,
-    authState,
-    checkAuth,
-    parseSessionCookie,
-    sessionExpiresAt,
-    getSyncClientIdFromRequest,
-    syncClientDevices,
-    passwordPath,
+    outboundPolicy,
 });
 
 require('./routes/fileFormats.cjs').installFileFormatRoutes(app, {

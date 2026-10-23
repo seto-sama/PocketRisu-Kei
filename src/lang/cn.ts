@@ -950,7 +950,6 @@ export const languageChinese = {
     "dynamic": "动态",
     "assetStyle": "资源样式",
     "insertAssetPrompt": "插入资源提示词",
-    "requestLocation": "请求位置",
     "newImageHandlingBeta": "新图像处理 (Beta)",
     "bookmarks": "书签",
     "noBookmarks": "无书签",

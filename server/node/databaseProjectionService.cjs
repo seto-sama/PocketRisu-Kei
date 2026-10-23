@@ -2,7 +2,7 @@
 
 const { applyPatch: applyJsonPatch, compare } = require('fast-json-patch');
 const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../../shared/guardedDelta.mjs');
-const { calculateHash, normalizeJSON } = require('./utils.cjs');
+const { calculateHash, normalizeJSON } = require('./utils/json.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
 const { EntityIdValidationError } = require('../../shared/entityIds.mjs');
 const { createPatchHashDiagnostics } = require('../../shared/patchHashDiagnostics.mjs');

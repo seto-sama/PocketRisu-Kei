@@ -28,8 +28,8 @@ const {
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../protocol.cjs');
-const { decodeBinaryRequest, binaryBodyParser } = require('../../binaryHttp.cjs');
-const { codes, sendApiError } = require('../../apiErrors.cjs');
+const { decodeBinaryRequest, binaryBodyParser } = require('../../utils/binaryHttp.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 const { createProviderCapacityError } = require('../capacity.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
@@ -364,32 +364,20 @@ function installRevenantJobRoutes(app, deps) {
         });
     });
 
-    app.get('/api/generation/jobs/recoverable', async (req, res, next) => {
+    app.get('/api/generation/jobs/recoverable', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
-        try {
-            res.send({ jobs: listRecoverableGenerationJobs(req.query?.limit) });
-        } catch (error) {
-            next(error);
-        }
+        res.send({ jobs: listRecoverableGenerationJobs(req.query?.limit) });
     });
 
-    app.get('/api/generation/jobs/auxiliary-recoverable', async (req, res, next) => {
+    app.get('/api/generation/jobs/auxiliary-recoverable', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
-        try {
-            res.send({ jobs: listRecoverableAuxiliaryJobs(req.query?.limit) });
-        } catch (error) {
-            next(error);
-        }
+        res.send({ jobs: listRecoverableAuxiliaryJobs(req.query?.limit) });
     });
 
-    app.post('/api/generation/jobs/prune-retained', async (req, res, next) => {
+    app.post('/api/generation/jobs/prune-retained', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            res.send(pruneRetainedGenerationJobs());
-        } catch (error) {
-            next(error);
-        }
+        res.send(pruneRetainedGenerationJobs());
     });
 
     app.get('/api/generation/jobs/:jobId', async (req, res) => {
@@ -402,14 +390,10 @@ function installRevenantJobRoutes(app, deps) {
         res.send(job);
     });
 
-    app.delete('/api/generation/jobs/:jobId', async (req, res, next) => {
+    app.delete('/api/generation/jobs/:jobId', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            res.send(await cancellationService.cancel(req.params.jobId));
-        } catch (error) {
-            next(error);
-        }
+        res.send(await cancellationService.cancel(req.params.jobId));
     });
 
     app.post('/api/generation/jobs/:jobId/consume', async (req, res) => {

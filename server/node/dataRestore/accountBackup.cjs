@@ -2,7 +2,7 @@
 
 const { webcrypto } = require('node:crypto');
 const { fetchWithRequestTimeout } = require('../../../shared/requestTimeout.mjs');
-const { apiErrorMessage, codes } = require('../apiErrors.cjs');
+const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 
 const ACCOUNT_BACKUP_KEY_URL = 'https://sv.risuai.xyz/cryptokey';
 const KEY_LOOKUP_TIMEOUT_MS = 30_000;

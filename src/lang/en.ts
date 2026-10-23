@@ -1897,7 +1897,6 @@ export const languageEnglish = {
     dynamic: "Dynamic",
     assetStyle: "Asset Style",
     insertAssetPrompt: "Insert Asset Prompt",
-    requestLocation: "Request Location",
     newImageHandlingBeta: "Add Asset Prompt Section",
     bookmarks: "Bookmarks",
     noBookmarks: "No Bookmarks",

@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import chunkStorePkg from './chunkStore.cjs'
 import snapshotWorkerPkg from './snapshotWorker.cjs'
-import utilsPkg from './utils.cjs'
+import risuSavePkg from './utils/risuSave.cjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const { createChunkStore } = chunkStorePkg as any
 const { createRelationalSnapshot } = snapshotWorkerPkg as any
-const { decodeRisuSave } = utilsPkg as any
+const { decodeRisuSave } = risuSavePkg as any
 const directories: string[] = []
 
 async function createFixture() {

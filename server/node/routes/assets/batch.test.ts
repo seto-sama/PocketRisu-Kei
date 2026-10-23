@@ -9,13 +9,19 @@ import { encodeBinaryMessage, BINARY_MESSAGE_CONTENT_TYPE } from '../../../../sr
 describe('binary asset API', () => {
     const values = new Map<string, Uint8Array>()
     const write = vi.fn((key: string, value: Uint8Array) => values.set(key, Uint8Array.from(value)))
+    const readInlayInfoPayload = vi.fn(async (id: string) => id === 'canonical' ? Buffer.from('{"name":"image"}') : null)
+    const errors: unknown[] = []
     const app = express()
     app.use(express.json())
     assetRoutes.installAssetBatchRoutes(app, {
         checkAuth: async () => true, requireSyncClientId: () => true,
         kvGet: key => values.get(key) ?? null, kvSet: write,
-        readInlayInfoPayload: async id => id === 'canonical' ? Buffer.from('{"name":"image"}') : null,
+        readInlayInfoPayload,
         transaction: callback => callback,
+    })
+    app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+        errors.push(error)
+        res.status(500).json({ error: error.message })
     })
     const server = createServer(app)
     let base: string
@@ -24,7 +30,12 @@ describe('binary asset API', () => {
         await once(server, 'listening')
         base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     })
-    beforeEach(() => { values.clear(); write.mockClear() })
+    beforeEach(() => {
+        values.clear()
+        write.mockClear()
+        readInlayInfoPayload.mockClear()
+        errors.length = 0
+    })
     afterAll(async () => {
         server.closeAllConnections()
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
@@ -57,6 +68,24 @@ describe('binary asset API', () => {
         expect(response.status).toBe(400)
         expect((await response.json()).code).toBe('DATABASE_BIN_PROJECTION_ONLY')
         expect(write).not.toHaveBeenCalled()
+    })
+
+    it.each(['read', 'write'])('forwards a storage %s failure to Express error middleware once', async operation => {
+        const error = new Error('Storage unavailable')
+        let response: Response
+        if (operation === 'read') {
+            readInlayInfoPayload.mockRejectedValueOnce(error)
+            response = await fetch(base + '/api/assets/bulk-read', {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(['inlay_info/canonical']),
+            })
+        } else {
+            write.mockImplementationOnce(() => { throw error })
+            response = await upload(encodeAssetBatch([{ key: 'assets/example', value: Uint8Array.of(1) }]))
+        }
+        expect(response.status).toBe(500)
+        expect(await response.json()).toEqual({ error: 'Storage unavailable' })
+        expect(errors).toEqual([error])
     })
 
     it.each([

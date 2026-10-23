@@ -1,4 +1,5 @@
 import { decodeBinaryMessage } from '../../../network/binaryMessage'
+import { PROXY_PATH } from '../../../../../shared/proxy.mjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../storage/database.svelte', () => ({
@@ -75,6 +76,8 @@ describe('restricted local ComfyUI bridge', () => {
         })
 
         const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/prompt'))
+        const comfyCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith('http://127.0.0.1:8818/'))
+        expect(comfyCalls.every(([, init]) => init?.redirect === 'error')).toBe(true)
         const promptBody = JSON.parse(String(promptCall?.[1]?.body))
         expect(promptBody.prompt).toEqual({
             positive: { inputs: { text: 'portrait' } },
@@ -89,7 +92,7 @@ describe('restricted local ComfyUI bridge', () => {
             promptId: 'prompt-1',
             resultFormat: 'png',
         })
-        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/proxy2'))).toBe(false)
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes(PROXY_PATH))).toBe(false)
     })
 
     it('resumes an attached prompt after reload without submitting it again', async () => {

@@ -950,7 +950,6 @@ export const languageGerman = {
     "dynamic": "Dynamisch",
     "assetStyle": "Asset-Stil",
     "insertAssetPrompt": "Asset-Anweisung einfügen",
-    "requestLocation": "Anfrageort",
     "newImageHandlingBeta": "Neue Bildverarbeitung (Beta)",
     "bookmarks": "Lesezeichen",
     "noBookmarks": "Keine Lesezeichen",

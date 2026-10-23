@@ -3,7 +3,7 @@
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
 const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
 const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
-const { apiErrorMessage, codes } = require('../apiErrors.cjs');
+const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 const {
     isGenerationProjectionCurrent,
     projectGenerationJournal,

@@ -8,7 +8,8 @@ const { randomUUID } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { encode: encodeMessagePack } = require('msgpackr');
-const { decodeRisuSave, encodeRisuSave, normalizeJSON } = require('../utils.cjs');
+const { decodeRisuSave, encodeRisuSave } = require('../utils/risuSave.cjs');
+const { normalizeJSON } = require('../utils/json.cjs');
 const { createBackupRestoreService, restoreMissingAssetsFromBackupFile } = require('../dataRestore/index.cjs');
 const { logger } = require('../logs/logs.cjs');
 const { buildSettingsBackupPlan } = require('../settingsBackup.cjs');
@@ -23,7 +24,7 @@ const {
     assetBasename: statsBasename,
 } = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installBackupRoutes(app, {
     checkDownloadAuth,
@@ -423,16 +424,14 @@ function installBackupRoutes(app, {
         );
     }
 
-    app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
+    app.get('/api/backup/export/settings-estimate', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            const plan = await createSettingsBackupPlan();
-            if (!plan) return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
-            const encodedDatabase = await encodePortableDatabase(plan.database);
-            const pluginStorageBytes = createPluginStorageBackupEntries(plan.pluginStorage)
-                .reduce((sum, entry) => sum + entry.size, 0);
-            res.json({ ...plan.breakdown, dbBytes: encodedDatabase.length, pluginStorageBytes });
-        } catch (error) { next(error); }
+        const plan = await createSettingsBackupPlan();
+        if (!plan) return sendApiError(res, 500, API_ERROR_CODES.DATABASE_NOT_FOUND);
+        const encodedDatabase = await encodePortableDatabase(plan.database);
+        const pluginStorageBytes = createPluginStorageBackupEntries(plan.pluginStorage)
+            .reduce((sum, entry) => sum + entry.size, 0);
+        res.json({ ...plan.breakdown, dbBytes: encodedDatabase.length, pluginStorageBytes });
     });
 
     const preparedExports = new Map();
@@ -610,36 +609,32 @@ function installBackupRoutes(app, {
         }
     });
 
-    app.post('/api/backup/import/prepare', async (req, res, next) => {
+    app.post('/api/backup/import/prepare', async (req, res) => {
         if (!await checkAuth(req, res)) { return; }
         if (!requireSyncClientId(req, res)) return;
-        try {
-            if (importInProgress) {
-                return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
-            }
-
-            const size = Number(req.body?.size ?? 0);
-            if (BACKUP_IMPORT_MAX_BYTES > 0 && size > BACKUP_IMPORT_MAX_BYTES) {
-                return sendApiError(
-                    res, 413, API_ERROR_CODES.BACKUP_TOO_LARGE,
-                    { maxBytes: BACKUP_IMPORT_MAX_BYTES },
-                );
-            }
-
-            if (size > 0) {
-                const disk = await checkDiskSpace(size * BACKUP_DISK_HEADROOM);
-                if (!disk.ok) {
-                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
-                        available: disk.available,
-                        required: size * BACKUP_DISK_HEADROOM,
-                    });
-                }
-            }
-
-            res.json({ ok: true });
-        } catch (error) {
-            next(error);
+        if (importInProgress) {
+            return sendApiError(res, 409, API_ERROR_CODES.BACKUP_IMPORT_IN_PROGRESS);
         }
+
+        const size = Number(req.body?.size ?? 0);
+        if (BACKUP_IMPORT_MAX_BYTES > 0 && size > BACKUP_IMPORT_MAX_BYTES) {
+            return sendApiError(
+                res, 413, API_ERROR_CODES.BACKUP_TOO_LARGE,
+                { maxBytes: BACKUP_IMPORT_MAX_BYTES },
+            );
+        }
+
+        if (size > 0) {
+            const disk = await checkDiskSpace(size * BACKUP_DISK_HEADROOM);
+            if (!disk.ok) {
+                return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
+                    available: disk.available,
+                    required: size * BACKUP_DISK_HEADROOM,
+                });
+            }
+        }
+
+        res.json({ ok: true });
     });
 
     app.post('/api/backup/import', async (req, res, next) => {
@@ -841,53 +836,45 @@ function installBackupRoutes(app, {
         }
     });
 
-    app.get('/api/backup/server/list', async (req, res, next) => {
+    app.get('/api/backup/server/list', async (req, res) => {
         if (!await checkAuth(req, res)) { return; }
+        const notes = readBackupNotes(getBackupNotesDir());
+        let entries;
         try {
-            const notes = readBackupNotes(getBackupNotesDir());
-            let entries;
-            try {
-                entries = await fs.readdir(backupState.backupsDir, { withFileTypes: true });
-            } catch {
-                res.json({ backups: [] });
-                return;
-            }
-            const backups = [];
-            for (const entry of entries) {
-                if (!entry.isFile() || !BACKUP_FILENAME_REGEX.test(entry.name)) continue;
-                const stat = await fs.stat(path.join(backupState.backupsDir, entry.name));
-                const tsMatch = entry.name.match(/^risu-backup-(\d+)\.bin$/);
-                backups.push({
-                    filename: entry.name,
-                    size: stat.size,
-                    createdAt: tsMatch ? Number(tsMatch[1]) : stat.mtimeMs,
-                    note: getBackupNote(notes, 'server', entry.name),
-                });
-            }
-            backups.sort((a, b) => b.createdAt - a.createdAt);
-            res.json({ backups });
-        } catch (error) {
-            next(error);
+            entries = await fs.readdir(backupState.backupsDir, { withFileTypes: true });
+        } catch {
+            res.json({ backups: [] });
+            return;
         }
+        const backups = [];
+        for (const entry of entries) {
+            if (!entry.isFile() || !BACKUP_FILENAME_REGEX.test(entry.name)) continue;
+            const stat = await fs.stat(path.join(backupState.backupsDir, entry.name));
+            const tsMatch = entry.name.match(/^risu-backup-(\d+)\.bin$/);
+            backups.push({
+                filename: entry.name,
+                size: stat.size,
+                createdAt: tsMatch ? Number(tsMatch[1]) : stat.mtimeMs,
+                note: getBackupNote(notes, 'server', entry.name),
+            });
+        }
+        backups.sort((a, b) => b.createdAt - a.createdAt);
+        res.json({ backups });
     });
 
-    app.put('/api/backup/notes', async (req, res, next) => {
+    app.put('/api/backup/notes', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
-            const id = typeof req.body?.id === 'string' ? req.body.id : '';
-            if (!isValidBackupNoteTarget(kind, id)) {
-                return res.status(400).json({ error: 'Invalid backup note target' });
-            }
-            if (!await backupNoteTargetExists(kind, id)) {
-                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
-            }
-            const note = setBackupNote(getBackupNotesDir(), kind, id, req.body?.note);
-            res.json({ ok: true, note });
-        } catch (error) {
-            next(error);
+        const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+        const id = typeof req.body?.id === 'string' ? req.body.id : '';
+        if (!isValidBackupNoteTarget(kind, id)) {
+            return res.status(400).json({ error: 'Invalid backup note target' });
         }
+        if (!await backupNoteTargetExists(kind, id)) {
+            return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
+        }
+        const note = setBackupNote(getBackupNotesDir(), kind, id, req.body?.note);
+        res.json({ ok: true, note });
     });
 
     app.post('/api/backup/server/restore', async (req, res, next) => {
@@ -1054,214 +1041,196 @@ function installBackupRoutes(app, {
         }
     });
 
-    app.delete('/api/backup/server/:filename', async (req, res, next) => {
+    app.delete('/api/backup/server/:filename', async (req, res) => {
         if (!await checkAuth(req, res)) { return; }
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const filename = req.params.filename;
-            if (!BACKUP_FILENAME_REGEX.test(filename)) {
-                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
-                return;
-            }
-            const filePath = path.join(backupState.backupsDir, filename);
-            try {
-                await fs.unlink(filePath);
-            } catch (err) {
-                if (err.code === 'ENOENT') {
-                    return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
-                }
-                throw err;
-            }
-            deleteBackupNote(getBackupNotesDir(), 'server', filename);
-            res.json({ ok: true });
-        } catch (error) {
-            next(error);
+        const filename = req.params.filename;
+        if (!BACKUP_FILENAME_REGEX.test(filename)) {
+            sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
+            return;
         }
+        const filePath = path.join(backupState.backupsDir, filename);
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
+            }
+            throw err;
+        }
+        deleteBackupNote(getBackupNotesDir(), 'server', filename);
+        res.json({ ok: true });
     });
 
     app.get('/api/backup/server/download/:filename', async (req, res, next) => {
         if (!await checkDownloadAuth(req, res)) { return; }
-        try {
-            const filename = req.params.filename;
-            if (!BACKUP_FILENAME_REGEX.test(filename)) {
-                sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
-                return;
-            }
-            const filePath = path.join(backupState.backupsDir, filename);
-            let stat;
-            try {
-                stat = await fs.stat(filePath);
-            } catch {
-                return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
-            }
-            res.setHeader('content-type', 'application/octet-stream');
-            res.setHeader('content-disposition', `attachment; filename="${filename}"`);
-            res.setHeader('content-length', stat.size);
-            const { createReadStream } = require('fs');
-            const stream = createReadStream(filePath);
-            res.once('close', () => stream.destroy());
-            stream.once('error', error => {
-                if (res.headersSent) res.destroy(error);
-                else {
-                    res.removeHeader('Content-Length');
-                    res.removeHeader('Content-Disposition');
-                    next(error);
-                }
-            });
-            stream.pipe(res);
-        } catch (error) {
-            next(error);
+        const filename = req.params.filename;
+        if (!BACKUP_FILENAME_REGEX.test(filename)) {
+            sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
+            return;
         }
-    });
-
-    app.get('/api/db/snapshots/limits', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
+        const filePath = path.join(backupState.backupsDir, filename);
+        let stat;
         try {
-            const { maxCount, maxBytes } = getSnapshotLimits();
-            const usage = snapshotUsage();
-            res.json({
-                maxCount,
-                maxBytes,
-                currentCount: usage.count,
-                currentBytes: usage.bytes,
-                logicalBytes: usage.logicalBytes,
-                bounds: {
-                    minCount: SNAPSHOT_LIMIT_MIN_COUNT,
-                    maxCount: SNAPSHOT_LIMIT_MAX_COUNT,
-                    minBytes: SNAPSHOT_LIMIT_MIN_BYTES,
-                    maxBytes: SNAPSHOT_LIMIT_MAX_BYTES,
-                },
-                defaults: {
-                    count: SNAPSHOT_LIMIT_DEFAULT_COUNT,
-                    bytes: SNAPSHOT_LIMIT_DEFAULT_BYTES,
-                },
-            });
-        } catch (err) { next(err); }
+            stat = await fs.stat(filePath);
+        } catch {
+            return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
+        }
+        res.setHeader('content-type', 'application/octet-stream');
+        res.setHeader('content-disposition', `attachment; filename="${filename}"`);
+        res.setHeader('content-length', stat.size);
+        const { createReadStream } = require('fs');
+        const stream = createReadStream(filePath);
+        res.once('close', () => stream.destroy());
+        stream.once('error', error => {
+            if (res.headersSent) res.destroy(error);
+            else {
+                res.removeHeader('Content-Length');
+                res.removeHeader('Content-Disposition');
+                next(error);
+            }
+        });
+        stream.pipe(res);
     });
 
-    app.put('/api/db/snapshots/limits', async (req, res, next) => {
+    app.get('/api/db/snapshots/limits', async (req, res) => {
+        if (!await checkAuth(req, res)) return;
+        const { maxCount, maxBytes } = getSnapshotLimits();
+        const usage = snapshotUsage();
+        res.json({
+            maxCount,
+            maxBytes,
+            currentCount: usage.count,
+            currentBytes: usage.bytes,
+            logicalBytes: usage.logicalBytes,
+            bounds: {
+                minCount: SNAPSHOT_LIMIT_MIN_COUNT,
+                maxCount: SNAPSHOT_LIMIT_MAX_COUNT,
+                minBytes: SNAPSHOT_LIMIT_MIN_BYTES,
+                maxBytes: SNAPSHOT_LIMIT_MAX_BYTES,
+            },
+            defaults: {
+                count: SNAPSHOT_LIMIT_DEFAULT_COUNT,
+                bytes: SNAPSHOT_LIMIT_DEFAULT_BYTES,
+            },
+        });
+    });
+
+    app.put('/api/db/snapshots/limits', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const rawCount = Number(req.body?.maxCount);
-            const rawBytes = Number(req.body?.maxBytes);
-            if (!Number.isFinite(rawCount) || rawCount < SNAPSHOT_LIMIT_MIN_COUNT || rawCount > SNAPSHOT_LIMIT_MAX_COUNT) {
-                return res.status(400).json({ error: `maxCount out of range (${SNAPSHOT_LIMIT_MIN_COUNT}-${SNAPSHOT_LIMIT_MAX_COUNT})` });
-            }
-            if (!Number.isFinite(rawBytes) || rawBytes < SNAPSHOT_LIMIT_MIN_BYTES || rawBytes > SNAPSHOT_LIMIT_MAX_BYTES) {
-                return res.status(400).json({ error: `maxBytes out of range` });
-            }
-            const maxCount = Math.floor(rawCount);
-            const maxBytes = Math.floor(rawBytes);
-            kvSet(SNAPSHOT_LIMIT_COUNT_KEY, Buffer.from(String(maxCount), 'utf-8'));
-            kvSet(SNAPSHOT_LIMIT_BYTES_KEY, Buffer.from(String(maxBytes), 'utf-8'));
-            const trim = trimSnapshotsToLimits();
-            const usage = snapshotUsage();
-            res.json({
-                maxCount, maxBytes,
-                currentCount: usage.count,
-                currentBytes: usage.bytes,
-                logicalBytes: usage.logicalBytes,
-                removed: trim.removed,
-            });
-        } catch (err) { next(err); }
+        const rawCount = Number(req.body?.maxCount);
+        const rawBytes = Number(req.body?.maxBytes);
+        if (!Number.isFinite(rawCount) || rawCount < SNAPSHOT_LIMIT_MIN_COUNT || rawCount > SNAPSHOT_LIMIT_MAX_COUNT) {
+            return res.status(400).json({ error: `maxCount out of range (${SNAPSHOT_LIMIT_MIN_COUNT}-${SNAPSHOT_LIMIT_MAX_COUNT})` });
+        }
+        if (!Number.isFinite(rawBytes) || rawBytes < SNAPSHOT_LIMIT_MIN_BYTES || rawBytes > SNAPSHOT_LIMIT_MAX_BYTES) {
+            return res.status(400).json({ error: `maxBytes out of range` });
+        }
+        const maxCount = Math.floor(rawCount);
+        const maxBytes = Math.floor(rawBytes);
+        kvSet(SNAPSHOT_LIMIT_COUNT_KEY, Buffer.from(String(maxCount), 'utf-8'));
+        kvSet(SNAPSHOT_LIMIT_BYTES_KEY, Buffer.from(String(maxBytes), 'utf-8'));
+        const trim = trimSnapshotsToLimits();
+        const usage = snapshotUsage();
+        res.json({
+            maxCount, maxBytes,
+            currentCount: usage.count,
+            currentBytes: usage.bytes,
+            logicalBytes: usage.logicalBytes,
+            removed: trim.removed,
+        });
     });
 
-    app.get('/api/db/snapshots', async (req, res, next) => {
+    app.get('/api/db/snapshots', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            const out = kvList(DB_BACKUP_PREFIX).map((key) => {
-                const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-                const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
-                // Logical size — the full data this snapshot represents (the whole DB),
-                // not its marginal on-disk cost. Users expect "this backup = my 53 MB
-                // DB"; the dedup win is shown once, as the section's savings figure.
-                // (kvSize reassembles via the manifest; the marker's 13 bytes are not
-                // what a user wants to see for a full backup.) Trimming still sizes by
-                // snapshotFootprint in db.cjs, so this display change can't over-trim.
-                return { key, size: kvSize(key) || 0, timestamp: ts };
-            }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-            res.json({ snapshots: out });
-        } catch (err) { next(err); }
+        const out = kvList(DB_BACKUP_PREFIX).map((key) => {
+            const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+            const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
+            // Logical size — the full data this snapshot represents (the whole DB),
+            // not its marginal on-disk cost. Users expect "this backup = my 53 MB
+            // DB"; the dedup win is shown once, as the section's savings figure.
+            // (kvSize reassembles via the manifest; the marker's 13 bytes are not
+            // what a user wants to see for a full backup.) Trimming still sizes by
+            // snapshotFootprint in db.cjs, so this display change can't over-trim.
+            return { key, size: kvSize(key) || 0, timestamp: ts };
+        }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        res.json({ snapshots: out });
     });
 
-    app.delete('/api/db/snapshots', async (req, res, next) => {
+    app.delete('/api/db/snapshots', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const key = typeof req.query?.key === 'string' ? req.query.key : '';
+        // Restrict to snapshot prefix — never let this endpoint touch other kv keys.
+        if (!key.startsWith(DB_BACKUP_PREFIX)) {
+            return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
+        }
+        deleteSnapshotState(key);
+        res.json({ ok: true });
+    });
+
+    app.post('/api/db/snapshots/promote', async (req, res) => {
+        if (!await checkAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const key = typeof req.body?.key === 'string' ? req.body.key : '';
+        const note = normalizeBackupNote(req.body?.note);
+        if (!key.startsWith(DB_BACKUP_PREFIX)) {
+            return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
+        }
+        if (!note) {
+            return res.status(400).json({ error: 'A note is required to preserve this snapshot' });
+        }
+        const raw = kvGet(key);
+        if (!raw) return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
+
+        const database = normalizeJSON(await decodeRisuSave(raw));
+        importPromptPresetSelection(database);
+        // New snapshots keep bookmarks in a dedicated snapshot table. Project
+        // that historical catalog into the portable file; legacy snapshots
+        // already carry their bookmark compatibility fields in the blob.
+        bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
+        const blob = await encodeRisuSave(exportPromptPresetSelection(database));
+
+        const dir = getManualSnapshotsDir();
+        await fs.mkdir(dir, { recursive: true });
         try {
-            const key = typeof req.query?.key === 'string' ? req.query.key : '';
-            // Restrict to snapshot prefix — never let this endpoint touch other kv keys.
-            if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
+            const stat = await fs.statfs(dir);
+            const required = Math.ceil(blob.length * 1.05);
+            if (stat.bsize * stat.bavail < required) {
+                return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
+                    required,
+                    free: stat.bsize * stat.bavail,
+                });
             }
+        } catch (error) {
+            if (error?.code === API_ERROR_CODES.INSUFFICIENT_STORAGE) throw error;
+            logger.warn('[Snapshot promotion] pre-flight disk check failed:', error?.message || error);
+        }
+
+        const tick = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+        const timestamp = Number.isFinite(tick) ? tick * 100 : Date.now();
+        const filename = makeManualSnapshotFilename(timestamp);
+        const finalPath = path.join(dir, filename);
+        const temporaryPath = finalPath + '.tmp';
+        let fileCreated = false;
+        try {
+            await fs.writeFile(temporaryPath, blob);
+            await fs.rename(temporaryPath, finalPath);
+            fileCreated = true;
+            setBackupNote(getBackupNotesDir(), 'manual', filename, note);
             deleteSnapshotState(key);
-            res.json({ ok: true });
-        } catch (err) { next(err); }
-    });
+        } catch (error) {
+            await fs.unlink(temporaryPath).catch(() => {});
+            if (fileCreated) await fs.unlink(finalPath).catch(() => {});
+            deleteBackupNote(getBackupNotesDir(), 'manual', filename);
+            throw error;
+        }
 
-    app.post('/api/db/snapshots/promote', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            const key = typeof req.body?.key === 'string' ? req.body.key : '';
-            const note = normalizeBackupNote(req.body?.note);
-            if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
-            }
-            if (!note) {
-                return res.status(400).json({ error: 'A note is required to preserve this snapshot' });
-            }
-            const raw = kvGet(key);
-            if (!raw) return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
-
-            const database = normalizeJSON(await decodeRisuSave(raw));
-            importPromptPresetSelection(database);
-            // New snapshots keep bookmarks in a dedicated snapshot table. Project
-            // that historical catalog into the portable file; legacy snapshots
-            // already carry their bookmark compatibility fields in the blob.
-            bookmarkStore.projectSnapshotDatabaseCompatibility(key, database);
-            const blob = await encodeRisuSave(exportPromptPresetSelection(database));
-
-            const dir = getManualSnapshotsDir();
-            await fs.mkdir(dir, { recursive: true });
-            try {
-                const stat = await fs.statfs(dir);
-                const required = Math.ceil(blob.length * 1.05);
-                if (stat.bsize * stat.bavail < required) {
-                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
-                        required,
-                        free: stat.bsize * stat.bavail,
-                    });
-                }
-            } catch (error) {
-                if (error?.code === API_ERROR_CODES.INSUFFICIENT_STORAGE) throw error;
-                logger.warn('[Snapshot promotion] pre-flight disk check failed:', error?.message || error);
-            }
-
-            const tick = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            const timestamp = Number.isFinite(tick) ? tick * 100 : Date.now();
-            const filename = makeManualSnapshotFilename(timestamp);
-            const finalPath = path.join(dir, filename);
-            const temporaryPath = finalPath + '.tmp';
-            let fileCreated = false;
-            try {
-                await fs.writeFile(temporaryPath, blob);
-                await fs.rename(temporaryPath, finalPath);
-                fileCreated = true;
-                setBackupNote(getBackupNotesDir(), 'manual', filename, note);
-                deleteSnapshotState(key);
-            } catch (error) {
-                await fs.unlink(temporaryPath).catch(() => {});
-                if (fileCreated) await fs.unlink(finalPath).catch(() => {});
-                deleteBackupNote(getBackupNotesDir(), 'manual', filename);
-                throw error;
-            }
-
-            res.json({
-                ok: true,
-                snapshot: { filename, size: blob.length, timestamp, note },
-            });
-        } catch (err) { next(err); }
+        res.json({
+            ok: true,
+            snapshot: { filename, size: blob.length, timestamp, note },
+        });
     });
 
     async function restoreDatabaseBlob(blob, options = {}) {
@@ -1294,145 +1263,135 @@ function installBackupRoutes(app, {
         });
     }
 
-    app.post('/api/db/snapshots/restore', async (req, res, next) => {
+    app.post('/api/db/snapshots/restore', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const key = typeof req.body?.key === 'string' ? req.body.key : '';
-            if (!key.startsWith(DB_BACKUP_PREFIX)) {
-                return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
-            }
-            const blob = kvGet(key);
-            if (!blob) {
-                return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
-            }
-            await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
-            broadcastDatabaseInvalidated(req, { allChats: true });
-            broadcastBookmarksInvalidated(req);
-            res.json({ ok: true });
-        } catch (err) { next(err); }
+        const key = typeof req.body?.key === 'string' ? req.body.key : '';
+        if (!key.startsWith(DB_BACKUP_PREFIX)) {
+            return sendApiError(res, 400, API_ERROR_CODES.INVALID_SNAPSHOT_KEY);
+        }
+        const blob = kvGet(key);
+        if (!blob) {
+            return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
+        }
+        await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
+        broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
+        res.json({ ok: true });
     });
 
-    app.get('/api/db/manual-snapshots', async (req, res, next) => {
+    app.get('/api/db/manual-snapshots', async (req, res) => {
         if (!await checkAuth(req, res)) return;
+        const dir = getManualSnapshotsDir();
+        const notes = readBackupNotes(getBackupNotesDir());
+        let entries;
         try {
-            const dir = getManualSnapshotsDir();
-            const notes = readBackupNotes(getBackupNotesDir());
-            let entries;
-            try {
-                entries = await fs.readdir(dir, { withFileTypes: true });
-            } catch {
-                return res.json({ snapshots: [], path: dir });
-            }
-            const snapshots = [];
-            for (const entry of entries) {
-                if (!entry.isFile() || !MANUAL_SNAPSHOT_FILENAME_REGEX.test(entry.name)) continue;
-                const stat = await fs.stat(path.join(dir, entry.name));
-                const tsMatch = entry.name.match(/^dbbackup-(\d+)\.bin$/);
-                snapshots.push({
-                    filename: entry.name,
-                    size: stat.size,
-                    timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
-                    note: getBackupNote(notes, 'manual', entry.name),
+            entries = await fs.readdir(dir, { withFileTypes: true });
+        } catch {
+            return res.json({ snapshots: [], path: dir });
+        }
+        const snapshots = [];
+        for (const entry of entries) {
+            if (!entry.isFile() || !MANUAL_SNAPSHOT_FILENAME_REGEX.test(entry.name)) continue;
+            const stat = await fs.stat(path.join(dir, entry.name));
+            const tsMatch = entry.name.match(/^dbbackup-(\d+)\.bin$/);
+            snapshots.push({
+                filename: entry.name,
+                size: stat.size,
+                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+                note: getBackupNote(notes, 'manual', entry.name),
+            });
+        }
+        snapshots.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        res.json({ snapshots, path: dir });
+    });
+
+    app.post('/api/db/manual-snapshots', async (req, res) => {
+        if (!await checkAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const blob = await createCompatibleDatabaseValue();
+        if (!blob) {
+            return sendApiError(res, 404, API_ERROR_CODES.DATABASE_NOT_FOUND);
+        }
+        const dir = getManualSnapshotsDir();
+        await fs.mkdir(dir, { recursive: true });
+
+        try {
+            const sf = await fs.statfs(dir);
+            const free = sf.bsize * sf.bavail;
+            const required = Math.ceil(blob.length * 1.05);
+            if (free < required) {
+                return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
+                    required,
+                    free,
                 });
             }
-            snapshots.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-            res.json({ snapshots, path: dir });
-        } catch (err) { next(err); }
+        } catch (e) {
+            console.warn('[Manual Snapshot] pre-flight disk check failed:', e?.message || e);
+        }
+
+        const filename = makeManualSnapshotFilename();
+        const finalPath = path.join(dir, filename);
+        const tmpPath = finalPath + '.tmp';
+        await fs.writeFile(tmpPath, Buffer.from(blob));
+        await fs.rename(tmpPath, finalPath);
+        const stat = await fs.stat(finalPath);
+        const tsMatch = filename.match(/^dbbackup-(\d+)\.bin$/);
+        const note = normalizeBackupNote(req.body?.note);
+        if (note) setBackupNote(getBackupNotesDir(), 'manual', filename, note);
+        res.json({
+            ok: true,
+            snapshot: {
+                filename,
+                size: stat.size,
+                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+                note,
+            },
+            path: dir,
+        });
     });
 
-    app.post('/api/db/manual-snapshots', async (req, res, next) => {
+    app.delete('/api/db/manual-snapshots', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const filename = typeof req.query?.filename === 'string' ? req.query.filename : '';
+        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
+            return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
+        }
+        const filePath = path.join(getManualSnapshotsDir(), filename);
         try {
-            const blob = await createCompatibleDatabaseValue();
-            if (!blob) {
-                return sendApiError(res, 404, API_ERROR_CODES.DATABASE_NOT_FOUND);
+            await fs.unlink(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
             }
-            const dir = getManualSnapshotsDir();
-            await fs.mkdir(dir, { recursive: true });
-
-            try {
-                const sf = await fs.statfs(dir);
-                const free = sf.bsize * sf.bavail;
-                const required = Math.ceil(blob.length * 1.05);
-                if (free < required) {
-                    return sendApiError(res, 507, API_ERROR_CODES.INSUFFICIENT_STORAGE, {
-                        required,
-                        free,
-                    });
-                }
-            } catch (e) {
-                console.warn('[Manual Snapshot] pre-flight disk check failed:', e?.message || e);
-            }
-
-            const filename = makeManualSnapshotFilename();
-            const finalPath = path.join(dir, filename);
-            const tmpPath = finalPath + '.tmp';
-            await fs.writeFile(tmpPath, Buffer.from(blob));
-            await fs.rename(tmpPath, finalPath);
-            const stat = await fs.stat(finalPath);
-            const tsMatch = filename.match(/^dbbackup-(\d+)\.bin$/);
-            const note = normalizeBackupNote(req.body?.note);
-            if (note) setBackupNote(getBackupNotesDir(), 'manual', filename, note);
-            res.json({
-                ok: true,
-                snapshot: {
-                    filename,
-                    size: stat.size,
-                    timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
-                    note,
-                },
-                path: dir,
-            });
-        } catch (err) { next(err); }
+            throw err;
+        }
+        deleteBackupNote(getBackupNotesDir(), 'manual', filename);
+        res.json({ ok: true });
     });
 
-    app.delete('/api/db/manual-snapshots', async (req, res, next) => {
+    app.post('/api/db/manual-snapshots/restore', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
+        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
+            return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
+        }
+        const filePath = path.join(getManualSnapshotsDir(), filename);
+        let blob;
         try {
-            const filename = typeof req.query?.filename === 'string' ? req.query.filename : '';
-            if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-                return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
+            blob = await fs.readFile(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
             }
-            const filePath = path.join(getManualSnapshotsDir(), filename);
-            try {
-                await fs.unlink(filePath);
-            } catch (err) {
-                if (err.code === 'ENOENT') {
-                    return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
-                }
-                throw err;
-            }
-            deleteBackupNote(getBackupNotesDir(), 'manual', filename);
-            res.json({ ok: true });
-        } catch (err) { next(err); }
-    });
-
-    app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
-        try {
-            const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
-            if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
-                return sendApiError(res, 400, API_ERROR_CODES.INVALID_BACKUP_FILENAME);
-            }
-            const filePath = path.join(getManualSnapshotsDir(), filename);
-            let blob;
-            try {
-                blob = await fs.readFile(filePath);
-            } catch (err) {
-                if (err.code === 'ENOENT') {
-                    return sendApiError(res, 404, API_ERROR_CODES.SNAPSHOT_NOT_FOUND);
-                }
-                throw err;
-            }
-            await restoreDatabaseBlob(blob, { importBookmarkCompatibility: true });
-            broadcastDatabaseInvalidated(req, { allChats: true });
-            broadcastBookmarksInvalidated(req);
-            res.json({ ok: true });
-        } catch (err) { next(err); }
+            throw err;
+        }
+        await restoreDatabaseBlob(blob, { importBookmarkCompatibility: true });
+        broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
+        res.json({ ok: true });
     });
 
     const BOOT_REMINDER_KEY = 'config/boot-backup-reminder';
@@ -1445,88 +1404,76 @@ function installBackupRoutes(app, {
         } catch { return false; }
     }
 
-    app.get('/api/backup/boot-reminder', async (req, res, next) => {
+    app.get('/api/backup/boot-reminder', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            res.json({ enabled: readBootReminder() });
-        } catch (err) { next(err); }
+        res.json({ enabled: readBootReminder() });
     });
 
-    app.put('/api/backup/boot-reminder', async (req, res, next) => {
+    app.put('/api/backup/boot-reminder', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const enabled = !!req.body?.enabled;
-            kvSet(BOOT_REMINDER_KEY, Buffer.from(enabled ? '1' : '0', 'utf-8'));
-            res.json({ enabled });
-        } catch (err) { next(err); }
+        const enabled = !!req.body?.enabled;
+        kvSet(BOOT_REMINDER_KEY, Buffer.from(enabled ? '1' : '0', 'utf-8'));
+        res.json({ enabled });
     });
 
-    app.get('/api/backup/schedule', async (req, res, next) => {
+    app.get('/api/backup/schedule', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            res.json(readBackupSchedule());
-        } catch (err) { next(err); }
+        res.json(readBackupSchedule());
     });
 
-    app.put('/api/backup/schedule', async (req, res, next) => {
+    app.put('/api/backup/schedule', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        try {
-            const schedule = normalizeBackupSchedule(req.body ?? {});
-            kvSet(BACKUP_SCHEDULE_KEY, Buffer.from(JSON.stringify(schedule), 'utf-8'));
-            res.json(schedule);
-        } catch (err) { next(err); }
+        const schedule = normalizeBackupSchedule(req.body ?? {});
+        kvSet(BACKUP_SCHEDULE_KEY, Buffer.from(JSON.stringify(schedule), 'utf-8'));
+        res.json(schedule);
     });
 
-    app.get('/api/backup/server/path', async (req, res, next) => {
+    app.get('/api/backup/server/path', async (req, res) => {
         if (!await checkAuth(req, res)) return;
-        try {
-            res.json({
-                path: backupState.backupsDir,
-                default: DEFAULT_BACKUPS_DIR,
-                isDefault: backupState.backupsDir === DEFAULT_BACKUPS_DIR,
+        res.json({
+            path: backupState.backupsDir,
+            default: DEFAULT_BACKUPS_DIR,
+            isDefault: backupState.backupsDir === DEFAULT_BACKUPS_DIR,
+        });
+    });
+
+    app.put('/api/backup/server/path', async (req, res) => {
+        if (!await checkAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const nextPath = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+        if (!nextPath) {
+            return res.status(400).json({ error: 'Path required' });
+        }
+        const resolved = path.resolve(nextPath);
+        if (isManagedBackupPath(resolved)) {
+            return res.status(400).json({
+                error: 'Backup path cannot be inside PocketRisu Kei app files. Choose a separate folder such as data/backups.',
             });
-        } catch (err) { next(err); }
-    });
-
-    app.put('/api/backup/server/path', async (req, res, next) => {
-        if (!await checkAuth(req, res)) return;
-        if (!requireSyncClientId(req, res)) return;
+        }
+        // Ensure parent exists / target is writable. Create the dir if missing.
         try {
-            const next = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
-            if (!next) {
-                return res.status(400).json({ error: 'Path required' });
+            if (!existsSync(resolved)) {
+                mkdirSync(resolved, { recursive: true });
             }
-            const resolved = path.resolve(next);
-            if (isManagedBackupPath(resolved)) {
-                return res.status(400).json({
-                    error: 'Backup path cannot be inside PocketRisu Kei app files. Choose a separate folder such as data/backups.',
-                });
-            }
-            // Ensure parent exists / target is writable. Create the dir if missing.
-            try {
-                if (!existsSync(resolved)) {
-                    mkdirSync(resolved, { recursive: true });
-                }
-                // Probe writability with a tmpfile.
-                const probe = path.join(resolved, `.risu-write-probe-${Date.now()}`);
-                require('fs').writeFileSync(probe, '');
-                require('fs').unlinkSync(probe);
-            } catch (e) {
-                return res.status(400).json({ error: 'Path is not writable: ' + (e?.message || String(e)) });
-            }
-            const previous = backupState.backupsDir;
-            backupState.backupsDir = resolved;
-            kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
-            writeBackupPathMarker(resolved);
-            res.json({
-                path: backupState.backupsDir,
-                previous,
-                default: DEFAULT_BACKUPS_DIR,
-                isDefault: backupState.backupsDir === DEFAULT_BACKUPS_DIR,
-            });
-        } catch (err) { next(err); }
+            // Probe writability with a tmpfile.
+            const probe = path.join(resolved, `.risu-write-probe-${Date.now()}`);
+            require('fs').writeFileSync(probe, '');
+            require('fs').unlinkSync(probe);
+        } catch (e) {
+            return res.status(400).json({ error: 'Path is not writable: ' + (e?.message || String(e)) });
+        }
+        const previous = backupState.backupsDir;
+        backupState.backupsDir = resolved;
+        kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
+        writeBackupPathMarker(resolved);
+        res.json({
+            path: backupState.backupsDir,
+            previous,
+            default: DEFAULT_BACKUPS_DIR,
+            isDefault: backupState.backupsDir === DEFAULT_BACKUPS_DIR,
+        });
     });
 }
 

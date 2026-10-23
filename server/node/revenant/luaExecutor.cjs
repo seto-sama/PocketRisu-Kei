@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { setTimeout: delay } = require('node:timers/promises');
 const { LuaFactory } = require('wasmoon');
 const {
     resolveReplayAction,
@@ -128,7 +129,7 @@ async function executeRevenantLua(options) {
     addEffect('getTokens', async (_id, value) => action(
         'utility.tokenize', { text: String(value) },
     ));
-    addEffect('sleep', async (_id, time) => new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(0, Number(time) || 0)))));
+    addEffect('sleep', async (_id, time) => delay(Math.min(5000, Math.max(0, Number(time) || 0))));
     addEffect('logMain', value => { foregroundEffects.push({ kind: 'log', value: String(value) }); });
     addEffect('reloadDisplay', () => { foregroundEffects.push({ kind: 'reload.display' }); });
     addEffect('reloadChat', (_id, index) => {

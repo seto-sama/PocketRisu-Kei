@@ -1,7 +1,7 @@
 'use strict';
 
 require('sucrase/register/ts');
-const { decodeBinaryMessage, BINARY_MESSAGE_CONTENT_TYPE } = require('../../src/ts/network/binaryMessage.ts');
+const { decodeBinaryMessage, BINARY_MESSAGE_CONTENT_TYPE } = require('../../../src/ts/network/binaryMessage.ts');
 
 function binaryBodyParser(limit) {
     return require('express').raw({ type: BINARY_MESSAGE_CONTENT_TYPE, limit });
@@ -20,4 +20,4 @@ function decodeBinaryRequest(req, res, decode = decodeBinaryMessage) {
     }
 }
 
-module.exports = { decodeBinaryRequest, binaryBodyParser };
+module.exports = { decodeBinaryRequest, binaryBodyParser, BINARY_MESSAGE_CONTENT_TYPE };

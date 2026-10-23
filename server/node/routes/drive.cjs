@@ -6,9 +6,9 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { Readable, Writable } = require('node:stream');
 const { finished, pipeline } = require('node:stream/promises');
-const { codes, createApiError } = require('../apiErrors.cjs');
+const { codes, createApiError } = require('../utils/apiErrors.cjs');
 const { readDrivePreview } = require('../drivePreview.cjs');
-const { getZip } = require('../zip.cjs');
+const { getZip } = require('../utils/zip.cjs');
 const {
     DEFAULT_TRASH_RETENTION_DAYS,
     DRIVE_TRASH_DIRECTORY: TRASH_NAME,

@@ -1981,7 +1981,6 @@ export const languageKorean = {
   dynamic: "동적",
   assetStyle: "에셋 스타일",
   insertAssetPrompt: "에셋 프롬프트 삽입",
-  requestLocation: "리퀘스트 위치",
   newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
   bookmarks: "북마크",
   noBookmarks: "북마크 없음",

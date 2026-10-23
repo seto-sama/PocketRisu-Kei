@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DEFAULT_REQUEST_TIMEOUT_MS } from '../../../shared/requestTimeout.mjs'
+import { PROXY_PATH } from '../../../shared/proxy.mjs'
 
 const mocks = vi.hoisted(() => ({ generation: vi.fn(), auth: vi.fn() }))
 vi.mock('../process/revenant/transport', () => ({ fetchViaGenerationJob: mocks.generation }))
@@ -53,7 +54,7 @@ it.each([false, true])('respects the statistics preference in server proxy heade
         llmExecutionPolicy: { kind: 'ephemeral', durability: 'off', providerRoute: 'server' },
     })
 
-    expect(fetchMock.mock.calls[0][0]).toBe('/proxy2')
+    expect(fetchMock.mock.calls[0][0]).toBe(PROXY_PATH)
     const headers = new Headers(JSON.parse(decodeURIComponent(fetchMock.mock.calls[0][1].headers['risu-header'])))
     expect(headers.get('X-Title')).toBe(hidden ? null : 'PocketRisu')
     expect(headers.get('HTTP-Referer')).toBe(hidden ? null : 'https://github.com/PocketRisu/PocketRisu')
@@ -70,7 +71,7 @@ it.each([
         llmExecutionPolicy: { kind: 'ephemeral', durability: 'off', providerRoute: 'server' },
     })
     const [url, options] = fetchMock.mock.lastCall!
-    expect(url).toBe('/proxy2')
+    expect(url).toBe(PROXY_PATH)
     expect([...new Uint8Array(await new Response(options.body).arrayBuffer())]).toEqual(test.bytes)
     expect(new Headers(options.headers).get('content-type')).toBe('application/octet-stream')
     const targetHeaders = new Headers(JSON.parse(decodeURIComponent(options.headers['risu-header'])))
@@ -96,7 +97,7 @@ it('keeps the existing network fallback and bounds the authenticated proxy respo
     await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS)
     await failed
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls[1][0]).toBe('/proxy2')
+    expect(fetchMock.mock.calls[1][0]).toBe(PROXY_PATH)
     expect(fetchMock.mock.calls[1][1].headers['risu-auth']).toBe('token')
     expect(vi.getTimerCount()).toBe(0)
 })

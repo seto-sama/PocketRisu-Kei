@@ -1,6 +1,6 @@
 'use strict';
 
-const { codes, createApiError } = require('../apiErrors.cjs');
+const { codes, createApiError } = require('../utils/apiErrors.cjs');
 const { isInlayMediaType } = require('../../../shared/inlayTypes.mjs');
 
 // Full backup and selective asset restore engines.
