@@ -24,6 +24,13 @@ import type {
 const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
+function authRequest(input: string, init: RequestInit): Promise<Response> {
+    return fetchWithRequestTimeout(signal => fetch(input, { ...init, signal }), {
+        firstResponseTimeoutMs: 30_000,
+        idleTimeoutMs: 30_000,
+    })
+}
+
 async function ensurePluginStorageMigration(): Promise<void> {
     const { ensurePluginStorageMigration: migrate } = await import('../plugins/pluginSafeClass')
     await migrate()
@@ -268,7 +275,7 @@ export class NodeStorage{
 
     private async _doInitSession(authToken: string) {
         try {
-            const res = await fetch('/api/session', {
+            const res = await authRequest('/api/session', {
                 method: 'POST',
                 headers: {
                     'risu-auth': authToken,
@@ -276,6 +283,7 @@ export class NodeStorage{
                 },
             })
             if (res.ok) {
+                await res.arrayBuffer()
                 NodeStorage.sessionInitialized = true
             }
         } catch {
@@ -293,7 +301,7 @@ export class NodeStorage{
     }
 
     private async _doRefreshToken(): Promise<string> {
-        const res = await fetch('/api/token/refresh', {
+        const res = await authRequest('/api/token/refresh', {
             method: 'POST',
             headers: { 'risu-auth': this.cachedJwt?.token ?? '' }
         })
@@ -306,7 +314,7 @@ export class NodeStorage{
     }
 
     private async loginWithPassword(password: string) {
-        const response = await fetch('/api/login', {
+        const response = await authRequest('/api/login', {
             method: "POST",
             body: JSON.stringify({ password }),
             headers: {
@@ -509,7 +517,7 @@ export class NodeStorage{
 
     private async _doCheckAuth() {
         if(!this.authChecked){
-            const data = await (await fetch('/api/test_auth',{
+            const data = await (await authRequest('/api/test_auth',{
                 headers: {
                     'risu-auth': this.cachedJwt?.token ?? ''
                 }
@@ -517,7 +525,7 @@ export class NodeStorage{
 
             if(data.status === 'unset'){
                 const input = await digestPassword(await alertInput(language.setNodePassword))
-                const response = await fetch('/api/set_password',{
+                const response = await authRequest('/api/set_password',{
                     method: "POST",
                     body:JSON.stringify({
                         password: input 
@@ -531,6 +539,7 @@ export class NodeStorage{
                     throw await apiRequestError(response, 'Failed to set node password')
                 }
 
+                await response.arrayBuffer()
                 await this.loginWithPassword(input)
                 if (!this.cachedJwt) throw new Error('Node auth unavailable')
                 await this.initSession(this.cachedJwt.token)
@@ -822,11 +831,12 @@ export class NodeStorage{
 
     private async startCookieDownload(url: string): Promise<void> {
         // Refresh only the download cookie, without registering a sync client.
-        const response = await fetch('/api/session', {
+        const response = await authRequest('/api/session', {
             method: 'POST',
             headers: { 'risu-auth': await this.createAuth() },
         })
         if (!response.ok) throw await storageRequestError('startCookieDownload', response)
+        await response.arrayBuffer()
         downloadUrl(url)
     }
 
@@ -1200,7 +1210,7 @@ export class NodeStorage{
 }
 
 async function digestPassword(message:string) {
-    const res = await fetch('/api/crypto', {
+    const res = await authRequest('/api/crypto', {
         body: JSON.stringify({
             data: message
         }),

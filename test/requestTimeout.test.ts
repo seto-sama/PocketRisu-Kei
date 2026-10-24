@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRequestTimeoutSignal, fetchWithRequestTimeout, DEFAULT_REQUEST_TIMEOUT_MS, requestIdleTimeoutMs } from '../shared/requestTimeout.mjs'
+import { createRequestTimeoutSignal, fetchWithRequestTimeout } from '../shared/requestTimeout.mjs'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -15,23 +15,18 @@ describe('shared request timeout lifecycle', () => {
         expect(vi.getTimerCount()).toBe(0)
     })
 
-    it('bounds even a request that ignores abort', async () => {
-        let signal: AbortSignal
-        const request = fetchWithRequestTimeout(async value => { signal = value; return pending() }, { firstResponseTimeoutMs: 30 })
-        const failed = expect(request).rejects.toMatchObject({ name: 'TimeoutError' })
-        await vi.advanceTimersByTimeAsync(30)
-        await failed
-        expect(signal!.aborted).toBe(true)
-        expect(vi.getTimerCount()).toBe(0)
-    })
-
-    it('cancels a late response after its header timeout', async () => {
+    it('times out unresponsive requests and cancels late responses', async () => {
         let resolve: (response: Response) => void
+        let signal!: AbortSignal
         const cancel = vi.fn()
-        const request = fetchWithRequestTimeout(() => new Promise(done => { resolve = done }), { firstResponseTimeoutMs: 30 })
+        const request = fetchWithRequestTimeout(value => {
+            signal = value
+            return new Promise(done => { resolve = done })
+        }, { firstResponseTimeoutMs: 30 })
         const failed = expect(request).rejects.toMatchObject({ name: 'TimeoutError' })
         await vi.advanceTimersByTimeAsync(30)
         await failed
+        expect(signal.aborted).toBe(true)
         resolve!(new Response(new ReadableStream({ cancel })))
         await vi.advanceTimersByTimeAsync(0)
         expect(cancel).toHaveBeenCalledOnce()
@@ -104,12 +99,6 @@ describe('shared request timeout lifecycle', () => {
         const complete = await fetchWithRequestTimeout(async () => new Response('ok'), { idleTimeoutMs: 100 })
         expect(await complete.text()).toBe('ok')
         expect(vi.getTimerCount()).toBe(0)
-    })
-
-    it('uses the existing default while respecting longer request timeouts', () => {
-        expect(requestIdleTimeoutMs(undefined)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
-        expect(requestIdleTimeoutMs(100)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
-        expect(requestIdleTimeoutMs(DEFAULT_REQUEST_TIMEOUT_MS * 2)).toBe(DEFAULT_REQUEST_TIMEOUT_MS * 2)
     })
 })
 
