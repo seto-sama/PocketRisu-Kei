@@ -316,7 +316,7 @@ export function setPatchSyncBaseline(data: Database | null) {
     patchSyncBaseline = data ? structuredClone(data) as Database : null
 }
 
-export async function saveDb() {
+export async function saveDb(onReady?: () => Promise<void>) {
     let changed = false
     let syncApplying = false
     let saveInFlight: Promise<void> | null = null
@@ -1424,6 +1424,12 @@ export async function saveDb() {
             forceFullWrite: options?.forceFullWrite,
             requireSuccess: options?.requireSuccess,
         })
+    }
+
+    if (onReady) {
+        // Initialize reactive dirty tracking before startup migrations edit the database.
+        await tick()
+        await onReady()
     }
 
     while (true) {

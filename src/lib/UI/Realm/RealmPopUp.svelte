@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { BookIcon, ImageIcon, PaperclipIcon, SmileIcon } from "@lucide/svelte";
+    import { BookIcon, ExternalLinkIcon, ImageIcon, SmileIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { notifyInfo } from "src/ts/alert";
     import { realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
@@ -23,6 +23,7 @@
     let { openedData = $bindable(), onDownloaded = () => {} }: Props = $props();
     let open = $state(true)
     let downloading = $state(false)
+    const realmCharacterUrl = $derived(`${realmURL}/character/${encodeURIComponent(openedData.id)}`)
 
     function close() {
         open = false
@@ -106,7 +107,7 @@
             if (downloading) return
             downloading = true
             try {
-                if (await downloadRisuHub(openedData.id)) {
+                if (await downloadRisuHub(openedData.id, { creator: openedData.creator })) {
                     close()
                     onDownloaded()
                 }
@@ -117,11 +118,11 @@
             {downloading ? language.loading : language.download}
         </Button>
         <IconButtonGroup size="xl">
-            <IconButton aria-label="Copy Realm link" onclick={(async () => {
-                    await navigator.clipboard.writeText(`${realmURL}/character/${openedData.id}`)
-                    notifyInfo(language.clipboardSuccess)
-            })}>
-                <PaperclipIcon />
+            <IconButton
+                title="Realm에서 열기"
+                onclick={() => window.open(realmCharacterUrl, '_blank', 'noopener,noreferrer')}
+            >
+                <ExternalLinkIcon />
             </IconButton>
         </IconButtonGroup>
     </div>

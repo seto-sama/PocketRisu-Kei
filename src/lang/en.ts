@@ -2537,6 +2537,7 @@ export const languageEnglish = {
     recentlyUploadedCharacters: "Recently Uploaded",
     relatedLinks: "Related Links",
     getMoreCharacters: "Search RisuRealm",
+    realmContentMutedConfirm: "This item is muted. Show it anyway?",
     realmMuteCharacter: "Mute character",
     realmMuteCreator: "Mute creator",
     realmMuteManagement: "Manage mutes",

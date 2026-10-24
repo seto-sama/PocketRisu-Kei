@@ -34,6 +34,7 @@ import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { normalizeSidebarMenuHidden, normalizeSidebarMenuOrder } from '../sidebarMenuOrder';
 import { normalizeSettingsMenuOrder } from '../settingsMenuOrder';
+import type { RealmMuteEntry } from '../realmMute';
 import { normalizeImageGenerationPresetState, type ImageGenerationPreset } from '../imageGeneration/presets';
 import { normalizeTTSPresetState, type TTSPreset } from '../tts/presets';
 import { normalizeGenerationCount } from '../process/automaticReroll';
@@ -862,6 +863,8 @@ export function setDatabase(data:Database){
     data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
     data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
     data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
+    data.blockedRealmCreators ??= []
+    data.blockedRealmCharacters ??= []
     data.serverDriveShortcuts ??= []
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
@@ -1205,6 +1208,8 @@ export interface Database{
     animationSpeed:number
     botSettingAtStart:false
     NAIsettings:NAISettings
+    blockedRealmCreators: RealmMuteEntry[]
+    blockedRealmCharacters: RealmMuteEntry[]
     hideRealm:boolean
     hidePublicStats:boolean
     colorScheme:ColorScheme

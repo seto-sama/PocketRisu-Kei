@@ -21,6 +21,7 @@ import { encodeModuleLegacy, importModule, isModuleImportJSON, readModule, type 
 import { readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
 import { getRealmProxyUrl } from './network/proxy'
+import { getRealmMutes, isRealmMuted } from './realmMute'
 
 
 export const realmURL = 'https://realm.risuai.net';
@@ -374,34 +375,36 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     
 }
 
+async function fetchRealmInfo(id: string): Promise<hubType> {
+    const res = await fetch(getRealmProxyUrl(`/hub/info/${encodeURIComponent(id)}`))
+    if (res.status !== 200) throw new Error(await res.text())
+    return res.json()
+}
+
+async function confirmRealmContent(id: string, creator?: string): Promise<boolean> {
+    return !isRealmMuted(id, creator) || alertConfirm(language.realmContentMutedConfirm)
+}
+
 export const getRealmInfo = async (realmPath:string) => {
     const url = new URL(location.href);
     url.searchParams.delete('realm');
     window.history.pushState(null, '', url.toString());
 
-    if(!(await alertTOS())){
-        return
-    }
+    if (!(await alertTOS())) return
 
-    const res = await fetch(getRealmProxyUrl(`/hub/info/${realmPath}`))
-    if(res.status !== 200){
-        notifyError(await res.text())
-        return
+    try {
+        const info = await fetchRealmInfo(realmPath)
+        if (await confirmRealmContent(realmPath, info.creator)) showRealmInfoStore.set(info)
+    } catch (error) {
+        notifyError(error)
     }
-    showRealmInfoStore.set(await res.json())
 }
 
 export const showRealmInfoStore:Writable<null|hubType> = writable(null)
 
 export async function characterURLImport() {
     const realmPath = (new URLSearchParams(location.search)).get('realm')
-    try {
-        if(realmPath){
-           getRealmInfo(realmPath)
-        }
-    } catch (error) {
-        
-    }
+    if (realmPath) getRealmInfo(realmPath)
 
     const charPath = (new URLSearchParams(location.search)).get('charahub')
     try {
@@ -1578,7 +1581,7 @@ export async function getRisuHub(arg:{
 }
 
 export async function downloadRisuHub(id:string, arg:{
-    forceRedirect?: boolean
+    creator?: string
 } = {}): Promise<boolean> {
     const persistImportedCharacter = async (importedIndex: number | null) => {
         const beforeFormat = getDatabase()
@@ -1587,9 +1590,7 @@ export async function downloadRisuHub(id:string, arg:{
             : beforeFormat.characters[importedIndex]
         if (!importedCharacter) return null
 
-        // Normalize before the structural projection PATCH as a final guard:
-        // every imported chat must have one browser-owned stable id before the
-        // relational store sees it.
+        // Normalize chat identities before persisting the imported character.
         characterFormatUpdate(importedIndex)
         checkCharOrder()
         const db = getDatabase()
@@ -1602,7 +1603,7 @@ export async function downloadRisuHub(id:string, arg:{
     const finishImport = async (importedIndex: number | null) => {
         const persisted = await persistImportedCharacter(importedIndex)
         if (!persisted) return false
-        if (persisted.db.goCharacterOnImport || arg.forceRedirect) {
+        if (persisted.db.goCharacterOnImport) {
             selectedCharID.set(persisted.importedIndex)
         }
         alertStore.set({ type: 'none', msg: '' })
@@ -1614,12 +1615,13 @@ export async function downloadRisuHub(id:string, arg:{
             return false
         }
 
-        if(!arg.forceRedirect){
-            alertStore.set({
-                type: "wait",
-                msg: "Downloading..."
-            })
+        let creator = arg.creator
+        if (!creator?.trim() && getRealmMutes().creators.length > 0) {
+            creator = (await fetchRealmInfo(id)).creator
         }
+        if (!(await confirmRealmContent(id, creator))) return false
+
+        alertStore.set({ type: "wait", msg: "Downloading..." })
         const res = await fetch(`${realmURL}/api/v1/download/dynamic/${encodeURIComponent(id)}?cors=true`, {
             headers: {
                 "x-risu-api-version": "4"

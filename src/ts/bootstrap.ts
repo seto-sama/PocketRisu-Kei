@@ -25,6 +25,7 @@ import {
     forageStorage,
     saveDb,
     setPatchSyncBaseline,
+    requestImmediateSave,
     getDbBackups,
     checkCharOrder
 } from "./globalApi.svelte";
@@ -34,6 +35,7 @@ import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
 import { isNodeServer } from './platform';
+import { migrateRealmMutes } from './realmMute';
 import {
     applyPluginMemoryDecision,
     getPluginStorageWarningBytes,
@@ -103,8 +105,6 @@ export async function loadData() {
                         }
                     }
                 }
-
-                characterURLImport()
             }
             if (createdFreshDatabase) {
                 // setDatabase creates the standard preset but does not apply it. Apply it
@@ -207,7 +207,14 @@ export async function loadData() {
             selectedCharID.set(-1)
             startObserveDom()
             assignIds()
-            saveDb()
+            saveDb(async () => {
+                try {
+                    await migrateRealmMutes(() => requestImmediateSave({ requireSuccess: true }))
+                } catch (error) {
+                    alertError(error)
+                }
+                characterURLImport()
+            })
             startSyncReceiver()
             moduleUpdate()
             // Defer asset cleanup until after the UI loads.

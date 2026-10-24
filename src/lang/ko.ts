@@ -2697,6 +2697,7 @@ export const languageKorean = {
   recentlyUploadedCharacters: "신규 캐릭터",
   relatedLinks: "주요 링크",
   getMoreCharacters: "RisuRealm 검색",
+  realmContentMutedConfirm: "뮤트한 항목입니다. 정말로 표시할까요?",
   realmMuteCharacter: "캐릭터 뮤트",
   realmMuteCreator: "제작자 뮤트",
   realmMuteManagement: "뮤트 관리",

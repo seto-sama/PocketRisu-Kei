@@ -1,112 +1,54 @@
-import { get } from 'svelte/store'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, expect, it, vi } from 'vitest'
 import type { hubType } from './characterCards'
+import type { RealmMuteEntry } from './realmMute'
 
 const STORAGE_KEY = 'pocketrisu:realm-mutes:v1'
+const mocks = vi.hoisted(() => ({
+    dbState: { db: { blockedRealmCharacters: [] as RealmMuteEntry[], blockedRealmCreators: [] as RealmMuteEntry[] } },
+}))
+vi.mock('./stores.svelte', () => ({ DBState: mocks.dbState }))
 
-function card(overrides: Partial<hubType> = {}): hubType {
-    return {
-        name: 'Character',
-        desc: '',
-        download: '0',
-        id: 'character-1',
-        img: '',
-        tags: [],
-        viewScreen: 'none',
-        hasLore: false,
-        hasEmotion: false,
-        hasAsset: false,
-        creator: 'creator-1',
-        authorname: 'Creator',
-        hot: 0,
-        license: '',
-        type: '',
-        ...overrides,
-    }
-}
+import { clearRealmMutes, filterMutedRealmCharacters, getRealmMutes, migrateRealmMutes,
+    muteRealmCharacter, muteRealmCreator, setRealmCharacterMuteNote, unmuteRealmCharacter } from './realmMute'
 
-async function loadModule() {
-    vi.resetModules()
-    return import('./realmMute')
-}
-
-describe('Realm mute storage and filtering', () => {
-    beforeEach(() => {
-        localStorage.clear()
-    })
-
-    it('mutes one character and persists its display metadata', async () => {
-        const mute = await loadModule()
-        const target = card()
-
-        mute.muteRealmCharacter(target)
-
-        expect(get(mute.realmMuteStore).characters).toEqual([
-            { id: target.id, name: target.name, note: '' },
-        ])
-        expect(mute.filterMutedRealmCharacters([target, card({ id: 'character-2' })], get(mute.realmMuteStore)))
-            .toEqual([card({ id: 'character-2' })])
-        expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}').characters).toHaveLength(1)
-    })
-
-    it('mutes every card by the same stable creator id', async () => {
-        const mute = await loadModule()
-        const first = card()
-        const second = card({ id: 'character-2', name: 'Other character' })
-        const unrelated = card({ id: 'character-3', creator: 'creator-2' })
-
-        expect(mute.muteRealmCreator(first)).toBe(true)
-        expect(mute.filterMutedRealmCharacters([first, second, unrelated], get(mute.realmMuteStore)))
-            .toEqual([unrelated])
-        expect(mute.muteRealmCreator(card({ creator: undefined }))).toBe(false)
-    })
-
-    it('stores editable notes and preserves them when the same entry is muted again', async () => {
-        const mute = await loadModule()
-        const target = card()
-
-        mute.muteRealmCharacter(target)
-        mute.setRealmCharacterMuteNote(target.id, 'Repeated stolen uploads')
-        mute.muteRealmCharacter({ ...target, name: 'Renamed character' })
-        mute.muteRealmCreator(target)
-        mute.setRealmCreatorMuteNote(target.creator!, 'Spam')
-
-        expect(get(mute.realmMuteStore)).toEqual({
-            characters: [{ id: target.id, name: 'Renamed character', note: 'Repeated stolen uploads' }],
-            creators: [{ id: target.creator, name: target.authorname, note: 'Spam' }],
-        })
-    })
-
-    it('safely normalizes malformed and duplicate cached entries', async () => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            characters: [
-                { id: 'same', name: 'Old' },
-                { id: 'same', name: 'Latest', note: ' reason ' },
-                { name: 'Missing id' },
-            ],
-            creators: 'invalid',
-        }))
-
-        const mute = await loadModule()
-
-        expect(get(mute.realmMuteStore)).toEqual({
-            characters: [{ id: 'same', name: 'Latest', note: 'reason' }],
-            creators: [],
-        })
-    })
-
-    it('removes entries individually or all at once', async () => {
-        const mute = await loadModule()
-        const target = card()
-        mute.muteRealmCharacter(target)
-        mute.muteRealmCreator(target)
-
-        mute.unmuteRealmCharacter(target.id)
-        expect(get(mute.realmMuteStore).characters).toEqual([])
-        expect(get(mute.realmMuteStore).creators).toHaveLength(1)
-
-        mute.clearRealmMutes()
-        expect(get(mute.realmMuteStore)).toEqual({ characters: [], creators: [] })
-    })
+beforeEach(() => {
+    localStorage.clear()
+    mocks.dbState.db = { blockedRealmCharacters: [], blockedRealmCreators: [] }
 })
 
+it('stores mutes and notes in the database and updates visible cards when unmuted', () => {
+    const character = { id: 'character', name: 'Character', creator: 'creator' } as hubType
+    const other = { id: 'other', name: 'Other', creator: 'other-creator' } as hubType
+    muteRealmCharacter(character)
+    setRealmCharacterMuteNote(character.id, 'Spam')
+    muteRealmCreator(other)
+
+    expect(mocks.dbState.db.blockedRealmCharacters).toEqual([{ id: character.id, name: character.name, note: 'Spam' }])
+    expect(filterMutedRealmCharacters([character, other], getRealmMutes())).toEqual([])
+    unmuteRealmCharacter(character.id)
+    expect(filterMutedRealmCharacters([character, other], getRealmMutes())).toEqual([character])
+    clearRealmMutes()
+    expect(filterMutedRealmCharacters([character, other], getRealmMutes())).toEqual([character, other])
+})
+
+it('merges local mutes into existing database entries and removes the migrated local key', async () => {
+    mocks.dbState.db.blockedRealmCreators = [{ id: 'creator', name: 'Database name' }]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        characters: [{ id: 'character', name: 'Character', note: 'Spam' }],
+        creators: [
+            { id: 'creator', name: 'Old name', note: 'Local note' },
+            { id: 'local-creator', name: 'Local creator' },
+        ],
+    }))
+
+    await migrateRealmMutes(async () => {})
+
+    expect(getRealmMutes()).toEqual({
+        characters: [{ id: 'character', name: 'Character', note: 'Spam' }],
+        creators: [
+            { id: 'creator', name: 'Database name', note: 'Local note' },
+            { id: 'local-creator', name: 'Local creator', note: '' },
+        ],
+    })
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+})
