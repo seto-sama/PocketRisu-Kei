@@ -113,6 +113,15 @@ describe('server HypaV3 selection executor', () => {
         expect(queries).toHaveBeenCalledWith(['greeting', 'question'])
     })
 
+    it('fails instead of ranking with missing embedding vectors', async () => {
+        await expect(selectHypaMemory(recipe(), [
+            { text: 'matching', chatMemos: ['a'], isImportant: false },
+        ], {
+            tokenize: async () => 1,
+            embedder: { documents: async () => [[1, 0]], queries: async () => [] },
+        })).rejects.toThrow('did not return a vector for every input')
+    })
+
     it('uses the OpenAI embeddings endpoint for every remote embedding phase', async () => {
         const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
             const body = JSON.parse(String(init.body))

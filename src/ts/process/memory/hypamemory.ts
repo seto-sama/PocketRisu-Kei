@@ -37,10 +37,6 @@ export function truncateErrorBody(data: unknown): string {
         : text
 }
 
-export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
-    return (await getPersistedHypaVectors([cacheKey]))[0]
-}
-
 export async function getPersistedHypaVectors(cacheKeys: string[]): Promise<(memoryVector | undefined)[]> {
     const results = cacheKeys.map(key => {
         const value = hypaVectorCache.get(key)

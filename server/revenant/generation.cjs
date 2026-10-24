@@ -15,6 +15,7 @@ const { isRevenantLuaLlmOperation } = require(path.join(
     __dirname, '../../src/ts/process/revenant/operations.ts',
 ));
 const { isImageOrientation } = require('../../src/ts/imageGeneration/orientation.ts');
+const { REMOTE_HYPA_MODELS, SERVER_HYPA_TOKENIZERS } = require('./hypaExecutor.cjs');
 
 const JOB_TYPES = new Set([
     'model', 'submodel', 'memory', 'emotion', 'otherAx', 'translate',
@@ -35,14 +36,6 @@ const WORKFLOW_RECOVERY_POLICIES = new Set([
 ]);
 const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
 const WORKFLOW_KEY_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,127}$/;
-const REMOTE_HYPA_MODELS = new Set([
-    'custom', 'ada', 'openai3small', 'openai3large',
-    'voyage4large', 'voyageContext3', 'voyageContext4',
-]);
-const SERVER_TOKENIZERS = new Set([
-    'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-    'novellist', 'gemma', 'deepseek',
-]);
 const CHAT_PATCH_OPERATIONS = new Set(['add', 'remove', 'replace']);
 
 function isObjectRecord(value) {
@@ -410,7 +403,7 @@ function normalizeRevenantHypaExecutionRecipe(value) {
         || !value.expectedOperationIds.every(id => typeof id === 'string' && WORKFLOW_KEY_PATTERN.test(id))
         || !embedding || !REMOTE_HYPA_MODELS.has(embedding.model)
         || typeof embedding.apiKey !== 'string'
-        || !tokenizer || !SERVER_TOKENIZERS.has(tokenizer.tokenizer)
+        || !tokenizer || !SERVER_HYPA_TOKENIZERS.has(tokenizer.tokenizer)
         || !Number.isInteger(tokenizer.chatAdditionalTokens)
         || tokenizer.chatAdditionalTokens < 0 || tokenizer.chatAdditionalTokens > 1000
         || !settings

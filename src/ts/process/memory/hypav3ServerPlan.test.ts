@@ -20,8 +20,14 @@ vi.mock('src/ts/storage/chatStorage', () => ({ saveChatToServer: vi.fn() }))
 vi.mock('../revenant/auxiliary', () => ({ resolveRecoverableAuxiliaryGenerations: async () => [], consumeRecoverableAuxiliaryGeneration: vi.fn() }))
 vi.mock('../revenant', () => ({ createRevenantOperation: (value: unknown) => value, isRevenantHypaV3SummaryOperation: () => true }))
 vi.mock('./hypamemory', () => ({ HypaProcesser: class {} }))
-vi.mock('./hypaEmbeddingProcessor', () => ({ HypaEmbeddingProcessor: class {} }))
 vi.mock('./contextualEmbedding', () => ({ isContextModel: () => true, getContextProvider: vi.fn() }))
+vi.mock('./hypaSelectionEmbedder', () => ({
+    createClientHypaEmbedder: () => ({
+        documents: async (chunks: { content: string }[]) =>
+            chunks.map(chunk => chunk.content.includes('match') ? [1, 0] : [0, 1]),
+        queries: async (contents: string[]) => contents.map(() => [1, 0]),
+    }),
+}))
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -104,5 +110,30 @@ describe('Hypa planning before durable main registration', () => {
         expect(requests[0].chatMemos).toEqual([null, 'memo-0'])
         expect(result.chats[0]).toMatchObject({ memo: 'supaMemory', content: '__memory__' })
         expect(requestChatData).not.toHaveBeenCalled()
+    })
+
+    it.each([false, true])('selects memory in the browser through the shared selection (experimental=%s)', async experimental => {
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        state.db = {
+            hypaModel: 'openai3small', hypaV3PresetId: 0,
+            hypaV3Presets: [createHypaV3Preset('Test', {
+                useExperimentalImpl: experimental, preserveOrphanedMemory: true,
+                memoryTokensRatio: 0.2, recentMemoryRatio: 0, similarMemoryRatio: 1,
+            })],
+        }
+        const room = { id: `local-${experimental}`, hypaV3Data: { summaries: ['old match', 'other', 'recent'].map(text => ({
+            text, chatMemos: [], isImportant: false,
+        })) } }
+        const tokenizer = { tokenizeChat: async () => 10, getRevenantSpec: () => ({ tokenizer: 'tik', chatAdditionalTokens: 0 }) }
+        const result = await hypaMemoryV3([{ role: 'user', content: 'question match', memo: 'm1' }], 30, 100,
+            room as any, { chaId: 'character' } as any, tokenizer as any)
+
+        expect(result.error).toBeUndefined()
+        expect(result.chats[0]).toEqual({
+            role: 'system', memo: 'supaMemory',
+            content: '<Past Events Summary>\nold match\n</Past Events Summary>',
+        })
+        expect(result.currentTokens).toBe(40)
+        expect(result.memory?.metrics?.lastSimilarSummaries).toEqual([0])
     })
 })
