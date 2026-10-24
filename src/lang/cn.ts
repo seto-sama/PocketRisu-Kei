@@ -890,7 +890,6 @@ export const languageChinese = {
     "returnCSSError": "返回 CSS 错误",
     "alwaysActiveInChat": "始终激活（当前聊天）",
     "childLoreDesc": "这是角色世界书的副本，保持“始终激活”，直到在原始版本中删除或手动停用。",
-    "thinkingTokens": "思考 Tokens",
     "localActivationInGlobalLorebook": "角色世界书的按聊天激活",
     "cachePoint": "缓存点",
     "all": "全部",

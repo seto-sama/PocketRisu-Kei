@@ -890,7 +890,6 @@ export const languageGerman = {
     "returnCSSError": "CSS-Fehler zurückgeben",
     "alwaysActiveInChat": "Immer aktiv (Aktueller Chat)",
     "childLoreDesc": "Dies ist eine Kopie des Charakter-Lores, das 'Immer aktiv' bleibt, bis es entfernt oder im Original manuell deaktiviert wird.",
-    "thinkingTokens": "Denk-Tokens",
     "localActivationInGlobalLorebook": "Chat-spezifische Aktivierung im Charakter-Lorebook",
     "cachePoint": "Cache-Punkt",
     "all": "Alle",

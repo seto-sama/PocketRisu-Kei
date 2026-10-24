@@ -1,6 +1,8 @@
 import { getChatBoundPersona } from '../../../chatBindingState'
 import { pocketKeiVer } from '../../../version'
 import { registerCBS, type RegisterCallback } from '../../../cbs'
+import { modelPresetSupportsPrefill } from '../../../preset/adapter/openaiCompatible'
+import type { ModelPreset } from '../../../preset/types'
 import type { Chat, character, RisuPersona } from '../../../storage/database.svelte'
 import type { RevenantPostprocessRecipe } from '../types'
 
@@ -419,7 +421,9 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
                 tokenizer: (stringValue(preset?.tokenizerOverride)
                     || stringValue(preset?.profileSnapshot?.recommendedTokenizer)
                     || 'tik') as any,
-                supportsPrefill: preset?.profileSnapshot?.adapterKind === 'anthropic-messages',
+                supportsPrefill: preset?.profileSnapshot
+                    ? modelPresetSupportsPrefill(rawPreset as ModelPreset)
+                    : false,
                 streaming: false,
                 vision: false,
                 audioInput: false,

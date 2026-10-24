@@ -187,53 +187,6 @@ describe('sendGoogleChatRequest (non-stream)', () => {
         })
     })
 
-    test('maps Budget effort to Gemini thinking tokens and includes thoughts', async () => {
-        const base = makeSnapshot()
-        const value = makePreset({
-            profileSnapshot: makeSnapshot({
-                schema: [
-                    ...base.schema,
-                    {
-                        key: 'thinkingLevel',
-                        type: 'string',
-                        label: 'Reasoning Effort',
-                        mapsTo: {
-                            target: 'body',
-                            path: 'generationConfig.thinkingConfig.thinkingLevel',
-                        },
-                    },
-                    {
-                        key: 'thinking_tokens',
-                        type: 'integer',
-                        label: 'Thinking Tokens',
-                        default: 1024,
-                    },
-                ],
-                capabilities: ['streaming', 'reasoning'],
-            }),
-            userValues: {
-                thinkingLevel: 'budget',
-                thinking_tokens: 4096,
-            },
-        })
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
-        )
-
-        await sendGoogleChatRequest(
-            value,
-            { messages: [{ role: 'user', content: 'Think' }], fetchImpl },
-            { apiKey: 'key' },
-        )
-
-        expect(calls[0].body.generationConfig).toEqual({
-            thinkingConfig: {
-                thinkingBudget: 4096,
-                includeThoughts: true,
-            },
-        })
-    })
-
     test('maps assistant role to model and merges multi-part text in candidate content', async () => {
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({
@@ -342,8 +295,6 @@ describe('sendGoogleChatRequest (non-stream)', () => {
             { apiKey: 'k' },
         )
         expect(result.text).toBe('visible')
-        // Gemini omits call ids; the adapter synthesizes a unique one (id asserted
-        // separately below).
         expect(result.toolCalls).toMatchObject([{ name: 'search', arguments: '{"q":"x"}', signature: 'FS' }])
         expect(result.reasoning).toEqual([{ text: 'reasoning', signature: 'TS' }])
     })

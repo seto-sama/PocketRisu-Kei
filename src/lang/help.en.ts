@@ -414,7 +414,6 @@ export const helpEn = {
         modelPresetStopSequencesHelp: "Strings that stop response generation. Enter one per line.",
         modelPresetLocationHelp: "Google Cloud location used by Vertex AI. Keep `global` unless the selected model or your project requires a specific region.",
         cloudflareAccountIdHelp: "Cloudflare account identifier used in the Workers AI API endpoint. Find it in the Cloudflare dashboard.",
-        thinkingBudgetHelp: "Maximum thinking-token budget used by Claude and Gemini when Reasoning Effort is set to Budget. The minimum is 1,024 tokens.",
         customFlagHasImageOutputHelp: "Treat the model as capable of returning generated images.",
         customFlagHasAudioInputHelp: "Allow audio attachments in model input.",
         customFlagHasAudioOutputHelp: "Treat the model as capable of returning generated audio.",
@@ -462,12 +461,6 @@ export const helpEn = {
             "When left blank, a random value is sent.",
         imageGenerationPresetQuickEdit:
             "Right-click the generation settings or style preset field to edit the selected preset directly.",
-        thinkingType:
-            "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
-        thinkingTokens:
-            "Maximum tokens to spend on thinking when in Budget mode. Raise it for harder reasoning, lower it to save cost. `-1` uses the model default.",
-        adaptiveThinkingEffort:
-            "Effort level Claude applies in Adaptive mode.\n\n- **Low**: fast, simple tasks\n- **Medium**: general use\n- **High**: complex reasoning or coding\n- **Max**: maximum effort, with the cost and latency to match",
         topK:
             "Limit candidate tokens to the top K most likely. Lower values feel conservative and repetitive; higher values pull in more variety. Around 40 is a common middle ground. Not all models honor this.",
         minP:

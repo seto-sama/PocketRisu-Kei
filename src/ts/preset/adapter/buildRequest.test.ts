@@ -268,6 +268,36 @@ describe('buildPreparedRequest', () => {
         expect(result.body).toEqual({ thinking: { budget_tokens: 1024 } })
     })
 
+    test('rejects a retired Budget effort from a snapshot that still offers it', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [{
+                    key: 'effort',
+                    semantic: 'reasoningEffort',
+                    type: 'string',
+                    label: 'Reasoning Effort',
+                    enum: [{ value: 'high', label: 'High' }, { value: 'budget', label: 'Budget' }],
+                    mapsTo: { target: 'body', path: 'output_config.effort' },
+                }],
+                uiSchema: { groups: [], fields: [{ key: 'effort', widget: 'select', visibility: 'basic' }] },
+            }),
+            userValues: { effort: 'budget' },
+        })
+
+        let error: unknown
+        try {
+            buildPreparedRequest({ preset, credential: { apiKey: 'sk' } })
+        } catch (err) {
+            error = err
+        }
+        expect(error).toBeInstanceOf(ModelPresetAdapterError)
+        expect(error).toMatchObject({
+            kind: 'invalid-request',
+            retryable: false,
+            message: expect.stringContaining('Additional Parameters'),
+        })
+    })
+
     test('customBody and customHeaders override prior merges', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({

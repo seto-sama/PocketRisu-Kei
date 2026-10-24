@@ -1443,7 +1443,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             return getGenerationModelMetadata('model').supportsPrefill ? '1' : '0'
         },
         alias: ['prefill_supported', 'prefill'],
-        description: 'Returns "1" if the current AI model supports prefill functionality (like Claude models), "0" otherwise. Prefill allows pre-filling the assistant\'s response start.\n\nUsage:: {{prefillsupported}}',
+        description: 'Returns "1" if the current AI model supports prefill functionality (Kimi, DeepSeek, or a Custom preset with hasPrefill), "0" otherwise. Prefill allows pre-filling the assistant\'s response start.\n\nUsage:: {{prefillsupported}}',
     });
 
     registerFunction({

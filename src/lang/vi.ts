@@ -890,7 +890,6 @@ export const languageVietnamese = {
     "returnCSSError": "Trả về lỗi CSS",
     "alwaysActiveInChat": "Luôn hoạt động (Trò chuyện hiện tại)",
     "childLoreDesc": "Đây là bản sao của cốt truyện nhân vật vẫn 'Luôn hoạt động' cho đến khi bị xóa hoặc tắt thủ công trong bản gốc.",
-    "thinkingTokens": "Token suy nghĩ",
     "localActivationInGlobalLorebook": "Kích hoạt theo từng cuộc trò chuyện cho Lorebook nhân vật",
     "cachePoint": "Điểm lưu trữ",
     "all": "Tất cả",

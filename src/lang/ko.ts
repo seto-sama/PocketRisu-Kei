@@ -1810,9 +1810,6 @@ export const languageKorean = {
   alwaysActiveInChat: "언제나 활성화 (현재 챗)",
   childLoreDesc:
     "이것은 캐릭터 로어의 복사본이며, 삭제하거나 원본 로어에서 직접 비활성화하기 전에는 '언제나 활성화' 상태로 유지됩니다.",
-  thinkingTokens: "사고 토큰",
-  thinkingType: "사고 모드",
-  adaptiveThinkingEffort: "적응형 사고 수준",
   localActivationInGlobalLorebook: "캐릭터 로어북에서 채팅별 활성화",
   cachePoint: "캐시 포인트",
   all: "모두",

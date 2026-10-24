@@ -31,6 +31,13 @@ import {
 const VERTEX_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Request-Type'
 const VERTEX_SHARED_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type'
 
+// Reasoning Effort "Budget" was removed; presets saved before their profile
+// was refreshed can still hold it.
+const RETIRED_BUDGET_MESSAGE = 'Reasoning Effort "Budget" is no longer supported. '
+    + 'Choose another Reasoning Effort, or set a thinking budget in Additional Parameters, '
+    + 'e.g. thinking=json::{"type":"enabled","budget_tokens":4096} for Claude or '
+    + 'generationConfig.thinkingConfig.thinkingBudget=json::4096 for Gemini.'
+
 export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPreparedRequest {
     const snapshot = ctx.preset.profileSnapshot
     const baseUrl = resolveEndpointUrl(snapshot, ctx.preset.userValues, ctx.serviceAccountJson)
@@ -42,7 +49,6 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     const headers: Record<string, string> = { ...(snapshot.headerTemplate ?? {}) }
     const queryAdditions: Array<[string, string]> = []
 
-    const userValues = ctx.preset.userValues
     for (const field of snapshot.schema) {
         if (!field.mapsTo) continue
         const effective = getEffectivePresetValue(ctx.preset, field.key)
@@ -50,6 +56,12 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         // to blank leaves '' in userValues, and sending e.g. reasoning_effort:''
         // is rejected by providers (no enum match). Skip it like undefined.
         if (effective === undefined || effective === '') continue
+        if (field.semantic === 'reasoningEffort' && effective === 'budget') {
+            throw new ModelPresetAdapterError('invalid-request', RETIRED_BUDGET_MESSAGE, {
+                retryable: false,
+                fallbackEligible: false,
+            })
+        }
         switch (field.mapsTo.target) {
             case 'body':
                 setNested(body, field.mapsTo.path, effective)

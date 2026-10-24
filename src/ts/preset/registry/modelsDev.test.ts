@@ -124,12 +124,19 @@ describe('buildModelsDevRegistry', () => {
             reasoningKey: 'thinkingLevel',
             reasoningPath: 'generationConfig.thinkingConfig.thinkingLevel',
         },
-    ] as const)('adds token-budget reasoning controls to $providerId profiles', (fixture) => {
+    ] as const)('offers only catalog effort levels on $providerId profiles', (fixture) => {
         const entry = provider({
             id: fixture.providerId,
             npm: fixture.npm,
             models: {
-                [fixture.modelId]: model({ id: fixture.modelId, family: fixture.family }),
+                [fixture.modelId]: model({
+                    id: fixture.modelId,
+                    family: fixture.family,
+                    reasoning_options: [
+                        { type: 'effort', values: ['low', 'high'] },
+                        { type: 'budget_tokens', min: 1024 },
+                    ],
+                }),
             } as any,
         })
         const snapshot = resolveSnapshot(
@@ -138,20 +145,9 @@ describe('buildModelsDevRegistry', () => {
         )
         const reasoning = snapshot.schema.find(field => field.key === fixture.reasoningKey)
 
-        expect(reasoning?.enum?.map(option => option.value)).toEqual(['low', 'high', 'budget'])
+        expect(reasoning?.enum?.map(option => option.value)).toEqual(['low', 'high'])
         expect(reasoning?.mapsTo).toEqual({ target: 'body', path: fixture.reasoningPath })
-        expect(snapshot.schema.find(field => field.key === 'thinking_tokens')).toMatchObject({
-            type: 'integer',
-            default: 1024,
-            min: 1024,
-        })
-        expect(snapshot.uiSchema.fields.find(field => field.key === 'thinking_tokens'))
-            .toMatchObject({
-                widget: 'number-input',
-                visibility: 'basic',
-                group: 'connection',
-                showIf: { key: fixture.reasoningKey, equals: 'budget' },
-            })
+        expect(snapshot.schema.some(field => field.key === 'thinking_tokens')).toBe(false)
     })
 
     test('maps Gemini output limits into generationConfig', () => {

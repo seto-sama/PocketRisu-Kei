@@ -86,6 +86,27 @@ describe('revenant headless CBS parser', () => {
 
         expect(renderRevenantTemplate('{{metadata::modelname}}', input).text).toBe('Bound Preset')
     })
+
+    it.each([
+        ['Kimi', 'moonshotai', 'openai-compatible', {}, '1'],
+        ['Claude', 'anthropic', 'anthropic-messages', {}, '0'],
+        ['a Custom preset with hasPrefill', 'custom', 'custom', { customFlag_hasPrefill: true }, '1'],
+    ])('reports prefill support for %s', (_label, providerBaseId, adapterKind, userValues, expected) => {
+        const input = recipe()
+        input.modelPreset = {
+            name: 'Preset',
+            userValues,
+            profileSnapshot: {
+                providerBaseId,
+                adapterKind,
+                modelId: 'model',
+                schema: [],
+                uiSchema: { groups: [], fields: [] },
+            },
+        }
+
+        expect(renderRevenantTemplate('{{prefill_supported}}', input).text).toBe(expected)
+    })
 })
 
 it('reports the Kei release version in server CBS metadata', () => {

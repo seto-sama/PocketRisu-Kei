@@ -30,7 +30,7 @@ import type {
     AdapterUsage,
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
-import { applyOpenAiApiModeEndpoint } from './openaiApiMode'
+import { applyOpenAiApiModeEndpoint, resolveModelPresetAdapterKind } from './openaiApiMode'
 import {
     applyBedrockAuthentication,
     resolveBedrockRegion,
@@ -321,6 +321,14 @@ function toWireMessage(
         applyDeepSeekThinkingInput(wire, message.reasoning, includeDeepSeekThinkingInput)
     }
     return wire
+}
+
+// {{prefill_supported}} follows the wire: prompts add a trailing assistant
+// message only when the request can carry it as a prefill.
+export function modelPresetSupportsPrefill(preset: ModelPreset): boolean {
+    if (hasCustomFlag(preset, 'hasPrefill')) return true
+    return resolveModelPresetAdapterKind(preset) === 'openai-compatible'
+        && resolveAssistantPrefillMode(preset) !== undefined
 }
 
 function resolveAssistantPrefillMode(preset: ModelPreset): AssistantPrefillMode | undefined {

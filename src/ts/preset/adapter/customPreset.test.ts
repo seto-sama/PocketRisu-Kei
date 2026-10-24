@@ -54,7 +54,6 @@ describe('Developer Custom preset', () => {
             'seed',
             'stopSequences',
             'reasoning_effort',
-            'thinking_tokens',
             'verbosity',
             'prompt_cache_mode',
         ]
@@ -161,13 +160,12 @@ describe('Developer Custom preset', () => {
         },
     )
 
-    test.each(['openai-chat', 'openai-responses'] as const)(
-        'does not send the Claude/Gemini-only budget mode to %s',
+    test.each(['openai-chat', 'openai-responses', 'anthropic-messages'] as const)(
+        'ignores a saved Budget effort the profile no longer offers for %s',
         (customFormat) => {
             const value = preset({
                 customFormat,
                 reasoning_effort: 'budget',
-                thinking_tokens: 4096,
             })
             const result = buildPreparedRequest({
                 preset: value,
@@ -176,9 +174,26 @@ describe('Developer Custom preset', () => {
 
             expect(result.body).not.toHaveProperty('reasoning_effort')
             expect(result.body).not.toHaveProperty('reasoning')
-            expect(result.body).not.toHaveProperty('thinking_tokens')
+            expect(result.body).not.toHaveProperty('thinking')
+            expect(resolveCustomRuntimePreset(value).profileSnapshot.capabilities)
+                .not.toContain('reasoning')
         },
     )
+
+    test('ignores a saved Budget effort for Gemini thinking', async () => {
+        const result = await previewGoogleChatRequest(
+            preset({
+                customFormat: 'google-gemini',
+                customAuthKind: 'query',
+                endpointUrl: 'https://generativelanguage.googleapis.com/v1beta/models/my-model:generateContent',
+                reasoning_effort: 'budget',
+            }),
+            { messages: [{ role: 'user', content: 'Hello' }] },
+            { apiKey: 'google-key' },
+        )
+
+        expect(result.body).not.toHaveProperty('generationConfig.thinkingConfig')
+    })
 
     test('applies the shared Prompt JSON Schema to every Custom wire format', async () => {
         const messages = [{ role: 'user' as const, content: 'Return JSON' }]
@@ -280,51 +295,6 @@ describe('Developer Custom preset', () => {
         })
     })
 
-    test('uses thinking tokens for Claude when reasoning effort is budget', () => {
-        const value = preset({
-            customFormat: 'anthropic-messages',
-            reasoning_effort: 'budget',
-            thinking_tokens: 8192,
-        })
-        const result = buildPreparedRequest({
-            preset: value,
-            credential: { apiKey: 'key' },
-        })
-
-        expect(result.body).toMatchObject({
-            thinking: { type: 'enabled', budget_tokens: 8192 },
-        })
-        expect(result.body).not.toHaveProperty('output_config')
-        expect(resolveCustomRuntimePreset(value).profileSnapshot.capabilities)
-            .toContain('reasoning')
-    })
-
-    test('uses thinking tokens and includes thoughts for Gemini budget reasoning', async () => {
-        const value = preset({
-            customFormat: 'google-gemini',
-            customAuthKind: 'query',
-            endpointUrl: 'https://generativelanguage.googleapis.com/v1beta/models/my-model:generateContent',
-            reasoning_effort: 'budget',
-            thinking_tokens: 4096,
-        })
-        const result = await previewGoogleChatRequest(
-            value,
-            { messages: [{ role: 'user', content: 'Hello' }] },
-            { apiKey: 'google-key' },
-        )
-
-        expect(result.body).toMatchObject({
-            generationConfig: {
-                thinkingConfig: {
-                    thinkingBudget: 4096,
-                    includeThoughts: true,
-                },
-            },
-        })
-        expect(resolveCustomRuntimePreset(value).profileSnapshot.capabilities)
-            .toContain('reasoning')
-    })
-
     test('always includes thoughts for Gemini level reasoning', async () => {
         const result = await previewGoogleChatRequest(
             preset({
@@ -372,7 +342,7 @@ describe('Developer Custom preset', () => {
         })
     })
 
-    test('keeps Claude thinking off when neither an effort nor manual mode is selected', () => {
+    test('keeps Claude thinking off when reasoning effort is none', () => {
         const value = preset({
             customFormat: 'anthropic-messages',
             reasoning_effort: 'none',

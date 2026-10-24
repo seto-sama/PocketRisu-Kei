@@ -111,14 +111,8 @@ describe('compileModelPreset', () => {
             },
         }))
 
-        expect(fixed.features).toMatchObject({
-            imageOutput: true,
-            mediaOutput: true,
-        })
-        expect(custom.features).toMatchObject({
-            imageOutput: true,
-            mediaOutput: true,
-        })
+        expect(fixed.features.mediaOutput).toBe(true)
+        expect(custom.features.mediaOutput).toBe(true)
     })
 
     test('uses the legacy streaming fallback only when capabilities are omitted', () => {
@@ -208,29 +202,18 @@ describe('compileModelPreset', () => {
                         label: 'Output',
                         mapsTo: { target: 'body', path: 'inferenceConfig.maxTokens' },
                     },
-                    {
-                        key: 'randomness',
-                        semantic: 'temperature',
-                        type: 'number',
-                        label: 'Temperature',
-                        mapsTo: { target: 'body', path: 'inferenceConfig.temperature' },
-                    },
                 ],
             },
             userValues: {
                 requestModel: 'selected-model',
                 outputCap: 4096,
-                randomness: 0.25,
             },
         })
 
         const compiled = compileModelPreset(source)
 
         expect(compiled.modelId).toBe('selected-model')
-        expect(compiled.generation).toMatchObject({
-            maxOutputTokens: 4096,
-            temperature: 0.25,
-        })
+        expect(compiled.generation.maxOutputTokens).toBe(4096)
     })
 
     test.each([

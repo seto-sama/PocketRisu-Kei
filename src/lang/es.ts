@@ -890,7 +890,6 @@ export const languageSpanish = {
     "returnCSSError": "Error de CSS devuelto",
     "alwaysActiveInChat": "Siempre Activo (Chat Actual)",
     "childLoreDesc": "Esta es una copia del lore del Personaje que permanece 'Siempre Activo' hasta que se elimine o desactive manualmente en el original.",
-    "thinkingTokens": "Tokens de Pensamiento",
     "localActivationInGlobalLorebook": "Activación por chat del libro de lore del personaje",
     "cachePoint": "Punto de Caché",
     "all": "Todos",
