@@ -8,22 +8,15 @@ interface LorebookPromptCandidate {
     order: number
 }
 
-export type BudgetedLorebookPrompt<T extends LorebookPromptCandidate> = T & {
+type BudgetedLorebookPrompt<T extends LorebookPromptCandidate> = T & {
     tokens: number
 }
 
-/** Render lorebook text exactly as it will be exposed to the prompt pipeline. */
 export function renderLorebookContent(content: string, char: character): string {
     return risuChatParser(content, { chara: char })
 }
 
-/**
- * Select active lorebook prompts using their rendered CBS output for budgeting.
- *
- * Activation and recursive matching remain the caller's responsibility. This
- * function owns the later prompt concern: priority, rendered token cost, token
- * budget, and final insertion order.
- */
+// Budget CBS output so hidden template text does not consume tokens.
 export async function selectLorebookPromptsWithinBudget<T extends LorebookPromptCandidate>(
     candidates: readonly T[],
     tokenBudget: number,

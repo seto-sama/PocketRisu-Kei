@@ -31,19 +31,19 @@
     }: Props = $props();
     let ele: HTMLDivElement = $state()
     let sorted = $state(0)
-    let idgroup = 'a' + createEntityId() // Ensure the group identifier starts with a letter.
+    let idgroup = 'a' + createEntityId()
     
     $effect(() => {
         if (!ele) return;
         let dragOrigin: SortableDragOrigin | null = null;
         const sortable = Sortable.create(ele, {
             ...sortableOptions,
-            group: 'lorebook',        // Enable cross-container drag
+            group: 'lorebook',
             draggable: '[data-risu-idx]:not([data-risu-hidden])',
             filter: undefined,
             onMove: (event) => !(event.dragged.dataset.loreMode === 'folder' && event.to.dataset.showFolder),
             handle: '[data-disclosure-toggle]',
-            swapThreshold: 0.9,      // More sensitive drag response
+            swapThreshold: 0.9,
             animation: 150,
             chosenClass: "risu-chosen-item",
             dragClass: "risu-drag-item",
@@ -59,7 +59,6 @@
                     return;
                 }
 
-                // Resolve the backing list before applying the DOM reorder.
                 let currentArray: loreBook[];
                 if (externalLoreBooks) {
                     currentArray = externalLoreBooks;
@@ -77,7 +76,7 @@
                 }
 
                 if (externalLoreBooks) {
-                    // Arrays passed as props must be modified internally to reflect in parent
+                    // Mutate the bound array so module editors see the reorder.
                     externalLoreBooks.splice(0, externalLoreBooks.length, ...newArray);
                 } else if (submenu === 1) {
                     DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore = newArray;
@@ -118,13 +117,13 @@
     const onOpen = (_isDetail: boolean = true, bookRef?: any) => {
         if (bookRef) {
             openedRefs.add(bookRef)
-            openedRefs = new Set(openedRefs) // Trigger reactivity
+            openedRefs = new Set(openedRefs)
         }
     }
     const onClose = (_isDetail: boolean = true, bookRef?: any) => {
         if (bookRef) {
             openedRefs.delete(bookRef)
-            openedRefs = new Set(openedRefs) // Trigger reactivity
+            openedRefs = new Set(openedRefs)
         }
     }
 
@@ -164,7 +163,6 @@
                         onClose={(isDetail = true) => onClose(isDetail, book)}
                         bind:externalLoreBooks={externalLoreBooks} />
                     {:else}
-                        <!-- Hidden marker for filtered items (for SortableJS) -->
                         <div data-risu-idx={i} data-risu-idgroup={idgroup} data-risu-hidden="true" style="display: none;"></div>
                     {/if}
                 {/each}
@@ -197,7 +195,6 @@
                         onClose={(isDetail = true) => onClose(isDetail, book)}
                         bind:externalLoreBooks={DBState.db.characters[$selectedCharID].globalLore}/>
                     {:else}
-                        <!-- Hidden marker for filtered items (for SortableJS) -->
                         <div data-risu-idx={i} data-risu-idgroup={idgroup} data-risu-hidden="true" style="display: none;"></div>
                     {/if}
                 {/each}
@@ -230,7 +227,6 @@
                         onClose={(isDetail = true) => onClose(isDetail, book)}
                         bind:externalLoreBooks={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore}/>
                     {:else}
-                        <!-- Hidden marker for filtered items (for SortableJS) -->
                         <div data-risu-idx={i} data-risu-idgroup={idgroup} data-risu-hidden="true" style="display: none;"></div>
                     {/if}
                 {/each}
