@@ -200,7 +200,7 @@ export const helpEn = {
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
-            "Keeps the tab active by playing silent audio, preventing the browser session from expiring due to inactivity. This may require a refresh to take effect.",
+            "Plays audio inaudible to humans to keep the tab active in the background.",
         disableMobileBackNavigation:
             "Prevents the browser back button or back gesture from accidentally leaving the current tab on mobile devices. Some browsers may show a confirmation before leaving.",
         reSummarizationPrompt:

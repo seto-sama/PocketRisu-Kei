@@ -18,7 +18,7 @@ import { PngChunk } from "./pngChunk"
 import { CharXImporter, CharXWriter } from "./process/processzip"
 import { zip } from "./process/zip"
 import { encodeModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
-import { readDefaultAvatarImage } from "./avatarImage"
+import { readAvatarImageOrDefault, readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
 import { getRealmProxyUrl } from './network/proxy'
 import { getRealmMutes, isRealmMuted } from './realmMute'
@@ -1141,7 +1141,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         else showExportAssetProgress(completed, total)
     }
     try{
-        let img = await readImage(char.image)
+        let img = await readAvatarImageOrDefault(char.image)
         char.image = ''
         img = type === 'png' ? (await reencodeImage(img)) : img
         const localWriter = arg.writer ?? new VirtualWriter()

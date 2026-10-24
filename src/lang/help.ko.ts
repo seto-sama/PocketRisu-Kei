@@ -68,7 +68,7 @@ export const helpKo = {
         "showPersonaInSidebar": "채팅별로 페르소나를 고정하는 바인딩 기능을 활성화합니다.",
         "showModuleSidebar": "사이드바에 모듈 선택 버튼을 표시합니다.",
         "disableToggleBinding": "채팅별로 토글 값을 고정하는 바인딩 기능을 활성화합니다.",
-        "keepSessionAlive": "브라우저 세션이 만료되지 않도록 무음 오디오를 재생해 탭을 활성 상태로 유지합니다. 적용에 새로고침이 필요할 수 있습니다.",
+        "keepSessionAlive": "인간에게 들리지 않는 오디오를 재생해 백그라운드에서도 탭이 활성 상태로 유지되도록 합니다.",
         "disableMobileBackNavigation": "모바일 브라우저에서 뒤로 가기 버튼이나 제스처를 입력했을 때 확인 창을 표시해 실수로 페이지를 벗어나지 않도록 합니다.",
         "chainOfThought": "활성화되면 생각의 사슬 프롬프트를 프롬프트에 추가합니다.",
         "gptVisionQuality": "인풋으로 포함되는 이미지의 해상도를 설정합니다. 품질이 높을수록 세부 정보를 더 잘 인식하지만 입력 토큰과 지연 시간이 늘어날 수 있습니다.",

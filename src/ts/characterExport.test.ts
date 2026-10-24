@@ -130,7 +130,6 @@ vi.mock('./process/lorebook.svelte', () => ({ convertExternalLorebook: vi.fn() }
 vi.mock('./routing', () => ({ AddonSettingsTab: {}, openAddonSettings: vi.fn(), openSettings: vi.fn(), SettingsRoute: {} }))
 vi.mock('./parser/parser.svelte', () => ({ hasher: {} }))
 vi.mock('./process/zip', () => ({ zip: {} }))
-vi.mock('./avatarImage', () => ({ readDefaultAvatarImage: vi.fn() }))
 vi.mock('../../shared/fileTypes.mjs', () => ({ getFileType: vi.fn() }))
 vi.mock('./download', () => ({ downloadFile: mocks.downloadFile }))
 vi.mock('src/lang', () => ({
@@ -188,6 +187,18 @@ describe('character export downloads', () => {
         expect(mocks.downloadFile).toHaveBeenCalledOnce()
         expect(mocks.downloadFile.mock.calls[0][0]).toMatch(new RegExp(`${extension.replace('.', '\\.')}$`))
         expect(mocks.notifySuccess).toHaveBeenCalledOnce()
+    })
+
+    it('exports with the default avatar when the saved image cannot be read', async () => {
+        mocks.readImage.mockRejectedValueOnce(new Error('missing image'))
+        vi.stubGlobal('fetch', async () => new Response(new Uint8Array([1, 2, 3])))
+        try {
+            await exportCharacterCard(character(), 'png', { spec: 'v3' })
+            expect(mocks.downloadFile).toHaveBeenCalledOnce()
+            expect(mocks.alertError).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllGlobals()
+        }
     })
 
     it('finishes generating the buffer before download and shows attached-asset progress', async () => {
