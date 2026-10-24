@@ -22,6 +22,7 @@ import { readAvatarImageOrDefault, readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
 import { getRealmProxyUrl } from './network/proxy'
 import { getRealmMutes, isRealmMuted } from './realmMute'
+import { normalizeOnboarding } from './onboarding'
 
 
 export const realmURL = 'https://realm.risuai.net';
@@ -862,6 +863,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         chaId: createEntityId(),
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
+        onboarding: normalizeOnboarding(data?.extensions?.risuai?.onboarding),
         escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
         customscript: customScripts,
         exampleMessage: data.mes_example ?? '',
@@ -1499,6 +1501,7 @@ export function createBaseV3(char:character){
                     toggles: char.customModuleToggle ?? '',
                     moduleNamespace: char.moduleNamespace,
                     hideChatIcon: char.hideChatIcon ?? false,
+                    onboarding: char.onboarding,
                 },
                 depth_prompt: char.depth_prompt
             },

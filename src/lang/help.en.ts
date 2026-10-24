@@ -121,6 +121,8 @@ export const helpEn = {
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
         customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
+        onboarding:
+            "Onboarding lets users pick options before a chat starts, like a short form. Each answer is saved to a chat variable, usable with `{{getvar::name}}` or triggers.\n\nUntil the user finishes or skips it, the chat shows a banner that opens the onboarding. It can be reopened from the chat menu.\n\n**Form** mode builds choices and text questions. Multiple-choice answers are saved as a JSON array.\n\n**HTML** mode lets you write your own layout. CBS and additional assets work, and it is sanitized like chat messages with `<style>` support. Add `risu-change-var-name=\"varname\"` and `risu-change-var-value=\"value\"` to any element to set the variable when it is clicked; the clicked element gets the `selected` class. On `<input>`, `<select>` and `<textarea>`, the variable follows the input's value. Choices are saved when the user presses Done, so CBS such as `{{getvar::name}}` inside the onboarding shows the value from before it was opened.",
         customPromptTemplateToggle:
             "Here you can define your own prompt toggles. use `<toggle variable>=<toggle name>` format, seperated by newline. for example, `cot=Toggle COT`. you can use these toggles in prompt by using `{{getglobalvar::toggle_<toggle variable>}}`. like `{{getglobalvar::toggle_cot}}`.",
         defaultVariables:

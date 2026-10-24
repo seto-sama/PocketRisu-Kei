@@ -40,7 +40,7 @@ export type SettingType =
     | 'slider'     // Slider
     | 'select'     // Select
     | 'radio'      // Vertical single-choice group (ChoiceGroup)
-    | 'segmented'  // Sliding segmented control (SegmentedControl)
+    | 'segmented'  // Sliding segmented control (ChoiceGroup variant="segment")
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)
     | 'button'     // Action button (Button)
