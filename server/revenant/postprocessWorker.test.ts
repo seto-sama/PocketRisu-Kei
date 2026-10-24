@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import workerPkg from './postprocessWorker.cjs'
+import materializerPkg from './materializer.cjs'
+import chatStorePkg from '../chatStore.cjs'
+
+const { createRevenantMaterializer } = materializerPkg as any
+const { createCanonicalChatService, commitChatContent, computeChatEtag } = chatStorePkg as any
 
 const { createRevenantPostprocessWorker } = workerPkg as {
     createRevenantPostprocessWorker: (options: any) => { pump: () => Promise<void> }
@@ -20,6 +25,78 @@ function workflowContext(postprocess: any = {}) {
 }
 
 describe('revenant postprocess worker', () => {
+    it.each([{ choices: ['local'] }, { choices: null }])('settles a real materialization conflict after the client responds: %j', async ({ choices }) => {
+        const input = { ...workflowInputChat, scriptstate: { $score: '10' } }
+        const current = { ...input, scriptstate: { $score: '20' } }
+        const chat = { ...input, scriptstate: { $score: '13' }, message: [{ role: 'char', data: 'answer', chatId: 'generated-1' }] }
+        const chats = new Map([['room-1', current]])
+        const store = new Map([['character-1', chats]])
+        const job = {
+            jobId: 'job-1', workflowId: 'workflow-1', characterId: 'character-1',
+            roomId: 'room-1', chatId: 'generated-1', status: 'generated', createdAt: 1,
+        }
+        const steps: Record<string, { status: string, metadata?: any }> = {
+            'output.transform': { status: 'completed', metadata: { text: 'answer', chat, foregroundEffects: [] } },
+            'trigger.output': { status: 'completed', metadata: { chat, foregroundEffects: [] } },
+            'igp': { status: 'skipped', metadata: { chat } },
+            'postprocess': { status: 'completed', metadata: { chat } },
+            'message.materialize': { status: 'pending' },
+        }
+        let status = 'active'
+        const repository = {
+            listReadyChatWorkflowJobs: () => status === 'active' ? [job] : [],
+            getGenerationJob: () => job,
+            getGenerationWorkflow: () => ({
+                workflowId: 'workflow-1', status, context: workflowContext({ messageChatId: job.chatId }),
+                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+            }),
+            getGenerationWorkflowInputChat: () => input,
+            getEarlierRecoverableGenerationWorkflowJob: () => undefined,
+            markGenerationMaterialized: () => { steps['message.materialize'].status = 'completed'; return true },
+            claimGenerationWorkflowStep: (_id: string, key: string) => {
+                if (steps[key].status !== 'pending') return null
+                steps[key].status = 'running'
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
+            },
+            updateGenerationWorkflowStep: (_id: string, key: string, update: any) => { steps[key] = update },
+            finishGenerationWorkflow: vi.fn((_id: string, terminal: string) => { status = terminal }),
+        }
+        const persistNow = vi.fn(async () => {})
+        const canonicalChatService = createCanonicalChatService({
+            queueStorageOperation: (operation: () => Promise<any>) => operation(),
+            ensureChatStore: async () => {},
+            getChat: () => chats.get('room-1'),
+            replaceChat: (_characterId: string, roomId: string, value: any) => chats.set(roomId, value),
+            computeChatEtag,
+            commitChatContent: (...args: any[]) => commitChatContent(store, ...args),
+            getGenerationWorkflowInputChat: () => input,
+            persistNow, publishChatCommitted: vi.fn(),
+        })
+        const materializer = createRevenantMaterializer({ repository, canonicalChatService })
+        const materializeGeneration = vi.fn(materializer.materialize)
+        const onWorkflowUpdated = vi.fn()
+        const worker = createRevenantPostprocessWorker({
+            repository, materializeGeneration, onWorkflowUpdated, logger: { error: vi.fn() },
+        })
+
+        await worker.pump()
+        expect(steps['message.materialize'].status).toBe('waiting_client')
+        const action = steps['message.materialize'].metadata.action
+        expect(action.kind).toBe('ui.resolve-conflict')
+        expect(persistNow).not.toHaveBeenCalled()
+        await worker.pump()
+        expect(materializeGeneration).toHaveBeenCalledOnce()
+        expect(repository.finishGenerationWorkflow).not.toHaveBeenCalled()
+
+        steps['message.materialize'] = { status: 'pending', metadata: { responses: { [action.actionId]: choices } } }
+        await worker.pump()
+        const terminal = choices === null ? 'failed' : 'completed'
+        expect(status).toBe(terminal)
+        expect(onWorkflowUpdated).toHaveBeenLastCalledWith(expect.objectContaining({ status: terminal }))
+        expect(chats.get('room-1')).toMatchObject(choices === null ? current : chat)
+        expect(persistNow).toHaveBeenCalledTimes(choices === null ? 0 : 1)
+    })
+
     it('executes image actions on the server without exposing waiting_client', async () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'pending', metadata: {} },
@@ -39,7 +116,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }
@@ -99,7 +176,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }
@@ -159,7 +236,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }
@@ -199,7 +276,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }
@@ -261,7 +338,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }
@@ -353,7 +430,7 @@ describe('revenant postprocess worker', () => {
             claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
                 if (steps[stepKey].status !== 'pending') return null
                 steps[stepKey].status = 'running'
-                return {}
+                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
             },
             updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
                 steps[stepKey] = { status: update.status, metadata: update.metadata }

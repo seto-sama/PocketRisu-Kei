@@ -152,8 +152,11 @@ function createRevenantPostprocessWorker(options) {
                     continue;
                 }
                 let outputStep = workflow.steps.find(step => step.key === 'output.transform');
-                if (outputStep?.status === 'pending'
-                    && claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')) {
+                const outputClaim = outputStep?.status === 'pending'
+                    ? claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')
+                    : null;
+                if (outputClaim) {
+                    outputStep = outputClaim.steps.find(step => step.key === 'output.transform');
                     try {
                         const result = await runOutputStage({
                             text: job.projection.content.trim(),
@@ -171,8 +174,6 @@ function createRevenantPostprocessWorker(options) {
                                 result.chat,
                                 recipe,
                             )) {
-                            outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
-                                ?.find(step => step.key === 'output.transform');
                             continue;
                         }
                         updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
@@ -195,18 +196,22 @@ function createRevenantPostprocessWorker(options) {
                         finishGenerationWorkflow(workflow.workflowId, 'failed');
                         logger.error(`[Revenant] Output transform failed for ${workflow.workflowId}:`, error);
                     }
-                    outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
-                        ?.find(step => step.key === 'output.transform');
                 }
+                const postOutputWorkflow = getGenerationWorkflow(workflow.workflowId);
+                outputStep = postOutputWorkflow?.steps
+                    ?.find(step => step.key === 'output.transform');
                 if (outputStep?.status !== 'completed') {
                     notifyActionableWorkflowState(workflow.workflowId);
                     continue;
                 }
 
-                let triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                let triggerStep = postOutputWorkflow?.steps
                     ?.find(step => step.key === 'trigger.output');
-                if (triggerStep?.status === 'pending'
-                    && claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) {
+                const triggerClaim = triggerStep?.status === 'pending'
+                    ? claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')
+                    : null;
+                if (triggerClaim) {
+                    triggerStep = triggerClaim.steps.find(step => step.key === 'trigger.output');
                     try {
                         const triggerRecipe = recipeWithMutations(
                             recipe,
@@ -227,8 +232,6 @@ function createRevenantPostprocessWorker(options) {
                                 result.chat,
                                 triggerRecipe,
                             )) {
-                            triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
-                                ?.find(step => step.key === 'trigger.output');
                             continue;
                         }
                         if (result.status !== 'waiting_client' && result.errors?.length > 0) {
@@ -255,7 +258,8 @@ function createRevenantPostprocessWorker(options) {
                         logger.error(`[Revenant] Output trigger failed for ${workflow.workflowId}:`, error);
                     }
                 }
-                triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                const postTriggerWorkflow = getGenerationWorkflow(workflow.workflowId);
+                triggerStep = postTriggerWorkflow?.steps
                     ?.find(step => step.key === 'trigger.output');
                 if (triggerStep?.status !== 'completed') {
                     notifyActionableWorkflowState(workflow.workflowId);
@@ -263,7 +267,7 @@ function createRevenantPostprocessWorker(options) {
                 }
 
                 let currentChat = triggerStep.metadata.chat;
-                let igpStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                let igpStep = postTriggerWorkflow?.steps
                     ?.find(step => step.key === 'igp');
                 if (igpStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'igp', 'pending')) {
@@ -400,7 +404,8 @@ function createRevenantPostprocessWorker(options) {
                 if (triggerStep.metadata?.resend === true) {
                     foregroundEffects.push({ kind: 'chat.resend' });
                 }
-                let foregroundStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                const postIgpWorkflow = getGenerationWorkflow(workflow.workflowId);
+                let foregroundStep = postIgpWorkflow?.steps
                     ?.find(step => step.key === 'postprocess');
                 if (foregroundStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'postprocess', 'pending')) {
@@ -440,16 +445,21 @@ function createRevenantPostprocessWorker(options) {
                             },
                         });
                     }
-                    foregroundStep = getGenerationWorkflow(workflow.workflowId)?.steps
-                        ?.find(step => step.key === 'postprocess');
                 }
+                const postForegroundWorkflow = getGenerationWorkflow(workflow.workflowId);
+                foregroundStep = postForegroundWorkflow?.steps
+                    ?.find(step => step.key === 'postprocess');
                 if (foregroundStep?.status !== 'completed') {
                     notifyActionableWorkflowState(workflow.workflowId);
                     continue;
                 }
 
-                const materializeStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                const materializeStep = postForegroundWorkflow?.steps
                     ?.find(step => step.key === 'message.materialize');
+                if (materializeStep?.status === 'waiting_client') {
+                    notifyActionableWorkflowState(workflow.workflowId);
+                    continue;
+                }
                 if (materializeStep?.status === 'completed') {
                     finishGenerationWorkflow(workflow.workflowId, 'completed');
                     notifyActionableWorkflowState(workflow.workflowId);
@@ -466,15 +476,29 @@ function createRevenantPostprocessWorker(options) {
                     finishGenerationWorkflow(workflow.workflowId, 'completed');
                 }
                 catch (error) {
-                    retry = true;
+                    const conflict = error?.status === 409 && error.action?.kind === 'ui.resolve-conflict';
+                    const cancelled = error?.status === 409 && error.cancelled === true;
+                    const metadata = {
+                        schemaVersion: 1,
+                        ...(materializeStep.metadata?.responses
+                            ? { responses: materializeStep.metadata.responses } : {}),
+                    };
+                    let status = 'pending';
+                    if (conflict) {
+                        status = 'waiting_client';
+                        metadata.action = error.action;
+                    } else if (cancelled) {
+                        status = 'failed';
+                        metadata.cancelled = true;
+                    } else {
+                        metadata.error = error instanceof Error ? error.message : String(error);
+                        retry = true;
+                        logger.error(`[Revenant] Materialization failed for ${workflow.workflowId}:`, error);
+                    }
                     updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
-                        status: 'pending',
-                        metadata: {
-                            schemaVersion: 1,
-                            error: error instanceof Error ? error.message : String(error),
-                        },
+                        status, metadata,
                     });
-                    logger.error(`[Revenant] Materialization failed for ${workflow.workflowId}:`, error);
+                    if (cancelled) finishGenerationWorkflow(workflow.workflowId, 'failed');
                 }
                 notifyActionableWorkflowState(workflow.workflowId);
             }

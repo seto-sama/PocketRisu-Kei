@@ -14,16 +14,20 @@ describe('generation chat result rebase', () => {
                 { chatId: 'old', role: 'char', data: 'old text' },
                 { chatId: 'user', role: 'user', data: 'question' },
             ],
+            scriptstate: { $score: '10', $display: 'full' },
         }
         const result = {
             ...base,
             message: [...base.message, { chatId: 'generated', role: 'char', data: 'answer' }],
+            scriptstate: { $score: '13', $display: 'full' },
         }
         const current = structuredClone(base)
         current.message[0].data = 'edited while streaming'
+        current.scriptstate.$display = 'light'
 
         const merged = mergeGenerationChatResult(base, result, current, { messageChatId: 'generated' })
 
+        expect(merged.scriptstate).toEqual({ $score: '13', $display: 'light' })
         expect(merged.message).toEqual([
             { chatId: 'old', role: 'char', data: 'edited while streaming' },
             { chatId: 'user', role: 'user', data: 'question' },

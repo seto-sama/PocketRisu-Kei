@@ -6,6 +6,10 @@ import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
 import type { ModelPreset } from '../../../preset/types'
 import { getDatabase, type Chat, type character } from '../../../storage/database.svelte'
+import { chooseConflictComparison, SaveConflictCancelledError } from '../../../storage/saveConflict'
+import { presentSaveConflict } from '../../../gui/saveConflictPresentation'
+import type { MergeConflict } from '../../../storage/patchRebase'
+import { language } from '../../../../lang'
 import { findLastActiveResponseIndex, setMessageContent } from '../../../storage/messageContent'
 import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
@@ -205,6 +209,19 @@ async function executeClientAction(
         return executeProviderAction(workflow, stepKey, action, character, signal)
     }
     switch (action.kind) {
+        case 'ui.resolve-conflict': {
+            const conflicts = payload.conflicts as MergeConflict[];
+            try {
+                return await chooseConflictComparison({
+                    title: language.saveConflict.title,
+                    localLabel: language.saveConflict.generated,
+                    items: conflicts.map((conflict, index) => presentSaveConflict(conflict, index)),
+                }, signal);
+            } catch (error) {
+                if (signal?.aborted || !(error instanceof SaveConflictCancelledError)) throw error;
+                return null;
+            }
+        }
         case 'ui.input': return alertInput(String(payload.message ?? ''))
         case 'ui.select': return alertSelect(
             Array.isArray(payload.options) ? payload.options.map(String) : [],

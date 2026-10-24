@@ -15,38 +15,32 @@ class RevenantMaterializationError extends Error {
         this.name = 'RevenantMaterializationError';
         this.status = status;
         this.conflicts = options.conflicts;
+        this.action = options.action;
+        this.cancelled = options.cancelled;
     }
 }
 
-function completedServerChat(workflow) {
-    if (!workflow) return undefined;
+function completedServerChat(steps) {
     for (const key of ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']) {
-        const step = workflow.steps?.find(item => item.key === key && item.status === 'completed');
-        if (step?.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
+        const step = steps.get(key);
+        if (step?.status === 'completed' && step.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
             return step.metadata.chat;
         }
     }
     return undefined;
 }
 
-function mergeMutationPatch(target, source) {
-    if (!source || typeof source !== 'object') return target;
-    if (source.character && typeof source.character === 'object') {
-        target.character = { ...(target.character || {}), ...structuredClone(source.character) };
-    }
-    if (source.database && typeof source.database === 'object') {
-        target.database = { ...(target.database || {}), ...structuredClone(source.database) };
-    }
-    return target;
-}
-
-function completedServerMutationPatch(workflow) {
+function completedServerMutationPatch(steps) {
     const patch = {};
     for (const key of ['output.transform', 'trigger.output', 'igp', 'postprocess']) {
-        const step = workflow?.steps?.find(item => item.key === key && item.status === 'completed');
-        mergeMutationPatch(patch, step?.metadata?.mutations);
+        const step = steps.get(key);
+        if (step?.status !== 'completed') continue;
+        for (const scope of ['character', 'database']) {
+            const fields = step.metadata?.mutations?.[scope];
+            if (fields && typeof fields === 'object') patch[scope] = { ...patch[scope], ...fields };
+        }
     }
-    return Object.keys(patch).length > 0 ? patch : undefined;
+    return Object.keys(patch).length > 0 ? structuredClone(patch) : undefined;
 }
 
 function applyMutationPatch(database, characterId, patch) {
@@ -100,6 +94,8 @@ function createRevenantMaterializer(options) {
             if (Number.isInteger(error?.httpStatus)) {
                 throw new RevenantMaterializationError(error.httpStatus, error.message, {
                     conflicts: error.conflicts,
+                    action: error.action,
+                    cancelled: error.cancelled,
                 });
             }
             throw error;
@@ -110,12 +106,11 @@ function createRevenantMaterializer(options) {
         if (error?.status !== 409 || !Array.isArray(error.conflicts) || error.conflicts.length === 0) {
             return false;
         }
-        const ownedIds = new Set([
+        const ownedPaths = new Set([
             job.chatId,
             recipe?.rerollSnapshot?.targetMessage?.chatId,
-        ].filter(Boolean));
-        return error.conflicts.every(path =>
-            [...ownedIds].some(id => path === `/message/${id}`));
+        ].filter(Boolean).map(id => `/message/${id}`));
+        return error.conflicts.every(path => ownedPaths.has(path));
     }
 
     async function drainEarlierCancelledGenerations(job) {
@@ -169,34 +164,40 @@ function createRevenantMaterializer(options) {
         await drainEarlierCancelledGenerations(job);
 
         const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
-        const serverChat = completedServerChat(workflow);
+        const steps = new Map((workflow?.steps || []).map(step => [step.key, step]));
+        const serverChat = completedServerChat(steps);
         if (!serverChat) {
             throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
         }
-        const chat = structuredClone(serverChat);
-        const mutationPatch = completedServerMutationPatch(workflow);
-        const materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
+        const chat = { ...serverChat, message: serverChat.message.slice() };
+        const mutationPatch = completedServerMutationPatch(steps);
+        const messageIndex = chat.message.findIndex(message => message?.chatId === job.chatId);
+        const materializedMessage = messageIndex >= 0 ? structuredClone(chat.message[messageIndex]) : undefined;
         if (materializedMessage && typeof materializedMessage.data !== 'string') {
             throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
         }
         if (materializedMessage) {
+            chat.message[messageIndex] = materializedMessage;
             applyRevenantStageTimingToMessage(
                 materializedMessage,
                 workflow,
                 job.completedAt || job.updatedAt,
             );
         }
-        const hypaMemory = workflow?.steps
-            ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
-            ?.metadata?.hypaMemory;
+        const memoryStep = steps.get('memory.hypav3');
+        const hypaMemory = memoryStep?.status === 'completed' ? memoryStep.metadata?.hypaMemory : undefined;
         if (hypaMemory && typeof hypaMemory === 'object' && Array.isArray(hypaMemory.summaries)) {
             chat.hypaV3Data = structuredClone(hypaMemory);
         }
         chat.isStreaming = false;
 
+        const responses = steps.get('message.materialize')?.metadata?.responses;
         updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
             status: 'running',
-            metadata: { schemaVersion: 1, chat },
+            metadata: {
+                schemaVersion: 1, chat,
+                ...(responses ? { responses } : {}),
+            },
         });
         const commit = await commitGenerationResult({
             job,
@@ -320,7 +321,5 @@ function createRevenantMaterializer(options) {
 module.exports = {
     createRevenantMaterializer,
     RevenantMaterializationError,
-    completedServerChat,
-    completedServerMutationPatch,
     applyMutationPatch,
 };

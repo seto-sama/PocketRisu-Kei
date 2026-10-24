@@ -631,6 +631,7 @@ export const languageKorean = {
   },
   saveConflict: {
     title: "저장 충돌 해결",
+    generated: "생성 결과",
     description: "이 기기와 서버에서 모두 수정된 항목입니다. 각 항목을 저장할 내용으로 선택하세요.",
     server: "서버",
     local: "내 수정",

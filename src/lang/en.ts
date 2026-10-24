@@ -584,6 +584,7 @@ export const languageEnglish = {
     },
     saveConflict: {
         title: "Resolve save conflicts",
+        generated: "Generation result",
         description: "Some fields changed both here and on the server. Choose which version to save for each item.",
         server: "Server",
         local: "Your changes",

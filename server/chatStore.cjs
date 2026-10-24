@@ -93,6 +93,8 @@ class CanonicalChatCommitError extends Error {
         this.httpStatus = status;
         this.currentEtag = options.currentEtag;
         this.conflicts = options.conflicts;
+        this.action = options.action;
+        this.cancelled = options.cancelled;
         this.code = options.code;
     }
 }
@@ -128,6 +130,7 @@ function createCanonicalChatService(options) {
         characterId,
         chatId,
         candidate,
+        previous,
         expectedEtag,
         persist,
         reason,
@@ -143,7 +146,6 @@ function createCanonicalChatService(options) {
         }
         for (const field of runtimeOnlyChatFields) delete candidate[field];
         stripChatCompatibility(candidate);
-        const previous = getChat(characterId, chatId);
         const result = commitChatContent(
             characterId,
             chatId,
@@ -152,7 +154,7 @@ function createCanonicalChatService(options) {
             { requireExpected: true },
         );
         if (!result.success) {
-            throw conflict('Chat content changed on another client', previous);
+            throw conflict('Chat content changed on another client', getChat(characterId, chatId));
         }
         let durableResult = result;
         try {
@@ -238,13 +240,14 @@ function createCanonicalChatService(options) {
                     chat,
                     currentChat,
                     resolveRevenantPostprocessRecipe(workflow.context, baseChat),
+                    workflow.steps?.find(step => step.key === 'message.materialize')?.metadata?.responses,
                 );
             } catch (error) {
                 throw new CanonicalChatCommitError(
                     409,
                     error instanceof Error ? error.message : String(error),
                     error instanceof ChatResultMergeConflict
-                        ? { conflicts: error.paths }
+                        ? { conflicts: error.paths, action: error.action, cancelled: error.cancelled }
                         : undefined,
                 );
             }
@@ -252,6 +255,7 @@ function createCanonicalChatService(options) {
                 characterId: job.characterId,
                 chatId: job.roomId,
                 candidate,
+                previous: currentChat,
                 expectedEtag: computeChatEtag(currentChat),
                 reason: 'generation-result',
                 persist: committedChat => persistNow({
@@ -281,15 +285,15 @@ function createCanonicalChatService(options) {
             }
             throw error;
         }
-        return { candidate, expectedEtag: computeChatEtag(current) };
+        return { candidate, previous: current, expectedEtag: computeChatEtag(current) };
     }
 
     async function commitUserDelta({ characterId, chatId, changes, originClientId }) {
         return queueStorageOperation(async () => {
             await ensureChatStore(characterId, chatId);
-            const { candidate, expectedEtag } = applyChatDelta(characterId, chatId, changes);
+            const input = applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
-                characterId, chatId, candidate, expectedEtag,
+                characterId, chatId, ...input,
                 reason: 'user-edit', originClientId,
                 persist: chat => schedulePersist({ characterId, chatId, chat }),
             });
@@ -314,6 +318,7 @@ function createCanonicalChatService(options) {
                 characterId,
                 chatId,
                 candidate: mutated || candidate,
+                previous: currentChat,
                 expectedEtag: computeChatEtag(currentChat),
                 reason,
                 persist: committedChat => persistNow({

@@ -425,4 +425,38 @@ describe('canonical chat service', () => {
             sqlite.close()
         }
     })
+
+    it('keeps a conflicting generation uncommitted until the exact compared values are resolved', async () => {
+        const input = { id: 'room-1', message: [], scriptstate: { $score: '10', $mood: 'neutral' } }
+        const current = { ...input, scriptstate: { $score: '20', $mood: 'angry', $display: 'light' } }
+        const generated = { ...input, scriptstate: { $score: '13', $mood: 'happy' }, message: [
+            { role: 'char', data: 'answer', chatId: 'generated-1' },
+        ] }
+        const harness = createServiceHarness(current, { getGenerationWorkflowInputChat: () => input })
+        const workflow: any = {
+            workflowId: 'workflow-1',
+            context: { postprocess: { chatPatch: [], character: {}, messageChatId: 'generated-1' } },
+            steps: [{ key: 'message.materialize', metadata: {} }],
+        }
+        const finalize = vi.fn()
+        const commit = () => harness.service.commitGenerationResult({
+            job: { characterId: 'character-1', roomId: 'room-1' }, workflow, chat: generated, finalize,
+        })
+        const conflict = await commit().catch((error: any) => error)
+        expect(conflict).toMatchObject({ httpStatus: 409, conflicts: ['/scriptstate/$score', '/scriptstate/$mood'], action: { kind: 'ui.resolve-conflict' } })
+        expect(harness.persistNow).not.toHaveBeenCalled()
+        expect(finalize).not.toHaveBeenCalled()
+
+        workflow.steps[0].metadata.responses = { [conflict.action.actionId]: ['local', 'server'] }
+        harness.chats.set('room-1', { ...current, scriptstate: { ...current.scriptstate, $score: '30' } })
+        const changed = await commit().catch((error: any) => error)
+        expect(changed).toMatchObject({ httpStatus: 409, action: { kind: 'ui.resolve-conflict' } })
+        expect(harness.persistNow).not.toHaveBeenCalled()
+
+        workflow.steps[0].metadata.responses[changed.action.actionId] = ['local', 'server']
+        const resolved = await commit()
+        expect(resolved.chat).toMatchObject({ scriptstate: { $score: '13', $mood: 'angry', $display: 'light' }, message: generated.message })
+        expect(finalize).toHaveBeenCalledOnce()
+        expect(harness.publishChatCommitted).toHaveBeenCalledOnce()
+    })
 })

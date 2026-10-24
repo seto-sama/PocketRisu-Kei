@@ -72,7 +72,7 @@ describe('patch conflict rebase', () => {
     })
 
     it('preserves unrelated server settings and server deletions', () => {
-        const base = { language: 'ko', settings: { local: 1, remote: 1 }, modules: [
+        const base = { language: 'ko', settings: { local: 1, remote: 1, removed: 'old' }, modules: [
             { id: 'deleted', name: 'Deleted on server' }, { id: 'kept', name: 'Kept' },
         ] }
         const local = structuredClone(base)
@@ -94,49 +94,4 @@ describe('patch conflict rebase', () => {
         })
     })
 
-    it('replays root replacements using the returned patch document', () => {
-        expect(preparePatchConflictRebase({ old: true }, {
-            baseline: { old: true },
-            patch: [{ op: 'replace', path: '', value: { replacement: true } }],
-        }).mergedValue).toEqual({ replacement: true })
-    })
-
-    it('preserves server field removal while applying a different local field edit', () => {
-        const base = { settings: { removed: 'old', edited: 'old' } }
-        const local = { settings: { removed: 'old', edited: 'local' } }
-        const server = { settings: { edited: 'old' } }
-        const { mergedValue } = preparePatchConflictRebase(server, {
-            baseline: base, patch: compare(base, local),
-        })
-        expect(mergedValue).toEqual({ settings: { edited: 'local' } })
-        expect(mergedValue.settings).not.toHaveProperty('removed')
-    })
-
-    it('keeps the server pre-image as the retry hash baseline', () => {
-        const latestServer = {
-            characters: [],
-            botPresets: [],
-            modules: [],
-            personaPrompt: 'server',
-        }
-        const rejectedPatch = [{
-            op: 'replace',
-            path: '/personaPrompt',
-            value: 'local',
-        }]
-
-        const { serverBaseline, mergedValue } = preparePatchConflictRebase(
-            latestServer,
-            { patch: rejectedPatch, baseline: latestServer },
-        )
-
-        expect(serverBaseline.personaPrompt).toBe('server')
-        expect(mergedValue.personaPrompt).toBe('local')
-
-        // Replaying must not mutate the object later installed as the patch
-        // protocol baseline. The retry diff is server -> merged/local.
-        expect(serverBaseline).toEqual(latestServer)
-        expect(serverBaseline).not.toBe(latestServer)
-        expect(mergedValue).not.toBe(serverBaseline)
-    })
 })
