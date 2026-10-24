@@ -132,7 +132,7 @@
                                 {opt.label}
                             </RadioGroup.Item>
                         {/snippet}
-                        <span class="whitespace-pre-line">{opt.description}</span>
+                        <span class="risu-plain-text">{opt.description}</span>
                     </Tooltip>
                 {:else}
                     <RadioGroup.Item value={opt.value} class={groupedItemClass(index)}>

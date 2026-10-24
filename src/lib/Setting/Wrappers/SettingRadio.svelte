@@ -50,7 +50,7 @@
     <div class="py-3 border-t border-darkborderc" data-setting-id={item.id}>
         <div class="flex flex-col min-w-0">
             <span class="text-sm text-maintext">{getLabel(item)}</span>
-            {#if helpText}<p class="text-xs text-subtext mt-0.5">{helpText}</p>{/if}
+            {#if helpText}<p class="text-xs text-subtext mt-0.5 risu-plain-text">{helpText}</p>{/if}
         </div>
         <ChoiceGroup className="mt-2" bind:value={localValue} options={processedOptions} />
     </div>

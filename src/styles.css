@@ -181,6 +181,19 @@
 }
 
 /*
+  Text whitespace. Plain strings (lang/help) keep their \n line breaks.
+  Rendered markdown/HTML resets to normal, because its source newlines are
+  already turned into tags and would otherwise break twice.
+*/
+@utility risu-plain-text {
+  white-space: pre-line;
+}
+
+@utility risu-rich-text {
+  white-space: normal;
+}
+
+/*
   Shared interaction vocabulary. These classes describe intent while the
   hover variant above keeps pointer hover and keyboard focus-visible aligned.
   Component-specific motion and layout effects should remain local.

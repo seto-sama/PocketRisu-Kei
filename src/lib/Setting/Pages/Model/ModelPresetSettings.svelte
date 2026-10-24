@@ -575,7 +575,7 @@
                                     {testResult.ok ? language.modelPresetTestSuccess : language.modelPresetTestFail}
                                     <span class="text-subtext font-normal ml-1">({testResult.latencyMs}ms)</span>
                                 </span>
-                                <span class="text-maintext whitespace-pre-wrap warp-break-words">{testResult.message}</span>
+                                <span class="text-maintext whitespace-pre-wrap wrap-break-word">{testResult.message}</span>
                             </div>
                         {/if}
                     </div>
