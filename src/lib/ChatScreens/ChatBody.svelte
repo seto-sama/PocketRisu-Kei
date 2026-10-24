@@ -374,7 +374,7 @@
                 })
                 renderTranslated = false
             }
-            if(!requestStreaming && (requestRetranslate || renderTranslated)){
+            if(DBState.db.translator && !requestStreaming && (requestRetranslate || renderTranslated)){
                 const recoveryHasResult = await revenantTranslationRecovery.waitForResult(
                     recoverySnapshot,
                 )

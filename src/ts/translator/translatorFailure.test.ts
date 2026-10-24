@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+    db: { translatorType: 'llm', translator: 'ko', translatorInputLanguage: 'en', characters: [] },
     notifyError: vi.fn(),
     recoverRevenantTranslationJobs: vi.fn(async () => 0),
     requestChatData: vi.fn(),
@@ -9,14 +10,7 @@ const mocks = vi.hoisted(() => ({
     writePersistentJson: vi.fn(),
 }))
 
-vi.mock('../storage/database.svelte', () => ({
-    getDatabase: () => ({
-        translatorType: 'llm',
-        translator: 'ko',
-        translatorInputLanguage: 'en',
-        characters: [],
-    }),
-}))
+vi.mock('../storage/database.svelte', () => ({ getDatabase: () => mocks.db }))
 vi.mock('../stores.svelte', () => ({
     selectedCharID: {
         subscribe(run: (value: number) => void) {
@@ -72,11 +66,12 @@ vi.mock('../storage/persistentKv', () => ({
     writePersistentJson: mocks.writePersistentJson,
 }))
 
-import { getLLMCache, runPromptTranslator, runTranslator, translateHTML } from './translator'
+import { getLLMCache, runPromptTranslator, runTranslator, translate, translateHTML, translateVox } from './translator'
 
 describe('translation lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        mocks.db.translator = 'ko'
         mocks.requestChatData.mockReset()
         mocks.completeRevenantTranslation.mockReset()
         mocks.readPersistentJsonBatch.mockReset()
@@ -91,6 +86,25 @@ describe('translation lifecycle', () => {
         const reason = new Error('Cancelled')
         controller.abort(reason)
         await expect(translateHTML('', false, '', -1, false, controller.signal)).rejects.toBe(reason)
+    })
+
+    it('returns the source without model requests when the translator language is disabled', async () => {
+        mocks.db.translator = ''
+        await expect(translate('hello', false)).resolves.toBe('hello')
+        await expect(translateHTML('<p>hello</p>', false, '', -1)).resolves.toBe('<p>hello</p>')
+        await expect(runPromptTranslator('hello', {
+            preset: { id: 'dialog', name: 'Dialog', prompt: 'Translate {{slot::content}}' },
+            modelPresetId: 'model',
+        })).resolves.toBe('hello')
+        expect(mocks.requestChatData).not.toHaveBeenCalled()
+    })
+
+    it('still translates VOICEVOX speech to Japanese when the translator language is disabled', async () => {
+        mocks.db.translator = ''
+        mocks.requestChatData.mockResolvedValueOnce({ type: 'success', result: 'こんにちは' })
+        mocks.completeRevenantTranslation.mockResolvedValueOnce('こんにちは')
+        await expect(translateVox('hello')).resolves.toBe('こんにちは')
+        expect(mocks.requestChatData).toHaveBeenCalledOnce()
     })
 
     it('delegates failure cleanup to the shared retain-success policy', async () => {
