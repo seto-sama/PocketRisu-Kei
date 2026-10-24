@@ -56,7 +56,6 @@ describe('executeEchoProviderRequest', () => {
                 })),
                 signal: new AbortController().signal,
             })
-            expect(response.status).toBe(200)
             const reader = response.body.getReader()
             const received = vi.fn()
             const first = reader.read().then((chunk: ReadableStreamReadResult<Uint8Array>) => {
@@ -119,7 +118,7 @@ describe('executeEchoProviderRequest', () => {
     })
 })
 
-test('the existing upstream executor surfaces idle body failures and retains response metadata', async () => {
+test('the upstream executor surfaces idle body failures and retains response metadata', async () => {
     vi.useFakeTimers()
     try {
         let signal: AbortSignal
@@ -130,7 +129,6 @@ test('the existing upstream executor surfaces idle body failures and retains res
         },
             async (_url: string, init: RequestInit) => {
                 signal = init.signal!
-                expect(init.redirect).toBe('error')
                 return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream', 'content-length': '99' } })
             })
         expect(response.headers).toEqual({ 'content-type': 'text/event-stream' })
@@ -142,4 +140,35 @@ test('the existing upstream executor surfaces idle body failures and retains res
         expect(release).toHaveBeenCalledOnce()
         expect(vi.getTimerCount()).toBe(0)
     } finally { vi.useRealTimers() }
+})
+
+test('follows an HTTPS upgrade and GitHub asset hops without forwarding credentials', async () => {
+    const release = vi.fn()
+    const prepare = vi.fn(async (url: URL | string) => ({ url: String(url), dispatcher: {}, release }))
+    const calls: { url: string, method: string, headers: Record<string, string>, body: unknown }[] = []
+    const replies = [
+        new Response(null, { status: 301, headers: { location: 'https://api.github.com/repos/o/r/releases/assets/1' } }),
+        new Response(null, { status: 302, headers: { location: 'https://release-assets.githubusercontent.com/a?sig=1' } }),
+        new Response('asset'),
+    ]
+    const response = await executeUpstreamRequest({
+        url: 'http://api.github.com/repos/o/r/releases/assets/1', method: 'POST', body: Buffer.from('{}'),
+        headers: { authorization: 'token secret', 'content-type': 'application/json', accept: 'application/octet-stream' },
+        outboundPolicy: { prepare },
+    }, async (url: string, init: RequestInit & { headers: Record<string, string> }) => {
+        calls.push({ url, method: init.method!, headers: { ...init.headers }, body: init.body })
+        return replies.shift()!
+    })
+
+    expect(await new Response(response.body).text()).toBe('asset')
+    expect(calls.map(({ url, method }) => [url, method])).toEqual([
+        ['http://api.github.com/repos/o/r/releases/assets/1', 'POST'],
+        ['https://api.github.com/repos/o/r/releases/assets/1', 'GET'],
+        ['https://release-assets.githubusercontent.com/a?sig=1', 'GET'],
+    ])
+    expect(calls[1]).toMatchObject({ body: undefined, headers: { authorization: 'token secret' } })
+    expect(calls[1].headers['content-type']).toBeUndefined()
+    expect(calls[2].headers).toEqual({ accept: 'application/octet-stream' })
+    expect(prepare).toHaveBeenCalledTimes(3)
+    expect(release).toHaveBeenCalledTimes(3)
 })

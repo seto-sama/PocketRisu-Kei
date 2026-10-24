@@ -73,29 +73,30 @@ function configuredLocalUrls(getAllowedLocalUrls) {
 }
 
 function normalizedPathname(pathname) {
-    try {
-        let decoded = pathname;
-        for (let pass = 0; pass < 8; pass++) {
-            const next = decodeURIComponent(decoded);
-            if (next === decoded) break;
-            decoded = next;
-            if (pass === 7) throw blocked('Outbound URL path has excessive encoding');
+    let decoded = pathname;
+    for (let pass = 0; ; pass++) {
+        let next;
+        try {
+            next = decodeURIComponent(decoded);
+        } catch {
+            throw blocked('Outbound URL has an invalid path');
         }
-
-        // Proxies and upstream frameworks disagree about encoded separators;
-        // treating either slash form as a segment boundary keeps traversal
-        // checks conservative for the local-endpoint exception.
-        const segments = [];
-        for (const segment of decoded.replace(/\\/g, '/').split('/')) {
-            if (segment === '' || segment === '.') continue;
-            if (segment === '..') segments.pop();
-            else segments.push(segment);
-        }
-        const result = `/${segments.join('/')}`;
-        return decoded.endsWith('/') && result !== '/' ? `${result}/` : result;
-    } catch {
-        throw blocked('Outbound URL has an invalid path');
+        if (next === decoded) break;
+        if (pass === 7) throw blocked('Outbound URL path has excessive encoding');
+        decoded = next;
     }
+
+    // Proxies and upstream frameworks disagree about encoded separators;
+    // treating either slash form as a segment boundary keeps traversal
+    // checks conservative for the local-endpoint exception.
+    const segments = [];
+    for (const segment of decoded.replace(/\\/g, '/').split('/')) {
+        if (segment === '' || segment === '.') continue;
+        if (segment === '..') segments.pop();
+        else segments.push(segment);
+    }
+    const result = `/${segments.join('/')}`;
+    return decoded.endsWith('/') && result !== '/' ? `${result}/` : result;
 }
 
 function isWithinBasePath(targetPath, basePath) {
@@ -144,17 +145,13 @@ function createPinnedLookup(expectedHostname, records) {
         }
         const actual = hostnameForAddress(String(hostname)).toLowerCase().replace(/\.$/, '');
         if (actual !== expected) {
-            const error = blocked('Outbound dispatcher cannot be reused for another hostname');
-            callback(error);
-            return;
+            return callback(blocked('Outbound dispatcher cannot be reused for another hostname'));
         }
         const candidates = options?.family
             ? records.filter(record => record.family === options.family)
             : records;
         if (candidates.length === 0) {
-            const error = blocked('Pinned outbound address does not match the requested family');
-            callback(error);
-            return;
+            return callback(blocked('Pinned outbound address does not match the requested family'));
         }
         if (options?.all) {
             callback(null, candidates.map(record => ({ ...record })));
@@ -252,4 +249,4 @@ function createOutboundPolicy({ getAllowedLocalUrls = () => [], lookup = dns.loo
     return { prepare, close };
 }
 
-module.exports = { createOutboundPolicy };
+module.exports = { createOutboundPolicy, OutboundTargetBlockedError };

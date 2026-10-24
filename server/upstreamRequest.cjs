@@ -3,8 +3,11 @@
 const { fetchWithRequestTimeout } = require('../shared/requestTimeout.mjs');
 const { get_encoding } = require('@dqbd/tiktoken');
 const { defaults: echoDefaults } = require('../src/ts/preset/registry/bundled/profiles/developer/echo.json');
-const { createOutboundPolicy } = require('./outboundPolicy.cjs');
+const { createOutboundPolicy, OutboundTargetBlockedError } = require('./outboundPolicy.cjs');
 const defaultOutboundPolicy = createOutboundPolicy();
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const BODY_HEADERS = ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location'];
 
 let echoTokenizer;
 
@@ -87,20 +90,67 @@ async function executeHttpRequest(request, { signal, idleTimeoutMs, onClose, fil
     }
 }
 
+function isGitHubHost(hostname) {
+    return /(?:^|\.)(?:github\.com|githubusercontent\.com)$/.test(hostname);
+}
+
+function allowedRedirectUrl(source, location) {
+    let next;
+    try {
+        next = new URL(location, source);
+    } catch {
+        return null;
+    }
+    if (next.protocol === 'https:' && isGitHubHost(source.hostname) && isGitHubHost(next.hostname)) return next;
+    const upgraded = source.protocol === 'http:' && next.protocol === 'https:';
+    if (upgraded ? source.port || next.port : next.protocol !== source.protocol || next.port !== source.port) {
+        return null;
+    }
+    if (next.hostname !== source.hostname || next.search !== source.search) return null;
+    const path = source.pathname;
+    const slashMoved = next.pathname === `${path}/` || path === `${next.pathname}/`;
+    return slashMoved || (upgraded && next.pathname === path) ? next : null;
+}
+
 async function executeUpstreamRequest(arg, fetchImpl = globalThis.fetch) {
-    const target = await (arg.outboundPolicy || defaultOutboundPolicy).prepare(arg.url);
-    return executeHttpRequest(signal => fetchImpl(target.url, {
-        method: arg.method,
-        headers: filterUpstreamRequestHeaders(arg.headers),
-        body: arg.body,
-        signal,
-        dispatcher: target.dispatcher,
-        redirect: 'error',
-    }), {
+    const policy = arg.outboundPolicy || defaultOutboundPolicy;
+    let target = await policy.prepare(arg.url);
+    return executeHttpRequest(async signal => {
+        let method = arg.method;
+        let body = arg.body;
+        const headers = filterUpstreamRequestHeaders(arg.headers);
+        for (let redirects = 0; ; redirects++) {
+            const response = await fetchImpl(target.url, {
+                method, headers, body, signal, dispatcher: target.dispatcher, redirect: 'manual',
+            });
+            const location = REDIRECT_STATUSES.has(response.status) ? response.headers.get('location') : null;
+            if (!location) return response;
+            await response.body?.cancel().catch(() => {});
+            const source = new URL(target.url);
+            const next = allowedRedirectUrl(source, location);
+            if (!next) throw new OutboundTargetBlockedError('Outbound redirect is not allowed');
+            if (redirects >= MAX_REDIRECTS) throw new OutboundTargetBlockedError('Too many outbound redirects');
+            if (response.status === 303 ? method !== 'GET' && method !== 'HEAD'
+                : response.status <= 302 && method === 'POST') {
+                method = 'GET';
+                body = undefined;
+                for (const name of BODY_HEADERS) delete headers[name];
+            }
+            if (next.hostname !== source.hostname) delete headers.authorization;
+            const nextTarget = await policy.prepare(next);
+            // Authorization can finish after cancellation has already run onClose.
+            if (signal?.aborted) {
+                nextTarget.release();
+                signal.throwIfAborted();
+            }
+            target.release();
+            target = nextTarget;
+        }
+    }, {
         signal: arg.signal,
         // Durable generation owns its deadline; proxy requests also bound idle reads.
         idleTimeoutMs: arg.idleTimeoutMs,
-        onClose: target.release,
+        onClose: () => target.release(),
         filterHeaders: filterUpstreamResponseHeaders,
     });
 }
@@ -121,7 +171,6 @@ function abortableTimer(delayMs, signal) {
     });
 }
 
-// Keep Echo responses on the same job/journal path as network providers.
 async function executeEchoProviderRequest(arg) {
     let input = {};
     try {

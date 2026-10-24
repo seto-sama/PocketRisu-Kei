@@ -52,6 +52,7 @@ describe('SandboxHost lifecycle', () => {
         expect(csp).toContain(`'nonce-${nonce}'`)
         expect(csp).toContain("connect-src 'none'")
         expect(csp).toContain(`img-src ${window.location.origin}/assets/ data: blob:`)
+        expect(csp).toContain('font-src * data: blob:')
 
         host.terminate()
     })

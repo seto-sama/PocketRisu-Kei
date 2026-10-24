@@ -203,15 +203,18 @@ describe('proxy routes', () => {
         expect(called).not.toHaveBeenCalled()
     })
 
-    it('does not follow redirects from an authorized endpoint', async () => {
+    it('follows a trailing-slash redirect but not one to another path', async () => {
         const destinations: string[] = []
+        let location = '/request/'
         handleUpstream = (req, res) => {
             destinations.push(req.url!)
-            res.writeHead(302, { location: '/admin' }).end()
+            if (req.url === '/request/') res.end('moved')
+            else res.writeHead(302, { location }).end()
         }
-        const response = await fetch(url)
-        expect(response.status).toBe(500)
-        expect(destinations).toEqual(['/request'])
+        expect(await (await fetch(url)).text()).toBe('moved')
+        location = '/admin'
+        expect((await fetch(url)).status).toBe(403)
+        expect(destinations).toEqual(['/request', '/request/', '/request'])
     })
 
     it('still returns a timeout response and cancels the upstream request', async () => {
