@@ -70,7 +70,7 @@ Wenn der Build abgeschlossen ist, sehen Sie:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 Starten Sie den Server aus demselben Verzeichnis:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Sobald das Server-Boot-Protokoll erscheint, öffnen Sie den Browser des Telefons (Chrome, Firefox usw.) und navigieren Sie zu:

@@ -3,7 +3,7 @@
 # Usage (from PocketRisu repo root): bash scripts/termux/build.sh
 set -euo pipefail
 
-if [ ! -f package.json ] || [ ! -d server/node ]; then
+if [ ! -f package.json ] || [ ! -f server/server.cjs ]; then
     echo "Run from the PocketRisu repo root."
     exit 1
 fi
@@ -33,7 +33,7 @@ NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 cat <<'EOF'
 
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001

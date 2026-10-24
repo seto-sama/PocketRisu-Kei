@@ -593,8 +593,8 @@ export const helpEn = {
         autoBackupSchedule:
             "When enabled, backups are created automatically once the specified number of days has passed since the last backup.",
         systemLogsExplicitOnlyHint: "Excludes console, uncaught exceptions, framework captures",
-        migrationUpstreamExportDesc: "Export a backup in the original RisuAI-compatible format.",
-        migrationUpstreamRestoreDesc: "Restore from a local backup exported by the original RisuAI.",
+        migrationUpstreamExportDesc: "Export a backup in the Original RisuAI-compatible format.",
+        migrationUpstreamRestoreDesc: "Restore from a local backup exported by Original RisuAI.",
         migrationPartialBackupDesc: "Save a smaller local backup with database and essential images only.",
         migrationDatasetExportDesc: "Export save data as a dataset file.",
         backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",

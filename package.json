@@ -25,8 +25,7 @@
     "test": "vitest run",
     "test:compat": "vitest run --config vitest.config.compat.ts",
     "test:server": "vitest run --config vitest.config.server.ts",
-    "runserver": "node server/node/server.cjs",
-    "hono:build": "vite build --sourcemap && node server/hono/src/utils/postbuild.js"
+    "runserver": "node server/server.cjs"
   },
   "dependencies": {
     "@adobe/css-tools": "4.5.0",

@@ -70,7 +70,7 @@ pkg install -y git && \
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 从同一目录启动服务器:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 服务器启动日志出现后,在手机浏览器(Chrome、Firefox 等)中访问:

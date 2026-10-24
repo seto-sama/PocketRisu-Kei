@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { encodeLocalPluginStorageValue } from '../shared/localPluginStorageValue.mjs'
 import { Packr } from 'msgpackr'
-import assetReferences from '../server/node/assetReferences.cjs'
+import assetReferences from '../server/assetReferences.cjs'
 
 const {
     collectDatabaseAssetBasenames,

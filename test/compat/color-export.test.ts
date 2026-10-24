@@ -6,10 +6,10 @@ import { createSeedBackup } from './helpers/seed.js'
 import { decodeBackup } from './helpers/decode.js'
 import { encodeBackup } from './helpers/encode.js'
 import { decodeRisuDat } from './helpers/normalize.js'
-import { defaultColorScheme } from '../../server/shared/colorScheme.js'
+import { defaultColorScheme } from '../../server/utils/colorScheme.js'
 
 const require = createRequire(import.meta.url)
-const { encodeRisuSaveLegacy } = require('../../server/node/utils/risuSave.cjs')
+const { encodeRisuSaveLegacy } = require('../../server/utils/risuSave.cjs')
 
 test('backup endpoints serialize compatible active and saved colors without altering stored settings', async () => {
     const entries = decodeBackup(createSeedBackup())

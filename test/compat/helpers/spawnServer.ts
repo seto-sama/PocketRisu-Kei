@@ -1,7 +1,7 @@
 /**
  * Spawn the server in isolation using a temporary save directory.
  *
- * Strategy: run `node <project>/server/node/server.cjs` with cwd set to a temp
+ * Strategy: run `node <project>/server/server.cjs` with cwd set to a temp
  * directory.  The server resolves `save/` relative to cwd, but loads code via
  * __dirname, so no symlinks or copies are needed.
  */
@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
-const SERVER_SCRIPT = path.join(PROJECT_ROOT, 'server', 'node', 'server.cjs')
+const SERVER_SCRIPT = path.join(PROJECT_ROOT, 'server', 'server.cjs')
 
 const TEST_PASSWORD = 'compat-test-pass'
 

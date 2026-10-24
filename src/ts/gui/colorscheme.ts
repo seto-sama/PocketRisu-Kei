@@ -1,4 +1,4 @@
-import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases, exportColorSchemeWithAliases } from "../../../server/shared/colorScheme.js";
+import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases, exportColorSchemeWithAliases } from "../../../server/utils/colorScheme.js";
 import { get, writable } from "svelte/store";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { exportPresetFile } from "../preset/export";

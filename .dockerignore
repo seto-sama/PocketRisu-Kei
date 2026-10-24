@@ -2,7 +2,7 @@ backups
 dist
 node_modules
 save
-server/node/ssl/certificate
+**/ssl/certificate/
 .git
 .github
 .claude

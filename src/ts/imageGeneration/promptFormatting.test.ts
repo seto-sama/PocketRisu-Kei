@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatComfyUIPrompt, formatNovelAIPrompt } from '../../../server/node/imagePromptFormatting.mjs'
+import { formatComfyUIPrompt, formatNovelAIPrompt } from '../../../server/imagePromptFormatting.mjs'
 
 describe('image generation prompt formatting', () => {
     it('converts weighted parentheses for NovelAI and unescapes literal parentheses', () => {

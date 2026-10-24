@@ -68,7 +68,7 @@ When the build finishes, you'll see:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -82,7 +82,7 @@ Then open this address in the phone's own browser:
 From the same directory, start the server:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Once the server boot log appears, open the phone's browser (Chrome, Firefox, etc.) and navigate to:

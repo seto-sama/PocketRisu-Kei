@@ -30,7 +30,7 @@ export default defineConfig({
         test: {
           name: 'server',
           environment: 'node',
-          include: ['server/node/**/*.test.ts', 'test/*.test.ts'],
+          include: ['server/**/*.test.ts', 'test/*.test.ts'],
           setupFiles: [],
           testTimeout: 30_000,
         },

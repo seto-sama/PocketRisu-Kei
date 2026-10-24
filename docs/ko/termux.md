@@ -68,7 +68,7 @@ pkg install -y git && \
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -82,7 +82,7 @@ Then open this address in the phone's own browser:
 빌드가 끝난 디렉터리에서 서버를 실행합니다.
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 서버 부팅 로그가 표시되면 폰의 브라우저(Chrome, Firefox 등)에서 다음 주소를 엽니다.

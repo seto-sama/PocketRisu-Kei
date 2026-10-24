@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encode } from 'msgpackr'
-import settingsBackup from '../server/node/settingsBackup.cjs'
+import settingsBackup from '../server/settingsBackup.cjs'
 
 const { buildSettingsBackupPlan } = settingsBackup
 

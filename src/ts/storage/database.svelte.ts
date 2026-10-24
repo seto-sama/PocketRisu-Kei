@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import { normalizeTrashRetentionDays } from '../trashRetention';
 import { getEnabledModules } from '../process/moduleSelection';
-import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
+import { withExportColorSchemes } from "../../../server/utils/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
 import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
