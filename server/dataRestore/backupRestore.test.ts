@@ -17,7 +17,7 @@ const {
         importBackupFromSource: (
             source: AsyncIterable<Buffer>,
             options?: { totalBytes?: number },
-        ) => Promise<{ assetsRestored: number; bytesReceived: number; coldStorageFailed: number; pluginStorageColdFailed: number }>
+        ) => Promise<{ assetsRestored: number; bytesReceived: number; coldStorageFailed: number; pluginStorageColdFailed: number; skippedSaveBlocks: string[] }>
     }
     createLegacyRestoreService: (dependencies: Record<string, any>) => any
     restoreMissingAssetsFromBackupFile: (options: {
@@ -336,6 +336,7 @@ describe('createBackupRestoreService', () => {
             bytesReceived: backup.length,
             coldStorageFailed: 0,
             pluginStorageColdFailed: 0,
+            skippedSaveBlocks: [],
         })
         expect(preparedRaw).toEqual(database)
         expect(stagedAssetSeen).toEqual(newAsset)

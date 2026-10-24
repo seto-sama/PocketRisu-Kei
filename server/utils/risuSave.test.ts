@@ -35,6 +35,17 @@ describe('decodeRisuSave', () => {
         })
     })
 
+    it('skips a SaveKV block on its own, reports it and keeps the rest', async () => {
+        const skippedBlocks: string[] = []
+        const decoded = await decodeRisuSave(encodeRisuSaveBlocks([
+            { type: 1, name: 'root', data: Buffer.from('{"username":"kept"}') },
+            { type: 12, name: 'kv:example', compressed: true, data: Buffer.from('bad gzip') },
+            { type: 2, name: 'char-1', data: Buffer.from('{"chaId":"char-1","chats":[]}') },
+        ]), { skippedBlocks })
+        expect(decoded).toMatchObject({ username: 'kept', characters: [{ chaId: 'char-1' }] })
+        expect(skippedBlocks).toEqual(['kv:example'])
+    })
+
     it('leaves missing preset defaults to the client database normalizer', async () => {
         const decoded = await decodeRisuSave(encodeRisuSaveBlocks([{ type: 1, name: 'root', data: Buffer.from('{}') }]))
 

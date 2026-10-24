@@ -11,7 +11,9 @@ const magicCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69,
 const magicStreamCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 9]);
 const magicRisuSaveHeader = new TextEncoder().encode("RISUSAVE\0");
 
-// Save type enums (must match client-side RisuSaveType)
+// Save type enums (must match client-side RisuSaveType).
+// UNSUPPORTED_REMOTE only points at a file on the source device, so the whole
+// save is rejected; an UNSUPPORTED_KV (SaveKV) block is skipped and reported.
 const RisuSaveType = {
     CONFIG: 0,
     ROOT: 1,
@@ -25,6 +27,7 @@ const RisuSaveType = {
     PLUGINS: 9,
     LOADOUTS: 10,
     PLUGIN_STORAGE: 11,
+    UNSUPPORTED_KV: 12,
 };
 
 // Packr/Unpackr instances
@@ -106,8 +109,9 @@ function checkHeader(data) {
  * RisuSave decoder class for server-side decoding
  */
 class RisuSaveDecoder {
-    constructor() {
+    constructor({ skippedBlocks = [] } = {}) {
         this.blocks = [];
+        this.skippedBlocks = skippedBlocks;
     }
 
     async decode(data) {
@@ -133,6 +137,13 @@ class RisuSaveDecoder {
 
                 let blockData = data.subarray(offset, offset + length);
                 offset += length;
+
+                // Skipped before decompression so a corrupt payload is still reported.
+                if (type === RisuSaveType.UNSUPPORTED_KV) {
+                    logger.warn(`[RisuSaveDecoder] Skipping unsupported SaveKV block ${name}`);
+                    this.skippedBlocks.push(name);
+                    continue;
+                }
 
                 if (compression) {
                     blockData = await gunzipAsync(blockData);
@@ -227,14 +238,15 @@ class RisuSaveDecoder {
 /**
  * Decode RisuSave data
  * @param {Uint8Array} data - The data to decode
+ * @param {{ skippedBlocks?: string[] }} [options] - skippedBlocks collects the names of unsupported blocks left out
  * @returns {Promise<Object>} - The decoded database
  */
-async function decodeRisuSave(data) {
-    const result = await _decodeRisuSaveInternal(data);
+async function decodeRisuSave(data, options = {}) {
+    const result = await _decodeRisuSaveInternal(data, options);
     return ensureDatabasePresetIds(result);
 }
 
-async function _decodeRisuSaveInternal(data) {
+async function _decodeRisuSaveInternal(data, options) {
     try {
         const header = checkHeader(data);
         switch (header) {
@@ -249,7 +261,7 @@ async function _decodeRisuSaveInternal(data) {
                 return unpackr.decode(await gunzipAsync(Buffer.from(data)));
             }
             case "risusave": {
-                const decoder = new RisuSaveDecoder();
+                const decoder = new RisuSaveDecoder(options);
                 return await decoder.decode(data);
             }
         }

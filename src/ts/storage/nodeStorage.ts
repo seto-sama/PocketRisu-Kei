@@ -108,6 +108,8 @@ export interface BackupRestoreResult {
     assetsRestored: number
     coldStorageFailed?: number
     pluginStorageColdFailed?: number
+    /** Upstream save blocks Kei cannot restore (SaveKV `kv:<namespace>`), left out of the import */
+    skippedSaveBlocks?: string[]
 }
 
 export interface PatchItemResult {

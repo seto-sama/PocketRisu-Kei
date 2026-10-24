@@ -548,8 +548,11 @@ function createBackupRestoreService({
 
             invalidateDbCache();
 
-            const coldStorageFailed = Number(preparedDatabase.coldStorageFailed ?? 0) || 0;
-            const pluginStorageColdFailed = Number(preparedDatabase.pluginStorageColdFailed ?? 0) || 0;
+            const {
+                coldStorageFailed = 0,
+                pluginStorageColdFailed = 0,
+                skippedSaveBlocks = [],
+            } = preparedDatabase;
 
             try {
                 checkpointWal('TRUNCATE');
@@ -568,7 +571,7 @@ function createBackupRestoreService({
             if (pluginStorageColdFailed > 0) {
                 logger.error(`[Backup Import] ${pluginStorageColdFailed} plugin storage item(s) could not be restored`);
             }
-            return { assetsRestored, bytesReceived, coldStorageFailed, pluginStorageColdFailed };
+            return { assetsRestored, bytesReceived, coldStorageFailed, pluginStorageColdFailed, skippedSaveBlocks };
         } catch (error) {
             if (!restoreCommitted) await restorePreviousInlays();
             throw error;

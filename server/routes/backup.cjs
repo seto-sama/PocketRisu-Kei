@@ -256,7 +256,8 @@ function installBackupRoutes(app, {
     }
 
     async function prepareImportedDatabaseProjection(raw, context) {
-        const decoded = await decodeRisuSave(Buffer.from(raw));
+        const skippedSaveBlocks = [];
+        const decoded = await decodeRisuSave(Buffer.from(raw), { skippedBlocks: skippedSaveBlocks });
         if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
             throw new TypeError('Imported database projection must be an object');
         }
@@ -266,6 +267,7 @@ function installBackupRoutes(app, {
             coldStorageFailed: coldRestoreResult.characters.failed,
             pluginStorageColdFailed: coldRestoreResult.pluginStorage.failed,
             discardedStorageKeys: coldRestoreResult.pluginStorage.discardedStorageKeys,
+            skippedSaveBlocks,
             install() {
                 bookmarkStore.replaceDatabaseCompatibility(database);
                 return appDataStore.replaceFromProjection(database, {
@@ -273,6 +275,10 @@ function installBackupRoutes(app, {
                 });
             },
         };
+    }
+
+    function restoreResultBody({ assetsRestored, coldStorageFailed, pluginStorageColdFailed, skippedSaveBlocks }) {
+        return { ok: true, assetsRestored, coldStorageFailed, pluginStorageColdFailed, skippedSaveBlocks };
     }
 
     function createPreReplacementSnapshot() {
@@ -699,13 +705,7 @@ function installBackupRoutes(app, {
                 }));
                 broadcastDatabaseInvalidated(req, { allChats: true });
                 broadcastBookmarksInvalidated(req);
-                res.write(JSON.stringify({
-                    type: 'done',
-                    ok: true,
-                    assetsRestored: result.assetsRestored,
-                    coldStorageFailed: result.coldStorageFailed,
-                    pluginStorageColdFailed: result.pluginStorageColdFailed,
-                }) + '\n');
+                res.write(JSON.stringify({ type: 'done', ...restoreResultBody(result) }) + '\n');
                 res.end();
             } else {
                 const result = await queueStorageOperation(() => importBackupFromSource(req, {
@@ -713,12 +713,7 @@ function installBackupRoutes(app, {
                 }));
                 broadcastDatabaseInvalidated(req, { allChats: true });
                 broadcastBookmarksInvalidated(req);
-                res.json({
-                    ok: true,
-                    assetsRestored: result.assetsRestored,
-                    coldStorageFailed: result.coldStorageFailed,
-                    pluginStorageColdFailed: result.pluginStorageColdFailed,
-                });
+                res.json(restoreResultBody(result));
             }
         } catch (error) {
             if (wantsNdjson && res.headersSent) {
@@ -925,13 +920,7 @@ function installBackupRoutes(app, {
             }));
             broadcastDatabaseInvalidated(req, { allChats: true });
             broadcastBookmarksInvalidated(req);
-            res.write(JSON.stringify({
-                type: 'done',
-                ok: true,
-                assetsRestored: result.assetsRestored,
-                coldStorageFailed: result.coldStorageFailed,
-                pluginStorageColdFailed: result.pluginStorageColdFailed,
-            }) + '\n');
+            res.write(JSON.stringify({ type: 'done', ...restoreResultBody(result) }) + '\n');
             res.end();
         } catch (error) {
             if (!res.headersSent) {

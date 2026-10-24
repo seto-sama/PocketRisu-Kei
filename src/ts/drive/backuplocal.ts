@@ -132,8 +132,12 @@ export async function finishBackupRestore(result: BackupRestoreResult) {
         result.coldStorageFailed ? `${result.coldStorageFailed} character(s)` : '',
         result.pluginStorageColdFailed ? `${result.pluginStorageColdFailed} plugin storage item(s)` : '',
     ].filter(Boolean).join(' and ')
-    if (failures) {
-        alertError(`Warning: ${failures} could not be restored from cold storage. The restored save may be incomplete. The app will now reload.`)
+    const warnings = [
+        failures ? `${failures} could not be restored from cold storage.` : '',
+        result.skippedSaveBlocks?.length ? `RisuAI SaveKV data is not supported and was left out: ${result.skippedSaveBlocks.join(', ')}.` : '',
+    ].filter(Boolean).join(' ')
+    if (warnings) {
+        alertError(`Warning: ${warnings} The restored save may be incomplete. The app will now reload.`)
         await waitAlert()
     } else {
         alertWait("Success, Refreshing your app.");
