@@ -14,12 +14,9 @@ function backupError(code, details) {
     return error;
 }
 
-/** OriginalRisu's web-account backup format. The marker may follow the DB.
- * No account credentials or backup content are sent to the key service.
- */
 async function decryptAccountBackup(database, marker, { fetchImpl = globalThis.fetch } = {}) {
     let metadata;
-    try { metadata = JSON.parse(marker.toString('utf8')); } catch { /* validated below */ }
+    try { metadata = JSON.parse(marker.toString('utf8')); } catch {}
     if (metadata?.type !== 'account' || !Number.isSafeInteger(metadata.time) || metadata.time <= 0) {
         throw backupError(codes.BACKUP_ENCRYPTION_METADATA_INVALID);
     }
@@ -29,7 +26,9 @@ async function decryptAccountBackup(database, marker, { fetchImpl = globalThis.f
         const url = new URL(ACCOUNT_BACKUP_KEY_URL);
         url.searchParams.set('key', String(metadata.time));
         const response = await fetchWithRequestTimeout(signal => fetchImpl(url, {
-            signal, redirect: 'error', headers: { accept: 'application/json' },
+            signal, redirect: 'error',
+            // The key service requires same-site fetch metadata.
+            headers: { accept: 'application/json', 'Sec-Fetch-Site': 'same-site' },
         }), { firstResponseTimeoutMs: KEY_LOOKUP_TIMEOUT_MS, idleTimeoutMs: KEY_LOOKUP_TIMEOUT_MS });
         if (!response.ok) {
             await response.body?.cancel();
