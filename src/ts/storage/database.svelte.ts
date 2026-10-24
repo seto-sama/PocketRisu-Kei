@@ -1582,6 +1582,8 @@ export interface character{
     realmId?:string
     imported?:boolean
     trashTime?:number
+    /** Folder the character left when trashed; restoring recreates it if it was dropped while empty. */
+    trashFolder?:Omit<folder, 'data'>
     nickname?:string
     source?:string[]
     group_only_greetings?:string[]

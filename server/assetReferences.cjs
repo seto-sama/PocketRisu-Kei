@@ -79,6 +79,8 @@ function collectDatabaseAssetBasenames(
             if (character.vits?.files) for (const value of Object.values(character.vits.files)) add(value);
             if (Array.isArray(character.ccAssets)) for (const asset of character.ccAssets) add(asset?.uri);
             add(character.gptSoVitsConfig?.ref_audio_data?.assetId);
+            add(character.trashFolder?.img);
+            add(character.trashFolder?.imgFile);
         }
     }
     if (Array.isArray(dbObj.modules)) {

@@ -27,6 +27,7 @@ import {
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 import { archiveCurrentCharacterIcon } from './characterAssets'
+import { moveToTrash, restoreFromTrash } from './characterTrash'
 import { importRisuChats } from './chatImport'
 
 const BOOKMARK_TAG_DATA_CLASS = 'bookmark-tag-data'
@@ -733,7 +734,7 @@ export async function removeChar(index:number,name:string, type:'normal'|'perman
 
         let chars = db.characters
         if(type === 'normal'){
-            chars[currentIndex].trashTime = Date.now()
+            moveToTrash(db.characterOrder, chars[currentIndex])
         }
         else{
             chars.splice(currentIndex, 1)
@@ -748,6 +749,11 @@ export async function removeChar(index:number,name:string, type:'normal'|'perman
         charactersBeingRemoved.delete(targetCharacter)
         activeCharacterRemovalCount--
     }
+}
+
+export function restoreCharacterFromTrash(character: character){
+    restoreFromTrash(getDatabase().characterOrder, character)
+    checkCharOrder()
 }
 
 export async function emptyCharacterTrash(){

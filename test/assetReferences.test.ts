@@ -21,6 +21,7 @@ describe('asset references', () => {
             characters: [{
                 image: 'assets/character.png',
                 gptSoVitsConfig: { ref_audio_data: { assetId: 'assets/reference.wav' } },
+                trashFolder: { id: 'F', name: 'Folder', color: '', imgFile: 'assets/trashed-folder.png' },
             }],
             personas: [{ image: 'assets/legacy-persona.png' }],
             NAIImgConfig: { character_image: 'assets/nai.png' },
@@ -31,6 +32,7 @@ describe('asset references', () => {
             'nai.png',
             'character.png',
             'reference.wav',
+            'trashed-folder.png',
             'legacy-persona.png',
             'plugin-db.webp',
         ]))

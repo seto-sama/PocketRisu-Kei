@@ -12,7 +12,7 @@
     import { openSidebarFolderMenu } from "../SideBars/sidebarFolderMenu";
     import type { folder } from "src/ts/storage/database.svelte";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { changeChar, emptyCharacterTrash, getCharImage, removeChar } from "../../ts/characters";
+    import { changeChar, emptyCharacterTrash, getCharImage, removeChar, restoreCharacterFromTrash } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
     import { DBState, selectedCharID } from 'src/ts/stores.svelte';
     import {
@@ -195,8 +195,7 @@
         }
 
         try {
-            current.trashTime = undefined;
-            checkCharOrder();
+            restoreCharacterFromTrash(current);
             await requestImmediateSave({ characterIds: [character.chaId] });
         } finally {
             deletingCharacterId = null;

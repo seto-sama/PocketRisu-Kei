@@ -344,7 +344,10 @@ function installBackupRoutes(app, {
         const imageDatabase = {
             customBackground: database.customBackground,
             userIcon: database.userIcon,
-            characters: (database.characters ?? []).map((character) => ({ image: character?.image })),
+            characters: (database.characters ?? []).map((character) => ({
+                image: character?.image,
+                trashFolder: character?.trashFolder,
+            })),
             personas: (database.personas ?? []).map((persona) => ({ icon: persona?.icon })),
             characterOrder: database.characterOrder,
             botPresets: (database.botPresets ?? []).map((preset) => ({ image: preset?.image })),

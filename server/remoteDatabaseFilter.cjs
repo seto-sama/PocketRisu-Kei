@@ -50,6 +50,10 @@ function collectRemoteHiddenCharacterIds(dbObj) {
             }
         }
     }
+    // A trashed character has left its folder; trashFolder remembers whether it was local-only.
+    for (const char of dbObj?.characters ?? []) {
+        if (typeof char?.chaId === 'string' && isLocalOnlyFolder(char.trashFolder)) hidden.add(char.chaId);
+    }
     return hidden;
 }
 
