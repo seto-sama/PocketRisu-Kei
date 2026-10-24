@@ -119,15 +119,29 @@ Termux 通知列會顯示喚醒鎖指示器,即使螢幕關閉伺服器也會繼
 
 ## 5. 更新
 
-在 PocketRisu 目錄下執行:
+先使用 `Ctrl + C` 停止執行中的伺服器,然後執行:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+每個步驟只有在前一步成功後才會執行。如果 `git pull` 失敗,指令會在安裝相依套件或建置前停止,不會重新建置舊原始碼。`pnpm install` 必須明確執行,不會作為 `pnpm build` 的一部分自動執行。每次更新都要執行。`GYP_DEFINES` 是建置腳本使用的 Termux 設定,編譯 `msgpackr-extract` 等原生模組時需要它。建置完成後,使用 `node server/server.cjs` 重新啟動伺服器。
+
+### 如果 `git pull` 失敗
+
+檢查本機變更:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-如果相依套件發生變更,`pnpm install` 會作為建置的一部分自動執行。建置完成後請重新啟動伺服器。
+如果要保留尚未提交的變更,請先提交,或在執行上方更新指令前使用 `git stash push` 暫存。若使用 stash,更新後以 `git stash pop` 還原,並檢查是否有衝突。如果出現 `Not possible to fast-forward`,請先解決本機分支的分歧; stash 無法解決不同的提交歷史。
 
 
 ---
