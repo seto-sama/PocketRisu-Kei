@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createRequire } from 'node:module'
 import { deflateRawSync, deflateSync, gzipSync } from 'node:zlib'
+import { encodeRisuSaveBlocks } from '../../test/compat/helpers/encode'
 
 const require = createRequire(import.meta.url)
 const {
@@ -11,37 +12,6 @@ const {
 const magicHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7)
 const magicCompressedHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 8)
 const magicStreamCompressedHeader = Uint8Array.of(0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 9)
-const magicRisuSaveHeader = Buffer.from('RISUSAVE\0')
-
-function remoteSave(): Buffer {
-    const name = Buffer.from('character-id', 'utf8')
-    const payload = Buffer.from(JSON.stringify({
-        v: 1,
-        type: 2,
-        name: 'character-id',
-    }), 'utf8')
-    const block = Buffer.alloc(2 + 1 + name.length + 4 + payload.length)
-    block[0] = 6
-    block[1] = 0
-    block[2] = name.length
-    name.copy(block, 3)
-    block.writeUInt32LE(payload.length, 3 + name.length)
-    payload.copy(block, 7 + name.length)
-    return Buffer.concat([Buffer.from(magicRisuSaveHeader), block])
-}
-
-function risuSaveWithoutPresets(): Buffer {
-    const name = Buffer.from('root', 'utf8')
-    const payload = Buffer.from('{}', 'utf8')
-    const block = Buffer.alloc(2 + 1 + name.length + 4 + payload.length)
-    block[0] = 1
-    block[1] = 0
-    block[2] = name.length
-    name.copy(block, 3)
-    block.writeUInt32LE(payload.length, 3 + name.length)
-    payload.copy(block, 7 + name.length)
-    return Buffer.concat([Buffer.from(magicRisuSaveHeader), block])
-}
 
 describe('decodeRisuSave', () => {
     it('assigns legacy preset IDs and rejects duplicate persona IDs during decode', async () => {
@@ -57,14 +27,16 @@ describe('decodeRisuSave', () => {
     })
 
     it('rejects REMOTE saves with actionable conversion guidance', async () => {
-        await expect(decodeRisuSave(remoteSave())).rejects.toMatchObject({
+        await expect(decodeRisuSave(encodeRisuSaveBlocks([{
+            type: 6, name: 'character-id', data: Buffer.from(JSON.stringify({ v: 1, type: 2, name: 'character-id' })),
+        }]))).rejects.toMatchObject({
             code: 'UNSUPPORTED_REMOTE_SAVE',
             message: expect.stringContaining('Disable Remote Saving in RisuAI'),
         })
     })
 
     it('leaves missing preset defaults to the client database normalizer', async () => {
-        const decoded = await decodeRisuSave(risuSaveWithoutPresets())
+        const decoded = await decodeRisuSave(encodeRisuSaveBlocks([{ type: 1, name: 'root', data: Buffer.from('{}') }]))
 
         expect(decoded.characters).toEqual([])
         expect(decoded).not.toHaveProperty('botPresets')
@@ -97,6 +69,15 @@ describe('decodeRisuSave', () => {
         const encoded = Buffer.concat([Buffer.from(magicCompressedHeader), compressed])
 
         await expect(decodeRisuSave(encoded)).resolves.toMatchObject(database)
+    })
+
+    it('keeps valid data when a compressed plugin block is corrupt', async () => {
+        const data = encodeRisuSaveBlocks([
+            { type: 1, name: 'root', data: Buffer.from('{}') },
+            { type: 11, name: 'pluginStorage', compressed: true, data: gzipSync(Buffer.from('{"key":"value"}')) },
+            { type: 11, name: 'pluginStorage', compressed: true, data: Buffer.from('bad gzip') },
+        ])
+        await expect(decodeRisuSave(data)).resolves.toMatchObject({ pluginCustomStorage: { key: 'value' } })
     })
 
     it('decodes gzip stream-header saves', async () => {

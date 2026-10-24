@@ -644,10 +644,11 @@ function installBackupRoutes(app, {
         importInProgress = true;
 
         // Disable timeouts for large backup uploads
-        const prevRequestTimeout = req.socket.server?.requestTimeout;
+        const httpServer = req.socket.server;
+        const prevRequestTimeout = httpServer?.requestTimeout;
         req.socket.setTimeout(0);
         req.socket.setKeepAlive(true);
-        if (req.socket.server) req.socket.server.requestTimeout = 0;
+        if (httpServer) httpServer.requestTimeout = 0;
 
         // NDJSON streaming keeps the response socket alive during long
         // post-upload work (WAL checkpoint, cold-storage migration). Without it
@@ -736,8 +737,8 @@ function installBackupRoutes(app, {
         } finally {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
             importInProgress = false;
-            if (req.socket.server && prevRequestTimeout !== undefined) {
-                req.socket.server.requestTimeout = prevRequestTimeout;
+            if (httpServer && prevRequestTimeout !== undefined) {
+                httpServer.requestTimeout = prevRequestTimeout;
             }
         }
     });

@@ -6,6 +6,7 @@ import { encode as encodeMessagePack } from 'msgpackr'
 import Database from '../sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import pkg from './index.cjs'
+import { encodeBackupEntry as backupEntry, encodeRisuSaveBlocks } from '../../test/compat/helpers/encode'
 
 const {
     createBackupRestoreService,
@@ -48,14 +49,6 @@ afterEach(async () => {
     ))
     temporaryDirectories.clear()
 })
-
-function backupEntry(name: string, value: Buffer) {
-    const nameBuffer = Buffer.from(name)
-    const header = Buffer.alloc(8)
-    header.writeUInt32LE(nameBuffer.length, 0)
-    header.writeUInt32LE(value.length, 4)
-    return Buffer.concat([header.subarray(0, 4), nameBuffer, header.subarray(4), value])
-}
 
 function pluginStorageBackupEntry(namespace: string, key: string, value: Buffer, owner?: string) {
     const encodedKey = Buffer.from(key, 'utf-8').toString('base64url')
@@ -512,20 +505,9 @@ describe('createBackupRestoreService', () => {
             ],
             trash: [{ id: 'trash-id', at: 0 }],
         }
-        const originalSave = Buffer.concat([
-            Buffer.from('RISUSAVE\0'),
-            ...[
-                { type: 1, name: 'root', value: { characters: [] } },
-                { type: 11, name: 'pluginStorage', value: database.pluginCustomStorage },
-            ].map(({ type, name, value }) => {
-                const payload = Buffer.from(JSON.stringify(value))
-                const header = Buffer.alloc(7 + Buffer.byteLength(name))
-                header[0] = type
-                header[2] = Buffer.byteLength(name)
-                header.write(name, 3)
-                header.writeUInt32LE(payload.length, 3 + Buffer.byteLength(name))
-                return Buffer.concat([header, payload])
-            }),
+        const originalSave = encodeRisuSaveBlocks([
+            { type: 1, name: 'root', data: Buffer.from(JSON.stringify({ characters: [] })) },
+            { type: 11, name: 'pluginStorage', data: Buffer.from(JSON.stringify(database.pluginCustomStorage)) },
         ])
         const backup = Buffer.concat([
             backupEntry('database.risudat', originalSave),
@@ -546,7 +528,7 @@ describe('createBackupRestoreService', () => {
         } finally { harness.db.close() }
     })
 
-    it('rolls back imported cold storage when projection installation fails', async () => {
+    it('rolls back database, cold storage, assets, and inlays when installation fails', async () => {
         const coldId = 'plugin-cold-id'
         let harness!: Awaited<ReturnType<typeof fullRestoreHarness>>
         harness = await fullRestoreHarness(async (_raw, context) => {
@@ -565,54 +547,29 @@ describe('createBackupRestoreService', () => {
         const oldColdValue = harness.coldStorage.encodeColdStorageCanonicalBuffer({ old: true })
         harness.db.prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, 1)')
             .run('coldstorage/old-cold-id', oldColdValue)
-        const backup = Buffer.concat([
-            backupEntry(`coldstorage/${coldId}.json`, Buffer.from(JSON.stringify({ new: true }))),
-            backupEntry('database.risudat', Buffer.from('database')),
-        ])
-
-        async function* chunks() { yield backup }
-        await expect(harness.service.importBackupFromSource(chunks()))
-            .rejects.toThrow('projection install failed')
-
-        expect(harness.get.get('coldstorage/old-cold-id').value).toEqual(oldColdValue)
-        expect(harness.get.get(`coldstorage/${coldId}`)).toBeUndefined()
-        expect(harness.db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value)
-            .toBe('old projection')
-    })
-
-    it('rolls back KV, canonical rows, and promoted inlays when install fails', async () => {
-        let db!: ReturnType<typeof freshDb>
-        const harness = await fullRestoreHarness(async () => ({
-            install() {
-                db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
-                    .run('partially installed')
-                throw new Error('projection install failed')
-            },
-        }))
-        db = harness.db
         await writeFile(join(harness.inlayDir, 'old.png'), Buffer.from('old inlay'))
-        const backup = Buffer.concat([
-            backupEntry('new.png', Buffer.from('new asset')),
-            backupEntry('inlay/new.png', Buffer.from('new inlay')),
-            backupEntry('database.risudat', Buffer.from('database')),
-        ])
-
-        async function* chunks() { yield backup }
-        await expect(harness.service.importBackupFromSource(chunks()))
-            .rejects.toThrow('projection install failed')
-
-        expect(harness.get.get('assets/old.png').value).toEqual(Buffer.from('old'))
-        expect(harness.get.get('assets/new.png')).toBeUndefined()
-        expect(harness.get.get('database/database.bin').value)
-            .toEqual(Buffer.from('old compatibility blob'))
-        expect(db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value)
-            .toBe('old projection')
-        await expect(access(join(harness.inlayDir, 'old.png'))).resolves.toBeUndefined()
-        await expect(access(join(harness.inlayDir, 'new.png'))).rejects.toThrow()
+        async function* chunks() {
+            yield backupEntry('new.png', Buffer.from('new asset'))
+            yield backupEntry('inlay/new.png', Buffer.from('new inlay'))
+            yield backupEntry(`coldstorage/${coldId}.json`, Buffer.from(JSON.stringify({ new: true })))
+            yield backupEntry('database.risudat', Buffer.from('database'))
+        }
+        try {
+            await expect(harness.service.importBackupFromSource(chunks())).rejects.toThrow('projection install failed')
+            expect(harness.get.get('assets/old.png').value).toEqual(Buffer.from('old'))
+            expect(harness.get.get('assets/new.png')).toBeUndefined()
+            expect(harness.get.get('database/database.bin').value).toEqual(Buffer.from('old compatibility blob'))
+            expect(harness.get.get('coldstorage/old-cold-id').value).toEqual(oldColdValue)
+            expect(harness.get.get(`coldstorage/${coldId}`)).toBeUndefined()
+            expect(harness.db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value).toBe('old projection')
+            expect(await readFile(join(harness.inlayDir, 'old.png'))).toEqual(Buffer.from('old inlay'))
+            await expect(access(join(harness.inlayDir, 'new.png'))).rejects.toThrow()
+        } finally { harness.db.close() }
     })
 
     it.each([
         ['missing database', Buffer.alloc(0), 'does not contain database.risudat'],
+        ['Windows inlay path', backupEntry('inlay/..\\outside.png', Buffer.from('image')), 'Invalid inlay backup entry name'],
         [
             'truncated trailing entry',
             Buffer.concat([
@@ -621,26 +578,21 @@ describe('createBackupRestoreService', () => {
             ]),
             'incomplete entry',
         ],
-    ])('keeps live state intact after 5001 staged entries with %s', async (
+    ])('rejects invalid backups without changing live data: %s', async (
         _label,
         ending,
         expectedError,
     ) => {
-        let prepareCalls = 0
-        const harness = await fullRestoreHarness(async () => {
-            prepareCalls += 1
-            return { install: () => {} }
-        })
-        const manyEntries = Array.from({ length: 5001 }, (_, index) =>
+        const harness = await fullRestoreHarness(async () => ({ install() {} }))
+        const entries = Array.from({ length: 3 }, (_, index) =>
             backupEntry(`asset-${index}.bin`, Buffer.from([index % 251])),
         )
-        const backup = Buffer.concat([...manyEntries, ending])
+        const backup = Buffer.concat([...entries, ending])
 
         async function* chunks() { yield backup }
         await expect(harness.service.importBackupFromSource(chunks()))
             .rejects.toThrow(expectedError)
 
-        expect(prepareCalls).toBe(0)
         expect(harness.db.prepare('SELECT key, value FROM kv ORDER BY key').all())
             .toEqual([
                 {

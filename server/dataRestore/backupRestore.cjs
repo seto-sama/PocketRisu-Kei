@@ -57,15 +57,12 @@ function createBackupRestoreService({
     }
 
     function parseInlayBackupName(name) {
-        if (!name.startsWith('inlay/')) return null;
+        if (!name.startsWith('inlay/') || isInvalidBackupPathSegment(name)) return null;
         const suffix = name.slice('inlay/'.length);
-        if (!suffix || suffix.includes('/')) return null;
         const dotIdx = suffix.lastIndexOf('.');
-        if (dotIdx <= 0) return { id: suffix, ext: null };
-        return {
-            id: suffix.slice(0, dotIdx),
-            ext: suffix.slice(dotIdx + 1),
-        };
+        const id = dotIdx > 0 ? suffix.slice(0, dotIdx) : suffix;
+        if (!isSafeInlayId(id)) return null;
+        return { id, ext: dotIdx > 0 ? suffix.slice(dotIdx + 1) : null };
     }
 
     function parseInlaySidecarBackupName(name) {
@@ -87,7 +84,7 @@ function createBackupRestoreService({
         }
         if (name.startsWith('inlay/')) {
             const parsed = parseInlayBackupName(name);
-            if (!parsed || !isSafeInlayId(parsed.id)) {
+            if (!parsed) {
                 throw new Error(`Invalid inlay backup entry name: ${name}`);
             }
             return name;
@@ -193,9 +190,14 @@ function createBackupRestoreService({
             }
         }
 
-        const stagingInlayFilePath = (id, ext) =>
-            path.join(stagingDir, `${id}.${normalizeInlayExt(ext)}`);
-        const stagingSidecarPath = (id) => path.join(stagingDir, `${id}.meta.json`);
+        function stagingInlayFilePath(id, ext) {
+            const filePath = path.resolve(stagingDir, `${id}.${normalizeInlayExt(ext)}`);
+            if (path.dirname(filePath) !== path.resolve(stagingDir)) {
+                throw new Error(`Path escapes inlay staging directory: ${filePath}`);
+            }
+            return filePath;
+        }
+        const stagingSidecarPath = (id) => stagingInlayFilePath(id, 'meta.json');
         function writeStagingInlayFileSync(id, ext, buffer, info) {
             const normalizedExt = normalizeInlayExt(ext);
             const filePath = stagingInlayFilePath(id, normalizedExt);

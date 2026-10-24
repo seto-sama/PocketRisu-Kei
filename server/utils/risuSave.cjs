@@ -135,12 +135,7 @@ class RisuSaveDecoder {
                 offset += length;
 
                 if (compression) {
-                    const cs = new DecompressionStream('gzip');
-                    const writer = cs.writable.getWriter();
-                    writer.write(blockData);
-                    writer.close();
-                    const buf = await new Response(cs.readable).arrayBuffer();
-                    blockData = new Uint8Array(buf);
+                    blockData = await gunzipAsync(blockData);
                 }
 
                 this.blocks.push({
@@ -197,7 +192,9 @@ class RisuSaveDecoder {
                         break;
                     }
                     case RisuSaveType.PLUGIN_STORAGE: {
-                        db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
+                        if (this.blocks[key].content) {
+                            db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
+                        }
                         break;
                     }
                     case RisuSaveType.ROOT_COMPONENT: {
