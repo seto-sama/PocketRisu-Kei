@@ -102,11 +102,8 @@ function setChatHydrationFailure(key: string, failure: ChatHydrationFailure | nu
     })
 }
 
-/** Hydration in progress — suppress dirty tracking */
-export const hydrationInFlight = new Set<string>()
-
-/** Hydration just applied to memory — suppress until next tick */
-export const hydrationJustApplied = new Set<string>()
+/** Hydration in progress, through the Svelte update after apply — suppress dirty tracking */
+const hydrationInFlight = new Set<string>()
 
 /** Track in-flight hydration promises to avoid duplicate fetches */
 const hydrationPromises = new Map<string, Promise<Chat | null>>()
@@ -266,9 +263,11 @@ export function setChatServerEtag(chaId: string, chatId: string, etag: string): 
  * Check if a specific chat is currently being hydrated (for dirty tracking suppression).
  */
 export function isHydrating(chaId: string, chatId: string): boolean {
-    const key = chatKey(chaId, chatId)
-    return hydrationInFlight.has(key) || hydrationJustApplied.has(key)
+    return hydrationInFlight.has(chatKey(chaId, chatId))
 }
+
+/** Character fields hydration needs; `chats` is re-read because callers may replace the array. */
+type ChatOwner = { chaId: string, chats: Chat[] }
 
 /**
  * Hydrate a placeholder Chat in-place on the character's chats array.
@@ -276,11 +275,11 @@ export function isHydrating(chaId: string, chatId: string): boolean {
  * Returns the hydrated Chat, or null if its body is missing.
  */
 export async function ensureChatHydrated(
-    chats: Chat[],
+    character: ChatOwner,
     index: number,
-    chaId: string,
 ): Promise<Chat | null> {
-    const slot = chats[index]
+    const { chaId } = character
+    const slot = character.chats[index]
     if (!slot) return null
     if (!slot._placeholder) return slot
 
@@ -308,6 +307,11 @@ export async function ensureChatHydrated(
                 return null
             }
 
+            // Schedule the large chat update for the next animation frame.
+            await new Promise<void>(r => requestAnimationFrame(() => r()))
+
+            // Resolve against the live array: deleting or moving a chat replaces it.
+            const chats = character.chats
             const currentIndex = chats.findIndex(chat => chat?.id === chatId)
             if (currentIndex === -1) {
                 console.warn(`[chatStorage] hydrate skipped: chat removed before apply (${key})`)
@@ -319,18 +323,10 @@ export async function ensureChatHydrated(
                 return currentSlot
             }
 
-            // Schedule the large chat update for the next animation frame.
-            await new Promise<void>(r => requestAnimationFrame(() => r()))
-
-            // Suppress reactive write-back while replacing the placeholder.
-            hydrationJustApplied.add(key)
             chats[currentIndex] = full
 
             // Keep suppression through Svelte's next update.
             await tick()
-            hydrationJustApplied.delete(key)
-
-            setChatHydrationFailure(key, null)
             return full
         } finally {
             hydrationInFlight.delete(key)
@@ -340,15 +336,4 @@ export async function ensureChatHydrated(
 
     hydrationPromises.set(key, promise)
     return promise
-}
-
-/**
- * Convenience: ensure the current active chat for a character is hydrated.
- */
-export async function ensureCurrentChatReady(
-    chats: Chat[],
-    chatPage: number,
-    chaId: string,
-): Promise<Chat | null> {
-    return ensureChatHydrated(chats, chatPage, chaId)
 }

@@ -60,10 +60,10 @@ describe('lorebook import target', () => {
             mocks.DBState.db.characters = [character('b'), target]
             return importedFile()
         })
-        mocks.hydrate.mockImplementation(async (chats: Chat[], index: number) => {
+        mocks.hydrate.mockImplementation(async (owner: { chats: Chat[] }, index: number) => {
             const target = character('a')
             target.chats[0].localLore.push(entry('remote'))
-            chats[index] = target.chats[0]
+            owner.chats[index] = target.chats[0]
             mocks.DBState.db.characters = [character('b'), target]
             setChatPage(target, 1)
             return target.chats[0]

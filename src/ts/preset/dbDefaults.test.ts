@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyModelPresetDefaults, createEmptyRegistryCache } from './dbDefaults'
+import { applyModelPresetDefaults } from './dbDefaults'
 
 describe('applyModelPresetDefaults', () => {
     test('initializes v4 model preset storage fields', () => {
@@ -70,7 +70,7 @@ describe('applyModelPresetDefaults', () => {
     })
 
     test('preserves migration metadata and drops legacy official catalog data', () => {
-        const existingCache = createEmptyRegistryCache()
+        const existingCache = { schemaVersion: 4, registries: {} as Record<string, unknown> }
         existingCache.registries.official = { fetchedAt: 123, indexVersion: 7 }
         const db: any = {
             modelPresets: [{ id: 'preset-a' }],

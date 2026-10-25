@@ -2044,6 +2044,38 @@ export function foldChatToMessage(targetMessageIdOrIndex: string | number) {
     }
 }
 
+/**
+ * Hydrate a just-selected placeholder chat behind a cancellable loading overlay.
+ * Toggles load only if the same character and chat are still active afterwards.
+ */
+export function hydrateSelectedChat(char: character, index: number, source: string) {
+    const capturedCharacterId = char.chaId
+    const capturedChatId = char.chats[index].id
+    let cancelled = false
+    const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
+        cancelled = true
+        chatDeselected.set(true)
+        releaseOverlay()
+    })
+    void ensureChatHydrated(char, index).then((hydrated) => {
+        if(cancelled) return
+        const activeCharacter = DBState.db.characters[get(selectedCharID)]
+        const activeChat = activeCharacter?.chats[getChatPage(activeCharacter)]
+        if (
+            hydrated
+            && activeCharacter?.chaId === capturedCharacterId
+            && activeChat?.id === capturedChatId
+            && !activeChat._placeholder
+        ) {
+            loadTogglesFromChat(activeChat)
+        }
+    }).catch((e) => {
+        console.error(`[${source}] hydration failed:`, e)
+    }).finally(() => {
+        if(!cancelled) releaseOverlay()
+    })
+}
+
 export function changeChatTo(IdOrIndex: string | number) {
     let index = -1
     if (typeof IdOrIndex === 'number') {
@@ -2068,32 +2100,7 @@ export function changeChatTo(IdOrIndex: string | number) {
     if(newChat){
         dismissClaimedLoadingOverlay()
         if(newChat._placeholder){
-            const capturedIndex = index
-            const capturedCharacterId = char.chaId
-            const capturedChatId = newChat.id
-            let cancelled = false
-            const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
-                cancelled = true
-                chatDeselected.set(true)
-                releaseOverlay()
-            })
-            void ensureChatHydrated(char.chats, capturedIndex, char.chaId).then((hydrated) => {
-                if(cancelled) return
-                const activeCharacter = DBState.db.characters[get(selectedCharID)]
-                const activeChat = activeCharacter?.chats[getChatPage(activeCharacter)]
-                if (
-                    hydrated
-                    && activeCharacter?.chaId === capturedCharacterId
-                    && activeChat?.id === capturedChatId
-                    && !activeChat._placeholder
-                ) {
-                    loadTogglesFromChat(activeChat)
-                }
-            }).catch((e) => {
-                console.error('[changeChatTo] hydration failed:', e)
-            }).finally(() => {
-                if(!cancelled) releaseOverlay()
-            })
+            hydrateSelectedChat(char, index, 'changeChatTo')
         } else {
             loadTogglesFromChat(newChat)
         }

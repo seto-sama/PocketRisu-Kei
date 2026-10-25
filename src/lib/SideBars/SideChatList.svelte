@@ -146,7 +146,7 @@
         let chatIdx = chara.chats.findIndex(item => item.id === chatId)
         if (chatIdx < 0) return
         if (chara.chats[chatIdx]?._placeholder) {
-            await ensureChatHydrated(chara.chats, chatIdx, chara.chaId)
+            await ensureChatHydrated(chara, chatIdx)
             if (chara.chaId !== characterId) return
             chatIdx = chara.chats.findIndex(item => item.id === chatId)
             if (chatIdx < 0) return

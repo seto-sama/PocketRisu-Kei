@@ -36,7 +36,7 @@ const serverChats = new Map<string, { chat: Chat, etag?: string }>()
 const syncAppliedChats = new WeakMap<object, Chat>()
 let nextRevision = 1
 
-export function chatWorkingCopyKey(characterId: string, chatId: string) {
+function chatWorkingCopyKey(characterId: string, chatId: string) {
     return `${characterId}\u0000${chatId}`
 }
 
@@ -120,7 +120,7 @@ export function acknowledgeChatCommit(snapshot: ChatCommitSnapshot, committedEta
 }
 
 /** Used by canonical handoff after generation-owned fields are excluded. */
-export function clearChatWorkingCopy(characterId: string, chatId: string) {
+function clearChatWorkingCopy(characterId: string, chatId: string) {
     dirtyChats.delete(chatWorkingCopyKey(characterId, chatId))
 }
 

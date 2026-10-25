@@ -140,11 +140,7 @@ function locateBookmark(db: Database, target: BookmarkLocation) {
 export async function navigateToBookmark(target: BookmarkLocation): Promise<boolean> {
     const location = locateBookmark(DBState.db, target)
     if (!location) return false
-    const chat = await ensureChatHydrated(
-        location.character.chats,
-        location.chatIndex,
-        location.character.chaId,
-    )
+    const chat = await ensureChatHydrated(location.character, location.chatIndex)
     if (!chat) return false
     const messageIndex = chat.message.findIndex(message => message?.chatId === target.messageId)
     if (messageIndex < 0) return false

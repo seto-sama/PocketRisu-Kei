@@ -654,7 +654,7 @@ export async function importLoreBook(mode:'global'|'local'){
             if (index === -1) return
             let chat = character.chats[index]
             if (chat._placeholder) {
-                await ensureChatHydrated(character.chats, index, characterId)
+                await ensureChatHydrated(character, index)
                 // Re-resolve only after hydration yields; sync may replace the body.
                 chat = getTargetCharacter()?.chats.find(chat => chat.id === chatId)
                 if (!chat || chat._placeholder) return

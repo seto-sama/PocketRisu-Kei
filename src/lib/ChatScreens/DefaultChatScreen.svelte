@@ -22,7 +22,7 @@
     import {
         chatHydrationFailures,
         chatHydrationKey,
-        ensureCurrentChatReady,
+        ensureChatHydrated,
         flushDirtyChatToServer,
     } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
@@ -655,7 +655,7 @@ import { isMobile } from 'src/ts/platform'
         const chat = char.chats[chatPage]
         if (!chat) return null
         if (!chat._placeholder) return chat
-        return await ensureCurrentChatReady(char.chats, chatPage, char.chaId)
+        return await ensureChatHydrated(char, chatPage)
     }
 
     async function retryCurrentChatLoad(): Promise<void> {

@@ -4,13 +4,13 @@ import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
-import { claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
+import { dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
 import { OpenRealmStore, selectedCharID } from "./stores.svelte";
-import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
+import { AppendableBuffer, changeChatTo, checkCharOrder, hydrateSelectedChat, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
@@ -193,7 +193,7 @@ export async function exportChat(page:number){
         const char = db.characters[selectedID]
         // Export needs the full chat body, not a server placeholder.
         if(char.chats[page]?._placeholder){
-            await ensureChatHydrated(char.chats, page, char.chaId)
+            await ensureChatHydrated(char, page)
         }
         if(char.chats[page]?._placeholder){
             alertError('Failed to load chat data. Export aborted.')
@@ -514,7 +514,7 @@ export async function exportAllChats() {
         for (let i = 0; i < char.chats.length; i++) {
             if (char.chats[i]?._placeholder) {
                 alertWait(`Loading chat data... (${i + 1}/${char.chats.length})`)
-                await ensureChatHydrated(char.chats, i, char.chaId)
+                await ensureChatHydrated(char, i)
             }
             if (char.chats[i]?._placeholder) {
                 alertError(`Failed to load chat data for "${char.chats[i].name}". Export aborted to prevent data loss.`)
@@ -834,30 +834,7 @@ export function changeChar(index: number, arg:{
     const chat = getCurrentChat()
     if(chat){
         if(chat._placeholder){
-            const db = getDatabase()
-            const char = db.characters[index]
-            const capturedIndex = index
-            const capturedChatId = chat.id
-            if(char){
-                let cancelled = false
-                const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
-                    cancelled = true
-                    chatDeselected.set(true)
-                    releaseOverlay()
-                })
-                void ensureChatHydrated(char.chats, getChatPage(char), char.chaId).then((hydrated) => {
-                    if(cancelled) return
-                    const currentChar = getDatabase().characters[capturedIndex]
-                    const activeChatId = currentChar?.chats?.[getChatPage(currentChar)]?.id
-                    if(hydrated && get(selectedCharID) === capturedIndex && activeChatId === capturedChatId) {
-                        loadTogglesFromChat(hydrated)
-                    }
-                }).catch((e) => {
-                    console.error('[selectCharacter] hydration failed:', e)
-                }).finally(() => {
-                    if(!cancelled) releaseOverlay()
-                })
-            }
+            hydrateSelectedChat(char, getChatPage(char), 'selectCharacter')
         } else {
             loadTogglesFromChat(chat)
         }
