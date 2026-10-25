@@ -160,7 +160,7 @@
                     aria-label={language.select}
                     onclick={selectUserImg}
                 >
-                    {#if DBState.db.userIcon}
+                    {#if DBState.db.userIcon && !DBState.db.hideAllImages}
                         {#await getCharImage(DBState.db.userIcon, 'css')}
                             <div class="h-full w-full animate-pulse bg-button"></div>
                         {:then imageStyle}

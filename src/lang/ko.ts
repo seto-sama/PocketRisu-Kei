@@ -1222,6 +1222,8 @@ export const languageKorean = {
   hideRealm: "신규 캐릭터 숨기기",
   hidePublicStats: "통계 정보 보내기",
   hideAllImages: "모든 이미지 숨기기",
+  hideAllImagesNotice: "{{setting}} 상태입니다",
+  imageNotFound: "이미지를 찾지 못했습니다",
   preloadChatImages: "이미지 미리 로딩",
   popularityLevel: "인기도 {}",
   colorScheme: "색상 팔레트",

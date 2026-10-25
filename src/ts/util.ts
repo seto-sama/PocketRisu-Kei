@@ -169,6 +169,9 @@ export async function getCustomBackground(db:string){
     }
     else{
         const filesrc = await getCharImage(db, 'plain')
+        if(!filesrc){
+            return ''
+        }
         return `background: url("${filesrc}"); background-size: cover;`
     }
 }

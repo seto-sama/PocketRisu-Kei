@@ -337,7 +337,7 @@
                             {#await getCharImage(settings.NAIImgConfig.character_image, 'plain')}
                                 <div class="h-8 w-8 rounded border border-darkborderc bg-button animate-pulse"></div>
                             {:then image}
-                                <img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>
+                                {#if image}<img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>{/if}
                             {/await}
                         {/if}
                         <Button variant="outline" size="sm" onclick={uploadReferenceImage}>
@@ -412,7 +412,13 @@
                                     <span class="text-sm">{language.imageSettings.uploadingImage}</span>
                                 </div>
                             {:then im}
-                                <img src={im} class="rounded-md h-40 shadow-lg bg-subtext cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
+                                {#if im}
+                                    <img src={im} class="rounded-md h-40 shadow-lg bg-subtext cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
+                                {:else}
+                                    <div class="rounded-md h-20 w-20 shadow-lg bg-subtext cursor-pointer risu-interactive-accent flex items-center justify-center">
+                                        <ImageIcon />
+                                    </div>
+                                {/if}
                             {/await}
                         {/if}
                     </button>

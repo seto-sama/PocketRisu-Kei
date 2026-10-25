@@ -60,10 +60,7 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
     const db = getDatabase()
     
     if(db.hideAllImages){
-        if(type === 'plain'){
-            return '/none.webp'
-        }
-        return ''  // For CSS types, return empty to show default ? icon
+        return ''  // Callers show the same fallback as a character without an image
     }
     
     if(!loc || loc === ''){

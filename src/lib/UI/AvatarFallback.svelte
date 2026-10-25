@@ -6,6 +6,7 @@
         style?: string;
         iconClass?: string;
         iconSize?: number;
+        strokeWidth?: number;
     }
 
     let {
@@ -13,9 +14,10 @@
         style = '',
         iconClass = '',
         iconSize = 24,
+        strokeWidth = 2,
     }: Props = $props();
 </script>
 
 <div class="flex items-center justify-center bg-button text-themewhite {className}" {style}>
-    <UserRoundIcon class={iconClass} size={iconSize} aria-hidden="true" />
+    <UserRoundIcon class={iconClass} size={iconSize} {strokeWidth} aria-hidden="true" />
 </div>

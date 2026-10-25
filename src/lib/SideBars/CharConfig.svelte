@@ -218,6 +218,9 @@
                             class="relative group w-full rounded-md shadow-lg bg-button border border-lightborderc {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                             style={im}
                         >
+                            {#if !im}
+                                <AvatarFallback className="absolute inset-0 rounded-md" iconClass="h-2/5 w-2/5" />
+                            {/if}
                             <button
                                 class="absolute right-2 bottom-2 z-10 w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
                                 onclick={() => {
@@ -258,6 +261,9 @@
                                     changeCharImage($selectedCharID, i)
                                 }}
                             >
+                                {#if !im}
+                                    <AvatarFallback className="absolute inset-0 rounded-md" iconClass="h-2/5 w-2/5" />
+                                {/if}
                                 <button
                                     class="absolute right-2 bottom-2 z-10 w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
                                     onclick={(event) => {

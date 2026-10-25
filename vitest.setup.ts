@@ -13,3 +13,21 @@ Object.defineProperty(globalThis, 'localStorage', {
     enumerable: true,
     value: new HappyDOMStorage(),
 })
+
+// Browsers define nodeName once on Node.prototype, and DOMPurify reads it
+// through that getter to resist clobbering. happy-dom returns '' there and
+// overrides it per subclass, so every node would sanitize as nameless: hooks
+// see an empty tagName and allowed elements are dropped. Forward to the
+// subclass getter instead. Files on the node environment have no DOM.
+if (typeof Node !== 'undefined') {
+    Object.defineProperty(Node.prototype, 'nodeName', {
+        configurable: true,
+        get(this: Node) {
+            for (let proto = Object.getPrototypeOf(this); proto && proto !== Node.prototype; proto = Object.getPrototypeOf(proto)) {
+                const getter = Object.getOwnPropertyDescriptor(proto, 'nodeName')?.get
+                if (getter) return getter.call(this)
+            }
+            return ''
+        },
+    })
+}

@@ -29,6 +29,7 @@ import {
     CHAT_VIEWPORT_MARGIN_MULTIPLIER,
     observeWithinChatViewport,
 } from '../chatViewportObserver'
+import { applyHiddenImageTheme, hiddenImageDataUri, hiddenImageIcon, hiddenImageSrc, hideCssImageUrls, hideStyleRuleImages, hideStyleSheetImages, isSpacerImage } from './hideImages'
 
 const markdownItOptions = {
     html: true,
@@ -52,6 +53,15 @@ const mdHighlight = markdownit({
 md.disable(['code'])
 mdHighlight.disable(['code'])
 
+// Onboarding is a setup screen rather than chat content, so hideAllImages
+// leaves it alone. The sanitize hooks and style decoding take no arguments,
+// so parseOnboardingHTML sets this around its synchronous rendering.
+let showImagesForOnboarding = false
+
+function shouldHideImages(){
+    return !showImagesForOnboarding && !!DBState.db?.hideAllImages
+}
+
 DOMPurify.addHook("uponSanitizeElement", (node: HTMLElement, data) => {
     if (data.tagName === "iframe") {
        const src = node.getAttribute("src") || "";
@@ -59,16 +69,10 @@ DOMPurify.addHook("uponSanitizeElement", (node: HTMLElement, data) => {
           return node.parentNode.removeChild(node);
        }
     }
+    if(shouldHideImages()){
+        hideElementImages(node, data.tagName)
+    }
     if(data.tagName === 'img'){
-        if(DBState.db?.hideAllImages){
-            const src = node.getAttribute("src") || "";
-            if(src && !src.startsWith('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP')){
-                node.setAttribute("src", "/none.webp");
-                node.setAttribute("alt", "?");
-            }
-            return;
-        }
-        
         const loading = node.getAttribute("loading")
         if(!loading){
             node.setAttribute("loading","lazy")
@@ -80,15 +84,59 @@ DOMPurify.addHook("uponSanitizeElement", (node: HTMLElement, data) => {
     }
 });
 
-DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
-    switch(data.attrName){
-        case 'style':{
-            if(DBState.db?.hideAllImages && data.attrValue){
-                data.attrValue = data.attrValue.replace(/background(-image)?:\s*url\([^)]*\);?/gi, '')
-                data.attrValue = data.attrValue.replace(/background:\s*[^;]*url\([^)]*\)[^;]*;?/gi, '')
-            }
-            break
+/**
+ * Swaps image sources on an element for the hidden image placeholder. Runs
+ * before the element's attributes are sanitized, so attribute-level sources
+ * are left to hideAttributeImage.
+ */
+function hideElementImages(node:Element, tagName:string){
+    const isImageInput = tagName === 'input' && node.getAttribute('type')?.toLowerCase() === 'image'
+    if(tagName === 'img' || isImageInput){
+        if(!isSpacerImage(node.getAttribute('src') ?? '') || node.hasAttribute('srcset')){
+            node.setAttribute('src', hiddenImageSrc)
+            node.setAttribute('alt', '')
+            // picked up by styles.css for a default size
+            node.setAttribute('data-risu-hidden-image', '')
         }
+    }
+    else if(tagName === 'style'){
+        // Raw <style> blocks that skipped encodeStyle, e.g. <style type="text/css">
+        node.textContent = hideStyleSheetImages(node.textContent ?? '')
+    }
+}
+
+/** Returns true when the attribute was fully handled and needs no further processing. */
+function hideAttributeImage(node:Element, data:{attrName:string, attrValue:string, keepAttr:boolean}){
+    const tagName = node.nodeName.toLowerCase()
+    switch(data.attrName){
+        case 'style':
+            data.attrValue = hideCssImageUrls(data.attrValue)
+            return false
+        case 'srcset':
+        case 'imagesrcset':
+            // a srcset candidate always wins over the placeholder in src
+            data.keepAttr = false
+            return true
+        case 'poster':
+        case 'background':
+            data.attrValue = hiddenImageSrc
+            return true
+        case 'href':
+        case 'xlink:href':
+            if(tagName === 'image' || tagName === 'feimage'){
+                data.attrValue = hiddenImageSrc
+                return true
+            }
+            return false
+    }
+    return false
+}
+
+DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+    if(shouldHideImages() && hideAttributeImage(node, data)){
+        return
+    }
+    switch(data.attrName){
         case 'class':{
             if(data.attrValue){
                 data.attrValue = data.attrValue.split(' ').map((v) => {
@@ -537,10 +585,11 @@ $effect.root(() => {
     })
 })
 
-const imageCBS = ['img', 'image', 'emotion', 'asset', 'bg', 'raw', 'path']
+const imageCBS = ['img', 'image', 'emotion', 'asset', 'bg', 'raw', 'path', 'source']
 const videoExtensions = ['mp4', 'webm', 'avi', 'm4p', 'm4v']
 
-async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|character, mode:'normal'|'back', arg:{ch:number}){
+async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|character, mode:'normal'|'back', arg:{ch:number, showImages?:boolean}){
+    const hideImages = DBState.db.hideAllImages && !arg.showImages
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
     if (!assetsCache || !emoAssetsCache || assetsCacheCharacterId !== char.chaId) {
@@ -556,10 +605,28 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     data = await replaceAsync(data, assetRegex, async (full:string, type:string, name:string) => {
         const displayName = name.trim()
         name = name.toLocaleLowerCase()
+        const assetNotice = (kind: ImageNoticeKind, detail = '') => {
+            const html = imageNoticeHtml(kind, detail, assetWidthString)
+            return type === 'image' ? `<div class="risu-inlay-image">${html}</div>\n` : html
+        }
 
-        // Include raw/path assets because CSS backgrounds can use them.
-        if(DBState.db.hideAllImages && imageCBS.includes(type)){
-            return ''
+        // Swap image-related assets for the hidden image placeholder when hideAllImages is enabled.
+        // raw, path and source are bare urls that end up in src attributes or CSS url()s
+        if(hideImages && imageCBS.includes(type)){
+            // Backgrounds drop hidden assets instead of covering the screen with placeholders.
+            if(mode === 'back'){
+                return ''
+            }
+            switch(type){
+                case 'raw':
+                case 'path':
+                case 'source':
+                    return hiddenImageSrc
+                case 'bg':
+                    return ''
+                default:
+                    return assetNotice('hidden')
+            }
         }
 
         if(type === 'emotion'){
@@ -591,6 +658,10 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             }
 
             if(!match){
+                // Only chat messages show what went missing; elsewhere the asset stays silent.
+                if(mode === 'normal' && (type === 'img' || type === 'image')){
+                    return assetNotice('missingImage', displayName)
+                }
                 return ''
             }
         }
@@ -953,22 +1024,79 @@ export function preloadRenderedChatImages(html: string): Promise<void> {
     return Promise.all(getRenderedImageUrls(html).map(retainImageUrl)).then(() => {})
 }
 
-function createMissingInlayPlaceholder(id: string): HTMLDivElement {
-    const box = document.createElement('div')
-    box.className = 'x-risu-risu-inlay-missing'
-    box.setAttribute('data-missing-inlay-id', id)
+type ImageNoticeKind = 'hidden' | 'missingInlay' | 'missingImage'
 
-    const title = document.createElement('div')
-    title.className = 'x-risu-risu-inlay-missing-title'
-    title.textContent = language.inlayGallery.inlayMissing
+/** Marks the "Hide All Images" link inside a hidden image notice. */
+export const HIDE_ALL_IMAGES_LINK_ATTRIBUTE = 'data-risu-hide-all-images-link'
+/** Set on every image notice, naming its kind. */
+export const IMAGE_NOTICE_ATTRIBUTE = 'data-risu-image-notice'
+const IMAGE_NOTICE_DETAIL_MAX = 160
 
-    const subtitle = document.createElement('div')
-    subtitle.className = 'x-risu-risu-inlay-missing-subtitle'
-    subtitle.textContent = id
+// Notices can land between inline tags, where markdown still reads emphasis
+// and quotes, so every punctuation mark is written as an entity.
+function escapeNoticeText(text: string): string {
+    return text.replace(/[^\p{L}\p{N} ]/gu, (char) => `&#${char.codePointAt(0)};`)
+}
 
-    box.appendChild(title)
-    box.appendChild(subtitle)
-    return box
+/**
+ * A chat image that cannot be shown: a framed box with the lucide image-off
+ * icon above a short note, plus the inlay id or image path when there is one.
+ * It is drawn with theme variables, so it follows color scheme changes.
+ */
+function imageNoticeHtml(kind: ImageNoticeKind, detail = '', style = ''): string {
+    let message: string
+    if (kind === 'hidden') {
+        const [before = '', after = ''] = language.hideAllImagesNotice.split('{{setting}}')
+        const link = `<button type="button" class="x-risu-risu-image-notice-link" ${HIDE_ALL_IMAGES_LINK_ATTRIBUTE}>${escapeNoticeText(language.hideAllImages)}</button>`
+        message = escapeNoticeText(before) + link + escapeNoticeText(after)
+    } else {
+        message = escapeNoticeText(kind === 'missingInlay' ? language.inlayGallery.inlayMissing : language.imageNotFound)
+    }
+    if (detail.length > IMAGE_NOTICE_DETAIL_MAX) {
+        detail = detail.slice(0, IMAGE_NOTICE_DETAIL_MAX) + '\u2026'
+    }
+    const detailHtml = detail
+        ? `<span class="x-risu-risu-image-notice-detail">${escapeNoticeText(detail)}</span>`
+        : ''
+    const styleAttribute = style ? ` style="${md.utils.escapeHtml(style)}"` : ''
+    // The icon and caption form one body that the box centers as a whole.
+    return `<span class="x-risu-risu-image-notice" ${IMAGE_NOTICE_ATTRIBUTE}="${kind}"${styleAttribute}>`
+        + '<span class="x-risu-risu-image-notice-body">'
+        + `<svg class="x-risu-risu-image-notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${hiddenImageIcon}</svg>`
+        + `<span class="x-risu-risu-image-notice-caption"><span class="x-risu-risu-image-notice-text">${message}</span>${detailHtml}</span>`
+        + '</span></span>'
+}
+
+function createImageNotice(kind: ImageNoticeKind, detail = ''): HTMLElement {
+    const template = document.createElement('template')
+    template.innerHTML = imageNoticeHtml(kind, detail)
+    return template.content.firstElementChild as HTMLElement
+}
+
+function createMissingInlayPlaceholder(id: string): HTMLElement {
+    const notice = createImageNotice('missingInlay', id)
+    notice.setAttribute('data-missing-inlay-id', id)
+    return notice
+}
+
+/**
+ * Swaps a chat image that failed to load for the placeholder. A bare image
+ * gets the full notice with its path; one the card sized or styled keeps its
+ * box and only shows the placeholder, so the card layout holds.
+ */
+export function replaceBrokenChatImage(img: HTMLImageElement) {
+    if (img.hasAttribute('data-risu-hidden-image') || img.closest(`[${INLAY_VIEWER_ID_ATTRIBUTE}]`)) return
+    const src = img.getAttribute('src') ?? ''
+    if (!src || isSpacerImage(src)) return
+    const styled = ['class', 'style', 'width', 'height'].some(name => img.hasAttribute(name))
+    if (!styled) {
+        img.replaceWith(createImageNotice('missingImage', src))
+        return
+    }
+    img.removeAttribute('srcset')
+    img.setAttribute('data-risu-hidden-image', '')
+    img.title = src
+    img.src = hiddenImageDataUri(DBState.db?.colorScheme)
 }
 
 export function parseInlayAssets(data:string){
@@ -991,8 +1119,8 @@ export function parseInlayAssets(data:string){
             const url = cached.url
             switch(cached.type){
                 case 'image':
-                    if(DBState.db.hideAllImages){
-                        data = data.replace(inlay, '')
+                    if(shouldHideImages()){
+                        data = data.replace(inlay, `${prefix}${imageNoticeHtml('hidden')}${postfix}`)
                         break
                     }
                     const dimensions = cached.dimensions
@@ -1014,12 +1142,11 @@ export function parseInlayAssets(data:string){
 const resolveQueue: { el: HTMLElement, id: string }[] = []
 let isResolvingPlaceholders = false
 
-function fillInlayPlaceholder(el: HTMLElement, id: string, content?: Node): boolean {
-    if(el.getAttribute(INLAY_ID_ATTRIBUTE) !== id) return false
+function fillInlayPlaceholder(el: HTMLElement, id: string, content: Node) {
+    if(el.getAttribute(INLAY_ID_ATTRIBUTE) !== id) return
     el.removeAttribute(INLAY_ID_ATTRIBUTE)
     el.classList.remove('risu-inlay-placeholder', 'x-risu-risu-inlay-placeholder')
-    el.replaceChildren(...(content ? [content] : []))
-    return true
+    el.replaceChildren(content)
 }
 
 async function replaceFailedInlayImage(img: HTMLImageElement, id: string, url: string) {
@@ -1090,7 +1217,7 @@ async function processInlayQueue() {
 
                 switch (type) {
                     case 'image':
-                        if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id); break }
+                        if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id, createImageNotice('hidden')); break }
                         const img = document.createElement('img')
                         if (cached?.dimensions) {
                             img.width = cached.dimensions.width
@@ -1394,16 +1521,17 @@ export function trimMarkdown(data:string){
     if (!data) return ''
     const cacheKey = `${DBState.db?.hideAllImages ? '1' : '0'}|${DBState.db?.returnCSSError ? '1' : '0'}|${data}`
     let cached = trimCache.get(cacheKey)
-    if (cached !== undefined) {
-        return cached
+    if (cached === undefined) {
+        cached = trimMarkdownUncached(data)
+        if (trimCache.size >= TRIM_CACHE_MAX) {
+            const firstKey = trimCache.keys().next().value
+            if (firstKey !== undefined) trimCache.delete(firstKey)
+        }
+        trimCache.set(cacheKey, cached)
     }
-    cached = trimMarkdownUncached(data)
-    if (trimCache.size >= TRIM_CACHE_MAX) {
-        const firstKey = trimCache.keys().next().value
-        if (firstKey !== undefined) trimCache.delete(firstKey)
-    }
-    trimCache.set(cacheKey, cached)
-    return cached
+    // Themed after the cache so a color scheme change redraws placeholders
+    // without keying the cache on the scheme.
+    return applyHiddenImageTheme(cached, DBState.db?.colorScheme)
 }
 
 // Onboarding HTML can bind clicks and inputs to chat variables, so it gets the
@@ -1418,11 +1546,17 @@ const onboardingPurifyConfig = {
  * sanitizer and `<style>` scoping. Scoped styles are prefixed with
  * `.chattext`, so the caller renders the result inside a `.chattext` element.
  * The trim cache is bypassed so the wider config never serves a message.
+ * Images show even under hideAllImages.
  */
 export async function parseOnboardingHTML(data:string, char:character){
-    data = await parseAdditionalAssets(data ?? '', char, 'normal', { ch: -1 })
-    data = parseInlayAssets(risuChatParser(data, { chara: char }))
-    return data ? trimMarkdownUncached(encodeStyle(data), onboardingPurifyConfig) : ''
+    data = await parseAdditionalAssets(data ?? '', char, 'normal', { ch: -1, showImages: true })
+    showImagesForOnboarding = true
+    try {
+        data = parseInlayAssets(risuChatParser(data, { chara: char }))
+        return data ? trimMarkdownUncached(encodeStyle(data), onboardingPurifyConfig) : ''
+    } finally {
+        showImagesForOnboarding = false
+    }
 }
 
 function trimMarkdownUncached(data:string, purifyConfig:typeof trimPurifyConfig = trimPurifyConfig){
@@ -1619,6 +1753,9 @@ function decodeStyleContent(hexText:string):{css?:string, fallback?:string}{
         if(rules){
             for(let i=0;i<rules.length;i++){
                 rules[i] = decodeStyleRule(rules[i])
+                if(shouldHideImages()){
+                    hideStyleRuleImages(rules[i])
+                }
             }
             ast.stylesheet.rules = rules
         }

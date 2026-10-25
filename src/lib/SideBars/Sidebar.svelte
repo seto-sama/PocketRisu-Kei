@@ -55,7 +55,7 @@
     import type { SortableEvent } from "sortablejs";
     import { getCharacterIndexObject, makeAgoText } from "src/ts/util";
     import { createEntityId } from 'src/ts/id';
-    import { checkCharOrder } from "src/ts/globalApi.svelte";
+    import { checkCharOrder, getFileSrc } from "src/ts/globalApi.svelte";
     import SideChatList from "./SideChatList.svelte";
     import { openSidebarFolderMenu } from "./sidebarFolderMenu";
     import {
@@ -803,7 +803,8 @@
           {#snippet children(index)}
             {@const rc = displayedRecentChars[index]}
             <CharacterMasonryIcon
-              src={rc.image ? getCharImage(rc.image, "plain") : ""}
+              src={rc.image ? getFileSrc(rc.image) : ""}
+              hideImage={DBState.db.hideAllImages && !!rc.image}
               name={rc.name || "Unnamed"}
               subtitle={makeAgoText(rc.lastInteraction)}
               onclick={() => changeChar(rc.index, {reseter})}

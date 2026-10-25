@@ -1156,6 +1156,8 @@ export const languageEnglish = {
     hideRealm: "Start RisuRealm Collapsed",
     hidePublicStats: "Send Statistics",
     hideAllImages: "Hide All Images",
+    hideAllImagesNotice: "{{setting}} is on",
+    imageNotFound: "Image not found",
     preloadChatImages: "Preload Images",
     popularityLevel: "{} Popularity",
     colorScheme: "Color Scheme",

@@ -6,6 +6,7 @@
     import { getRealmProxyUrl } from "src/ts/network/proxy";
     
     import { DBState } from 'src/ts/stores.svelte';
+    import AvatarFallback from '../AvatarFallback.svelte';
     import RealmLicense from "./RealmLicense.svelte";
     import MultiLangDisplay from "../components/MultiLangDisplay.svelte";
     import Dialog from "../components/Dialog.svelte";
@@ -56,9 +57,7 @@
         {/if}
         <div class="mt-4 flex min-h-36 flex-1 items-start justify-start gap-4 overflow-hidden max-sm:flex-col">
             {#if DBState.db.hideAllImages}
-                <div class="flex h-36 w-36 shrink-0 items-center justify-center rounded-md bg-button text-subtext">
-                    <span class="text-4xl">?</span>
-                </div>
+                <AvatarFallback className="h-36 w-36 shrink-0 rounded-md" iconClass="h-2/5 w-2/5" />
             {:else}
                 <img class="h-36 w-36 shrink-0 rounded-md object-cover object-top" alt={openedData.name} src={getRealmProxyUrl(`/resource/${openedData.img}`)}>
             {/if}

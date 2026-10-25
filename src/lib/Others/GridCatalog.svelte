@@ -30,7 +30,7 @@
         XIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { checkCharOrder, getFileSrc, requestImmediateSave } from "src/ts/globalApi.svelte";
     import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { makeAgoText } from "src/ts/util";
@@ -319,7 +319,8 @@
                         {#snippet children(index)}
                             {@const char = visibleCharacters[index]}
                             <CharacterMasonryIcon
-                                src={char.image ? getCharImage(char.image, 'plain') : ''}
+                                src={char.image ? getFileSrc(char.image) : ''}
+                                hideImage={DBState.db.hideAllImages && !!char.image}
                                 name={char.name}
                                 selected={char.index === $selectedCharID}
                                 onclick={() => selectAndClose(char.index)}

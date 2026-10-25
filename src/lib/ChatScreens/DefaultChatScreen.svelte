@@ -83,7 +83,7 @@ import { isMobile } from 'src/ts/platform'
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
     import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation';
     import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
-    import { isChatImagePreloadingEnabled, preloadInlayAssets } from 'src/ts/parser/parser.svelte';
+    import { HIDE_ALL_IMAGES_LINK_ATTRIBUTE, isChatImagePreloadingEnabled, preloadInlayAssets, replaceBrokenChatImage } from 'src/ts/parser/parser.svelte';
     import AssetViewerActions from '../UI/components/AssetViewerActions.svelte';
     import FullscreenImageViewer from '../UI/components/FullscreenImageViewer.svelte';
     import InlayViewerMetadata from '../UI/components/InlayViewerMetadata.svelte';
@@ -246,6 +246,24 @@ import { isMobile } from 'src/ts/platform'
         const occurrence = matchingContainers.indexOf(container)
         if (occurrence < 0) return null
         return { id, messageIndex, occurrence }
+    }
+
+    function handleChatScreenClick(event: MouseEvent) {
+        if (event.target instanceof Element && event.target.closest(`[${HIDE_ALL_IMAGES_LINK_ATTRIBUTE}]`)) {
+            event.preventDefault()
+            event.stopPropagation()
+            void import('src/ts/setting/searchIndex').then(({ openSettingItem }) => openSettingItem('display.hideAllImages'))
+            return
+        }
+        handleInlayViewerClick(event)
+    }
+
+    function handleChatImageError(event: Event) {
+        const target = event.target
+        if (!(target instanceof HTMLImageElement) || !target.closest('[data-chat-index]')) return
+        // newImageHandlingBeta resolves bare asset names after their first failed load.
+        if (DBState.db.newImageHandlingBeta && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
+        replaceBrokenChatImage(target)
     }
 
     function handleInlayViewerClick(event: MouseEvent) {
@@ -1720,8 +1738,9 @@ import { isMobile } from 'src/ts/platform'
 
         <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen" data-chat-scroll-root
             bind:this={chatScreenRoot}
-            onclickcapture={handleInlayViewerClick}
+            onclickcapture={handleChatScreenClick}
             onkeydowncapture={handleInlayViewerKeydown}
+            onerrorcapture={handleChatImageError}
             class:pocketrisu-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.standardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.standardChatWidth === 'full'}

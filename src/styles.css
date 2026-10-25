@@ -876,6 +876,22 @@ html {
   outline-offset: 3px;
 }
 
+/* Hidden image placeholder (hideAllImages). The SVG has no size of its own,
+   so this gives it one, at zero specificity and only where the card set no
+   width/height attribute, so any size the card asks for still wins. */
+:where(img[data-risu-hidden-image]) {
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+:where(img[data-risu-hidden-image]:not([width])) {
+  width: 30rem;
+}
+
+:where(img[data-risu-hidden-image]:not([height])) {
+  height: auto;
+}
+
 .x-risu-risu-inlay-image video {
   @apply rounded-lg max-w-80 w-full;
 }
@@ -884,27 +900,46 @@ html {
   @apply rounded-lg max-w-80 w-full;
 }
 
-.x-risu-risu-inlay-missing {
-  @apply w-full max-w-80 mx-auto rounded-lg border border-darkborderc/70 bg-darkbg text-subtext flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
-  min-height: 120px;
-  margin-block: 0;
-}
-
-.x-risu-risu-inlay-image + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing),
-.x-risu-risu-inlay-missing + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing) {
+.x-risu-risu-inlay-image + .x-risu-risu-inlay-image {
   margin-block-start: 1.25rem;
 }
 
-.x-risu-risu-inlay-image > .x-risu-risu-inlay-missing {
-  margin-block: 0;
+/* A chat image that cannot be shown (hidden, missing inlay or asset, failed
+   load): a framed 16:9 box with the icon and caption centered in it as one
+   body. Content taller than the ratio grows the box. */
+.x-risu-risu-image-notice {
+  @apply inline-flex items-center justify-center text-center align-middle rounded-[10px] border-2 border-dashed border-darkborderc bg-darkbg/70 text-subtext px-4 py-3;
+  width: 20rem;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
 }
 
-.x-risu-risu-inlay-missing-title {
-  @apply text-sm font-semibold text-maintext;
+.x-risu-risu-image-notice-body {
+  @apply flex flex-col items-center gap-4 max-w-full;
 }
 
-.x-risu-risu-inlay-missing-subtitle {
-  @apply text-[11px] opacity-70 break-all;
+.x-risu-risu-image-notice-icon {
+  @apply size-10 shrink-0;
+}
+
+.x-risu-risu-image-notice-caption {
+  @apply flex flex-col items-center gap-0.5 max-w-full;
+}
+
+.x-risu-risu-image-notice-text {
+  @apply text-xs text-subtext;
+}
+
+.x-risu-risu-image-notice-link {
+  @apply underline underline-offset-2 text-primary cursor-pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.x-risu-risu-image-notice-detail {
+  @apply text-xs text-subtext opacity-70 break-all;
 }
 
 .saving-animation {
