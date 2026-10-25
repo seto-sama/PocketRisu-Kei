@@ -90,17 +90,52 @@ EXTRACTED_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d \
     -print -quit)
 [ -d "$EXTRACTED_DIR" ] || error "Extraction failed."
 
-# ── Replace files (preserve save/) ─────────────────────────────────────────────
+# ── Replace app files, preserving user entries ─────────────────────────────────
 
 info "Updating files..."
 
-# Remove old app files but keep save/ and backups/
-find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 ! -name 'save' ! -name 'backups' ! -name '.installed-version' -exec rm -rf {} +
+MANIFEST_FILE="$SCRIPT_DIR/.installed-manifest"
+is_managed() {
+    [ -e "$EXTRACTED_DIR/$1" ] && return 0
+    in_manifest "$1" && return 0
+    return 1
+}
+in_manifest() {
+    [ -f "$MANIFEST_FILE" ] && grep -Fxq "$1" "$MANIFEST_FILE"
+}
+
+# Track top-level entries before moving them out of the new package.
+ls -A "$EXTRACTED_DIR" > "$TMP_DIR/new-manifest"
+CONFLICT_DIR="$SCRIPT_DIR/backups/update-conflict-v$LATEST"
+
+while IFS= read -r -d '' entry; do
+    name=$(basename "$entry")
+    case "$name" in
+        save|backups|.installed-version|.installed-manifest) continue ;;
+    esac
+    if ! is_managed "$name"; then
+        info "Preserving user file: $name"
+        continue
+    fi
+    # Collision ownership is only known when a previous manifest exists.
+    if [ -f "$MANIFEST_FILE" ] && ! in_manifest "$name" && [ -e "$EXTRACTED_DIR/$name" ]; then
+        warn "User file \"$name\" collides with a new app file — moving it to backups/update-conflict-v$LATEST/"
+        mkdir -p "$CONFLICT_DIR"
+        dest="$CONFLICT_DIR/$name"
+        i=1
+        while [ -e "$dest" ]; do dest="$CONFLICT_DIR/$name.$i"; i=$((i+1)); done
+        mv "$entry" "$dest"
+        continue
+    fi
+    rm -rf "$entry"
+done < <(find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 -print0)
 
 # Move all files, including dotfiles, and stop if replacement fails.
 shopt -s dotglob nullglob
 mv "$EXTRACTED_DIR"/* "$SCRIPT_DIR/"
 shopt -u dotglob nullglob
+
+cp "$TMP_DIR/new-manifest" "$MANIFEST_FILE"
 
 # Restore save/
 if [ -d "$TMP_DIR/_save_backup" ]; then

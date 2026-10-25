@@ -10,6 +10,7 @@ const { pipeline } = require('stream/promises');
 const { spawn } = require('child_process');
 const { checkpointWal } = require('../db.cjs');
 const { decompressFile } = require('../utils/decompressFile.cjs');
+const { MANIFEST_NAME, createUpdateManifest } = require('../../shared/updateManifest.cjs');
 
 function installSystemRoutes(app, {
     checkAuth,
@@ -310,8 +311,11 @@ function installSystemRoutes(app, {
             } catch { /* no user certs */ }
 
             // Keep set — matches updater.cjs + user data/config that must survive updates
-            const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
+            const keep = new Set(['save', 'backups', '.installed-version', MANIFEST_NAME, '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
             if (isWin) keep.add('bin');
+
+            const newEntries = await fs.readdir(sourceDir);
+            const manifest = createUpdateManifest(appDir, newEntries);
 
             // Phase 1: move old files to backup — rollback immediately on any failure
             const backupDir = path.join(updateTmp, 'backup');
@@ -320,11 +324,22 @@ function installSystemRoutes(app, {
             // after a successful update must never roll back the installed release.
             await fs.writeFile(inProgressMarker, `v${targetVersion}`);
 
-
+            const preserved = [];
             const oldEntries = await fs.readdir(appDir);
             for (const e of oldEntries) {
                 if (keep.has(e)) continue;
+                if (!manifest.isManaged(e)) {
+                    preserved.push(e);
+                    continue;
+                }
                 try {
+                    if (manifest.isConflict(e)) {
+                        console.log(`[Update] User file "${e}" collides with a new app file — moving it to backups/update-conflict-v${targetVersion}/`);
+                        const dest = manifest.conflictDestination(e, `v${targetVersion}`);
+                        await fs.mkdir(path.dirname(dest), { recursive: true });
+                        await moveAcrossVolumes(path.join(appDir, e), dest);
+                        continue;
+                    }
                     await fs.rename(path.join(appDir, e), path.join(backupDir, e));
                 } catch (backupErr) {
                     logger.error(`[Update] Failed to back up ${e}: ${backupErr.message}`);
@@ -335,13 +350,15 @@ function installSystemRoutes(app, {
                         : 'Update failed: some files are in use. Stop the server first, then try again.');
                 }
             }
+            if (preserved.length) {
+                console.log(`[Update] Preserving user files: ${preserved.join(', ')}`);
+            }
 
             // Phase 2: move new files from extracted to app root
             const skipMove = new Set(['save', 'scripts']);
             if (isWin) skipMove.add('bin');
             const moved = [];
             try {
-                const newEntries = await fs.readdir(sourceDir);
                 for (const e of newEntries) {
                     if (skipMove.has(e)) continue;
                     const dest = path.join(appDir, e);
@@ -376,6 +393,8 @@ function installSystemRoutes(app, {
                     await fs.copyFile(path.join(newScripts, f), path.join(appDir, 'scripts', f));
                 }
             } catch { /* no scripts in release */ }
+
+            await fs.writeFile(path.join(appDir, MANIFEST_NAME), newEntries.join('\n') + '\n').catch(() => {});
 
             // The app files are complete and verified; keep successful-update
             // leftovers from being mistaken for an interrupted replacement.

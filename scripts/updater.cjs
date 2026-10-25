@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { MANIFEST_NAME, createUpdateManifest } = require('../shared/updateManifest.cjs');
 
 const REPO = 'seto-sama/PocketRisu-Kei';
 const RELEASE_TAG_PREFIX = 'kei-v';
@@ -284,19 +285,33 @@ async function main() {
 
     // Phase 1: move old files to backup (safer than immediate delete)
     log('Replacing files...');
-    const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
+    const keep = new Set(['save', 'backups', '.installed-version', MANIFEST_NAME, '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
     if (isWin || skipBinReplacement) keep.add('bin');
     const customBackupKeep = getCustomBackupKeepEntry();
     if (customBackupKeep && !keep.has(customBackupKeep)) {
         log(`Preserving custom backup directory: ${customBackupKeep}/`);
         keep.add(customBackupKeep);
     }
+    const newEntries = fs.readdirSync(extractedRoot);
+    const manifest = createUpdateManifest(ROOT, newEntries);
     const backupDir = path.join(tmpDir, 'backup');
     fs.mkdirSync(backupDir, { recursive: true });
 
+    const preserved = [];
     for (const entry of fs.readdirSync(ROOT)) {
         if (keep.has(entry)) continue;
+        if (!manifest.isManaged(entry)) {
+            preserved.push(entry);
+            continue;
+        }
         try {
+            if (manifest.isConflict(entry)) {
+                log(`User file "${entry}" collides with a new app file — moving it to backups/update-conflict-v${latest}/`);
+                const dest = manifest.conflictDestination(entry, `v${latest}`);
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                fs.renameSync(path.join(ROOT, entry), dest);
+                continue;
+            }
             fs.renameSync(path.join(ROOT, entry), path.join(backupDir, entry));
         } catch (e) {
             log(`Error backing up ${entry}: ${e.message}`);
@@ -307,13 +322,16 @@ async function main() {
                 : 'Update failed because some files are in use. Stop the running server first, then try again.');
         }
     }
+    if (preserved.length) {
+        log(`Preserving user files: ${preserved.join(', ')}`);
+    }
 
     // Phase 2: move new files from extracted to root
     const moved = [];
     const skipMove = new Set(['save', 'scripts']);
     if (isWin || skipBinReplacement) skipMove.add('bin');
     try {
-        for (const entry of fs.readdirSync(extractedRoot)) {
+        for (const entry of newEntries) {
             if (skipMove.has(entry)) continue;
             const src = path.join(extractedRoot, entry);
             const dest = path.join(ROOT, entry);
@@ -351,6 +369,8 @@ async function main() {
             fs.copyFileSync(path.join(newScripts, f), path.join(ROOT, 'scripts', f));
         }
     }
+
+    fs.writeFileSync(path.join(ROOT, MANIFEST_NAME), newEntries.join('\n') + '\n');
 
     // Phase 4 (Windows): stage bin/ update for update.bat post-step
     if (isWin) {

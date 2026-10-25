@@ -12,6 +12,7 @@ dist/
 save/
 backups/
 .installed-version
+.installed-manifest
 dist-web/
 dist-ssr
 *.local
