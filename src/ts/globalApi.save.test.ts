@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
     const database: any = {
@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
     const saveChatToServer = vi.fn(async (_characterId: string, _chatIndex: number, _chatId: string, chat: any) => {
         savedChatSnapshots.push(structuredClone(chat))
     })
-    return { database, dbState, selectedCharID, patchDatabase, saveChatToServer, savedChatSnapshots, saveLoopReady: false }
+    return { database, dbState, selectedCharID, patchDatabase, saveChatToServer, savedChatSnapshots, saveLoopReady: false, projectionChanges: true }
 })
 
 vi.mock('./stores.svelte', () => ({
@@ -66,10 +66,13 @@ vi.mock('./storage/risuSave', () => ({
     RisuSaveEncoder: class {},
     RisuSavePatcher: class {
         private baseline: unknown
+        private version = 0
         async init(database: unknown) { this.baseline = structuredClone(database) }
         getBaselineSnapshot() { return structuredClone(this.baseline) }
+        hash() { return String(this.version) }
         async set(database: unknown) {
             this.baseline = structuredClone(database)
+            if (mocks.projectionChanges) this.version += 1
             return { patch: [], expectedHash: 'hash' }
         }
     },
@@ -125,7 +128,19 @@ vi.mock('./process/revenant/transport', () => ({ configureRevenantGenerationClie
 const { requestImmediateSave, saveDb } = await import('./globalApi.svelte')
 
 describe('saveDb immediate saves', () => {
+    let startupError: unknown
+
+    beforeAll(async () => {
+        void saveDb().catch(error => { startupError = error })
+        // Let saveDb install requestImmediateSave and enter its idle loop.
+        await vi.waitFor(() => {
+            if (startupError) throw startupError
+            expect(mocks.saveLoopReady).toBe(true)
+        })
+    })
+
     afterEach(() => {
+        mocks.projectionChanges = true
         mocks.patchDatabase.mockClear()
         mocks.saveChatToServer.mockClear()
         mocks.savedChatSnapshots.length = 0
@@ -147,11 +162,6 @@ describe('saveDb immediate saves', () => {
                 return { success: true, etag: `etag-${writeCount}`, revision: writeCount }
             })
 
-        let startupError: unknown
-        void saveDb().catch(error => { startupError = error })
-        // Let saveDb install requestImmediateSave and enter its idle loop.
-        await vi.waitFor(() => expect(mocks.saveLoopReady).toBe(true))
-
         const firstSave = requestImmediateSave({
             characterIds: ['character-1'],
             chatTargets: [{ characterId: 'character-1', chatId: 'chat-1' }],
@@ -172,9 +182,19 @@ describe('saveDb immediate saves', () => {
         finishFirstWrite!()
         await Promise.all([firstSave, secondSave])
 
-        expect(mocks.patchDatabase).toHaveBeenCalledTimes(2)
-        expect(mocks.saveChatToServer).toHaveBeenCalledTimes(2)
         expect(mocks.savedChatSnapshots[0].message).toEqual([])
-        expect(mocks.savedChatSnapshots[1].message).toEqual([{ data: 'edited while saving' }])
+        expect(mocks.savedChatSnapshots.at(-1)?.message).toEqual([{ data: 'edited while saving' }])
+    }, 3000)
+
+    it('skips the projection write when the accepted projection is unchanged', async () => {
+        mocks.projectionChanges = false
+        await requestImmediateSave({
+            characterIds: ['character-1'],
+            chatTargets: [{ characterId: 'character-1', chatId: 'chat-1' }],
+            requireSuccess: true,
+        })
+
+        expect(mocks.patchDatabase).not.toHaveBeenCalled()
+        expect(mocks.saveChatToServer).toHaveBeenCalledTimes(1)
     }, 3000)
 })

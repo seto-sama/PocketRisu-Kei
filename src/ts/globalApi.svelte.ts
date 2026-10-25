@@ -138,14 +138,10 @@ export async function getFileSrc(loc: string) {
             return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
         }
         else {
-            const f = fileCache.res[ind]
-            if (f === 'loading') {
-                while (fileCache.res[ind] === 'loading') {
-                    await sleep(10)
-                }
-                return `data:image/png;base64,${Buffer.from(fileCache.res[ind]).toString('base64')}`
+            while (fileCache.res[ind] === 'loading') {
+                await sleep(10)
             }
-            return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
+            return `data:image/png;base64,${Buffer.from(fileCache.res[ind]).toString('base64')}`
         }
     } catch (error) {
         console.error(error)
@@ -153,7 +149,6 @@ export async function getFileSrc(loc: string) {
     }
 }
 
-/** Read image bytes from asset storage. */
 export async function readImage(data: string) {
     return (await forageStorage.getItem(data) as unknown as Uint8Array)
 }
@@ -172,7 +167,7 @@ export async function saveAsset(data: Uint8Array, customId: string = '', fileNam
         }
     }
     let fileExtension: string = 'png'
-    if (fileName && fileName.split('.').length > 0) {
+    if (fileName) {
         fileExtension = fileName.split('.').pop()
     }
     let form = `assets/${id}.${fileExtension}`
@@ -183,12 +178,10 @@ export async function saveAsset(data: Uint8Array, customId: string = '', fileNam
     return form
 }
 
-/** Load asset bytes by storage path. */
 export async function loadAsset(id: string) {
     return await forageStorage.getItem(id) as unknown as Uint8Array
 }
 
-let lastSave = ''
 export let saving = $state({
     state: false
 })
@@ -350,6 +343,12 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
     let patcher = new RisuSavePatcher()
     let acceptedPatchBaseline: Database | null = null
+    // Hash of the accepted projection; an unchanged patcher hash means a save has nothing to send.
+    let acceptedPatchHash: string | null = null
+    function acceptPatcherBaseline() {
+        acceptedPatchBaseline = patcher.getBaselineSnapshot()
+        acceptedPatchHash = patcher.hash()
+    }
     let acceptedProjectionRevision = forageStorage.getDbRevision()
     type ProjectionSaveSnapshot = { base: Database, local: Database, tracked: toSaveType }
     async function readProjectionWorkingCopy(snapshot: ProjectionSaveSnapshot) {
@@ -387,18 +386,17 @@ export async function saveDb(onReady?: () => Promise<void>) {
         },
         async (snapshot, result) => {
             await patcher.init(snapshot.local)
-            acceptedPatchBaseline = patcher.getBaselineSnapshot()
+            acceptPatcherBaseline()
             if (result.revision !== undefined) acceptedProjectionRevision = result.revision
         },
     )
     if (isNodeServer || supportsPatchSync) {
         await patcher.init(patchSyncBaseline ?? getDatabase())
-        acceptedPatchBaseline = patcher.getBaselineSnapshot()
+        acceptPatcherBaseline()
         patchSyncBaseline = null
     }
 
     async function resetPatcherToAcceptedBaseline() {
-        if (!acceptedPatchBaseline) return
         patcher = new RisuSavePatcher()
         await patcher.init(acceptedPatchBaseline)
     }
@@ -491,7 +489,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
         let didInitGeneralEffect = false
         let trackedActiveChatKey = ''
 
-        const debounceTime = 500; // 500 milliseconds
+        const debounceTime = 500;
         let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
         selectedCharID.subscribe((v) => {
@@ -732,7 +730,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             if (isNodeServer || supportsPatchSync) {
                 patcher = new RisuSavePatcher()
                 await patcher.init(nextBaseline)
-                acceptedPatchBaseline = patcher.getBaselineSnapshot()
+                acceptPatcherBaseline()
                 if (options?.revision !== undefined) acceptedProjectionRevision = options.revision
             }
             forageStorage.setDbEtag(etag)
@@ -932,7 +930,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 // Keep them live and dirty, but hash from the exact server
                 // pre-image so the retry can submit them again successfully.
                 await patcher.init(serverBaseline)
-                acceptedPatchBaseline = patcher.getBaselineSnapshot()
+                acceptPatcherBaseline()
             }
         }
         requeueTrackedChanges(toSave)
@@ -983,7 +981,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             if (chatIndex === -1) return
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
-            if (!chat || chat._placeholder) return
+            if (chat._placeholder) return
             try {
                 if (options?.establishServerBaseline) {
                     const serverChat = await fetchChatFromServer(chaId, chatIndex, chatId)
@@ -1037,9 +1035,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
         // JSON, leaving database.bin to explicit import/export compatibility.
         let dbData: Uint8Array | null = null
         if (!isNodeServer) {
-            if (!encoder) throw new Error('Database encoder is unavailable')
-            await encoder.set(db, structuredClone(toSave))
-            const encoded = encoder.encode()
+            await encoder!.set(db, structuredClone(toSave))
+            const encoded = encoder!.encode()
             if (!encoded) {
                 await sleep(1000)
                 return 'noop'
@@ -1048,6 +1045,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
         }
 
         let saved = false
+        let projectionUnchanged = false
         let newEtag: string | undefined
 
         const useProjectionPatch = isNodeServer || (supportsPatchSync && !options?.forceFullWrite)
@@ -1198,6 +1196,18 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     return 'retry'
                 }
                 // Leave saved=false so the non-Node full-write path below kicks in.
+            } else if (
+                isNodeServer
+                && patchData.patch.length === 0
+                && patcher.hash() === acceptedPatchHash
+            ) {
+                // The patcher starts every save at the accepted projection
+                // (pending deltas are flushed and failures reset it), so an empty
+                // patch with an unchanged hash has nothing to send. Skipping it
+                // avoids cloning and diffing the whole projection, which a
+                // selection-only effect run (e.g. opening a chat) would trigger.
+                saved = true
+                projectionUnchanged = true
             } else {
                 let patchResult
                 try {
@@ -1297,7 +1307,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             // The projection is now acknowledged even if a deferred chat body
             // later fails in transport. Imported chats already own stable ids,
             // so the patcher's normalized local projection is the server shape.
-            acceptedPatchBaseline = patcher.getBaselineSnapshot()
+            if (!projectionUnchanged) acceptPatcherBaseline()
         }
 
         for (const [chaId, chatId] of deferredNewCharacterChats) {
@@ -1490,7 +1500,7 @@ export async function getFetchData(id: string): Promise<FetchLog | null> {
 }
 
 export function getBasename(data: string) {
-    return data.replace(/\\/g, '/').split('/').pop() ?? '';
+    return data.replace(/\\/g, '/').split('/').pop()!;
 }
 
 
@@ -1611,16 +1621,6 @@ export function openURL(url: string) {
     window.open(url, "_blank")
 }
 
-function formDataToString(formData: FormData): string {
-    const params: string[] = [];
-
-    for (const [name, value] of formData.entries()) {
-        params.push(`${encodeURIComponent(name)}=${encodeURIComponent(value.toString())}`);
-    }
-
-    return params.join('&');
-}
-
 /** Write backup data to a browser-managed file stream. */
 export class LocalWriter {
     writer: WritableStreamDefaultWriter
@@ -1663,57 +1663,6 @@ export class VirtualWriter {
     close(): void {
     }
 }
-
-/**
- * Index for fetch operations.
- * @type {number}
- */
-let fetchIndex = 0
-
-/**
- * Stores native fetch data.
- * @type {{ [key: string]: StreamedFetchChunk[] }}
- */
-let nativeFetchData: { [key: string]: StreamedFetchChunk[] } = {}
-
-interface StreamedFetchChunkData {
-    type: 'chunk',
-    body: string,
-    id: string
-}
-
-interface StreamedFetchHeaderData {
-    type: 'headers',
-    body: { [key: string]: string },
-    id: string,
-    status: number
-}
-
-interface StreamedFetchEndData {
-    type: 'end',
-    id: string
-}
-
-type StreamedFetchChunk = StreamedFetchChunkData | StreamedFetchHeaderData | StreamedFetchEndData
-
-interface StreamedFetchPlugin {
-    streamedFetch(options: { id: string, url: string, body: string, headers: { [key: string]: string } }): Promise<{ "error": string, "success": boolean }>;
-
-    addListener(eventName: 'streamed_fetch', listenerFunc: (data: StreamedFetchChunk) => void): void;
-}
-
-/**
- * Indicates whether streamed fetch listening is active.
- * @type {boolean}
- */
-let streamedFetchListening = false
-
-/**
- * The streamed fetch plugin instance.
- * @type {StreamedFetchPlugin | undefined}
- */
-let capStreamedFetch: StreamedFetchPlugin | undefined
-
 
 /** Buffer that supports absolute-offset reads after discarding leading bytes. */
 export class AppendableBuffer {
@@ -1801,14 +1750,10 @@ export async function loadInternalBackup() {
     ]
 
     const selectedOption = parseInt(await alertSelect(selectOptions))
-    if (selectedOption < 0) {
+    if (selectedOption <= 0) {
         return
     }
     const alertResult = selectedOption - 1
-
-    if (alertResult === -1) {
-        return
-    }
 
     const selectedBackup = internalBackups[alertResult]
 
@@ -1830,7 +1775,6 @@ export function getVersionString(): string {
 export function toGetter<T extends object>(
     getterFn: () => T,
     args?: {
-        //blocks this.children from being accessed
         restrictChildren:string[]
     }
 ): T {
@@ -1894,69 +1838,6 @@ export function toGetter<T extends object>(
         }
     }) as unknown as T;
 }
-
-const countriesWithAiLaw = new Set<string>([
-
-    // EU
-    // AI Act
-    // https://artificialintelligenceact.eu/
-    
-    "AT",
-    "BE",
-    "BG",
-    "HR",
-    "CY",
-    "CZ",
-    "DK",
-    "EE",
-    "FI",
-    "FR",
-    "DE",
-    "EL",
-    "GR",
-    "HU",
-    "IE",
-    "IT",
-    "LV",
-    "LT",
-    "LU",
-    "MT",
-    "NL",
-    "PL",
-    "PT",
-    "RO",
-    "SK",
-    "SI",
-    "ES",
-    "SE",
-
-    //China 
-    //Measures for Labeling of AI-Generated Synthetic Content
-    // 关于印发《人工智能生成合成内容标识办法》的通知 
-    // https://www.cac.gov.cn/2025-03/14/c_1743654684782215.htm
-    "CN",
-
-    //Although CN Law doesn't apply, just in case
-    "HK",
-    "MO",
-
-    //TW isn't under mainland china jurisdiction
-    //de facto, de jure in TW law, unlike HK and MO,
-    //So we don't include it for now
-    //"TW", 
-
-    // Republic of Korea
-    // AI Basic Act
-    // 인공지능 발전과 신뢰 기반 조성 등에 관한 기본법
-    // https://www.law.go.kr/%EB%B2%95%EB%A0%B9/%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5%20%EB%B0%9C%EC%A0%84%EA%B3%BC%20%EC%8B%A0%EB%A2%B0%20%EA%B8%B0%EB%B0%98%20%EC%A1%B0%EC%84%B1%20%EB%93%B1%EC%97%90%20%EA%B4%80%ED%95%9C%20%EA%B8%B0%EB%B3%B8%EB%B2%95/(20676,20250121)
-    "KR",
-
-    // Vietnam
-    // Digital Tech Law
-    // Luật Công nghệ số
-    "VN",
-
-])
 
 export function aiLawApplies(): boolean {
 
