@@ -10,7 +10,7 @@ COPY pnpm-lock.yaml .
 COPY pnpm-workspace.yaml .
 
 RUN corepack enable
-RUN corepack install --global pnpm@12.4.0
+RUN corepack install
 
 # ------------------------------------------------------------------------------------------
 
@@ -53,6 +53,6 @@ COPY --from=builder /app/src ./src
 ENV NODE_ENV=production
 EXPOSE 6001
 
-CMD ["pnpm", "runserver"]
+CMD ["node", "--run", "runserver"]
 
 # ------------------------------------------------------------------------------------------

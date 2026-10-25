@@ -50,6 +50,8 @@ jobs:
           path: |
             dist/
             server/
+            shared/
+            src/
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
