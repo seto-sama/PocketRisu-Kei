@@ -1,5 +1,7 @@
 <script lang="ts">
-    import { getChatBoundPromptPresetIndex } from "src/ts/chatBindingState";
+    import { getChatBoundPromptPreset } from "src/ts/chatBindingState";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { DBState, selectedCharID, openPresetList, presetSelectCallback } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { changeToPreset } from "src/ts/storage/database.svelte";
@@ -9,27 +11,24 @@
     import Help from "../Others/Help.svelte";
     import { bindPromptPresetToCurrentChat } from "src/ts/chatBindings";
 
-    let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
+    let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])])
 
     let paramsExpanded = $state(false);
     let globalPromptParamsOn = $derived(DBState.db.modelPresetPromptParamsFirst === true);
     let promptParamsOn = $derived(globalPromptParamsOn || currentChat?.usePromptPresetParams === true);
 
-    let boundPresetIndex = $derived(getChatBoundPromptPresetIndex(DBState.db, currentChat))
-    let isPresetBound = $derived(boundPresetIndex >= 0)
+    let boundPreset = $derived(getChatBoundPromptPreset(DBState.db, currentChat))
+    let isPresetBound = $derived(boundPreset !== null)
     let displayPreset = $derived(
         isPresetBound
-            ? DBState.db.botPresets[boundPresetIndex]
-            : DBState.db.botPresets[DBState.db.botPresetsId]
+            ? boundPreset
+            : DBState.db.botPresets.find(preset => preset.id === DBState.db.activePromptPresetId)
     )
 
-    // Data-sync (옵션 A): when entering a chat whose bindedBotPreset resolves
-    // to a valid preset, flip the global active preset so the rest of the
-    // codebase — which only reads db.botPresetsId — automatically uses the
-    // bound one. No-op when no binding or when already active.
+    // Keep the active prompt preset aligned with this chat's binding.
     $effect(() => {
-        if (boundPresetIndex >= 0 && DBState.db.botPresetsId !== boundPresetIndex) {
-            changeToPreset(boundPresetIndex)
+        if (boundPreset && DBState.db.activePromptPresetId !== boundPreset.id) {
+            changeToPreset(boundPreset.id)
         }
     })
 

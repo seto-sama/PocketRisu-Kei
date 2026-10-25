@@ -1,8 +1,8 @@
 import { get } from "svelte/store"
 import { alertRequestData, alertSelect, doingAlert, requestDiagnosticsTabs } from "./alert"
 import { getCurrentChat, getDatabase  } from "./storage/database.svelte"
+import { changeChar } from './characters'
 import {
-    alertStore,
     botMakerMode,
     openHypaV3PresetList,
     openModelPresetList,
@@ -25,7 +25,7 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
 import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
 import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
-import { isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
+import { handleTextEntryEscape, isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
 
 let hotkeyInitialized = false
 
@@ -33,9 +33,7 @@ export function initHotkey() {
     if (hotkeyInitialized) return
     hotkeyInitialized = true
 
-    // Text entry is the innermost navigation layer. Handle it during capture
-    // so local full-screen and overlay Escape handlers cannot close their
-    // parent before a focused field gets a chance to blur.
+    // Handle field overlays before blur or parent dismissal during capture.
     window.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape' || event.isComposing) return
         const activeElement = document.activeElement as HTMLElement | null
@@ -43,6 +41,7 @@ export function initHotkey() {
         const focusReturnTarget = activeElement.closest<HTMLElement>('[role="dialog"][tabindex]')
         event.preventDefault()
         event.stopImmediatePropagation()
+        if (handleTextEntryEscape(activeElement)) return
         activeElement.blur()
         focusReturnTarget?.focus({ preventScroll: true })
     }, true)
@@ -190,12 +189,6 @@ export function initHotkey() {
                 event.preventDefault()
             }
         }
-        if (event.key === 'Enter') {
-            const alertType = get(alertStore).type
-            if (alertType === 'ask' || alertType === 'normal' || alertType === 'error') {
-                alertStore.set({ type: 'none', msg: 'yes' })
-            }
-        }
     })
 
     let touchCount = 0
@@ -306,26 +299,25 @@ function focusQuery(selector: string): boolean {
 }
 
 export function getSidebarCharacterOrder(database: {
-    characters: { chaId: string }[]
+    characters: { chaId: string; trashTime?: number }[]
     characterOrder: (string | { data: string[] })[]
-}): number[] {
-    const indexById = new Map(database.characters.map((character, index) => [character.chaId, index]))
+}): string[] {
+    const characterIds = new Set(database.characters.filter(character => !character.trashTime).map(character => character.chaId))
     const orderedIds = (database.characterOrder ?? []).flatMap((entry) =>
         typeof entry === 'string' ? [entry] : (entry?.data ?? [])
     )
 
-    return orderedIds
-        .map((id) => indexById.get(id))
-        .filter((index): index is number => index !== undefined)
+    return orderedIds.filter(id => characterIds.has(id))
 }
 
 function selectAdjacentCharacter(direction: -1 | 1): boolean {
     const database = getDatabase()
     const sidebarOrder = getSidebarCharacterOrder(database)
-    const currentIndex = sidebarOrder.indexOf(get(selectedCharID))
+    const currentCharacterId = database.characters[get(selectedCharID)]?.chaId
+    const currentIndex = sidebarOrder.indexOf(currentCharacterId)
     const nextIndex = currentIndex + direction
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sidebarOrder.length) return false
-    selectedCharID.set(sidebarOrder[nextIndex])
+    if (!changeChar(sidebarOrder[nextIndex])) return false
     OpenRealmStore.set(false)
     return true
 }

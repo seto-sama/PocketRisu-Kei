@@ -4,24 +4,26 @@ import { addGeneratedInlayToCharacter } from './addInlayToCharacter'
 
 const mocks = vi.hoisted(() => ({
     getInlayAssetBlob: vi.fn(),
+    getInlayMeta: vi.fn(),
     saveAsset: vi.fn(),
 }))
 
-vi.mock('../process/files/inlays', () => ({ getInlayAssetBlob: mocks.getInlayAssetBlob }))
+vi.mock('../process/files/inlays', () => ({ getInlayAssetBlob: mocks.getInlayAssetBlob, getInlayMeta: mocks.getInlayMeta }))
 vi.mock('../globalApi.svelte', () => ({ saveAsset: mocks.saveAsset }))
 
-function createCharacter(): character {
+function createCharacter(name = 'generated-image'): character {
     return {
         type: 'character',
         image: 'assets/old.png',
         ccAssets: [],
-        emotionImages: [['generated-image', 'assets/existing.webp']],
-        additionalAssets: [['generated-image', 'assets/existing.webp', 'webp']],
+        emotionImages: [[name, 'assets/existing.webp']],
+        additionalAssets: [[name, 'assets/existing.webp', 'webp']],
     } as unknown as character
 }
 
 describe('addGeneratedInlayToCharacter', () => {
     beforeEach(() => {
+        mocks.getInlayMeta.mockReset().mockResolvedValue(null)
         mocks.getInlayAssetBlob.mockReset().mockResolvedValue({
             data: new Blob(['hello'], { type: 'image/webp' }),
             ext: 'webp',
@@ -34,8 +36,9 @@ describe('addGeneratedInlayToCharacter', () => {
     it('sets the generated image as the icon and preserves the previous icon', async () => {
         const currentCharacter = createCharacter()
 
-        await addGeneratedInlayToCharacter('{{inlayed::inlay-1}}', currentCharacter, 'icon')
+        const result = await addGeneratedInlayToCharacter('{{inlay::inlay-1}}', currentCharacter, 'icon')
 
+        expect(result.name).toBe('generated-image')
         expect(currentCharacter.image).toBe('assets/generated.webp')
         expect(currentCharacter.ccAssets).toContainEqual({
             type: 'icon',
@@ -45,23 +48,28 @@ describe('addGeneratedInlayToCharacter', () => {
         })
     })
 
-    it('adds emotion and additional assets with collision-free names', async () => {
-        const currentCharacter = createCharacter()
+    it('uses hidden preset metadata and preserves duplicate emotion and additional asset names', async () => {
+        const currentCharacter = createCharacter('Miku_smile')
+        mocks.getInlayMeta.mockResolvedValue({ imageGeneration: {
+            preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
+        } })
 
         const emotion = await addGeneratedInlayToCharacter(
             '{{inlayed::inlay-1}}', currentCharacter, 'emotion',
         )
         const additional = await addGeneratedInlayToCharacter(
-            '{{inlayed::inlay-1}}', currentCharacter, 'additional',
+            '{{inlayeddata::inlay-1}}', currentCharacter, 'additional',
         )
 
-        expect(emotion.name).toBe('generated-image 2')
-        expect(currentCharacter.emotionImages).toContainEqual([
-            'generated-image 2', 'assets/generated.webp',
+        expect(emotion.name).toBe('Miku_smile')
+        expect(currentCharacter.emotionImages).toEqual([
+            ['Miku_smile', 'assets/existing.webp'],
+            ['Miku_smile', 'assets/generated.webp'],
         ])
-        expect(additional.name).toBe('generated-image 2')
-        expect(currentCharacter.additionalAssets).toContainEqual([
-            'generated-image 2', 'assets/generated.webp', 'webp',
+        expect(additional.name).toBe('Miku_smile')
+        expect(currentCharacter.additionalAssets).toEqual([
+            ['Miku_smile', 'assets/existing.webp', 'webp'],
+            ['Miku_smile', 'assets/generated.webp', 'webp'],
         ])
     })
 

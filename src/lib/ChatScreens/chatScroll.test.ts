@@ -5,11 +5,7 @@ import {
     createChatScrollController,
     didNewResponseComplete,
     getCompletedResponseAction,
-    getScrollPhaseQuantum,
-    getScrollDistanceFromBottom,
     isChatNearBottom,
-    isChatScrolledToBottom,
-    normalizeScrollPhaseHeight,
     type ChatResponseSnapshot,
 } from './chatScroll'
 
@@ -62,7 +58,6 @@ function setScrollMetrics(
 function installLayoutObservers() {
     let resizeCallback: ResizeObserverCallback | null = null
     let mutationCallback: MutationCallback | null = null
-    let mutationObserveOptions: MutationObserverInit | null = null
     const observedElements = new Set<Element>()
 
     class TestResizeObserver {
@@ -84,9 +79,7 @@ function installLayoutObservers() {
         constructor(callback: MutationCallback) {
             mutationCallback = callback
         }
-        observe(_target: Node, options?: MutationObserverInit) {
-            mutationObserveOptions = options ?? null
-        }
+        observe() {}
         disconnect() {}
     }
 
@@ -116,9 +109,6 @@ function installLayoutObservers() {
             pending.forEach(callback => callback(0))
         },
         observedElements,
-        get mutationObserveOptions() {
-            return mutationObserveOptions
-        },
         get pendingFrameCount() {
             return frames.size
         },
@@ -201,46 +191,15 @@ describe('completed response behavior', () => {
 })
 
 describe('forward chat scroll metrics', () => {
-    it('uses the ordinary positive distance from the bottom', () => {
-        expect(getScrollDistanceFromBottom(800, 1000, 200)).toBe(0)
-        expect(getScrollDistanceFromBottom(650, 1000, 200)).toBe(150)
-        expect(isChatScrolledToBottom(799.5, 1000, 200)).toBe(true)
-        expect(isChatScrolledToBottom(790, 1000, 200)).toBe(false)
+    it('detects whether the reader is near the bottom', () => {
         expect(isChatNearBottom(701, 1000, 200)).toBe(true)
         expect(isChatNearBottom(699, 1000, 200)).toBe(false)
     })
 
-    it('uses one physical pixel as the fractional scroll phase', () => {
-        expect(getScrollPhaseQuantum(1)).toBe(1)
-        expect(getScrollPhaseQuantum(1.2)).toBeCloseTo(5 / 6)
-        expect(getScrollPhaseQuantum(Number.NaN)).toBe(1)
-        expect(normalizeScrollPhaseHeight(1.1, 1.2)).toBeCloseTo(1.1 - 5 / 6)
-    })
+
 })
 
 describe('forward chat scroll controller', () => {
-    it('defers bottom alignment when an observed width changes', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const nativeAnchor = document.createElement('div')
-        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
-        container.appendChild(nativeAnchor)
-        setScrollMetrics(container, { scrollHeight: 1000, clientHeight: 200 })
-        const controller = createController(container)
-        observers.flushFrames()
-
-        observers.notifyResize([{
-            target: container,
-            borderBoxSize: [],
-            contentBoxSize: [],
-            devicePixelContentBoxSize: [],
-            contentRect: new DOMRectReadOnly(0, 0, 120, 200),
-        }])
-
-        expect(observers.pendingFrameCount).toBe(1)
-        controller.destroy()
-    })
-
     it('leaves streamed bottom layout to the native scroll anchor', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -587,25 +546,6 @@ describe('forward chat scroll controller', () => {
         controller.destroy()
     })
 
-    it('observes nested message layout without injecting pixel spacers', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const message = document.createElement('div')
-        message.className = 'chat-message-container'
-        container.appendChild(message)
-        const metrics = { scrollHeight: 1000, clientHeight: 200 }
-        setScrollMetrics(container, metrics)
-        const controller = createController(container)
-
-        expect(observers.mutationObserveOptions).toEqual({
-            childList: true,
-            subtree: true,
-        })
-        expect(observers.observedElements.has(message)).toBe(true)
-        expect(container.querySelector('[data-streaming-pixel-spacer]')).toBeNull()
-        controller.destroy()
-    })
-
     it('preserves an edited message position while away from the bottom', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -668,6 +608,104 @@ describe('forward chat scroll controller', () => {
 
         expect(message.getBoundingClientRect().bottom).toBe(originalBottom)
         expect(container.scrollTop).toBe(300)
+        release()
+        controller.destroy()
+    })
+
+    it('keeps the viewport-bottom point proportional through later message resizing', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 4000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        let messageHeight = 1000
+        const messageLayoutTop = 900
+        message.getBoundingClientRect = () => new DOMRect(
+            0,
+            messageLayoutTop - container.scrollTop,
+            300,
+            messageHeight,
+        )
+        const viewportBottomFraction = () =>
+            (container.getBoundingClientRect().bottom - message.getBoundingClientRect().top)
+            / messageHeight
+        const controller = createController(container)
+        observers.flushFrames()
+        container.scrollTop = 1000
+        container.dispatchEvent(new Event('scroll'))
+
+        const release = controller.preserveElementPosition(message, {
+            edge: 'viewport-bottom',
+            followLayout: true,
+        })
+
+        messageHeight = 2000
+        metrics.scrollHeight += 1000
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(viewportBottomFraction()).toBeCloseTo(0.3)
+        release()
+
+        messageHeight = 2500
+        metrics.scrollHeight += 500
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(viewportBottomFraction()).toBeCloseTo(0.3)
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        const scrollTopAfterWheel = container.scrollTop
+        messageHeight = 3000
+        metrics.scrollHeight += 500
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(scrollTopAfterWheel)
+
+        controller.destroy()
+    })
+
+    it.each([
+        { label: 'a fully visible message', viewportTop: 50, edge: 'bottom' },
+        { label: 'a message below the viewport', viewportTop: 250, edge: 'top' },
+    ] as const)('clamps viewport-bottom anchoring for $label', ({ viewportTop, edge }) => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 4000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const initialScrollTop = 1000
+        let messageHeight = 100
+        const messageLayoutTop = viewportTop + initialScrollTop
+        message.getBoundingClientRect = () => new DOMRect(
+            0,
+            messageLayoutTop - container.scrollTop,
+            300,
+            messageHeight,
+        )
+        const edgePosition = () => {
+            const rect = message.getBoundingClientRect()
+            return edge === 'bottom' ? rect.bottom : rect.top
+        }
+        const controller = createController(container)
+        observers.flushFrames()
+        container.scrollTop = initialScrollTop
+        container.dispatchEvent(new Event('scroll'))
+        const originalEdgePosition = edgePosition()
+
+        const release = controller.preserveElementPosition(message, {
+            edge: 'viewport-bottom',
+        })
+        messageHeight = 200
+        metrics.scrollHeight += 100
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(edgePosition()).toBe(originalEdgePosition)
         release()
         controller.destroy()
     })

@@ -258,7 +258,7 @@
                         {#if settings.NAIImgConfig.vibe_data?.thumbnail}
                             <img src={settings.NAIImgConfig.vibe_data.thumbnail} alt={language.imageSettings.vibePreview} class="h-8 w-8 rounded object-cover border border-darkborderc" />
                         {/if}
-                        <Button variant="outline" size="sm" onclick={uploadVibeFile}>
+                        <Button variant="outline" size="sm" onclick={uploadVibeFile} data-file-picker>
                             <ImageIcon />
                             {settings.NAIImgConfig.vibe_data ? language.edit : language.select}
                         </Button>
@@ -337,10 +337,10 @@
                             {#await getCharImage(settings.NAIImgConfig.character_image, 'plain')}
                                 <div class="h-8 w-8 rounded border border-darkborderc bg-button animate-pulse"></div>
                             {:then image}
-                                <img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>
+                                {#if image}<img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>{/if}
                             {/await}
                         {/if}
-                        <Button variant="outline" size="sm" onclick={uploadReferenceImage}>
+                        <Button variant="outline" size="sm" onclick={uploadReferenceImage} data-file-picker>
                             <ImageIcon />
                             {settings.NAIImgConfig.character_image ? language.edit : language.select}
                         </Button>
@@ -388,7 +388,7 @@
             {#if settings.NAII2I}
                 <SettingLayout variant="row" title={language.imageSettings.i2iReferenceImage} description={language.imageSettings.useCharacterDefaultHint} stacked>
                 <div class="relative">
-                    <button class="mb-2" onclick={async () => {
+                    <button class="mb-2" data-file-picker onclick={async () => {
                         const img = await selectSingleFile([
                             'jpg',
                             'jpeg',
@@ -412,7 +412,13 @@
                                     <span class="text-sm">{language.imageSettings.uploadingImage}</span>
                                 </div>
                             {:then im}
-                                <img src={im} class="rounded-md h-40 shadow-lg bg-subtext cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
+                                {#if im}
+                                    <img src={im} class="rounded-md h-40 shadow-lg bg-subtext cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
+                                {:else}
+                                    <div class="rounded-md h-20 w-20 shadow-lg bg-subtext cursor-pointer risu-interactive-accent flex items-center justify-center">
+                                        <ImageIcon />
+                                    </div>
+                                {/if}
                             {/await}
                         {/if}
                     </button>

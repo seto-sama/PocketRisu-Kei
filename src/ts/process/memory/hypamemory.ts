@@ -1,7 +1,7 @@
 import { globalFetch } from "src/ts/globalApi.svelte";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { makeHashedStorageKey, readPersistentJsonBatch, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
@@ -9,7 +9,6 @@ import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
 import { DEFAULT_HYPA_MODEL, HYPA_EMBEDDING_BATCH_SIZE, type HypaModel } from './embeddingModels';
 export { DEFAULT_HYPA_MODEL, type HypaModel } from './embeddingModels';
 
-// Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
 export const hypaVectorCachePrefix = 'cache/hypa-vector/';
 const MAX_CACHED_VECTORS = 512;
@@ -38,19 +37,24 @@ export function truncateErrorBody(data: unknown): string {
         : text
 }
 
-export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
-    if (hypaVectorCache.has(cacheKey)) {
-        const value = hypaVectorCache.get(cacheKey)
-        rememberVector(cacheKey, value)
+export async function getPersistedHypaVectors(cacheKeys: string[]): Promise<(memoryVector | undefined)[]> {
+    const results = cacheKeys.map(key => {
+        const value = hypaVectorCache.get(key)
+        if (value !== undefined) rememberVector(key, value)
         return value
-    }
-    const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
-    const payload = await readPersistentJson<{ key: string, value: memoryVector }>(storageKey)
-    if (!payload || payload.key !== cacheKey) {
-        return undefined
-    }
-    rememberVector(cacheKey, payload.value)
-    return payload.value
+    })
+    const missing = cacheKeys.flatMap((key, index) => results[index] === undefined ? [{ key, index }] : [])
+    if (missing.length === 0) return results
+
+    const storageKeys = await Promise.all(missing.map(({ key }) => makeHashedStorageKey(hypaVectorCachePrefix, key)))
+    const payloads = await readPersistentJsonBatch<{ key: string, value: memoryVector }>([...new Set(storageKeys)])
+    missing.forEach(({ key, index }, offset) => {
+        const payload = payloads.get(storageKeys[offset])
+        if (!payload || payload.key !== key) return
+        rememberVector(key, payload.value)
+        results[index] = payload.value
+    })
+    return results
 }
 
 export async function setPersistedHypaVector(cacheKey: string, value: memoryVector) {
@@ -76,17 +80,12 @@ export class HypaProcesser{
     constructor(model:HypaModel|'auto' = 'auto',customEmbeddingUrl?:string){
         this.vectors = []
         const db = getDatabase()
-        if(model === 'auto'){
-            this.model = db.hypaModel || DEFAULT_HYPA_MODEL
-        }
-        else{
-            this.model = model
-        }
+        this.model = model === 'auto' ? db.hypaModel || DEFAULT_HYPA_MODEL : model
         this.customEmbeddingUrl = customEmbeddingUrl?.trim() || db.hypaCustomSettings?.url?.trim() || ""
     }
 
     async embedDocuments(texts: string[]): Promise<VectorArray[]> {
-        const subPrompts = chunkArray(texts, HYPA_EMBEDDING_BATCH_SIZE);
+        const subPrompts = chunkEmbeddingInputs(texts);
 
         const embeddings: VectorArray[] = [];
 
@@ -100,24 +99,19 @@ export class HypaProcesser{
           return embeddings;
         }
 
-        for (let i = 0; i < subPrompts.length; i += 1) {
-          const input = subPrompts[i];
-
-          const data = await this.getEmbeds(input, 'document')
-
-          embeddings.push(...data);
+        for (const input of subPrompts) {
+          embeddings.push(...await this.getEmbeds(input, 'document'));
         }
 
         return embeddings;
     }
-    
-    
+
     async getEmbeds(input:string[]|string, inputType:'query'|'document' = 'query'):Promise<VectorArray[]> {
         if(isContextModel(this.model)){
             const provider = getContextProvider(this.model)
             const inputs:string[] = Array.isArray(input) ? input : [input]
             if(inputType === 'query'){
-                return await provider.embedQueries(inputs)
+                return provider.embedQueries(inputs)
             }
             const groups = inputs.map(s => [s])
             const results = await provider.embedDocumentGroups(groups)
@@ -145,7 +139,7 @@ export class HypaProcesser{
             const localNetworkOpts = isLocalNetworkUrl(replaceUrl.toString()) ? { networkRoute: 'local_network' as const } : {};
             gf = await globalFetch(replaceUrl.toString(), { ...fetchArgs, ...localNetworkOpts })
         }
-        if(this.model === 'ada' || this.model === 'openai3small' || this.model === 'openai3large'){
+        else if(this.model === 'ada' || this.model === 'openai3small' || this.model === 'openai3large'){
             const db = getDatabase()
             const models = {
                 'ada':'text-embedding-ada-002',
@@ -163,61 +157,44 @@ export class HypaProcesser{
                 }
             })
         }
-        if(this.model === 'voyage4large'){
+        else if(this.model === 'voyage4large'){
             const db = getDatabase()
-            const models = {
-                voyage4large: 'voyage-4-large'
-            }
             gf = await globalFetch('https://api.voyageai.com/v1/embeddings', {
                 headers: { 'Authorization': 'Bearer ' + db.voyageApiKey.trim() },
-                body: { input, model: models[this.model], input_type: 'document' }
+                body: { input, model: 'voyage-4-large', input_type: inputType }
             })
         }
-        const data = gf.data
-    
-    
-        if(!gf.ok){
+        else {
+            throw new Error(`Unsupported model: ${this.model}`)
+        }
+
+        if(!gf.ok || !gf.data?.data){
             throw new Error(truncateErrorBody(gf.data))
         }
-    
-        const result:number[][] = []
-        for(let i=0;i<data.data.length;i++){
-            result.push(data.data[i].embedding)
-        }
-    
-        return result
+
+        return gf.data.data.map((item: { embedding: VectorArray }) => {
+            if(!item.embedding){
+                throw new Error('No embeddings found in the response.')
+            }
+            return item.embedding
+        })
     }
 
-    async testText(text:string){
-        const cached = await getPersistedHypaVector(text)
-        if(cached){
-            return cached.embedding
-        }
-        const vec = (await this.embedDocuments([text]))[0]
-        await setPersistedHypaVector(text, { content: text, embedding: vec as number[] })
-        return vec
-    }
-    
     async addText(texts:string[]) {
         const db = getDatabase()
         const suffix = (this.model === 'custom' && db.hypaCustomSettings?.model?.trim()) ? `-${db.hypaCustomSettings.model.trim()}` : ""
 
-        for(let i=0;i<texts.length;i++){
-            const itm = await getPersistedHypaVector(texts[i] + '|' + this.model + suffix)
+        const existingContents = new Set(this.vectors.map(vector => vector.content))
+        texts = [...new Set(texts)].filter(text => !existingContents.has(text))
+        const cached = await getPersistedHypaVectors(texts.map(text => text + '|' + this.model + suffix))
+        for(const itm of cached){
             if(itm){
-                itm.alreadySaved = true
                 this.vectors.push(itm)
+                existingContents.add(itm.content)
             }
         }
 
-        texts = texts.filter((v) => {
-            for(let i=0;i<this.vectors.length;i++){
-                if(this.vectors[i].content === v){
-                    return false
-                }
-            }
-            return true
-        })
+        texts = texts.filter(text => !existingContents.has(text))
 
         if(texts.length === 0){
             return
@@ -231,45 +208,24 @@ export class HypaProcesser{
 
         for(let i=0;i<memoryVectors.length;i++){
             const vec = memoryVectors[i]
-            if(!vec.alreadySaved){
-                await setPersistedHypaVector(texts[i] + '|' + this.model + suffix, vec)
-            }
+            await setPersistedHypaVector(texts[i] + '|' + this.model + suffix, vec)
         }
 
         this.vectors = memoryVectors.concat(this.vectors)
     }
 
     async similaritySearch(query: string) {
-        const results = await this.similaritySearchVectorWithScore((await this.getEmbeds(query))[0],);
+        const results = await this.similaritySearchScored(query);
         return results.map((result) => result[0]);
     }
 
-    async similaritySearchScored(query: string) {
-        return await this.similaritySearchVectorWithScore((await this.getEmbeds(query))[0],);
+    async similaritySearchScored(query: string): Promise<[string, number][]> {
+        const embedding = (await this.getEmbeds(query))[0]
+        return this.vectors
+            .map((vector): [string, number] => [vector.content, similarity(embedding, vector.embedding)])
+            .sort((a, b) => b[1] - a[1])
     }
 
-    private similaritySearchVectorWithScore(
-        query: VectorArray,
-      ): [string, number][] {
-          const memoryVectors = this.vectors
-          const searches = memoryVectors
-                .map((vector, index) => ({
-                    similarity: similarity(query, vector.embedding),
-                    index,
-                }))
-                .sort((a, b) => (a.similarity > b.similarity ? -1 : 0))
-      
-          const result: [string, number][] = searches.map((search) => [
-              memoryVectors[search.index].content,
-              search.similarity,
-          ]);
-      
-          return result;
-    }
-
-    similarityCheck(query1:number[],query2: number[]) {
-        return similarity(query1, query2)
-    }
 }
 
 export function similarity(a:VectorArray, b:VectorArray) {
@@ -293,15 +249,14 @@ export function contextHash(texts: string[]): string {
 export type VectorArray = number[]|Float32Array
 
 export type memoryVector = {
-    embedding:number[]|Float32Array,
-    content:string,
-    alreadySaved?:boolean
+    embedding:VectorArray,
+    content:string
 }
 
-const chunkArray = <T>(arr: T[], chunkSize: number) =>
-    arr.reduce((chunks, elem, index) => {
-        const chunkIndex = Math.floor(index / chunkSize);
-        const chunk = chunks[chunkIndex] || [];
-        chunks[chunkIndex] = chunk.concat([elem]);
-        return chunks;
-}, [] as T[][]);
+export function chunkEmbeddingInputs<T>(items: T[]): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < items.length; i += HYPA_EMBEDDING_BATCH_SIZE) {
+        chunks.push(items.slice(i, i + HYPA_EMBEDDING_BATCH_SIZE))
+    }
+    return chunks
+}

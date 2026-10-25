@@ -6,7 +6,6 @@ import { supportsInlayImage } from "./process/files/inlays";
 import { risuChatParser } from "./parser/parser.svelte";
 import { getGenerationModelPreset, getModelPresetMetadata, getModelPresetTokenizer } from "./process/models/modelString";
 import type { ModelPreset, RegistryTokenizer } from "./preset/types";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
 import { getRecentChatToken } from "./chatContextTokens";
 
 const MAX_CACHE_SIZE = 1500;
@@ -33,16 +32,8 @@ function setCachedEncoding(key: string, value: EncodedTokens): void {
     }
 }
 
-function getHash(
-    data: string,
-    tokenizer: RegistryTokenizer,
-): string {
-    return `${data}::${tokenizer}`;
-}
-
-
 export const tokenizerList = [
-    ['tik', 'Tiktoken (OpenAI)'],
+    ['tik', 'Tiktoken (OpenAI, o200k_base)'],
     ['claude', 'Claude'],
     ['llama3', 'Llama3'],
     ['gemma', 'Gemma'],
@@ -55,8 +46,6 @@ function getEffectiveRevenantTokenizer(): RegistryTokenizer {
 
 export async function encodeWithTokenizer(data: string, tokenizerType: string): Promise<EncodedTokens> {
     switch (tokenizerType) {
-        case 'tik':
-            return await tikJS(data, 'cl100k_base');
         case 'claude':
             return await tokenizeJson(data, 'claude');
         case 'llama3':
@@ -65,21 +54,15 @@ export async function encodeWithTokenizer(data: string, tokenizerType: string): 
             return await tokenizeJson(data, 'gemma');
         case 'deepseek':
             return await tokenizeJson(data, 'deepseek');
-        // Preserve imported legacy presets without retaining the 4.7 MB WASM
-        // runtime needed to read their SentencePiece .model files.
-        case 'mistral':
-        case 'novelai':
-        case 'llama':
-        case 'novellist':
-            return await tikJS(data, 'cl100k_base');
+        // OpenAI and imported legacy tokenizer names share this fallback.
         default:
-            return await tikJS(data, 'cl100k_base');
+            return await tikJS(data);
     }
 }
 
 export async function encode(data:string):Promise<EncodedTokens>{
     const tokenizer = getEffectiveRevenantTokenizer()
-    const cacheKey = getHash(data, tokenizer)
+    const cacheKey = `${data}::${tokenizer}`
     const cachedResult = getCachedEncoding(cacheKey);
     if (cachedResult !== undefined) {
         return cachedResult;
@@ -93,39 +76,26 @@ export async function encode(data:string):Promise<EncodedTokens>{
 
 type JsonTokenizerType = 'claude'|'llama3'|'gemma'|'deepseek'
 
-const tikParsers = new Map<string, Promise<Tiktoken>>()
+let tikParser: Promise<Tiktoken> | undefined
 const tokenizersByType = new Map<JsonTokenizerType, Promise<Tokenizer>>()
 
-async function tikJS(text:string, model='cl100k_base') {
-    let parserPromise = tikParsers.get(model)
-    if(!parserPromise){
-        parserPromise = (async () => {
+async function tikJS(text:string) {
+    if(!tikParser){
+        tikParser = (async () => {
             const {Tiktoken} = await import('@dqbd/tiktoken')
-            if(model === 'o200k_base'){
-                const o200k_base = await import("src/etc/o200k_base.json");
-                return new Tiktoken(
-                    o200k_base.bpe_ranks,
-                    o200k_base.special_tokens,
-                    o200k_base.pat_str
-                );
-            }
-
-            const cl100k_base = await import("@dqbd/tiktoken/encoders/cl100k_base.json");
+            const o200k_base = await import("src/etc/o200k_base.json");
             return new Tiktoken(
-                cl100k_base.bpe_ranks,
-                cl100k_base.special_tokens,
-                cl100k_base.pat_str
+                o200k_base.bpe_ranks,
+                o200k_base.special_tokens,
+                o200k_base.pat_str
             );
         })()
-        tikParsers.set(model, parserPromise)
-        parserPromise.catch(() => {
-            if(tikParsers.get(model) === parserPromise){
-                tikParsers.delete(model)
-            }
+        tikParser.catch(() => {
+            tikParser = undefined
         })
     }
 
-    return (await parserPromise).encode(text)
+    return (await tikParser).encode(text)
 }
 
 async function tokenizeJson(text:string, type:JsonTokenizerType) {
@@ -288,82 +258,6 @@ export function getModelPresetChatTokenizerConfig(preset: ModelPreset | undefine
 export async function tokenizeNum(data:string) {
     const encoded = await encode(data)
     return encoded
-}
-
-const strongBanCache = new Map<string, {[key:number]:number}>();
-const strongBanCachePrefix = 'cache/strong-ban/';
-
-async function getPersistedStrongBan(cacheKey: string) {
-    if (strongBanCache.has(cacheKey)) {
-        return strongBanCache.get(cacheKey)
-    }
-    const storageKey = await makeHashedStorageKey(strongBanCachePrefix, cacheKey)
-    const payload = await readPersistentJson<{ key: string, value: {[key:number]:number} }>(storageKey)
-    if (!payload || payload.key !== cacheKey) {
-        return null
-    }
-    strongBanCache.set(cacheKey, payload.value)
-    return payload.value
-}
-
-export async function strongBan(data:string, bias:{[key:number]:number}) {
-
-    const cacheKey = 'strongBan_' + data
-    const cached = await getPersistedStrongBan(cacheKey)
-    if(cached){
-        return cached
-    }
-    const performace = performance.now()
-    const length = Object.keys(bias).length
-    let charAlt = [
-        data,
-        data.trim(),
-        data.toLocaleUpperCase(),
-        data.toLocaleLowerCase(),
-        data[0].toLocaleUpperCase() + data.slice(1),
-        data[0].toLocaleLowerCase() + data.slice(1),
-    ]
-
-    let banChars = " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~“”‘’«»「」…–―※"
-    let unbanChars:number[] = []
-
-    for(const char of banChars){
-        unbanChars.push((await tokenizeNum(char))[0])
-    }
-
-
-
-    for(const char of banChars){
-        const encoded = await tokenizeNum(char)
-        if(encoded.length > 0){
-            if(!unbanChars.includes(encoded[0])){
-                bias[encoded[0]] = -100
-            }
-        }
-        for(const alt of charAlt){
-            let fchar = char
-
-            const encoded = await tokenizeNum(alt + fchar)
-            if(encoded.length > 0){
-                if(!unbanChars.includes(encoded[0])){
-                    bias[encoded[0]] = -100
-                }
-            }
-            const encoded2 = await tokenizeNum(fchar + alt)
-            if(encoded2.length > 0){
-                if(!unbanChars.includes(encoded2[0])){
-                    bias[encoded2[0]] = -100
-                }
-            }
-        }
-    }
-    strongBanCache.set(cacheKey, bias)
-    const storageKey = await makeHashedStorageKey(strongBanCachePrefix, cacheKey)
-    await writePersistentJson(storageKey, {
-        key: cacheKey,
-        value: bias
-    })
-    return bias
 }
 
 export async function getCharToken(char?:character|null){

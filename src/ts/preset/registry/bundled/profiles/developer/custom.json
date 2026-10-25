@@ -1,6 +1,6 @@
 {
   "id": "developer:custom",
-  "updatedAt": 1785331785494,
+  "updatedAt": 1792886400000,
   "displayName": "Custom",
   "providerBaseId": "developer-custom",
   "profileStatus": "current",
@@ -99,10 +99,6 @@
           "label": "None"
         },
         {
-          "value": "budget",
-          "label": "Budget"
-        },
-        {
           "value": "minimal",
           "label": "Minimal"
         },
@@ -131,18 +127,6 @@
         "target": "custom",
         "path": "generation.reasoningEffort"
       }
-    },
-    {
-      "key": "thinking_tokens",
-      "semantic": "thinkingBudgetTokens",
-      "type": "integer",
-      "label": "Thinking Tokens",
-      "labelKey": "thinkingTokens",
-      "helpKey": "thinkingBudgetHelp",
-      "description": "Maximum thinking-token budget used by Claude and Gemini when reasoning effort is set to Budget.",
-      "default": 1024,
-      "min": 1024,
-      "step": 1
     },
     {
       "key": "verbosity",
@@ -533,18 +517,6 @@
         "layout": "row",
         "group": "connection",
         "order": 4
-      },
-      {
-        "key": "thinking_tokens",
-        "widget": "number-input",
-        "visibility": "basic",
-        "layout": "row",
-        "group": "connection",
-        "order": 5,
-        "showIf": {
-          "key": "reasoning_effort",
-          "equals": "budget"
-        }
       },
       {
         "key": "verbosity",

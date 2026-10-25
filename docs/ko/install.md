@@ -19,7 +19,7 @@ PocketRisu를 설치하는 방법은 네 가지가 있습니다.
 | **CPU**     | 1코어        | 2코어 이상            |
 | **RAM**     | 1GB (실행만) | 4GB 이상 (빌드 포함)  |
 | **디스크**  | 1GB          | 2GB 이상              |
-| **Node.js** | 24.15 이상   | (포터블/Docker는 불필요) |
+| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (포터블/Docker는 불필요) |
 
 포터블 패키지와 Docker는 빌드 과정이 없어 RAM 1GB로 동작합니다. 직접 빌드(Git Clone, 설치 스크립트)할 경우 빌드 중 메모리 사용량이 높아 4GB 이상을 권장합니다.
 
@@ -148,11 +148,11 @@ docker compose pull && docker compose up -d
 
 ### 사전 준비
 
-Node.js 24.15 이상이 필요합니다:
+Node.js 24.x(24.22.1 이상) 또는 26.x(26.12.1 이상)가 필요합니다:
 
 ```bash
 node --version
-# v24.15.0 이상
+# v24.22.1 이상(24.x) 또는 v26.12.1 이상(26.x)
 ```
 
 Node.js가 없다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설치합니다.
@@ -214,6 +214,21 @@ pnpm install
 pnpm build
 # 서버 재시작
 pnpm runserver
+```
+
+### 디버그 로그
+
+`pnpm runserver` 대신 `pnpm debug`로 실행하면 서버 진단과 브라우저 디버그 로그, 채팅 저장 상세 진단이 함께 켜집니다. 서버를 재시작한 뒤 브라우저도 새로고침하세요. 브라우저 개발자 도구에서 **Verbose(상세)** 콘솔 수준을 켜면 로그를 볼 수 있습니다. 디버그 메시지는 시스템 로그 DB에 저장되지 않습니다.
+
+개발 모드는 `pnpm dev`, 디버그 로그도 보려면 `pnpm debug dev`로 실행하세요. 개발 모드만으로는 디버그 로그가 켜지지 않습니다.
+
+디버그 명령들은 Node의 `NODE_DEBUG=pocketrisu` 설정을 켭니다. 빌드된 앱도 재빌드 없이 `NODE_DEBUG=pocketrisu pnpm runserver`로 로그를 켤 수 있습니다.
+
+개발 패널은 별도로 유지됩니다. 브라우저 콘솔에서 다음을 실행하면 켜집니다.
+
+```js
+localStorage.setItem('risu-dev-panel', '1')
+location.reload()
 ```
 
 ### 로컬 폰트

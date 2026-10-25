@@ -1,8 +1,8 @@
 import { Buffer } from 'buffer'
 import { language } from "src/lang"
-import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
-import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
+import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertWait, notifySuccess } from "../alert"
+import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type character, type Chat, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
+import { AppendableBuffer, forageStorage, readImage, saveAsset } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleImportFile, sleep } from "../util"
 import { createEntityId } from "../id"
 import { convertExternalLorebook } from "./lorebook.svelte"
@@ -14,6 +14,8 @@ import { convertCharacterToModule, convertModuleToCharacter } from "../interchan
 import { exportCharacterCard, importCharacterProcess } from "../characterCards"
 import { readDefaultAvatarImage } from "../avatarImage"
 import { normalizePresetTagFields, type PresetTagFields } from "../preset/tags"
+import { exportPresetFile, showExportAssetProgress } from "../preset/export"
+import { getEnabledModules } from './moduleSelection'
 
 export interface MCPModule{
     url: string
@@ -23,6 +25,7 @@ export interface RisuModule extends PresetTagFields {
     name: string
     description: string
     lorebook?: loreBook[]
+    imageTagBundleLorebookId?: string
     regex?: customscript[]
     cjs?: string
     trigger?: triggerscript[]
@@ -37,34 +40,24 @@ export interface RisuModule extends PresetTagFields {
     icon?:string
 }
 
-export async function exportModule(module:RisuModule, arg:{
-    alertEnd?:boolean
-} = {}){
-    const alertEnd = arg.alertEnd ?? true
-
+export async function exportModule(module:RisuModule){
+    const moduleName = module.name
     const char = convertModuleToCharacter(module)
     if(!char.image){
         char.image = await saveAsset(await readDefaultAvatarImage())
         char.extentions ??= {}
         char.extentions['moduleNoneImage'] = true
     }
-    const writer = new LocalWriter()
-    await writer.init(module.name + '.module', ['charx'])
     await exportCharacterCard(char, 'charx', {
         spec: 'v3',
-        writer
+        fileName: `${moduleName}.module.charx`
     })
-    if(alertEnd){
-        alertNormal(language.successExport)
-    }
 }
 
-export async function exportModuleLegacy(module:RisuModule, arg:{
-    alertEnd?:boolean
-    saveData?:boolean
-} = {}){
-    const alertEnd = arg.alertEnd ?? true
-    const saveData = arg.saveData ?? true
+export async function encodeModuleLegacy(
+    module:RisuModule,
+    onProgress?:(completed:number, total:number) => void
+):Promise<Uint8Array>{
     const apb = new AppendableBuffer()
     const writeLength = (len:number) => {
         const lenbuf = Buffer.alloc(4)
@@ -78,10 +71,9 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
         apb.append(buf)
     }
 
-    const assets = module.assets ?? []
     module = structuredClone(module)
-    module.assets ??= []
-    module.assets = module.assets.map((asset) => {
+    const assets = module.assets ?? []
+    module.assets = assets.map((asset) => {
         return [asset[0], '', asset[2]] as [string,string,string]
     })
 
@@ -95,32 +87,31 @@ export async function exportModuleLegacy(module:RisuModule, arg:{
     writeLength(mainbuf.length)
     apb.append(mainbuf)
 
+    if(assets.length > 0){
+        onProgress?.(0, assets.length)
+    }
     for(let i=0;i<assets.length;i++){
         const asset = assets[i]
         writeByte(1) //mark as asset
-        alertStore.set({
-            type: 'wait',
-            msg: `Loading... (Adding Assets ${i} / ${assets.length})`
-        })
         let rData = await readImage(asset[1])
         if(!rData){
             rData = new Uint8Array(0) //blank buffer
         }
-        let encoded = await encodeRPack(Buffer.from(await compressImage(rData)))
+        const encoded = await encodeRPack(Buffer.from(await compressImage(rData)))
         writeLength(encoded.length)
         apb.append(encoded)
+        onProgress?.(i + 1, assets.length)
     }
 
     writeByte(0) //end of file
 
-    if(saveData){
-        await downloadFile(module.name + '.risum', apb.buffer)
-    }
-    if(alertEnd){
-        notifySuccess(language.successExport)
-    }
-
     return apb.buffer
+}
+
+export async function exportModuleLegacy(module:RisuModule){
+    const fileName = `${module.name}.risum`
+    const encoded = await encodeModuleLegacy(module, showExportAssetProgress)
+    await exportPresetFile(fileName, encoded)
 }
 
 export async function readModule(buf:Buffer):Promise<RisuModule> {
@@ -254,14 +245,32 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
     return normalizePresetTagFields(module)
 }
 
-export async function importModule(){
-    const f = await selectSingleImportFile()
+export function isModuleImportJSON(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const importData = value as Record<string, any>
+    if(importData.type === 'risuModule'){
+        return !!importData.name && !!importData.id
+    }
+    if(importData.type === 'risu' && importData.data && Array.isArray(importData.data)){
+        return true
+    }
+    if(importData.entries){
+        return true
+    }
+    return importData.type === 'regex' && !!importData.data
+}
+
+export async function importModule(input?:{name:string, data:Uint8Array}):Promise<boolean>{
+    const f = input ?? await selectSingleImportFile()
     if(!f){
-        return
+        return false
     }
     let fileData = f.data
+    const fileName = f.name.toLowerCase()
     const db = getDatabase()
-    if(f.name.endsWith('.charx')){
+    if(fileName.endsWith('.charx')){
         try {
             const buf = Buffer.from(fileData)
             const char = await importCharacterProcess({
@@ -271,39 +280,46 @@ export async function importModule(){
             })
             if(!char || typeof char === 'number'){
                 alertError(language.errors.noData)
-                return
+                return false
             }
             const module = convertCharacterToModule(char)
             db.modules.push(normalizePresetTagFields(module))
+            notifySuccess(language.successImport)
+            return true
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
+            return false
         }
-        notifySuccess(language.successImport)
-        return
     }
-    if(f.name.endsWith('.risum')){
+    if(fileName.endsWith('.risum')){
         try {
             const buf = Buffer.from(fileData)
             const module = await readModule(buf)
             db.modules.push(normalizePresetTagFields(module))
             notifySuccess(language.successImport)
+            return true
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
+            return false
         }
-        return
     }
+    let importData:any
     try {
-        const importData = JSON.parse(Buffer.from(fileData).toString())
+        importData = JSON.parse(Buffer.from(fileData).toString())
+    } catch (error) {
+        console.error(error)
+        alertNormal(language.errors.noData)
+        return false
+    }
+    if(!isModuleImportJSON(importData)){
+        alertNormal(language.errors.noData)
+        return false
+    }
+
+    try {
         if(importData.type === 'risuModule'){
-            if(
-                (!importData.name)
-                || (!importData.id)
-            ){
-                alertError(language.errors.noData)
-                return
-            }
             importData.id = createEntityId()
 
             if(importData.lowLevelAccess){
@@ -314,7 +330,7 @@ export async function importModule(){
             }
             db.modules.push(normalizePresetTagFields(importData))
             notifySuccess(language.successImport)
-            return
+            return true
         }
         // importData.type === 'risu' in conflict with HypaV3 preset exports
         // difference: record vs. array
@@ -328,7 +344,7 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
         if(importData.entries){
             const lores:loreBook[] = convertExternalLorebook(importData.entries)
@@ -340,7 +356,7 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
         if(importData.type === 'regex'  && importData.data){
             const regexs:customscript[] = importData.data
@@ -352,13 +368,15 @@ export async function importModule(){
             }
             db.modules.push(importModule)
             notifySuccess(language.successImport)
-            return
+            return true
         }
     } catch (error) {
         console.error(error)
+        alertNormal(language.errors.noData)
+        return false
     }
 
-    alertNormal(language.errors.noData)
+    return false
 }
 
 function getModuleById(id:string){
@@ -378,64 +396,13 @@ function getModuleById(id:string){
     return null
 }
 
-function getModuleByIds(ids:string[]){
-    const db = getDatabase()
-    const idSet = new Set(ids)
-    const modules = db.modules.filter(m => 
-        idSet.has(m.id) || (m.namespace && idSet.has(m.namespace))
-    )
-    return deduplicateModuleById(modules)
-}
-
-function deduplicateModuleById(modules:RisuModule[]){
-    const ids = new Set<string>()
-    return modules.filter(module => {
-        if (ids.has(module.id)) return false
-        ids.add(module.id)
-        return true
-    })
-}
-
-let lastModules = ''
-let lastModuleData:RisuModule[] = []
-export function getModules(){
-    const currentChat = getCurrentChat()
-    const character = getCurrentCharacter()
-    const db = getDatabase()
-    const persona = checkPersonaBinded()
-    const activePersona = persona ?? db.personas?.[db.selectedPersona]
-    let ids = db.enabledModules ?? []
-    if(activePersona?.id && db.personaEnabledModules?.[activePersona.id]){
-        ids = ids.concat(db.personaEnabledModules[activePersona.id])
-    }
-    if (currentChat){
-        ids = ids.concat(currentChat.modules ?? [])
-    }
-    if(character && character.modules){
-        ids = ids.concat(character.modules)
-    }
-    if(persona && persona.embeddedModule){
-        ids = ids.concat([persona.embeddedModule?.id])
-    }
-    if(db.moduleIntergration){
-        const intList = db.moduleIntergration.split(',').map((s) => s.trim())
-        ids = ids.concat(intList)
-    }
-    const idsJoined = ids.join('-')
-    if(lastModules === idsJoined){
-        return lastModuleData
-    }
-
-    let modules:RisuModule[] = getModuleByIds(ids)
-    lastModules = idsJoined
-    lastModuleData = modules
-    return modules
-
+export function getModules(character = getCurrentCharacter(), chat = getCurrentChat()){
+    return getEnabledModules(getDatabase(), character, chat)
 }
 
 
-export function getModuleLorebooks() {
-    const modules = getModules()
+export function getModuleLorebooks(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let lorebooks: loreBook[] = []
     for (const module of modules) {
         if(!module){
@@ -463,8 +430,8 @@ export function getModuleAssets() {
 }
 
 
-export function getModuleTriggers() {
-    const modules = getModules()
+export function getModuleTriggers(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let triggers: triggerscript[] = []
     for (const module of modules) {
         if(!module){
@@ -482,8 +449,8 @@ export function getModuleTriggers() {
     return triggers
 }
 
-export function getModuleRegexScripts() {
-    const modules = getModules()
+export function getModuleRegexScripts(character?: character, chat?: Chat) {
+    const modules = getModules(character, chat)
     let customscripts: customscript[] = []
     for (const module of modules) {
         if(!module){
@@ -494,20 +461,6 @@ export function getModuleRegexScripts() {
         }
     }
     return customscripts
-}
-
-export function getModuleToggles() {
-    const modules = getModules()
-    let costomModuleToggles: string = ''
-    for (const module of modules) {
-        if(!module){
-            continue
-        }
-        if (module.customModuleToggle) {
-            costomModuleToggles += '\n' + module.customModuleToggle + '\n'
-        }
-    }
-    return costomModuleToggles
 }
 
 export function getModuleMcps() {
@@ -577,9 +530,4 @@ export function moduleUpdate(){
     }
     HideIconStore.set(getCurrentCharacter()?.hideChatIcon || moduleHideIcon)
 
-}
-
-export function refreshModules(){
-    lastModules = ''
-    lastModuleData = []
 }

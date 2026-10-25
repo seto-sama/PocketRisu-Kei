@@ -16,7 +16,6 @@ function recipe(): RevenantPostprocessRecipe {
             nickname: 'Al',
             defaultVariables: 'mood=calm',
             chats: [],
-            chatPage: 0,
         } as any,
         chat: {
             id: 'room-1',
@@ -86,6 +85,27 @@ describe('revenant headless CBS parser', () => {
         input.modelPreset = { name: 'Bound Preset' }
 
         expect(renderRevenantTemplate('{{metadata::modelname}}', input).text).toBe('Bound Preset')
+    })
+
+    it.each([
+        ['Kimi', 'moonshotai', 'openai-compatible', {}, '1'],
+        ['Claude', 'anthropic', 'anthropic-messages', {}, '0'],
+        ['a Custom preset with hasPrefill', 'custom', 'custom', { customFlag_hasPrefill: true }, '1'],
+    ])('reports prefill support for %s', (_label, providerBaseId, adapterKind, userValues, expected) => {
+        const input = recipe()
+        input.modelPreset = {
+            name: 'Preset',
+            userValues,
+            profileSnapshot: {
+                providerBaseId,
+                adapterKind,
+                modelId: 'model',
+                schema: [],
+                uiSchema: { groups: [], fields: [] },
+            },
+        }
+
+        expect(renderRevenantTemplate('{{prefill_supported}}', input).text).toBe(expected)
     })
 })
 

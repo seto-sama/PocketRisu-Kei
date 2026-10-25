@@ -35,7 +35,7 @@ PocketRisu 会在手机上本地构建应用,因此构建时间取决于手机�
 ### 使用 F-Droid 或 GitHub Releases 版本的 Termux
 
 > ⚠️ **Play Store 版本的 Termux 无法使用。**
-> Termux 维护者已于 2020 年停止更新 Play Store 版本,无法再安装 PocketRisu 所需的最新软件包(Node.js 24.15+)。
+> Termux 维护者已于 2020 年停止更新 Play Store 版本,无法再安装 PocketRisu 所需的最新软件包(Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x))。
 
 请从以下任一来源安装 Termux:
 
@@ -70,7 +70,7 @@ pkg install -y git && \
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 从同一目录启动服务器:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 服务器启动日志出现后,在手机浏览器(Chrome、Firefox 等)中访问:
@@ -119,15 +119,29 @@ Termux 通知栏会显示唤醒锁指示,即使屏幕关闭服务器也会继续
 
 ## 5. 更新
 
-在 PocketRisu 目录下执行:
+先使用 `Ctrl + C` 停止正在运行的服务器,然后执行:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+每一步只有在前一步成功后才会执行。如果 `git pull` 失败,命令会在安装依赖或构建前停止,不会重新构建旧源码。`pnpm install` 需要明确执行,不会作为 `pnpm build` 的一部分自动运行。每次更新都要运行它。`GYP_DEFINES` 是构建脚本使用的 Termux 设置,编译 `msgpackr-extract` 等原生模块时需要它。构建完成后,使用 `node server/server.cjs` 重新启动服务器。
+
+### 如果 `git pull` 失败
+
+检查本地更改:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-如果依赖发生变更,`pnpm install` 会作为构建的一部分自动执行。构建完成后请重启服务器。
+如果要保留未提交的更改,请先提交,或在运行上面的更新命令前使用 `git stash push` 暂存。使用 stash 时,更新完成后用 `git stash pop` 恢复,并检查是否有冲突。如果出现 `Not possible to fast-forward`,请先解决本地分支的分歧; stash 无法解决不同的提交历史。
 
 
 ---

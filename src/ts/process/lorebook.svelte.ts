@@ -1,8 +1,10 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
-import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
+import { getChatVarOf, setChatVarOf } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
-import type { Message, loreBook } from "../storage/database.svelte";
+import type { Chat, character, Message, loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { findCharacterbyId, pickHashRand, selectSingleImportFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
@@ -14,6 +16,17 @@ import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
 import { createEntityId } from 'src/ts/id';
 import { selectLorebookPromptsWithinBudget } from "./lorebookPrompt";
+
+type LorebookSearchText = {
+    prompt: string
+    data: string
+    normalized?: {
+        prompt: string
+        data: string
+        words?: Set<string>
+        compact?: string
+    }
+}
 
 export function addLorebook(type:number) {
     const selectedID = get(selectedCharID)
@@ -30,7 +43,7 @@ export function addLorebook(type:number) {
         })
     }
     else{
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         DBState.db.characters[selectedID].chats[page].localLore.push({
             key: '',
             comment: `New Lore ${DBState.db.characters[selectedID].chats[page].localLore.length + 1}`,
@@ -60,7 +73,7 @@ export function addLorebookFolder(type:number) {
         })
     }
     else{
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         DBState.db.characters[selectedID].chats[page].localLore.push({
             key: '\uf000folder:' + id,
             comment: `New Folder`,
@@ -77,26 +90,30 @@ export function addLorebookFolder(type:number) {
 export async function loadLoreBookV3Prompt(options: {
     includeModuleLorebooks?: boolean
     updateActivationState?: boolean
+    character?: character
+    chat?: Chat
 } = {}){
-    const selectedID = get(selectedCharID)
-    const char = DBState.db.characters[selectedID]
-    const page = char.chatPage
+    const char = options.character ?? DBState.db.characters[get(selectedCharID)]
+    const chat = options.chat ?? char.chats[getChatPage(char)]
+    const getVar = (key: string) => getChatVarOf(chat, key, char.defaultVariables)
     const characterLore = char.globalLore ?? []
-    const chatLore = char.chats[page].localLore ?? []
-    const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
-    const fullLore = structuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
-    const currentChat = char.chats[page].message.filter(message => message.kind !== 'imageGeneration')
+    const chatLore = chat.localLore ?? []
+    const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks(char, chat)
+    const fullLore = characterLore.concat(chatLore, moduleLorebook).map(entry => ({ ...entry }))
+    const currentChat = chat.message.filter(message => message.kind !== 'imageGeneration')
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false
     const chatLength = currentChat.length + 1 //includes first message
     const recursiveScanning = char.loreSettings?.recursiveScanning ?? !DBState.db.disableGlobalLorebookRecursiveScanning
-    let recursivePrompt:{
-        prompt: string,
+    const recursivePrompt:{
         source: string,
-        data: string
+        text: LorebookSearchText
     }[] = []
-    let matchLog:{
+    const messageTexts = new WeakMap<Message, LorebookSearchText>()
+    const normalizeText = (text: string) => text.toLocaleLowerCase()
+        .replace(/\{\{\/\/(.+?)\}\}/g, '').replace(/\{\{comment:(.+?)\}\}/g, '')
+    const matchLog:{
         prompt: string,
         source: string
         activated: string
@@ -111,119 +128,82 @@ export async function loadLoreBookV3Prompt(options: {
         dontSearchWhenRecursive: boolean
     }) => {
         const sliced = messages.slice(messages.length - arg.searchDepth,messages.length)
-        const newKeys = []
-        for (const key of arg.keys) {
+        const keys: string[] = []
+        for(const key of arg.keys){
             const trimmed = key.trim()
-            if (trimmed.length > 0) {
-                newKeys.push(trimmed)
+            if(trimmed.length > 0){
+                keys.push(trimmed)
             }
         }
-        arg.keys = newKeys
-        let mList:{
-            source:string
-            prompt:string
-            data:string
-        }[] = sliced.map((msg, i) => {
-            if(msg.role === 'user'){
-                return {
-                    source: `message ${i} by user`,
-                    prompt: `\x01{{${DBState.db.username}}}:` + msg.data + '\x01',
-                    data: msg.data
+        const mList = sliced.map((msg, i) => {
+            let text = messageTexts.get(msg)
+            if(!text){
+                const name = msg.role === 'user' ? DBState.db.username
+                    : msg.name ?? (msg.saying ? findCharacterbyId(msg.saying)?.name : null) ?? char.name
+                text = {
+                    prompt: `\x01{{${name}}}:` + msg.data + '\x01',
+                    data: msg.data,
                 }
+                messageTexts.set(msg, text)
             }
-            else{
-                return {
-                    source: `message ${i} by char`,
-                    prompt: `\x01{{${msg.name ?? (msg.saying ? findCharacterbyId(msg.saying)?.name : null) ?? char.name}}}:` + msg.data + '\x01',
-                    data: msg.data
-                }
-            }
-        }).concat(
-            arg.dontSearchWhenRecursive ? [] : recursivePrompt.map((msg) => {
-                return {
-                    source: 'lorebook ' + msg.source,
-                    prompt: msg.prompt,
-                    data: msg.data
-                }
-            }))    
+            return { source: `message ${i} by ${msg.role === 'user' ? 'user' : 'char'}`, text }
+        })
+        if(!arg.dontSearchWhenRecursive){
+            for(const prompt of recursivePrompt) mList.push(prompt)
+        }
 
         if(arg.regex){
-            for(const mText of mList){
-                for(const regexString of arg.keys){
-                    if(!regexString.startsWith('/')){
-                        return false
-                    }
-                    const regexFlag = regexString.split('/').pop()
-                    if(regexFlag){
-                        arg.keys[0] = regexString.replace('/'+regexFlag,'')
-                        try {
-                            const regex = new RegExp(arg.keys[0],regexFlag)
-                            const d = regex.test(mText.data)
-                            if(d){
-                                matchLog.push({
-                                    prompt: mText.prompt,
-                                    source: mText.source,
-                                    activated: regexString
-                                })
-                                return true
-                            }
-                        } catch (error) {
-                            return false
-                        }
+            const regexes: { regex: RegExp, source: string }[] = []
+            for(const source of keys){
+                const parsed = source.match(/^\/([\s\S]*)\/([dgimsuvy]*)$/)
+                if(!parsed){
+                    return false
+                }
+                const [, pattern, flags] = parsed
+                try {
+                    regexes.push({ regex: new RegExp(pattern, flags), source })
+                } catch {
+                    return false
+                }
+            }
+            for(const { text, source: messageSource } of mList){
+                for(const { regex, source } of regexes){
+                    if(regex.test(text.data)){
+                        matchLog.push({
+                            prompt: text.prompt,
+                            source: messageSource,
+                            activated: source
+                        })
+                        return true
                     }
                 }
             }
             return false
         }
 
-        mList = mList.map((m) => {
-            return {
-                source: m.source,
-                prompt: m.prompt.toLocaleLowerCase().replace(/\{\{\/\/(.+?)\}\}/g,'').replace(/\{\{comment:(.+?)\}\}/g,''),
-                data: m.data.toLocaleLowerCase().replace(/\{\{\/\/(.+?)\}\}/g,'').replace(/\{\{comment:(.+?)\}\}/g,'')
-            }
-        })
-
-        let allMode = arg.all ?? false
+        const matchingKeys = keys.map(source => ({
+            source,
+            value: arg.fullWordMatching ? source.toLocaleLowerCase() : source.toLocaleLowerCase().replace(/ /g, ''),
+        }))
+        const allMode = arg.all ?? false
         let allModeMatched = true
 
-        for(const m of mList){
-            let mText = m.data
-            if(arg.fullWordMatching){
-                const splited = mText.split(' ')
-                for(const key of arg.keys){
-                    if(splited.includes(key.toLocaleLowerCase())){
-                        matchLog.push({
-                            prompt: m.prompt,
-                            source: m.source,
-                            activated: key
-                        })
-                        if(!allMode){
-                            return true
-                        }
-                    }
-                    else if(allMode){
-                        allModeMatched = false
+        for(const { text, source } of mList){
+            const normalized = text.normalized ??= {
+                prompt: normalizeText(text.prompt),
+                data: normalizeText(text.data),
+            }
+            const words = arg.fullWordMatching ? normalized.words ??= new Set(normalized.data.split(' ')) : null
+            const compact = arg.fullWordMatching ? '' : normalized.compact ??= normalized.data.replace(/ /g, '')
+            for(const key of matchingKeys){
+                if(words ? words.has(key.value) : compact.includes(key.value)){
+                    matchLog.push({ prompt: normalized.prompt, source, activated: key.source })
+                    if(!allMode){
+                        return true
                     }
                 }
-            }
-            else{
-                mText = mText.replace(/ /g,'')
-                for(const key of arg.keys){
-                    const realKey = key.toLocaleLowerCase().replace(/ /g,'')
-                    if(mText.includes(realKey)){
-                        matchLog.push({
-                            prompt: m.prompt,
-                            source: m.source,
-                            activated: key
-                        })
-                        if(!allMode){
-                            return true
-                        }
-                    }
-                    else if(allMode){
-                        allModeMatched = false
-                    }
+                else if(allMode){
+                    allModeMatched = false
                 }
             }
         }
@@ -251,15 +231,11 @@ export async function loadLoreBookV3Prompt(options: {
             lore:boolean
         }|null
     }[] = []
-    let activatedIndexes:number[] = []
-    let disabledUIPrompts:string[] = []
-    let matchTimes = 0
-    let keepActivateAfterMatch = false
-    let dontActivateAfterMatch = false
+    const activatedIndexes = new Set<number>()
     while(matching){
         matching = false
         for(let i=0;i<fullLore.length;i++){
-            if(activatedIndexes.includes(i)){
+            if(activatedIndexes.has(i)){
                 continue
             }
             if(!fullLore[i].alwaysActive && !fullLore[i].key){
@@ -287,12 +263,14 @@ export async function loadLoreBookV3Prompt(options: {
             }[] = []
             let fullWordMatching = fullWordMatchingSetting
             let dontSearchWhenRecursive = false
+            let keepActivateAfterMatch = false
+            let dontActivateAfterMatch = false
             
             if(fullLore[i].mode === 'child'){
                 activated = false
                 for(let j=0;j<i;j++){
                     if(fullLore[j].id === fullLore[i].id){
-                        if(!activatedIndexes.includes(j)){
+                        if(!activatedIndexes.has(j)){
                             fullLore[i].comment = fullLore[j].comment
                             fullLore[i].content = fullLore[j].content
                             fullLore[i].alwaysActive = true
@@ -331,7 +309,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return
                     }
                     case 'keep_activate_after_match':{
-                        const vara = getChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
                         if(vara === 'true'){
                             forceState = 'activate'
                         }
@@ -341,7 +319,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return false
                     }
                     case 'dont_activate_after_match': {
-                        const vara = getChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
                         if(vara === 'true'){
                             forceState = 'deactivate'
                         }
@@ -363,7 +341,7 @@ export async function loadLoreBookV3Prompt(options: {
                     case 'instruct_depth':
                     case 'reverse_instruct_depth':
                     case 'instruct_scan_depth':{
-                        //the instruct mode does not exists in risu
+                        // Risu has no instruct mode.
                         return false
                     }
                     case 'role':{
@@ -383,7 +361,7 @@ export async function loadLoreBookV3Prompt(options: {
                         if(Number.isNaN(int)){
                             return false
                         }
-                        if(((char.chats[page].fmIndex ?? -1) + 1) !== int){
+                        if(((chat.fmIndex ?? -1) + 1) !== int){
                             activated = false
                         }
                         return
@@ -474,7 +452,7 @@ export async function loadLoreBookV3Prompt(options: {
                         return
                     }
                     case 'is_user_icon':{
-                        //TODO
+                        // TODO: Implement the is_user_icon directive.
                         return false
                     }
                     case 'activate':{
@@ -487,7 +465,6 @@ export async function loadLoreBookV3Prompt(options: {
                     }
                     case 'disable_ui_prompt':{
                         if(['post_history_instructions','system_prompt'].includes(arg[0])){
-                            disabledUIPrompts.push(arg[0])
                             return
                         }
                         return false
@@ -502,7 +479,6 @@ export async function loadLoreBookV3Prompt(options: {
                         priority = parseInt(arg[0])
                         return
                     }
-                    //We can already do it with search depth, but its more readable and performant this way
                     case 'unrecursive':{
                         itemRecursive = false
                         return
@@ -522,10 +498,7 @@ export async function loadLoreBookV3Prompt(options: {
             })
             
 
-            if(!activated || forceState !== 'none' || fullLore[i].alwaysActive){
-                //if the lore is not activated or force activated, skip the search
-            }
-            else{
+            if(activated && forceState === 'none' && !fullLore[i].alwaysActive){
                 searchQueries.push({
                     keys: fullLore[i].key.split(','),
                     negative: false
@@ -581,13 +554,13 @@ export async function loadLoreBookV3Prompt(options: {
                     source: fullLore[i].comment || `lorebook ${i}`,
                     inject: inject ?? null
                 })
-                activatedIndexes.push(i)
+                activatedIndexes.add(i)
 
                 if(keepActivateAfterMatch && options.updateActivationState !== false){
-                    setChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVarOf(chat, '__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
                 if(dontActivateAfterMatch && options.updateActivationState !== false){
-                    setChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVarOf(chat, '__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
 
 
@@ -599,9 +572,8 @@ export async function loadLoreBookV3Prompt(options: {
                 if(recursive){
                     matching = true
                     recursivePrompt.push({
-                        prompt: content,
-                        data: content,
-                        source: fullLore[i].comment || `lorebook ${i}`,
+                        text: { prompt: content, data: content },
+                        source: 'lorebook ' + (fullLore[i].comment || `lorebook ${i}`),
                     })
                 }
             }
@@ -619,9 +591,11 @@ export async function loadLoreBookV3Prompt(options: {
         return !act?.inject?.lore
     })
 
-    //I know this will make token count wrong, but performance is more important here
+    // Apply lore injection after budgeting to avoid another token-count pass.
 
-    console.log('loreinjectionLores', loreinjectionLores)
+    if (isDebugEnabled()) {
+        console.debug('loreinjectionLores', loreinjectionLores)
+    }
     for(const lore of loreinjectionLores){
         const foundLoreIndex = activesResorted.findIndex((l) => {
             return l.source === lore.inject.location
@@ -656,7 +630,7 @@ export async function importLoreBook(mode:'global'|'local'){
     const initialCharacter = DBState.db.characters[get(selectedCharID)]
     if (!initialCharacter || initialCharacter.trashTime) return
     const characterId = initialCharacter.chaId
-    const chatId = mode === 'local' ? initialCharacter.chats[initialCharacter.chatPage]?.id : undefined
+    const chatId = mode === 'local' ? initialCharacter.chats[getChatPage(initialCharacter)]?.id : undefined
     if (mode === 'local' && !chatId) return
     const getTargetCharacter = () => DBState.db.characters.find(character =>
         character.chaId === characterId && !character.trashTime)
@@ -681,7 +655,7 @@ export async function importLoreBook(mode:'global'|'local'){
             if (index === -1) return
             let chat = character.chats[index]
             if (chat._placeholder) {
-                await ensureChatHydrated(character.chats, index, characterId)
+                await ensureChatHydrated(character, index)
                 // Re-resolve only after hydration yields; sync may replace the body.
                 chat = getTargetCharacter()?.chats.find(chat => chat.id === chatId)
                 if (!chat || chat._placeholder) return
@@ -742,7 +716,7 @@ export function convertExternalLorebook(entries:{[key:string]:CCLorebook}){
 export async function exportLoreBook(mode:'global'|'local'){
     try {
         const selectedID = get(selectedCharID)
-        const page = DBState.db.characters[selectedID].chatPage
+        const page = getChatPage(DBState.db.characters[selectedID])
         const lore = 
             mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
             DBState.db.characters[selectedID].chats[page].localLore        
@@ -754,7 +728,7 @@ export async function exportLoreBook(mode:'global'|'local'){
 
         await downloadFile(`lorebook_export.json`, stringl)
 
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }

@@ -24,7 +24,7 @@
 </script>
 
 <script lang="ts">
-    import type { Snippet } from 'svelte';
+    import type { ComponentProps, Snippet } from 'svelte';
     import type { HTMLButtonAttributes } from 'svelte/elements';
     import { cn } from 'src/lib/utils';
     import Tooltip from './Tooltip.svelte';
@@ -35,6 +35,7 @@
         active?: boolean;
         activeColor?: IconButtonActiveColor;
         expanded?: boolean;
+        tooltipSide?: ComponentProps<typeof Tooltip>['side'];
         className?: string;
         children: Snippet;
     };
@@ -45,6 +46,7 @@
         active = false,
         activeColor = 'maintext',
         expanded = false,
+        tooltipSide,
         class: classAttr = '',
         className = '',
         type = 'button',
@@ -87,11 +89,11 @@
 {/snippet}
 
 {#if title}
-    <Tooltip size="compact">
+    <Tooltip size="compact" side={tooltipSide} arrow={false}>
         {#snippet trigger(props)}
             {@render button(props)}
         {/snippet}
-        <span class="whitespace-pre-line">{title}</span>
+        <span class="risu-plain-text">{title}</span>
     </Tooltip>
 {:else}
     {@render button()}

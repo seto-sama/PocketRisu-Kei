@@ -24,11 +24,12 @@ vi.mock('../transport/client', () => ({
 vi.mock('./workflow', () => workflowMocks)
 
 import {
+    generateImageWorkflowSequence,
     generateImageThroughWorkflow,
     observeRevenantImageGenerationWorkflow,
 } from './imageWorkflow'
 
-function imageWorkflow(status: 'active' | 'completed' = 'active'): RevenantWorkflow {
+function imageWorkflow(status: 'active' | 'completed' = 'active', label = 'NovelAI'): RevenantWorkflow {
     return {
         workflowId: 'workflow-image',
         characterId: 'character-1',
@@ -44,7 +45,7 @@ function imageWorkflow(status: 'active' | 'completed' = 'active'): RevenantWorkf
             target: { characterId: 'character-1', roomId: 'room-1' },
             prompt: 'portrait',
             negativePrompt: '',
-            label: 'NovelAI',
+            label,
             projection: 'reroll',
         },
         steps: [{
@@ -68,7 +69,7 @@ describe('server-owned image workflow observer', () => {
     beforeEach(() => vi.clearAllMocks())
     afterEach(() => vi.unstubAllGlobals())
 
-    it('resubscribes to the Node job after reload without claiming a client action', async () => {
+    it('observes server progress and preserves the workflow label in status', async () => {
         workflowMocks.getRevenantWorkflow.mockResolvedValue(imageWorkflow('completed'))
         let polls = 0
         const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
@@ -83,8 +84,10 @@ describe('server-owned image workflow observer', () => {
         })
         vi.stubGlobal('fetch', fetchMock)
 
-        await observeRevenantImageGenerationWorkflow(imageWorkflow())
+        const label = 'Ink · smile · 1/26'
+        await observeRevenantImageGenerationWorkflow(imageWorkflow('active', label))
 
+        expect(statusMocks.startStatus).toHaveBeenCalledWith('operation-1', expect.objectContaining({ label }))
         expect(fetchMock).toHaveBeenCalledWith(
             '/api/image-generation/jobs/workflow-image%3Aimage-generation%3Aoperation-1',
             { headers: { 'risu-auth': 'auth' } },
@@ -110,12 +113,14 @@ describe('server-owned image workflow observer', () => {
             characterId: 'character-1',
             roomId: 'room-1',
             prompt,
+            orientation: 'landscape',
         })).resolves.toBe('{{inlayed::asset-id}}')
 
         expect(workflowMocks.beginImageGenerationWorkflow).toHaveBeenCalledWith({
             characterId: 'character-1',
             roomId: 'room-1',
             prompt,
+            orientation: 'landscape',
             negativePrompt: '',
             label: 'NovelAI',
             messageId: 'room-1',
@@ -130,5 +135,45 @@ describe('server-owned image workflow observer', () => {
             prompt: 'portrait',
         })).rejects.toThrow('Image generation requires a chat ID')
         expect(workflowMocks.beginImageGenerationWorkflow).not.toHaveBeenCalled()
+    })
+
+    it('waits for each image to complete and finishes the current image before cancelling the rest', async () => {
+        let completeCurrent: ((response: Response) => void) | undefined
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { completeCurrent = resolve })))
+        workflowMocks.beginImageGenerationWorkflow.mockResolvedValue(imageWorkflow())
+        workflowMocks.getRevenantWorkflow.mockResolvedValue(imageWorkflow('completed'))
+        const requests = ['smile', 'angry', 'grin'].map(prompt => ({
+            characterId: 'character-1', roomId: 'room-1', prompt, negativePrompt: '', label: 'NovelAI',
+        }))
+        let cancelRequested = false
+        const queued = vi.fn()
+        const sequence = generateImageWorkflowSequence(requests, {
+            onStart: queued,
+            shouldStop: () => cancelRequested,
+        })
+        await vi.waitFor(() => expect(completeCurrent).toBeDefined())
+        expect(workflowMocks.beginImageGenerationWorkflow).toHaveBeenCalledTimes(1)
+        completeCurrent!(new Response(JSON.stringify({ status: 'completed' })))
+        completeCurrent = undefined
+        await vi.waitFor(() => expect(completeCurrent).toBeDefined())
+        cancelRequested = true
+        expect(statusMocks.endStatus).toHaveBeenCalledTimes(1)
+        completeCurrent!(new Response(JSON.stringify({ status: 'completed' })))
+        await sequence
+        expect(statusMocks.endStatus).toHaveBeenCalledTimes(2)
+        expect(workflowMocks.beginImageGenerationWorkflow.mock.calls.map(([request]) => request.prompt)).toEqual(['smile', 'angry'])
+        workflowMocks.beginImageGenerationWorkflow.mockResolvedValue(imageWorkflow('completed'))
+        await generateImageWorkflowSequence([requests[0]], { onStart: queued })
+        expect(queued.mock.calls).toEqual([[2], [1], [0]])
+    })
+
+    it('stops the sequence when an image fails', async () => {
+        workflowMocks.beginImageGenerationWorkflow.mockResolvedValue(imageWorkflow())
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ status: 'failed', error: 'generation failed' })),
+        ))
+        const request = { characterId: 'character-1', roomId: 'room-1', prompt: 'smile', negativePrompt: '', label: 'NovelAI' }
+        await expect(generateImageWorkflowSequence([request, { ...request, prompt: 'angry' }])).rejects.toThrow('generation failed')
+        expect(workflowMocks.beginImageGenerationWorkflow).toHaveBeenCalledTimes(1)
     })
 })

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     DEFAULT_SIDEBAR_MENU_ORDER,
     SIDEBAR_MENU_BOOKMARKS,
+    SIDEBAR_MENU_DRIVE,
     SIDEBAR_MENU_CHARACTERS,
     SIDEBAR_MENU_HOME,
     SIDEBAR_MENU_SETTINGS,
@@ -15,17 +16,18 @@ import {
 } from './sidebarMenuOrder'
 
 describe('sidebar menu ordering', () => {
-    it('defaults to home, characters, bookmarks, settings with a plugin divider', () => {
+    it('defaults to home, characters, bookmarks, drive, settings with a plugin divider', () => {
         expect(normalizeSidebarMenuOrder(undefined)).toEqual(DEFAULT_SIDEBAR_MENU_ORDER)
-        expect(DEFAULT_SIDEBAR_MENU_ORDER.slice(0, 4)).toEqual([
+        expect(DEFAULT_SIDEBAR_MENU_ORDER.slice(0, 5)).toEqual([
             SIDEBAR_MENU_HOME,
             SIDEBAR_MENU_CHARACTERS,
             SIDEBAR_MENU_BOOKMARKS,
+            SIDEBAR_MENU_DRIVE,
             SIDEBAR_MENU_SETTINGS,
         ])
     })
 
-    it('inserts bookmarks before settings in an existing saved core order', () => {
+    it('inserts new core entries before settings in an existing saved order', () => {
         expect(normalizeSidebarMenuOrder([
             SIDEBAR_MENU_HOME,
             SIDEBAR_MENU_CHARACTERS,
@@ -34,6 +36,7 @@ describe('sidebar menu ordering', () => {
             SIDEBAR_MENU_HOME,
             SIDEBAR_MENU_CHARACTERS,
             SIDEBAR_MENU_BOOKMARKS,
+            SIDEBAR_MENU_DRIVE,
             SIDEBAR_MENU_SETTINGS,
         ])
     })

@@ -27,13 +27,6 @@ export interface ModelPresetDefaultsTarget {
     modelPresetPromptParamsFirst?: boolean
 }
 
-export function createEmptyRegistryCache(): RegistryCache {
-    return {
-        schemaVersion: 4,
-        registries: {},
-    }
-}
-
 // A persisted profileSnapshot can carry null/undefined elements in its schema /
 // uiSchema arrays, or — for a degenerate snapshot — a missing / non-array schema
 // or uiSchema altogether (legacy/malformed registry data). The resolve path

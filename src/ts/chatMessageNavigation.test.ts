@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { writable } from 'svelte/store'
+import { getChatPage, setChatPage } from 'src/ts/storage/chatSelection.svelte'
 
 const mocks = vi.hoisted(() => ({
     changeChar: vi.fn(),
@@ -9,10 +10,12 @@ const mocks = vi.hoisted(() => ({
     db: {
         characters: [{
             chaId: 'character-1',
-            chatPage: 0,
             chats: [{
                 id: 'room-1',
                 message: [{ chatId: 'message-1', role: 'char', data: 'hello' }],
+            }, {
+                id: 'room-2',
+                message: [{ chatId: 'message-2', role: 'char', data: 'second' }],
             }],
         }],
     },
@@ -35,42 +38,41 @@ describe('shared chat message navigation', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         selectedCharID.set(-1)
-        mocks.db.characters[0].chatPage = 0
+        setChatPage(mocks.db.characters[0], 0)
     })
 
     it('queues a room-identified request before activating another character', () => {
+        mocks.changeChar.mockImplementation(() => {
+            expect(getChatPage(mocks.db.characters[0])).toBe(1)
+        })
         expect(navigateToChatMessage({
-            characterIndex: 0,
-            chatIndex: 0,
+            characterId: 'character-1',
+            chatIndex: 1,
             messageIndex: 0,
             exact: false,
         })).toBe(true)
 
+        expect(getChatPage(mocks.db.characters[0])).toBe(1)
         expect(mocks.requestMessageScroll).toHaveBeenCalledWith({
             index: 0,
             exact: false,
             characterId: 'character-1',
-            chatId: 'room-1',
-            messageId: 'message-1',
+            chatId: 'room-2',
+            messageId: 'message-2',
         })
         expect(mocks.requestMessageScroll.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.changeChar.mock.invocationCallOrder[0],
         )
-        expect(mocks.changeChar).toHaveBeenCalledWith(0)
+        expect(mocks.changeChar).toHaveBeenCalledWith('character-1')
         expect(mocks.changeChatTo).not.toHaveBeenCalled()
     })
 
     it('switches only the room when its character is already active', () => {
         selectedCharID.set(0)
-        mocks.db.characters[0].chats.push({
-            id: 'room-2',
-            message: [{ chatId: 'message-2', role: 'char', data: 'second' }],
-        } as never)
 
-        navigateToChatMessage({ characterIndex: 0, chatIndex: 1, messageIndex: 0 })
+        navigateToChatMessage({ characterId: 'character-1', chatIndex: 1, messageIndex: 0 })
 
         expect(mocks.changeChar).not.toHaveBeenCalled()
         expect(mocks.changeChatTo).toHaveBeenCalledWith(1)
-        mocks.db.characters[0].chats.pop()
     })
 })

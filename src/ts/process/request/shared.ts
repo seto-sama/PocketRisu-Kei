@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createEntityId } from 'src/ts/id';
 import type { RequestDataArgumentExtended } from './request'
 import type { OpenAIChat } from '../index.svelte'
@@ -71,7 +72,7 @@ export function buildGenerationRequest(
     // assistant-message recovery path.
     const chatId = ensureRequestGenerationId(arg)
 
-    const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
+    const activeChat = arg.currentChar?.chats?.[getChatPage(arg.currentChar)]
     const characterId = arg.currentChar?.chaId
     const roomId = arg.revenantRoomId ?? activeChat?.id
     if (roomId && !arg.revenantRoomId) arg.revenantRoomId = roomId

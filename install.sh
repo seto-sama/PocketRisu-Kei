@@ -13,14 +13,7 @@ error() { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*"; exit 1; }
 
 # ── Prerequisites ──────────────────────────────────────────────────────────────
 
-command -v node >/dev/null 2>&1 || error "Node.js is not installed. Please install Node.js 24.15+ first: https://nodejs.org/"
-
-NODE_VER=$(node -e 'console.log(process.versions.node)')
-NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
-NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
-if [ "$NODE_MAJOR" -lt 24 ] || { [ "$NODE_MAJOR" -eq 24 ] && [ "$NODE_MINOR" -lt 15 ]; }; then
-    error "Node.js v$NODE_VER detected. v24.15.0+ is required."
-fi
+command -v node >/dev/null 2>&1 || error "Node.js is not installed. Please install a supported Node.js version first: https://nodejs.org/"
 
 if ! command -v pnpm >/dev/null 2>&1; then
     info "Installing pnpm..."

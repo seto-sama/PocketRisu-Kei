@@ -1,7 +1,13 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { getCurrentCharacter } from "../../storage/database.svelte";
 import { NodeStorage } from "../../storage/nodeStorage";
 
 const INLAY_META_PREFIX = 'inlay_meta/'
+
+export interface ImagePresetMetadata {
+    tagBundleNames: string[]
+    sceneName: string
+}
 
 export type InlayAssetMeta = {
     createdAt: number
@@ -12,6 +18,7 @@ export type InlayAssetMeta = {
         prompt: string
         negativePrompt: string
         seed?: number
+        preset?: ImagePresetMetadata
     }
 }
 
@@ -31,13 +38,7 @@ class NodeInlayMetaStorage {
         try {
             const buf = await this.nodeStorage.getItem(this.serverKey(id))
             if (!buf || buf.length === 0) return null
-            const raw = JSON.parse(new TextDecoder().decode(buf))
-            const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : 0
-            const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
-            const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
-            const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-            const imageGeneration = parseImageGenerationMeta(raw?.imageGeneration)
-            return { createdAt, updatedAt, charId, chatId, imageGeneration }
+            return decodeInlayMeta(buf)
         } catch {
             return null
         }
@@ -45,19 +46,13 @@ class NodeInlayMetaStorage {
 
     async getItems(ids: string[]): Promise<Record<string, InlayAssetMeta>> {
         const result: Record<string, InlayAssetMeta> = {}
-        if (!Array.isArray(ids) || ids.length === 0) return result
+        if (ids.length === 0) return result
         try {
             const rows = await this.nodeStorage.getItems(ids.map((id) => this.serverKey(id)))
             for (const row of rows) {
                 try {
                     const id = row.key.replace(INLAY_META_PREFIX, '')
-                    const raw = JSON.parse(new TextDecoder().decode(row.value))
-                    const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : 0
-                    const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
-                    const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
-                    const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-                    const imageGeneration = parseImageGenerationMeta(raw?.imageGeneration)
-                    result[id] = { createdAt, updatedAt, charId, chatId, imageGeneration }
+                    result[id] = decodeInlayMeta(row.value)
                 } catch {
                     // skip corrupt meta entries
                 }
@@ -78,6 +73,16 @@ class NodeInlayMetaStorage {
 
 }
 
+function decodeInlayMeta(bytes: Uint8Array): InlayAssetMeta {
+    const raw = JSON.parse(new TextDecoder().decode(bytes))
+    const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : 0
+    const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
+    const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
+    const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
+    const imageGeneration = parseImageGenerationMeta(raw?.imageGeneration)
+    return { createdAt, updatedAt, charId, chatId, imageGeneration }
+}
+
 function parseImageGenerationMeta(value: unknown): InlayAssetMeta['imageGeneration'] {
     if(!value || typeof value !== 'object') return undefined
     const data = value as Record<string, unknown>
@@ -85,7 +90,12 @@ function parseImageGenerationMeta(value: unknown): InlayAssetMeta['imageGenerati
     const seed = typeof data.seed === 'number' && Number.isFinite(data.seed)
         ? data.seed
         : undefined
-    return { prompt: data.prompt, negativePrompt: data.negativePrompt, seed }
+    const source = data.preset as Partial<ImagePresetMetadata> | undefined
+    const preset = source && typeof source.sceneName === 'string'
+        && Array.isArray(source.tagBundleNames) && source.tagBundleNames.every(name => typeof name === 'string')
+        ? { tagBundleNames: source.tagBundleNames, sceneName: source.sceneName }
+        : undefined
+    return { prompt: data.prompt, negativePrompt: data.negativePrompt, seed, preset }
 }
 
 let _storage: NodeInlayMetaStorage | null = null
@@ -114,7 +124,7 @@ export function buildInlayMeta(existingMeta?: InlayAssetMeta | null): InlayAsset
     const now = Date.now()
     const currentChar = getCurrentCharacter()
     const currentCharId = typeof currentChar?.chaId === 'string' ? currentChar.chaId : undefined
-    const currentChat = currentChar?.chats?.[currentChar?.chatPage ?? 0]
+    const currentChat = currentChar?.chats?.[getChatPage(currentChar)]
     const currentChatId = typeof currentChat?.id === 'string' ? currentChat.id : undefined
 
     return {

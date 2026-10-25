@@ -12,6 +12,7 @@
     import { localizeGroupLabel } from "src/ts/preset/registry/i18n";
     import { language } from "src/lang";
     import SchemaFieldRenderer from "./SchemaFieldRenderer.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
 
     interface Props {
         schema: RegistryFieldSchema[];
@@ -27,6 +28,7 @@
         extraUiFields?: RegistryUiField[];
         extraValues?: object;
         showGroupLabels?: boolean;
+        first?: boolean;
     }
 
     let {
@@ -40,6 +42,7 @@
         extraUiFields = [],
         extraValues,
         showGroupLabels = true,
+        first = true,
     }: Props = $props();
 
     // Profile defaults are seeded when a preset is created or updated. Do not
@@ -190,12 +193,14 @@
         <EmptyState title={language.noDisplayItems} description="" layout="section" density="compact" />
     {/if}
 {:else}
-    <div class="flex flex-col gap-6">
-        {#each groupedRendered as group}
-            <div class="flex flex-col">
-                {#if group.label && showGroupLabels}
-                    <h3 class="text-base font-bold mb-1 text-maintext">{group.label}</h3>
-                {/if}
+    <div class="flex flex-col" class:gap-6={!showGroupLabels}>
+        {#each groupedRendered as group, index}
+            <SettingLayout
+                variant="section"
+                title={showGroupLabels ? group.label ?? undefined : undefined}
+                first={first && index === 0}
+                embedded={!showGroupLabels}
+            >
                 {#each segmentEntries(group.items) as segment}
                     <div class={segment.row
                         ? "[&>*:first-child]:border-t-0"
@@ -205,7 +210,7 @@
                         {/each}
                     </div>
                 {/each}
-            </div>
+            </SettingLayout>
         {/each}
     </div>
 {/if}

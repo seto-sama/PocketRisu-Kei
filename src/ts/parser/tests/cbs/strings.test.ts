@@ -40,7 +40,6 @@ vi.mock(import('../../../stores.svelte'), () => {
       db: {
         characters: [
           {
-            chatPage: 0,
             chats: [
               {
                 scriptstate: varStorage,
@@ -123,8 +122,7 @@ test('reverse', () => {
   const splitByPoints = (str: string) => [...str].reverse().join('')
 
   expect(quickParse('reverse', 'Hello World')).toBe('dlroW olleH')
-  // No combiner: 👦‍👧‍👩‍👨
-  // Intended behavior. See https://github.com/kwaroran/Risuai/pull/1151#issuecomment-3714792523
+  // Reverse code points, not grapheme clusters; see https://github.com/kwaroran/Risuai/pull/1151#issuecomment-3714792523.
   expect(quickParse('reverse', '👨‍👩‍👧‍👦')).toBe(splitByPoints('👨‍👩‍👧‍👦'))
 })
 

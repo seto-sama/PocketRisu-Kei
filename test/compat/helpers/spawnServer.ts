@@ -1,7 +1,7 @@
 /**
  * Spawn the server in isolation using a temporary save directory.
  *
- * Strategy: run `node <project>/server/node/server.cjs` with cwd set to a temp
+ * Strategy: run `node <project>/server/server.cjs` with cwd set to a temp
  * directory.  The server resolves `save/` relative to cwd, but loads code via
  * __dirname, so no symlinks or copies are needed.
  */
@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
-const SERVER_SCRIPT = path.join(PROJECT_ROOT, 'server', 'node', 'server.cjs')
+const SERVER_SCRIPT = path.join(PROJECT_ROOT, 'server', 'server.cjs')
 
 const TEST_PASSWORD = 'compat-test-pass'
 
@@ -42,6 +42,7 @@ async function getFreePort(): Promise<number> {
 }
 
 export interface SpawnServerOptions {
+  args?: string[]
   /** Extra env vars to pass to the spawned server process. */
   env?: Record<string, string>
   /**
@@ -63,7 +64,7 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
 
   const child: ChildProcess = spawn(
     process.execPath,
-    [SERVER_SCRIPT],
+    [SERVER_SCRIPT, ...(opts.args ?? [])],
     {
       cwd: tempDir,
       env: { ...process.env, PORT: String(port), NODE_ENV: 'test', ...opts.env },

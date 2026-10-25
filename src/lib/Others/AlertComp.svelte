@@ -8,11 +8,10 @@
     import { ChevronRightIcon } from '@lucide/svelte';
     import { isCharacterHasAssets } from 'src/ts/characterCards';
     import Input from '../UI/components/Input.svelte';
-    import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
     import Button from '../UI/components/Button.svelte';
     import Dialog from '../UI/components/Dialog.svelte';
-    import AlertDialog from '../UI/components/AlertDialog.svelte';
-    import LoadingDialog from '../UI/components/LoadingDialog.svelte';
+    import ConfirmationDialogs from './ConfirmationDialogs.svelte';
+    import ProgressDialog from '../UI/components/ProgressDialog.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import Select from "../UI/components/Select.svelte";
     import SelectOption from "../UI/components/SelectOption.svelte";
@@ -21,13 +20,14 @@
     import Switch from "../UI/components/Switch.svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import { pocketKeiVer } from "src/ts/storage/database.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import Textarea from "../UI/components/Textarea.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
-    import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
-    import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
+    import { getActiveBotPreset, getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
+    import { alertInput, alertConfirm, alertError, notifySuccess } from "src/ts/alert";
     import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
@@ -67,11 +67,9 @@
         return lines.join('\n')
     });
 
-    let btn
     let input = $state('')
     let cardExportType = $state('realm')
     let cardExportType2 = $state('')
-    let cardLicense = $state('')
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
     let suppressInputFocusRestore = false
@@ -82,7 +80,7 @@
 
     async function applyTogglePreset(preset: TogglePreset) {
         const name = preset.name
-        const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name
+        const currentPromptPresetName = getActiveBotPreset()?.name
         const isMismatch = preset.promptPresetName !== currentPromptPresetName
         const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
         const confirmed = await alertConfirm(msg)
@@ -121,7 +119,6 @@
         try {
             await navigator.clipboard.writeText(text)
         } catch {
-            // fallback
             const textarea = document.createElement('textarea')
             textarea.value = text
             document.body.appendChild(textarea)
@@ -139,9 +136,6 @@
         translatedStackTrace = '';
         stackTraceTranslationFailed = false;
         isTranslating = false;
-        if(btn){
-            btn.focus()
-        }
         if($alertStore.type !== 'input'){
             input = ''
         } else {
@@ -150,7 +144,6 @@
         if($alertStore.type !== 'cardexport'){
             cardExportType = ''
             cardExportType2 = ''
-            cardLicense = ''
         }
     });
 
@@ -219,7 +212,8 @@
             <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
                 {#if $alertStore.submsg === 'preset'}
-                    {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
+                    {@const activePromptPreset = getActiveBotPreset()}
+                    {#if cardExportType2 === 'preset' && (activePromptPreset?.image || (activePromptPreset?.regex?.length ?? 0) > 0)}
                         <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
                 {:else if $alertStore.submsg !== 'module'}
@@ -311,6 +305,7 @@
 
         <button
             class="add-character-option"
+            data-file-picker
             onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
         >
             <span>{language.importCharacterAndPackage}</span>
@@ -330,6 +325,7 @@
 
 <Dialog
     open={$alertStore.type === 'error'}
+    onConfirm={() => alertStore.set({ type: 'none', msg: '' })}
     size="lg"
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'error') {
@@ -342,7 +338,7 @@
     {/snippet}
 
     <div class="flex flex-col gap-2">
-        <span class="text-maintext whitespace-pre-wrap wrap-break-word">{$alertStore.msg}</span>
+        <span class="text-maintext wrap-break-word">{$alertStore.msg}</span>
         {#if $alertStore.submsg}
             <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
@@ -385,6 +381,7 @@
 
 <Dialog
     open={$alertStore.type === 'normal'}
+    onConfirm={() => alertStore.set({ type: 'none', msg: '' })}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'normal') {
             alertStore.set({ type: 'none', msg: '' })
@@ -392,7 +389,7 @@
     }}
 >
     <div class="flex flex-col gap-2">
-        <span class="whitespace-pre-wrap">{$alertStore.msg}</span>
+        <span>{$alertStore.msg}</span>
         {#if $alertStore.submsg}
             <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
@@ -427,65 +424,6 @@
 
 </Dialog>
 
-<AlertDialog
-    open={$alertStore.type === 'ask'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'ask') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    <div class="flex flex-col gap-2">
-        <span class="whitespace-pre-wrap text-maintext">{$alertStore.msg}</span>
-        {#if $alertStore.submsg}
-            <span class="whitespace-pre-wrap text-sm text-subtext">{$alertStore.submsg}</span>
-        {/if}
-    </div>
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
-        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
-    {/snippet}
-</AlertDialog>
-
-<AlertDialog
-    open={$alertStore.type === 'pluginconfirm'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'pluginconfirm') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    {#if $alertStore.type === 'pluginconfirm'}
-        {@const parts = $alertStore.msg.split('\n\n')}
-        {@const mainPart = parts[0] ?? ''}
-        {@const confirmMessage = parts[1] ?? ''}
-        {@const mainParts = mainPart.split('\n')}
-        {@const pluginName = mainParts[0] ?? ''}
-        {@const warnings = mainParts.slice(1)}
-        <div class="flex flex-col gap-3">
-            <p class="text-xl font-bold text-maintext">{pluginName}</p>
-            {#if warnings.length > 0}
-                <ul class="list-disc list-inside text-danger text-sm space-y-1">
-                    {#each warnings as warning}
-                        <li>{warning}</li>
-                    {/each}
-                </ul>
-            {/if}
-            {#if confirmMessage}
-                <p class="text-subtext">{confirmMessage}</p>
-            {/if}
-        </div>
-    {/if}
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
-        <Button variant="destructive" onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
-    {/snippet}
-</AlertDialog>
-
 <Dialog
     open={$alertStore.type === 'select'}
     closable={false}
@@ -504,7 +442,7 @@
         {@const options = hasDisplay ? parts.slice(1) : parts}
         <div class="flex flex-col gap-3">
             {#if prompt}
-                <p class="text-maintext whitespace-pre-wrap">{prompt}</p>
+                <p class="text-maintext">{prompt}</p>
             {/if}
             <div class="flex flex-col gap-2">
                 {#each options as label, i}
@@ -521,41 +459,6 @@
     {/if}
 </Dialog>
 
-<AlertDialog
-    open={$alertStore.type === 'confirmMulti'}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'confirmMulti') {
-            alertStore.set({ type: 'none', msg: 'cancel' })
-        }
-    }}
->
-    {#snippet title()}
-        {$alertStore.msg}
-    {/snippet}
-    {#if $alertStore.submsg}
-        {#snippet description()}
-            <span class="whitespace-pre-wrap">{$alertStore.submsg}</span>
-        {/snippet}
-    {/if}
-    {#if $alertStore.type === 'confirmMulti'}
-        {@const actions = $alertStore.actions ?? []}
-        <div class="flex flex-col gap-2">
-            {#each actions as action, i}
-                <Button
-                    variant={action.variant ?? 'default'}
-                    className="w-full"
-                    onclick={() => alertStore.set({ type: 'none', msg: i.toString() })}
-                >
-                    {action.label}
-                </Button>
-            {/each}
-        </div>
-    {/if}
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'cancel' })}>{language.cancel}</Button>
-    {/snippet}
-</AlertDialog>
-
 <Dialog
     open={$alertStore.type === 'input'}
     closable={false}
@@ -567,7 +470,7 @@
 >
     <div class="flex flex-col gap-3">
         {#if $alertStore.msg}
-            <p class="text-maintext whitespace-pre-wrap">{$alertStore.msg}</p>
+            <p class="text-maintext">{$alertStore.msg}</p>
         {/if}
         <Input
             bind:value={input}
@@ -607,35 +510,16 @@
     {/snippet}
 </Dialog>
 
-<LoadingDialog
-    open={$alertStore.type === 'wait' || $alertStore.type === 'wait2' || $alertStore.type === 'progress'}
+<ConfirmationDialogs />
+
+<ProgressDialog
+    open={$alertStore.type === 'wait' || $alertStore.type === 'progress'}
+    title={$alertStore.title}
     message={$alertStore.msg}
     submessage={$alertStore.type !== 'progress' ? ($alertStore.submsg ?? '') : ''}
     progress={$alertStore.type === 'progress' ? parseFloat($alertStore.submsg ?? '0') : null}
+    progressDetail={$alertStore.progressDetail}
 />
-
-<AlertDialog
-    open={$alertStore.type === 'tos'}
-    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
-    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
-    onOpenChange={(v) => {
-        if (!v && $alertStore.type === 'tos') {
-            alertStore.set({ type: 'none', msg: 'no' })
-        }
-    }}
->
-    <!-- svelte-ignore a11y_missing_attribute -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="text-maintext">
-        You should accept
-        <a role="button" tabindex="0" class="text-lightborderc hover:underline cursor-pointer" onclick={() => openURL('https://sv.risuai.xyz/hub/tos')}>Terms of Service</a>
-        to continue.
-    </div>
-    {#snippet footer()}
-        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>Do not Accept</Button>
-        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>Accept</Button>
-    {/snippet}
-</AlertDialog>
 
 <Dialog
     open={$togglePresetsOpenStore}
@@ -644,7 +528,7 @@
     {#snippet title()}{language.togglePresetSelectTitle}{/snippet}
 
     {#if $togglePresetsOpenStore}
-        {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
+        {@const currentPromptPresetName = getActiveBotPreset()?.name}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-subtext self-start cursor-pointer select-none">
                 <Switch bind:checked={togglePresetShowAll} />
@@ -718,7 +602,7 @@
                                                 const presetName = DBState.db.togglePresets![idx].name
                                                 const confirmed = await alertConfirm((language.togglePresetOverwriteConfirm as any)(presetName))
                                                 if (confirmed) {
-                                                    const promptPreset = DBState.db.botPresets[DBState.db.botPresetsId]
+                                                    const promptPreset = getActiveBotPreset()
                                                     DBState.db.togglePresets![idx].values = snapshotCurrentToggleValues()
                                                     DBState.db.togglePresets![idx].promptPresetName = promptPreset?.name
                                                     DBState.db.togglePresets = [...DBState.db.togglePresets!]
@@ -738,10 +622,13 @@
                                                 <CopyIcon size={12} />
                                                 {language.togglePresetMenuDuplicate}
                                             </DropdownMenu.Item>
-                                            <DropdownMenu.Item onSelect={() => {
+                                            <DropdownMenu.Item onSelect={async () => {
                                                 const exportData = { name: preset.name, values: preset.values, promptPresetName: preset.promptPresetName }
-                                                downloadFile(`${preset.name}_toggle.json`, Buffer.from(JSON.stringify(exportData, null, 2), 'utf-8'))
-                                                notifySuccess((language.togglePresetExported as any)(preset.name))
+                                                await exportPresetFile(
+                                                    `${preset.name}_toggle.json`,
+                                                    JSON.stringify(exportData, null, 2),
+                                                    (language.togglePresetExported as any)(preset.name),
+                                                )
                                             }}>
                                                 <DownloadIcon size={12} />
                                                 {language.togglePresetMenuExport}
@@ -781,7 +668,7 @@
                         const name = await alertInput(language.togglePresetNamePrompt)
                         if (!name) return
                         DBState.db.togglePresets ??= []
-                        const promptPreset = DBState.db.botPresets[DBState.db.botPresetsId]
+                        const promptPreset = getActiveBotPreset()
                         DBState.db.togglePresets.push({
                             name,
                             values: snapshotCurrentToggleValues(),
@@ -797,6 +684,7 @@
                 <Button
                     variant="outline"
                     className="w-full sm:flex-1 sm:w-auto"
+                    data-file-picker
                     onclick={async () => {
                         let f: {name: string, data: Uint8Array} | undefined
                         try {

@@ -3,7 +3,7 @@
     import { language } from 'src/lang'
     import Alert from '../../UI/components/Alert.svelte'
     import Button from '../../UI/components/Button.svelte'
-    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import ProgressDialog from '../../UI/components/ProgressDialog.svelte'
     import Switch from '../../UI/components/Switch.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
@@ -86,4 +86,4 @@
     </div>
 </SettingLayout>
 
-<LoadingDialog open={cleaning} message={language.storageOrphanPurging} />
+<ProgressDialog open={cleaning} title={language.storageOrphan} message={language.storageOrphanPurging} />

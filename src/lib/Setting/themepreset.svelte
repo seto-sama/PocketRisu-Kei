@@ -105,7 +105,7 @@
     onMoveItem={movePreset}
     onSelectItem={selectPreset}
     onDuplicateItem={duplicatePreset}
-    onExportItem={(index) => downloadThemePreset(index, 'json')}
+    onExportItem={downloadThemePreset}
     onDeleteItem={deletePreset}
     itemRenameable
 >

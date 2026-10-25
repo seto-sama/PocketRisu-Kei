@@ -1,13 +1,15 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { asBuffer } from 'src/ts/util';
-import { getChatVar, getGlobalChatVar, setChatVar } from "../parser/chatVar.svelte";
+import { getChatVarOf, getGlobalChatVar, setChatVarOf } from "../parser/chatVar.svelte";
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
 import { LuaEngine, LuaFactory } from "wasmoon";
 import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type triggerscript } from "../storage/database.svelte";
 import { get } from "svelte/store";
-import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
+import { ReloadChatPointer, ReloadGUIPointer } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm, notifyError } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
 import { generateImageThroughWorkflow } from "./revenant/workflow/imageWorkflow";
+import { isImageOrientation, type ImageOrientation } from '../imageGeneration/orientation';
 import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
@@ -27,7 +29,7 @@ import {
 } from "./revenant/auxiliary";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
-import { saveChatToServer } from '../storage/chatStorage';
+import { commitTriggerChat } from './triggerOrigin';
 import {
     createRevenantOperation,
     isRevenantJobActive,
@@ -50,6 +52,8 @@ import {
     luaLlmResult,
     normalizeLuaLlmPrompt,
     parseLuaLlmOptions,
+    resolveLuaAxLlmMode,
+    type LuaAxLlmMode,
 } from './luaLlmCore';
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
@@ -80,6 +84,8 @@ type RevenantLuaExecutionContext = {
     mode: string;
     code: string;
     lowLevelAccess: boolean;
+    data?: string;
+    meta?: object;
     moduleId?: string;
     anchorMessageId: string;
     callIndex: number;
@@ -106,12 +112,12 @@ export async function runScripted(code:string, arg:{
 }){
     const char = arg.char ?? getCurrentCharacter()
     const data = arg.data ?? ''
-    const setVar = arg.setVar ?? setChatVar
-    const getVar = arg.getVar ?? getChatVar
+    const chat = arg.chat ?? getCurrentChat()
+    const setVar = arg.setVar ?? ((key, value) => setChatVarOf(chat, key, value))
+    const getVar = arg.getVar ?? (key => getChatVarOf(chat, key, char.type === 'simple' ? '' : char.defaultVariables))
     const meta = arg.meta ?? {}
     const mode = arg.mode ?? 'manual'
 
-    let chat = arg.chat ?? getCurrentChat()
     let stopSending = false
     let lowLevelAccess = arg.lowLevelAccess ?? false
     let revenantLuaExecution: RevenantLuaExecutionContext | undefined
@@ -127,13 +133,20 @@ export async function runScripted(code:string, arg:{
                 `${chat.message?.length ?? 0}:${lastMessage?.role ?? ''}:${lastMessage?.data ?? ''}`,
             ))
         const codeHash = await hasher(new TextEncoder().encode(code))
+        const interactionInput = (mode === 'onButtonClick' || mode === 'onFormSubmit') && typeof data === 'string'
+            ? { data, meta }
+            : undefined
+        const inputHash = interactionInput
+            ? await hasher(new TextEncoder().encode(JSON.stringify([data, meta])))
+            : undefined
         revenantLuaExecution = {
-            executionKey: `${char.chaId}:${chat.id}:${mode}:${arg.moduleId ?? ''}:${anchorMessageId}:${codeHash}`,
+            executionKey: `${char.chaId}:${chat.id}:${mode}:${arg.moduleId ?? ''}:${anchorMessageId}:${codeHash}${inputHash ? `:${inputHash}` : ''}`,
             characterId: char.chaId,
             roomId: chat.id,
             mode,
             code,
             lowLevelAccess,
+            ...interactionInput,
             moduleId: arg.moduleId,
             anchorMessageId,
             callIndex: 0,
@@ -159,13 +172,13 @@ export async function runScripted(code:string, arg:{
             getChat: () => ScriptingEngineState.chat!,
             getCharacter: () => {
                 const db = getDatabase()
-                return db.characters[get(selectedCharID)] ?? (char as character)
+                return db.characters.find(character => character.chaId === char.chaId) ?? (char as character)
             },
             getVar: key => ScriptingEngineState.getVar?.(key) ?? 'null',
             setVar: (key, value) => ScriptingEngineState.setVar?.(key, value),
             getGlobalVar: getGlobalChatVar,
             stop: () => { stopSending = true },
-            render: value => risuChatParser(value, { chara: getCurrentCharacter() }),
+            render: value => risuChatParser(value, { chara: char.type === 'character' ? char : undefined }),
         }
         ScriptingEngineState.luaEffectAdapter = {
             canUseSafeApi: accessKey => ScriptingSafeIds.has(accessKey),
@@ -175,7 +188,7 @@ export async function runScripted(code:string, arg:{
         {
             let declareAPI:(name: string, func:Function) => void
 
-            ScriptingEngineState.engine = await luaFactory.createEngine({injectObjects: true})
+            ScriptingEngineState.engine = await luaFactory.createEngine({ injectObjects: true, enableProxy: false })
             const luaEngine = ScriptingEngineState.engine
             declareAPI = (name:string, func:Function) => {
                 luaEngine.global.set(name, func)
@@ -222,7 +235,9 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('logMain', (value:string) => {
-                console.log(JSON.parse(value))
+                if (isDebugEnabled()) {
+                    console.debug(JSON.parse(value))
+                }
             })
 
             addEffect('reloadDisplay', (id:string) => {
@@ -259,7 +274,6 @@ export async function runScripted(code:string, arg:{
                 lastRequestsCount++
 
                 try {
-                    //for security and other reasons, only get request in 120 char is allowed
                     if(url.length > 120){
                         return JSON.stringify({
                             status: 413,
@@ -290,7 +304,6 @@ export async function runScripted(code:string, arg:{
                         }
                     }
 
-                    //browser fetch
                     const d = await fetchNative(url, {
                         method: "GET"
                     })
@@ -308,7 +321,9 @@ export async function runScripted(code:string, arg:{
                 }
             })
 
-            addEffect('generateImage', async (id:string, value:string, negValue:string = '') => {
+            addEffect('generateImage', async (id:string, value:string, negValue:string = '', options?: { orientation?: ImageOrientation }) => {
+                const orientation = options?.orientation
+                if (orientation !== undefined && !isImageOrientation(orientation)) return 'Error: Image orientation must be landscape or portrait, received ' + orientation
                 const imageCharacter = ScriptingEngineState.character?.type === 'character'
                     ? ScriptingEngineState.character
                     : getCurrentCharacter()
@@ -318,6 +333,7 @@ export async function runScripted(code:string, arg:{
                         roomId: chat.id,
                         prompt: value,
                         negativePrompt: negValue,
+                        orientation,
                     })
                 } catch (error) {
                     notifyError(error)
@@ -327,16 +343,9 @@ export async function runScripted(code:string, arg:{
 
             addEffect('getCharacterImageMain', async (id:string) => {
                 try {
-                    const db = getDatabase()
-                    const selectedChar = get(selectedCharID)
-
-                    if (selectedChar < 0 || selectedChar >= db.characters.length) {
-                        return ''
-                    }
-
-                    const character = db.characters[selectedChar]
+                    const character = ScriptingEngineState.character
                     
-                    if (!character || !character.image) {
+                    if (character?.type !== 'character' || !character.image) {
                         return ''
                     }
                     
@@ -409,7 +418,7 @@ export async function runScripted(code:string, arg:{
             };
 
             const prepareRevenantLuaCall = async (
-                modelMode: 'model' | 'otherAx',
+                modelMode: 'model' | LuaAxLlmMode,
                 requestIdentity: string,
             ): Promise<{
                 replay?: string;
@@ -444,6 +453,8 @@ export async function runScripted(code:string, arg:{
                         mode: execution.mode,
                         code: execution.code,
                         lowLevelAccess: execution.lowLevelAccess,
+                        data: execution.data,
+                        meta: execution.meta,
                         moduleId: execution.moduleId,
                         anchorMessageId: execution.anchorMessageId,
                         callIndex,
@@ -468,12 +479,13 @@ export async function runScripted(code:string, arg:{
             };
 
             const runLuaLlm = async (
-                modelMode: 'model' | 'otherAx',
+                modelMode: 'model' | LuaAxLlmMode,
                 promptStr: string,
                 useMultimodal = false,
                 optionsStr?: string,
+                options = parseLuaLlmOptions(optionsStr),
             ): Promise<string> => {
-                const promptbody: OpenAIChat[] = normalizeLuaLlmPrompt(promptStr).map(message => ({ ...message }))
+                const promptbody: OpenAIChat[] = normalizeLuaLlmPrompt(promptStr)
                 if(useMultimodal){
                     for(const message of promptbody){
                         const normalized = extractLuaLlmInlays({
@@ -483,16 +495,15 @@ export async function runScripted(code:string, arg:{
                             content: String(message.content ?? ''),
                         })
                         message.content = normalized.content
-                        const multimodals: MultiModal[] = []
-                        for(const inlayId of normalized.inlayIds){
+                        const multimodals: MultiModal[] = await Promise.all(normalized.inlayIds.map(async inlayId => {
                             const inlayData = await getInlayAsset(inlayId)
-                            multimodals.push({
+                            return {
                                 type: inlayData?.type,
                                 base64: inlayData?.data,
                                 width: inlayData?.width,
                                 height: inlayData?.height,
-                            })
-                        }
+                            }
+                        }))
                         message.multimodals = multimodals.length > 0 ? multimodals : undefined
                     }
                 }
@@ -504,7 +515,6 @@ export async function runScripted(code:string, arg:{
                 if(revenantCall.replay !== undefined){
                     return JSON.stringify(luaLlmResult(true, revenantCall.replay))
                 }
-                const options = parseLuaLlmOptions(optionsStr)
                 const result = await requestChatData({
                     formated: promptbody,
                     bias: {},
@@ -516,6 +526,7 @@ export async function runScripted(code:string, arg:{
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
                     moduleId: ScriptingEngineState.moduleId,
+                    currentChat: chat,
                 }, modelMode)
 
                 if(result.type === 'fail'){
@@ -572,6 +583,7 @@ export async function runScripted(code:string, arg:{
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
                     moduleId: ScriptingEngineState.moduleId,
+                    currentChat: chat,
                 }, 'model')
 
                 if(result.type === 'fail'){
@@ -596,24 +608,19 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('getPersonaDescription', (id:string) => {
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-
-                return risuChatParser(getPersonaPrompt(), { chara: char })
+                return risuChatParser(getPersonaPrompt(), { chara: char.type === 'character' ? char : undefined })
             })
 
             addEffect('getLoreBooksMain', (id:string, search:string) => {
-                const db = getDatabase()
-                const selectedChar = db.characters[get(selectedCharID)]
+                const selectedChar = ScriptingEngineState.character
                 if (selectedChar.type !== 'character') {
                     return
                 }
 
                 const loreSources = [
-                    selectedChar.chats[selectedChar.chatPage]?.localLore ?? [],
+                    chat.localLore ?? [],
                     selectedChar.globalLore,
-                    getModuleLorebooks()
+                    getModuleLorebooks(selectedChar, chat)
                 ]
 
                 const found = []
@@ -650,9 +657,7 @@ export async function runScripted(code:string, arg:{
                     secondKey = '',
                 } = options
 
-                const currentChat = activeCharacter.chats[activeCharacter.chatPage]
-
-                const newLocalLoreBooks = currentChat.localLore.filter((book) => book.comment !== name)
+                const newLocalLoreBooks = (chat.localLore ?? []).filter((book) => book.comment !== name)
                 newLocalLoreBooks.push({
                     alwaysActive,
                     comment: name,
@@ -664,19 +669,19 @@ export async function runScripted(code:string, arg:{
                     selective: !!secondKey,
                     useRegex: regex,
                 })
-                currentChat.localLore = newLocalLoreBooks
+                chat.localLore = newLocalLoreBooks
             })
 
             addEffect('loadLoreBooksMain', async (id:string, reserve:number) => {
                 const db = getDatabase()
 
-                const selectedChar = db.characters[get(selectedCharID)]
+                const selectedChar = ScriptingEngineState.character
 
                 if (selectedChar.type !== 'character') {
                     return
                 }
 
-                const fullLoreBooks = (await loadLoreBookV3Prompt()).actives
+                const fullLoreBooks = (await loadLoreBookV3Prompt({ character: selectedChar, chat })).actives
                 const maxContext = db.maxContext - reserve
                 if (maxContext < 0) {
                     return JSON.stringify([])
@@ -711,7 +716,16 @@ export async function runScripted(code:string, arg:{
                 promptStr: string,
                 useMultimodal = false,
                 optionsStr?: string,
-            ) => await runLuaLlm('otherAx', promptStr, useMultimodal, optionsStr))
+            ) => {
+                const options = parseLuaLlmOptions(optionsStr)
+                let mode: LuaAxLlmMode
+                try {
+                    mode = resolveLuaAxLlmMode(options)
+                } catch (error) {
+                    return JSON.stringify(luaLlmResult(false, error instanceof Error ? error.message : error, true))
+                }
+                return runLuaLlm(mode, promptStr, useMultimodal, optionsStr, options)
+            })
 
             await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
         }
@@ -741,18 +755,14 @@ export async function runScripted(code:string, arg:{
         ScriptingSafeIds.delete(accessKey)
         ScriptingLowLevelIds.delete(accessKey)
         ScriptingEditDisplayIds.delete(accessKey)
-        chat = ScriptingEngineState.chat
-
         const completedLuaJobIds = ScriptingEngineState.revenantLuaExecution?.completedJobIds
+        let chatSaved = false
         if (scriptCompleted && completedLuaJobIds && completedLuaJobIds.size > 0 && char.type === 'character' && chat?.id) {
-            const chatIndex = char.chats.findIndex(item => item?.id === chat.id)
-            if (chatIndex < 0) {
+            // Save side effects before acknowledging the provider results so recovery can replay safely.
+            chatSaved = await commitTriggerChat({ characterId: char.chaId, chatId: chat.id }, chat)
+            if (!chatSaved) {
                 throw new Error(`Revenant Lua target chat not found: ${chat.id}`)
             }
-            // Persist the Lua side effects before acknowledging the replayed
-            // provider results. A crash between these steps is safe: recovery
-            // reruns the script, which can observe its already-applied guard.
-            await saveChatToServer(char.chaId, chatIndex, chat.id, chat)
             for (const jobId of completedLuaJobIds) {
                 await consumeRecoverableAuxiliaryGeneration(jobId)
             }
@@ -760,7 +770,7 @@ export async function runScripted(code:string, arg:{
         ScriptingEngineState.revenantLuaExecution = undefined
 
         return {
-            stopSending, chat, res
+            stopSending, chat, res, chatSaved
         }
     } finally {
         ScriptingEngineState.engine?.global.close()
@@ -802,7 +812,7 @@ export async function recoverRevenantLuaJobsForChat(
         let recovered = 0
         const availableLuaCodes = new Set(
             char.triggerscript
-                .concat(getModuleTriggers())
+                .concat(getModuleTriggers(char, chat))
                 .flatMap(trigger => trigger.effect)
                 .flatMap(effect => effect.type === 'triggerlua' ? [effect.code] : []),
         )
@@ -826,6 +836,8 @@ export async function recoverRevenantLuaJobsForChat(
                 char,
                 chat,
                 lowLevelAccess: context.lowLevelAccess,
+                data: context.data,
+                meta: context.meta,
                 moduleId: context.moduleId,
                 mode: context.mode,
                 revenantReplayJobIds: jobIds,
@@ -894,10 +906,7 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     try {
         let data = content
 
-        const triggers = char.triggerscript.map((v) => {
-            v.lowLevelAccess = false
-            return v
-        }).concat(getModuleTriggers())
+        const triggers = char.triggerscript.concat(getModuleTriggers())
     
         for(let trigger of triggers){
             if(trigger?.effect?.[0]?.type === 'triggerlua'){
@@ -942,27 +951,26 @@ export function hasLuaEditRequestListener(char: character|simpleCharacterArgumen
     return hasLuaEditListener(char, 'editRequest')
 }
 
-export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{
+export async function runLuaInteractionTrigger(type:'button'|'form', char:character|simpleCharacterArgument, data:string, chat:Chat, meta:object = {}){
     let runResult
-    try {
-        const triggers = char.triggerscript.map<triggerscript>((v) => ({
-            ...v,
-            lowLevelAccess: char.type !== 'simple' ? char.lowLevelAccess ?? false : false
-        })).concat(getModuleTriggers())
+    const mode = type === 'button' ? 'onButtonClick' : 'onFormSubmit'
+    const triggers = char.triggerscript.map<triggerscript>((v) => ({
+        ...v,
+        lowLevelAccess: char.type !== 'simple' ? char.lowLevelAccess ?? false : false
+    })).concat(getModuleTriggers(char.type === 'character' ? char : undefined, chat))
 
-        for(let trigger of triggers){
-            if(trigger?.effect?.[0]?.type === 'triggerlua'){
-                runResult = await runScripted(trigger.effect[0].code, {
-                    char: char,
-                    lowLevelAccess: trigger.lowLevelAccess,
-                    mode: 'onButtonClick',
-                    data,
-                    moduleId: trigger.moduleId,
-                })
-            }
-        }
-    } catch (error) {
-        throw(error)
+    for (const trigger of triggers) {
+        const effect = trigger?.effect?.[0]
+        if (effect?.type !== 'triggerlua') continue
+        runResult = await runScripted(effect.code, {
+            char,
+            chat,
+            lowLevelAccess: trigger.lowLevelAccess,
+            mode,
+            data,
+            meta,
+            moduleId: trigger.moduleId,
+        })
     }
     return runResult   
 }

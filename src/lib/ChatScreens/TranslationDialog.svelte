@@ -41,7 +41,7 @@
         const preset = DBState.db.translatorPresets?.find(candidate =>
             candidate.id === DBState.db.translationDialogPromptPresetId)
         const modelPresetId = DBState.db.translationDialogModelPresetId
-        if(!input.trim() || !preset || translating) return
+        if(!DBState.db.translator || !input.trim() || !preset || translating) return
 
         translating = true
         output = ''
@@ -162,7 +162,7 @@
                         <CopyIcon />
                     {/if}
                 </IconButton>
-                <IconButton title={language.retranslate} aria-label={language.retranslate} onclick={translateInput}>
+                <IconButton title={language.retranslate} aria-label={language.retranslate} disabled={!DBState.db.translator} onclick={translateInput}>
                     <RefreshCwIcon />
                 </IconButton>
             {/snippet}
@@ -184,7 +184,7 @@
         <Button
             variant="primary"
             disabled={translating || (!output && (
-                !input.trim()
+                !DBState.db.translator || !input.trim()
                 || !DBState.db.translatorPresets?.some(preset => preset.id === DBState.db.translationDialogPromptPresetId)
             ))}
             onclick={output ? confirmOutput : translateInput}

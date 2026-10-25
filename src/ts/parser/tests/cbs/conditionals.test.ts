@@ -40,7 +40,6 @@ vi.mock(import('../../../stores.svelte'), () => {
       db: {
         characters: [
           {
-            chatPage: 0,
             chats: [
               {
                 scriptstate: varStorage,

@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "../../lang";
     import { type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
@@ -20,6 +22,7 @@
     import SelectOption from "../UI/components/SelectOption.svelte";
     import RegexList from "./Scripts/RegexList.svelte";
     import TriggerList from "./Scripts/TriggerList.svelte";
+    import OnboardingEditor from "./OnboardingEditor.svelte";
     import Checkbox from "../UI/components/Checkbox.svelte";
     import { updateInlayScreen } from "src/ts/process/inlayScreen";
     import MultiLangInput from "../UI/components/MultiLangInput.svelte";
@@ -117,10 +120,10 @@
     <Textarea
         margin="both"
         autocomplete="off"
-        bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note}
+        bind:value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].note}
         placeholder={getAuthorNoteDefaultText()}
     />
-    <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
+    <TokenCount value={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-maintext">{language.firstMessage}<Help key="charFirstMessage"/></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></Textarea>
@@ -156,7 +159,7 @@
                         </button>
                         <button class="p-1 risu-interactive-danger" onclick={() => {
                             if(DBState.db.characters[$selectedCharID].type === 'character'){
-                                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex = -1
+                                DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex = -1
                                 let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
                                 alternateGreetings.splice(i, 1)
                                 DBState.db.characters[$selectedCharID].alternateGreetings = alternateGreetings
@@ -215,6 +218,9 @@
                             class="relative group w-full rounded-md shadow-lg bg-button border border-lightborderc {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                             style={im}
                         >
+                            {#if !im}
+                                <AvatarFallback className="absolute inset-0 rounded-md" iconClass="h-2/5 w-2/5" />
+                            {/if}
                             <button
                                 class="absolute right-2 bottom-2 z-10 w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
                                 onclick={() => {
@@ -255,6 +261,9 @@
                                     changeCharImage($selectedCharID, i)
                                 }}
                             >
+                                {#if !im}
+                                    <AvatarFallback className="absolute inset-0 rounded-md" iconClass="h-2/5 w-2/5" />
+                                {/if}
                                 <button
                                     class="absolute right-2 bottom-2 z-10 w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
                                     onclick={(event) => {
@@ -274,6 +283,7 @@
                 <button
                     class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-subtext opacity-75 risu-interactive-surface risu-interactive-reveal transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                     onclick={async () => {await selectCharImg($selectedCharID);}}
+                    data-file-picker
                 >
                     <PlusIcon />
                 </button>
@@ -330,7 +340,7 @@
                 }}
                 onDelete={() => {
                     const char = DBState.db.characters[$selectedCharID] as character
-                    char.chats[char.chatPage].fmIndex = -1
+                    char.chats[getChatPage(char)].fmIndex = -1
                 }}
                 showExclusionToggle={!!DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
                 excludedPaths={DBState.db.characters[$selectedCharID].prebuiltAssetExclude ?? []}
@@ -366,7 +376,7 @@
                 <IconButton onclick={() => {
                     exportRegex(DBState.db.characters[$selectedCharID].customscript)
                 }}><DownloadIcon /></IconButton>
-                <IconButton onclick={async () => {
+                <IconButton data-file-picker onclick={async () => {
                     DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
                 }}><UploadIcon /></IconButton>
             </ListActionBar>
@@ -377,6 +387,8 @@
                 <span class="text-maintext">{language.triggerScript}<Help key="triggerScript"/></span>
             {/snippet}
         </TriggerList>
+
+        <OnboardingEditor character={DBState.db.characters[$selectedCharID] as character} />
     {/if}
 {:else if $CharConfigSubMenu === 6}
     {@const licenseRestricted =
@@ -456,7 +468,7 @@
                     includeInlays: pkgIncludeInlays
                 })
             }}>{language.characterPackageExport}</Button>
-            <Button className="mt-2 w-full" onclick={async () => {
+            <Button className="mt-2 w-full" data-file-picker onclick={async () => {
                 await importPackageToCharacter($selectedCharID)
             }}>{language.characterPackageImportToChar}</Button>
         </div>

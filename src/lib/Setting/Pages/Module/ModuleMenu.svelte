@@ -75,7 +75,7 @@
 
             await downloadFile(`lorebook_export.json`, stringl)
 
-            notifySuccess(language.successExport)
+            notifySuccess(language.browserDownloadStarted)
         } catch (error) {
             alertError(`${error}`)
         }
@@ -198,7 +198,7 @@
         <IconButton onclick={() => {exportLoreBook()}}>
             <DownloadIcon />
         </IconButton>
-        <IconButton onclick={() => {importLoreBook()}}>
+        <IconButton onclick={() => {importLoreBook()}} data-file-picker>
             <UploadIcon />
         </IconButton>
         <IconButton className="ml-auto" onclick={() => {
@@ -221,7 +221,7 @@
         <IconButton onclick={() => {
             exportRegex(currentModule.regex)
         }}><DownloadIcon /></IconButton>
-        <IconButton onclick={async () => {
+        <IconButton data-file-picker onclick={async () => {
             currentModule.regex = await importRegex(currentModule.regex)
         }}><UploadIcon /></IconButton>
     </ListActionBar>

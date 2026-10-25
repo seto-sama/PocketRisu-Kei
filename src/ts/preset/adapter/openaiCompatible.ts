@@ -30,7 +30,7 @@ import type {
     AdapterUsage,
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
-import { applyOpenAiApiModeEndpoint } from './openaiApiMode'
+import { applyOpenAiApiModeEndpoint, resolveModelPresetAdapterKind } from './openaiApiMode'
 import {
     applyBedrockAuthentication,
     resolveBedrockRegion,
@@ -98,6 +98,13 @@ export async function* streamChatRequest(
         'OpenAI-compatible stream response has no body',
     )
 
+    yield* parseChatEventStream(stream, preset)
+}
+
+export async function* parseChatEventStream(
+    stream: ReadableStream<Uint8Array>,
+    preset: ModelPreset,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const reasoningOutput = resolveReasoningOutputOptions(preset)
     const thinkTagParser = reasoningOutput.thinkTagFallback
         ? new ThinkTagStreamParser()
@@ -314,6 +321,14 @@ function toWireMessage(
         applyDeepSeekThinkingInput(wire, message.reasoning, includeDeepSeekThinkingInput)
     }
     return wire
+}
+
+// {{prefill_supported}} follows the wire: prompts add a trailing assistant
+// message only when the request can carry it as a prefill.
+export function modelPresetSupportsPrefill(preset: ModelPreset): boolean {
+    if (hasCustomFlag(preset, 'hasPrefill')) return true
+    return resolveModelPresetAdapterKind(preset) === 'openai-compatible'
+        && resolveAssistantPrefillMode(preset) !== undefined
 }
 
 function resolveAssistantPrefillMode(preset: ModelPreset): AssistantPrefillMode | undefined {

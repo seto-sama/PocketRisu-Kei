@@ -6,6 +6,7 @@ import SaveConflictDialog from './SaveConflictDialog.svelte'
 import { language } from 'src/lang'
 import { saveConflictDialog, type SaveConflictDialogState } from 'src/ts/storage/saveConflict'
 import type { MergeConflict } from 'src/ts/storage/patchRebase'
+import { presentSaveConflict } from 'src/ts/gui/saveConflictPresentation'
 
 const mounted: Array<{ component: ReturnType<typeof mount>, target: HTMLElement }> = []
 
@@ -15,16 +16,16 @@ async function settle() {
     await tick()
 }
 
-function showDialog(items: MergeConflict[], complete = vi.fn(), source?: unknown) {
+function showDialog(items: MergeConflict[], complete = vi.fn(), source?: unknown, multiple = false) {
     const target = document.createElement('div')
     document.body.appendChild(target)
     const component = mount(SaveConflictDialog, { target })
     mounted.push({ component, target })
     const state: SaveConflictDialogState = {
         title: language.saveConflict.title,
-        items,
+        items: items.map((item, index) => presentSaveConflict(item, index, source)),
+        multiple,
         complete,
-        source,
     }
     saveConflictDialog.set(state)
     return complete
@@ -33,6 +34,16 @@ function showDialog(items: MergeConflict[], complete = vi.fn(), source?: unknown
 function buttonsWithText(text: string) {
     return [...document.body.querySelectorAll('button')]
         .filter(button => button.textContent?.trim() === text)
+}
+
+function checkboxesWithLabel(label: string) {
+    return [...document.body.querySelectorAll<HTMLElement>(`[role="checkbox"][aria-label="${label}"]`)]
+}
+
+function headerCheckbox(label: string) {
+    const result = checkboxesWithLabel(label)[0]
+    expect(result, label).toBeDefined()
+    return result!
 }
 
 afterEach(() => {
@@ -54,16 +65,117 @@ describe('SaveConflictDialog', () => {
 
         const save = buttonsWithText(language.saveConflict.save)[0]
         expect(save?.disabled).toBe(true)
+        expect(headerCheckbox(language.saveConflict.server).getAttribute('aria-checked')).toBe('false')
+        expect(headerCheckbox(language.saveConflict.local).getAttribute('aria-checked')).toBe('false')
 
         const serverOptions = buttonsWithText(language.saveConflict.useServer)
         const localOptions = buttonsWithText(language.saveConflict.useLocal)
         serverOptions[0].click()
+        await settle()
+        expect(headerCheckbox(language.saveConflict.server).getAttribute('aria-checked')).toBe('mixed')
         localOptions[1].click()
-        await tick()
+        await settle()
+
+        expect(headerCheckbox(language.saveConflict.server).getAttribute('aria-checked')).toBe('mixed')
+        expect(headerCheckbox(language.saveConflict.local).getAttribute('aria-checked')).toBe('mixed')
 
         expect(save.disabled).toBe(false)
         save.click()
         expect(complete).toHaveBeenCalledWith(['server', 'local'])
+    })
+
+    it('selects the whole exclusive side when toggling a mixed header and clears it when checked', async () => {
+        showDialog([
+            { path: ['name'], base: 'Before', local: 'Mine', server: 'Theirs' },
+            { path: ['description'], base: 'Before', local: 'My description', server: 'Their description' },
+        ])
+        await settle()
+
+        buttonsWithText(language.saveConflict.useServer)[0].click()
+        await settle()
+        const server = headerCheckbox(language.saveConflict.server)
+        expect(server.getAttribute('aria-checked')).toBe('mixed')
+
+        server.click()
+        await settle()
+        expect(server.getAttribute('aria-checked')).toBe('true')
+        expect(document.body.querySelectorAll('[role="radio"][aria-checked="true"]')).toHaveLength(2)
+
+        server.click()
+        await settle()
+        expect(server.getAttribute('aria-checked')).toBe('false')
+        expect(document.body.querySelectorAll('[role="radio"][aria-checked="true"]')).toHaveLength(0)
+    })
+
+    it('allows none, either side, or both sides in multiple selection mode', async () => {
+        const complete = showDialog([
+            { path: ['name'], base: 'Before', local: 'Mine', server: 'Theirs' },
+            { path: ['description'], base: 'Before', local: 'My description', server: 'Their description' },
+        ], vi.fn(), undefined, true)
+        await settle()
+
+        const save = buttonsWithText(language.saveConflict.save)[0]
+        expect(save.disabled).toBe(false)
+        const local = headerCheckbox(language.saveConflict.local)
+        const server = headerCheckbox(language.saveConflict.server)
+        local.click()
+        await settle()
+        expect(local.getAttribute('aria-checked')).toBe('true')
+        server.click()
+        await settle()
+        expect(server.getAttribute('aria-checked')).toBe('true')
+        const localRows = checkboxesWithLabel(language.saveConflict.local).slice(1)
+        const serverRows = checkboxesWithLabel(language.saveConflict.server).slice(1)
+        expect([...serverRows, ...localRows].map(box => box.getAttribute('aria-checked')))
+            .toEqual(['true', 'true', 'true', 'true'])
+        server.click()
+        await settle()
+        expect(server.getAttribute('aria-checked')).toBe('false')
+        expect(local.getAttribute('aria-checked')).toBe('true')
+        expect(serverRows.map(box => box.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+        expect(localRows.map(box => box.getAttribute('aria-checked'))).toEqual(['true', 'true'])
+        save.click()
+        expect(complete).toHaveBeenCalledWith(['local', 'local'])
+    })
+
+    it('updates multiple-mode header states as individual row checkboxes change', async () => {
+        const complete = showDialog([
+            { path: ['name'], base: 'Before', local: 'Mine', server: 'Theirs' },
+            { path: ['description'], base: 'Before', local: 'My description', server: 'Their description' },
+        ], vi.fn(), undefined, true)
+        await settle()
+
+        const server = checkboxesWithLabel(language.saveConflict.server)
+        const local = checkboxesWithLabel(language.saveConflict.local)
+        expect(server.map(box => box.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false'])
+        expect(local.map(box => box.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false'])
+
+        server[1].click()
+        local[2].click()
+        await settle()
+        expect(server[0].getAttribute('aria-checked')).toBe('mixed')
+        expect(local[0].getAttribute('aria-checked')).toBe('mixed')
+
+        local[1].click()
+        server[2].click()
+        await settle()
+        expect(server[0].getAttribute('aria-checked')).toBe('true')
+        expect(local[0].getAttribute('aria-checked')).toBe('true')
+
+        buttonsWithText(language.saveConflict.save)[0].click()
+        expect(complete).toHaveBeenCalledWith(['both', 'both'])
+    })
+
+    it('allows submitting no selected side in multiple mode', async () => {
+        const complete = showDialog([
+            { path: ['name'], base: 'Before', local: 'Mine', server: 'Theirs' },
+        ], vi.fn(), undefined, true)
+        await settle()
+
+        const save = buttonsWithText(language.saveConflict.save)[0]
+        expect(save.disabled).toBe(false)
+        save.click()
+        expect(complete).toHaveBeenCalledWith([null])
     })
 
     it('distinguishes deletion from an empty string and renders HTML-like text as text', async () => {

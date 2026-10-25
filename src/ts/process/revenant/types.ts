@@ -10,6 +10,9 @@ import type {
 
 import type { RevenantOperationContext } from './operations'
 import type { DeltaPatch } from '../../storage/nodeStorage'
+import type { ImagePresetMetadata } from '../files/inlayMeta'
+import type { LuaAxLlmMode } from '../luaLlmCore'
+import type { ImageOrientation } from '../../imageGeneration/orientation'
 export {
     createRevenantOperation,
     getRevenantOperationJobType,
@@ -148,16 +151,19 @@ export interface RevenantPostprocessDatabaseSnapshot {
     emotionPrompt2: string
 }
 
+export interface RevenantProviderSnapshot {
+    backend: 'http' | 'plugin' | 'echo'
+    modelPreset: unknown
+}
+
 export interface RevenantPostprocessRecipe {
     schemaVersion: 1
     messageChatId: string
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
-    auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {
-        backend: 'http' | 'plugin' | 'echo'
-        modelPreset: unknown
-    }>>
+    auxProviders?: Partial<Record<LuaAxLlmMode, RevenantProviderSnapshot>>
+    moduleProviders?: Record<string, RevenantProviderSnapshot>
     character: character
     chat: Chat
     database: RevenantPostprocessDatabaseSnapshot
@@ -167,7 +173,7 @@ export interface RevenantPostprocessRecipe {
 }
 
 export interface RevenantPostprocessSnapshot extends Omit<RevenantPostprocessRecipe, 'chat' | 'character'> {
-    character: Omit<character, 'chats' | 'chatPage'>
+    character: Omit<character, 'chats'>
     /** RFC 6902 changes from inputCommit.chat to the postprocess chat. */
     chatPatch: Array<{
         op: 'add' | 'remove' | 'replace'
@@ -220,7 +226,9 @@ export interface RevenantImageWorkflowContext {
     }
     prompt: string
     negativePrompt: string
+    orientation?: ImageOrientation
     seed?: number
+    preset?: ImagePresetMetadata
     label: string
     projection?: 'append' | 'reroll' | 'return'
 }
@@ -376,10 +384,11 @@ export interface RecoverableAuxiliaryJob {
 }
 
 export interface RevenantNormalizedProjection {
-    // Rebuildable view of the append-only provider journal. The journal, not
-    // this object, remains the recovery source of truth.
+    // Tool output is finalized at the shared request boundary; other projections are
+    // rebuildable views of the append-only provider journal.
     schemaVersion: 1
-    source: 'server' | 'client'
+    source: 'server' | 'client' | 'provider'
     adapterKind: string
     content: string
+    awaitingProviderResult?: boolean
 }

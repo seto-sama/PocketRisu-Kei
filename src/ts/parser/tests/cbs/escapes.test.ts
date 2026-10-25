@@ -1,7 +1,6 @@
 import { writable } from 'svelte/store'
 import { describe, expect, test, vi } from 'vitest'
 import { risuChatParser, risuUnescape } from '../../parser.svelte'
-import { trimVarPrefix } from './lib'
 
 //#region module mocks
 
@@ -20,35 +19,21 @@ vi.mock(import('../../../globalApi.svelte'), () => ({
   getFileSrc: () => Promise.resolve(''),
 }))
 
-/** Returns accessed key as the value. */
-const varStorage = vi.hoisted(
-  () =>
-    new Proxy(
-      {},
-      {
-        get(_, prop) {
-          return trimVarPrefix(prop)
-        },
-      },
-    ),
-)
-
 vi.mock(import('../../../stores.svelte'), () => {
   return {
     DBState: {
       db: {
         characters: [
           {
-            chatPage: 0,
             chats: [
               {
-                scriptstate: varStorage,
+                scriptstate: {},
               },
             ],
             defaultVariables: '',
           },
         ],
-        globalChatVariables: varStorage,
+        globalChatVariables: {},
         templateDefaultVariables: '',
       },
     },
@@ -113,4 +98,8 @@ describe('#escape', () => {
   test('::keep preserves all whitespaces', () => {
     expect(parse('{{#escape::keep}}\n{{br}}\n{{/}}')).toBe('\n{{br}}\n')
   })
+})
+
+test('angle-bracket name tags are parsed even without other CBS', () => {
+  expect(risuChatParser('hi <char>, a{b}#}', { consistantChar: true })).toBe('hi botname, a{b}#}')
 })

@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createSubscriber } from 'svelte/reactivity'
 import { DBState, selIdState } from '../../../stores.svelte'
 import {
@@ -79,7 +80,7 @@ export function createRevenantChatTranslationRecovery(options: {
         const explicitScope = options.getScope?.()
         if (explicitScope !== undefined) return explicitScope
         const currentCharacter = DBState.db.characters[selIdState.selId]
-        const currentChat = currentCharacter?.chats[currentCharacter.chatPage]
+        const currentChat = currentCharacter?.chats[getChatPage(currentCharacter)]
         return currentCharacter?.chaId && currentChat?.id
             ? {
                 characterId: currentCharacter.chaId,
@@ -129,7 +130,7 @@ export function createRevenantChatTranslationRecovery(options: {
             parseMarkdown: ParseMessageMarkdown
         },
     ): Promise<boolean> {
-        if (renderOptions.streaming) return false
+        if (!DBState.db.translator || renderOptions.streaming) return false
         if (!renderOptions.data.trim()) return false
         if (renderOptions.translated) return true
         if (renderOptions.autoTranslationSuppressed) return false

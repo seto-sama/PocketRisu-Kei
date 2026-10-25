@@ -2,7 +2,7 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import SegmentedControl from '../../UI/components/SegmentedControl.svelte';
+    import ChoiceGroup from '../../UI/components/ChoiceGroup.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
 
@@ -52,7 +52,12 @@
     {getLabel(item)}
     {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
 </span>
-<SegmentedControl
-    bind:value={localValue}
-    options={processedOptions}
+<!-- ChoiceGroup values are strings, so numeric options are mapped back on change. -->
+<ChoiceGroup
+    variant="segment"
+    size="md"
+    className="mb-4"
+    value={String(localValue)}
+    options={processedOptions.map(opt => ({ ...opt, value: String(opt.value) }))}
+    onValueChange={(v) => { localValue = processedOptions.find(opt => String(opt.value) === v)?.value ?? v }}
 />

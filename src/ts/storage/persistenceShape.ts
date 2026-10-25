@@ -1,7 +1,10 @@
 import persistenceShape from '../../../shared/persistenceShape.json'
 
 /** One ownership manifest is consumed by both browser and Node persistence. */
-const runtimeOnlyCharacterFields = new Set(persistenceShape.runtimeOnlyCharacterFields)
+const nonPersistentCharacterFields = new Set([
+    ...persistenceShape.runtimeOnlyCharacterFields,
+    ...persistenceShape.legacyCharacterFields,
+])
 const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields)
 const serverOwnedRootFields = persistenceShape.serverOwnedRootFields as Record<string, string[]>
 
@@ -11,26 +14,22 @@ function getServerOwnedRootFields(key: string) {
         : undefined
 }
 
-/** Whether a character field belongs to browser-authored persistence. */
 export function isClientWritableCharacterField(key: string): boolean {
-    return !runtimeOnlyCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
+    return !nonPersistentCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
 }
 
-/** Remove browser-local runtime state before hashing or serializing a character. */
-export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'reloadKeys'> {
+export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'reloadKeys' | 'chatPage'> {
     const persistent = { ...character }
-    for (const key of runtimeOnlyCharacterFields) delete persistent[key]
+    for (const key of nonPersistentCharacterFields) delete persistent[key]
     return persistent
 }
 
-/** Fields a browser may send when replacing a character block. */
 export function characterToClientWriteShape<T extends Record<string, any>>(character: T) {
     const writable = characterToPersistentShape(character) as Record<string, any>
     for (const key of serverOwnedCharacterFields) delete writable[key]
     return writable
 }
 
-/** Root fields a browser may send in a full database write. */
 export function rootValueToClientWriteShape(key: string, value: any) {
     const serverOwned = getServerOwnedRootFields(key)
     if (!serverOwned || !value || typeof value !== 'object') return value
@@ -82,7 +81,6 @@ export function characterWithServerBaseline(character: any, baseline: any) {
     return next
 }
 
-/** Restore browser-local defaults after a persisted database is loaded. */
 export function initializeCharacterRuntimeState<T>(character: T & { reloadKeys?: number }): T & { reloadKeys?: number } {
     if (!Number.isFinite(character.reloadKeys)) character.reloadKeys = 0
     return character

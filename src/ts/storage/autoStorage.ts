@@ -1,10 +1,16 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import {
     NodeStorage,
     type DatabaseProjection,
     type ExportBackupOptions,
+    type BackupProgress,
     type PatchItemResult,
     type DeltaPatch,
+    type FileFormat,
+    type PluginStorageNamespace,
+    type PluginStorageRequest,
+    type PluginStorageResponse,
 } from "./nodeStorage"
 
 export class AutoStorage{
@@ -31,7 +37,9 @@ export class AutoStorage{
 
     async Init(){
         if(!this.realStorage){
-            console.log("using node storage")
+            if (isDebugEnabled()) {
+                console.debug("using node storage")
+            }
             this.realStorage = new NodeStorage()
         }
     }
@@ -43,9 +51,12 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
-    async downloadBackupExport(opts?: ExportBackupOptions) {
+    async downloadBackupExport(
+        opts?: ExportBackupOptions,
+        onProgress?: (progress: BackupProgress) => void,
+    ) {
         await this.Init()
-        return this.realStorage.downloadBackupExport(opts)
+        return this.realStorage.downloadBackupExport(opts, onProgress)
     }
 
     async downloadAsset(key: string, filename?: string) {
@@ -62,6 +73,16 @@ export class AutoStorage{
         return this.realStorage.importBackup(file, onProgress)
     }
 
+    async encodeFile(format: FileFormat, value: unknown) {
+        await this.Init()
+        return this.realStorage.encodeFile(format, value)
+    }
+
+    async decodeFile(format: FileFormat, bytes: Uint8Array) {
+        await this.Init()
+        return this.realStorage.decodeFile(format, bytes)
+    }
+
     async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
         return await this.realStorage.patchItem(key, patchData)
     }
@@ -74,6 +95,11 @@ export class AutoStorage{
     async getPluginStorageStartupStats() {
         await this.Init()
         return this.realStorage.getPluginStorageStartupStats()
+    }
+
+    async pluginStorageRequest(namespace: PluginStorageNamespace, request: PluginStorageRequest): Promise<PluginStorageResponse> {
+        await this.Init()
+        return this.realStorage.pluginStorageRequest(namespace, request)
     }
 
     setPluginStorageExclusion(exclusion: Parameters<NodeStorage['setPluginStorageExclusion']>[0]) {
@@ -115,7 +141,7 @@ export class AutoStorage{
     async setItems(entries: {key: string, value: Uint8Array}[]) { return this.realStorage.setItems(entries) }
 
     // ── Server-side backup ─────────────────────────────────────────────────────
-    async saveServerBackup(note = '', onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void) {
+    async saveServerBackup(note = '', onProgress?: (progress: BackupProgress) => void) {
         await this.Init()
         return this.realStorage.saveServerBackup(note, onProgress)
     }

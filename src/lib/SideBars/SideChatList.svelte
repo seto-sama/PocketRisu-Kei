@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { createEntityId } from 'src/ts/id';
     import { DownloadIcon, UploadIcon, TrashIcon, FolderPlusIcon, FolderIcon, FolderOpenIcon, PackageIcon, CopyIcon, PencilIcon, SettingsIcon } from "@lucide/svelte";
 
@@ -69,7 +71,7 @@
 
     function syncChatOrderFromDom() {
         if (!listEle) return
-        const activeChat = chara.chats[chara.chatPage]
+        const activeChat = chara.chats[getChatPage(chara)]
         const chatsById = new Map(chara.chats.map(chat => [chat.id, chat]))
         const nextChats: Chat[] = []
         const includedChats = new Set<Chat>()
@@ -144,7 +146,7 @@
         let chatIdx = chara.chats.findIndex(item => item.id === chatId)
         if (chatIdx < 0) return
         if (chara.chats[chatIdx]?._placeholder) {
-            await ensureChatHydrated(chara.chats, chatIdx, chara.chaId)
+            await ensureChatHydrated(chara, chatIdx)
             if (chara.chaId !== characterId) return
             chatIdx = chara.chats.findIndex(item => item.id === chatId)
             if (chatIdx < 0) return
@@ -245,14 +247,12 @@
     </div>
 
     <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
-        <!-- folder div -->
         <SortableList
             className="flex flex-col"
             handle=".chat-folder-header"
             dragPreviewText={(folderId) => chara.chatFolders.find(folder => folder.id === folderId)?.name}
             onReorder={reorderFolders}
         >
-            <!-- chat folder -->
             {#each chara.chatFolders as folder, i (folder.id)}
             {@const folderColorStyle = getFolderColorStyle(folder.color)}
             {@const folderChats = chatsByFolder.get(folder.id) ?? []}
@@ -260,7 +260,6 @@
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="risu-folder-section flex flex-col mb-1"
                 style:--risu-folder-color={folderColorStyle.accent}>
-                <!-- folder header -->
                 <div
                     role="button"
                     tabindex="0"
@@ -294,7 +293,6 @@
                         <SettingsIcon />
                     </IconButton>
                 </div>
-                <!-- chats in folder -->
                 <SortableList
                     className="risu-sidebar-chat-list risu-folder-children risu-tree-list flex flex-col gap-1 mt-1 text-maintext cursor-pointer {folder.folded ? 'hidden' : ''}"
                     draggable="[data-sortable-chat-id]"
@@ -315,7 +313,7 @@
                             event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                    }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === getChatPage(chara) && !$chatDeselected}>
                         <InlineEditableName size="row" controller={renameController} bind:value={chat.name} editorLeadingInset="row" onActivate={() => changeChatTo(chatIdx)} />
                         {@render chatActions(chat, renameController)}
                     </div>
@@ -325,7 +323,6 @@
             </div>
             {/each}
         </SortableList>
-        <!-- chat without folder div -->
         <SortableList
             className="risu-sidebar-chat-list flex flex-col gap-1"
             draggable="[data-sortable-chat-id]"
@@ -344,7 +341,7 @@
                 }
             }}
             class="risu-selectable-row flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer"
-            data-selected={i === chara.chatPage && !$chatDeselected}>
+            data-selected={i === getChatPage(chara) && !$chatDeselected}>
                 <InlineEditableName size="row" controller={renameController} bind:value={chara.chats[i].name} editorLeadingInset="row" onActivate={() => changeChatTo(i)} />
                 {@render chatActions(chat, renameController)}
             </div>
@@ -360,7 +357,7 @@
             }}>
                 <DownloadIcon />
             </IconButton>
-            <IconButton onclick={() => {
+            <IconButton data-file-picker onclick={() => {
                 importChat()
             }}>
                 <UploadIcon />
@@ -377,12 +374,12 @@
             {#if DBState.db.showPersonaInSidebar}
                 <PersonaBind />
             {/if}
-            <Toggles bind:chara={chara} noContainer />
+            <Toggles />
             {#if DBState.db.showModuleSidebar}
                 <Button className="w-full mt-2" onclick={() => {
                     const char = DBState.db.characters[$selectedCharID]
                     if (!char) return
-                    char.chats[char.chatPage].modules ??= []
+                    char.chats[getChatPage(char)].modules ??= []
                     openModuleListStore.set(true)
                 }}>
                     <PackageIcon class="shrink-0" />

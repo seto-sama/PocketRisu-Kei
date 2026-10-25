@@ -2,7 +2,7 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
-    import { alertConfirm, notifyError, notifySuccess, notifyInfo } from 'src/ts/alert';
+    import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
     import { forageStorage, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
@@ -195,7 +195,7 @@
                 ? `${name}.${extension}`
                 : name;
             await forageStorage.downloadAsset(previewAsset[1], downloadName);
-            notifyInfo(language.browserDownloadStarted);
+            notifySuccess(language.browserDownloadStarted);
         }
         catch(error){
             notifyError(`${error}`);
@@ -335,7 +335,7 @@
     {/if}
 </div>
 <ListActionBar mode="footer">
-    <IconButton onclick={addAssets} title={language.selectFile} aria-label={language.selectFile}>
+    <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
         <PlusIcon />
     </IconButton>
 </ListActionBar>

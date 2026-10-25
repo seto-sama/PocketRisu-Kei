@@ -1,17 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { encodeFile, decodeFile } = vi.hoisted(() => ({
+    encodeFile: vi.fn(),
+    decodeFile: vi.fn(),
+}));
 
 vi.mock("src/ts/util", () => ({
-    encryptBuffer: async (data: Uint8Array) =>
-        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
-    decryptBuffer: async (data: Uint8Array) =>
-        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
     // modules.ts (pulled in via the stores $effect) imports this from util
     checkPersonaBinded: () => null,
 }));
 
-vi.mock("src/ts/rpack/rpack_js.js", () => ({
-    encodeRPack: async (data: Uint8Array) => data,
-    decodeRPack: async (data: Uint8Array) => data,
+vi.mock("src/ts/storage/autoStorage", () => ({
+    forageStorage: { encodeFile, decodeFile },
 }));
 
 import {
@@ -144,36 +144,36 @@ describe("translator preset collection operations", () => {
 });
 
 describe("translator preset file codec", () => {
-    it("round-trips encrypted .risutl payloads without dropping legacy fields", async () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it("uses the shared file codec without dropping legacy fields", async () => {
         const preset = Object.assign(
             createTranslatorPreset("My Preset", { prompt: "Translate into {{slot}}." }),
             { maxResponse: 256 }
         );
+        const encoded = Uint8Array.of(1, 2, 3);
+        encodeFile.mockResolvedValue(encoded);
+        decodeFile.mockResolvedValue(preset);
 
-        const encoded = await encodeTranslatorPresetFile(preset);
+        expect(await encodeTranslatorPresetFile(preset)).toEqual(encoded);
+        expect(encodeFile).toHaveBeenCalledWith("translator", expect.objectContaining({
+            name: "My Preset",
+            prompt: "Translate into {{slot}}.",
+            maxResponse: 256,
+        }));
         const decoded = await decodeTranslatorPresetFile(encoded);
 
         expect(decoded).toEqual(preset);
-        expect(() => JSON.parse(new TextDecoder().decode(encoded))).toThrow();
+        expect(decodeFile).toHaveBeenCalledWith("translator", encoded);
         const downloadName = getTranslatorPresetDownloadName("My/Translator:Preset");
         expect(downloadName).toMatch(/\.risutl$/);
         expect(downloadName).not.toMatch(/[\\/:]/);
     });
 
-    it("rejects plain JSON translator preset payloads", async () => {
-        const plainJsonPayload = new TextEncoder().encode(
-            JSON.stringify({
-                type: "risu",
-                ver: 1,
-                data: {
-                    name: "Plain JSON Preset",
-                    prompt: "Plain JSON prompt",
-                    maxResponse: 111,
-                },
-            })
-        );
+    it("rejects decoded translator payloads with an invalid shape", async () => {
+        decodeFile.mockResolvedValue({ name: 3, prompt: "Invalid" });
 
-        await expect(decodeTranslatorPresetFile(plainJsonPayload)).rejects.toThrow(
+        await expect(decodeTranslatorPresetFile(Uint8Array.of(1))).rejects.toThrow(
             "Invalid translator preset file."
         );
     });

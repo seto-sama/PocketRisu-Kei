@@ -33,7 +33,7 @@ PocketRisu는 폰에서 애플리케이션을 직접 빌드하므로, 빌드 시
 ### Termux는 F-Droid 또는 GitHub Releases 버전을 사용
 
 > ⚠️ **Play Store의 Termux는 사용할 수 없습니다.**
-> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 24.15 이상 등)가 설치되지 않습니다.
+> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, PocketRisu 빌드에 필요한 최신 패키지(Node.js 24.22.1+ (24.x) / 26.12.1+ (26.x))가 설치되지 않습니다.
 
 다음 두 곳 중 하나에서 Termux를 받습니다.
 
@@ -68,7 +68,7 @@ pkg install -y git && \
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -82,7 +82,7 @@ Then open this address in the phone's own browser:
 빌드가 끝난 디렉터리에서 서버를 실행합니다.
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 서버 부팅 로그가 표시되면 폰의 브라우저(Chrome, Firefox 등)에서 다음 주소를 엽니다.
@@ -117,15 +117,29 @@ Termux 알림 영역에 wake lock 상태가 표시되며, 폰 화면이 꺼져�
 
 ## 5. 업데이트
 
-PocketRisu 디렉터리에서 다음을 실행합니다.
+실행 중인 서버를 `Ctrl + C`로 종료한 뒤 다음을 실행합니다.
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+각 단계는 앞 단계가 성공했을 때만 실행됩니다. `git pull`이 실패하면 의존성 설치나 빌드 전에 명령이 멈추므로 이전 소스를 다시 빌드하지 않습니다. `pnpm install`은 명시적으로 실행해야 하며 `pnpm build`의 일부로 자동 실행되지 않습니다. 업데이트할 때마다 실행하세요. `GYP_DEFINES`는 빌드 스크립트에서 사용하는 Termux 설정으로, `msgpackr-extract` 같은 네이티브 모듈을 컴파일할 때 필요합니다. 빌드가 끝나면 `node server/server.cjs`로 서버를 다시 실행합니다.
+
+### `git pull`이 실패하는 경우
+
+로컬 변경 사항을 확인합니다.
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-코드 변경에 따라 새 의존성이 필요한 경우 `pnpm install`이 자동 실행됩니다. 빌드가 끝나면 서버를 재시작합니다.
+커밋하지 않은 변경 사항을 보존하려면 커밋하거나, 위 업데이트 명령을 실행하기 전에 `git stash push`로 임시 보관합니다. stash를 사용했다면 업데이트 후 `git stash pop`으로 복원하고 충돌이 있는지 확인합니다. `Not possible to fast-forward` 오류가 표시되면 먼저 로컬 브랜치의 분기 상태를 해결해야 합니다. stash로는 커밋 간 분기를 해결할 수 없습니다.
 
 
 ---

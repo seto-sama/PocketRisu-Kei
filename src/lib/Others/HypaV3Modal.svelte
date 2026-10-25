@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import { onDestroy, untrack } from "svelte";
   import { 
     type SerializableSummary, 
@@ -42,7 +44,7 @@
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
-      DBState.db.characters[$selectedCharID].chatPage
+      getChatPage(DBState.db.characters[$selectedCharID])
     ].hypaV3Data
   );
 
@@ -96,7 +98,7 @@
 
     untrack(() => {
       DBState.db.characters[$selectedCharID].chats[
-        DBState.db.characters[$selectedCharID].chatPage
+        getChatPage(DBState.db.characters[$selectedCharID])
       ].hypaV3Data ??= {
         summaries: [],
         categories: [{ id: "", name: language.hypaV3Modal.unclassified }],
@@ -158,12 +160,10 @@
     collapseAllSummaries();
   }
 
-  // Search functionality
   function onSearch(e: KeyboardEvent) {
     if (e.key === "Enter") {
       if (!searchState || !searchState.query.trim()) return;
 
-      // Perform search
       performSearch(searchState.query, e.shiftKey);
     }
   }
@@ -171,13 +171,11 @@
   function performSearch(query: string, backward: boolean = false) {
     if (!searchState) return;
 
-    // Reset results if query changed
     if (searchState.results.length === 0) {
       searchState.results = findAllMatches(query);
       searchState.currentResultIndex = -1;
     }
 
-    // Navigate to next/previous result
     const result = getNextSearchResult(backward);
     if (result) {
       navigateToSearchResult(result);
@@ -191,7 +189,6 @@
     hypaV3Data.summaries.forEach((summary, summaryIndex) => {
       if (!isSummaryVisible(summaryIndex)) return;
 
-      // Search in summary text
       const summaryText = summary.text.toLowerCase();
       let index = 0;
       while ((index = summaryText.indexOf(lowerQuery, index)) !== -1) {
@@ -204,7 +201,6 @@
         index += query.length;
       }
 
-      // Search in chat memos (if they're GUIDs)
       if (isGuidLike(query)) {
         summary.chatMemos.forEach((chatMemo, memoIndex) => {
           if (chatMemo && chatMemo.toLowerCase().includes(lowerQuery)) {
@@ -360,7 +356,7 @@
     }
 
     state.isTranslating = true;
-    state.translation = "Loading...";
+    state.translation = language.loading;
 
     try {
       state.translation = await translateHTML(state.result, false, "", -1, regenerate);
@@ -379,7 +375,7 @@
       )
     ) {
       DBState.db.characters[$selectedCharID].chats[
-        DBState.db.characters[$selectedCharID].chatPage
+        getChatPage(DBState.db.characters[$selectedCharID])
       ].hypaV3Data = {
         summaries: [],
       };
@@ -450,7 +446,6 @@
         return;
       }
 
-      // Scroll to element
       textarea.scrollIntoView({
         behavior: "instant",
         block: "center",
@@ -461,7 +456,6 @@
         return;
       }
 
-      // Scroll to query
       textarea.setSelectionRange(result.start, result.end);
       scrollToSelection(textarea);
 
@@ -474,16 +468,13 @@
         return;
       }
 
-      // Scroll to element
       button.scrollIntoView({
         behavior: "instant",
         block: "center",
       });
 
-      // Highlight chatMemo
       button.classList.add("ring-2", "ring-lightborderc");
 
-      // Remove highlight after a short delay
       window.setTimeout(() => {
         button.classList.remove("ring-2", "ring-lightborderc");
       }, 1000);
@@ -500,36 +491,32 @@
       selectionEnd === null ||
       selectionStart === selectionEnd
     ) {
-      return; // Exit if there is no selected text
+      return;
     }
 
-    // Calculate the text before the selected position based on the textarea's text
+    // Match textarea wrapping and font to measure the text before the selection.
     const textBeforeSelection = textarea.value.substring(0, selectionStart);
 
-    // Use a temporary DOM element to calculate the exact position of the selected text
     const tempDiv = document.createElement("div");
     tempDiv.style.position = "absolute";
     tempDiv.style.whiteSpace = "pre-wrap";
     tempDiv.style.overflowWrap = "break-word";
     tempDiv.style.font = window.getComputedStyle(textarea).font;
     tempDiv.style.width = `${textarea.offsetWidth}px`;
-    tempDiv.style.visibility = "hidden"; // Set it to be invisible
+    tempDiv.style.visibility = "hidden";
 
     tempDiv.textContent = textBeforeSelection;
     document.body.appendChild(tempDiv);
 
-    // Calculate the position of the selected text within the textarea
     const selectionTop = tempDiv.offsetHeight;
     document.body.removeChild(tempDiv);
 
-    // Adjust the scroll so that the selected text is centered on the screen
     textarea.scrollTop = selectionTop - textarea.clientHeight / 2;
   }
 
   function isSummaryVisible(index: number): boolean {
     const summary = hypaV3Data.summaries[index];
     
-    // Use the new shouldShowSummary utility function
     return shouldShowSummary(
       summary, 
       index, 
@@ -588,12 +575,11 @@
 {/snippet}
 
 <OverlayPortal active={$hypaV3ModalOpen}>
-<!-- Modal Backdrop -->
 <OverlayBackdrop
   bind:open={$hypaV3ModalOpen}
+  keepMounted
   class="risu-modal-backdrop risu-layer-overlay flex justify-center p-1 sm:p-2"
 >
-    <!-- Modal Window -->
     <div
       data-hypav3-modal-window
       class="flex flex-col w-full max-w-3xl rounded-md border border-darkborderc bg-darkbg p-3 text-maintext shadow-lg sm:p-6 {hypaV3Data
@@ -601,7 +587,6 @@
         ? 'h-fit'
         : 'h-full'}"
     >
-      <!-- Header -->
       <ModalHeader
         bind:searchState
         showImportantOnly={filterState.showImportantOnly}
@@ -663,7 +648,7 @@
             </div>
 
             <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:gap-4" tabindex="-1">
-              {#each hypaV3Data.summaries as summary, i (summary)}
+              {#each hypaV3Data.summaries as summary, i (JSON.stringify([i, summary.chatMemos]))}
                 {#if isSummaryVisible(i) && isResummarySearchMatch(summary, i)}
                   {@render summaryCard(i)}
                 {/if}
@@ -676,13 +661,12 @@
           <ModalSearch {searchState} {onSearch} />
         {/if}
 
-        <!-- Only the summaries list scrolls between the top and bottom controls. -->
         <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:gap-4" tabindex="-1">
           {#if hypaV3Data.summaries.length === 0}
             <EmptyState title={language.hypaV3Modal.noSummariesLabel} description="" layout="section" density="compact" />
           {/if}
 
-          {#each hypaV3Data.summaries as summary, i (summary)}
+          {#each hypaV3Data.summaries as summary, i (JSON.stringify([i, summary.chatMemos]))}
             {#if isSummaryVisible(i)}
               {@render summaryCard(i)}
             {/if}
@@ -695,7 +679,6 @@
     </div>
 </OverlayBackdrop>
 
-<!-- Component Modals -->
 <CategoryManagerModal
   bind:categoryManagerState
   bind:searchState

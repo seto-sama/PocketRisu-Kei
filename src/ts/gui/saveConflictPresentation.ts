@@ -3,7 +3,14 @@ import { valuesEqual } from '../../../shared/guardedDelta.mjs'
 import type { MergeConflict, MergePath } from '../storage/patchRebase'
 
 type Preview = { name: string, type: string, text: string }
-type ConflictBlock = { server: Preview, local: Preview }
+
+export type ConflictPresentation = {
+    label: string
+    blocks: Array<{
+        server: Preview
+        local: Preview
+    }>
+}
 
 const fieldAliases: Record<string, keyof typeof language> = {
     characters: 'characterList',
@@ -82,10 +89,10 @@ function roleLabel(value: unknown) {
     return value === 'user' ? language.user : value === 'char' ? language.character : valueText(value)
 }
 
-export function presentSaveConflict(conflict: MergeConflict, index: number, source?: unknown) {
+export function presentSaveConflict(conflict: MergeConflict, index: number, source?: unknown): ConflictPresentation {
     const label = conflictPathLabel(conflict.path, source, index)
     const message = conflict.path.some(part => typeof part !== 'string' && part.key === 'chatId')
-    const blocks: ConflictBlock[] = []
+    const blocks: ConflictPresentation['blocks'] = []
     const preview = (value: unknown, path: MergePath, side: 'server' | 'local'): Preview => {
         const relative = path.slice(conflict.path.length)
         const name = relative.length ? relative.map((field, position) =>

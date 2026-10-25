@@ -52,6 +52,20 @@
   }
 </script>
 
+{#snippet fallback()}
+  <div
+    class="sidebar-avatar avatar-tile sidebar-touch-target rounded-md"
+    style:width={size + "px"}
+    style:height={size + "px"}
+    style:min-width={size + "px"}
+  >
+    <AvatarFallback
+      className="h-full w-full rounded-md"
+      iconSize={Number(size) * 0.55}
+    />
+  </div>
+{/snippet}
+
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex: role and tabindex are both omitted for noninteractive avatar reuse -->
 <Tooltip side="right" variant="glass" disabled={!showTooltip || !name.trim()}>
@@ -99,6 +113,7 @@
           style:min-width={size + "px"}
 ></div>
       {:then img}
+        {#if img}
         <img
           src={img}
           class="sidebar-avatar avatar-tile sidebar-touch-target rounded-md object-cover object-top"
@@ -107,20 +122,13 @@
           style:min-width={size + "px"}
           alt="avatar"
         />
+        {:else}
+          {@render fallback()}
+        {/if}
       {/await}
     {/if}
   {:else}
-    <div
-      class="sidebar-avatar avatar-tile sidebar-touch-target rounded-md"
-      style:width={size + "px"}
-      style:height={size + "px"}
-      style:min-width={size + "px"}
-    >
-      <AvatarFallback
-        className="h-full w-full rounded-md"
-        iconSize={Number(size) * 0.55}
-      />
-    </div>
+    {@render fallback()}
   {/if}
   {#if selected}
     <SelectionParticles rise={`-${Math.max(28, Number(size) - 6)}px`} />

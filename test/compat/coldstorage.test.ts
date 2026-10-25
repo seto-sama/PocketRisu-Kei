@@ -2,17 +2,55 @@
  * Cold storage compatibility tests.
  *
  * Tests the one-time migration path: upstream backup with cold storage
- * characters → local import → characters restored inline.
+ * characters and plugin storage → local import → ordinary data → portable export.
  */
 import { describe, test, expect, afterAll } from 'vitest'
+import { encode as encodeMessagePack } from 'msgpackr'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient } from './helpers/client.js'
 import { createSeedBackup } from './helpers/seed.js'
-import { normalizeBackup } from './helpers/normalize.js'
+import { decodeRisuDat, normalizeBackup } from './helpers/normalize.js'
+import { decodeBackup } from './helpers/decode.js'
+import { encodeBackup } from './helpers/encode.js'
 
 const servers: ServerHandle[] = []
 afterAll(async () => {
   await Promise.allSettled(servers.map(s => s.cleanup()))
+})
+
+test('imports a plugin index and exports ordinary values for Original and PocketRisu', async () => {
+  const srv = await spawnServer()
+  servers.push(srv)
+  const client = await createClient(srv.port, srv.password)
+  const entries = decodeBackup(createSeedBackup())
+  const databaseEntry = entries.find(entry => entry.name === 'database.risudat')!
+  const database = decodeRisuDat(databaseEntry.data)
+  database.pluginCustomStorage = { _coldpluginIndex: '11111111-1111-4111-8111-111111111111', inline: 'kept' }
+  databaseEntry.data = Buffer.concat([databaseEntry.data.subarray(0, 11), Buffer.from(encodeMessagePack(database))])
+  const index = {
+    type: 'risu-plugin-storage-index', version: 1, trash: [],
+    entries: [
+      { k: 'flag', s: 'false' },
+      { k: 'large', l: '22222222-2222-4222-8222-222222222222' },
+      { k: 'missing', l: '33333333-3333-4333-8333-333333333333' },
+    ],
+  }
+  entries.push(
+    { name: 'coldstorage_11111111-1111-4111-8111-111111111111.json', data: Buffer.from(JSON.stringify(index)) },
+    { name: 'coldstorage_22222222-2222-4222-8222-222222222222.json', data: Buffer.from(JSON.stringify({ text: 'restored' })) },
+  )
+  expect(await client.importBackup(encodeBackup(entries))).toMatchObject({
+    ok: true, coldStorageFailed: 0, pluginStorageColdFailed: 1,
+  })
+
+  for (const target of ['pocketrisu', 'upstream']) {
+    const response = await client.fetch(`/api/backup/export?target=${target}`)
+    expect(response.status).toBe(200)
+    const exported = decodeBackup(Buffer.from(await response.arrayBuffer()))
+    expect(exported.some(entry => entry.name.startsWith('coldstorage'))).toBe(false)
+    expect(decodeRisuDat(exported.find(entry => entry.name === 'database.risudat')!.data).pluginCustomStorage)
+      .toEqual({ inline: 'kept', flag: false, large: { text: 'restored' } })
+  }
 })
 
 describe('character cold storage migration', () => {

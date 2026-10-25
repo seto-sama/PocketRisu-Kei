@@ -3,6 +3,7 @@ import type {
     RecoverableGenerationJob,
 } from '../types'
 import type { ProviderContextRecord } from '../../../preset/adapter/thoughtSignatures'
+import { apiRequestError } from '../../../network/apiError'
 
 interface RevenantGenerationClientDependencies {
     createAuth: () => Promise<string>
@@ -161,6 +162,7 @@ export async function checkpointRevenantGeneration(
     messageChatId: string,
     content: string,
     force = false,
+    options: { providerResult?: boolean } = {},
 ): Promise<void> {
     const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
@@ -173,11 +175,12 @@ export async function checkpointRevenantGeneration(
         const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
             method: 'PUT',
             headers: await createRevenantJobMutationHeaders(jobId, true),
-            body: JSON.stringify({ content }),
-            keepalive: force,
+            body: JSON.stringify({ content, ...options }),
+            // Completed tool results can exceed browser keepalive request limits.
+            keepalive: force && !options.providerResult,
         })
         if (!response.ok) {
-            throw new Error(`Failed to checkpoint generation job: ${response.status}`)
+            throw await apiRequestError(response, 'Failed to checkpoint generation result')
         }
     })
     revenantCheckpointPending.set(messageChatId, write)

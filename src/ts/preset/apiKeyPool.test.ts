@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import developerProvider from './registry/bundled/base-providers/developer.json'
+import developerCustomProvider from './registry/bundled/base-providers/developer-custom.json'
+import type { BaseProviderDefinition } from './types'
 
 const { mockDb } = vi.hoisted(() => ({ mockDb: { db: {} as any } }))
 
@@ -123,6 +126,17 @@ describe('apiKeyPool', () => {
         expect(options.filter((option) => option.id === 'cloudflare')).toEqual([
             { id: 'cloudflare', name: 'Cloudflare' },
         ])
+    })
+
+    it('excludes both built-in Developer providers from API key choices', () => {
+        const options = listApiKeyProviderOptions({
+            [developerProvider.id]: developerProvider as BaseProviderDefinition,
+            [developerCustomProvider.id]: developerCustomProvider as BaseProviderDefinition,
+        })
+
+        const ids = options.map(option => option.id)
+        expect(ids).not.toContain(developerProvider.id)
+        expect(ids).not.toContain(developerCustomProvider.id)
     })
 
     it('hides collapsed Cloudflare only when both model providers are hidden', () => {

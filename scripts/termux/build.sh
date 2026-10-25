@@ -3,15 +3,13 @@
 # Usage (from PocketRisu repo root): bash scripts/termux/build.sh
 set -euo pipefail
 
-if [ ! -f package.json ] || [ ! -d server/node ]; then
+if [ ! -f package.json ] || [ ! -f server/server.cjs ]; then
     echo "Run from the PocketRisu repo root."
     exit 1
 fi
 
 echo "[1/5] Installing Termux packages..."
 pkg install -y nodejs-lts python make clang pkg-config tar curl
-
-node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 24 || (major === 24 && minor < 15)) { console.error('Node.js 24.15.0+ is required. Update the Termux nodejs-lts package.'); process.exit(1); }"
 
 echo "[2/5] Enabling pnpm via corepack..."
 corepack enable
@@ -35,7 +33,7 @@ NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 cat <<'EOF'
 
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001

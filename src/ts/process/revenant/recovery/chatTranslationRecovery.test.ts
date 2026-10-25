@@ -32,6 +32,7 @@ describe('chat translation recovery', () => {
             autoTranslateLastOutputOnly: false,
             autoTranslateCachedOnly: false,
             translatorType: 'llm',
+            translator: 'ko',
             translateBeforeHTMLFormatting: true,
         }
     })

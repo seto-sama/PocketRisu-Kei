@@ -50,9 +50,9 @@
     class:min-h-64={height === 'default' && $textAreaSize === 3}
     class:min-h-72={height === 'default' && $textAreaSize === 4}
     class:min-h-80={height === 'default' && $textAreaSize === 5}
-    style={autoResize ? `${style};height:${autoHeight};min-height:44px` : (style || undefined)}
+    style={autoResize ? `${style};height:auto;min-height:0` : (style || undefined)}
 >
-    <div class="relative flex-1 min-h-0 w-full">
+    <div class="relative min-h-0 w-full" class:flex-1={!autoResize} style:height={autoResize ? autoHeight : undefined}>
         <textarea
             class="risu-layer-local-content w-full h-full bg-transparent resize-none absolute top-0 left-0 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
             class:risu-textarea-padding-x={padding}
@@ -64,14 +64,13 @@
             {tabindex}
             bind:this={textareaRef}
             value={draftValue}
-            onfocus={handleFocus}
+            {onfocus}
             onblur={handleBlur}
             oninput={(e) => {
                 draftValue = e.currentTarget.value
                 dirty = draftValue !== value
                 ondraft(draftValue)
                 scheduleCommit()
-                scheduleAutoResize()
             }}
             onchange={() => {
                 if(resolvedCommitMode !== 'input') commitDraft()
@@ -107,6 +106,10 @@
     {/if}
 </div>
 
+{#if imageTags && !readonly && textareaRef}
+    <ImageTagSuggestions target={textareaRef} getBundles={() => listImageTagBundles(DBState.db, DBState.db.characters?.[$selectedCharID])} />
+{/if}
+
 <style>
     .risu-textarea-padding-x {
         padding-inline: 0.625rem;
@@ -114,14 +117,16 @@
 </style>
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
-    import { onDestroy, tick, untrack, type Snippet } from 'svelte';
-  import { DBState, showPopupEditor } from 'src/ts/stores.svelte';
+    import { onDestroy, untrack, type Snippet } from 'svelte';
+    import { autoSizeTextarea } from 'src/ts/gui/autoSizeTextarea.svelte'
+    import { DBState, selectedCharID, showPopupEditor } from 'src/ts/stores.svelte';
     import { Maximize2Icon, CopyIcon, CheckIcon, EraserIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
-    import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
     import IconButton from './IconButton.svelte'
     import IconButtonGroup from './IconButtonGroup.svelte'
+    import ImageTagSuggestions from './ImageTagSuggestions.svelte'
+    import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     import { longpress } from 'src/ts/gui/longtouch'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
@@ -154,6 +159,7 @@
         contentClassName?: string;
         style?: string;
         popupTitle?: string;
+        imageTags?: boolean;
     }
 
     type Props = BaseProps & (
@@ -191,8 +197,8 @@
         contentClassName = '',
         style = '',
         popupTitle = '',
+        imageTags = false,
     }: Props = $props();
-    // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
     const resolvedCommitMode = $derived(resolveInputCommitMode(commitMode, optimaizedInput))
     let copied = $state(false)
@@ -200,7 +206,7 @@
     let draftValue = $state(untrack(() => value ?? ''))
     let dirty = $state(false)
     let composing = $state(false)
-    let autoHeight = $state('44px')
+    let autoHeight = $state('auto')
     let containerRef: HTMLDivElement
 
     function commitDraft(nextValue = draftValue) {
@@ -228,11 +234,6 @@
         draftValue = value ?? ''
         dirty = false
         ondraft(draftValue)
-        scheduleAutoResize()
-    }
-
-    function handleFocus(event: FocusEvent & { currentTarget: HTMLTextAreaElement }) {
-        onfocus?.(event)
     }
 
     function handleBlur() {
@@ -274,22 +275,12 @@
         return ''
     }
 
-    const scheduleAutoResize = () => {
-        if(!autoResize) return
-        tick().then(() => {
-            const target = textareaRef
-            if(!target) return
-            // Measure against a collapsed input without collapsing the outer
-            // field itself. Changing autoHeight to 44px here used to publish a
-            // full layout frame on every keystroke, which could move an
-            // ancestor chat scroller before the real height was restored.
-            const previousInlineHeight = target.style.height
-            target.style.height = '0px'
-            const nextHeight = Math.max(target.scrollHeight, 44)
-            target.style.height = previousInlineHeight
-            autoHeight = `${nextHeight}px`
-        })
-    }
+    autoSizeTextarea({
+        element: () => textareaRef,
+        text: () => draftValue,
+        enabled: () => autoResize,
+        onResize: height => { autoHeight = `${height}px` },
+    })
 
     function optionalLongpress(node: HTMLElement) {
         const action = onLongPress ? longpress(node, onLongPress) : undefined
@@ -299,13 +290,6 @@
     }
 
     $effect(() => {
-        if(autoResize){
-            void draftValue
-            scheduleAutoResize()
-        }
-    })
-
-    $effect(() => {
         const externalValue = value ?? ''
         if(!dirty && externalValue !== draftValue){
             draftValue = externalValue
@@ -313,20 +297,15 @@
         }
     })
 
-    // Open the shared popup editor for this field, mirroring the contextmenu path.
     const openPopupEditor = () => {
         showPopupEditor({
             value: draftValue,
             title: inferPopupTitle(),
-            commitMode: resolvedCommitMode === 'input'
-                ? 'input'
-                : resolvedCommitMode === 'debounce' ? 'debounce' : 'submit',
-            debounceMs,
+            imageTags,
             onCommit: (nextValue) => {
                 draftValue = nextValue
                 dirty = draftValue !== value
                 ondraft(draftValue)
-                scheduleAutoResize()
                 commitDraft(nextValue)
                 return true
             }
@@ -334,23 +313,22 @@
     }
 
     const handlePopupEditorHotkey = (event: KeyboardEvent) => {
-        if (readonly) return false
+        if (readonly) return
         const hotkey = DBState.db.hotkeys?.find((entry) => entry.action === 'popupEditor')
-        if (!hotkeyMatches(hotkey, event)) return false
+        if (!hotkeyMatches(hotkey, event)) return
         event.preventDefault()
         event.stopPropagation()
         openPopupEditor()
-        return true
     }
 
     const copyValue = async () => {
         const text = draftValue ?? ''
         try {
-            if(isSecureContext && navigator.clipboard?.writeText){
+            if(navigator.clipboard?.writeText){
                 await navigator.clipboard.writeText(text)
             }
             else {
-                // Fallback for non-secure (remote http) contexts where the Clipboard API is unavailable
+                // Some browsers do not expose the Clipboard API even in secure contexts.
                 const ta = document.createElement('textarea')
                 ta.value = text
                 ta.style.position = 'fixed'

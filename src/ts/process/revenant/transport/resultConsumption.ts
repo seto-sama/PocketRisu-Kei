@@ -37,15 +37,16 @@ export async function consumeRevenantAuxiliaryResults(jobIds: Iterable<string>):
  */
 export function consumeOnStreamCompletion<T>(
     source: ReadableStream<T>,
-    consume: () => Promise<void>,
+    consume: (last?: T) => Promise<void>,
 ): ReadableStream<T> {
     let reader: ReadableStreamDefaultReader<T> | undefined
     let consumed = false
+    let last: T | undefined
 
     const consumeOnce = async () => {
         if (consumed) return
         consumed = true
-        await consume()
+        await consume(last)
     }
 
     return new ReadableStream<T>({
@@ -62,6 +63,7 @@ export function consumeOnStreamCompletion<T>(
                     controller.close()
                     return
                 }
+                last = item.value
                 controller.enqueue(item.value)
             }
             catch (error) {

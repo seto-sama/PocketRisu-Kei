@@ -1,5 +1,7 @@
 <script lang="ts">
     import { DBState, selectedCharID } from 'src/ts/stores.svelte';
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { emptyModelBinding } from 'src/ts/preset/types';
     import { getEffectiveModelBinding } from 'src/ts/chatBindingState';
     import ModelPresetList from './ModelPresetList.svelte';
@@ -11,7 +13,7 @@
     let { open = $bindable(false) }: Props = $props();
 
     const currentChat = $derived(
-        DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]
+        DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]
     );
     const activePresetId = $derived(
         getEffectiveModelBinding(DBState.db, currentChat)?.main ?? ''

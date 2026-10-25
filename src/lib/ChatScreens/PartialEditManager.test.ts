@@ -112,7 +112,6 @@ beforeEach(() => {
         zoomsize: 100,
         lineHeight: 1.25,
         characters: [{
-            chatPage: 0,
             chats: [{
                 id: 'chat-1',
                 message: [],

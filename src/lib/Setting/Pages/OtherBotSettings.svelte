@@ -1,5 +1,7 @@
 <script lang="ts">
     import SettingPage from "../../UI/components/SettingPage.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import SettingTabs from "../../UI/components/SettingTabs.svelte";
     import { language } from "src/lang";
     import { DBState, OtherBotsSubmenuIndex, selectedCharID } from "src/ts/stores.svelte";
@@ -46,7 +48,7 @@
     async function getMaxMemoryRatio(): Promise<number> {
         const promptTemplate = DBState.db.promptTemplate;
         const char = DBState.db.characters[$selectedCharID];
-        const chat = char?.chats?.[char.chatPage];
+        const chat = char?.chats?.[getChatPage(char)];
         if (!char || !chat) return 0;
         const settings = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings;
         if (!settings) return 0;

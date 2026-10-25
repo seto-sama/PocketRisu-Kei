@@ -1,7 +1,7 @@
 import type { Database } from '../storage/database.svelte'
 
 export interface RequestStatusChatTarget {
-    characterIndex: number
+    characterId: string
     chatIndex: number
     messageIndex: number | null
 }
@@ -12,16 +12,16 @@ export function findRequestStatusChatTarget(
 ): RequestStatusChatTarget | null {
     let roomFallback: RequestStatusChatTarget | null = null
 
-    for (let characterIndex = 0; characterIndex < db.characters.length; characterIndex++) {
-        const character = db.characters[characterIndex]
-        if (!character) continue
+    for (const character of db.characters) {
+        if (!character?.chaId || character.trashTime) continue
+        const characterId = character.chaId
         for (let chatIndex = 0; chatIndex < character.chats.length; chatIndex++) {
             const chat = character.chats[chatIndex]
             if (!chat) continue
 
             if (chat._placeholder) {
                 if (chat.id === requestChatId) {
-                    roomFallback = { characterIndex, chatIndex, messageIndex: null }
+                    roomFallback = { characterId, chatIndex, messageIndex: null }
                 }
                 continue
             }
@@ -30,7 +30,7 @@ export function findRequestStatusChatTarget(
                 message?.chatId === requestChatId
                 || message?.generationInfo?.generationId === requestChatId)
             if (messageIndex >= 0) {
-                return { characterIndex, chatIndex, messageIndex }
+                return { characterId, chatIndex, messageIndex }
             }
 
             if (chat.id === requestChatId) {
@@ -42,7 +42,7 @@ export function findRequestStatusChatTarget(
                     }
                 }
                 roomFallback = {
-                    characterIndex,
+                    characterId,
                     chatIndex,
                     messageIndex: latestCharacterMessage >= 0
                         ? latestCharacterMessage

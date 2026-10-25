@@ -17,12 +17,9 @@ export interface AdapterRequestContext {
     // Adapter-derived defaults that participate in the normal body precedence:
     // schema/user values < generated defaults < customBody < additional params.
     generatedBodyDefaults?: Record<string, unknown>
-    // Raw Service Account JSON string as it stood BEFORE `resolveAdapterCredential`
-    // swapped it for an OAuth access token. Threaded through by
-    // `prepareAdapterRequest` so the Vertex endpoint builder can recover the GCP
-    // `project_id` for pooled / inline SA credentials (where the JSON never lands
-    // in `userValues.serviceAccountJson`). Only populated for the
-    // google-service-account auth kind; ignored by every other endpoint kind.
+    // Selected credential's raw JSON, preserved by prepareAdapterRequest before
+    // token resolution. The Vertex endpoint builder uses only this account's
+    // project_id, never an unused credential left in preset.userValues.
     serviceAccountJson?: string
 }
 

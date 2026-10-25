@@ -22,17 +22,18 @@ function encodeKeyComponent(value: string) {
         .replace(/=+$/g, "");
 }
 
-function decodeKeyComponent(value: string) {
-    const padded = value
-        .replace(/-/g, "+")
-        .replace(/_/g, "/")
-        .padEnd(Math.ceil(value.length / 4) * 4, "=");
-    return Buffer.from(padded, "base64").toString("utf-8");
+async function readPersistentBytes(storageKey: string): Promise<Uint8Array | null> {
+    await ensureStorageReady();
+    return await forageStorage.getItem(storageKey) ?? null;
+}
+
+async function writePersistentBytes(storageKey: string, value: Uint8Array): Promise<void> {
+    await ensureStorageReady();
+    await forageStorage.setItem(storageKey, value);
 }
 
 export async function readPersistentJson<T>(storageKey: string): Promise<T | null> {
-    await ensureStorageReady();
-    const data = await forageStorage.getItem(storageKey);
+    const data = await readPersistentBytes(storageKey);
     if (!data) {
         return null;
     }
@@ -57,8 +58,7 @@ export async function readPersistentJsonBatch<T>(storageKeys: string[]): Promise
 }
 
 export async function writePersistentJson<T>(storageKey: string, value: T): Promise<void> {
-    await ensureStorageReady();
-    await forageStorage.setItem(storageKey, encoder.encode(JSON.stringify(value)));
+    await writePersistentBytes(storageKey, encoder.encode(JSON.stringify(value)));
 }
 
 export async function removePersistentKey(storageKey: string): Promise<void> {
@@ -84,7 +84,9 @@ export async function listPersistentKeyPage(
 
 export async function clearPersistentPrefix(prefix: string): Promise<void> {
     const keys = await listPersistentKeys(prefix);
-    await Promise.all(keys.map((key) => removePersistentKey(key)));
+    const results = await Promise.allSettled(keys.map((key) => removePersistentKey(key)));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
 }
 
 export async function makeHashedStorageKey(prefix: string, rawKey: string): Promise<string> {
@@ -94,8 +96,4 @@ export async function makeHashedStorageKey(prefix: string, rawKey: string): Prom
 
 export function makeEncodedStorageKey(prefix: string, rawKey: string): string {
     return `${prefix}${encodeKeyComponent(rawKey)}.json`;
-}
-
-export function decodeStorageKeyComponent(encodedKey: string): string {
-    return decodeKeyComponent(encodedKey);
 }

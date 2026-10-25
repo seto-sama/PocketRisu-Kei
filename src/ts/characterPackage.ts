@@ -1,5 +1,5 @@
+import { setChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
-import * as fflate from 'fflate'
 import { createEntityId } from 'src/ts/id';
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
@@ -11,6 +11,7 @@ import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleImportFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
+import { zip } from './process/zip'
 import { getInlayAssetBlob, setInlayAsset, getInlayInfosBatch } from './process/files/inlays'
 import { isInlayMediaType } from '../../shared/inlayTypes.mjs'
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
@@ -130,28 +131,48 @@ async function buildPersonaPng(persona: { name: string, personaPrompt: string, i
 
 // ── Shared import logic ──
 
-async function parseAndValidatePackage(file: { name: string, data: Uint8Array }): Promise<{ unzipped: fflate.Unzipped, manifest: PackageManifest } | null> {
+async function parseAndValidatePackage(file: { name: string, data: Uint8Array }): Promise<{ unzipped: Record<string, Uint8Array>, manifest: PackageManifest } | null> {
     alertWait(language.characterPackageProgressReading)
 
-    const unzipped = await new Promise<fflate.Unzipped>((resolve, reject) => {
-        fflate.unzip(file.data, (err, data) => {
-            if (err) reject(err)
-            else resolve(data)
-        })
-    })
+    const archive = new zip.ZipReader(new zip.Uint8ArrayReader(file.data))
+    const unzipped: Record<string, Uint8Array> = Object.create(null)
+    try {
+        const entries = new Map<string, zip.Entry>()
+        for (const entry of await archive.getEntries()) {
+            if ('getData' in entry) entries.set(entry.filename, entry)
+        }
 
-    const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) {
-        alertError(language.characterPackageInvalidZip)
-        return null
-    }
-    const manifest: PackageManifest = JSON.parse(new TextDecoder().decode(manifestBytes))
-    if (manifest.type !== 'risuCharacterPackage' || manifest.version !== 1) {
-        alertError(language.characterPackageInvalidZip)
-        return null
-    }
+        const manifestEntry = entries.get('manifest.json')
+        if (!manifestEntry || !('getData' in manifestEntry)) {
+            alertError(language.characterPackageInvalidZip)
+            return null
+        }
+        const manifestBytes = await manifestEntry.getData(new zip.Uint8ArrayWriter())
+        const manifest: PackageManifest = JSON.parse(new TextDecoder().decode(manifestBytes))
+        if (manifest.type !== 'risuCharacterPackage' || manifest.version !== 1) {
+            alertError(language.characterPackageInvalidZip)
+            return null
+        }
 
-    return { unzipped, manifest }
+        const referencedFiles = new Set<string>()
+        if (!manifest.character.isEmpty && manifest.character.file) referencedFiles.add(manifest.character.file)
+        if (manifest.chats?.file) referencedFiles.add(manifest.chats.file)
+        for (const persona of manifest.personas ?? []) referencedFiles.add(persona.file)
+        if (manifest.inlays) {
+            if (manifest.inlays.metaFile) referencedFiles.add(manifest.inlays.metaFile)
+            for (const file of manifest.inlays.files) referencedFiles.add(file)
+        }
+
+        for (const path of referencedFiles) {
+            const entry = entries.get(path)
+            if (entry && 'getData' in entry) {
+                unzipped[path] = await entry.getData(new zip.Uint8ArrayWriter())
+            }
+        }
+        return { unzipped, manifest }
+    } finally {
+        await archive.close().catch(() => {})
+    }
 }
 
 function buildImportSummary(manifest: PackageManifest): string {
@@ -177,7 +198,7 @@ type ProgressFn = (msg: string, subPct?: number) => void
 
 async function importPersonas(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     progress: ProgressFn
 ): Promise<Record<string, string>> {
     const personaIdMap: Record<string, string> = {}
@@ -186,7 +207,6 @@ async function importPersonas(
     progress(language.characterPackageProgressImportPersona)
     const db = getDatabase()
 
-    // Parse all persona PNGs first
     const parsed: { entry: typeof manifest.personas[0], pngBytes: Uint8Array, card: { name: string, personaPrompt: string, note?: string } }[] = []
     for (const personaEntry of manifest.personas) {
         const pngBytes = unzipped[personaEntry.file]
@@ -216,7 +236,7 @@ async function importPersonas(
         })
     }
 
-    // Apply: skip exact duplicates (all 6 fields match), add new ones
+    // Reuse exact matches to avoid duplicating personas on reimport.
     for (const { entry, pngBytes, card } of parsed) {
         const existing = db.personas.find(p =>
             p.id === entry.originalId
@@ -228,7 +248,6 @@ async function importPersonas(
         )
 
         if (existing) {
-            // Exact duplicate — reuse existing, skip import
             personaIdMap[entry.originalId] = existing.id
             continue
         }
@@ -249,7 +268,7 @@ async function importPersonas(
 
 async function importChatsToCharacter(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     targetChar: character,
     personaIdMap: Record<string, string>,
     progress: ProgressFn,
@@ -276,7 +295,7 @@ async function importChatsToCharacter(
     }
 
     if (mode === 'append') {
-        // Remap folder IDs that collide with existing ones
+        // Remap folders before chats so imported folder references stay valid.
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
             const importedFolders = chatsJson.folders as ChatFolder[]
             const existingFolders = targetChar.chatFolders ?? []
@@ -303,14 +322,14 @@ async function importChatsToCharacter(
         if (chatsJson.folders && Array.isArray(chatsJson.folders)) {
             targetChar.chatFolders = chatsJson.folders
         }
-        targetChar.chatPage = 0
+        setChatPage(targetChar, 0)
     }
     return importedChats
 }
 
 async function importInlays(
     manifest: PackageManifest,
-    unzipped: fflate.Unzipped,
+    unzipped: Record<string, Uint8Array>,
     targetCharId: string,
     importCurrentStep: number,
     importTotalSteps: number,
@@ -403,7 +422,7 @@ export async function exportCharacterPackage(
 
         const charName = sanitizeFilename(char.name || 'character')
 
-        // Hydrate placeholder chats from server before any scan/export
+        // Hydrate placeholders before export to avoid omitting unloaded chat data.
         for (let i = 0; i < char.chats.length; i++) {
             const chat = char.chats[i]
             if (chat._placeholder && chat.id) {
@@ -417,7 +436,6 @@ export async function exportCharacterPackage(
             }
         }
 
-        // Confirm
         let summary = `${language.characterPackage}\n\n`
         if (options.includeCharacter) {
             summary += `• ${language.characterPackageCharacter}: ${char.name}\n`
@@ -439,7 +457,6 @@ export async function exportCharacterPackage(
         const confirmed = await alertConfirm(summary)
         if (!confirmed) return
 
-        // Count total steps for progress
         const totalSteps =
             (options.includeCharacter ? 1 : 0)
             + (options.includeChats && char.chats.length > 0 ? 1 : 0)
@@ -456,7 +473,6 @@ export async function exportCharacterPackage(
             })
         }
 
-        // 2. Open outer package ZIP via streaming
         const localWriter = new LocalWriter()
         await localWriter.init(`${charName}_package`, ['zip'])
         const zipWriter = new CharXWriter(localWriter)
@@ -468,7 +484,7 @@ export async function exportCharacterPackage(
             character: { name: char.name, file: '', isEmpty: !options.includeCharacter },
         }
 
-        // 1. Build and write charx (only if character included)
+        // Write the character when requested.
         if (options.includeCharacter) {
             progress(language.characterPackageProgressCharacter)
             const virtualWriter = new VirtualWriter()
@@ -493,7 +509,7 @@ export async function exportCharacterPackage(
             manifest.character.file = charxPath
         }
 
-        // 4. Write chats
+        // Write chats.
         if (options.includeChats && char.chats.length > 0) {
             progress(language.characterPackageProgressChats)
             const bookmarkExport = await prepareBookmarkCompatibleChats(char.chaId, char.chats)
@@ -509,7 +525,7 @@ export async function exportCharacterPackage(
             manifest.chats = { count: char.chats.length, file: chatsPath }
         }
 
-        // 5. Write personas
+        // Write bound personas.
         if (options.includePersona && boundPersonas.length > 0) {
             progress(language.characterPackageProgressPersona)
             manifest.personas = []
@@ -537,7 +553,7 @@ export async function exportCharacterPackage(
             }
         }
 
-        // 6. Write inlays
+        // Write referenced inlays.
         if (options.includeInlays && inlayIds.size > 0) {
             const ids = [...inlayIds]
             const metaMap: Record<string, InlayMetaEntry> = {}
@@ -595,7 +611,7 @@ export async function exportCharacterPackage(
             }
         }
 
-        // 7. Write manifest (last)
+        // Write the manifest last so it describes completed package entries.
         progress(language.characterPackageProgressFinalizing)
         await zipWriter.write('manifest.json', JSON.stringify(manifest, null, 2), 6)
         await zipWriter.end()
@@ -617,7 +633,6 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
         if (!parsed) return
         const { unzipped, manifest } = parsed
 
-        // Warn if character is empty
         let summary = buildImportSummary(manifest)
         if (manifest.character.isEmpty) {
             summary += `\n⚠ ${language.characterPackageEmptyWarning}`
@@ -642,7 +657,6 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
             })
         }
 
-        // Import character
         let newCharIndex: number
         if (manifest.character.isEmpty || !manifest.character.file) {
             importProgress(language.characterPackageProgressImportChar)
@@ -722,13 +736,11 @@ export async function importPackageToCharacter(charIndex: number): Promise<void>
             return
         }
 
-        // Warn if character names differ
         if (!manifest.character.isEmpty && manifest.character.name !== targetChar.name) {
             const nameConfirmed = await alertConfirm(language.characterPackageNameMismatch)
             if (!nameConfirmed) return
         }
 
-        // Show summary
         const summary = buildImportSummary(manifest)
         const confirmed = await alertConfirm(summary)
         if (!confirmed) return

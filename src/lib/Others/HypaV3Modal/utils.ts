@@ -1,4 +1,6 @@
 import { get } from "svelte/store";
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
 import { processScriptFull, risuChatParser } from "src/ts/process/scripts";
 import { type Message } from "src/ts/storage/database.svelte";
 import { alertConfirm } from "src/ts/alert";
@@ -41,17 +43,15 @@ export function handleDualAction(
     const tapLength = currentTime - state.lastTap;
 
     if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
-      // Double tap detected
       event.preventDefault();
-      window.clearTimeout(state.tapTimeout); // Cancel the first tap timeout
+      window.clearTimeout(state.tapTimeout);
       params.onAlternativeAction?.();
-      state.lastTap = 0; // Reset state
+      state.lastTap = 0;
     } else {
-      state.lastTap = currentTime; // First tap
-      // Delayed single tap execution
+      state.lastTap = currentTime;
+      // Defer the main action so a second tap can trigger the alternative.
       state.tapTimeout = window.setTimeout(() => {
         if (state.lastTap === currentTime) {
-          // If no double tap occurred
           params.onMainAction?.();
         }
       }, DOUBLE_TAP_DELAY);
@@ -67,10 +67,8 @@ export function handleDualAction(
   };
 
   if ("ontouchend" in window) {
-    // Mobile environment
     element.addEventListener("touchend", handleTouch);
   } else {
-    // Desktop environment
     element.addEventListener("click", handleClick);
   }
 
@@ -82,7 +80,7 @@ export function handleDualAction(
         element.removeEventListener("click", handleClick);
       }
 
-      window.clearTimeout(state.tapTimeout); // Cleanup timeout
+      window.clearTimeout(state.tapTimeout);
     },
     update(newParams: DualActionParams) {
       params = newParams;
@@ -92,7 +90,7 @@ export function handleDualAction(
 
 export function getFirstMessage(): string | null {
   const char = DBState.db.characters[get(selectedCharID)];
-  const chat = char.chats[DBState.db.characters[get(selectedCharID)].chatPage];
+  const chat = char.chats[getChatPage(DBState.db.characters[get(selectedCharID)])];
 
   return chat.fmIndex === -1
     ? char.firstMessage
@@ -158,7 +156,7 @@ export async function getNextSummarizationTarget(
   hypaV3Data: SerializableHypaV3Data
 ): Promise<Message | null> {
   const char = DBState.db.characters[get(selectedCharID)];
-  const chat = char.chats[char.chatPage];
+  const chat = char.chats[getChatPage(char)];
   const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
 
   const lastSummary = hypaV3Data.summaries.at(-1);

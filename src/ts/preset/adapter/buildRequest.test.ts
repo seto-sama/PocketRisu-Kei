@@ -46,6 +46,67 @@ function makePreset(overrides: Partial<ModelPreset> = {}): ModelPreset {
     }
 }
 
+const SA_JSON = JSON.stringify({
+    type: 'service_account',
+    project_id: 'sa-project',
+    private_key: 'x',
+    client_email: 'svc@sa-project.iam.gserviceaccount.com',
+})
+
+function vertexSchema(locationDefault = 'global') {
+    return [
+        {
+            key: 'serviceAccountJson',
+            type: 'string' as const,
+            label: 'Service Account JSON',
+            secret: true,
+            mapsTo: { target: 'auth' as const, path: 'apiKey' },
+        },
+        {
+            key: 'location',
+            type: 'string' as const,
+            label: 'Location',
+            default: locationDefault,
+            mapsTo: { target: 'custom' as const, path: 'location' },
+        },
+        {
+            key: 'endpointUrl',
+            type: 'string' as const,
+            label: 'Endpoint URL (override)',
+            mapsTo: { target: 'custom' as const, path: 'endpointUrl' },
+        },
+    ]
+}
+
+function vertexPreset(
+    kind: 'vertex-openai' | 'vertex-gemini',
+    userValues: Record<string, unknown> = {},
+    locationDefault = 'global',
+) {
+    return makePreset({
+        profileSnapshot: makeSnapshot({
+            auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
+            endpoint: { kind },
+            schema: vertexSchema(locationDefault),
+        }),
+        userValues,
+    })
+}
+
+function expectInvalidVertexRequest(request: () => unknown) {
+    let error: unknown
+    try {
+        request()
+    } catch (caught) {
+        error = caught
+    }
+    expect(error).toBeInstanceOf(ModelPresetAdapterError)
+    if (error instanceof ModelPresetAdapterError) {
+        expect(error.kind).toBe('invalid-request')
+        expect(error.retryable).toBe(false)
+    }
+}
+
 describe('buildPreparedRequest', () => {
     test('builds body from defaults + bodyTemplate + userValues mapsTo + auth header', () => {
         const preset = makePreset({
@@ -207,6 +268,36 @@ describe('buildPreparedRequest', () => {
         expect(result.body).toEqual({ thinking: { budget_tokens: 1024 } })
     })
 
+    test('rejects a retired Budget effort from a snapshot that still offers it', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [{
+                    key: 'effort',
+                    semantic: 'reasoningEffort',
+                    type: 'string',
+                    label: 'Reasoning Effort',
+                    enum: [{ value: 'high', label: 'High' }, { value: 'budget', label: 'Budget' }],
+                    mapsTo: { target: 'body', path: 'output_config.effort' },
+                }],
+                uiSchema: { groups: [], fields: [{ key: 'effort', widget: 'select', visibility: 'basic' }] },
+            }),
+            userValues: { effort: 'budget' },
+        })
+
+        let error: unknown
+        try {
+            buildPreparedRequest({ preset, credential: { apiKey: 'sk' } })
+        } catch (err) {
+            error = err
+        }
+        expect(error).toBeInstanceOf(ModelPresetAdapterError)
+        expect(error).toMatchObject({
+            kind: 'invalid-request',
+            retryable: false,
+            message: expect.stringContaining('Additional Parameters'),
+        })
+    })
+
     test('customBody and customHeaders override prior merges', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({
@@ -267,11 +358,24 @@ describe('buildPreparedRequest', () => {
         expect(disabled.body).not.toHaveProperty('prompt_cache_key')
     })
 
-    test('builds the Vertex OpenAI endpoint URL from custom-mapped project + location', () => {
+    test('builds the Vertex OpenAI endpoint URL from selected credentials and schema location', () => {
+        const preset = vertexPreset('vertex-openai', {}, 'us-central1')
+        const result = buildPreparedRequest({
+            preset,
+            credential: { apiKey: 'ya29.token' },
+            serviceAccountJson: SA_JSON,
+        })
+        expect(result.url).toBe(
+            'https://us-central1-aiplatform.googleapis.com/v1/projects/sa-project/locations/us-central1/endpoints/openapi/chat/completions',
+        )
+        expect(result.headers.Authorization).toBe('Bearer ya29.token')
+    })
+
+    test('sends both Vertex routing headers for a selected Flex tier', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({
                 auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
-                endpoint: { kind: 'vertex-openai' },
+                endpoint: { kind: 'vertex-gemini' },
                 schema: [
                     {
                         key: 'serviceAccountJson',
@@ -279,84 +383,6 @@ describe('buildPreparedRequest', () => {
                         label: 'Service Account JSON',
                         secret: true,
                         mapsTo: { target: 'auth', path: 'apiKey' },
-                    },
-                    {
-                        key: 'project',
-                        type: 'string',
-                        label: 'GCP Project',
-                        mapsTo: { target: 'custom', path: 'project' },
-                    },
-                    {
-                        key: 'location',
-                        type: 'string',
-                        label: 'Vertex Location',
-                        default: 'us-central1',
-                        mapsTo: { target: 'custom', path: 'location' },
-                    },
-                ],
-            }),
-            userValues: { project: 'my-proj' },
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'ya29.token' } })
-        expect(result.url).toBe(
-            'https://us-central1-aiplatform.googleapis.com/v1/projects/my-proj/locations/us-central1/endpoints/openapi/chat/completions',
-        )
-        expect(result.headers.Authorization).toBe('Bearer ya29.token')
-    })
-
-    test('falls back to schema default for Vertex location when userValues omits it', () => {
-        const preset = makePreset({
-            profileSnapshot: makeSnapshot({
-                auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
-                endpoint: { kind: 'vertex-openai' },
-                schema: [
-                    {
-                        key: 'serviceAccountJson',
-                        type: 'string',
-                        label: 'SA',
-                        mapsTo: { target: 'auth', path: 'apiKey' },
-                    },
-                    {
-                        key: 'project',
-                        type: 'string',
-                        label: 'Project',
-                        mapsTo: { target: 'custom', path: 'project' },
-                    },
-                    {
-                        key: 'location',
-                        type: 'string',
-                        label: 'Location',
-                        default: 'global',
-                        mapsTo: { target: 'custom', path: 'location' },
-                    },
-                ],
-            }),
-            userValues: { project: 'my-proj' },
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global/endpoints/openapi/chat/completions',
-        )
-    })
-
-    test('sends both Vertex routing headers for a selected Flex tier', () => {
-        const preset = makePreset({
-            profileSnapshot: makeSnapshot({
-                auth: { kind: 'none', fields: [] },
-                endpoint: { kind: 'vertex-gemini' },
-                schema: [
-                    {
-                        key: 'project',
-                        type: 'string',
-                        label: 'Project',
-                        mapsTo: { target: 'custom', path: 'project' },
-                    },
-                    {
-                        key: 'location',
-                        type: 'string',
-                        label: 'Location',
-                        default: 'global',
-                        mapsTo: { target: 'custom', path: 'location' },
                     },
                     {
                         key: 'service_tier',
@@ -369,78 +395,19 @@ describe('buildPreparedRequest', () => {
                     },
                 ],
             }),
-            userValues: { project: 'my-proj', service_tier: 'flex' },
+            userValues: { service_tier: 'flex' },
         })
 
-        const result = buildPreparedRequest({ preset })
+        const result = buildPreparedRequest({
+            preset,
+            credential: { apiKey: 'ya29.token' },
+            serviceAccountJson: SA_JSON,
+        })
 
         expect(result.headers).toMatchObject({
             'X-Vertex-AI-LLM-Request-Type': 'shared',
             'X-Vertex-AI-LLM-Shared-Request-Type': 'flex',
         })
-    })
-
-    test('throws invalid-request when Vertex project is missing', () => {
-        const preset = makePreset({
-            profileSnapshot: makeSnapshot({
-                auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
-                endpoint: { kind: 'vertex-openai' },
-                schema: [
-                    {
-                        key: 'project',
-                        type: 'string',
-                        label: 'Project',
-                        mapsTo: { target: 'custom', path: 'project' },
-                    },
-                    {
-                        key: 'location',
-                        type: 'string',
-                        label: 'Location',
-                        default: 'us-central1',
-                        mapsTo: { target: 'custom', path: 'location' },
-                    },
-                ],
-            }),
-            userValues: {},
-        })
-        try {
-            buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-                expect(err.retryable).toBe(false)
-            }
-        }
-    })
-
-    test('defaults Vertex location to global when neither userValue nor schema default supplies it', () => {
-        const preset = makePreset({
-            profileSnapshot: makeSnapshot({
-                auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
-                endpoint: { kind: 'vertex-openai' },
-                schema: [
-                    {
-                        key: 'project',
-                        type: 'string',
-                        label: 'Project',
-                        mapsTo: { target: 'custom', path: 'project' },
-                    },
-                    {
-                        key: 'location',
-                        type: 'string',
-                        label: 'Location',
-                        mapsTo: { target: 'custom', path: 'location' },
-                    },
-                ],
-            }),
-            userValues: { project: 'p' },
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/p/locations/global/endpoints/openapi/chat/completions',
-        )
     })
 
     test('throws invalid-request when static endpoint has no url', () => {
@@ -706,254 +673,73 @@ describe('buildPreparedRequest', () => {
     })
 })
 
-// Shared schema fields for the two Vertex endpoint kinds: SA JSON (auth +
-// project_id source), optional project override, optional location.
-function vertexSchema() {
-    return [
-        {
-            key: 'serviceAccountJson',
-            type: 'string' as const,
-            label: 'Service Account JSON',
-            secret: true,
-            mapsTo: { target: 'auth' as const, path: 'apiKey' },
-        },
-        {
-            key: 'projectId',
-            type: 'string' as const,
-            label: 'Project ID',
-            mapsTo: { target: 'custom' as const, path: 'project' },
-        },
-        {
-            key: 'location',
-            type: 'string' as const,
-            label: 'Location',
-            default: 'global',
-            mapsTo: { target: 'custom' as const, path: 'location' },
-        },
-        {
-            key: 'endpointUrl',
-            type: 'string' as const,
-            label: 'Endpoint URL (override)',
-            mapsTo: { target: 'custom' as const, path: 'endpointUrl' },
-        },
-    ]
-}
-
-const SA_JSON = JSON.stringify({
-    type: 'service_account',
-    project_id: 'sa-project',
-    private_key: 'x',
-    client_email: 'svc@sa-project.iam.gserviceaccount.com',
-})
-
 describe('buildPreparedRequest — Vertex project/location resolution', () => {
-    function vertexPreset(kind: 'vertex-openai' | 'vertex-gemini', userValues: Record<string, unknown>) {
-        return makePreset({
-            profileSnapshot: makeSnapshot({
-                auth: { kind: 'google-service-account', fields: ['serviceAccountJson'] },
-                endpoint: { kind },
-                schema: vertexSchema(),
-            }),
-            userValues,
-        })
-    }
-
-    test('vertex-openai: extracts project_id from SA JSON when projectId is blank', () => {
-        const preset = vertexPreset('vertex-openai', { serviceAccountJson: SA_JSON })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
+    test('vertex-openai: blank endpoint override uses the selected credential and default location', () => {
+        const preset = vertexPreset('vertex-openai', { endpointUrl: '' })
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' }, serviceAccountJson: SA_JSON })
         expect(result.url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/endpoints/openapi/chat/completions',
         )
     })
 
-    test('vertex-openai: explicit projectId overrides the SA JSON project_id', () => {
-        const preset = vertexPreset('vertex-openai', {
-            serviceAccountJson: SA_JSON,
-            projectId: 'explicit-proj',
-            location: 'us-central1',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://us-central1-aiplatform.googleapis.com/v1/projects/explicit-proj/locations/us-central1/endpoints/openapi/chat/completions',
-        )
-    })
-
-    test('vertex-gemini: assembles the native base URL from SA JSON project + default location', () => {
-        const preset = vertexPreset('vertex-gemini', { serviceAccountJson: SA_JSON })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
+    test('vertex-gemini: assembles its native base URL from the selected credential', () => {
+        const preset = vertexPreset('vertex-gemini')
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' }, serviceAccountJson: SA_JSON })
         expect(result.url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/publishers/google/models',
         )
     })
 
     test('vertex-gemini: regional location yields the regional host', () => {
-        const preset = vertexPreset('vertex-gemini', {
-            serviceAccountJson: SA_JSON,
-            projectId: 'p1',
-            location: 'us-east5',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://us-east5-aiplatform.googleapis.com/v1/projects/p1/locations/us-east5/publishers/google/models',
-        )
-    })
-
-    test('vertex-gemini: blank location falls back to global', () => {
-        const preset = vertexPreset('vertex-gemini', {
-            serviceAccountJson: SA_JSON,
-            projectId: 'p1',
-            location: '',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/p1/locations/global/publishers/google/models',
-        )
-    })
-
-    test('vertex-gemini: endpointUrl override wins over project/location assembly', () => {
-        const preset = vertexPreset('vertex-gemini', {
-            serviceAccountJson: SA_JSON,
-            projectId: 'p1',
-            location: 'us-east5',
-            endpointUrl: 'https://custom.example/v1/projects/over/locations/global/publishers/google/models',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://custom.example/v1/projects/over/locations/global/publishers/google/models',
-        )
-    })
-
-    test('vertex-gemini: blank endpointUrl override falls through to assembly (not an error)', () => {
-        const preset = vertexPreset('vertex-gemini', {
-            serviceAccountJson: SA_JSON,
-            projectId: 'p1',
-            endpointUrl: '',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/p1/locations/global/publishers/google/models',
-        )
-    })
-
-    test('vertex-openai: blank endpointUrl override falls through to assembly (not an error)', () => {
-        const preset = vertexPreset('vertex-openai', {
-            serviceAccountJson: SA_JSON,
-            endpointUrl: '',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/endpoints/openapi/chat/completions',
-        )
-    })
-
-    test('throws invalid-request when neither projectId nor SA JSON project_id is available', () => {
-        const preset = vertexPreset('vertex-gemini', { serviceAccountJson: '' })
-        try {
-            buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-                expect(err.retryable).toBe(false)
-                expect(err.message).toMatch(/project/i)
-            }
-        }
-    })
-
-    test('throws invalid-request on malformed SA JSON with no explicit projectId', () => {
-        const preset = vertexPreset('vertex-gemini', { serviceAccountJson: '{not valid json' })
-        try {
-            buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-            }
-        }
-    })
-
-    test('throws invalid-request when SA JSON parses but lacks project_id', () => {
-        const preset = vertexPreset('vertex-gemini', {
-            serviceAccountJson: JSON.stringify({ type: 'service_account', client_email: 'x' }),
-        })
-        try {
-            buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-            }
-        }
-    })
-
-    test('explicit projectId still resolves even when SA JSON is malformed (override path skips parse)', () => {
-        const preset = vertexPreset('vertex-openai', {
-            serviceAccountJson: '{broken',
-            projectId: 'safe-proj',
-        })
-        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' } })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/safe-proj/locations/global/endpoints/openapi/chat/completions',
-        )
-    })
-
-    // Pooled / inline credentials: the SA JSON lives in db.apiKeyPool or
-    // preset.inlineCredential, so userValues.serviceAccountJson is ABSENT. The
-    // raw JSON is threaded in via ctx.serviceAccountJson (prepareAdapterRequest
-    // captures it from the credential chain before the OAuth swap). With Project
-    // ID blank — the documented normal case — project_id must still resolve from
-    // that threaded JSON instead of throwing.
-    test('vertex-openai: extracts project_id from threaded credential SA JSON when userValues lacks it (pool/inline path)', () => {
-        const preset = vertexPreset('vertex-openai', {})
-        const result = buildPreparedRequest({
-            preset,
-            credential: { apiKey: 'ya29.token' },
-            serviceAccountJson: SA_JSON,
-        })
-        expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/endpoints/openapi/chat/completions',
-        )
-    })
-
-    test('vertex-gemini: extracts project_id from threaded credential SA JSON when userValues lacks it (pool/inline path)', () => {
         const preset = vertexPreset('vertex-gemini', { location: 'us-east5' })
-        const result = buildPreparedRequest({
-            preset,
-            credential: { apiKey: 'ya29.token' },
-            serviceAccountJson: SA_JSON,
-        })
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' }, serviceAccountJson: SA_JSON })
         expect(result.url).toBe(
             'https://us-east5-aiplatform.googleapis.com/v1/projects/sa-project/locations/us-east5/publishers/google/models',
         )
     })
 
-    test('explicit projectId in userValues still wins over the threaded credential SA JSON', () => {
-        const preset = vertexPreset('vertex-openai', { projectId: 'explicit-proj' })
+    test('vertex-gemini: blank location falls back to global', () => {
+        const preset = vertexPreset('vertex-gemini', { location: '' })
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' }, serviceAccountJson: SA_JSON })
+        expect(result.url).toBe(
+            'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/publishers/google/models',
+        )
+    })
+
+    test('vertex-openai: generic endpointUrl override wins over URL assembly', () => {
+        const preset = vertexPreset('vertex-openai', {
+            location: 'us-east5',
+            endpointUrl: 'https://custom.example/v1/projects/over/locations/global/publishers/google/models',
+        })
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'tok' }, serviceAccountJson: SA_JSON })
+        expect(result.url).toBe(
+            'https://custom.example/v1/projects/over/locations/global/publishers/google/models',
+        )
+    })
+
+    test.each([
+        ['missing', undefined],
+        ['malformed', '{broken'],
+        ['without project_id', JSON.stringify({ type: 'service_account', client_email: 'x' })],
+    ])('rejects %s selected JSON even when userValues has a valid credential', (_case, selectedJson) => {
+        const preset = vertexPreset('vertex-gemini', { serviceAccountJson: SA_JSON })
+        expectInvalidVertexRequest(() => buildPreparedRequest({
+            preset,
+            credential: { apiKey: 'ya29.token' },
+            serviceAccountJson: selectedJson,
+        }))
+    })
+
+    test('ignores malformed service-account JSON in userValues when selected credentials are valid', () => {
+        const preset = vertexPreset('vertex-gemini', { serviceAccountJson: '{broken' })
         const result = buildPreparedRequest({
             preset,
             credential: { apiKey: 'ya29.token' },
             serviceAccountJson: SA_JSON,
         })
         expect(result.url).toBe(
-            'https://aiplatform.googleapis.com/v1/projects/explicit-proj/locations/global/endpoints/openapi/chat/completions',
+            'https://aiplatform.googleapis.com/v1/projects/sa-project/locations/global/publishers/google/models',
         )
-    })
-
-    test('throws invalid-request when neither userValues, projectId, nor threaded SA JSON yields a project', () => {
-        const preset = vertexPreset('vertex-gemini', {})
-        try {
-            buildPreparedRequest({ preset, credential: { apiKey: 'ya29.token' } })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-                expect(err.message).toMatch(/project/i)
-            }
-        }
     })
 })
 

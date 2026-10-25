@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
   import {
     PlusIcon,
     XIcon,
@@ -34,7 +36,7 @@
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
-      DBState.db.characters[$selectedCharID].chatPage
+      getChatPage(DBState.db.characters[$selectedCharID])
     ].hypaV3Data
   );
 
@@ -108,7 +110,6 @@
   }
 </script>
 
-<!-- Category Manager Modal -->
 <Dialog
   bind:open={categoryManagerState.isOpen}
   size="default"
@@ -181,7 +182,6 @@
           </div>
         {/each}
 
-        <!-- Empty State -->
         {#if categories.filter(c => c.id !== "").length === 0 && !categoryManagerState.editingCategory}
           <EmptyState title={language.hypaV3Modal.noCategoriesYet} description={language.hypaV3Modal.addNewCategoryHint} layout="section" />
         {/if}

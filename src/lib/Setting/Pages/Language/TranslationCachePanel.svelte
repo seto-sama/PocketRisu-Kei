@@ -8,7 +8,7 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
-    import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess, notifyInfo } from "src/ts/alert";
+    import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess } from "src/ts/alert";
     import { clearLLMCache, deleteLLMCache, exportLLMCacheAsJSON, importLLMCacheFromJSON, setLLMCache } from "src/ts/translator/translator";
     import { listLLMCacheEntries, loadLLMCacheEntriesInBackground } from "./translationCacheEntries";
     import { downloadFile } from "src/ts/globalApi.svelte";
@@ -177,7 +177,7 @@
                 return;
             }
             await downloadFile("translation_cache.json", JSON.stringify(cache, null, 2));
-            notifyInfo(language.browserDownloadStarted);
+            notifySuccess(language.browserDownloadStarted);
         } catch (error: any) {
             alertError(error?.message ?? String(error));
         }
@@ -276,7 +276,7 @@
         <div class="flex flex-col gap-3">
             {#each [
                 { title: language.exportTranslationCache, desc: language.exportTranslationCacheDesc, icon: DownloadIcon, action: exportCache, variant: "outline" as const },
-                { title: language.importTranslationCache, desc: language.importTranslationCacheDesc, icon: UploadIcon, action: importCache, variant: "outline" as const },
+                { title: language.importTranslationCache, desc: language.importTranslationCacheDesc, icon: UploadIcon, action: importCache, variant: "outline" as const, filePicker: true },
                 { title: language.cleanupUnusedTranslationCache, desc: language.cleanupUnusedTranslationCacheDesc, icon: Trash2Icon, action: cleanupUnusedCache, variant: "outline" as const },
             ] as operation}
                 <SettingLayout
@@ -285,6 +285,7 @@
                     description={operation.desc}
                     actionLabel={operation.title}
                     onAction={operation.action}
+                    actionFilePicker={operation.filePicker}
                     actionVariant={operation.variant}
                     actionIcon={operation.icon}
                 />

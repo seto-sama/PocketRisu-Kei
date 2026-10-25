@@ -7,21 +7,22 @@
     onClick?: any;
     additionalStyle?: string | Promise<string>;
     interactive?: boolean;
+    label?: string;
     children?: import('svelte').Snippet;
   }
 
-  let { onClick = () => {}, additionalStyle = "", interactive = true, children }: Props = $props();
+  let { onClick = () => {}, additionalStyle = "", interactive = true, label, children }: Props = $props();
 </script>
 
 {#await additionalStyle}
   {#if interactive}
-    <button type="button" onclick={onClick} class="ico">{@render children?.()}</button>
+    <button type="button" onclick={onClick} class="ico" aria-label={label} title={label}>{@render children?.()}</button>
   {:else}
     <div class="ico noninteractive">{@render children?.()}</div>
   {/if}
 {:then as}
   {#if interactive}
-    <button type="button" onclick={onClick} class="ico" style={as}>
+    <button type="button" onclick={onClick} class="ico" style={as} aria-label={label} title={label}>
       {#if as || children}{@render children?.()}{:else}<AvatarFallback className="h-full w-full rounded-md" iconSize={30} />{/if}
     </button>
   {:else}

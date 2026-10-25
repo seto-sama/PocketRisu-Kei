@@ -11,14 +11,18 @@ describe('loadSpecialRegistry', () => {
         expect(entry?.profiles?.['developer:echo']?.uiSchema.fields).toEqual(expect.arrayContaining([
             expect.objectContaining({ key: 'echoMessage', widget: 'textarea', layout: 'row' }),
             expect.objectContaining({ key: 'echoDelay', widget: 'number-input', layout: 'row' }),
+            expect.objectContaining({ key: 'echoTokensPerSecond', widget: 'number-input', layout: 'row' }),
         ]))
         expect(entry?.profiles?.['developer:echo']?.defaults).toMatchObject({
             echoMessage: 'Echo Message',
             echoDelay: 0,
+            echoTokensPerSecond: 30,
         })
         expect(entry?.profiles?.['developer:echo']?.schema).toEqual(expect.arrayContaining([
             expect.objectContaining({ key: 'echoMessage', default: 'Echo Message' }),
             expect.objectContaining({ key: 'echoDelay', default: 0 }),
+            expect.objectContaining({ key: 'echoTokensPerSecond', type: 'integer', min: 1, step: 1, default: 30 }),
         ]))
+        expect(entry?.profiles?.['developer:echo']?.capabilities).toContain('streaming')
     })
 })

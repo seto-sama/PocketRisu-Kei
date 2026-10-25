@@ -1,5 +1,7 @@
 <script lang="ts">
     import { WaypointsIcon } from "@lucide/svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
@@ -46,7 +48,7 @@
 
     function currentChat() {
         const character = currentCharacter();
-        return character?.chats?.[character.chatPage];
+        return character?.chats?.[getChatPage(character)];
     }
 
     function isGlobal(moduleId: string) {

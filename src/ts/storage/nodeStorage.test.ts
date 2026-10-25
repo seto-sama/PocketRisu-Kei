@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { encode, decode } from 'msgpackr/index-no-eval'
 
 vi.mock('src/lang', () => ({ language: {} }))
 vi.mock('../alert', () => ({
@@ -33,18 +34,19 @@ describe('NodeStorage patch transport', () => {
 
     it('loads and caches the relational database projection', async () => {
         const storage = new NodeStorage()
-        const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-            database: { characters: [] },
+        const pluginCustomStorage = { json: '{ "id": 9007199254740993, "text": "한글" }', count: 0, enabled: false, config: { theme: 'dark' } }
+        const authFetch = vi.fn().mockResolvedValue(new Response(encode({
+            database: { characters: [], pluginCustomStorage },
             etag: 'db-etag-4',
             revision: 4,
         }), {
             status: 200,
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/octet-stream' },
         }))
         ;(storage as any).authFetch = authFetch
 
         await expect(storage.getDatabaseProjection()).resolves.toEqual({
-            database: { characters: [] },
+            database: { characters: [], pluginCustomStorage },
             etag: 'db-etag-4',
             revision: 4,
         })
@@ -52,7 +54,7 @@ describe('NodeStorage patch transport', () => {
         expect(storage._lastDbRevision).toBe(4)
         expect(authFetch).toHaveBeenCalledWith('/api/database', {
             method: 'GET',
-            headers: { accept: 'application/json' },
+            headers: { accept: 'application/octet-stream' },
         })
     })
 
@@ -79,15 +81,15 @@ describe('NodeStorage patch transport', () => {
         })
         expect(authFetch).toHaveBeenCalledWith('/api/database', {
             method: 'PATCH',
-            body: JSON.stringify(payload),
-            headers: { 'content-type': 'application/json' },
+            body: encode(payload),
+            headers: { 'content-type': 'application/octet-stream' },
         })
     })
 
     it('keeps the same plugin-storage projection mask for reads and patches', async () => {
         const storage = new NodeStorage()
         const authFetch = vi.fn()
-            .mockResolvedValueOnce(new Response(JSON.stringify({
+            .mockResolvedValueOnce(new Response(encode({
                 database: { characters: [], pluginCustomStorage: {} },
                 etag: 'masked-etag',
                 revision: 2,
@@ -137,5 +139,30 @@ describe('NodeStorage patch transport', () => {
         })
         expect(storage._lastDbEtag).toBe('winner-etag')
         expect(storage._lastDbRevision).toBe(1)
+        const request = authFetch.mock.calls[0][1]
+        expect(decode(request.body)).toEqual({ database: { characters: [] }, expectedRevision: 0 })
+        expect(request.headers['content-type']).toBe('application/octet-stream')
     })
+})
+
+it('retries shared authentication after header and response-body timeouts', async () => {
+    vi.useFakeTimers()
+    try {
+        const storage = new NodeStorage()
+        const fetchMock = vi.fn()
+            .mockImplementationOnce(() => new Promise(() => {}))
+            .mockResolvedValueOnce(new Response(new ReadableStream()))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok', token: 'token' })))
+            .mockResolvedValueOnce(new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const failed = expect(storage.createAuth()).rejects.toMatchObject({ name: 'TimeoutError' })
+            await vi.advanceTimersByTimeAsync(30_000)
+            await failed
+        }
+        await expect(storage.createAuth()).resolves.toBe('token')
+    } finally {
+        vi.useRealTimers()
+    }
 })

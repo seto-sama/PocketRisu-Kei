@@ -8,6 +8,7 @@ import { getDatabase } from "../../storage/database.svelte";
 import { getGenerationModelMetadata } from "../models/modelString";
 import { asBuffer } from "../../util";
 import { NodeStorage } from "../../storage/nodeStorage";
+import { createVideoThumbnail } from './videoThumbnail';
 import {
     type InlayAssetMeta,
     buildInlayMeta,
@@ -18,7 +19,6 @@ import {
 } from "./inlayMeta";
 
 export type InlayAsset = {
-    /** File extension */
     ext: string
     height?: number
     name: string
@@ -74,8 +74,6 @@ export const INLAY_IMAGE_SIZE_PIXELS = {
     'original': Number.POSITIVE_INFINITY,
 } as const
 
-export const INLAY_IMAGE_MAX_PIXELS = INLAY_IMAGE_SIZE_PIXELS['1k']
-
 export function getInlayAssetUrl(id: string): string {
     return getAssetUrl(`inlay/${id}`)
 }
@@ -105,7 +103,7 @@ export function getInlayDownloadFileName(name: string, ext: string): string {
 export function fitInlayImageSize(
     width: number,
     height: number,
-    maxPixels = INLAY_IMAGE_MAX_PIXELS,
+    maxPixels: number,
 ): { width: number; height: number } {
     const currentPixels = width * height
     if (currentPixels <= maxPixels) return { width, height }
@@ -119,7 +117,6 @@ export function fitInlayImageSize(
 const INLAY_PREFIX = 'inlay/'
 const INLAY_INFO_PREFIX = 'inlay_info/'
 
-// ── Memory LRU cache ──
 type LRUEntry = {
     asset: InlayAsset
     lastAccessed: number
@@ -178,7 +175,6 @@ function lruSet(id: string, asset: InlayAsset): void {
     if (existing) totalLRUSize -= existing.size
     inlayLRUCache.set(id, { asset, lastAccessed: Date.now(), size })
     totalLRUSize += size
-    // evict oldest entries if over limit
     if (totalLRUSize > INLAY_CACHE_LIMIT) {
         const sorted = [...inlayLRUCache.entries()].sort((a, b) => a[1].lastAccessed - b[1].lastAccessed)
         for (const [key, entry] of sorted) {
@@ -197,21 +193,15 @@ function lruDelete(id: string): void {
     }
 }
 
-/** @internal Reset module-level state for unit tests only */
-export function __resetInlayStorageForTest(): void {
-    inlayLRUCache.clear()
-    totalLRUSize = 0
-    _nodeInlayStorage = null
-    _nodeInlayInfoStorage = null
-}
-
-// ── NodeInlayStorage ──
-
 class NodeInlayStorage {
     private nodeStorage = new NodeStorage()
 
     async encodeWebp(data: Uint8Array, options: { lossy: boolean; quality: number }): Promise<Blob> {
         return await this.nodeStorage.encodeInlayWebp(data, options)
+    }
+
+    saveVideoThumbnail(id: string, thumbnail: Blob): Promise<void> {
+        return this.nodeStorage.saveInlayVideoThumbnail(id, thumbnail)
     }
 
     private serverKey(id: string): string {
@@ -236,11 +226,9 @@ class NodeInlayStorage {
     }
 
     async getItem<T>(id: string): Promise<T | null> {
-        // 1. Try memory LRU cache
         const cached = lruGet(id)
         if (cached) return cached as unknown as T
 
-        // 2. Fetch from server
         try {
             const buf = await this.nodeStorage.getItem(this.serverKey(id))
             if (!buf || buf.length === 0) return null
@@ -256,9 +244,7 @@ class NodeInlayStorage {
         try {
             await this.nodeStorage.removeItem(this.serverKey(id))
             lruDelete(id)
-        } catch {
-            // ignore if not found
-        }
+        } catch {}
     }
 
     async keys(): Promise<string[]> {
@@ -266,8 +252,6 @@ class NodeInlayStorage {
         return allKeys.map(k => k.replace(INLAY_PREFIX, ''))
     }
 }
-
-// ── NodeInlayInfoStorage ──
 
 class NodeInlayInfoStorage {
     private nodeStorage = new NodeStorage()
@@ -294,28 +278,23 @@ class NodeInlayInfoStorage {
     async getItems<T>(ids: string[]): Promise<Record<string, T>> {
         const result: Record<string, T> = {}
         if (!Array.isArray(ids) || ids.length === 0) return result
+        // Metadata failures must not prevent browsing the underlying assets.
         try {
             const rows = await this.nodeStorage.getItems(ids.map((id) => this.serverKey(id)))
             for (const row of rows) {
                 try {
                     const id = row.key.replace(INLAY_INFO_PREFIX, '')
                     result[id] = JSON.parse(new TextDecoder().decode(row.value)) as T
-                } catch {
-                    // skip corrupt explorer info entries
-                }
+                } catch {}
             }
-        } catch {
-            // best-effort batch read
-        }
+        } catch {}
         return result
     }
 
     async removeItem(id: string): Promise<void> {
         try {
             await this.nodeStorage.removeItem(this.serverKey(id))
-        } catch {
-            // ignore if not found
-        }
+        } catch {}
     }
 }
 
@@ -329,8 +308,6 @@ function toCoreInlayAsset(asset: any): InlayAsset {
         width: asset.width,
     }
 }
-
-// ── Storage instance singletons ──
 
 let _nodeInlayStorage: NodeInlayStorage | null = null
 let _nodeInlayInfoStorage: NodeInlayInfoStorage | null = null
@@ -346,8 +323,6 @@ function getInlayInfoStorage(): NodeInlayInfoStorage {
 }
 
 export { getInlayMeta } from "./inlayMeta";
-
-// ── Helpers ──
 
 function blobToBase64(blob: Blob): Promise<string> {
     const reader = new FileReader();
@@ -397,32 +372,28 @@ function getSafeCharacterName(name: unknown, fallbackId: string, index: number):
     return `Character ${index + 1}`
 }
 
-// ── Public API ──
-
 export async function postInlayAsset(img: { name: string, data: Uint8Array }) {
-    const extention = img.name.split('.').at(-1)
-    const imgObj = new Image()
-
-    if (INLAY_IMAGE_EXTENSIONS.includes(extention as typeof INLAY_IMAGE_EXTENSIONS[number])) {
-        imgObj.src = URL.createObjectURL(new Blob([asBuffer(img.data)], { type: `image/${extention}` }))
-        return await writeInlayImage(imgObj, { name: img.name, ext: extention })
+    const ext = img.name.split('.').at(-1)
+    if (INLAY_IMAGE_EXTENSIONS.includes(ext as typeof INLAY_IMAGE_EXTENSIONS[number])) {
+        const image = new Image()
+        image.src = URL.createObjectURL(new Blob([asBuffer(img.data)], { type: `image/${ext}` }))
+        return await writeInlayImage(image, { name: img.name, ext })
     }
 
-    if (INLAY_AUDIO_EXTENSIONS.includes(extention as typeof INLAY_AUDIO_EXTENSIONS[number])) {
-        const audioBlob = new Blob([asBuffer(img.data)], { type: `audio/${extention}` })
-        const imgid = createEntityId()
-        await setInlayAsset(imgid, { name: img.name, data: audioBlob, ext: extention, type: 'audio' })
-        return `${imgid}`
-    }
+    const type = INLAY_AUDIO_EXTENSIONS.includes(ext as typeof INLAY_AUDIO_EXTENSIONS[number]) ? 'audio'
+        : INLAY_VIDEO_EXTENSIONS.includes(ext as typeof INLAY_VIDEO_EXTENSIONS[number]) ? 'video' : null
+    if (!type) return null
 
-    if (INLAY_VIDEO_EXTENSIONS.includes(extention as typeof INLAY_VIDEO_EXTENSIONS[number])) {
-        const videoBlob = new Blob([asBuffer(img.data)], { type: `video/${extention}` })
-        const imgid = createEntityId()
-        await setInlayAsset(imgid, { name: img.name, data: videoBlob, ext: extention, type: 'video' })
-        return `${imgid}`
+    const data = new Blob([asBuffer(img.data)], { type: `${type}/${ext}` })
+    const id = createEntityId()
+    const thumbnailPromise = type === 'video' ? createVideoThumbnail(data).catch(() => null) : null
+    await setInlayAsset(id, { name: img.name, data, ext, type })
+    const thumbnail = await thumbnailPromise
+    if (thumbnail) {
+        // A preview failure must not undo the original upload.
+        await getInlayStorage().saveVideoThumbnail(id, thumbnail).catch(() => {})
     }
-
-    return null
+    return id
 }
 
 export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: string, ext?: string, id?: string } = {}) {
@@ -461,7 +432,6 @@ export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: st
     return `${imgid}`
 }
 
-// Returns with base64 data URI
 export async function getInlayAsset(id: string) {
     const img = await getInlayStorage().getItem<InlayAsset | null>(id)
     if (img === null) return null
@@ -473,7 +443,6 @@ export async function getInlayAsset(id: string) {
     return { ...toCoreInlayAsset(img), data }
 }
 
-// Returns with Blob
 export async function getInlayAssetBlob(id: string) {
     const img = await getInlayStorage().getItem<InlayAsset | null>(id)
     if (img === null) return null
@@ -515,14 +484,10 @@ export function getCharacterChatIndex(): CharacterChatIndexItem[] {
     return result
 }
 
-/**
- * Lightweight explorer list for the inlay gallery.
- * Use `getInlayAssetBlob(id)` on demand when the user opens the original file.
- */
-// Gallery metadata cache — avoids re-fetching on gallery re-entry
+// Cache metadata to avoid repeating the gallery's batch reads on re-entry.
 let _explorerItemsCache: InlayExplorerItem[] | null = null
 let _explorerItemsCacheTime = 0
-const EXPLORER_CACHE_TTL = 30_000 // 30 seconds
+const EXPLORER_CACHE_TTL = 30_000
 
 export async function listInlayExplorerItems(forceRefresh = false): Promise<InlayExplorerItem[]> {
     if (!forceRefresh && _explorerItemsCache && Date.now() - _explorerItemsCacheTime < EXPLORER_CACHE_TTL) {
@@ -562,32 +527,14 @@ export async function setInlayAsset(id: string, img: InlayAsset) {
     await getInlayStorage().setItem(id, toCoreInlayAsset(img))
     await getInlayInfoStorage().setItem(id, buildInlayExplorerInfo(toCoreInlayAsset(img)))
     await setInlayMeta(id, nextMeta)
-    _explorerItemsCache = null // invalidate gallery cache
+    _explorerItemsCache = null
 }
 
 export async function removeInlayAsset(id: string) {
     await getInlayStorage().removeItem(id)
     await getInlayInfoStorage().removeItem(id)
     await removeInlayMeta(id)
-    _explorerItemsCache = null // invalidate gallery cache
-}
-
-export async function setInlayMetaFields(
-    id: string,
-    patch: Partial<Pick<InlayAssetMeta, 'charId' | 'chatId' | 'createdAt' | 'updatedAt' | 'imageGeneration'>>
-): Promise<void> {
-    const existing = await getInlayMeta(id)
-    const now = Date.now()
-    const next: InlayAssetMeta = {
-        createdAt: (typeof patch.createdAt === 'number' && patch.createdAt > 0)
-            ? patch.createdAt
-            : (existing?.createdAt && existing.createdAt > 0 ? existing.createdAt : now),
-        updatedAt: (typeof patch.updatedAt === 'number' && patch.updatedAt > 0) ? patch.updatedAt : now,
-        charId: typeof patch.charId === 'string' ? patch.charId : existing?.charId,
-        chatId: typeof patch.chatId === 'string' ? patch.chatId : existing?.chatId,
-        imageGeneration: patch.imageGeneration ?? existing?.imageGeneration,
-    }
-    await setInlayMeta(id, next)
+    _explorerItemsCache = null
 }
 
 export async function getInlayMetas(ids: string[]): Promise<Record<string, InlayAssetMeta>> {
@@ -606,7 +553,6 @@ export type InlayScanResult = {
     refCounts: Record<string, number>
 }
 
-/** Server references plus local unsaved references, shared with cache cleanup. */
 export async function scanInlayReferences(candidates: string[]): Promise<InlayScanResult> {
     return await scanDatabaseContent('inlay', candidates)
 }

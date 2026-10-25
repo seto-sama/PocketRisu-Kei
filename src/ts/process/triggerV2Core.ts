@@ -1,8 +1,11 @@
 import { calculateExpression } from './calculate'
+import { setMessageContent } from '../storage/messageContent'
+import type { Message } from '../storage/database.svelte'
+import { applyScriptMessageDeletion } from './scriptMessageDeletion'
 
 export type TriggerV2Effect = Record<string, unknown> & { type?: string, indent?: number }
 
-type TriggerV2Message = { role?: string, data?: string }
+type TriggerV2Message = Partial<Message>
 
 export type TriggerV2CoreAdapter = {
     effects: TriggerV2Effect[]
@@ -243,10 +246,10 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 if (!adapter.chat) return { handled: false, nextIndex: index, visit }
                 const start = Number(read(effect, 'start', 'startType'))
                 const end = Number(read(effect, 'end', 'endType'))
-                adapter.chat.message = adapter.chat.message.slice(
+                applyScriptMessageDeletion(adapter.chat, adapter.chat.message.slice(
                     Number.isNaN(start) ? 0 : start,
                     Number.isNaN(end) ? adapter.chat.message.length : end,
-                )
+                ))
                 adapter.onChatMutation?.('message')
                 break
             }
@@ -254,7 +257,7 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 if (!adapter.chat) return { handled: false, nextIndex: index, visit }
                 const message = adapter.chat.message[Number(read(effect, 'index', 'indexType'))]
                 if (message) {
-                    message.data = read(effect)
+                    setMessageContent(message, read(effect))
                     adapter.onChatMutation?.('message')
                 }
                 break

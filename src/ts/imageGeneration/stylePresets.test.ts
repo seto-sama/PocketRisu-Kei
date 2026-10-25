@@ -13,13 +13,12 @@ import {
 
 describe('image style presets', () => {
     it('creates compatible module lorebooks', () => {
-        const db = { modules: [], enabledModules: [] }
+        const db = { modules: [] }
         const preset = createImageStylePreset(db, '수채화', 'watercolor', 'photo')
         const module = db.modules[0]
         const lorebook = module.lorebook![0]
 
         expect(module.namespace).toBe(IMAGE_STYLE_PRESET_MODULE_NAMESPACE)
-        expect(db.enabledModules).toContain(module.id)
         expect(lorebook).toMatchObject({
             comment: '프리셋 수채화',
             key: '',
@@ -42,7 +41,7 @@ describe('image style presets', () => {
     })
 
     it('stores and parses an image generation preset binding without leaking it into prompts', () => {
-        const db = { modules: [], enabledModules: [] }
+        const db = { modules: [] }
         const preset = createImageStylePreset(db, 'Ink', 'ink', 'photo', {
             imageGenerationPresetId: 'generation-preset-uuid',
         })
@@ -107,7 +106,7 @@ describe('image style presets', () => {
 
     it('creates presets inside a selected module', () => {
         const target = { id: 'external', name: 'External', description: '', lorebook: [] }
-        const db = { modules: [target], enabledModules: [] }
+        const db = { modules: [target] }
 
         createImageStylePreset(db, 'Ink', 'ink', '', { moduleId: target.id })
 
@@ -158,7 +157,7 @@ describe('image style presets', () => {
     })
 
     it('allows the same secondary key across modules and rejects duplicates within a module', () => {
-        const db = { modules: [], enabledModules: [] }
+        const db = { modules: [] }
         createImageStylePreset(db, 'First', 'ink', '')
         const first = db.modules[0]
         first.lorebook[0].secondkey = '006'
@@ -176,7 +175,7 @@ describe('image style presets', () => {
     })
 
     it('preserves ordinary lorebooks and secondary keys used by search conditions', () => {
-        const db = { modules: [], enabledModules: [] }
+        const db = { modules: [] }
         createImageStylePreset(db, 'Ink', 'ink', '')
         const module = db.modules[0]
         const style = module.lorebook[0]

@@ -5,15 +5,15 @@ import type {
     RegistryAuth,
     RegistryCapability,
 } from '../types'
-import { resolveThinkingBudget } from './thinkingBudget'
+import { getEffectivePresetValue } from '../runtime/effectiveConfig'
 
-export const CUSTOM_ADAPTER_KIND = 'custom'
-export const CUSTOM_FORMAT_KEY = 'customFormat'
-export const CUSTOM_AUTH_KIND_KEY = 'customAuthKind'
-export const CUSTOM_STOP_KEY = 'stopSequences'
-export const CUSTOM_FLAG_PREFIX = 'customFlag_'
+const CUSTOM_ADAPTER_KIND = 'custom'
+const CUSTOM_FORMAT_KEY = 'customFormat'
+const CUSTOM_AUTH_KIND_KEY = 'customAuthKind'
+const CUSTOM_STOP_KEY = 'stopSequences'
+const CUSTOM_FLAG_PREFIX = 'customFlag_'
 
-export type CustomFormat =
+type CustomFormat =
     | 'openai-chat'
     | 'openai-responses'
     | 'anthropic-messages'
@@ -89,20 +89,19 @@ export function hasCustomModelIdToken(preset: ModelPreset, token: string): boole
     return new RegExp(`(?:^|[/:._-])${escaped}(?:$|[/:._-])`, 'iu').test(modelId)
 }
 
-/**
- * Turns the Custom profile's compatibility/capability switches into the
- * ordinary ModelPreset fields consumed by request.ts. The persisted preset is
- * never mutated: this is a request-scoped view.
- */
+// Read through the shared resolver so a choice the profile dropped is unset.
+export function resolveCustomReasoningEffort(preset: ModelPreset): string | undefined {
+    const value = nonEmptyString(getEffectivePresetValue(preset, 'reasoning_effort'))
+    return value === 'none' ? undefined : value
+}
+
+/** Applies Custom compatibility switches without mutating the persisted preset. */
 export function resolveCustomRuntimePreset(preset: ModelPreset): ModelPreset {
     if (!isCustomPreset(preset)) return preset
 
     const capabilities: RegistryCapability[] = ['streaming', 'tools', 'json']
     if (preset.imageInput) capabilities.push('vision')
-    const reasoningEffort = nonEmptyString(preset.userValues?.reasoning_effort)
-    if (reasoningEffort && reasoningEffort !== 'none') {
-        capabilities.push('reasoning')
-    }
+    if (resolveCustomReasoningEffort(preset)) capabilities.push('reasoning')
 
     return {
         ...preset,
@@ -144,12 +143,7 @@ export function applyCustomRequestValues(
     const topA = finiteNumber(values.top_a)
     const seed = finiteNumber(values.seed)
     const stop = stringArray(values[CUSTOM_STOP_KEY])
-    const rawReasoningEffort = nonEmptyString(values.reasoning_effort)
-    const budgetReasoning = rawReasoningEffort === 'budget'
-    const reasoningEffort = rawReasoningEffort === 'none' || budgetReasoning
-        ? undefined
-        : rawReasoningEffort
-    const thinkingTokens = resolveThinkingBudget(preset, 'reasoning_effort') ?? 1024
+    const reasoningEffort = resolveCustomReasoningEffort(preset)
     const verbosity = nonEmptyString(values.verbosity)
     const promptCacheMode = values.prompt_cache_mode === 'implicit'
         || values.prompt_cache_mode === 'explicit'
@@ -176,12 +170,6 @@ export function applyCustomRequestValues(
                 : {}
             thinkingConfig.thinkingLevel = reasoningEffort
             generationConfig.thinkingConfig = thinkingConfig
-        } else if (budgetReasoning) {
-            const thinkingConfig = isPlainObject(generationConfig.thinkingConfig)
-                ? { ...generationConfig.thinkingConfig }
-                : {}
-            thinkingConfig.thinkingBudget = thinkingTokens
-            generationConfig.thinkingConfig = thinkingConfig
         }
         if (stop) generationConfig.stopSequences = stop
         if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig
@@ -205,14 +193,11 @@ export function applyCustomRequestValues(
         }
         if (stop) body[format === 'anthropic-messages' ? 'stop_sequences' : 'stop'] = stop
 
-        if (format === 'anthropic-messages' && (budgetReasoning || reasoningEffort)) {
-            body.thinking = budgetReasoning
-                ? { type: 'enabled', budget_tokens: thinkingTokens }
-                : { type: 'adaptive' }
+        if (format === 'anthropic-messages' && reasoningEffort) {
+            body.thinking = { type: 'adaptive' }
         }
         if (
             format === 'anthropic-messages'
-            && !budgetReasoning
             && reasoningEffort
             && ['low', 'medium', 'high', 'max', 'xhigh'].includes(reasoningEffort)
         ) {

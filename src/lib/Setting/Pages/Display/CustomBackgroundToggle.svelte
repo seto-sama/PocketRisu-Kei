@@ -38,7 +38,7 @@
         {#if hasBg && previewUrl}
             <img src={previewUrl} alt="" class="h-8 w-12 rounded object-cover border border-darkborderc" />
         {/if}
-        <Button variant="outline" size="sm" onclick={pick}>
+        <Button variant="outline" size="sm" onclick={pick} data-file-picker>
             <ImageIcon />
             {hasBg ? language.edit : language.select}
         </Button>

@@ -1,9 +1,6 @@
 <script lang="ts">
     import { onDestroy } from "svelte";
-    import MiniSettingsPopup from "../UI/components/MiniSettingsPopup.svelte";
-    import SettingNumber from "../Setting/Wrappers/SettingNumber.svelte";
-    import type { SettingItem } from "src/ts/setting/types";
-    import { normalizeTrashRetentionDays } from "src/ts/trashRetention";
+    import TrashSettingsPopup from "../UI/components/TrashSettingsPopup.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import { readSidebarOrderFromDom } from "../SideBars/sidebarDrag";
     import type { MoveEvent } from "sortablejs";
@@ -15,7 +12,7 @@
     import { openSidebarFolderMenu } from "../SideBars/sidebarFolderMenu";
     import type { folder } from "src/ts/storage/database.svelte";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { changeChar, emptyCharacterTrash, getCharImage, removeChar } from "../../ts/characters";
+    import { changeChar, emptyCharacterTrash, getCharImage, removeChar, restoreCharacterFromTrash } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
     import { DBState, selectedCharID } from 'src/ts/stores.svelte';
     import {
@@ -33,7 +30,7 @@
         XIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { checkCharOrder, getFileSrc, requestImmediateSave } from "src/ts/globalApi.svelte";
     import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { makeAgoText } from "src/ts/util";
@@ -68,25 +65,14 @@
     let deletingCharacterId = $state<string | null>(null);
     let emptyingTrash = $state(false);
 
-    const trashRetentionSetting: SettingItem = $derived({
-        id: 'trashRetentionDays',
-        type: 'number',
-        labelKey: 'trashAutoDeleteSchedule',
-        helpKey: 'trashAutoDeleteSchedule',
-        getValue: (db) => normalizeTrashRetentionDays(db.trashRetentionDays),
-        setValue: (db, value) => { db.trashRetentionDays = normalizeTrashRetentionDays(value); },
-        options: { min: 0, suffix: language.trashRetentionDaysSuffix },
-    });
-
     function setViewMode(mode: 'simple' | 'grid') {
         viewMode = mode;
         writeViewPreference(viewPreferenceKeys.characterCatalog, mode);
     }
 
-    function selectAndClose(index = -1){
+    function selectAndClose(characterId: string){
         if (suppressRowClick) return;
-        changeChar(index);
-        endGrid();
+        if (changeChar(characterId)) endGrid();
     }
 
     function formatChars(searchValue: string, db: Database, trash = false): CatalogCharacter[] {
@@ -208,8 +194,7 @@
         }
 
         try {
-            current.trashTime = undefined;
-            checkCharOrder();
+            restoreCharacterFromTrash(current);
             await requestImmediateSave({ characterIds: [character.chaId] });
         } finally {
             deletingCharacterId = null;
@@ -291,7 +276,7 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <MiniSettingsPopup>
+                    <TrashSettingsPopup>
                         {#snippet trigger()}
                             <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
                                 <IconButton
@@ -306,8 +291,7 @@
                                 </IconButton>
                             </IconButtonGroup>
                         {/snippet}
-                        <SettingNumber item={trashRetentionSetting} ctx={{ db: DBState.db, layout: 'row' }} />
-                    </MiniSettingsPopup>
+                    </TrashSettingsPopup>
                 {/if}
             </div>
         </header>
@@ -334,10 +318,11 @@
                         {#snippet children(index)}
                             {@const char = visibleCharacters[index]}
                             <CharacterMasonryIcon
-                                src={char.image ? getCharImage(char.image, 'plain') : ''}
+                                src={char.image ? getFileSrc(char.image) : ''}
+                                hideImage={DBState.db.hideAllImages && !!char.image}
                                 name={char.name}
                                 selected={char.index === $selectedCharID}
-                                onclick={() => selectAndClose(char.index)}
+                                onclick={() => selectAndClose(char.chaId)}
                             />
                         {/snippet}
                     </HorizontalMasonry>
@@ -416,7 +401,7 @@
                     {@render characterInfo(char)}
                 </div>
             {:else}
-                <button class="character-order-handle flex min-w-0 grow items-center gap-2.5 text-left" title={language.goToChat} onclick={() => selectAndClose(char.index)}>
+                <button class="character-order-handle flex min-w-0 grow items-center gap-2.5 text-left" title={language.goToChat} onclick={() => selectAndClose(char.chaId)}>
                     {@render characterInfo(char)}
                 </button>
             {/if}

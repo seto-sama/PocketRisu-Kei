@@ -13,7 +13,7 @@
     import ListActionBar from "../../UI/components/ListActionBar.svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import Sortable, { type Options, type SortableEvent } from "sortablejs";
-    import { sleep, sortableOptions } from "src/ts/util";
+    import { selectFileByDom, sleep, sortableOptions } from "src/ts/util";
     import { alertConfirm } from "src/ts/alert";
     import TriggerV2EffectData from "./TriggerV2EffectData.svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
@@ -267,43 +267,36 @@
         }
     })
 
-    const importTriggers = () => {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = '.json'
-        input.onchange = async (event) => {
-            const file = (event.target as HTMLInputElement)?.files?.[0]
-            if (!file) return
-            
-            try {
-                const text = await file.text()
-                const importedTriggers = JSON.parse(text)
-                
-                if (!Array.isArray(importedTriggers)) {
+    const importTriggers = async () => {
+        const [file] = await selectFileByDom(['json'])
+        if (!file) return
+
+        try {
+            const text = await file.text()
+            const importedTriggers = JSON.parse(text)
+
+            if (!Array.isArray(importedTriggers)) {
+                return
+            }
+
+            for (const trigger of importedTriggers) {
+                if (!trigger.hasOwnProperty('comment') ||
+                    !trigger.hasOwnProperty('type') ||
+                    !trigger.hasOwnProperty('conditions') ||
+                    !trigger.hasOwnProperty('effect') ||
+                    !Array.isArray(trigger.conditions) ||
+                    !Array.isArray(trigger.effect)) {
                     return
                 }
-                
-                for (const trigger of importedTriggers) {
-                    if (!trigger.hasOwnProperty('comment') || 
-                        !trigger.hasOwnProperty('type') ||
-                        !trigger.hasOwnProperty('conditions') ||
-                        !trigger.hasOwnProperty('effect') ||
-                        !Array.isArray(trigger.conditions) ||
-                        !Array.isArray(trigger.effect)) {
-                        return
-                    }
-                }
-                
-                for (const trigger of importedTriggers) {
-                    value.push(trigger)
-                }
-                
-            } catch (error) {
-                console.error('Import error:', error)
             }
+
+            for (const trigger of importedTriggers) {
+                value.push(trigger)
+            }
+
+        } catch (error) {
+            console.error('Import error:', error)
         }
-        
-        input.click()
     }
 
     const checkSupported = (e:string, triggerIndex: number) => {
@@ -565,7 +558,7 @@
     }}>
         <DownloadIcon />
     </IconButton>
-    <IconButton aria-label={language.import} title={language.import} onclick={importTriggers}>
+    <IconButton aria-label={language.import} title={language.import} onclick={importTriggers} data-file-picker>
         <UploadIcon />
     </IconButton>
 </ListActionBar>

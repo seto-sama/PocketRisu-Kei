@@ -1,13 +1,13 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
-    import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
-    import OverlayBackdrop from "../UI/components/overlay/OverlayBackdrop.svelte";
+    import { FolderIcon, FolderOpenIcon, SearchIcon } from "@lucide/svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import DisclosureList from "../UI/components/DisclosureList.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import SettingLayout from "./Wrappers/SettingLayout.svelte";
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
-    import { downloadFile } from "src/ts/globalApi.svelte";
-    import { selectSingleImportFile } from "src/ts/util";
     import {
         getOfficialRegistryId,
         getOfficialRegistry,
@@ -18,15 +18,6 @@
         resolveProviderFilterHiddenIds,
         syncRemoteRegistry,
     } from "src/ts/preset/registry";
-    import { createEmptyRegistryCache } from "src/ts/preset/dbDefaults";
-    import {
-        buildProfileFragment,
-        CUSTOM_ID_PREFIX,
-        CUSTOM_REGISTRY_ID,
-        importFragment,
-        removeCustomProfile,
-        validateFragment,
-    } from "src/ts/preset/customProfiles";
     import {
         createModelPresetFromProfile,
         replaceModelPresetProfile,
@@ -62,7 +53,6 @@
         void syncRemoteRegistry();
     });
 
-    let activeTab = $state<'official' | 'custom'>('official');
     let query = $state('');
 
     type Entry = {
@@ -75,18 +65,6 @@
 
     const profileStatusOrder: RegistryProfileStatus[] = ['current', 'outdated', 'deprecated'];
 
-    // Active registry by tab. Official = models.dev + Echo (read-only). Custom = the
-    // persisted cache's 'custom' registry (reactive: import/delete update it).
-    const activeRegistry = $derived<RegistryCache>(
-        activeTab === 'official'
-            ? officialRegistry
-            : (DBState.db.modelProfileRegistryCache ?? createEmptyRegistryCache()),
-    );
-    const activeRegistryId = $derived(activeTab === 'official' ? getOfficialRegistryId() : CUSTOM_REGISTRY_ID);
-
-    // Scope to the active tab's registry only. The custom cache object can hold
-    // multiple imported registries, so iterating all of them would leak profiles
-    // into the custom tab.
     function buildEntries(registry: RegistryCache, registryId: string, transientPlugin = false): Entry[] {
         const reg = registry.registries[registryId];
         if (!reg) return [];
@@ -100,29 +78,22 @@
                 transientPlugin,
             });
         }
-        return out.sort((a, b) =>
-            (a.baseProvider?.displayName ?? '').localeCompare(b.baseProvider?.displayName ?? '')
-            || a.profile.displayName.localeCompare(b.profile.displayName),
-        );
+        return out;
     }
 
-    // Only API 3.0 registrations are eligible here. addProvider() also exists
-    // in legacy 2.x, but those providers intentionally remain confined to the
-    // classic Chat Bot settings. The resulting ModelPreset stores a
-    // self-contained snapshot, not this transient registry.
+    // API 3.0 registrations become self-contained preset snapshots.
     const pluginRegistry = $derived(buildPluginRegistry(
         listPluginModels(customV3ProviderMetaStore),
         language.pluginModelProfileDescription,
     ));
 
-    // Catalog visibility and provider filters apply to the official models.dev
-    // entries only. Custom profiles are the user's own, while Echo and Plugin
-    // are special entries — all three stay visible regardless of these filters.
+    // Provider filters apply to the catalog; built-in special profiles and
+    // plugin models retain their existing visibility rules.
     const entries = $derived.by(() => {
-        const all = buildEntries(activeRegistry, activeRegistryId);
-        if (activeTab !== 'official') return all;
+        const registryId = getOfficialRegistryId();
+        const all = buildEntries(officialRegistry, registryId);
         const level = DBState.db.modelProfileVisibilityLevel;
-        const providerGroups = listFilterableProviderGroups(activeRegistry, activeRegistryId);
+        const providerGroups = listFilterableProviderGroups(officialRegistry, registryId);
         const hiddenProviderIds = resolveProviderFilterHiddenIds(
             providerGroups.map(provider => provider.id),
             DBState.db.modelProfileVisibleProviderIds,
@@ -153,7 +124,7 @@
         });
     });
 
-    // Related official APIs can share one vendor group while each profile card
+    // Related official APIs can share one vendor group while each model row
     // still identifies its concrete provider/wire API.
     const groupedByProvider = $derived.by(() => {
         const buckets = new Map<string, { id: string; label: string; entries: Entry[] }>();
@@ -215,9 +186,6 @@
         close();
     }
 
-    // Replace an existing preset's profile (custom-profiles plan §3): re-resolve
-    // the chosen profile's snapshot, carry over compatible userValues, preserve
-    // incompatible values as orphans, seed defaults, and re-stamp sourceProfile.
     async function replacePresetProfile(targetId: string, entry: Entry): Promise<boolean> {
         const { profile } = entry;
         const idx = DBState.db.modelPresets.findIndex((p) => p.id === targetId);
@@ -261,180 +229,90 @@
             createPresetFrom(entry);
         }
     }
-
-    function safeFileName(id: string): string {
-        return id.replace(/[^a-z0-9._-]/gi, '_');
-    }
-
-    // Export any profile (official or custom) as a self-contained, key-free
-    // fragment so it can be edited and shared as a JSON file.
-    async function exportProfile(profile: ModelProfile, baseProvider: BaseProviderDefinition | undefined) {
-        if (!baseProvider) {
-            alertError(language.profileExportNoBase);
-            return;
-        }
-        const fragment = buildProfileFragment(profile, baseProvider, Date.now());
-        await downloadFile(`${safeFileName(profile.id)}.profile.json`, JSON.stringify(fragment, null, 2));
-    }
-
-    async function importProfile() {
-        const file = await selectSingleImportFile();
-        if (!file) return;
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(new TextDecoder().decode(file.data));
-        } catch {
-            alertError(language.profileImportParseError);
-            return;
-        }
-        const res = validateFragment(parsed);
-        if (!res.ok || !res.fragment) {
-            alertError(`${language.profileImportInvalid}\n\n- ${res.errors.join('\n- ')}`);
-            return;
-        }
-        const fragment = res.fragment;
-        const cache = (DBState.db.modelProfileRegistryCache ??= createEmptyRegistryCache());
-        const targetId = fragment.profile.id.startsWith(CUSTOM_ID_PREFIX)
-            ? fragment.profile.id
-            : `${CUSTOM_ID_PREFIX}${fragment.profile.id}`;
-        const exists = cache.registries[CUSTOM_REGISTRY_ID]?.profiles?.[targetId] !== undefined;
-        if (exists && !(await alertConfirm(language.profileOverwriteConfirm))) {
-            return;
-        }
-        importFragment(cache, fragment, Date.now());
-        activeTab = 'custom';
-        notifySuccess(language.profileImported);
-    }
-
-    async function deleteCustom(profile: ModelProfile) {
-        if (!(await alertConfirm(`${language.removeConfirm}${profile.displayName}`))) return;
-        const cache = DBState.db.modelProfileRegistryCache;
-        if (cache) removeCustomProfile(cache, profile.id);
-        notifySuccess(language.presetDeleted);
-    }
 </script>
 
-<OverlayPortal>
-<OverlayBackdrop bind:open class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
-    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-hidden">
-        <div class="flex items-center text-maintext mb-4 shrink-0">
-            <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
-            <div class="grow flex justify-end">
-                <button class="text-subtext risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
-                    <XIcon size={20}/>
-                </button>
-            </div>
+<Dialog
+    bind:open
+    size="lg"
+    contentClass="overflow-hidden"
+    bodyClass="flex min-h-0 flex-col gap-4"
+>
+    {#snippet title()}{language.selectProfile}{/snippet}
+
+    <SettingLayout variant="search" className="shrink-0">
+        <div class="relative flex min-w-0 items-center">
+            <SearchIcon
+                size={16}
+                class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-subtext"
+            />
+            <Input
+                bind:value={query}
+                placeholder={language.searchProfiles}
+                aria-label={language.searchProfiles}
+                className="pl-8"
+            />
         </div>
+    </SettingLayout>
 
-        <div class="shrink-0 flex w-full rounded-md border border-selected mb-3">
-            <button
-                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'official' ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-foreground'}"
-                onclick={() => { activeTab = 'official' }}
-            >{language.profileTabOfficial}</button>
-            <button
-                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'custom' ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-foreground'}"
-                onclick={() => { activeTab = 'custom' }}
-            >{language.profileTabCustom}</button>
-        </div>
-
-        <div class="flex items-center gap-2 mb-3 shrink-0">
-            <SearchIcon size={16} class="text-subtext shrink-0" />
-            <Input bind:value={query} placeholder={language.searchProfiles} fullwidth />
-        </div>
-
-        {#if activeTab === 'custom'}
-            <button
-                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-button risu-interactive-surface-solid text-sm"
-                onclick={importProfile}
-            >
-                <UploadIcon size={16} class="shrink-0" />
-                <span>{language.profileImport}</span>
-            </button>
-        {/if}
-
-        {#snippet profileCard(entry: Entry)}
-            {@const { profile, baseProvider } = entry}
-            {@const localizedDesc = localizeDescription(profile)}
-            <div class="flex items-start text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors">
-                <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(entry)}>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-maintext truncate">{localizeDisplayName(profile)}</span>
-                        {#if profile.profileStatus !== 'current'}
-                            <Badge
-                                variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
-                                size="xs"
-                            >
-                                {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
-                            </Badge>
-                        {/if}
-                        {#if baseProvider}
-                            <span class="text-xs text-subtext shrink-0">[{baseProvider.displayName}]</span>
-                        {/if}
-                    </div>
-                    <span class="text-xs text-subtext truncate">
-                        {entry.transientPlugin ? pluginProfileDisplayId(profile.modelId) : profile.id}
-                    </span>
-                    {#if profile.updatedAt}
-                        <span class="text-xs text-subtext">{language.profileUpdatedAtLabel}: {new Date(profile.updatedAt).toLocaleDateString()}</span>
-                    {/if}
-                    {#if localizedDesc}
-                        <span class="text-xs text-subtext mt-1 truncate">{localizedDesc}</span>
-                    {/if}
-                    {#if profile.statusReason}
-                        <span class="text-xs text-subtext mt-1 truncate">{profile.statusReason}</span>
-                    {/if}
-                </button>
-                <div class="flex gap-2 shrink-0 ml-2">
-                    <button class="text-subtext risu-interactive-accent cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
-                        <DownloadIcon size={18}/>
-                    </button>
-                    {#if activeTab === 'custom'}
-                        <button class="text-subtext risu-interactive-danger cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
-                            <TrashIcon size={18}/>
-                        </button>
-                    {/if}
-                </div>
-            </div>
-        {/snippet}
-
-        <div class="flex flex-col gap-1 overflow-y-auto">
-            {#if filtered.length === 0}
-                {#if activeTab === 'custom' && !query.trim()}
-                    <EmptyState title={language.customProfileEmpty} description="" layout="section" />
-                {:else}
-                    <EmptyState layout="section" />
-                {/if}
-            {:else}
+    <div class="min-h-0 overflow-y-auto overscroll-contain">
+        {#if filtered.length === 0}
+            <EmptyState layout="section" />
+        {:else}
+            <DisclosureList appearance="folder" className="gap-2">
                 {#each groupedByProvider as group (group.id)}
-                    <section class="flex flex-col gap-1 mt-2 first:mt-0">
-                        <button
-                            class="flex items-center gap-1.5 px-1 py-1 text-subtext risu-interactive-foreground transition-colors cursor-pointer"
-                            onclick={() => toggleProvider(group.id)}
-                        >
-                            {#if isProviderExpanded(group.id)}
-                                <ChevronDownIcon size={16} class="shrink-0" />
-                            {:else}
-                                <ChevronRightIcon size={16} class="shrink-0" />
-                            {/if}
-                            <span class="text-sm font-semibold">{group.label}</span>
-                            <span class="text-xs">({group.entries.length})</span>
-                        </button>
-                        {#if isProviderExpanded(group.id)}
-                            {#each group.entries as entry (entry.profile.id)}
-                                {@render profileCard(entry)}
-                            {/each}
-                        {/if}
-                    </section>
+                    {@const expanded = isProviderExpanded(group.id)}
+                    {@const FolderGlyph = expanded ? FolderOpenIcon : FolderIcon}
+                    <DisclosureList
+                        variant="item"
+                        appearance="folder"
+                        open={expanded}
+                        onToggle={() => toggleProvider(group.id)}
+                        headerClass="min-h-9 text-maintext"
+                        bodyClass="risu-tree-list risu-tree-list-centered gap-2 [--risu-tree-gap:0.5rem] [--risu-tree-item-border:1px]"
+                        bodyPadded={false}
+                    >
+                        {#snippet header()}
+                            <FolderGlyph size={20} class="risu-folder-icon mr-2 shrink-0" />
+                            <span class="grow truncate text-sm font-medium">{group.label}</span>
+                            <span class="ml-2 text-xs text-subtext">{group.entries.length}</span>
+                        {/snippet}
+                        {#each group.entries as entry (entry.profile.id)}
+                            {@const { profile, baseProvider } = entry}
+                            {@const localizedDesc = localizeDescription(profile)}
+                            <Button
+                                variant="outline"
+                                data-tree-item
+                                className="h-auto min-h-12 w-full min-w-0 justify-start bg-darkbg p-2 text-left font-normal"
+                                onclick={() => selectProfile(entry)}
+                            >
+                                <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <span class="flex min-w-0 items-center gap-2">
+                                        <span class="truncate text-sm font-medium">{localizeDisplayName(profile)}</span>
+                                        {#if profile.profileStatus !== 'current'}
+                                            <Badge
+                                                variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
+                                                size="xs"
+                                            >
+                                                {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
+                                            </Badge>
+                                        {/if}
+                                    </span>
+                                    <span class="truncate text-xs text-subtext">
+                                        {entry.transientPlugin ? pluginProfileDisplayId(profile.modelId) : profile.id}
+                                        {#if baseProvider} · {baseProvider.displayName}{/if}
+                                    </span>
+                                    {#if localizedDesc}
+                                        <span class="truncate text-xs text-subtext">{localizedDesc}</span>
+                                    {/if}
+                                    {#if profile.statusReason}
+                                        <span class="truncate text-xs text-subtext">{profile.statusReason}</span>
+                                    {/if}
+                                </span>
+                            </Button>
+                        {/each}
+                    </DisclosureList>
                 {/each}
-            {/if}
-        </div>
+            </DisclosureList>
+        {/if}
     </div>
-</OverlayBackdrop>
-</OverlayPortal>
-
-<style>
-    .break-any{
-        word-break: normal;
-        overflow-wrap: anywhere;
-    }
-</style>
+</Dialog>

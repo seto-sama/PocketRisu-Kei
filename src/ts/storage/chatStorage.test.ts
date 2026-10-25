@@ -101,7 +101,7 @@ describe('chat body hydration failures', () => {
         const chats = [placeholder]
         storageMocks.fetchChatState.mockResolvedValue(null)
 
-        await expect(ensureChatHydrated(chats, 0, 'character-1')).resolves.toBeNull()
+        await expect(ensureChatHydrated({ chaId: 'character-1', chats }, 0)).resolves.toBeNull()
 
         expect(chats[0]).toBe(placeholder)
         expect(chats[0]._placeholder).toBe(true)
@@ -114,7 +114,7 @@ describe('chat body hydration failures', () => {
         const error = new Error('network unavailable')
         storageMocks.fetchChatState.mockRejectedValue(error)
 
-        await expect(ensureChatHydrated(chats, 0, 'character-1')).rejects.toBe(error)
+        await expect(ensureChatHydrated({ chaId: 'character-1', chats }, 0)).rejects.toBe(error)
 
         expect(chats[0]).toBe(placeholder)
         expect(chats[0]._placeholder).toBe(true)
@@ -125,7 +125,7 @@ describe('chat body hydration failures', () => {
         const placeholder = stubToPlaceholder({ id: 'c1', name: 't', _stub: true })
         const chats = [placeholder]
         storageMocks.fetchChatState.mockResolvedValueOnce(null)
-        await ensureChatHydrated(chats, 0, 'character-1')
+        await ensureChatHydrated({ chaId: 'character-1', chats }, 0)
         expect(failureFor()).toBe('missing')
 
         let resolveFetch!: (chat: Chat) => void
@@ -133,7 +133,7 @@ describe('chat body hydration failures', () => {
             resolveFetch = chat => resolve({ chat })
         }))
         const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
-        const retry = ensureChatHydrated(chats, 0, 'character-1')
+        const retry = ensureChatHydrated({ chaId: 'character-1', chats }, 0)
 
         expect(failureFor()).toBeUndefined()
         await vi.waitFor(() => expect(resolveFetch).toBeDefined())
@@ -151,11 +151,31 @@ describe('chat body hydration failures', () => {
         }))
         const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
 
-        const first = ensureChatHydrated(chats, 0, 'character-1')
-        const second = ensureChatHydrated(chats, 0, 'character-1')
+        const first = ensureChatHydrated({ chaId: 'character-1', chats }, 0)
+        const second = ensureChatHydrated({ chaId: 'character-1', chats }, 0)
         await vi.waitFor(() => expect(storageMocks.fetchChatState).toHaveBeenCalledTimes(1))
         resolveFetch(hydrated)
         await expect(Promise.all([first, second])).resolves.toEqual([hydrated, hydrated])
+    })
+
+    test('applies the body to the live array when the chats array is replaced mid-fetch', async () => {
+        const owner = { chaId: 'character-1', chats: [
+            stubToPlaceholder({ id: 'c1', name: 't', _stub: true }),
+            stubToPlaceholder({ id: 'c2', name: 'deleted', _stub: true }),
+        ] }
+        let resolveFetch!: (chat: Chat) => void
+        storageMocks.fetchChatState.mockImplementationOnce(() => new Promise(resolve => {
+            resolveFetch = chat => resolve({ chat })
+        }))
+        const hydrated = blankChat({ id: 'c1', message: [{ role: 'user', data: 'hello' }] })
+
+        const pending = ensureChatHydrated(owner, 0)
+        owner.chats = owner.chats.filter(chat => chat.id !== 'c2')
+        await vi.waitFor(() => expect(resolveFetch).toBeDefined())
+        resolveFetch(hydrated)
+
+        await expect(pending).resolves.toBe(hydrated)
+        expect(owner.chats[0]).toBe(hydrated)
     })
 })
 

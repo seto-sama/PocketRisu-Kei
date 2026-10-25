@@ -23,7 +23,6 @@ interface ImageGenerationBindingDatabase {
 
 interface ImageStylePresetDatabase {
     modules: RisuModule[]
-    enabledModules: string[]
 }
 
 function canUseSecondaryKeyAsPresetId(lorebook: loreBook): boolean {
@@ -38,7 +37,7 @@ function isImageStylePresetLorebook(lorebook: loreBook): boolean {
 }
 
 function ensureImageStylePresetIds(
-    db: Pick<ImageStylePresetDatabase, 'modules'>,
+    db: ImageStylePresetDatabase,
 ): void {
     for (const module of db.modules ?? []) {
         const presets = (module.lorebook ?? [])
@@ -63,7 +62,7 @@ export function normalizeImageStylePresetName(name: string): string {
         : trimmed
 }
 
-export function listImageStylePresets(db: Pick<ImageStylePresetDatabase, 'modules'>): ImageStylePresetEntry[] {
+export function listImageStylePresets(db: ImageStylePresetDatabase): ImageStylePresetEntry[] {
     return (db.modules ?? []).flatMap(module => (module.lorebook ?? []).flatMap((lorebook, lorebookIndex) => {
         const comment = lorebook.comment?.trim() ?? ''
         if (!isImageStylePresetLorebook(lorebook)) return []
@@ -81,7 +80,7 @@ export function listImageStylePresets(db: Pick<ImageStylePresetDatabase, 'module
 
 /** Loads style presets, assigning persisted IDs to legacy or manually-cleared entries first. */
 export function loadImageStylePresets(
-    db: Pick<ImageStylePresetDatabase, 'modules'>,
+    db: ImageStylePresetDatabase,
 ): ImageStylePresetEntry[] {
     ensureImageStylePresetIds(db)
     return listImageStylePresets(db)
@@ -100,7 +99,6 @@ export function ensureImageStylePresetModule(db: ImageStylePresetDatabase): Risu
         db.modules.push(module)
     }
     module.lorebook ??= []
-    if (!db.enabledModules.includes(module.id)) db.enabledModules.push(module.id)
     return module
 }
 
@@ -157,7 +155,7 @@ export function createImageStylePreset(
 }
 
 export function createImageStyleLorebookFolder(
-    db: Pick<ImageStylePresetDatabase, 'modules'>,
+    db: ImageStylePresetDatabase,
     moduleId: string,
     name: string,
 ): string | undefined {
@@ -213,7 +211,7 @@ export function applyImageStylePresetBinding(
     return true
 }
 
-function joinPrompt(prefix: string, input: string): string {
+export function joinImagePrompts(prefix: string, input: string): string {
     if (!prefix) return input.trim()
     if (!input.trim()) return prefix.trim()
     return `${prefix.trim()}${prefix.trimEnd().endsWith(',') ? '\n' : ',\n'}${input.trim()}`
@@ -227,7 +225,7 @@ function fillPositiveTemplate(template: string, input: string): string {
         .replaceAll('{char}', '')
         .replaceAll('{supplement}', '')
         .trim()
-    if (!hasInputSlot) result = joinPrompt(result, input)
+    if (!hasInputSlot) result = joinImagePrompts(result, input)
     return result.replace(/\n{3,}/g, '\n\n')
 }
 
@@ -239,7 +237,7 @@ function fillNegativeTemplate(template: string, input: string): string {
         .replaceAll('{char}', '')
         .replaceAll('{supplement}', '')
         .trim()
-    if (!hasInputSlot) result = joinPrompt(result, input)
+    if (!hasInputSlot) result = joinImagePrompts(result, input)
     return result.replace(/\n{3,}/g, '\n\n')
 }
 

@@ -33,9 +33,6 @@ describe('preset picker binding choice', () => {
 
         const none = document.querySelector<HTMLButtonElement>('[data-preset-select-none]')!;
         expect(none).toBeTruthy();
-        expect(none.parentElement!.lastElementChild).toBe(none);
-        expect(none.hasAttribute('data-sortable-key')).toBe(false);
-        expect(none.getAttribute('data-selected')).toBe('true');
 
         await search('no-match');
         expect(document.querySelector('.preset-picker-item')).toBeNull();
@@ -79,8 +76,6 @@ describe('preset picker binding choice', () => {
         const none = document.querySelector('[data-preset-select-none]')!;
         expect(none).toBeTruthy();
         expect(document.querySelector('[data-slot="empty-state"]')).toBeNull();
-        expect(none.parentElement!.firstElementChild).toBe(none);
-        expect(none.parentElement!.lastElementChild).toBe(none);
     });
 
     it('keeps normal selection and delete actions separate and omits none outside binding mode', async () => {

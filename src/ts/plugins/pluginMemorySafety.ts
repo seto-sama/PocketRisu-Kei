@@ -42,14 +42,12 @@ export interface PluginMemoryPromptData {
 export interface PluginMemorySessionState {
     disableAll: boolean
     disabledPluginNames: string[]
-    unclassifiedExcluded: boolean
 }
 
 export const pluginMemoryPromptStore = writable<PluginMemoryPromptData | null>(null)
 export const pluginMemorySessionStore = writable<PluginMemorySessionState>({
     disableAll: false,
     disabledPluginNames: [],
-    unclassifiedExcluded: false,
 })
 
 export function requestPluginMemoryDecision(
@@ -91,7 +89,6 @@ export function applyPluginMemoryDecision(decision: PluginMemoryDecision): Plugi
     pluginMemorySessionStore.set({
         disableAll: decision.excludeAll,
         disabledPluginNames: decision.excludedPluginNames,
-        unclassifiedExcluded: decision.excludeUnclassified,
     })
     if (decision.excludeAll) return { all: true }
     if (decision.excludedPluginNames.length === 0 && !decision.excludeUnclassified) return null
@@ -102,10 +99,10 @@ export function applyPluginMemoryDecision(decision: PluginMemoryDecision): Plugi
 }
 
 export function pluginDisabledForMemorySession(
-    plugin: { name?: string, version?: unknown },
+    plugin: { name?: string },
     state: PluginMemorySessionState = get(pluginMemorySessionStore),
 ): boolean {
     if (state.disableAll) return true
     if (plugin.name && state.disabledPluginNames.includes(plugin.name)) return true
-    return state.unclassifiedExcluded && (plugin.version === 2 || plugin.version === '2.0' || plugin.version === '2.1')
+    return false
 }

@@ -188,9 +188,19 @@ const submenuStores: Partial<Record<SettingsRouteValue, Writable<number>>> = {
 };
 
 export function navigateToSearchResult(result: SettingSearchResult): void {
-    openSettings(result.route);
-    if (result.subTab !== undefined) submenuStores[result.route]?.set(result.subTab);
-    if (result.itemId) scrollToSettingAnchor(result.itemId);
+    navigateToSetting(result.route, result.subTab, result.itemId);
+}
+
+/** Opens settings on the page and tab that hold a declarative item, then highlights it. */
+export function openSettingItem(itemId: string): void {
+    const source = declarativeSources.find((source) => source.items.some((item) => item.id === itemId));
+    if (source) navigateToSetting(source.route, source.subTab, itemId);
+}
+
+function navigateToSetting(route: SettingsRouteValue, subTab?: number, itemId?: string): void {
+    openSettings(route);
+    if (subTab !== undefined) submenuStores[route]?.set(subTab);
+    if (itemId) scrollToSettingAnchor(itemId);
 }
 
 function scrollToSettingAnchor(itemId: string, attempt = 0): void {

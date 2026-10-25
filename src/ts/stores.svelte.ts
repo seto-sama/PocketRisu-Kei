@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get, writable } from "svelte/store";
 import type { character, Database } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
@@ -5,10 +6,10 @@ import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
-import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
 import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
 import { lgViewport } from './gui/breakpoints'
+import type { language } from 'src/lang'
 
 function updateSize(){
     SizeStore.set({
@@ -37,13 +38,13 @@ export const sidebarDevTool = writable(false)
 export const devToolAutopilotStore = writable<string[]>([])
 export const CurrentTriggerIdStore = writable<string | null>(null)
 export const CharEmotion = writable({} as {[key:string]: [string, string, number][]})
-export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 }); // Default width and height in pixels
+export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 });
 export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
-// Binding pickers pass -1 to clear the current chat's binding.
-export const presetSelectCallback = writable<((index: number) => void) | null>(null)
+// Binding pickers pass an empty ID to clear the current chat's binding.
+export const presetSelectCallback = writable<((id: string) => void) | null>(null)
 export const openModelPresetList = writable(false)
 export const requestPreviewOpen = writable(false)
 export const openModelProfileBrowser = writable(false)
@@ -61,9 +62,6 @@ export const personaSelectCallback = writable<((index: number) => void) | null>(
 export const openHypaV3PresetList = writable(false)
 export const bookmarkListOpen = writable(false)
 export const SettingsMenuIndex = writable(-1)
-// Boot-time backup reminder prompt — set by bootstrap and rendered by
-// BootBackupPrompt. The component resolves the user's choice (proceed/skip)
-// back via the resolve callback. See src/ts/bootstrap.ts.
 export interface BootBackupPromptData {
     estimate: number | null
     free: number | null
@@ -77,9 +75,7 @@ export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 export const AddonSubmenuIndex = writable(0)
 export const SystemSubmenuIndex = writable(0)
 export const AdminStatsSubmenuIndex = writable(0)
-// Sub-tab index inside the Accessibility settings page. A store so the model-
-// mode gear button can deep-link to the Sidebar tab — see src/ts/routing
-// (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
+// Shared tab state allows the model settings button to open the Sidebar tab.
 export const AccessibilitySubmenuIndex = writable(0)
 export const HotkeySubmenuIndex = writable(0)
 // Shared tab state lets settings search deep-link into pages that previously
@@ -210,11 +206,7 @@ export const loadingOverlayStore = writable<{
     onCancel: null,
 })
 
-/**
- * Show the overlay for one operation. The returned function hides it only
- * while that operation still owns it, so a slow earlier load finishing late
- * cannot hide the overlay of the load that replaced it.
- */
+/** A late completion must not hide the overlay claimed by a newer operation. */
 export function claimLoadingOverlay(text: string, onCancel: (() => void) | null = null): () => void {
     const owner = Symbol('loading-overlay')
     loadingOverlayStore.set({ active: true, text, onCancel, owner })
@@ -225,7 +217,6 @@ export function claimLoadingOverlay(text: string, onCancel: (() => void) | null 
     }
 }
 
-/** Dismiss a claimed overlay when its chat or character transition is replaced. */
 export function dismissClaimedLoadingOverlay(): void {
     if (get(loadingOverlayStore).owner !== undefined) {
         loadingOverlayStore.set({ active: false, text: '', onCancel: null })
@@ -235,11 +226,6 @@ export function dismissClaimedLoadingOverlay(): void {
 export const QuickSettings = $state({
     open: false,
     index: 0
-})
-
-export const pluginAlertModalStore = $state({
-    open: false,
-    errors: [] as PluginSafetyErrors[]
 })
 
 export type MenuDef = {
@@ -288,16 +274,19 @@ export interface PopupEditorMetadata {
 export interface PopupEditorOptions {
     value: string
     title?: string
+    description?: string
+    helpKey?: keyof typeof language.help
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
     mode?: 'plain' | 'cbs'
+    imageTags?: boolean
     commitMode?: PopupEditorCommitMode
     debounceMs?: number
     hideCancel?: boolean
-    submitKind?: 'save' | 'send'
-    /** Writes through the same domain commit path used by the source field. */
-    onCommit: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
-    /** Optional action after the latest value has committed (for example, send). */
+    submitKind?: 'save' | 'send' | 'download'
+    /** Writes through the source field's commit path; omit for a read-only viewer. */
+    onCommit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
+    /** Optional action after committing editable content (for example, send or download). */
     onSubmit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
 }
 
@@ -306,13 +295,16 @@ export const popUpEditorStore = $state({
     value: '',
     originalValue: '',
     title: '',
+    description: '',
+    helpKey: undefined as PopupEditorOptions['helpKey'],
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
     mode: 'cbs' as 'plain' | 'cbs',
+    imageTags: false,
     commitMode: 'submit' as PopupEditorCommitMode,
     debounceMs: INPUT_COMMIT_DEBOUNCE_MS,
     hideCancel: false,
-    submitKind: 'save' as 'save' | 'send',
+    submitKind: 'save' as NonNullable<PopupEditorOptions['submitKind']>,
     onCommit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>),
     onSubmit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>)
 })
@@ -321,14 +313,17 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.value = options.value
     popUpEditorStore.originalValue = options.value
     popUpEditorStore.title = options.title ?? ''
+    popUpEditorStore.description = options.description ?? ''
+    popUpEditorStore.helpKey = options.helpKey
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
     popUpEditorStore.mode = options.mode ?? 'cbs'
+    popUpEditorStore.imageTags = options.imageTags ?? false
     popUpEditorStore.commitMode = options.commitMode ?? 'submit'
     popUpEditorStore.debounceMs = options.debounceMs ?? INPUT_COMMIT_DEBOUNCE_MS
     popUpEditorStore.hideCancel = options.hideCancel ?? false
     popUpEditorStore.submitKind = options.submitKind ?? 'save'
-    popUpEditorStore.onCommit = options.onCommit
+    popUpEditorStore.onCommit = options.onCommit ?? null
     popUpEditorStore.onSubmit = options.onSubmit ?? null
     popUpEditorStore.open = true
 }
@@ -347,8 +342,8 @@ $effect.root(() => {
         if (DBState?.db?.characters?.[selIdState.selId]) {
             if (DBState.db.hypaV3 && DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.alwaysToggleOn) {
                 const char = DBState.db.characters[selIdState.selId]
-                if (char?.chats?.[char.chatPage]) {
-                    char.chats[char.chatPage].supaMemory = true
+                if (char?.chats?.[getChatPage(char)]) {
+                    char.chats[getChatPage(char)].supaMemory = true
                 }
             }
         }
@@ -363,8 +358,8 @@ $effect.root(() => {
         DBState?.db?.personaEnabledModules
         DBState?.db?.showPersonaInSidebar
         DBState?.db?.selectedPersona
-        DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.bindedPersona
-        DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.modules?.length
+        DBState?.db?.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState?.db?.characters?.[selIdState.selId])]?.bindedPersona
+        DBState?.db?.characters?.[selIdState.selId]?.chats?.[getChatPage(DBState?.db?.characters?.[selIdState.selId])]?.modules?.length
         DBState?.db?.characters?.[selIdState.selId]?.hideChatIcon
         DBState?.db?.characters?.[selIdState.selId]?.backgroundHTML
         DBState?.db?.moduleIntergration

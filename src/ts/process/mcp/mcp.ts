@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { MCPClient, type JsonRPC, type MCPTool, type RPCToolCallContent } from "./mcplib";
 import { DBState } from "src/ts/stores.svelte";
@@ -185,12 +186,10 @@ export async function callMCPTool(methodName:string, args:any):Promise<RPCToolCa
     }]
 }
 
-//Currently just a wrapper for getMCPTools, but can be extended later for more than MCPs
 export async function getTools(){
     return await getMCPTools();
 }
 
-//Currently just a wrapper for callMCPTool, but can be extended later for more than MCPs
 export async function callTool(methodName:string, args:any) {
     return await callMCPTool(methodName, args);
 }
@@ -218,7 +217,9 @@ export async function importMCPModule(source:string):Promise<boolean>{
 
     try {
         const metas = (await getMCPMeta([x]))
-        console.log(metas)
+        if (isDebugEnabled()) {
+            console.debug(metas)
+        }
         const meta = metas[x];
         if(!meta) {
             notifyError('MCP module not found or invalid URL');

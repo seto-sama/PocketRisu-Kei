@@ -8,12 +8,15 @@
  * and binary encoding.
  */
 import { describe, test, expect, afterAll } from 'vitest'
+import { encodeLocalPluginStorageValue } from '../../shared/localPluginStorageValue.mjs'
 import path from 'node:path'
 import { readFile } from 'node:fs/promises'
+import { decode as decodeMessagePack, encode as encodeMessagePack } from 'msgpackr'
+import { createDelta } from '../../shared/guardedDelta.mjs'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient } from './helpers/client.js'
 import { createSeedBackup } from './helpers/seed.js'
-import { normalizeBackup, fingerprintAssets } from './helpers/normalize.js'
+import { decodeRisuDat, normalizeBackup, fingerprintAssets } from './helpers/normalize.js'
 import { encodeBackup } from './helpers/encode.js'
 import { decodeBackup } from './helpers/decode.js'
 
@@ -132,6 +135,145 @@ describe('asset round-trip', () => {
 // ─── Upstream-compatible export ────────────────────────────────────────────
 
 describe('upstream-compatible backup export', () => {
+  test('round-trips namespaced plugin storage in Kei backups and keeps upstream output included-only', async () => {
+    const sourceServer = await spawnServer()
+    const targetServer = await spawnServer()
+    servers.push(sourceServer, targetServer)
+    const source = await createClient(sourceServer.port, sourceServer.password)
+    const target = await createClient(targetServer.port, targetServer.password)
+
+    const includedPluginStorage = {
+      'plugin-a/setting': '{"enabled":true}',
+      'plugin-b/count': 3,
+    }
+    const encodedPluginEntries = [
+      {
+        name: `plugin-storage/localStorage/${Buffer.from('plugin-a/theme', 'utf-8').toString('base64url')}`,
+        data: encodeMessagePack({ value: encodeMessagePack('dark'), owner: 'plugin-a' }),
+      },
+      {
+        name: `plugin-storage/localForage/${Buffer.from('plugin-a/cache', 'utf-8').toString('base64url')}`,
+        data: encodeMessagePack({
+          value: await encodeLocalPluginStorageValue(Uint8Array.of(0, 1, 255)),
+          owner: 'plugin-a',
+        }),
+      },
+      {
+        name: `plugin-storage/localStorage/${Buffer.from('plugin-a/image', 'utf-8').toString('base64url')}`,
+        data: encodeMessagePack({
+          value: encodeMessagePack('assets/plugin-reference.png'),
+          owner: 'plugin-a',
+        }),
+      },
+    ]
+    const seeded = encodeBackup([
+      ...decodeBackup(createSeedBackup()),
+      {
+        name: 'plugin-storage/_manifest',
+        data: Buffer.from(JSON.stringify({ version: 1, namespaces: ['localStorage', 'localForage'] })),
+      },
+      ...encodedPluginEntries,
+      { name: 'plugin-reference.png', data: Buffer.from('referenced image') },
+    ])
+    expect((await source.importBackup(seeded)).ok).toBe(true)
+
+    const currentResponse = await source.fetch('/api/database')
+    expect(currentResponse.status).toBe(200)
+    const current = await currentResponse.json() as { database: Record<string, unknown>; revision: number }
+    const storedPluginDatabase = await source.fetch('/api/database', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ changes: createDelta(current.database, {
+        ...current.database,
+        pluginCustomStorage: includedPluginStorage,
+      }) }),
+    })
+    expect(storedPluginDatabase.status, await storedPluginDatabase.text()).toBe(200)
+
+    const fullBackup = await source.exportBackup()
+    const fullEntries = decodeBackup(fullBackup)
+    const fullPluginEntries = fullEntries.filter(entry => entry.name.startsWith('plugin-storage/'))
+    expect(fullPluginEntries.map(entry => entry.name)).toEqual(expect.arrayContaining([
+      'plugin-storage/_manifest',
+      ...encodedPluginEntries.map(entry => entry.name),
+    ]))
+    const localStorageData = decodeMessagePack(
+      fullPluginEntries.find(entry => entry.name === encodedPluginEntries[0].name)!.data,
+    ) as { value: Uint8Array; owner: string }
+    expect(decodeMessagePack(localStorageData.value)).toBe('dark')
+    expect(localStorageData.owner).toBe('plugin-a')
+    expect(decodeRisuDat(fullEntries.find(entry => entry.name === 'database.risudat')!.data).pluginCustomStorage)
+      .toEqual(includedPluginStorage)
+
+    const invalidManifestBackup = encodeBackup([
+      fullEntries.find(entry => entry.name === 'database.risudat')!,
+      {
+        name: 'plugin-storage/_manifest',
+        data: Buffer.from(JSON.stringify({ version: 1, namespaces: ['localStorage'] })),
+      },
+    ])
+    expect(await source.importBackup(invalidManifestBackup)).not.toHaveProperty('ok', true)
+    const afterRejectedImport = decodeBackup(await source.exportBackup())
+      .filter(entry => entry.name.startsWith('plugin-storage/'))
+    expect(afterRejectedImport.map(entry => [entry.name, entry.data.toString('base64')]))
+      .toEqual(fullPluginEntries.map(entry => [entry.name, entry.data.toString('base64')]))
+
+    const settingsEntries = decodeBackup(Buffer.from(await (await source.fetch('/api/backup/export?mode=settings')).arrayBuffer()))
+    expect(settingsEntries.map(entry => entry.name)).toContain('plugin-reference.png')
+    expect(settingsEntries.some(entry => entry.name.startsWith('plugin-storage/'))).toBe(true)
+    const estimate = await (await source.fetch('/api/backup/export/settings-estimate')).json()
+    expect(estimate.pluginStorageBytes).toBe(settingsEntries
+      .filter(entry => entry.name.startsWith('plugin-storage/'))
+      .reduce((sum, entry) => sum + entry.data.length, 0))
+    expect(estimate.baseAssets.bytes + estimate.moduleAssets.bytes).toBe(settingsEntries
+      .filter(entry => entry.name !== 'database.risudat' && !entry.name.startsWith('plugin-storage/'))
+      .reduce((sum, entry) => sum + entry.data.length, 0))
+    const upstreamSettings = await source.fetch('/api/backup/export?mode=settings&target=upstream')
+    expect(upstreamSettings.status).toBe(200)
+    const upstreamSettingsEntries = decodeBackup(Buffer.from(await upstreamSettings.arrayBuffer()))
+    expect(upstreamSettingsEntries.map(entry => entry.name)).not.toContain('plugin-reference.png')
+    expect(upstreamSettingsEntries.some(entry => entry.name.startsWith('plugin-storage/'))).toBe(false)
+
+    const partialEntries = decodeBackup(Buffer.from(await (await source.fetch('/api/backup/export?mode=partial')).arrayBuffer()))
+    expect(partialEntries.map(entry => entry.name)).toContain('plugin-reference.png')
+    expect(partialEntries.some(entry => entry.name.startsWith('plugin-storage/'))).toBe(false)
+
+    expect((await target.importBackup(fullBackup)).ok).toBe(true)
+    const targetEntries = decodeBackup(await target.exportBackup())
+      .filter(entry => entry.name.startsWith('plugin-storage/'))
+    expect(targetEntries.map(entry => [entry.name, entry.data.toString('base64')]))
+      .toEqual(fullPluginEntries.map(entry => [entry.name, entry.data.toString('base64')]))
+
+    const upstreamResponse = await source.fetch('/api/backup/export?target=upstream')
+    expect(upstreamResponse.status).toBe(200)
+    const upstreamEntries = decodeBackup(Buffer.from(await upstreamResponse.arrayBuffer()))
+    expect(upstreamEntries.some(entry => entry.name.startsWith('plugin-storage/'))).toBe(false)
+    expect(decodeRisuDat(upstreamEntries.find(entry => entry.name === 'database.risudat')!.data).pluginCustomStorage)
+      .toEqual(includedPluginStorage)
+
+    const saved = await source.fetch('/api/backup/server/save', { method: 'POST' })
+    expect(saved.status).toBe(200)
+    const saveEvents = (await saved.text()).trim().split('\n').map(line => JSON.parse(line))
+    const savedFilename = saveEvents.find(event => event.type === 'done')?.filename
+    expect(savedFilename).toBeTruthy()
+    const removed = await source.fetch('/api/remove', {
+      headers: { 'file-path': Buffer.from('assets/plugin-reference.png').toString('hex') },
+    })
+    expect(removed.status).toBe(200)
+    const restoredAssets = await source.fetch('/api/backup/server/restore-assets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ filename: savedFilename }),
+    })
+    expect(restoredAssets.status).toBe(200)
+    const restoreEvents = (await restoredAssets.text()).trim().split('\n').map(line => JSON.parse(line))
+    expect(restoreEvents.find(event => event.type === 'done')).toMatchObject({ assetsRestored: 1 })
+    const restoredImage = await source.fetch('/api/read', {
+      headers: { 'file-path': Buffer.from('assets/plugin-reference.png').toString('hex') },
+    })
+    expect(Buffer.from(await restoredImage.arrayBuffer())).toEqual(Buffer.from('referenced image'))
+  })
+
   test('excludes PocketRisu-specific inlay namespaces while regular export preserves them', async () => {
     const srv = await spawnServer()
     servers.push(srv)

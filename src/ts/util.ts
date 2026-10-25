@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
@@ -6,6 +7,7 @@ import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
 import { isIOS } from "src/ts/platform"
+import { pickServerDriveFiles, shouldPickFromServerDrive } from "./serverDriveFilePicker.svelte"
 import PopupList from "src/lib/UI/PopupList.svelte"
 
 export function sleep(ms: number) {
@@ -69,7 +71,7 @@ export function selectSingleImageFile() {
 export function checkPersonaBinded(){
     const db = getDatabase()
     const character = db.characters?.[get(selectedCharID)]
-    return getChatBoundPersona(db, character?.chats?.[character.chatPage])
+    return getChatBoundPersona(db, character?.chats?.[getChatPage(character)])
 }
 
 export function getUserName(){
@@ -100,8 +102,15 @@ export function getPersonaPrompt(){
 }
 
 export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|'single' = 'single') {
+    if (shouldPickFromServerDrive()) {
+        return pickServerDriveFiles(allowedExtensions[0] === '*' ? [] : allowedExtensions, multiple === 'multiple')
+    }
     return new Promise<File[]>((resolve) => {
         const fileInput = document.createElement('input');
+        const finish = (files: File[]) => {
+            fileInput.remove();
+            resolve(files);
+        };
         fileInput.type = 'file';
         fileInput.multiple = multiple === 'multiple';
         const acceptAll = isIOS() || allowedExtensions[0] === '*'
@@ -112,7 +121,7 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
         }
         fileInput.addEventListener('change', (event) => {
             if (fileInput.files.length === 0) {
-                resolve([]);
+                finish([]);
                 return;
             }
     
@@ -130,13 +139,13 @@ export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|
                 })
             }
     
-            fileInput.remove()
-            resolve(files);
+            finish(files);
         });
+        fileInput.addEventListener('cancel', () => finish([]), { once: true });
     
         document.body.appendChild(fileInput);
         fileInput.click();
-        fileInput.style.display = 'none'; // Hide the file input element
+        fileInput.style.display = 'none';
     });
 }
 
@@ -164,6 +173,9 @@ export async function getCustomBackground(db:string){
     }
     else{
         const filesrc = await getCharImage(db, 'plain')
+        if(!filesrc){
+            return ''
+        }
         return `background: url("${filesrc}"); background-size: cover;`
     }
 }
@@ -246,7 +258,7 @@ export function getAuthorNoteDefaultText(){
 }
 
 export async function encryptBuffer(data:Uint8Array, keys:string){
-    // hash the key to get a fixed length key value
+    // Derive a fixed-length AES-GCM key from the supplied password.
     const keyArray = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(keys))
 
     const key = await window.crypto.subtle.importKey(
@@ -257,7 +269,6 @@ export async function encryptBuffer(data:Uint8Array, keys:string){
         ["encrypt", "decrypt"]
     )
 
-    // use web crypto api to encrypt the data
     const result = await window.crypto.subtle.encrypt(
         {
             name: "AES-GCM",
@@ -271,7 +282,7 @@ export async function encryptBuffer(data:Uint8Array, keys:string){
 }
 
 export async function decryptBuffer(data:Uint8Array, keys:string){
-    // hash the key to get a fixed length key value
+    // Derive the same fixed-length AES-GCM key used during encryption.
     const keyArray = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(keys))
 
     const key = await window.crypto.subtle.importKey(
@@ -282,7 +293,6 @@ export async function decryptBuffer(data:Uint8Array, keys:string){
         ["encrypt", "decrypt"]
     )
 
-    // use web crypto api to encrypt the data
     const result = await window.crypto.subtle.decrypt(
         {
             name: "AES-GCM",
@@ -391,48 +401,14 @@ export function uuidtoNumber(uuid:string){
     return result
 }
 
-/**
- * Appends the given last path to the provided URL.
- *
- * @param {string} url - The base URL to which the last path will be appended.
- * @param {string} lastPath - The path to be appended to the URL.
- * @returns {string} The modified URL with the last path appended.
- * 
- * @example
- * appendLastPath("https://github.com/kwaroran/Risuai","/commits/main")
- * return 'https://github.com/kwaroran/Risuai/commits/main'
- * 
- * @example
- * appendLastPath("https://github.com/kwaroran/Risuai/","/commits/main")
- * return 'https://github.com/kwaroran/Risuai/commits/main
- * 
- * @example
- * appendLastPath("http://127.0.0.1:7997","embeddings")
- * return 'http://127.0.0.1:7997/embeddings'
- */
+/** Join a URL and path after trimming their boundary slashes. */
 export function appendLastPath(url, lastPath) {
-    // Remove trailing slash from url if exists
     url = url.replace(/\/$/, '');
-    
-    // Remove leading slash from lastPath if exists
     lastPath = lastPath.replace(/^\//, '');
-
-    // Concat the url and lastPath
     return url + '/' + lastPath;
 }
 
-/**
- * Converts the text content of a given Node object, including HTML elements, into a plain text sentence.
- *
- * @param {Node} node - The Node object from which the text content will be extracted.
- * @returns {string} The plain text sentence representing the content of the Node object.
- *
- * @example
- * const div = document.createElement('div');
- * div.innerHTML = 'Hello<br>World<del>Deleted</del>';
- * const sentence = getNodetextToSentence(div);
- * console.log(sentence); // Output: "Hello\nWorld~Deleted~"
- */
+/** Convert text and basic formatting elements to markdown-like plain text. */
 export function getNodetextToSentence(node: Node): string {
     let result = '';
     for (const child of node.childNodes) {
@@ -1070,15 +1046,7 @@ export function asBuffer(arr: Uint8Array<ArrayBufferLike> | ArrayBufferLike): Ui
     }
 }
 
-/**
- * Semaphore: Concurrency control mechanism
- *
- * Limits the number of operations that can run simultaneously.
- * When max concurrent operations are running, new operations wait in queue.
- *
- * Example: If max=3, only 3 asset saves can run at once.
- * The 4th save waits until one of the first 3 completes.
- */
+/** Queue acquisitions that exceed the configured concurrency limit. */
 export class Semaphore {
     private available: number
     private readonly max: number

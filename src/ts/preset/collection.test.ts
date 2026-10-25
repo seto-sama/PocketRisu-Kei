@@ -52,6 +52,20 @@ describe('preset collection', () => {
         expect(result.selectedIndex).toBe(1)
     })
 
+    it('removes the same ID after reordering and ignores an already deleted target', () => {
+        const targetId = 'target'
+        const items = [item('third'), item('first'), item(targetId)]
+
+        const removed = removePresetItem(items, 0, targetId, 0)
+
+        expect(removed.items.map(entry => entry.id)).toEqual(['third', 'first'])
+        expect(removed.items[removed.selectedIndex].id).toBe('third')
+        expect(removePresetItem(removed.items, 0, targetId, 0)).toMatchObject({
+            items: removed.items, selectedIndex: 0, changed: false,
+        })
+        expect(removePresetItem([item(targetId)], 0, targetId, 0).items).toEqual([])
+    })
+
     it('rejects invalid changes and never removes the final item', () => {
         const items = [item('only')]
 

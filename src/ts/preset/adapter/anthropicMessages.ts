@@ -24,16 +24,10 @@ import type {
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
 import { isCustomPreset } from './customPreset'
-import { resolveThinkingBudget } from './thinkingBudget'
 
-// `anthropic` base provider v2+ supplies `max_tokens: 4096` via `defaultBody`,
-// so freshly-resolved snapshots already carry the value. But presets persisted
-// under an older snapshot (v1, `defaults: {}`) won't pick up the new default
-// until they are re-resolved against the registry — and the profile version
-// did not change (only the base provider did), so the profile-update detection
-// will not flag them. Keep an adapter-side safety net for stale snapshots so
-// existing chats keep working. `=== undefined` preserves any explicit 0 or
-// negative override.
+// The Messages API requires max_tokens. Snapshots persisted before the base
+// provider supplied it keep `defaults: {}` until refreshed; `=== undefined`
+// preserves any explicit 0 or negative override.
 const ANTHROPIC_FALLBACK_MAX_TOKENS = 4096
 const ANTHROPIC_PROVIDER_ID = 'anthropic'
 const ANTHROPIC_BATCH_POLL_MS = 3_000
@@ -121,7 +115,6 @@ export async function* streamAnthropicChatRequest(
     }
 }
 
-// Build the request without sending it (previewBody).
 export function previewAnthropicChatRequest(
     preset: ModelPreset,
     options: AdapterChatOptions,
@@ -173,7 +166,7 @@ async function prepareAnthropicBody(
         prepared.body.max_tokens = ANTHROPIC_FALLBACK_MAX_TOKENS
     }
     if (!isCustomPreset(preset)) {
-        applyAnthropicThinking(prepared.body, preset, modelId)
+        applyAnthropicThinking(prepared.body, modelId)
     }
     if (options.structuredOutput) {
         const outputConfig = isPlainObject(prepared.body.output_config)
@@ -197,30 +190,14 @@ async function prepareAnthropicBody(
     return prepared
 }
 
-function applyAnthropicThinking(
-    body: Record<string, unknown>,
-    preset: ModelPreset,
-    modelId: string,
-): void {
-    const budget = resolveThinkingBudget(preset, 'effort')
-    if (budget !== undefined) {
-        body.thinking = { type: 'enabled', budget_tokens: budget }
-        if (!isPlainObject(body.output_config)) return
-        const outputConfig = { ...body.output_config }
-        delete outputConfig.effort
-        if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
-        else delete body.output_config
-        return
-    }
-
+function applyAnthropicThinking(body: Record<string, unknown>, modelId: string): void {
+    // An explicit thinking object, e.g. a token budget set through Additional
+    // Parameters, is the user's final say.
+    if (body.thinking !== undefined) return
     const effort = isPlainObject(body.output_config)
         ? body.output_config.effort
         : undefined
-    if (
-        typeof effort === 'string'
-        && effort.length > 0
-        && supportsAdaptiveThinking(modelId)
-    ) {
+    if (typeof effort === 'string' && supportsAdaptiveThinking(modelId)) {
         body.thinking = { type: 'adaptive' }
     }
 }

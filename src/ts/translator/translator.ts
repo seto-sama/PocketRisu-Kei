@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { get } from "svelte/store"
 import { parseChatML } from "../parser/chatML";
 import { getDatabase, type character, type customscript } from "../storage/database.svelte"
@@ -35,11 +36,9 @@ let cache={
     trans: ['']
 }
 
-const DEFAULT_TRANSLATOR_LANGUAGE = 'en'
-
 function configuredTranslationLanguages(db = getDatabase()) {
     return {
-        to: db.translator || DEFAULT_TRANSLATOR_LANGUAGE,
+        to: db.translator,
         from: db.translatorInputLanguage,
     }
 }
@@ -220,7 +219,9 @@ export async function runPromptTranslator(
     options: PromptTranslatorOptions,
     signal?: AbortSignal,
 ): Promise<string> {
+    signal?.throwIfAborted()
     const languages = configuredTranslationLanguages()
+    if (!languages.to) return text
     return translateLLM(text, {
         to: languages.to,
         from: languages.from,
@@ -235,7 +236,9 @@ export async function runPromptTranslator(
 }
 
 export async function translate(text:string, reverse:boolean, signal?:AbortSignal) {
-    let db = getDatabase()
+    signal?.throwIfAborted()
+    const db = getDatabase()
+    if (!db.translator) return text
     if(!reverse){
         const ind = cache.origin.indexOf(text)
         if(ind !== -1){
@@ -253,6 +256,7 @@ export async function translate(text:string, reverse:boolean, signal?:AbortSigna
 }
 
 export async function runTranslator(text:string, reverse:boolean, from:string,target:string, exarg?:{translatorNote?:string}, signal?:AbortSignal) {
+    signal?.throwIfAborted()
     const arg = {
 
         from: reverse ? from : target,
@@ -321,8 +325,7 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
 async function translateMain(text:string, arg:{from:string, to:string, host:string, translatorNote?:string}, signal?:AbortSignal){
     let db = getDatabase()
     if(db.translatorType === 'llm'){
-        const tr = arg.to || DEFAULT_TRANSLATOR_LANGUAGE
-        return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote, signal})
+        return translateLLM(text, {to: arg.to, from: arg.from, translatorNote: arg.translatorNote, signal})
     }
     if(db.translatorType == "bergamot") {
         if(!bergamotTranslate){
@@ -404,7 +407,7 @@ function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTra
     if (chatID < 0) return null
     const db = getDatabase()
     const character = db.characters[get(selectedCharID)]
-    const message = character?.chats?.[character.chatPage]?.message?.[chatID]
+    const message = character?.chats?.[getChatPage(character)]?.message?.[chatID]
     if (!message) return null
     return {
         kind: 'chat-message',
@@ -416,7 +419,8 @@ function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTra
 
 export async function translateHTML(html: string, reverse:boolean, charArg:simpleCharacterArgument|string = '', chatID:number, regenerate = false, signal?:AbortSignal): Promise<string> {
     signal?.throwIfAborted()
-    if (!html) return ''
+    const db = getDatabase()
+    if (!html || !db.translator) return html
     let alwaysExistChar: character | simpleCharacterArgument;
     if(charArg !== ''){
         if(typeof(charArg) === 'string'){
@@ -435,7 +439,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             chaId: 'simple'
         }
     }
-    let db = getDatabase()
     if(db.translatorType === 'llm'){
         const { to: tr, from } = configuredTranslationLanguages(db)
         let translated = false
@@ -456,7 +459,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     if(db.translatorType == "bergamot" && db.htmlTranslation) {
         const from = 'en'
-        const to = db.translator || DEFAULT_TRANSLATOR_LANGUAGE
+        const to = db.translator
 
         if(!bergamotTranslate){
             const bergamotTranslator = await import('./bergamotTranslator')

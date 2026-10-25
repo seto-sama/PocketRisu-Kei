@@ -21,6 +21,8 @@ export function convertModuleToCharacter(m: RisuModule): character {
     char.backgroundHTML = m.backgroundEmbedding || ""
     char.additionalAssets = m.assets || []
     char.moduleNamespace = m.namespace
+    char.loreExt ??= {}
+    char.loreExt.risu_imageTagBundleLorebookId = m.imageTagBundleLorebookId
     char.customModuleToggle = m.customModuleToggle || ""
     char.image = m.icon || ""
 
@@ -65,6 +67,7 @@ export function convertCharacterToModule(c: character): RisuModule {
         backgroundEmbedding: c.backgroundHTML,
         assets: c.additionalAssets,
         namespace: c.moduleNamespace,
+        imageTagBundleLorebookId: c.loreExt?.risu_imageTagBundleLorebookId,
         customModuleToggle: c.customModuleToggle,
         id: createEntityId(),
         icon: c.image

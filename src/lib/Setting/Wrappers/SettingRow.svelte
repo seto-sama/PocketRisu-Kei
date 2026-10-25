@@ -32,7 +32,7 @@
     <div class="flex flex-col min-w-0">
         <span class="text-sm text-maintext">{title}</span>
         {#if description}
-            <p class="text-xs text-subtext mt-0.5">{description}</p>
+            <p class="text-xs text-subtext mt-0.5 risu-plain-text">{description}</p>
         {/if}
     </div>
     {#if stacked}

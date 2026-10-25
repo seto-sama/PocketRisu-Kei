@@ -107,25 +107,6 @@ export async function reconcileServerDatabase(
         const localCharacter = localCharacters.get(character.chaId)
         const localChats = new Map((localCharacter?.chats ?? []).map(chat => [chat.id, chat]))
 
-        // Chat selection is page-local UI state, resolved by stable id.
-        const localSelectedChatId = localCharacter?.chats?.[localCharacter.chatPage]?.id
-        if (localSelectedChatId) {
-            const remoteSelectedIndex = character.chats.findIndex(
-                chat => chat?.id === localSelectedChatId,
-            )
-            character.chatPage = remoteSelectedIndex >= 0
-                ? remoteSelectedIndex
-                : Math.max(0, Math.min(
-                    localCharacter?.chatPage ?? 0,
-                    character.chats.length - 1,
-                ))
-        } else if (localCharacter) {
-            character.chatPage = Math.max(
-                0,
-                Math.min(localCharacter.chatPage ?? 0, character.chats.length - 1),
-            )
-        }
-
         for (let index = 0; index < character.chats.length; index++) {
             const remoteChat = character.chats[index]
             if (!remoteChat?.id) continue

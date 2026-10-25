@@ -1,7 +1,7 @@
-import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases, exportColorSchemeWithAliases } from "../../../server/shared/colorScheme.js";
+import { defaultColorScheme, normalizeColorScheme, withLegacyColorSchemeAliases, exportColorSchemeWithAliases } from "../../../server/utils/colorScheme.js";
 import { get, writable } from "svelte/store";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
-import { downloadFile } from "../globalApi.svelte";
+import { exportPresetFile } from "../preset/export";
 import { BufferToText, selectSingleImportFile } from "../util";
 import { notifyError } from "../alert";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
@@ -397,10 +397,10 @@ export function changeColorSchemeType(type: 'light'|'dark'){
     } catch (error) {}
 }
 
-export function exportColorScheme(){
+export async function exportColorScheme(){
     let db = getDatabase()
     let json = JSON.stringify(exportColorSchemeWithAliases(db.colorScheme))
-    downloadFile('colorScheme.json', json)
+    await exportPresetFile('colorScheme.json', json)
 }
 
 export async function importColorScheme(){

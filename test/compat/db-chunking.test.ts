@@ -13,7 +13,7 @@
 import { describe, test, expect, afterAll } from 'vitest'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { zipSync } from 'fflate'
+import { ZipWriter, Uint8ArrayReader, Uint8ArrayWriter } from '@zip.js/zip.js'
 import { Packr } from 'msgpackr'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient, type RisuClient } from './helpers/client.js'
@@ -63,14 +63,16 @@ function bigDbBlob(salt = ''): Buffer {
   return Buffer.concat([MAGIC_RAW, packr.encode(database)])
 }
 const DB_BLOB_HEX = Buffer.from('database/database.bin', 'utf-8').toString('hex')
-function saveFolderZip(blob: Buffer): Buffer {
-  return Buffer.from(zipSync({ [DB_BLOB_HEX]: new Uint8Array(blob) }))
+async function saveFolderZip(blob: Buffer): Promise<Uint8Array> {
+  const writer = new ZipWriter(new Uint8ArrayWriter())
+  await writer.add(DB_BLOB_HEX, new Uint8ArrayReader(blob))
+  return writer.close()
 }
 async function uploadZip(client: RisuClient, blob: Buffer): Promise<Response> {
   return client.fetch('/api/migrate/save-folder/upload', {
     method: 'POST',
     headers: { 'content-type': 'application/zip' },
-    body: new Uint8Array(saveFolderZip(blob)),
+    body: await saveFolderZip(blob),
   })
 }
 

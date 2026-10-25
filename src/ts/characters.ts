@@ -1,15 +1,17 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage, setChatPage, initializeChatSelection } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
-import { claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
+import { dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleImageFile, selectSingleImportFile } from "./util";
 import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
 import { OpenRealmStore, selectedCharID } from "./stores.svelte";
-import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
+import { AppendableBuffer, changeChatTo, checkCharOrder, hydrateSelectedChat, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
@@ -26,20 +28,15 @@ import {
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 import { archiveCurrentCharacterIcon } from './characterAssets'
+import { moveToTrash, restoreFromTrash } from './characterTrash'
 import { importRisuChats } from './chatImport'
 
 const BOOKMARK_TAG_DATA_CLASS = 'bookmark-tag-data'
 
-export function createNewCharacter() {
-    let db = getDatabase()
-    db.characters.push(createBlankChar())
-    checkCharOrder()
-    return db.characters.length - 1
-}
-
 async function importCharactersAndPackages() {
     const files = await selectFileByDom(['*'], 'multiple')
-    if (!files) return
+    if (!files.length) return
+    const existingCharacterIds = new Set(getDatabase().characters.map(character => character.chaId))
 
     for (const file of files) {
         if (file.name.toLowerCase().endsWith('.zip')) {
@@ -52,17 +49,15 @@ async function importCharactersAndPackages() {
             checkCharOrder()
         }
     }
+    return getDatabase().characters.findLast(character =>
+        !character.trashTime && !existingCharacterIds.has(character.chaId))?.chaId
 }
 
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
     const db = getDatabase()
     
-    // Return placeholder when hideAllImages is enabled
     if(db.hideAllImages){
-        if(type === 'plain'){
-            return '/none.webp'
-        }
-        return ''  // For CSS types, return empty to show default ? icon
+        return ''  // Callers show the same fallback as a character without an image
     }
     
     if(!loc || loc === ''){
@@ -116,13 +111,17 @@ export async function selectCharImg(charIndex:number) {
                     continue
                 }
                 if(allowedChunk.includes(chunk.key)){
-                    console.log(chunk.key, chunk.value)
+                    if (isDebugEnabled()) {
+                        console.debug(chunk.key, chunk.value)
+                    }
                     db.characters[charIndex].extentions ??= {}
                     db.characters[charIndex].extentions.pngExif ??= {}
                     db.characters[charIndex].extentions.pngExif[chunk.key] = chunk.value
                 }
             }
-            console.log(db.characters[charIndex].extentions)
+            if (isDebugEnabled()) {
+                console.debug(db.characters[charIndex].extentions)
+            }
         }   
     } catch (error) {
         console.error(error)
@@ -189,9 +188,9 @@ export async function exportChat(page:number){
         const selectedID = get(selectedCharID)
         const db = getDatabase()
         const char = db.characters[selectedID]
-        // Ensure chat is hydrated before export
+        // Export needs the full chat body, not a server placeholder.
         if(char.chats[page]?._placeholder){
-            await ensureChatHydrated(char.chats, page, char.chaId)
+            await ensureChatHydrated(char, page)
         }
         if(char.chats[page]?._placeholder){
             alertError('Failed to load chat data. Export aborted.')
@@ -211,7 +210,6 @@ export async function exportChat(page:number){
             }
 
             if(anonymous){
-                //case insensitive match, replace all
                 const excapedName = char.name.replace(/[-\/\\^$*+\?\.()|[\]{}]/g, '\\$&')
 
                 v = v.replace(new RegExp(`${excapedName}`, 'gi'), '×××')
@@ -353,7 +351,6 @@ export async function exportChat(page:number){
         else if(mode === '3'){
             const theme = getCurrentExportTheme()
             const cellStyle = `padding: 0.75rem; border: 1px solid ${theme.border}; vertical-align: top; text-align: left;`
-            //create a html table
             let chatContentHTML = ''
 
             let i = 0
@@ -383,8 +380,6 @@ export async function exportChat(page:number){
                 </div>
             `
 
-            //copy to clipboard
-
             const item = new ClipboardItem({
                 'text/html': new Blob([template], { type: 'text/html' }),
                 'text/plain': new Blob([template], { type: 'text/plain' })
@@ -411,7 +406,7 @@ export async function exportChat(page:number){
             await downloadFile(`${char.name}_${date}_chat`.replace(/[<>:"/\\|?*\.\,]/g, "") + '.txt', Buffer.from(stringl, 'utf-8'))
 
         }
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }
@@ -516,7 +511,7 @@ export async function exportAllChats() {
         for (let i = 0; i < char.chats.length; i++) {
             if (char.chats[i]?._placeholder) {
                 alertWait(`Loading chat data... (${i + 1}/${char.chats.length})`)
-                await ensureChatHydrated(char.chats, i, char.chaId)
+                await ensureChatHydrated(char, i)
             }
             if (char.chats[i]?._placeholder) {
                 alertError(`Failed to load chat data for "${char.chats[i].name}". Export aborted to prevent data loss.`)
@@ -534,19 +529,20 @@ export async function exportAllChats() {
             bookmarkTags: bookmarkExport.tags,
         }), 'utf-8')
         await downloadFile(`${char.name}_all_chats_${date}`.replace(/[<>:"/\\|?*.,]/g, "") + '.json', stringl)
-        notifySuccess(language.successExport)
+        notifySuccess(language.browserDownloadStarted)
     } catch (error) {
         alertError(error)
     }
 }
 
 function formatTavernChat(chat:string, charName:string){
-    const db = getDatabase()
     return chat.replace(/<([Uu]ser)>|\{\{([Uu]ser)\}\}/g, getUserName()).replace(/((\{\{)|<)([Cc]har)(=.+)?((\}\})|>)/g, charName)
 }
 
 export function characterFormatUpdate(indexOrCharacter:number|character){
     let cha = typeof(indexOrCharacter) === 'number' ? getCharacterByIndex(indexOrCharacter) : indexOrCharacter
+    if (!cha.chaId) cha.chaId = createEntityId()
+    initializeChatSelection(cha)
     if(cha.chats.length === 0){
         cha.chats = [{
             message: [],
@@ -556,17 +552,14 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
             ...newChatModelDefaults()
         }]
     }
-    if(!cha.chats[cha.chatPage]){
-        cha.chatPage = 0
+    if(!cha.chats[getChatPage(cha)]){
+        setChatPage(cha, 0)
     }
-    if(!cha.chats[cha.chatPage].message){
-        cha.chats[cha.chatPage].message = []
+    if(!cha.chats[getChatPage(cha)].message){
+        cha.chats[getChatPage(cha)].message = []
     }
     if(!cha.type){
         cha.type = 'character'
-    }
-    if(!cha.chaId){
-        cha.chaId = createEntityId()
     }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
@@ -588,8 +581,8 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         character_version: ''
     }
     if(cha.postHistoryInstructions){
-        cha.chats[cha.chatPage].note += "\n" + cha.postHistoryInstructions
-        cha.chats[cha.chatPage].note = cha.chats[cha.chatPage].note.trim()
+        cha.chats[getChatPage(cha)].note += "\n" + cha.postHistoryInstructions
+        cha.chats[getChatPage(cha)].note = cha.chats[getChatPage(cha)].note.trim()
         cha.postHistoryInstructions = null
     }
     cha.additionalText ??= ''
@@ -641,7 +634,7 @@ export function updateLorebooks(book:loreBook[]){
 
 }
 
-// SYNC: server/node/server.cjs promoteFailedColdStorageStub() mirrors these defaults.
+// SYNC: server/server.cjs promoteFailedColdStorageStub() mirrors these defaults.
 export function createBlankChar():character{
     return {
         name: '',
@@ -656,7 +649,6 @@ export function createBlankChar():character{
             ...newChatModelDefaults()
         }],
         chatFolders: [],
-        chatPage: 0,
         emotionImages: [],
         bias: [],
         viewScreen: 'none',
@@ -736,7 +728,7 @@ export async function removeChar(index:number,name:string, type:'normal'|'perman
 
         let chars = db.characters
         if(type === 'normal'){
-            chars[currentIndex].trashTime = Date.now()
+            moveToTrash(db.characterOrder, chars[currentIndex])
         }
         else{
             chars.splice(currentIndex, 1)
@@ -751,6 +743,11 @@ export async function removeChar(index:number,name:string, type:'normal'|'perman
         charactersBeingRemoved.delete(targetCharacter)
         activeCharacterRemovalCount--
     }
+}
+
+export function restoreCharacterFromTrash(character: character){
+    restoreFromTrash(getDatabase().characterOrder, character)
+    checkCharOrder()
 }
 
 export async function emptyCharacterTrash(){
@@ -797,69 +794,48 @@ export async function emptyCharacterTrash(){
 export async function addCharacter(arg:{
     reseter?:()=>any,
 } = {}){
-    const reseter = arg.reseter ?? (() => {})
     const r = await alertAddCharacter()
-    if(r === 'importFromRealm'){
-        selectedCharID.set(-1)
-        OpenRealmStore.set(true)
-        return
-    }
-    reseter();
+    let characterId: string | undefined
     switch(r){
-        case 'createfromScratch':
-            createNewCharacter()
+        case 'importFromRealm':
+            selectedCharID.set(-1)
+            OpenRealmStore.set(true)
+            return
+        case 'createfromScratch': {
+            const character = createBlankChar()
+            getDatabase().characters.push(character)
+            checkCharOrder()
+            characterId = character.chaId
             break
+        }
         case 'importCharacter':
-            await importCharactersAndPackages()
+            characterId = await importCharactersAndPackages()
             break
         default:
             return
     }
-    let db = getDatabase()
-    if(db.characters[db.characters.length-1]){
-        changeChar(db.characters.length-1)
-    }
+    if(characterId) changeChar(characterId, arg)
 }
 
-export function changeChar(index: number, arg:{
+export function changeChar(characterId: string, arg:{
     reseter?:()=>any,
-} = {}) {
-    const reseter = arg.reseter ?? (() => {})
-    const char = getDatabase().characters[index]
-    if(char) dismissClaimedLoadingOverlay()
-    reseter();
+} = {}): boolean {
+    const characters = getDatabase().characters
+    const index = characters.findIndex(character => character.chaId === characterId && !character.trashTime)
+    if(index === -1) return false
+    const char = characters[index]
+    dismissClaimedLoadingOverlay()
+    arg.reseter?.()
     chatDeselected.set(false)
     characterFormatUpdate(index);
     selectedCharID.set(index);
     const chat = getCurrentChat()
     if(chat){
         if(chat._placeholder){
-            const db = getDatabase()
-            const char = db.characters[index]
-            const capturedIndex = index
-            const capturedChatId = chat.id
-            if(char){
-                let cancelled = false
-                const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
-                    cancelled = true
-                    chatDeselected.set(true)
-                    releaseOverlay()
-                })
-                void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
-                    if(cancelled) return
-                    const currentChar = getDatabase().characters[capturedIndex]
-                    const activeChatId = currentChar?.chats?.[currentChar.chatPage]?.id
-                    if(hydrated && get(selectedCharID) === capturedIndex && activeChatId === capturedChatId) {
-                        loadTogglesFromChat(hydrated)
-                    }
-                }).catch((e) => {
-                    console.error('[selectCharacter] hydration failed:', e)
-                }).finally(() => {
-                    if(!cancelled) releaseOverlay()
-                })
-            }
+            hydrateSelectedChat(char, getChatPage(char), 'selectCharacter')
         } else {
             loadTogglesFromChat(chat)
         }
     }
+    return true
 }

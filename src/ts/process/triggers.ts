@@ -1,10 +1,12 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { parseChatML } from "../parser/chatML";
 import { risuChatParser } from "../parser/parser.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type Chat, type character } from "../storage/database.svelte";
+import { getDatabase, type Chat, type character } from "../storage/database.svelte";
 import { tokenize } from "../tokenizer";
 import { getModuleTriggers } from "./modules";
 import { get } from "svelte/store";
-import { ReloadChatPointer, ReloadGUIPointer, selectedCharID, CurrentTriggerIdStore } from "../stores.svelte";
+import { ReloadChatPointer, ReloadGUIPointer, CurrentTriggerIdStore } from "../stores.svelte";
+import { resolveTriggerOrigin } from './triggerOrigin';
 import { processMultiCommand } from "./command";
 import { parseKeyValue, sleep } from "../util";
 import { alertInput, alertNormal, alertSelect, notifyError } from "../alert";
@@ -1051,12 +1053,15 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     tempVars?: Record<string, string>
 }){
     arg.recursiveCount ??= 0
-    char = arg.displayMode ? char : structuredClone(char)
+    char = arg.displayMode ? char : {
+        ...char,
+        globalLore: char.globalLore === undefined ? undefined : structuredClone(char.globalLore),
+    }
     let varChanged = false
     let stopSending = arg.stopSending ?? false
     const CharacterlowLevelAccess = char.lowLevelAccess ?? false
     let sendAIprompt = false
-    const currentChat = getCurrentChat()
+    const origin = { characterId: char.chaId, chatId: arg.chat.id }
     let additonalSysPrompt:additonalSysPrompt = arg.additonalSysPrompt ?? {
         start:'',
         historyend: '',
@@ -1068,11 +1073,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     }))
     const triggers = migrateTriggersToCurrentV2([
         ...characterTriggers,
-        ...getModuleTriggers(),
+        ...getModuleTriggers(char, arg.chat),
     ])
     const db = getDatabase()
     const defaultVariables = parseKeyValue(char.defaultVariables).concat(parseKeyValue(db.templateDefaultVariables))
-    let chat = arg.displayMode ? arg.chat : structuredClone(arg.chat ?? char.chats[char.chatPage])
+    let chat = arg.displayMode ? arg.chat : structuredClone(arg.chat)
     
     const previousTriggerId = get(CurrentTriggerIdStore)
     const shouldSetTriggerId = !arg.displayMode && mode !== 'display'
@@ -1197,21 +1202,17 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             return
         }
         
-        const selectedCharId = get(selectedCharID)
-        const currentCharacter = getCurrentCharacter()
-        const db = getDatabase()
         varChanged = true
         chat.scriptstate ??= {}
         chat.scriptstate['$' + key] = value
-        currentChat.scriptstate = chat.scriptstate
-        currentCharacter.chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
-        db.characters[selectedCharId].chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
+        const currentChat = resolveTriggerOrigin(origin)?.chat
+        if (currentChat) currentChat.scriptstate = chat.scriptstate
     }
     
     
     for(const trigger of triggers){
         if(trigger.effect[0]?.type === 'triggercode' || trigger.effect[0]?.type === 'triggerlua'){
-            //
+            // Code triggers can run in any mode.
         }
         else if(arg.manualName){
             if(trigger.comment !== arg.manualName){
@@ -1240,13 +1241,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             get message() { return chat.message },
             set message(value) { chat.message = value as Chat['message'] },
         }
-        // Display triggers only execute `displayAllowList`: those effects can
-        // read database-backed values, but cannot mutate persistent database,
-        // character, or chat fields. Cloning the complete database here made
-        // every rendered message pay that cost independently (and dominated
-        // long translated-chat loading), so keep the defensive draft only for
-        // mutation-capable trigger runs.
-        const databaseDraft = arg.displayMode ? db : structuredClone(db)
+        // Display effects are read-only, so they can use the live database;
+        // clone only for trigger runs that may mutate persistent state.
+        const databaseDraft = arg.displayMode ? db : {
+            ...db,
+            personas: db.personas?.map(persona => ({ ...persona })),
+        }
         let abortRun = false
         await runRevenantTriggerProgram({
             effects: trigger.effect as unknown as TriggerV2Effect[],
@@ -1270,10 +1270,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             onIndent: indent => { currentIndent = indent },
             onMutations: mutations => {
                 if(arg.displayMode) return
-                const selectedCharacter = get(selectedCharID)
-                if(mutations.character && db.characters[selectedCharacter]){
-                    Object.assign(db.characters[selectedCharacter], structuredClone(mutations.character))
-                    setCurrentCharacter(char)
+                const currentCharacter = resolveTriggerOrigin(origin)?.character
+                if(mutations.character && currentCharacter){
+                    Object.assign(currentCharacter, structuredClone(mutations.character))
                 }
                 if(mutations.database){
                     Object.assign(db, structuredClone(mutations.database))
@@ -1283,7 +1282,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             executeAction: async triggerAction => {
                 const payload = triggerAction.payload
                 switch(triggerAction.kind){
-                    case 'log': console.log(payload.value); break
+                    case 'log':
+                        if (isDebugEnabled()) {
+                            console.debug(payload.value)
+                        }
+                        break
                     case 'prompt.append':
                         additonalSysPrompt[payload.location as keyof additonalSysPrompt] += `${payload.value}\n\n`
                         break
@@ -1379,7 +1382,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     if(triggerCodeResult.stopSending){
                         stopSending = true
                     }
-                    chat = triggerCodeResult.chat
                     break
                 }
                 case 'v2GetDisplayState':{
@@ -1473,8 +1475,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         caculatedTokens += await tokenize(additonalSysPrompt.promptend)
     }
     if(varChanged){
-        const currentChat = getCurrentChat()
-        currentChat.scriptstate = chat.scriptstate
         ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
     }
 

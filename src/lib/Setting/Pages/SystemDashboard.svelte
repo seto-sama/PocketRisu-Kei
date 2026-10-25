@@ -4,7 +4,7 @@
     import Badge from '../../UI/components/Badge.svelte'
     import Alert from '../../UI/components/Alert.svelte'
     import Accordion from '../../UI/components/Accordion.svelte'
-    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import ProgressDialog from '../../UI/components/ProgressDialog.svelte'
     import Switch from '../../UI/components/Switch.svelte'
     import Tooltip from '../../UI/components/Tooltip.svelte'
     import {
@@ -414,14 +414,9 @@
         return Math.max(0, Math.min(100, (part / whole) * 100))
     }
 
-    // Close the dashboard and select the character this row represents.
-    // Trashed rows aren't in the live characters array, so there's nothing to jump to.
     function jumpToCharacter(c: CharBreakdown) {
         if (c.trashed) return
-        const index = getDatabase().characters.findIndex((ch) => ch.chaId === c.chaId)
-        if (index === -1) return
-        changeChar(index)
-        settingsOpen.set(false)
+        if (changeChar(c.chaId)) settingsOpen.set(false)
     }
 
     const charSlice = $derived(characters?.characters.slice(0, charShown) ?? [])
@@ -790,6 +785,6 @@
 
 {/if}
 
-<LoadingDialog open={optimizeOpen} message={optimizeMessage} />
-<LoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
-<LoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />
+<ProgressDialog open={optimizeOpen} title={language.storageOptimize} message={optimizeMessage} />
+<ProgressDialog open={walCleanupOpen} title={language.storageWalCleanup_btn} message={language.storageWalCleanuping} />
+<ProgressDialog open={hypaCleanupOpen} title={language.storageHypaCleanup} message={language.storageHypaCleanuping} />

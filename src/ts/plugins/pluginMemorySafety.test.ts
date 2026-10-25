@@ -14,7 +14,6 @@ describe('plugin startup storage warning', () => {
     beforeEach(() => pluginMemorySessionStore.set({
         disableAll: false,
         disabledPluginNames: [],
-        unclassifiedExcluded: false,
     }))
 
     it('persists the browser-local threshold before database loading', () => {
@@ -51,15 +50,14 @@ describe('plugin startup storage warning', () => {
         expect(buildPluginMemoryDecision(stats, [], false).excludeAll).toBe(true)
     })
 
-    it('disables selected V3 and legacy plugins only for the filtered session', () => {
+    it('disables selected plugins only for the filtered session', () => {
         applyPluginMemoryDecision({
             excludedPluginNames: ['large'],
             excludeUnclassified: true,
             excludeAll: false,
         })
 
-        expect(pluginDisabledForMemorySession({ name: 'large', version: '3.0' })).toBe(true)
-        expect(pluginDisabledForMemorySession({ name: 'small', version: '3.0' })).toBe(false)
-        expect(pluginDisabledForMemorySession({ name: 'legacy', version: '2.1' })).toBe(true)
+        expect(pluginDisabledForMemorySession({ name: 'large' })).toBe(true)
+        expect(pluginDisabledForMemorySession({ name: 'small' })).toBe(false)
     })
 })

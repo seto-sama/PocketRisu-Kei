@@ -9,7 +9,7 @@ function recipe(): RevenantPostprocessRecipe {
         providerBackend: 'http',
         modelPreset: {},
         character: {
-            type: 'character', chaId: 'character-1', name: 'Alice', chats: [], chatPage: 0,
+            type: 'character', chaId: 'character-1', name: 'Alice', chats: [],
             customscript: [{
                 type: 'editoutput', in: 'Hello (.+)', out: '{{char}} says: $1', ableFlag: true, flag: 'g',
             }],

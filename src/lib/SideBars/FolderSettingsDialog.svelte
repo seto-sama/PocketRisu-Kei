@@ -99,7 +99,7 @@
             <div class="flex w-[var(--folder-preview-size)] shrink-0 flex-col items-center gap-4 max-sm:self-center">
                 <FolderAvatar folder={target} size={String(previewSize)} interactive={false} showTooltip={false} />
                 {#if mode === 'image'}
-                    <Button variant="outline" size="sm" className="w-full" title={language.selectImage} disabled={uploading} onclick={pickImage}>
+                    <Button variant="outline" size="sm" className="w-full" title={language.selectImage} disabled={uploading} onclick={pickImage} data-file-picker>
                         <ImageIcon />{language.select}
                     </Button>
                 {/if}

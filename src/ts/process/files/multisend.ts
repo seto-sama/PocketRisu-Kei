@@ -1,3 +1,5 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getDatabase, setDatabase } from 'src/ts/storage/database.svelte';
 import { selectedCharID } from 'src/ts/stores.svelte';
@@ -13,6 +15,8 @@ type sendFileArg = {
     query:string
 }
 
+const FILE_CONTEXT_CHUNKS = 7
+
 async function sendPofile(arg:sendFileArg){
 
     let result = ''
@@ -22,10 +26,12 @@ async function sendPofile(arg:sendFileArg){
     let parseMode = 0
     const db = getDatabase()
     let currentChar = db.characters[get(selectedCharID)]
-    let currentChat = currentChar.chats[currentChar.chatPage]
+    let currentChat = currentChar.chats[getChatPage(currentChar)]
     const lines = arg.file.split('\n')
     for(let i=0;i<lines.length;i++){
-        console.log(i)
+        if (isDebugEnabled()) {
+            console.debug(i)
+        }
         const line = lines[i]
         if(line === ''){
             if(msgId === ''){
@@ -43,12 +49,12 @@ async function sendPofile(arg:sendFileArg){
                 role: 'user',
                 data: text
             })
-            currentChar.chats[currentChar.chatPage] = currentChat
+            currentChar.chats[getChatPage(currentChar)] = currentChat
             db.characters[get(selectedCharID)] = currentChar
             doingChat.set(false)
             await sendChat(-1);
             currentChar = db.characters[get(selectedCharID)]
-            currentChat = currentChar.chats[currentChar.chatPage]
+            currentChat = currentChar.chats[getChatPage(currentChar)]
             const res = currentChat.message[currentChat.message.length-1]
             const msgStr = res.data.split('\n').filter((a) => {
                 return a !== ''
@@ -98,53 +104,35 @@ async function sendPofile(arg:sendFileArg){
             continue
         }
         result += line + '\n'
-
-        if(i > 100){
-            break //prevent too long message in testing
-        }
-
     }
     await downloadFile('translated.po', result)
 }
 
-async function sendTxtFile(arg:sendFileArg) {
-    const lines = arg.file.split('\n').filter((a) => {
-        return a !== ''
-    })
+async function buildFileContext(texts: string[], query: string): Promise<string> {
     const hypa = new HypaProcesser()
-    hypa.addText(lines)
-    const result = await hypa.similaritySearch(arg.query)
-    let message = ''
-    for(let i = 0; i<result.length; i++){
-        message += "\n" + result[i]
-        if(i>5){
-            break
-        }
+    await hypa.addText(texts)
+    const result = await hypa.similaritySearch(query)
+    const message = result.slice(0, FILE_CONTEXT_CHUNKS).map(text => `\n${text}`).join('')
+    if (isDebugEnabled()) {
+        console.debug(message)
     }
-    console.log(message)
     return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')
 }
 
-async function sendXMLFile(arg:sendFileArg) {
-    const hypa = new HypaProcesser()
-    let nodeTexts:string[] = []
+function sendTxtFile(arg:sendFileArg): Promise<string> {
+    const lines = arg.file.split('\n').filter(line => line !== '')
+    return buildFileContext(lines, arg.query)
+}
+
+function sendXMLFile(arg:sendFileArg): Promise<string> {
+    const nodeTexts:string[] = []
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(arg.file, "text/xml");
     const nodes = xmlDoc.getElementsByTagName('*')
     for(const node of nodes){
         nodeTexts.push(node.textContent)
     }
-    hypa.addText(nodeTexts)
-    const result = await hypa.similaritySearch(arg.query)
-    let message = ''
-    for(let i = 0; i<result.length; i++){
-        message += "\n" + result[i]
-        if(i>5){
-            break
-        }
-    }
-    console.log(message)
-    return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')    
+    return buildFileContext(nodeTexts, arg.query)
 }
 
 type postFileResult = postFileResultAsset | postFileResultVoid | postFileResultText
@@ -202,7 +190,9 @@ export async function postChatFile(query:string|{
 
     for(const file of files){
         const extention = file.name.split('.').at(-1)
-        console.log(extention)
+        if (isDebugEnabled()) {
+            console.debug(extention)
+        }
 
         switch(extention){
             case 'po':{

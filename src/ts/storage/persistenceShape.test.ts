@@ -9,11 +9,12 @@ import {
 } from './persistenceShape'
 
 describe('character persistence shape', () => {
-    it('removes render invalidation state without changing the live character', () => {
+    it('removes runtime and legacy fields without changing the source character', () => {
         const character = {
             chaId: 'character',
             name: 'Name',
             reloadKeys: 42,
+            chatPage: 3,
             lastInteraction: 123,
         }
 
@@ -23,6 +24,7 @@ describe('character persistence shape', () => {
             lastInteraction: 123,
         })
         expect(character.reloadKeys).toBe(42)
+        expect(character.chatPage).toBe(3)
     })
 
     it('omits server-owned metadata from browser writes', () => {
@@ -30,6 +32,7 @@ describe('character persistence shape', () => {
             chaId: 'character',
             name: 'Name',
             reloadKeys: 42,
+            chatPage: 3,
             lastInteraction: 123,
         })).toEqual({
             chaId: 'character',
@@ -41,6 +44,7 @@ describe('character persistence shape', () => {
         })).toEqual({ imports: 2 })
         expect(isClientWritableCharacterField('name')).toBe(true)
         expect(isClientWritableCharacterField('reloadKeys')).toBe(false)
+        expect(isClientWritableCharacterField('chatPage')).toBe(false)
         expect(isClientWritableCharacterField('lastInteraction')).toBe(false)
     })
 
@@ -61,7 +65,7 @@ describe('character persistence shape', () => {
         expect(messagesRead).toBe(false)
     })
 
-    it('restores the render counter after loading a persistent character', () => {
+    it('restores device defaults after loading a persistent character', () => {
         expect(initializeCharacterRuntimeState({ chaId: 'character' })).toEqual({
             chaId: 'character',
             reloadKeys: 0,

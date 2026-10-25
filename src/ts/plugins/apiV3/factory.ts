@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { createEntityId } from 'src/ts/id';
 
 type MsgType =
@@ -50,12 +51,42 @@ export function getRpcAbortSignalMetadata(signal: AbortSignal | undefined, key: 
     return signal ? rpcAbortSignalMetadata.get(signal)?.[key] : undefined;
 }
 
+function collectTransferables(obj: any, transferables: Transferable[] = [], seen = new WeakSet<object>(transferables)): Transferable[] {
+    if (!obj || typeof obj !== 'object' || seen.has(obj)) return transferables;
+    seen.add(obj);
+    if (obj instanceof ArrayBuffer
+        || obj instanceof MessagePort
+        || (typeof ImageBitmap !== 'undefined' && obj instanceof ImageBitmap)
+        || (typeof WritableStream !== 'undefined' && obj instanceof WritableStream)
+        || (typeof TransformStream !== 'undefined' && obj instanceof TransformStream)
+        || (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
+        transferables.push(obj);
+    } else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
+        collectTransferables(obj.buffer, transferables, seen);
+    } else if (obj instanceof Map) {
+        for (const [key, value] of obj) {
+            collectTransferables(key, transferables, seen);
+            collectTransferables(value, transferables, seen);
+        }
+    } else if (Array.isArray(obj) || obj instanceof Set) {
+        for (const value of obj) collectTransferables(value, transferables, seen);
+    } else if (obj.constructor === Object) {
+        for (const value of Object.values(obj)) collectTransferables(value, transferables, seen);
+    }
+    return transferables;
+}
+
 const GUEST_BRIDGE_SCRIPT = `
 await (async function() {
+    const collectTransferables = ${collectTransferables.toString()};
     const pendingRequests = new Map();
     const callbackRegistry = new Map();
     const callbackIdByFunction = new WeakMap();
-    const proxyRefRegistry = new Map();
+    const proxyRefRegistry = new WeakMap();
+    // Each host ref backs exactly one proxy, so a collected proxy frees its host instance.
+    const releaseOnCollect = typeof FinalizationRegistry === 'function'
+        ? new FinalizationRegistry(id => send({ type: 'RELEASE_INSTANCE', id }))
+        : null;
     const abortControllers = new Map();
     const abortSignalMetadata = new WeakMap();
 
@@ -108,23 +139,24 @@ await (async function() {
                 get: (target, prop) => {
                     if (prop === 'then') return undefined;
                     if (prop === 'release') {
-                        return () => send({ type: 'RELEASE_INSTANCE', id: val.id });
+                        return () => {
+                            releaseOnCollect?.unregister(proxy);
+                            send({ type: 'RELEASE_INSTANCE', id: val.id });
+                        };
                     }
                     return (...args) => sendRequest('CALL_INSTANCE', {
-                        id: val.id,
+                        // Extracted methods must keep their proxy alive until called.
+                        id: proxyRefRegistry.get(proxy),
                         method: prop,
                         args: args
                     });
                 }
             });
-            // Store the mapping so we can serialize it back
             proxyRefRegistry.set(proxy, val.id);
+            releaseOnCollect?.register(proxy, val.id, proxy);
             return proxy;
         }
         if (val && typeof val === 'object' && val.__type === 'CALLBACK_STREAMS') {
-            //specialType, one of
-            // - Response
-            // - none
             const specialType = val.__specialType;
             if (specialType === 'Response') {
                 return new Response(val.value, val.init);
@@ -132,28 +164,6 @@ await (async function() {
             return val.value;
         }
         return val;
-    }
-
-    function collectTransferables(obj, transferables = []) {
-        if (!obj || typeof obj !== 'object') return transferables;
-
-        if (obj instanceof ArrayBuffer ||
-            obj instanceof MessagePort ||
-            obj instanceof ImageBitmap ||
-            (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
-            transferables.push(obj);
-        }
-        else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
-            transferables.push(obj.buffer);
-        }
-        else if (Array.isArray(obj)) {
-            obj.forEach(item => collectTransferables(item, transferables));
-        }
-        else if (obj.constructor === Object) {
-            Object.values(obj).forEach(value => collectTransferables(value, transferables));
-        }
-
-        return transferables;
     }
 
     function replaceStreamsWithPorts(obj) {
@@ -219,14 +229,14 @@ await (async function() {
         if (obj.constructor === Object) {
             const out = {};
             for (const k of Object.keys(obj)) out[k] = replace(obj[k]);
-            return { result: out, ports, cleanups };
+            return { result: ports.length ? out : obj, ports, cleanups };
         }
 
         return { result: obj, ports, cleanups };
     }
 
     function reconstructStreamsFromPorts(obj, ports) {
-        if (!obj || typeof obj !== 'object') return obj;
+        if (!obj || typeof obj !== 'object' || ports.length === 0) return obj;
 
         function reconstruct(val) {
             if (!val || val.__type !== 'STREAM_PORT' || typeof val.portIndex !== 'number') return val;
@@ -277,7 +287,6 @@ await (async function() {
             const reqId = Math.random().toString(36).substring(7);
             pendingRequests.set(reqId, { resolve, reject });
 
-
             if (payload.args) {
                 payload.args = payload.args.map(serializeArg);
             }
@@ -288,13 +297,10 @@ await (async function() {
         });
     }
 
-    
-    
-    
     window.addEventListener('message', async (event) => {
+        if (event.source !== window.parent) return;
         const data = event.data;
         if (!data) return;
-
 
         if (data.type === 'RESPONSE' && data.reqId) {
             const req = pendingRequests.get(data.reqId);
@@ -368,7 +374,6 @@ await (async function() {
                 delete response.result;
                 response.error = (e && e.message) || String(e || "Guest callback error");
             }
-            // Clean up abort controllers after callback completes
             for (const id of usedAbortIds) {
                 abortControllers.delete(id);
             }
@@ -387,10 +392,6 @@ await (async function() {
         }
     });
 
-
-
-
-
     const propertyCache = new Map();
 
     window.risuai = new Proxy({}, {
@@ -404,16 +405,14 @@ await (async function() {
     window.Risuai = window.risuai;
 
     try {
-        // Initialize cached properties
         const propsToInit = await window.risuai._getPropertiesForInitialization();
-        console.log('Initializing risuai properties:', JSON.stringify(propsToInit.list));
+        ${isDebugEnabled() ? "console.debug('Initializing risuai properties:', propsToInit.list);" : ''}
         for (let i = 0; i < propsToInit.list.length; i++) {
             const key = propsToInit.list[i];
             const value = propsToInit[key];
             propertyCache.set(key, value);
         }
 
-        // Initialize aliases
         const aliases = await window.risuai._getAliases();
         const aliasKeys = Object.keys(aliases);
         for (let i = 0; i < aliasKeys.length; i++) {
@@ -426,8 +425,6 @@ await (async function() {
             }
             propertyCache.set(aliasKey, aliasObj);
         }
-
-        // Initialize helper functions defined in the guest
 
         propertyCache.set('unwarpSafeArray', async (safeArray) => {
             const length = await safeArray.length();
@@ -442,13 +439,6 @@ await (async function() {
         console.error('Failed to initialize risuai properties:', e);
     }
 
-    window.initOldApiGlobal = () => {
-        const keys = risuai._getOldKeys()
-        for(const key of keys){
-            window[key] = risuai[key];
-        }
-    }
-
     Object.freeze(window.postMessage);
 })();
 `;
@@ -457,7 +447,7 @@ export class SandboxHost {
     private iframe: HTMLIFrameElement;
     private apiFactory: any;
     private nonce = createEntityId();
-    private csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src * 'unsafe-inline'; default-src 'none'; img-src * data: blob:; font-src * data: blob:; media-src * data: blob:; base-uri 'none';`;
+    private csp: string;
 
     private instanceRegistry = new Map<string, any>();
     private abortControllers = new Map<string, AbortController>();
@@ -473,6 +463,10 @@ export class SandboxHost {
 
     constructor(apiFactory: any) {
         this.apiFactory = apiFactory;
+        const appOrigin = new URL(window.location.href).origin;
+        const resourceOrigin = appOrigin === 'null' ? '' : `${appOrigin}/assets/ `;
+        // Google Fonts serves its stylesheets separately from font files.
+        this.csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src ${resourceOrigin}https://fonts.googleapis.com 'unsafe-inline'; default-src 'none'; img-src ${resourceOrigin}data: blob:; font-src * data: blob:; media-src ${resourceOrigin}data: blob:; form-action 'none'; base-uri 'none';`;
     }
 
     public executeInIframe(code: string): Promise<any> {
@@ -503,41 +497,12 @@ export class SandboxHost {
         });
     }
 
-    private collectTransferables(obj: any, transferables: Transferable[] = []): Transferable[] {
-        if (!obj || typeof obj !== 'object') return transferables;
-
-        if (obj instanceof ArrayBuffer ||
-            obj instanceof MessagePort ||
-            obj instanceof ImageBitmap ||
-            obj instanceof WritableStream ||
-            obj instanceof TransformStream ||
-            (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas)) {
-            transferables.push(obj);
-        }
-        else if (ArrayBuffer.isView(obj) && obj.buffer instanceof ArrayBuffer) {
-            transferables.push(obj.buffer);
-        }
-        else if (Array.isArray(obj)) {
-            obj.forEach(item => this.collectTransferables(item, transferables));
-        }
-        else if (obj.constructor === Object) {
-            Object.values(obj).forEach(value => this.collectTransferables(value, transferables));
-        }
-
-        return transferables;
-    }
-
-
     private serialize(val: any): any {
         if (
             val &&
             (typeof val === 'object' || typeof val === 'function') &&
             val.__classType === 'REMOTE_REQUIRED'
         ) {
-            if (val === null) return null;
-            if (Array.isArray(val)) return val;
-
-
             const id = 'ref_' + Math.random().toString(36).substring(2);
             this.instanceRegistry.set(id, val);
             return { __type: 'REMOTE_REF', id } as RemoteRef;
@@ -568,7 +533,6 @@ export class SandboxHost {
         }
         return val;
     }
-
 
     private deserializeArgs(args: any[], usedAbortIds?: string[]) {
         return args.map(arg => {
@@ -616,7 +580,7 @@ export class SandboxHost {
                             reqId,
                             args: sanitizedArgs
                         };
-                        const transferables = this.collectTransferables(message);
+                        const transferables = collectTransferables(message);
                         this.iframe.contentWindow?.postMessage(message, '*', transferables);
                     });
                 };
@@ -719,14 +683,14 @@ export class SandboxHost {
         if (obj.constructor === Object) {
             const out: any = {};
             for (const k of Object.keys(obj)) out[k] = replace(obj[k]);
-            return { result: out, ports, cleanups };
+            return { result: ports.length ? out : obj, ports, cleanups };
         }
 
         return { result: obj, ports, cleanups };
     }
 
     private reconstructStreamsFromPorts(obj: any, ports: readonly MessagePort[]): any {
-        if (!obj || typeof obj !== 'object') return obj;
+        if (!obj || typeof obj !== 'object' || ports.length === 0) return obj;
 
         const reconstruct = (val: any): any => {
             if (val?.__type !== 'STREAM_PORT' || typeof val.portIndex !== 'number') return val;
@@ -818,7 +782,6 @@ export class SandboxHost {
             if (event.source !== this.iframe.contentWindow) return;
             const data = event.data as RpcMessage;
 
-
             if (data.type === 'CALLBACK_RETURN') {
                 const req = this.pendingCallbacks.get(data.reqId!);
                 if (req) {
@@ -844,12 +807,10 @@ export class SandboxHost {
                 return;
             }
 
-
             if (data.type === 'RELEASE_INSTANCE') {
                 this.instanceRegistry.delete(data.id!);
                 return;
             }
-
 
             if (data.type === 'CALL_ROOT' || data.type === 'CALL_INSTANCE') {
                 const response: RpcMessage = { type: 'RESPONSE', reqId: data.reqId };
@@ -865,10 +826,8 @@ export class SandboxHost {
                 };
 
                 try {
-
                     const args = this.deserializeArgs(data.args || [], usedAbortIds);
                     let result: any;
-
 
                     if (data.type === 'CALL_ROOT') {
                         const fn = this.apiFactory[data.method!];
@@ -881,12 +840,11 @@ export class SandboxHost {
                         result = await instance[data.method!](...args);
                     }
 
-
                     response.result = this.serialize(result);
                     const { result: streamResult, ports: streamPorts, cleanups } = this.replaceStreamsWithPorts(response.result);
                     response.result = streamResult;
                     streamCleanups = cleanups;
-                    transferables = this.collectTransferables(response, streamPorts);
+                    transferables = collectTransferables(response, streamPorts);
 
                 } catch (err: any) {
                     rollbackStreams();
@@ -896,8 +854,10 @@ export class SandboxHost {
                     for (const id of usedAbortIds) this.abortControllers.delete(id);
                 }
 
-                console.log("Original request:", data);
-                console.log('Original response:', response, transferables);
+                if (isDebugEnabled()) {
+                    console.debug("Original request:", data);
+                    console.debug('Original response:', response, transferables);
+                }
                 try {
                     this.iframe.contentWindow?.postMessage(response, '*', transferables);
                 } catch (error) {
@@ -916,7 +876,6 @@ export class SandboxHost {
 
         this.messageHandlerRef = messageHandler;
         window.addEventListener('message', this.messageHandlerRef);
-
 
         const html = `
       <!DOCTYPE html>

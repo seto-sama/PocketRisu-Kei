@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import wasm from "vite-plugin-wasm";
-import strip from '@rollup/plugin-strip';
 import tailwindcss from '@tailwindcss/vite'
 import { localFontsPlugin } from './vite.localFonts';
 
@@ -16,45 +15,30 @@ function isExpectedBrowserExternalization(warning: { message: string }) {
     && browserCompatibleNodeImporters.some(importer => message.includes(importer))
 }
 
-// https://vitejs.dev/config/
-export default defineConfig(({command}) => {
-  return {
+export default defineConfig({
     plugins: [
       localFontsPlugin(),
       svelte({
         configFile: false,
         preprocess: vitePreprocess(),
         onwarn: (warning, handler) => {
-          // disable a11y warnings
           if (warning.code.startsWith("a11y-")) return;
           handler(warning);
         },
       }),
       tailwindcss(),
       wasm(),
-      command === 'build' ? strip({
-        include: '**/*.(mjs|js|svelte|ts)',
-        functions: ['console.log', 'console.debug', 'console.table', 'assert.*'],
-      }) : null
     ],
 
-    // Keep the development server on a predictable port.
     clearScreen: false,
-    server: {
-      host: '0.0.0.0', // listen on all addresses
-      port: 5174,
-      strictPort: true,
-      // hmr: false,
-    },
     build: {
       target:'baseline-widely-available',
       minify: 'oxc',
-      // The largest remaining JS chunk is lazy-loaded tiktoken vocabulary data.
+      // The tiktoken vocabulary chunk is large but lazy-loaded.
       chunkSizeWarningLimit: 2500,
       rolldownOptions: {
         checks: {
-          // This check reports relative plugin time, not an actionable build
-          // failure. WASM parsing naturally dominates builds that include tiktoken.
+          // Plugin timings vary with WASM parsing and are not actionable build checks.
           pluginTimings: false,
         },
         onwarn(warning, handler) {
@@ -92,5 +76,4 @@ export default defineConfig(({command}) => {
         },
       },
     }
-}
 });

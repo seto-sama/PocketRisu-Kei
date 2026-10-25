@@ -181,6 +181,19 @@
 }
 
 /*
+  Text whitespace. Plain strings (lang/help) keep their \n line breaks.
+  Rendered markdown/HTML resets to normal, because its source newlines are
+  already turned into tags and would otherwise break twice.
+*/
+@utility risu-plain-text {
+  white-space: pre-line;
+}
+
+@utility risu-rich-text {
+  white-space: normal;
+}
+
+/*
   Shared interaction vocabulary. These classes describe intent while the
   hover variant above keeps pointer hover and keyboard focus-visible aligned.
   Component-specific motion and layout effects should remain local.
@@ -301,6 +314,101 @@
   background-color: var(--risu-theme-selected);
 }
 
+.risu-completion-list,
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: var(--risu-completion-width, var(--risu-dialog-default-body-width));
+  min-width: 0;
+  max-width: var(--risu-dialog-default-body-width);
+  height: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--risu-theme-darkborderc);
+  border-radius: 0.375rem;
+  background: var(--risu-theme-darkbg);
+  color: var(--risu-theme-maintext);
+  font-family: var(--risu-font-family);
+  font-size: 0.875rem;
+  white-space: normal;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.risu-completion-scroll,
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup > ul {
+  min-height: 0;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0;
+  font-family: inherit;
+  white-space: normal;
+  overscroll-behavior: contain;
+}
+
+.risu-completion-option,
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup > ul > li.risu-completion-option {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  font-family: var(--risu-font-family);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: left;
+  color: var(--risu-theme-maintext);
+}
+
+.risu-completion-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  min-width: 0;
+}
+
+.risu-completion-option:is(:hover, [aria-selected="true"]),
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup > ul > li.risu-completion-option:is(:hover, [aria-selected="true"]) {
+  background-color: var(--risu-theme-selected);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup .cm-completionLabel,
+.cm-tooltip.cm-tooltip-autocomplete.risu-completion-popup .cm-completionDetail {
+  display: none;
+}
+
+.risu-completion-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.risu-completion-detail {
+  grid-column: 2;
+  margin-left: 0.5rem;
+  max-width: 16rem;
+  overflow: hidden;
+  color: var(--risu-theme-subtext);
+  font-size: 0.75rem;
+  font-style: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.risu-completion-description {
+  grid-column: 1 / -1;
+  color: var(--risu-theme-subtext);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 @utility risu-interactive-primary {
   @apply hover:bg-primary/90;
 }
@@ -337,8 +445,8 @@
 @utility risu-modal-content-viewport {
   top: 50vh;
   top: 50dvh;
-  max-height: calc(100vh - 2rem);
-  max-height: calc(100dvh - 2rem);
+  max-height: calc(100vh - var(--risu-dialog-viewport-inset));
+  max-height: calc(100dvh - var(--risu-dialog-viewport-inset));
 }
 
 /* Keep unqualified border utilities aligned with the active theme. */
@@ -443,7 +551,11 @@ body {
   --risu-status-success-bg: color-mix(in srgb, var(--risu-theme-success) 15%, var(--risu-theme-darkbg));
   --risu-status-success-border: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
   --risu-font-family: Arial, sans-serif, serif;
-
+  --risu-dialog-default-width: var(--container-md);
+  --risu-dialog-viewport-inset: 2rem;
+  --risu-dialog-padding: calc(4 * var(--spacing));
+  --risu-dialog-border-width: 1px;
+  --risu-dialog-default-body-width: calc(min(var(--risu-dialog-default-width), calc(100vw - var(--risu-dialog-viewport-inset))) - 2 * var(--risu-dialog-padding) - 2 * var(--risu-dialog-border-width));
 }
 
 .risu-status-danger {
@@ -764,6 +876,22 @@ html {
   outline-offset: 3px;
 }
 
+/* Hidden image placeholder (hideAllImages). The SVG has no size of its own,
+   so this gives it one, at zero specificity and only where the card set no
+   width/height attribute, so any size the card asks for still wins. */
+:where(img[data-risu-hidden-image]) {
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+:where(img[data-risu-hidden-image]:not([width])) {
+  width: 30rem;
+}
+
+:where(img[data-risu-hidden-image]:not([height])) {
+  height: auto;
+}
+
 .x-risu-risu-inlay-image video {
   @apply rounded-lg max-w-80 w-full;
 }
@@ -772,27 +900,46 @@ html {
   @apply rounded-lg max-w-80 w-full;
 }
 
-.x-risu-risu-inlay-missing {
-  @apply w-full max-w-80 mx-auto rounded-lg border border-darkborderc/70 bg-darkbg text-subtext flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
-  min-height: 120px;
-  margin-block: 0;
-}
-
-.x-risu-risu-inlay-image + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing),
-.x-risu-risu-inlay-missing + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing) {
+.x-risu-risu-inlay-image + .x-risu-risu-inlay-image {
   margin-block-start: 1.25rem;
 }
 
-.x-risu-risu-inlay-image > .x-risu-risu-inlay-missing {
-  margin-block: 0;
+/* A chat image that cannot be shown (hidden, missing inlay or asset, failed
+   load): a framed 16:9 box with the icon and caption centered in it as one
+   body. Content taller than the ratio grows the box. */
+.x-risu-risu-image-notice {
+  @apply inline-flex items-center justify-center text-center align-middle rounded-[10px] border-2 border-dashed border-darkborderc bg-darkbg/70 text-subtext px-4 py-3;
+  width: 20rem;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
 }
 
-.x-risu-risu-inlay-missing-title {
-  @apply text-sm font-semibold text-maintext;
+.x-risu-risu-image-notice-body {
+  @apply flex flex-col items-center gap-4 max-w-full;
 }
 
-.x-risu-risu-inlay-missing-subtitle {
-  @apply text-[11px] opacity-70 break-all;
+.x-risu-risu-image-notice-icon {
+  @apply size-10 shrink-0;
+}
+
+.x-risu-risu-image-notice-caption {
+  @apply flex flex-col items-center gap-0.5 max-w-full;
+}
+
+.x-risu-risu-image-notice-text {
+  @apply text-xs text-subtext;
+}
+
+.x-risu-risu-image-notice-link {
+  @apply underline underline-offset-2 text-primary cursor-pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.x-risu-risu-image-notice-detail {
+  @apply text-xs text-subtext opacity-70 break-all;
 }
 
 .saving-animation {

@@ -1,12 +1,13 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import { isNodeServer } from '../../platform'
 import { asBuffer } from '../../util'
 import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
-import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
+import { customV3ProviderMetaStore } from "../../plugins/apiV3/v3.svelte";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
-import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
+import { pluginProviderRequestContextKey, pluginRuntime } from "../../plugins/pluginRuntime";
+import { getCurrentCharacter, getCurrentChat, getDatabase, type Chat, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { createEntityId } from 'src/ts/id';
 import { simplifySchema, sleep } from "../../util";
@@ -34,6 +35,8 @@ import {
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
 import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
+import { parseChatEventStream } from 'src/ts/preset/adapter/openaiCompatible';
+import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,
     normalizeOutputRepetitionLimit,
@@ -74,7 +77,7 @@ import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
 import { restoreThoughtSignatures, supportsThoughtSignatures, type ProviderContextRecord } from '../../preset/adapter/thoughtSignatures';
 import { resolveWireModelId } from '../../preset/adapter/wireInvariants';
-import { queryRevenantProviderContexts } from '../revenant/transport/client';
+import { checkpointRevenantGeneration, queryRevenantProviderContexts } from '../revenant/transport/client';
 
 export type ToolCall = {
     name: string;
@@ -87,6 +90,7 @@ export interface requestDataArgument{
     bias: {[key:number]:number}
     biasString?: [string,number][]
     currentChar?: character
+    currentChat?: Chat
     temperature?: number
     maxTokens?:number
     PresensePenalty?: number
@@ -213,18 +217,18 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             }
         }
 
-        if(pluginV2.replacerbeforeRequest.size > 0){
-            for(const replacer of pluginV2.replacerbeforeRequest){
+        if(pluginRuntime.replacerbeforeRequest.size > 0){
+            for(const replacer of pluginRuntime.replacerbeforeRequest){
                 arg.formated = await replacer(arg.formated, model)
             }
         }
 
         try{
-            const currentChar = getCurrentCharacter()
+            const currentChar = arg.currentChar ?? getCurrentCharacter()
             if(currentChar){
-                const perf = performance.now()
+                const perf = isDebugEnabled() ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'request', {
-                    chat: getCurrentChat(),
+                    chat: arg.currentChat ?? getCurrentChat(),
                     displayMode: true,
                     displayData: JSON.stringify(arg.formated)
                 })
@@ -234,7 +238,9 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
                     throw new Error('Invalid return')
                 }
                 arg.formated = got
-                console.log('Trigger time', performance.now() - perf)
+                if (isDebugEnabled()) {
+                    console.debug('Trigger time', performance.now() - perf)
+                }
             }
         }
         catch(e){
@@ -256,7 +262,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         // throwing plugin cannot lose the side-effect record either.
         if(da.type === 'success' && da.toolExecuted){
             if(arg.escape) da.result = risuEscape(da.result)
-            for(const replacer of pluginV2.replacerafterRequest){
+            for(const replacer of pluginRuntime.replacerafterRequest){
                 try { da.result = await replacer(da.result, model) }
                 catch(e){ console.error('[ModelPreset] after-replacer failed', e) }
             }
@@ -274,8 +280,8 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             da.result = risuEscape(da.result)
         }
 
-        if(da.type === 'success' && pluginV2.replacerafterRequest.size > 0){
-            for(const replacer of pluginV2.replacerafterRequest){
+        if(da.type === 'success' && pluginRuntime.replacerafterRequest.size > 0){
+            for(const replacer of pluginRuntime.replacerafterRequest){
                 da.result = await replacer(da.result, model)
             }
         }
@@ -283,7 +289,9 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         if(da.type === 'success' && db.banCharacterset?.length > 0){
             let failed = false
             for(const set of db.banCharacterset){
-                console.log(set)
+                if (isDebugEnabled()) {
+                    console.debug(set)
+                }
                 const checkRegex = new RegExp(`\\p{Script=${set}}`, 'gu')
 
                 if(checkRegex.test(da.result)){
@@ -309,24 +317,13 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     }
 }
 
-export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[], preserveResponseIds?: ReadonlySet<string>){
-    const flags = Array.isArray(modelInfo) ? modelInfo : modelInfo.flags
-    return formatPresetMessages(formated, {
-        foldSystemPrompt: !flags.includes(LLMFlags.hasFullSystemPrompt),
-        keepFirstSystemPrompt: flags.includes(LLMFlags.hasFirstSystemPrompt),
-        alternateRole: flags.includes(LLMFlags.requiresAlternateRole),
-        startWithUserInput: flags.includes(LLMFlags.mustStartWithUserInput),
-    }, getDatabase(), preserveResponseIds)
-}
-
-
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     // Normalize at the shared request boundary so main and auxiliary callers
     // behave consistently. Structured tool-call follow-up turns are created
     // later by the adapter loop and are therefore intentionally unaffected.
     arg.formated = removeEmptyChatMessages(arg.formated)
 
-    const currentChat = getCurrentChat()
+    const currentChat = arg.currentChat ?? getCurrentChat()
     const binding = resolveChatModelBinding(currentChat, model, arg.moduleId, arg.modelPresetOverrideId)
     if(binding.kind === 'modelPreset'){
         return executeModelPresetRequest(
@@ -386,13 +383,31 @@ async function executeModelPresetRequest(
     }
 
     const response = await requestModelPreset(targ, preset, abortSignal, model)
-    if (response.type === 'streaming' && resultPolicy === 'automatic') {
+    const completesMainResult = !targ.previewBody && model === 'model' && targ.chatId
+        && (targ.revenantWorkflowId || targ.revenantClientAction?.workflowId)
+    const completeMainResult = (content: string) => checkpointRevenantGeneration(
+        targ.chatId, content, true, { providerResult: true },
+    )
+    if (response.type === 'streaming' && (resultPolicy === 'automatic' || completesMainResult)) {
         return {
             ...response,
             result: consumeOnStreamCompletion(
                 response.result,
-                () => consumeCreatedJobs(createdJobIds),
+                async last => {
+                    if (completesMainResult) await completeMainResult(last?.['0'] ?? '')
+                    if (resultPolicy === 'automatic') await consumeCreatedJobs(createdJobIds)
+                },
             ),
+        }
+    }
+    if (completesMainResult && (response.type === 'success' || response.type === 'multiline')) {
+        try {
+            await completeMainResult(response.type === 'multiline'
+                ? response.result.map(message => message[1]).join('\n') : response.result)
+        } catch (error) {
+            // Replaying the provider could execute completed tools twice.
+            return { type: 'fail', noRetry: true, model: response.model,
+                result: error instanceof Error ? error.message : String(error) }
         }
     }
     await consumeCreatedJobs(auxiliaryResultJobIdsToConsume(
@@ -417,28 +432,37 @@ async function requestEchoPreset(
     arg: RequestDataArgumentExtended,
     preset: ModelPreset,
     abortSignal: AbortSignal | null,
+    supportsStreaming: boolean,
 ): Promise<requestDataResponse> {
-    const rawDelay = preset.userValues?.echoDelay
-    const delay = typeof rawDelay === 'number' ? rawDelay : 0
-    const rawMessage = preset.userValues?.echoMessage
-    const message = typeof rawMessage === 'string' ? rawMessage : "Echo Message"
+    const request = buildEchoRequest(preset, resolvePresetStreaming(preset, arg, supportsStreaming), arg.formated)
 
     arg.revenantAdapterKind = 'echo'
-    arg.revenantStreaming = false
+    arg.revenantStreaming = request.stream
     try {
         const response = await makeModelTransportFetch(arg, preset)(
             'https://echo.invalid/v1/chat/completions',
             {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    message,
-                    delayMs: Math.max(0, delay * 1000),
-                    model: preset.name,
-                }),
+                body: JSON.stringify(request),
                 signal: abortSignal ?? undefined,
             },
         )
+        if (response.ok && request.stream) {
+            if (!response.body) throw new Error('Echo stream response has no body')
+            const body = response.body
+            const stream = applyOutputRepetitionDetection(new ReadableStream<StreamResponseChunk>({
+                start(controller) {
+                    return pumpPresetStream(parseChatEventStream(body, preset), controller, {
+                        intervalMs: STREAM_FLUSH_INTERVAL_MS,
+                        formatReasoning: text => formatPresetReasoning([{ text }]),
+                    })
+                },
+            }), arg.onOutputRepetitionDetected)
+            return preset.decoupledStreaming
+                ? { type: 'success', result: await collectStreamingText(stream), model: preset.name }
+                : { type: 'streaming', result: stream, model: preset.name }
+        }
         const body = await response.json() as {
             choices?: Array<{ message?: { content?: unknown } }>
             error?: { message?: unknown }
@@ -484,33 +508,16 @@ async function requestPluginPreset(
 
     const modelId = preset.profileSnapshot.modelId
     const providerName = pluginProviderName(modelId)
-    if (!providerName) {
+    if (!providerName || !customV3ProviderMetaStore.some(model => model.id === modelId)) {
         return {
             type: 'fail',
             result: language.pluginModelUnavailable,
             model: preset.name,
         }
     }
-    // addProvider exists in API 2.x too. A crafted/imported snapshot must not
-    // turn that legacy provider into a ModelPreset execution path; only a live
-    // API 3.0 metadata registration is eligible.
-    if (!isV3PluginModel(modelId)) {
-        return {
-            type: 'fail',
-            result: language.pluginModelUnavailable,
-            model: preset.name,
-        }
-    }
-
-    const foldSystem = compiled.behavior.foldSystemPrompt
-    const flags: LLMFlags[] = []
-    if (!foldSystem) flags.push(LLMFlags.hasFullSystemPrompt)
-    else if (compiled.behavior.keepFirstSystemPrompt) flags.push(LLMFlags.hasFirstSystemPrompt)
-    if (compiled.behavior.alternateRole) flags.push(LLMFlags.requiresAlternateRole)
-    if (compiled.behavior.startWithUserInput) flags.push(LLMFlags.mustStartWithUserInput)
 
     try {
-        arg.formated = reformater(structuredClone(arg.formated), flags)
+        arg.formated = formatPresetMessages(structuredClone(arg.formated), compiled.behavior, getDatabase())
     } catch (err) {
         return {
             type: 'fail',
@@ -648,7 +655,7 @@ async function requestPluginPresetProvider(
         }
     }
 
-    const provider = pluginV2.providers.get(providerName)
+    const provider = pluginRuntime.providers.get(providerName)
     if (!provider) {
         return {
             type: 'fail',
@@ -718,7 +725,7 @@ async function requestPluginPresetProvider(
         console.error(error)
         return {
             type: 'fail',
-            result: `Plugin Error from ${modelId}: ${JSON.stringify(error)}`,
+            result: `Plugin Error from ${modelId}: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
             model: modelId,
         }
     }
@@ -781,17 +788,9 @@ export function modelPresetRequestFailurePolicy(error: unknown): {
     }
 }
 
-// --- request-status publishing (model-preset path only) ------------------
-//
-// Thin, harmless bridge from the preset request pipeline to the request-status
-// channel (src/ts/status/requestStatus). Every call is wrapped so status
-// reporting can NEVER break a request (P0: status display must not throw into
-// the request path). Gated by db.showRequestStatus so the whole feature is a
-// no-op when off.
-//
-// Token counts during streaming use a cheap char-based estimate (no per-chunk
-// tokenizer cost — mobile-friendly), reconciled against the authoritative
-// adapter usage at completion. See .agent/notes/request-status-toast-infra.md.
+// Publish optional ModelPreset request status; reporting failures must not
+// affect generation. Streaming token counts are estimates until provider usage
+// is available.
 
 function statusEnabled(): boolean {
     try {
@@ -801,12 +800,8 @@ function statusEnabled(): boolean {
     }
 }
 
-// Register a LOCAL tokenizer with the status store so the render tick counts
-// streamed tokens language-aware (real subwords, good for CJK) instead of a
-// char/N estimate. Uses encodeWithTokenizer with a fixed local tokenizer — NOT
-// Token usage is an estimate based on the bound model preset's tokenizer, while status is only an approximate
-// live display (the final count is reconciled from provider usage). A fixed local
-// tokenizer avoids unnecessary model-specific work on every render tick.
+// Use a fixed local tokenizer for language-aware live estimates; reconcile with
+// provider usage when available.
 setStatusTokenCounter(async (text) => {
     const encoded = await encodeWithTokenizer(text, 'tik')
     return encoded.length
@@ -816,9 +811,7 @@ function safeStatus(fn: () => void): void {
     try { fn() } catch (e) { console.error('[ModelPreset] status publish failed', e) }
 }
 
-// Map the request pipeline's mode to the status-channel chip kind. submodel and
-// otherAx collapse to 'sub' (both are internal aux calls the user rarely
-// distinguishes; see the toast infra note).
+// Map auxiliary ModelPreset calls to the shared 'sub' status kind.
 function toRequestKind(mode: ModelModeExtended): RequestKind {
     switch (mode) {
         case 'translate': return 'translate'
@@ -928,17 +921,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 type: 'success',
                 result: JSON.stringify({
                     adapterKind: 'echo',
-                    message: typeof preset.userValues?.echoMessage === 'string'
-                        ? preset.userValues.echoMessage
-                        : "Echo Message",
-                    delay: typeof preset.userValues?.echoDelay === 'number'
-                        ? preset.userValues.echoDelay
-                        : 0,
+                    ...buildEchoRequest(preset, resolvePresetStreaming(preset, arg, compiled.features.streaming), arg.formated),
                 }),
                 model: preset.name,
             }
         }
-        return requestEchoPreset(arg, preset, abortSignal)
+        return requestEchoPreset(arg, preset, abortSignal, compiled.features.streaming)
     }
     // HTTP streaming adapters expose their ReadableStream before the lazy
     // async generator reaches fetchNative. Track the durable-registration
@@ -992,7 +980,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     if (compiled.features.cache && mode === 'model'
         && !tools && !arg.previewBody
         && (cacheAuthKind === 'x-goog-api-key' || cacheAuthKind === 'google-service-account')) {
-        const cacheChatKey = getCurrentChat()?.id
+        const cacheChatKey = (arg.currentChat ?? getCurrentChat())?.id
         if (cacheChatKey) {
             cache = {
                 promptCaching: preset.promptCaching,
@@ -1017,16 +1005,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    const foldSystem = compiled.behavior.foldSystemPrompt
-    const presetFlags: LLMFlags[] = []
-    if (!foldSystem) presetFlags.push(LLMFlags.hasFullSystemPrompt)
-    else if (compiled.behavior.keepFirstSystemPrompt) presetFlags.push(LLMFlags.hasFirstSystemPrompt)
-    if (compiled.behavior.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
-    if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
     // Clone before folding so retries cannot merge text into the original history.
     try {
-        arg.formated = reformater(
-            structuredClone(arg.formated), presetFlags,
+        arg.formated = formatPresetMessages(
+            structuredClone(arg.formated), compiled.behavior, getDatabase(),
             new Set(contexts.map(context => context.responseId)),
         )
     } catch (err) {
@@ -1075,12 +1057,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
     }
 
-    // previewBody never calls the chat endpoint and never runs tools — it just
-    // builds and returns the prepared request. (One caveat: a google-service-
-    // account profile may still perform an OAuth token exchange during credential
-    // resolution if its token cache is empty/expired — that exchange is not the
-    // chat request. API-key profiles make no network call here.) Mirrors the
-    // classic adapters' previewBody handling.
+    // Preview skips chat requests and tools. Service-account credential resolution
+    // may still refresh an expired OAuth token before reaching this point.
     if (arg.previewBody) {
         try {
             const prepared = await adapter.preview(
@@ -1099,10 +1077,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     }
 
     try {
-        // Tool runs always go non-streaming for now: the execute→re-request loop
-        // needs the full structured response (tool_calls) each turn, and
-        // streaming tool_call assembly is a later stage. Status is NOT reported
-        // for the tool path in v1 (it bypasses the pump); see the toast infra note.
+        // Tool calls need complete structured responses for each round, so this
+        // path does not stream or publish status.
         if (tools) {
             arg.revenantStreaming = false
             const { result, toolsExecuted } = await runModelPresetToolLoop(
@@ -1386,8 +1362,7 @@ export async function testModelPreset(preset: ModelPreset, message: string, abor
     return { ok: false, message: 'Unexpected response type', latencyMs }
 }
 
-// Binds the real send + tool execution to the generic runToolLoop (kept in the
-// adapter layer so it is unit-testable without request.ts's import graph).
+// Bind provider sends and tool execution to the generic runToolLoop.
 // The visible result interleaves model text with `<tool_call>` markers (encoded when
 // rememberToolUsage is on) so the turn round-trips on the next request.
 async function runModelPresetToolLoop(

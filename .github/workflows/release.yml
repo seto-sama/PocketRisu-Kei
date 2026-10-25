@@ -10,6 +10,7 @@ permissions:
   contents: write
 
 env:
+  NODE_VERSION: '24.22.1'
   RELEASE_TAG_PREFIX: kei-v
   RELEASE_ASSET_PREFIX: PocketRisu-Kei
 
@@ -26,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Verify release version
@@ -49,6 +50,8 @@ jobs:
           path: |
             dist/
             server/
+            shared/
+            src/
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
@@ -88,7 +91,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Download build artifact
         uses: actions/download-artifact@v8
@@ -117,7 +120,6 @@ jobs:
         if: matrix.platform == 'win'
         shell: bash
         run: |
-          NODE_VERSION="24.14.1"
           mkdir -p portable/bin
           curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip" -o node.zip
           unzip -q node.zip
@@ -127,7 +129,6 @@ jobs:
         if: matrix.platform == 'linux'
         shell: bash
         run: |
-          NODE_VERSION="24.14.1"
           NODE_ARCH="${{ matrix.arch }}"
           mkdir -p portable/bin
           curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz
@@ -139,7 +140,6 @@ jobs:
         if: matrix.platform == 'macos'
         shell: bash
         run: |
-          NODE_VERSION="24.14.1"
           mkdir -p portable/bin
           curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz" -o node.tar.gz
           tar -xzf node.tar.gz
@@ -243,7 +243,7 @@ jobs:
           osascript << ENDSCRIPT
           tell application "Terminal"
               activate
-              do script "cd '$PORTABLE_DIR' && PORT=$PORT exec ./bin/node server/node/server.cjs"
+              do script "cd '$PORTABLE_DIR' && PORT=$PORT exec ./bin/node server/server.cjs"
           end tell
           ENDSCRIPT
           LAUNCHER
@@ -269,7 +269,7 @@ jobs:
           elif command -v open >/dev/null 2>&1; then
               open "http://localhost:$PORT" 2>/dev/null &
           fi
-          bin/node server/node/server.cjs
+          bin/node server/server.cjs
           EOF
           cat > portable/update.sh << 'EOF'
           #!/bin/bash

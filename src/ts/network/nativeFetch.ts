@@ -1,24 +1,24 @@
-import { fetchWithRequestTimeout, requestIdleTimeoutMs } from '../../../shared/requestTimeout.mjs'
+import { createRequestTimeoutSignal, fetchWithRequestTimeout, requestIdleTimeoutMs } from '../../../shared/requestTimeout.mjs'
 import { isLocalNetworkUrl } from './localNetwork'
 import type { LLMExecutionPolicy } from './transportTypes'
 import type { RevenantGenerationRequest } from '../process/revenant'
 import { fetchViaGenerationJob } from '../process/revenant/transport'
 import { DBState, bodyIntercepterStore } from '../stores.svelte'
-import { forageStorage } from '../storage/autoStorage'
+import { fetchServerProxy } from './proxy'
 
 export interface FetchNativeArgs {
     serverProviderAuth?: import('./transportTypes').ServerProviderAuth
     body?: string | Uint8Array | ArrayBuffer
     headers?: Record<string, string>
-    method?: 'POST' | 'GET' | 'PUT' | 'DELETE'
+    method?: 'POST' | 'GET' | 'HEAD' | 'PUT' | 'PATCH' | 'DELETE'
     signal?: AbortSignal
-    useRisuTk?: boolean
     chatId?: string
     generationRequest?: RevenantGenerationRequest
     interceptor?: string
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
     llmExecutionPolicy?: LLMExecutionPolicy
+    redirect?: 'error'
 }
 
 type NativeFetchLogAdapter = {
@@ -30,17 +30,6 @@ let logAdapter: NativeFetchLogAdapter | null = null
 
 export function configureNativeFetchLogging(adapter: NativeFetchLogAdapter) {
     logAdapter = adapter
-}
-
-function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number | undefined) {
-    if (!timeoutMs || timeoutMs <= 0) return { signal, cleanup: () => {} }
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-    if (signal) {
-        if (signal.aborted) controller.abort()
-        else signal.addEventListener('abort', () => controller.abort(), { once: true })
-    }
-    return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId) }
 }
 
 function pipeLoggedResponse(fetchLogId: string, response: Response) {
@@ -66,45 +55,6 @@ function pipeLoggedResponse(fetchLogId: string, response: Response) {
     })
 }
 
-async function createRequiredNodeAuth() {
-    const auth = await forageStorage.createAuth()
-    if (!auth) throw new Error('Node auth unavailable')
-    return auth
-}
-
-async function fetchViaProxy2(
-    url: string,
-    headers: Record<string, string>,
-    realBody: Uint8Array | undefined,
-    arg: Pick<FetchNativeArgs, 'method' | 'signal' | 'useRisuTk' | 'requestTimeoutMs'>,
-) {
-    const response = await fetchWithRequestTimeout(async signal => {
-        const proxyHeaders: Record<string, string> = {
-            'risu-header': encodeURIComponent(JSON.stringify(headers)),
-            'risu-url': encodeURIComponent(url),
-            'risu-auth': await createRequiredNodeAuth(),
-            ...(arg.useRisuTk ? { 'x-risu-tk': 'use' } : {}),
-            ...(arg.requestTimeoutMs
-                ? { 'risu-timeout-ms': Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }
-                : {}),
-            ...(DBState?.db?.requestLocation ? { 'risu-location': DBState.db.requestLocation } : {}),
-        }
-        if (realBody) {
-            proxyHeaders['Content-Type'] = headers['Content-Type']
-                ?? headers['content-type']
-                ?? 'application/json'
-        }
-        signal.throwIfAborted()
-        return fetch('/proxy2', {
-            body: realBody as BodyInit,
-            headers: proxyHeaders,
-            method: arg.method,
-            signal,
-        })
-    }, { signal: arg.signal, idleTimeoutMs: requestIdleTimeoutMs(arg.requestTimeoutMs) })
-    return new Response(response.body, { headers: response.headers, status: response.status })
-}
-
 export async function fetchNative(url: string, input: FetchNativeArgs): Promise<Response> {
     const arg = { ...input, method: input.method ?? 'POST' } as FetchNativeArgs & {
         method: NonNullable<FetchNativeArgs['method']>
@@ -113,9 +63,15 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         throw new Error('Body is required for POST and PUT requests')
     }
 
-    const headers = arg.headers ?? {}
+    let headers = arg.headers ?? {}
+    if (!DBState.db.hidePublicStats && new URL(url, globalThis.location?.href).hostname === 'openrouter.ai') {
+        const identifiedHeaders = new Headers(headers)
+        identifiedHeaders.set('X-Title', 'PocketRisu')
+        identifiedHeaders.set('HTTP-Referer', 'https://github.com/PocketRisu/PocketRisu')
+        headers = Object.fromEntries(identifiedHeaders.entries())
+    }
     let realBody: Uint8Array | undefined
-    if (arg.method === 'GET' || arg.method === 'DELETE') {
+    if (arg.method === 'GET' || arg.method === 'HEAD' || arg.method === 'DELETE') {
         realBody = undefined
     } else if (typeof arg.body === 'string') {
         let body = arg.body
@@ -138,18 +94,25 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
     }
 
     let fetchLogId = ''
-    const fetchLogBody = realBody ? new TextDecoder().decode(realBody) : ''
     const withFetchLog = (response: Response) => fetchLogId
         ? pipeLoggedResponse(fetchLogId, response)
         : response
-    const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
+    const timeoutSignal = createRequestTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
     const fetchDirect = () => fetchWithRequestTimeout(signal => fetch(url, {
         body: realBody as BodyInit,
         headers,
         method: arg.method,
         signal,
+        redirect: arg.redirect,
     }), { signal: requestSignal, idleTimeoutMs: requestIdleTimeoutMs(arg.requestTimeoutMs) })
+    const fetchProxy = () => fetchServerProxy(url, {
+        method: arg.method,
+        headers,
+        body: realBody,
+        signal: requestSignal,
+        requestTimeoutMs: arg.requestTimeoutMs,
+    })
     try {
         const revenantRequest = arg.generationRequest
         const useRevenantGenerationJob = !!revenantRequest
@@ -179,8 +142,8 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
                     fetchLogId = logAdapter.create({
                         id: revenantJobId,
                         timestamp: startedAt,
-                        body: fetchLogBody,
-                        header: JSON.stringify(arg.headers ?? {}, null, 2),
+                        body: realBody ? new TextDecoder().decode(realBody) : '',
+                        header: JSON.stringify(headers, null, 2),
                         response: 'Streamed Fetch',
                         responseType: 'stream',
                         success: true,
@@ -217,19 +180,13 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
         }
 
         if (arg.llmExecutionPolicy?.providerRoute === 'server') {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal,
-            }))
+            return withFetchLog(await fetchProxy())
         }
         if (arg.llmExecutionPolicy?.providerRoute === 'direct') {
             return withFetchLog(await fetchDirect())
         }
         if (arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)) {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal,
-            }))
+            return withFetchLog(await fetchProxy())
         }
         try {
             return withFetchLog(await fetchDirect())
@@ -237,10 +194,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
             // A timed-out POST may already be running upstream. Do not send
             // the same request again through the proxy.
             if (requestSignal?.aborted || error?.name === 'TimeoutError') throw error
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal,
-            }))
+            return withFetchLog(await fetchProxy())
         }
     } finally {
         timeoutSignal.cleanup()

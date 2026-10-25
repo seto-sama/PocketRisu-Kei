@@ -37,11 +37,11 @@ describe('sidebar binding buttons', () => {
         Object.assign(DBState.db, {
             showPresetInSidebar: shown,
             showPersonaInSidebar: shown,
-            characters: [{ chatPage: 0, chats: [{
+            characters: [{ chats: [{
                 bindedBotPreset: 'bound-prompt', bindedPersona: 'bound-persona',
             }] }],
             botPresets: [{ id: 'global-prompt', name: 'Global Prompt' }, { id: 'bound-prompt', name: 'Bound Prompt' }],
-            botPresetsId: 0,
+            activePromptPresetId: 'global-prompt',
             personas: [{ id: 'global-persona', name: 'Global Persona' }, { id: 'bound-persona', name: 'Bound Persona' }],
             selectedPersona: 0,
         });
@@ -53,7 +53,7 @@ describe('sidebar binding buttons', () => {
 
         expect(prompt.textContent).toContain(shown ? 'Bound Prompt' : 'Global Prompt');
         expect(persona.textContent).toContain(shown ? 'Bound Persona' : 'Global Persona');
-        if (shown) expect(changeToPreset).toHaveBeenCalledWith(1);
+        if (shown) expect(changeToPreset).toHaveBeenCalledWith('bound-prompt');
         else expect(changeToPreset).not.toHaveBeenCalled();
         expect(DBState.db.characters[0].chats[0]).toMatchObject({
             bindedBotPreset: 'bound-prompt', bindedPersona: 'bound-persona',
@@ -64,12 +64,12 @@ describe('sidebar binding buttons', () => {
         Object.assign(DBState.db, {
             showPresetInSidebar: true,
             showPersonaInSidebar: true,
-            characters: [{ chatPage: 0, chats: [{
+            characters: [{ chats: [{
                 bindedBotPreset: bound ? 'prompt-id' : '',
                 bindedPersona: bound ? 'persona-id' : '',
             }] }],
             botPresets: [{ id: 'prompt-id', name: 'Prompt' }],
-            botPresetsId: 0,
+            activePromptPresetId: 'prompt-id',
             personas: [{ id: 'persona-id', name: 'Persona' }],
             selectedPersona: 0,
         });

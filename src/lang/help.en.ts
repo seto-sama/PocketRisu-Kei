@@ -11,7 +11,7 @@
  */
 
 export const helpEn = {
-        "trashAutoDeleteSchedule": "Characters are permanently deleted after the specified number of days from pressing the delete button. Enter 0 to disable automatic deletion.",
+        "trashAutoDeleteSchedule": "Applies to both character and Server Drive trash. Items are permanently deleted the specified number of days after being moved to trash. Enter 0 to disable automatic deletion.",
         "trash": "You can restore or permanently delete characters in the trash. Right-click the trash icon to set the permanent deletion schedule.",
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
         "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
@@ -88,7 +88,6 @@ export const helpEn = {
         topP: "Top P is a probability threshold for nucleus sampling. model considers the results of the tokens with top_p probability mass.",
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
-        allowV2Plugin: "Warning: This allows deprecated V2.0 and V2.1 plugins to be installed and run. These plugins may be unsafe. When disabled, installed V2 plugins are switched off and cannot be enabled. Enable only for plugins you explicitly trust and cannot migrate to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
         inlayImageCompression: "When enabled, new inlay images are compressed using the settings below. When disabled, they are saved as lossless PNG at their original size.",
@@ -122,6 +121,8 @@ export const helpEn = {
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
         customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
+        onboarding:
+            "Onboarding lets users pick options before a chat starts, like a short form. Each answer is saved to a chat variable, usable with `{{getvar::name}}` or triggers.\n\nUntil the user finishes or skips it, the chat shows a banner that opens the onboarding. It can be reopened from the chat menu.\n\n**Form** mode builds choices and text questions. Multiple-choice answers are saved as a JSON array.\n\n**HTML** mode lets you write your own layout. CBS and additional assets work, and it is sanitized like chat messages with `<style>` support. Add `risu-change-var-name=\"varname\"` and `risu-change-var-value=\"value\"` to any element to set the variable when it is clicked; the clicked element gets the `selected` class. On `<input>`, `<select>` and `<textarea>`, the variable follows the input's value. Choices are saved when the user presses Done, so CBS such as `{{getvar::name}}` inside the onboarding shows the value from before it was opened.",
         customPromptTemplateToggle:
             "Here you can define your own prompt toggles. use `<toggle variable>=<toggle name>` format, seperated by newline. for example, `cot=Toggle COT`. you can use these toggles in prompt by using `{{getglobalvar::toggle_<toggle variable>}}`. like `{{getglobalvar::toggle_cot}}`.",
         defaultVariables:
@@ -201,7 +202,7 @@ export const helpEn = {
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
-            "Keeps the tab active by playing silent audio, preventing the browser session from expiring due to inactivity. This may require a refresh to take effect.",
+            "Plays audio inaudible to humans to keep the tab active in the background.",
         disableMobileBackNavigation:
             "Prevents the browser back button or back gesture from accidentally leaving the current tab on mobile devices. Some browsers may show a confirmation before leaving.",
         reSummarizationPrompt:
@@ -286,6 +287,8 @@ export const helpEn = {
             "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
         newImageHandlingBeta:
             "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
+        useServerDriveForFileImport:
+            "Open Server Drive when loading files. When this setting is off, the device's file browser opens; right-click a button that loads files to open Server Drive.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
         pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",
@@ -323,7 +326,7 @@ export const helpEn = {
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         hidePublicStats:
-            "Hide usage statistics on the home screen and do not contact the external public-statistics service.",
+            "Send the PocketRisu identifier to the PocketRisu statistics server and with OpenRouter requests, and show PocketRisu user statistics on the home screen.",
         showRequestStatus:
             "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
         customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",
@@ -394,6 +397,14 @@ export const helpEn = {
         streamingOverrideHelp: "When enabled, show the response a little at a time as it is generated instead of waiting for the whole answer.",
         decoupledStreamingHelp: "Send the request over the streaming wire but display the full response at once after it completes. Bypasses some providers' non-streaming output limits and timeouts, and avoids token-by-token render cost.",
         modelPresetToolUseHelp: "Let this preset call your configured tools (MCP). Off by default. Tool runs are sent without streaming.",
+        modelPresetProfileReplaceHelp: "Replace this preset's model with another model. Incompatible settings will be kept inactive.",
+        modelPresetDeleteHelp: "Delete this model preset configuration.",
+        modelCapabilityStreamingHelp: "Supports receiving and displaying the response a little at a time as it is generated.",
+        modelCapabilityVisionHelp: "Supports understanding images sent with the conversation.",
+        modelCapabilityImageOutputHelp: "Supports generating images as part of a response.",
+        modelCapabilityToolsHelp: "Supports calling external tools or functions to perform tasks and use their results.",
+        modelCapabilityJsonHelp: "Supports generating responses in structured JSON format.",
+        modelCapabilityReasoningHelp: "Supports reasoning through a problem before producing the final answer.",
         modelPresetCustomProfileHelp: "Advanced profile for configuring an endpoint, request format, authentication, generation parameters, body/header values, and compatibility flags directly.",
         modelPresetRequestFormatHelp: "Select the request/response protocol implemented by the endpoint. Compatible servers such as Mistral, Ollama, and vLLM usually use OpenAI Chat Completions.",
         modelPresetServiceTierHelp: "Select the response speed pricing tier. Flex is cheaper but slower, while Priority is faster but more expensive. Vertex AI supports this setting only in the global location.",
@@ -405,7 +416,6 @@ export const helpEn = {
         modelPresetStopSequencesHelp: "Strings that stop response generation. Enter one per line.",
         modelPresetLocationHelp: "Google Cloud location used by Vertex AI. Keep `global` unless the selected model or your project requires a specific region.",
         cloudflareAccountIdHelp: "Cloudflare account identifier used in the Workers AI API endpoint. Find it in the Cloudflare dashboard.",
-        thinkingBudgetHelp: "Maximum thinking-token budget used by Claude and Gemini when Reasoning Effort is set to Budget. The minimum is 1,024 tokens.",
         customFlagHasImageOutputHelp: "Treat the model as capable of returning generated images.",
         customFlagHasAudioInputHelp: "Allow audio attachments in model input.",
         customFlagHasAudioOutputHelp: "Treat the model as capable of returning generated audio.",
@@ -448,16 +458,11 @@ export const helpEn = {
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:
             "Seed for deterministic output. Same input + same seed ≈ same response. Use it to remove variance when comparing prompts. Only honored on OpenAI / reverse-proxy / OpenRouter models.",
+        imageCharacterPresets: "Character presets are tag bundles you can write yourself. Separate each preset with a `###` heading and a line break.",
         imageGenerationSeed:
             "When left blank, a random value is sent.",
         imageGenerationPresetQuickEdit:
             "Right-click the generation settings or style preset field to edit the selected preset directly.",
-        thinkingType:
-            "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
-        thinkingTokens:
-            "Maximum tokens to spend on thinking when in Budget mode. Raise it for harder reasoning, lower it to save cost. `-1` uses the model default.",
-        adaptiveThinkingEffort:
-            "Effort level Claude applies in Adaptive mode.\n\n- **Low**: fast, simple tasks\n- **Medium**: general use\n- **High**: complex reasoning or coding\n- **Max**: maximum effort, with the cost and latency to match",
         topK:
             "Limit candidate tokens to the top K most likely. Lower values feel conservative and repetitive; higher values pull in more variety. Around 40 is a common middle ground. Not all models honor this.",
         minP:
@@ -585,8 +590,8 @@ export const helpEn = {
         autoBackupSchedule:
             "When enabled, backups are created automatically once the specified number of days has passed since the last backup.",
         systemLogsExplicitOnlyHint: "Excludes console, uncaught exceptions, framework captures",
-        migrationUpstreamExportDesc: "Export a backup in the original RisuAI-compatible format.",
-        migrationUpstreamRestoreDesc: "Restore from a local backup exported by the original RisuAI.",
+        migrationUpstreamExportDesc: "Export a backup in the Original RisuAI-compatible format.",
+        migrationUpstreamRestoreDesc: "Restore from a local backup exported by Original RisuAI.",
         migrationPartialBackupDesc: "Save a smaller local backup with database and essential images only.",
         migrationDatasetExportDesc: "Export save data as a dataset file.",
         backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",

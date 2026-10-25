@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => {
       db: {
         characters: [
           {
-            chatPage: 0,
             chats: [{ message: [] }],
           },
         ],

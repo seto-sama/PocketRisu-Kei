@@ -3,12 +3,12 @@
     import Dialog from 'src/lib/UI/components/Dialog.svelte'
     import Button from 'src/lib/UI/components/Button.svelte'
     import ChoiceGroup from 'src/lib/UI/components/ChoiceGroup.svelte'
+    import Checkbox from 'src/lib/UI/components/Checkbox.svelte'
     import Badge from 'src/lib/UI/components/Badge.svelte'
     import { language } from 'src/lang'
     import { loadDiffModule, visibleDiffLines } from 'src/ts/gui/textDiff'
     import { saveConflictDialog } from 'src/ts/storage/saveConflict'
-    import type { ConflictChoice } from 'src/ts/storage/patchRebase'
-    import { presentSaveConflict } from 'src/ts/gui/saveConflictPresentation'
+    import type { ConflictSelection } from 'src/ts/storage/saveConflict'
 
     type DiffToken = { value: string, kind: 'same' | 'removed' | 'added' }
     type DiffRow = { server: DiffToken[], local: DiffToken[], changed: boolean }
@@ -16,7 +16,7 @@
 
     const activeDialog = $derived($saveConflictDialog)
     let open = $state(false)
-    let choices = $state<(ConflictChoice | null)[]>([])
+    let choices = $state<ConflictSelection[]>([])
     let diffModule = $state<typeof import('diff') | null>(null)
     let expandedRanges = $state<Array<{ scope: string, from: number, to: number }>>([])
 
@@ -24,6 +24,7 @@
         { value: 'server', label: language.saveConflict.useServer },
         { value: 'local', label: language.saveConflict.useLocal },
     ])
+    const comparisonSides = ['server', 'local'] as const
 
     $effect(() => {
         const nextDialog = activeDialog
@@ -50,19 +51,45 @@
         choices[index] = value
     }
 
+    function sideSelected(index: number, side: 'server' | 'local') {
+        const choice = choices[index]
+        return choice === side || activeDialog?.multiple === true && choice === 'both'
+    }
+
+    function withSideSelected(choice: ConflictSelection, side: 'server' | 'local', selected: boolean): ConflictSelection {
+        const hasServer = choice === 'server' || choice === 'both'
+        const hasLocal = choice === 'local' || choice === 'both'
+        const nextServer = side === 'server' ? selected : hasServer
+        const nextLocal = side === 'local' ? selected : hasLocal
+        return nextServer && nextLocal ? 'both' : nextServer ? 'server' : nextLocal ? 'local' : null
+    }
+
+    function setSideChoice(index: number, side: 'server' | 'local', selected: boolean) {
+        choices[index] = withSideSelected(choices[index], side, selected)
+    }
+
+    function setSideForAll(side: 'server' | 'local', selected: boolean) {
+        if (!activeDialog) return
+        if (!activeDialog.multiple) {
+            choices = choices.map(choice => selected ? side : choice === side ? null : choice)
+            return
+        }
+        choices = choices.map(choice => withSideSelected(choice, side, selected))
+    }
+
     function cancel() {
         activeDialog?.complete(null)
     }
 
     function submit() {
         if (!activeDialog || !canSubmit) return
-        activeDialog.complete(choices as ConflictChoice[])
+        activeDialog.complete(choices)
     }
 
     const canSubmit = $derived(
         activeDialog !== null
         && choices.length === activeDialog.items.length
-        && choices.every(choice => choice !== null),
+        && (activeDialog.multiple === true || choices.every(choice => choice === 'server' || choice === 'local')),
     )
 
     function splitLines(text: string) {
@@ -117,9 +144,7 @@
         return rows
     }
 
-    const conflictPreviews = $derived.by(() => activeDialog?.items.map((conflict, index) =>
-        presentSaveConflict(conflict, index, activeDialog?.source),
-    ) ?? [])
+    const conflictPreviews = $derived(activeDialog?.items ?? [])
 
     function visibleRows(rows: DiffRow[], scope: string): VisibleRow[] {
         const visible = visibleDiffLines(rows.map(row => row.changed), true, 1,
@@ -176,14 +201,48 @@
         {activeDialog?.title || language.saveConflict.title}
     {/snippet}
     {#snippet description()}
-        {language.saveConflict.description}
+        {activeDialog?.description ?? language.saveConflict.description}
     {/snippet}
     <div class="flex min-h-0 flex-col gap-4 pr-1">
+        <div class="grid grid-cols-2 gap-x-3">
+            {#each comparisonSides as side}
+                {@const label = side === 'server'
+                    ? activeDialog?.serverLabel ?? language.saveConflict.server
+                    : activeDialog?.localLabel ?? language.saveConflict.local}
+                {@const selectedCount = choices.filter((_, index) => sideSelected(index, side)).length}
+                <div class="flex min-w-0 items-center rounded-xl border border-darkborderc bg-lightbg px-3 py-2">
+                    <Checkbox
+                        name={label}
+                        check={choices.length > 0 && selectedCount === choices.length}
+                        indeterminate={selectedCount > 0 && selectedCount < choices.length}
+                        onChange={checked => setSideForAll(side, checked)}
+                        disabled={!choices.length}
+                        margin={false}
+                        className="text-sm font-semibold"
+                    />
+                </div>
+            {/each}
+        </div>
         {#each conflictPreviews as presentation, index (index)}
             <section aria-labelledby={`save-conflict-${index}`}>
                 <h3 id={`save-conflict-${index}`} class="mb-2 text-sm font-semibold text-maintext">
                     {presentation.label}
                 </h3>
+                {#if activeDialog?.multiple}
+                    <div class="mb-2 grid grid-cols-2 gap-x-3">
+                        {#each comparisonSides as side}
+                            {@const label = side === 'server'
+                                ? activeDialog.serverLabel ?? language.saveConflict.server
+                                : activeDialog.localLabel ?? language.saveConflict.local}
+                            <Checkbox
+                                name={label}
+                                check={sideSelected(index, side)}
+                                onChange={checked => setSideChoice(index, side, checked)}
+                                margin={false}
+                            />
+                        {/each}
+                    </div>
+                {/if}
                 <div class="flex flex-col gap-3">
                     {#each visibleDiffs[index] ?? [] as block (block.scope)}
                         <div class="relative">
@@ -192,9 +251,11 @@
                                 <div class="rounded-xl border border-darkborderc bg-lightbg"></div>
                             </div>
                             <div class="relative grid grid-cols-2 gap-x-3 p-px pb-3">
-                                {#each [block.server, block.local] as preview, side}
+                                {#each [block.server, block.local] as preview, sideIndex}
                                     <div class="min-w-0 p-3">
-                                        <h4 class="mb-2 text-xs text-subtext">{side === 0 ? language.saveConflict.server : language.saveConflict.local}</h4>
+                                        <h4 class="mb-2 text-xs text-subtext">{sideIndex === 0
+                                            ? activeDialog?.serverLabel ?? language.saveConflict.server
+                                            : activeDialog?.localLabel ?? language.saveConflict.local}</h4>
                                         <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-maintext">
                                             <span class="min-w-0 break-words font-semibold">{preview.name}</span>
                                             <Badge variant="secondary" size="xs">{preview.type}</Badge>
@@ -226,20 +287,22 @@
                         </div>
                     {/each}
                 </div>
-                <ChoiceGroup
-                    value={choices[index] ?? ''}
-                    onValueChange={value => setChoice(index, value)}
-                    options={choiceOptions}
-                    variant="grid"
-                    activeColor="selected"
-                    size="sm"
-                    className="mt-3"
-                />
+                {#if !activeDialog?.multiple}
+                    <ChoiceGroup
+                        value={choices[index] ?? ''}
+                        onValueChange={value => setChoice(index, value)}
+                        options={choiceOptions}
+                        variant="grid"
+                        activeColor="selected"
+                        size="sm"
+                        className="mt-3"
+                    />
+                {/if}
             </section>
         {/each}
     </div>
     {#snippet footer()}
         <Button variant="outline" onclick={cancel}>{language.saveConflict.cancel}</Button>
-        <Button variant="primary" disabled={!canSubmit} onclick={submit}>{language.saveConflict.save}</Button>
+        <Button variant="primary" disabled={!canSubmit} onclick={submit}>{activeDialog?.submitLabel ?? language.saveConflict.save}</Button>
     {/snippet}
 </Dialog>

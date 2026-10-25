@@ -25,13 +25,18 @@ import {
     buildVertexOpenAIEndpointUrl,
     resolveVertexProject,
     VERTEX_CUSTOM_PATH_LOCATION,
-    VERTEX_CUSTOM_PATH_PROJECT,
-    VERTEX_SERVICE_ACCOUNT_JSON_KEY,
     type VertexEndpointInput,
 } from './vertexEndpoint'
 
 const VERTEX_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Request-Type'
 const VERTEX_SHARED_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type'
+
+// Reasoning Effort "Budget" was removed; presets saved before their profile
+// was refreshed can still hold it.
+const RETIRED_BUDGET_MESSAGE = 'Reasoning Effort "Budget" is no longer supported. '
+    + 'Choose another Reasoning Effort, or set a thinking budget in Additional Parameters, '
+    + 'e.g. thinking=json::{"type":"enabled","budget_tokens":4096} for Claude or '
+    + 'generationConfig.thinkingConfig.thinkingBudget=json::4096 for Gemini.'
 
 export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPreparedRequest {
     const snapshot = ctx.preset.profileSnapshot
@@ -44,7 +49,6 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     const headers: Record<string, string> = { ...(snapshot.headerTemplate ?? {}) }
     const queryAdditions: Array<[string, string]> = []
 
-    const userValues = ctx.preset.userValues
     for (const field of snapshot.schema) {
         if (!field.mapsTo) continue
         const effective = getEffectivePresetValue(ctx.preset, field.key)
@@ -52,6 +56,12 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         // to blank leaves '' in userValues, and sending e.g. reasoning_effort:''
         // is rejected by providers (no enum match). Skip it like undefined.
         if (effective === undefined || effective === '') continue
+        if (field.semantic === 'reasoningEffort' && effective === 'budget') {
+            throw new ModelPresetAdapterError('invalid-request', RETIRED_BUDGET_MESSAGE, {
+                retryable: false,
+                fallbackEligible: false,
+            })
+        }
         switch (field.mapsTo.target) {
             case 'body':
                 setNested(body, field.mapsTo.path, effective)
@@ -117,7 +127,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     return applyAuth(prepared, resolvePresetAuth(ctx.preset), ctx.credential)
 }
 
-function resolveEndpointUrl(
+export function resolveEndpointUrl(
     snapshot: ResolvedModelProfileSnapshot,
     userValues: Record<string, unknown>,
     serviceAccountJson?: string,
@@ -189,33 +199,16 @@ function resolveEndpointUrl(
     )
 }
 
-// Resolve the { project, location } pair for either Vertex endpoint kind.
-// project: explicit custom.project wins; when blank it is recovered from the
-// Service Account JSON's `project_id` (resolveVertexProject throws a clear
-// invalid-request if neither is available). location: custom.location, or
-// 'global' when the schema default is absent / the field was cleared to blank.
-//
-// SA JSON source: the direct-mode userValues field is preferred, falling back to
-// `credentialServiceAccountJson` (threaded from the credential chain by
-// prepareAdapterRequest). The fallback is what covers pooled / inline SA keys,
-// where the JSON is stored in db.apiKeyPool / preset.inlineCredential and never
-// written to userValues.serviceAccountJson. Both sources carry the same
-// project_id, so preferring userValues keeps the direct-mode path unchanged.
+// The project comes only from the selected credential; location is a setting.
 function resolveVertexEndpointInput(
     snapshot: ResolvedModelProfileSnapshot,
     userValues: Record<string, unknown>,
     credentialServiceAccountJson?: string,
 ): VertexEndpointInput {
-    const explicitProject = pickCustomString(snapshot, userValues, VERTEX_CUSTOM_PATH_PROJECT)
     const rawLocation = pickCustomString(snapshot, userValues, VERTEX_CUSTOM_PATH_LOCATION)
     const location =
         typeof rawLocation === 'string' && rawLocation.trim().length > 0 ? rawLocation : 'global'
-    const userValuesSaJson = userValues[VERTEX_SERVICE_ACCOUNT_JSON_KEY]
-    const serviceAccountJson =
-        typeof userValuesSaJson === 'string' && userValuesSaJson.trim().length > 0
-            ? userValuesSaJson
-            : credentialServiceAccountJson
-    const project = resolveVertexProject(explicitProject, serviceAccountJson)
+    const project = resolveVertexProject(credentialServiceAccountJson)
     return { project, location }
 }
 

@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid'
-
 export class EntityIdValidationError extends Error {
     constructor(message) {
         super(message)
@@ -8,7 +6,7 @@ export class EntityIdValidationError extends Error {
 }
 
 export function createEntityId() {
-    return uuidv4()
+    return globalThis.crypto.randomUUID()
 }
 
 function collectIds(items, key, allowMissing) {

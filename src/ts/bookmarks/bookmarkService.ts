@@ -129,28 +129,23 @@ export async function finalizeImportedBookmarks(chats: Chat[]): Promise<void> {
 type BookmarkLocation = Pick<GlobalBookmarkEntry, 'characterId' | 'chatId' | 'messageId'>
 
 function locateBookmark(db: Database, target: BookmarkLocation) {
-    const characterIndex = db.characters.findIndex(character => character?.chaId === target.characterId)
-    if (characterIndex < 0) return null
-    const character = db.characters[characterIndex]
+    const character = db.characters.find(character => character?.chaId === target.characterId && !character.trashTime)
+    if (!character) return null
     const chatIndex = character.chats.findIndex(chat => chat?.id === target.chatId)
     if (chatIndex < 0) return null
-    return { character, characterIndex, chatIndex }
+    return { character, chatIndex }
 }
 
 export async function navigateToBookmark(target: BookmarkLocation): Promise<boolean> {
     const location = locateBookmark(DBState.db, target)
     if (!location) return false
-    const chat = await ensureChatHydrated(
-        location.character.chats,
-        location.chatIndex,
-        location.character.chaId,
-    )
+    const chat = await ensureChatHydrated(location.character, location.chatIndex)
     if (!chat) return false
     const messageIndex = chat.message.findIndex(message => message?.chatId === target.messageId)
     if (messageIndex < 0) return false
 
     return navigateToChatMessage({
-        characterIndex: location.characterIndex,
+        characterId: target.characterId,
         chatIndex: location.chatIndex,
         messageIndex,
         messageId: target.messageId,

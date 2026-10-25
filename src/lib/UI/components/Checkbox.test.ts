@@ -35,4 +35,31 @@ describe('Checkbox', () => {
         expect(changedTo).toBe(true);
         expect(button.dataset.state).toBe('checked');
     });
+
+    it('exposes mixed state and toggles from mixed to checked and unchecked', async () => {
+        const changes: boolean[] = [];
+        const target = document.createElement('div');
+        document.body.appendChild(target);
+        mounted.push(mount(Checkbox, {
+            target,
+            props: {
+                check: false,
+                indeterminate: true,
+                onChange: (checked) => changes.push(checked),
+            },
+        }));
+        await tick();
+
+        const button = target.querySelector<HTMLElement>('[role="checkbox"]')!;
+        expect(button.getAttribute('aria-checked')).toBe('mixed');
+
+        button.click();
+        await tick();
+        expect(button.getAttribute('aria-checked')).toBe('true');
+
+        button.click();
+        await tick();
+        expect(button.getAttribute('aria-checked')).toBe('false');
+        expect(changes).toEqual([true, false]);
+    });
 });

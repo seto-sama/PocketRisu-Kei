@@ -40,7 +40,7 @@ export type SettingType =
     | 'slider'     // Slider
     | 'select'     // Select
     | 'radio'      // Vertical single-choice group (ChoiceGroup)
-    | 'segmented'  // Sliding segmented control (SegmentedControl)
+    | 'segmented'  // Sliding segmented control (ChoiceGroup variant="segment")
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)
     | 'button'     // Action button (Button)
@@ -82,6 +82,9 @@ export interface SegmentOption {
  * Type-specific options for setting items
  */
 export interface SettingOptions {
+    // check
+    reverse?: boolean;
+
     // number, slider
     min?: number;
     max?: number;

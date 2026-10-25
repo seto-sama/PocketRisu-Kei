@@ -7,7 +7,6 @@ function databaseWithTargets(): Database {
         characters: [
             {
                 chaId: 'character-1',
-                chatPage: 0,
                 chats: [
                     {
                         id: 'room-1',
@@ -25,7 +24,6 @@ function databaseWithTargets(): Database {
             },
             {
                 chaId: 'character-2',
-                chatPage: 0,
                 chats: [
                     {
                         id: 'room-2',
@@ -41,17 +39,9 @@ function databaseWithTargets(): Database {
 }
 
 describe('request status chat navigation', () => {
-    it('finds a response by its message id', () => {
-        expect(findRequestStatusChatTarget(databaseWithTargets(), 'message-1')).toEqual({
-            characterIndex: 0,
-            chatIndex: 0,
-            messageIndex: 1,
-        })
-    })
-
-    it('finds a response by its generation id', () => {
-        expect(findRequestStatusChatTarget(databaseWithTargets(), 'generation-1')).toEqual({
-            characterIndex: 0,
+    it.each(['message-1', 'generation-1'])('finds a response by %s', id => {
+        expect(findRequestStatusChatTarget(databaseWithTargets(), id)).toEqual({
+            characterId: 'character-1',
             chatIndex: 0,
             messageIndex: 1,
         })
@@ -59,7 +49,7 @@ describe('request status chat navigation', () => {
 
     it('falls back from a recovery room id to its latest character message', () => {
         expect(findRequestStatusChatTarget(databaseWithTargets(), 'room-2')).toEqual({
-            characterIndex: 1,
+            characterId: 'character-2',
             chatIndex: 0,
             messageIndex: 0,
         })
@@ -73,7 +63,7 @@ describe('request status chat navigation', () => {
         } as never)
 
         expect(findRequestStatusChatTarget(db, 'placeholder-room')).toEqual({
-            characterIndex: 1,
+            characterId: 'character-2',
             chatIndex: 1,
             messageIndex: null,
         })

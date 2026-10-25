@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+vi.mock('../auxiliary', () => ({ consumeRecoverableAuxiliaryGeneration: vi.fn() }))
 import {
     auxiliaryResultJobIdsToConsume,
     consumeOnStreamCompletion,
@@ -55,6 +56,7 @@ describe('auxiliary result consumption', () => {
 
         await expect(readAll(stream)).resolves.toEqual(['one', 'two'])
         expect(consume).toHaveBeenCalledTimes(1)
+        expect(consume).toHaveBeenCalledWith('two')
     })
 
     it('does not acknowledge output cancelled before EOF', async () => {

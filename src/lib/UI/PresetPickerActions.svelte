@@ -20,7 +20,7 @@
         </IconButton>
     {/if}
     {#if onImport}
-        <IconButton onclick={onImport}>
+        <IconButton onclick={onImport} data-file-picker>
             <UploadIcon />
         </IconButton>
     {/if}

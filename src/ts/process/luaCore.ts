@@ -1,5 +1,7 @@
 import type { Message } from '../storage/database.svelte'
 import { ensureMessageId } from '../storage/messageIdentity'
+import { setMessageContent } from '../storage/messageContent'
+import { applyScriptMessageDeletion } from './scriptMessageDeletion'
 
 export type LuaCoreMessage = Partial<Message>
 
@@ -140,7 +142,7 @@ export function registerLuaCoreApis(
         const adapter = getAdapter()
         if (!adapter.canMutate(String(accessKey))) return
         const message = adapter.getChat().message.at(Number(index))
-        if (message) message.data = String(value ?? '')
+        if (message) setMessageContent(message, String(value ?? ''))
     })
     declare('setChatRole', (accessKey, index, role) => {
         const adapter = getAdapter()
@@ -152,12 +154,15 @@ export function registerLuaCoreApis(
         const adapter = getAdapter()
         if (!adapter.canMutate(String(accessKey))) return
         const chat = adapter.getChat()
-        chat.message = chat.message.slice(Number(start), Number(end))
+        applyScriptMessageDeletion(chat, chat.message.slice(Number(start), Number(end)))
     })
     declare('removeChat', (accessKey, index) => {
         const adapter = getAdapter()
         if (adapter.canMutate(String(accessKey))) {
-            adapter.getChat().message.splice(Number(index), 1)
+            const chat = adapter.getChat()
+            const remaining = [...chat.message]
+            remaining.splice(Number(index), 1)
+            applyScriptMessageDeletion(chat, remaining)
         }
     })
     declare('addChat', (accessKey, role, value) => {
@@ -187,12 +192,16 @@ export function registerLuaCoreApis(
         const parsed = JSON.parse(String(value))
         if (!Array.isArray(parsed)) return
         const previousMessages = adapter.getChat().message
-        adapter.getChat().message = parsed.map((message, index) => ensureMessageId({
-            ...previousMessages[index],
-            role: normalizeRole(message?.role),
-            data: String(message?.data ?? ''),
-            time: message?.time,
-        }))
+        const remaining = parsed.map((message, index) => {
+            const next = ensureMessageId({
+                ...previousMessages[index],
+                role: normalizeRole(message?.role),
+                time: message?.time,
+            })
+            setMessageContent(next, String(message?.data ?? ''))
+            return next
+        })
+        adapter.getChat().message = remaining
     })
     declare('cbs', value => getAdapter().render(String(value ?? '')))
 
@@ -304,7 +313,9 @@ export async function invokeLuaMode(
                 : mode
     const callback = global.get(callbackName)
     if (!callback) return { result: undefined, data }
-    const result = mode === 'onButtonClick'
+    const result = mode === 'onFormSubmit'
+        ? await callback(accessKey, data, JSON.stringify(meta))
+        : mode === 'onButtonClick'
         ? await callback(accessKey, data)
         : await callback(accessKey)
     return { result, data }

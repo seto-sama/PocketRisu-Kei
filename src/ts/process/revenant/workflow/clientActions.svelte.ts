@@ -1,3 +1,5 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createEntityId } from 'src/ts/id';
 import { get } from 'svelte/store'
 import { alertConfirm, alertError, alertInput, alertNormal, alertSelect } from '../../../alert'
@@ -5,13 +7,18 @@ import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
 import type { ModelPreset } from '../../../preset/types'
 import { getDatabase, type Chat, type character } from '../../../storage/database.svelte'
+import { chooseConflictComparison, SaveConflictCancelledError } from '../../../storage/saveConflict'
+import { presentSaveConflict } from '../../../gui/saveConflictPresentation'
+import type { MergeConflict } from '../../../storage/patchRebase'
+import { language } from '../../../../lang'
+import { findLastActiveResponseIndex, setMessageContent } from '../../../storage/messageContent'
 import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
 import { getInlayAsset, writeInlayImage } from '../../files/inlays'
 import { requestModelPresetData } from '../../request/request'
 import { collectStreamingText } from '../../request/shared'
-import { extractLuaLlmInlays, normalizeLuaLlmPrompt } from '../../luaLlmCore'
+import { extractLuaLlmInlays, LUA_AX_LLM_MODES, normalizeLuaLlmPrompt, type LuaAxLlmMode } from '../../luaLlmCore'
 import { sayTTS } from '../../tts'
 import { runInlayScreen } from '../../inlayScreen'
 import { loadLoreBookV3Prompt } from '../../lorebook.svelte'
@@ -69,6 +76,7 @@ async function executeProviderAction(
     signal?: AbortSignal,
 ): Promise<{ success: boolean, result: unknown }> {
     const payload = actionPayload(action)
+    const currentChat = character.chats.find(chat => chat.id === workflow.roomId)
     const preset = payload.modelPreset as ModelPreset | undefined
     if (!preset || typeof preset !== 'object') {
         return { success: false, result: 'Error: Missing delegated model preset' }
@@ -92,6 +100,7 @@ async function executeProviderAction(
             formated: prompt,
             bias: {},
             currentChar: character,
+            currentChat,
             useStreaming: true,
             forceStreaming: true,
             noMultiGen: true,
@@ -118,26 +127,24 @@ async function executeProviderAction(
                 : 'Plugin provider completed without dispatching a durable model request'
             return { success: false, result: detail }
         }
-        // The plugin may expose a stream that API v3 never closes. Once the
-        // durable job exists, detach that browser projection if it surfaces;
-        // cancelling this ReadableStream only closes the journal observer, not
-        // the server-owned provider job.
+        // Tool-call responses need the processed provider result, so keep
+        // consuming it after durable registration while the server waits.
         void coordinated.result.then(response => {
-            if (response.type === 'streaming') return response.result.cancel()
+            if (response.type === 'streaming') return collectStreamingText(response.result)
         }).catch(error => {
             if (!signal?.aborted) console.warn('[Revenant] Detached plugin provider failed:', error)
         })
         return { success: true, result: { jobId } }
     }
-    const delegatedMode = ['submodel', 'memory', 'emotion', 'translate', 'otherAx']
-        .includes(String(payload.mode))
-        ? payload.mode as 'submodel' | 'memory' | 'emotion' | 'translate' | 'otherAx'
+    const delegatedMode = LUA_AX_LLM_MODES.includes(payload.mode as LuaAxLlmMode)
+        ? payload.mode as LuaAxLlmMode
         : action.kind === 'provider.axllm' ? 'otherAx'
             : 'model'
     const response = await requestModelPresetData({
         formated: prompt,
         bias: {},
         currentChar: character,
+        currentChat,
         useStreaming,
         forceStreaming: useStreaming,
         noMultiGen: true,
@@ -203,6 +210,19 @@ async function executeClientAction(
         return executeProviderAction(workflow, stepKey, action, character, signal)
     }
     switch (action.kind) {
+        case 'ui.resolve-conflict': {
+            const conflicts = payload.conflicts as MergeConflict[];
+            try {
+                return await chooseConflictComparison({
+                    title: language.saveConflict.title,
+                    localLabel: language.saveConflict.generated,
+                    items: conflicts.map((conflict, index) => presentSaveConflict(conflict, index)),
+                }, signal);
+            } catch (error) {
+                if (signal?.aborted || !(error instanceof SaveConflictCancelledError)) throw error;
+                return null;
+            }
+        }
         case 'ui.input': return alertInput(String(payload.message ?? ''))
         case 'ui.select': return alertSelect(
             Array.isArray(payload.options) ? payload.options.map(String) : [],
@@ -234,9 +254,13 @@ async function executeClientAction(
                 else if (effect.kind === 'reload.chat') {
                     invalidateChatMessageRender(Number.isInteger(effect.index)
                         ? Number(effect.index)
-                        : character.chatPage)
+                        : getChatPage(character))
                 }
-                else if (effect.kind === 'log') console.log(effect.value)
+                else if (effect.kind === 'log') {
+                    if (isDebugEnabled()) {
+                        console.debug(effect.value)
+                    }
+                }
                 else if (effect.kind === 'tts') {
                     await sayTTS(character, String(effect.text ?? ''))
                 }
@@ -253,10 +277,10 @@ async function executeClientAction(
                     catch { /* Notifications are best-effort foreground effects. */ }
                 }
                 else if (effect.kind === 'inlay.screen' && resultChat) {
-                    const target = resultChat.message.findLast(message => message?.role === 'char')
+                    const target = resultChat.message[findLastActiveResponseIndex(resultChat.message)]
                     if (target?.data) {
                         const inlay = runInlayScreen(character, target.data)
-                        target.data = inlay.promise ? await inlay.promise : inlay.text
+                        setMessageContent(target, inlay.promise ? await inlay.promise : inlay.text)
                     }
                 }
                 else if (effect.kind === 'emotion.auto') {

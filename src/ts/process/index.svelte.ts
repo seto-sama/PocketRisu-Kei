@@ -1,7 +1,10 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate, getActiveBotPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
+import { setMessageContent } from '../storage/messageContent';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
 import { selectActiveChatMessages } from "../chatContextTokens";
@@ -63,7 +66,9 @@ import {
 } from './revenant/jobStatus';
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getMessagePromptIdentity } from '../storage/messageIdentity';
-import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
+import { getModuleAssets, getModuleRegexScripts, getModules, getModuleTriggers } from "./modules";
+import { LUA_AX_LLM_MODES } from './luaLlmCore';
+import type { ModelModeExtended, RevenantProviderSnapshot } from './revenant/types';
 import { readImage } from "../globalApi.svelte";
 import {
     createChatCommitSnapshot,
@@ -89,7 +94,7 @@ import {
     setGenerationMessageContent,
     setGenerationMessageInfo,
 } from './revenant/recovery';
-import { pluginV2 } from '../plugins/plugins.svelte';
+import { pluginRuntime } from '../plugins/pluginRuntime';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
@@ -107,7 +112,7 @@ export interface OpenAIChat{
 }
 
 async function runChatOutputListeners(characterId: string, roomId: string, messageId: string){
-    if(pluginV2.chatOutput.size === 0) return
+    if(pluginRuntime.chatOutput.size === 0) return
 
     const characterIndex = DBState.db.characters.findIndex(character => character?.chaId === characterId)
     const character = DBState.db.characters[characterIndex]
@@ -118,7 +123,7 @@ async function runChatOutputListeners(characterId: string, roomId: string, messa
     const messageIndex = chat.message.findIndex(message => message?.chatId === messageId)
     const charSnapshot = $state.snapshot(character)
     const chatSnapshot = $state.snapshot(chat)
-    for(const listener of pluginV2.chatOutput){
+    for(const listener of pluginRuntime.chatOutput){
         try {
             await listener({
                 char: charSnapshot,
@@ -231,7 +236,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     function runCurrentChatFunction(chat:Chat){
         chat.message = chat.message.map((v) => {
-            v.data = risuChatParser(v.data, {chara: currentChar, runVar: true})
+            setMessageContent(v, risuChatParser(v.data, {chara: currentChar, runVar: true}))
             return v
         })
         return chat
@@ -399,7 +404,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    let isDoing = get(doingChat)
+    const isDoing = get(doingChat)
 
     // `doingChat` is a legacy process-wide activity signal. A UI submission
     // with an explicit room target is instead guarded by that room's local
@@ -426,7 +431,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     selectedChat = arg.generationTarget
         ? nowChatroom.chats.findIndex(chat =>
             chat?.id === arg.generationTarget?.roomId)
-        : nowChatroom.chatPage
+        : getChatPage(nowChatroom)
     const targetChat = nowChatroom.chats[selectedChat]
     if(!targetChat){
         alertError('The generation chat is no longer available.')
@@ -439,6 +444,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         doingChat.set(false)
         return false
     }
+    initializeToggleValues(DBState.db, nowChatroom, targetChat)
     targetChat.message = targetChat.message.map((v) => {
         v.chatId = v.chatId ?? createEntityId()
         return v
@@ -535,14 +541,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         value: string,
     }[] = []
     if(DBState.db.promptInfoInsideChat){
-        initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
-        initialPromptTogglesForPromptInfo = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
+        initialPresetNameForPromptInfo = getActiveBotPreset()?.name ?? ''
+        initialPromptTogglesForPromptInfo = parseToggleSyntax(getToggleTemplate(DBState.db, nowChatroom, outgoingChat))
             .flatMap(toggle => {
                 const raw = DBState.db.globalChatVariables[`toggle_${toggle.key}`]
-                if (toggle.type === 'select' || toggle.type === 'text') {
-                    return [{ key: toggle.value, value: toggle.options[raw] }];
+                if (toggle.type === 'select') {
+                    return [{ key: toggle.value, value: toggle.options[Number(raw)] ?? '' }];
                 }
-                if (raw === '1') {
+                if (toggle.type === 'text' || toggle.type === 'textarea') {
+                    return [{ key: toggle.value, value: raw ?? '' }];
+                }
+                if (toggle.type === undefined && raw === '1') {
                     return [{ key: toggle.value, value: 'ON' }];
                 }
                 return [];
@@ -687,7 +696,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return {text: result, replaced}
     }
 
-    // maxDepth controls how many levels of nesting are resolved. Currently set to 5, adjust if needed.
     const resolvePosition = (text:string, maxDepth:number = 5) => {
         let result = text
         for(let i=0; i<maxDepth;i++) {
@@ -702,7 +710,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const normalActives = lorepmt.actives.filter(v => {
         return v.pos === '' && v.inject === null
     })
-    console.log(normalActives)
+    if (isDebugEnabled()) {
+        console.debug(normalActives)
+    }
 
     for(const lorebook of normalActives){
         unformated.lorebook.push({
@@ -778,15 +788,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
     }
 
-    //await tokenize currernt
     let currentTokens = 0
     let supaMemoryCardUsed = false
     
-    //for unexpected error
+    // Leave a small buffer for token accounting differences.
     currentTokens += 50
     
     const positionParser = (text:string, loc:string) => {
-        console.log(injectionLorePosSet)
+        if (isDebugEnabled()) {
+            console.debug(injectionLorePosSet)
+        }
         if(injectionLorePosSet.has(loc)){
             const matchings = injectionLorebooks.filter(v => {
                 return v.inject.location === loc
@@ -1055,7 +1066,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
     
-    console.log('Prepared messages for token calculation:', ms)
+    if (isDebugEnabled()) {
+        console.debug('Prepared messages for token calculation:', ms)
+    }
 
     let triggerAdditionalSysPrompt:additonalSysPrompt|undefined
     const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
@@ -1205,7 +1218,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
         index++
     }
-    console.log(JSON.stringify(chats, null, 2))
+    if (isDebugEnabled()) {
+        console.debug(chats)
+    }
 
     const depthPrompts = lorepmt.actives.filter(v => {
         return (v.pos === 'depth' && v.depth > 0) || v.pos === 'reverse_depth'
@@ -1223,7 +1238,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
         chatProcessStage.set(2)
         stageTimings.stage2Start = Date.now()
-        console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        if (isDebugEnabled()) {
+            console.debug("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        }
         const sp = await hypaMemoryV3(
             chats,
             currentTokens,
@@ -1238,12 +1255,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             },
         )
         if(sp.error){
-            // Save new summary
+            // Preserve memory state returned with the error.
             if (sp.memory) {
                 currentChat.hypaV3Data = sp.memory
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
             }
-            console.log(sp)
+            if (isDebugEnabled()) {
+                console.debug(sp)
+            }
             if(abortSignal.aborted) return finishCancelledGeneration()
             throwError(sp.error)
             await finishWorkflow('failed')
@@ -1262,7 +1281,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
-        console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        if (isDebugEnabled()) {
+            console.debug("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        }
         stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
         if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
     }
@@ -1336,8 +1357,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     
-    //make into one
-
     let formated:OpenAIChat[] = []
 
     function pushPrompts(cha:OpenAIChat[]){
@@ -1550,7 +1569,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     formated = await runLuaEditTrigger(currentChar, 'editRequest', formated)
 
-    //token rechecking
     let inputTokens = 0
 
     for(const chat of formated){
@@ -1607,16 +1625,34 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(!outgoingChat.id){
                 throw new Error('Cannot start generation because the chat has no id.')
             }
-            const snapshotAuxProvider = (mode:'submodel'|'emotion'|'otherAx') => {
-                const binding = resolveChatModelBinding(currentChat, mode)
+            const mainProvider = {
+                backend: compiledMainPreset.backend,
+                modelPreset: structuredClone(compiledMainPreset.sourcePreset),
+            }
+            const providerSnapshots = new Map<string, RevenantProviderSnapshot>([
+                [compiledMainPreset.sourcePreset.id, mainProvider],
+            ])
+            const snapshotProvider = (mode: ModelModeExtended, moduleId?: string) => {
+                const binding = resolveChatModelBinding(currentChat, mode, moduleId)
                 if(binding.kind !== 'modelPreset') return undefined
+                const existing = providerSnapshots.get(binding.preset.id)
+                if (existing) return existing
                 const compiled = compileModelPreset(binding.preset, {
                     jsonSchemaRequested: false,
                 })
-                return {
+                const provider = {
                     backend: compiled.backend,
                     modelPreset: structuredClone(compiled.sourcePreset),
                 }
+                providerSnapshots.set(binding.preset.id, provider)
+                return provider
+            }
+            const moduleTriggers = getModuleTriggers(currentChar, currentChat)
+            const moduleProviders: Record<string, RevenantProviderSnapshot> = Object.create(null)
+            for (const moduleId of new Set(moduleTriggers.map(trigger => trigger.moduleId).filter((id): id is string => !!id))) {
+                if (!DBState.db.moduleModelBindings?.[moduleId]) continue
+                const provider = snapshotProvider('model', moduleId)
+                if (provider) moduleProviders[moduleId] = provider
             }
             const resumeContext:RevenantWorkflowResumeContext = {
                 version: 1,
@@ -1634,7 +1670,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             })
             const {
                 chats: _postprocessChats,
-                chatPage: _postprocessChatPage,
                 ...postprocessCharacterState
             } = nowChatroom
             const postprocessCharacter = structuredClone(postprocessCharacterState)
@@ -1657,13 +1692,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     schemaVersion: 1,
                     messageChatId,
                     rerollSnapshot,
-                    providerBackend: compiledMainPreset.backend,
-                    modelPreset: structuredClone(compiledMainPreset.sourcePreset),
-                    auxProviders: {
-                        submodel: snapshotAuxProvider('submodel'),
-                        emotion: snapshotAuxProvider('emotion'),
-                        otherAx: snapshotAuxProvider('otherAx'),
-                    },
+                    providerBackend: mainProvider.backend,
+                    modelPreset: mainProvider.modelPreset,
+                    auxProviders: Object.fromEntries(LUA_AX_LLM_MODES.map(mode => [mode, snapshotProvider(mode)])),
+                    moduleProviders,
                     character: postprocessCharacter,
                     chatPatch: compare(
                         durableInputChat,
@@ -1686,9 +1718,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
                         emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                     },
-                    modules: structuredClone(getModules()),
-                    moduleRegexScripts: structuredClone(getModuleRegexScripts()),
-                    moduleTriggers: structuredClone(getModuleTriggers()),
+                    modules: structuredClone(getModules(currentChar, currentChat)),
+                    moduleRegexScripts: structuredClone(getModuleRegexScripts(currentChar, currentChat)),
+                    moduleTriggers: structuredClone(moduleTriggers),
                 },
             }
             const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
@@ -1897,13 +1929,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    console.log(req)
+    if (isDebugEnabled()) {
+        console.debug(req)
+    }
     arg.onMainRequestResult?.({
         toolExecuted: req.type === 'success' && req.toolExecuted === true,
     })
     if(req.model){
         generationInfo.model = getGenerationModelString(req.model)
-        console.log(generationInfo.model, req.model)
+        if (isDebugEnabled()) {
+            console.debug(generationInfo.model, req.model)
+        }
     }
     try {
         await updateRevenantGenerationMetadata(messageChatId, {
@@ -2096,14 +2132,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             throw new Error('Generation chat is no longer available')
         }
         const inlayr = runInlayScreen(currentChar, inlayTarget.message.data)
-        inlayTarget.message.data = inlayr.text
+        setMessageContent(inlayTarget.message, inlayr.text)
         if(inlayr.promise){
             const t = await inlayr.promise
             const refreshedInlayTarget = ensureLiveGenerationTarget()
             if(!refreshedInlayTarget){
                 throw new Error('Generation chat is no longer available')
             }
-            refreshedInlayTarget.message.data = t
+            setMessageContent(refreshedInlayTarget.message, t)
         }
         if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
             await sayTTS(currentChar, result)
@@ -2122,7 +2158,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const msgs = (req.type === 'success') ? [['char',req.result]] as const 
                     : (req.type === 'multiline') ? req.result
                     : []
-        let mrerolls:string[] = []
         for(let i=0;i<msgs.length;i++){
             let msg = msgs[i]
             let mess = msg[1]
@@ -2156,10 +2191,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     if(!refreshedTarget) throw new Error('Generation target is missing')
                     setGenerationMessageContent(refreshedTarget.message, p)
                 }
-                mrerolls.push(result)
-            }
-            else{
-                mrerolls.push(result)
             }
             DBState.db.characters[selectedChar].reloadKeys += 1
             if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
@@ -2196,7 +2227,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         },'emotion', abortSignal)
 
         if(rq.type === 'success'){
-            DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq.result
+            const target = DBState.db.characters[selectedChar].chats[selectedChat].message.at(-1)
+            if (target) setMessageContent(target, target.data + rq.result)
             await setWorkflowStep('igp', 'completed')
         }
         else{
@@ -2310,10 +2342,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     return v
                 })
 
-                //give panaltys
                 for(let i =0;i<tempEmotion.length;i++){
                     const emo = tempEmotion[i]
-                    //give panalty index
                     const index = searched.findIndex((v) => {
                         return v[0] === emo[0]
                     })
@@ -2325,7 +2355,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
                 }
 
-                //make a sorted array by score
                 const emoresult = searched.sort((a,b) => {
                     return b[1] - a[1]
                 }).map((v) => {

@@ -1,5 +1,7 @@
 <script lang="ts">
     import { Buffer } from 'buffer'
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
@@ -8,6 +10,7 @@
     import RealmPopUp from './lib/UI/Realm/RealmPopUp.svelte';
     import FolderSettingsDialog from './lib/SideBars/FolderSettingsDialog.svelte';
     import GridChars from './lib/Others/GridCatalog.svelte';
+    import ServerDrive from './lib/Others/ServerDrive.svelte';
     import Dialog from './lib/UI/components/Dialog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
     import Settings from './lib/Setting/Settings.svelte';
@@ -29,7 +32,6 @@
     import { hypaV3ProgressStore } from "./ts/stores.svelte";
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
     import HypaV3Progress from './lib/Others/HypaV3Progress.svelte';
-    import PluginAlertModal from './lib/Others/PluginAlertModal.svelte';
     import PopupEditor from './lib/Others/PopupEditor.svelte';
     import UpdatePopup from './lib/Others/UpdatePopup.svelte';
     import BootBackupPrompt from './lib/Others/BootBackupPrompt.svelte';
@@ -38,16 +40,31 @@
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
     import Toaster from './lib/UI/components/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
-    import sendSound from './etc/send.mp3'
+    import { onDestroy } from 'svelte'
+    import { createKeepAliveAudio } from './ts/keepAliveAudio'
+    import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
+    import { installFilePickerContextMenu, serverDriveAvailable, serverDriveFileRequest } from './ts/serverDriveFilePicker.svelte'
 
     let gridOpen = $state(false)
-    let keepingSessionAlive = $state(false)
+    let driveOpen = $state(false)
+    let keepAliveAudio = $state.raw<HTMLAudioElement | null>(null)
+
+    $effect(() => {
+        if (!DBState.db.keepSessionAlive) keepAliveAudio?.pause()
+    })
+
+    onDestroy(() => {
+        if (!keepAliveAudio) return
+        keepAliveAudio.pause()
+        URL.revokeObjectURL(keepAliveAudio.src)
+    })
 
     $effect(() => initializePwaInstall())
+    $effect(() => installFilePickerContextMenu())
 
     function openCharacterGrid() {
         gridOpen = true
@@ -56,6 +73,12 @@
 
     function closeCharacterGrid() {
         gridOpen = false
+    }
+
+    function openServerDrive() {
+        if (!serverDriveAvailable) return
+        driveOpen = true
+        if ($DynamicGUI) sideBarStore.set(false)
     }
 
     function handleDialogKeydown(event: KeyboardEvent) {
@@ -125,17 +148,12 @@
         }
     }
 }} onclick={() => {
-    if(keepingSessionAlive){
-        return
-    }
-
-    if(DBState?.db?.keepSessionAlive){
-        console.log("Starting silent audio to keep session alive")
-        const silentAudio = new Audio(sendSound);
-        silentAudio.loop = true;
-        silentAudio.volume = 0.000001;
-        silentAudio.play();
-        keepingSessionAlive = true;
+    if (!DBState.db.keepSessionAlive) return
+    keepAliveAudio ??= createKeepAliveAudio()
+    if (!keepAliveAudio.paused) return
+    void keepAliveAudio.play().catch(() => {})
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: PRODUCT_NAME })
     }
 }}>
     {#if !$loadedStore}
@@ -159,6 +177,7 @@
             {#if !$DynamicGUI}
                 <Sidebar
                     openGrid={openCharacterGrid}
+                    openDrive={openServerDrive}
                     onNavigate={closeCharacterGrid}
                     hidden={!$sideBarStore}
                 />
@@ -216,6 +235,7 @@
             >
                 <Sidebar
                     openGrid={openCharacterGrid}
+                    openDrive={openServerDrive}
                     onNavigate={closeCharacterGrid}
                     hidden={false}
                 />
@@ -256,9 +276,17 @@
     {#if $bookmarkListOpen}
         <BookmarkList />
     {/if}
+    {#if driveOpen}
+        <ServerDrive bind:open={driveOpen} />
+    {/if}
+    {#if serverDriveFileRequest.current}
+        {#key serverDriveFileRequest.current}
+            <ServerDrive pick={serverDriveFileRequest.current} />
+        {/key}
+    {/if}
     <!-- Keep the modal mounted while a chat is selected so work/results survive closing it. -->
-    {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID].chatPage]}
-        {#key `${$selectedCharID}:${DBState.db.characters[$selectedCharID].chatPage}:${DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].id ?? ''}`}
+    {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]}
+        {#key `${$selectedCharID}:${getChatPage(DBState.db.characters[$selectedCharID])}:${DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].id ?? ''}`}
             <HypaV3Modal />
         {/key}
     {/if}
@@ -266,7 +294,6 @@
     {#if $hypaV3ProgressStore.open}
         <HypaV3Progress />
     {/if}
-    <PluginAlertModal />
     <LoadingOverlay />
     <UpdatePopup />
     <BootBackupPrompt />

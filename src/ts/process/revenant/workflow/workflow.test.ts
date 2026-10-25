@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { changeLanguage } from 'src/lang'
 import { get } from 'svelte/store'
 import type { RevenantWorkflow } from '../types'
 import {
@@ -175,6 +174,7 @@ describe('manual image workflow', () => {
             prompt: 'portrait',
             negativePrompt: 'blur',
             seed: 42,
+            preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
             label: 'NovelAI',
             projection: 'append',
         })
@@ -183,6 +183,7 @@ describe('manual image workflow', () => {
         expect(submitted.plan).toEqual([expect.objectContaining({ key: 'image.generate' })])
         expect(submitted.context).toMatchObject({
             kind: 'image-generation',
+            preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
             target: { characterId: 'character-1', roomId: 'room-1' },
             prompt: 'portrait',
             negativePrompt: 'blur',
@@ -313,34 +314,28 @@ describe('active workflow client state', () => {
         })).rejects.toThrow('Chat changed before the generation input was committed')
     })
 
-    it('localizes the global workflow limit without treating it as a room conflict', async () => {
-        changeLanguage('ko')
-        try {
-            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-                new Response(JSON.stringify({
-                    code: 'REVENANT_WORKFLOW_LIMIT',
-                    error: 'Too many active Revenant workflows',
-                    details: { limit: 32 },
-                }), { status: 429 }),
-            ))
-
-            const error = await beginRevenantWorkflow({
-                characterId: 'character-overflow',
-                roomId: 'room-overflow',
-                plan: [{ key: 'model.main', kind: 'model.main', recoveryPolicy: 'replay_output' }],
-                context: {} as any,
-            }).catch(caught => caught)
-
-            expect(error).not.toBeInstanceOf(RevenantWorkflowBusyError)
-            expect(error).toMatchObject({
-                status: 429,
+    it('reports the global workflow limit without treating it as a room conflict', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({
                 code: 'REVENANT_WORKFLOW_LIMIT',
+                error: 'Too many active Revenant workflows',
                 details: { limit: 32 },
-            })
-            expect(error.message).toContain('서버에서 처리 중인 작업이 너무 많습니다.')
-        } finally {
-            changeLanguage('en')
-        }
+            }), { status: 429 }),
+        ))
+
+        const error = await beginRevenantWorkflow({
+            characterId: 'character-overflow',
+            roomId: 'room-overflow',
+            plan: [{ key: 'model.main', kind: 'model.main', recoveryPolicy: 'replay_output' }],
+            context: {} as any,
+        }).catch(caught => caught)
+
+        expect(error).not.toBeInstanceOf(RevenantWorkflowBusyError)
+        expect(error).toMatchObject({
+            status: 429,
+            code: 'REVENANT_WORKFLOW_LIMIT',
+            details: { limit: 32 },
+        })
     })
 
     it('preserves the remaining registration grace period for an abandoned setup', async () => {

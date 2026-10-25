@@ -1,3 +1,4 @@
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { type MCPTool, MCPToolHandler, type RPCToolCallContent } from '../mcplib'
 import { getCharacter } from './utils'
 import { type character } from 'src/ts/storage/database.svelte'
@@ -53,10 +54,8 @@ export class ChatHandler extends MCPToolHandler {
     if (count < 1) count = 1
     if (offset < 0) offset = 0
 
-    // To get "newest first", we must reverse the array.
-    const reversedMessages = [...char.chats[char.chatPage].message].reverse()
+    const reversedMessages = [...char.chats[getChatPage(char)].message].reverse()
 
-    // Now that the array is sorted from newest to oldest, we can slice it
     const history = reversedMessages.slice(offset, offset + count)
 
     const ordered = history.map((entry) => ({

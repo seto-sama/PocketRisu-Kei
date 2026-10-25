@@ -27,7 +27,6 @@ vi.mock(import('../../../stores.svelte'), () => {
       db: {
         characters: [
           {
-            chatPage: 0,
             chats: [
               {
                 scriptstate: {},
@@ -106,14 +105,7 @@ describe('#each', () => {
   })
 
   test('works in #when ... :else', () => {
-    /*
-    :else is sensitive to line breaks
-    {{#when A}}
-      {{#each [1, 2, 3] as n}}{{slot::n}}{{/}}
-    {{:else}}
-      {{#each [3, 2, 1] as n}}{{slot::n}}{{/}}
-    {{/}}
-    */
+    // :else must be on a line by itself.
     const nestedTemplate = (a: string) => `{{#when ${a}}}\n{{#each [1, 2, 3] as n}}{{slot::n}}{{/}}\n{{:else}}\n{{#each [3, 2, 1] as n}}{{slot::n}}{{/}}\n{{/}}`
 
     expect(risuChatParser(nestedTemplate('1'))).toBe('123')

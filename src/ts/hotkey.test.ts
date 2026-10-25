@@ -40,10 +40,11 @@ vi.mock('./stores.svelte', async () => {
 vi.mock('src/lang', () => ({ language: {} }))
 vi.mock('./gui/colorscheme', () => ({ updateTextThemeAndCSS: vi.fn() }))
 vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
+vi.mock('./characters', () => ({ changeChar: vi.fn() }))
 
 import { hotkeyMatches, isSupportedHotkey } from './defaulthotkeys'
 import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey } from './hotkey'
-import { requestEscapeAction } from './gui/escapeKey'
+import { registerTextEntryEscapeHandler, requestEscapeAction } from './gui/escapeKey'
 import {
     botMakerMode,
     QuickSettings,
@@ -137,7 +138,7 @@ describe('application hotkeys', () => {
         expect(requestEscapeAction()).toBe(false)
     })
 
-    it('blurs a focused input before a parent dialog can close', () => {
+    it('dismisses a field overlay, then blurs the input before closing its parent', () => {
         const layer = document.createElement('div')
         const input = document.createElement('input')
         const closeButton = document.createElement('button')
@@ -149,6 +150,15 @@ describe('application hotkeys', () => {
         layer.append(input)
         document.body.append(layer, closeButton)
         input.focus()
+
+        const dismissCompletion = vi.fn(() => true)
+        const unregisterEscape = registerTextEntryEscapeHandler(input, dismissCompletion)
+        expect(requestEscapeAction()).toBe(true)
+        expect(dismissCompletion).toHaveBeenCalledOnce()
+        expect(document.activeElement).toBe(input)
+        expect(closeLayer).not.toHaveBeenCalled()
+        expect(close).not.toHaveBeenCalled()
+        unregisterEscape()
 
         expect(requestEscapeAction()).toBe(true)
         expect(document.activeElement).not.toBe(input)
@@ -215,13 +225,14 @@ describe('getSidebarCharacterOrder', () => {
                 { chaId: 'alpha' },
                 { chaId: 'beta' },
                 { chaId: 'gamma' },
+                { chaId: 'trashed', trashTime: 1 },
             ],
             characterOrder: [
                 'gamma',
-                { data: ['beta', 'missing'] },
+                { data: ['beta', 'missing', 'trashed'] },
                 'alpha',
             ],
-        })).toEqual([2, 1, 0])
+        })).toEqual(['gamma', 'beta', 'alpha'])
     })
 })
 

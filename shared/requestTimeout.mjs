@@ -1,5 +1,21 @@
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
+export function createRequestTimeoutSignal(signal, timeoutMs) {
+    if (!timeoutMs || timeoutMs <= 0) return { signal, cleanup() {} };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onAbort = () => controller.abort(signal.reason);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
+    return {
+        signal: controller.signal,
+        cleanup() {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', onAbort);
+        },
+    };
+}
+
 export function requestIdleTimeoutMs(requestTimeoutMs) {
     return Math.max(DEFAULT_REQUEST_TIMEOUT_MS,
         Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : 0);

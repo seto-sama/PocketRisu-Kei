@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { isTrashExpired } from './trashRetention';
 import { checkNullish } from "./util"
 import { createEntityId } from 'src/ts/id';
@@ -8,7 +9,7 @@ import { checkRisuUpdate } from "./update";
 import { syncPublicStatsVisibility } from "./publicStats";
 import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
+import { alertError, alertMd, waitAlert, alertConfirm, alertInput } from "./alert";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
@@ -25,6 +26,7 @@ import {
     forageStorage,
     saveDb,
     setPatchSyncBaseline,
+    requestImmediateSave,
     getDbBackups,
     checkCharOrder
 } from "./globalApi.svelte";
@@ -34,6 +36,7 @@ import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
 import { isNodeServer } from './platform';
+import { migrateRealmMutes } from './realmMute';
 import {
     applyPluginMemoryDecision,
     getPluginStorageWarningBytes,
@@ -49,9 +52,6 @@ async function configurePluginStartupMemoryGuard() {
     forageStorage.setPluginStorageExclusion(applyPluginMemoryDecision(decision))
 }
 
-/**
- * Loads the application data.
- */
 export async function loadData() {
     const loaded = get(loadedStore)
     if (!loaded) {
@@ -67,9 +67,8 @@ export async function loadData() {
                     const projection = await forageStorage.getDatabaseProjection<Database>()
                     if (projection.database === null) {
                         createdFreshDatabase = true
-                        // Build the complete default database in memory first. The
-                        // first-run PUT below is revision-gated, so concurrent new
-                        // clients cannot overwrite whichever initialization wins.
+                        // The revision-gated first-run write prevents concurrent new clients
+                        // from overwriting whichever initialization wins.
                         setDatabase({} as Database)
                     } else {
                         setPatchSyncBaseline(structuredClone(projection.database))
@@ -107,18 +106,10 @@ export async function loadData() {
                         }
                     }
                 }
-
-                characterURLImport()
             }
             if (createdFreshDatabase) {
-                // Brand-new instance (no save file existed): apply the default
-                // theme preset (#0 = PocketRisu Standard) so the active display
-                // settings (zoomsize 120, iconsize, line height, etc.) match the
-                // standard theme instead of upstream's raw DB defaults. setDatabase
-                // creates this preset but never applies it. Gated on
-                // createdFreshDatabase, so migrating/updating users (who already
-                // have a database.bin) are never touched. savecurrent=false skips
-                // saving the default state back over the preset.
+                // setDatabase creates the standard preset but does not apply it. Apply it
+                // only to fresh databases, and avoid saving defaults over the preset.
                 changeToThemePreset(0, false)
                 const browserLangShort = navigator.language.split('-')[0]
                 const browserLanguageMap: Record<string, string> = {
@@ -139,9 +130,7 @@ export async function loadData() {
 
                 if (isNodeServer) {
                     const initialized = await forageStorage.initializeDatabase(getDatabase(), 0)
-                    // If another client initialized revision 0 first, its state is
-                    // authoritative. In either case, read back the exact relational
-                    // projection used by the normal patch protocol.
+                    // Another client may win revision 0; reload the persisted projection.
                     if (initialized.conflict) createdFreshDatabase = false
                     const persisted = await forageStorage.getDatabaseProjection<Database>()
                     if (persisted.database === null) {
@@ -179,8 +168,7 @@ export async function loadData() {
             LoadingStatusState.text = "Checking For Format Update..."
             await checkNewFormat()
 
-            // Convert any ChatStubs (from server-stripped database.bin) to placeholder Chats
-            // so runtime code only sees Chat objects
+            // Convert server stubs to runtime chat placeholders.
             {
                 const dbForConvert = getDatabase()
                 for (const char of dbForConvert.characters) {
@@ -201,20 +189,14 @@ export async function loadData() {
             if (db.botSettingAtStart) {
                 botMakerMode.set(true)
             }
-            // Boot-time automatic backup schedule. This is intentionally checked
-            // at startup instead of running a background timer while the app is
-            // open: if the latest backup is older than the configured N days,
-            // create the requested backup before showing the main UI.
+            // Run configured backups before the UI when their interval has elapsed.
             let scheduledBackupRan = false
             try {
                 scheduledBackupRan = await maybeRunScheduledBackups()
             } catch (err) {
                 console.warn('[bootstrap] scheduled backup failed:', err)
             }
-            // Boot-time backup reminder. If the user has enabled it, we block
-            // the load briefly to ask whether to back up now. Errors here are
-            // non-fatal — boot must always proceed even if the reminder fetch
-            // or backup itself fails.
+            // The optional reminder blocks startup for its prompt; failures stay non-fatal.
             try {
                 if (!scheduledBackupRan) {
                     await maybeRunBootBackupReminder()
@@ -226,22 +208,22 @@ export async function loadData() {
             selectedCharID.set(-1)
             startObserveDom()
             assignIds()
-            saveDb()
+            saveDb(async () => {
+                try {
+                    await migrateRealmMutes(() => requestImmediateSave({ requireSuccess: true }))
+                } catch (error) {
+                    alertError(error)
+                }
+                characterURLImport()
+            })
             startSyncReceiver()
             moduleUpdate()
-            // cleanChunks는 화면 진입 후 유휴 시간에 실행 (부트 블로킹 제거)
+            // Defer asset cleanup until after the UI loads.
             setTimeout(() => {
                 cleanChunks().catch(console.error)
             }, 5_000)
             checkRisuUpdate()
             syncPublicStatsVisibility(db.hidePublicStats)
-            if (import.meta.env.VITE_RISU_TOS === 'TRUE') {
-                alertTOS().then((a) => {
-                    if (a === false) {
-                        location.reload()
-                    }
-                })
-            }
         } catch (error) {
             alertError(error)
         }
@@ -250,12 +232,7 @@ export async function loadData() {
 
 
 
-/**
- * Hard-bounded fetch — the boot path can't tolerate an indefinite hang on a
- * stuck endpoint, since the loading screen blocks the user until we set
- * loadedStore. AbortError is rethrown like any fetch failure; the call site
- * swallows it.
- */
+/** Bound startup requests so a stalled endpoint cannot hold the loading screen indefinitely. */
 async function fetchWithTimeout(input: RequestInfo, init: RequestInit = {}, ms = 5000): Promise<Response> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), ms)
@@ -338,11 +315,7 @@ async function maybeRunScheduledBackups(): Promise<boolean> {
     return ran
 }
 
-/**
- * If the user has enabled the boot-time server-backup reminder, prompt with a
- * confirm dialog before the main UI loads. Confirming runs SaveServerBackup
- * synchronously (its alertWait progress overlays the loading screen).
- */
+/** Prompt before startup completes when the boot backup reminder is enabled. */
 async function maybeRunBootBackupReminder() {
     let enabled = false
     try {
@@ -356,10 +329,7 @@ async function maybeRunBootBackupReminder() {
     }
     if (!enabled) return
 
-    // Best-effort stats fetch. The prompt component renders whatever we can
-    // supply; missing values just hide their respective lines. Uses
-    // backupDisk (actual backup destination) so warnings target the right
-    // mount when backupsDir is on a different drive than save/.
+    // Use backupDisk, the actual destination, so free-space warnings target the right mount.
     let estimate: number | null = null
     let free: number | null = null
     let total: number | null = null
@@ -389,9 +359,6 @@ async function maybeRunBootBackupReminder() {
     }
 }
 
-/**
- * Updates the error handling by adding custom handlers for errors and unhandled promise rejections.
- */
 function updateErrorHandling() {
     const errorHandler = (event: ErrorEvent) => {
         console.error(event.error);
@@ -407,20 +374,15 @@ function updateErrorHandling() {
     window.addEventListener('unhandledrejection', rejectHandler);
 }
 
-/**
- * Checks and updates the database format to the latest version.
- */
 async function checkNewFormat(): Promise<void> {
     let db = getDatabase();
 
-    // Check data integrity
     db.characters = db.characters.map((v) => {
         if (!v) {
             return null;
         }
         v.chaId ??= createEntityId();
         v.type ??= 'character';
-        v.chatPage ??= 0;
         v.chats ??= [];
         v.customscript ??= [];
         v.firstMessage ??= '';
@@ -455,16 +417,14 @@ async function checkNewFormat(): Promise<void> {
                 console.error('Critical: Invalid lorebook format detected in module');
                 console.error('Module data:', JSON.stringify(v, null, 2));
                 
-                // Alert user about corrupted data
                 alertError(language.bootstrap.dataCorruptionDetected(v.name || 'Unknown', typeof v.lorebook));
                 await waitAlert();
-                
-                // Ask if user wants to report the issue
+
                 const shouldReport = await alertConfirm(language.bootstrap.reportErrorQuestion);
                 
                 if (shouldReport) {
                     try {
-                        // Collect diagnostic information (without personal data)
+                        // Keep diagnostics bounded and exclude chat content.
                         const diagnosticInfo = {
                             timestamp: new Date().toISOString(),
                             moduleName: v.name || 'Unknown',
@@ -475,23 +435,25 @@ async function checkNewFormat(): Promise<void> {
                             formatVersion: db.formatversion || 'Unknown'
                         };
                         
-                        // Show the diagnostic info and allow user to copy or send
                         const reportData = JSON.stringify(diagnosticInfo, null, 2);
                         await alertMd(language.bootstrap.diagnosticInformation(reportData));
                         await waitAlert();
                         
-                        console.log('Diagnostic information for developers:', diagnosticInfo);
+                        if (isDebugEnabled()) {
+                            console.debug('Diagnostic information for developers:', diagnosticInfo);
+                        }
                     } catch (reportError) {
                         console.error('Failed to generate diagnostic report:', reportError);
                     }
                 }
                 
-                // Ask if user wants to reset the data
                 const shouldReset = await alertConfirm(language.bootstrap.resetLorebookQuestion);
                 
                 if (shouldReset) {
                     v.lorebook = [];
-                    console.log('Lorebook reset to empty array by user choice');
+                    if (isDebugEnabled()) {
+                        console.debug('Lorebook reset to empty array by user choice');
+                    }
                 } else {
                     console.warn('User chose to keep corrupted lorebook data');
                 }
@@ -548,7 +510,6 @@ async function checkNewFormat(): Promise<void> {
     }
     if (db.formatversion < 3) db.formatversion = 3;
     if (db.formatversion < 4) {
-        //migration removed due to issues
         db.formatversion = 4;
     }
     if (db.formatversion < 5) {
@@ -572,9 +533,7 @@ async function checkNewFormat(): Promise<void> {
     setDatabase(db);
     checkCharOrder();
 
-    // One-pass cleanup of composer drafts whose chat no longer exists (deleted
-    // chats/characters, trash purge, plugin/script removals). Replaces per-delete
-    // wiring: any orphan, however it was created, is swept here at boot.
+    // Remove drafts whose chats disappeared through deletion, trash purge, or imports.
     const validDraftKeys = new Set<string>();
     for (const char of db.characters) {
         if (!char?.chaId) continue;
@@ -585,9 +544,6 @@ async function checkNewFormat(): Promise<void> {
     void sweepOrphanDrafts(validDraftKeys);
 }
 
-/**
- * Purges chunks of data that are not needed.
- */
 async function cleanChunks() {
     const db = getDatabase()
     if(db.autoCleanAssets === true){
@@ -601,9 +557,6 @@ async function cleanChunks() {
 }
 
 
-/**
- * Assigns unique IDs to characters and chats.
- */
 function assignIds() {
     if (!DBState?.db?.characters) {
         return

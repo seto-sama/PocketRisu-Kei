@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { validate, version } from 'uuid'
 import { ensureDatabasePresetIds, ensureUniqueEntityIds } from './id'
+
+const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 describe('entity ids', () => {
     it('assigns UUID v4 IDs to missing identities while preserving existing IDs', () => {
@@ -11,8 +12,7 @@ describe('entity ids', () => {
         expect(items[0].id).toBe('existing-id')
         expect(new Set(items.map(item => item.id)).size).toBe(items.length)
         for (const item of items.slice(1)) {
-            expect(validate(item.id)).toBe(true)
-            expect(version(item.id)).toBe(4)
+            expect(item.id).toMatch(uuidV4)
         }
     })
 
@@ -35,9 +35,9 @@ describe('entity ids', () => {
 
         ensureDatabasePresetIds(database)
 
-        expect(validate((database.modelPresets[0] as { id?: string }).id)).toBe(true)
+        expect((database.modelPresets[0] as { id?: string }).id).toMatch(uuidV4)
         expect(database.personas[0].id).toBe('existing-persona')
-        expect(validate(database.personas[1].id)).toBe(true)
+        expect(database.personas[1].id).toMatch(uuidV4)
         expect([database.togglePresets, database.imageStylePresets]).toEqual(otherPresets)
     })
 })

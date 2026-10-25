@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { buildModelsDevRegistry } from '../registry/modelsDev'
 import { resolveSnapshot } from '../registry/snapshot'
+import { resolveModelPresetCredential } from '../runtime/credential'
 import type { ModelPreset } from '../types'
 import { buildPreparedRequest } from './buildRequest'
 import { createServiceAccountTokenCache } from './googleServiceAccount/cache'
@@ -79,11 +80,11 @@ function stubCache(accessToken: string) {
 describe('Vertex Gemini models.dev recipe integration', () => {
     test('exchanges the service account and assembles the standard Vertex endpoint', async () => {
         const { cache, calls } = stubCache('ya29.gemini')
-        const preset = vertexPreset({})
+        const preset = vertexPreset({ serviceAccountJson: VALID_SA_JSON })
 
         const prepared = await prepareAdapterRequest({
             preset,
-            credential: { apiKey: VALID_SA_JSON },
+            credential: resolveModelPresetCredential(preset),
             tokenCache: cache,
         })
 
@@ -94,6 +95,44 @@ describe('Vertex Gemini models.dev recipe integration', () => {
         expect(calls).toHaveLength(1)
         expect(calls[0].serviceAccount.clientEmail).toBe('svc@demo.iam.gserviceaccount.com')
     })
+
+    test.each(['server', 'deferred'] as const)(
+        'uses only the selected saved account after direct entry (%s auth)',
+        async (authMode) => {
+            const { cache, calls } = stubCache('ya29.selected')
+            const preset = vertexPreset({
+                serviceAccountJson: JSON.stringify({
+                    ...JSON.parse(VALID_SA_JSON),
+                    project_id: 'unused-project',
+                    client_email: 'svc@unused-project.iam.gserviceaccount.com',
+                }),
+            })
+            preset.apiKeyRef = 'selected-account'
+
+            const prepared = await prepareAdapterRequest({
+                preset,
+                credential: resolveModelPresetCredential(preset, {
+                    'selected-account': { key: VALID_SA_JSON },
+                }),
+                tokenCache: authMode === 'server' ? cache : undefined,
+            })
+
+            expect(prepared.url).toBe(
+                'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/google/models',
+            )
+            if (authMode === 'server') {
+                expect(prepared.headers.Authorization).toBe('Bearer ya29.selected')
+                expect(calls).toHaveLength(1)
+                expect(calls[0].serviceAccount.sourceJson).toBe(VALID_SA_JSON)
+            } else {
+                expect(prepared.serverProviderAuth).toMatchObject({
+                    kind: 'google-service-account',
+                    serviceAccountJson: VALID_SA_JSON,
+                })
+                expect(calls).toHaveLength(0)
+            }
+        },
+    )
 
     test('keeps an automatic models.dev profile pinned to its snapshot model', () => {
         const preset = vertexPreset({

@@ -58,7 +58,7 @@
         title={language.colorScheme}
         description={language.help.colorSchemeTransferDesc}
         actions={[
-            { label: language.import, onclick: importColorScheme, icon: UploadIcon },
+            { label: language.import, onclick: importColorScheme, icon: UploadIcon, filePicker: true },
             { label: language.export, onclick: exportColorScheme, icon: DownloadIcon },
         ]}
     />

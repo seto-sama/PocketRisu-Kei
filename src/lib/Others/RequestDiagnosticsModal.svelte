@@ -1,5 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+
     import {
         ActivityIcon,
         BracesIcon,
@@ -51,7 +53,7 @@
     const message = $derived.by(() => {
         if (!info || info.idx < 0) return undefined
         const character = DBState.db.characters?.[$selectedCharID]
-        return character?.chats?.[character.chatPage]?.message?.[info.idx]
+        return character?.chats?.[getChatPage(character)]?.message?.[info.idx]
     })
     const diagnosticContext = $derived(resolveRequestDiagnosticContext(message, info?.genInfo))
     const generationInfo = $derived(diagnosticContext.generationInfo)

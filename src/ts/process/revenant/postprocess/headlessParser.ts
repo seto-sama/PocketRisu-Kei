@@ -1,6 +1,8 @@
 import { getChatBoundPersona } from '../../../chatBindingState'
 import { pocketKeiVer } from '../../../version'
 import { registerCBS, type RegisterCallback } from '../../../cbs'
+import { modelPresetSupportsPrefill } from '../../../preset/adapter/openaiCompatible'
+import type { ModelPreset } from '../../../preset/types'
 import type { Chat, character, RisuPersona } from '../../../storage/database.svelte'
 import type { RevenantPostprocessRecipe } from '../types'
 
@@ -344,7 +346,6 @@ function renderTemplate(input: string, state: TemplateState, depth = 0): string 
 function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateState {
     const character = structuredClone(recipe.character)
     character.chats = [chat]
-    character.chatPage = 0
     const database = {
         ...structuredClone(recipe.database),
         characters: [character],
@@ -367,6 +368,7 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
             }
         },
         getDatabase: () => state.database as any,
+        getChatPage: () => 0,
         getUserName: () => persona()?.name ?? recipe.database.username ?? 'User',
         getTriggerId: () => state.triggerId ?? null,
         getPersonaPrompt: () => persona()?.personaPrompt ?? recipe.database.personaPrompt ?? '',
@@ -419,7 +421,9 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
                 tokenizer: (stringValue(preset?.tokenizerOverride)
                     || stringValue(preset?.profileSnapshot?.recommendedTokenizer)
                     || 'tik') as any,
-                supportsPrefill: preset?.profileSnapshot?.adapterKind === 'anthropic-messages',
+                supportsPrefill: preset?.profileSnapshot
+                    ? modelPresetSupportsPrefill(rawPreset as ModelPreset)
+                    : false,
                 streaming: false,
                 vision: false,
                 audioInput: false,

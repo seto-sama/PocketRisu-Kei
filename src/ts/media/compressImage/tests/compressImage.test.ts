@@ -41,48 +41,13 @@ describe('imageCompression enabled', () => {
         DBState.db.imageCompression = true
     })
 
-    test('returns original data for Unknown type', async () => {
-        const unknownData = new Uint8Array([0x00, 0x01, 0x02, 0x03])
-        const result = await compressImage(unknownData)
-        expect(result).toBe(unknownData)
-    })
-
-    test('returns original data for WEBP', async () => {
-        const webpData = new Uint8Array([
-            0x52,
-            0x49,
-            0x46,
-            0x46, // "RIFF"
-            0x00,
-            0x00,
-            0x00,
-            0x00, // file size
-            0x57,
-            0x45,
-            0x42,
-            0x50, // "WEBP"
-        ])
-        const result = await compressImage(webpData)
-        expect(result).toBe(webpData)
-    })
-
-    test('returns original data for AVIF', async () => {
-        const avifData = new Uint8Array([
-            0x00,
-            0x00,
-            0x00,
-            0x00, // size
-            0x66,
-            0x74,
-            0x79,
-            0x70, // "ftyp"
-            0x61,
-            0x76,
-            0x69,
-            0x66, // "avif"
-        ])
-        const result = await compressImage(avifData)
-        expect(result).toBe(avifData)
+    test.each([
+        ['Unknown', [0x00, 0x01, 0x02, 0x03]],
+        ['WEBP', [0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]], // RIFF....WEBP
+        ['AVIF', [0x00, 0x00, 0x00, 0x00, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]], // ....ftypavif
+    ])('returns original data for %s', async (_type, bytes) => {
+        const data = new Uint8Array(bytes)
+        expect(await compressImage(data)).toBe(data)
     })
 
     test('calls doLossyCompression for PNG', async () => {
@@ -95,5 +60,4 @@ describe('imageCompression enabled', () => {
         expect(doLossyCompressionMock).toHaveBeenCalledWith(pngData)
         expect(result).toBe(mockCompressed)
     })
-
 })

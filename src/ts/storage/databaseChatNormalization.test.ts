@@ -19,16 +19,20 @@ const {
     normalizePersonaSelection,
     normalizeSystemRoleReplacement,
     setDatabaseLite,
+    getCurrentChat,
     loadTogglesFromChat,
     saveTogglesToChat,
-    getToggleKeys,
+    initializeToggleValues,
+    applyToggleValues,
 } = await import('./database.svelte')
 const { isChatStub } = await import('./chatStub')
 const { DBState } = await import('../stores.svelte')
+const { setChatPage } = await import('./chatSelection.svelte')
 
 describe('persona module toggles', () => {
     it('uses the selected persona modules while chat binding is hidden', () => {
         const database = {
+            globalChatVariables: {},
             showPersonaInSidebar: false,
             selectedPersona: 0,
             personas: [{ id: 'global' }, { id: 'bound' }],
@@ -41,9 +45,12 @@ describe('persona module toggles', () => {
         const chat = { bindedPersona: 'bound' } as Chat
         const character = {} as character
 
-        expect(getToggleKeys(database, character, chat)).toEqual(['toggle_global'])
+        initializeToggleValues(database, character, chat)
+        expect(database.globalChatVariables).toEqual({ toggle_global: '0' })
         database.showPersonaInSidebar = true
-        expect(getToggleKeys(database, character, chat)).toEqual(['toggle_bound'])
+        database.globalChatVariables = {}
+        initializeToggleValues(database, character, chat)
+        expect(database.globalChatVariables).toEqual({ toggle_bound: '0' })
         expect(chat.bindedPersona).toBe('bound')
     })
 })
@@ -57,7 +64,7 @@ describe('hidden chat toggle binding', () => {
             DBState.db = {
                 disableToggleBinding: true,
                 globalChatVariables: { toggle_test: 'current' },
-                characters: [{ chatPage: 0, chats: [chat] }],
+                characters: [{ chats: [chat] }],
             } as unknown as Database
 
             loadTogglesFromChat(chat)
@@ -75,7 +82,73 @@ describe('hidden chat toggle binding', () => {
     })
 })
 
+describe('chat toggle pins', () => {
+    it('pins defaults for existing toggles and restores them while preserving later toggles', () => {
+        const previous = DBState.db
+        const chat: Chat = { message: [], note: '', name: '', localLore: [] }
+        try {
+            DBState.db = {
+                customPromptTemplateToggle: 'value=Value=text\nflag=Flag\nchoice=Choice=select=First,Second\ntext=Text=text\nheading=Heading=caption',
+                globalChatVariables: { toggle_value: 'pinned', toggle_orphan: 'orphan', other: 'untouched' },
+                characters: [{ customModuleToggle: 'character=Character', chats: [chat] }],
+            } as unknown as Database
+
+            saveTogglesToChat()
+            expect(chat.savedToggleValues).toEqual({
+                toggle_value: 'pinned', toggle_flag: '0', toggle_choice: '0', toggle_text: '', toggle_character: '0', toggle_orphan: 'orphan',
+            })
+            expect(DBState.db.globalChatVariables).toEqual({ ...chat.savedToggleValues, other: 'untouched' })
+
+            DBState.db.modules = [{ id: 'new-module', customModuleToggle: 'later=Later=text' }] as any
+            DBState.db.enabledModules = ['new-module']
+            Object.assign(DBState.db.globalChatVariables, {
+                toggle_value: 'changed', toggle_flag: '1', toggle_choice: '1', toggle_text: 'changed', toggle_character: '1', toggle_later: 'keep', toggle_orphan: 'changed',
+            })
+            loadTogglesFromChat(chat)
+
+            expect(DBState.db.globalChatVariables).toEqual({
+                ...chat.savedToggleValues, toggle_later: 'keep', other: 'untouched',
+            })
+        } finally {
+            DBState.db = previous
+        }
+    })
+
+    it('resets missing preset values to control defaults and preserves explicit values', () => {
+        const previous = DBState.db
+        try {
+            DBState.db = {
+                customPromptTemplateToggle: 'value=Value=text\nflag=Flag\nchoice=Choice=select=First,Second\narea=Area=textarea',
+                globalChatVariables: { toggle_value: 'old', toggle_flag: '1', toggle_choice: '1', toggle_area: 'old', other: 'keep' },
+                characters: [],
+            } as unknown as Database
+            applyToggleValues({ toggle_value: '', toggle_orphan: 'null' })
+            expect(DBState.db.globalChatVariables).toEqual({
+                toggle_value: '', toggle_flag: '0', toggle_choice: '0', toggle_area: '', toggle_orphan: 'null', other: 'keep',
+            })
+        } finally {
+            DBState.db = previous
+        }
+    })
+})
+
 describe('database chat normalization', () => {
+    it('keeps the current chat across database replacement and reordering', () => {
+        const previous = DBState.db
+        const database = (ids: string[]) => ({
+            characters: [{ chaId: 'selection-test', chats: ids.map(id => ({ id, _stub: true })) }],
+        }) as any
+        try {
+            setDatabaseLite(database(['a', 'c', 'b']))
+            setChatPage(DBState.db.characters[0], 1)
+            setDatabaseLite(database(['b', 'a', 'c']))
+            expect(getCurrentChat().id).toBe('c')
+            expect(DBState.db.characters[0]).not.toHaveProperty('chatPage')
+        } finally {
+            DBState.db = previous
+        }
+    })
+
     it('preserves server stubs while assigning ids to hydrated messages', () => {
         const stub = { id: 'stub-chat', name: 'Stub', _stub: true }
         const full: {

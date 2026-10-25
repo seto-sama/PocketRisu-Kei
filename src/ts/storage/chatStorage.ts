@@ -18,18 +18,7 @@ import {
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
-// ── Stub ↔ Placeholder conversion ───────────────────────────────────────────
-
-/**
- * Convert a ChatStub to a placeholder Chat with safe empty defaults.
- * The placeholder passes all Chat type checks so existing code works unchanged.
- * `_placeholder: true` marks it for hydration and dirty-tracking suppression.
- *
- * Key presence is preserved (mirroring chatToStub) so an explicit null from
- * the server — meaning "user cleared this field" — survives the placeholder
- * round-trip. Otherwise the next chatToStub call would emit a "remove" patch
- * op and the server merge would fall back to a stale fullChat value.
- */
+/** Keep explicit metadata clears while marking a missing body for hydration. */
 export function stubToPlaceholder(stub: ChatStub): Chat {
     const placeholder: Chat = {
         message: [],
@@ -46,13 +35,7 @@ export function stubToPlaceholder(stub: ChatStub): Chat {
     return placeholder
 }
 
-/**
- * Convert a Chat (or placeholder) to a ChatStub for database.bin encoding.
- *
- * Key presence is preserved even when the value is null/undefined so the
- * stub round-trip distinguishes "user cleared" from "field absent". The
- * server merge layer relies on `in` semantics — see mergeChatStubWithFullChat.
- */
+/** Preserve omitted versus explicitly cleared metadata when encoding a stub. */
 export function chatToStub(chat: Chat | ChatStub): ChatStub {
     return toChatStub(chat) as ChatStub
 }
@@ -67,16 +50,7 @@ export function mergeHydratedChatWithMetadata(chat: Chat, metadata: Chat | ChatS
     return merged as Chat
 }
 
-/**
- * Replace all ChatStubs in a character's chats array with placeholder Chats.
- * Call this once after decoding database.bin so runtime code only sees Chat objects.
- *
- * Self-healing for hybrid corruption: if a chat carries the `_stub: true`
- * flag *and* a real message array (legacy v1.4.x disk corruption), strip the
- * flag and keep the Chat as-is. Converting it to a placeholder would call
- * stubToPlaceholder, which resets `message` to `[]` — the corruption would
- * become real data loss the moment the user sees the chat list.
- */
+/** Keep full messages even if a malformed chat also carries the stub flag. */
 export function convertStubsToPlaceholders(chats: ChatOrStub[]): Chat[] {
     return chats.map(c => {
         if (!c) return c as Chat
@@ -88,9 +62,6 @@ export function convertStubsToPlaceholders(chats: ChatOrStub[]): Chat[] {
     })
 }
 
-// Classify a chat slot by shape. Used by the chat-data guard's diagnostic
-// dump to surface hybrid corruption (the `_stub: true` + message pattern that
-// caused widespread chat data loss in v1.4.x).
 export type ChatShape = 'stub' | 'placeholder' | 'hybrid' | 'full' | 'empty' | 'neither'
 
 export function classifyChat(c: any): ChatShape {
@@ -105,7 +76,6 @@ export function classifyChat(c: any): ChatShape {
     return 'neither'
 }
 
-// ── Hydration state ──────────────────────────────────────────────────────────
 
 function chatKey(chaId: string, chatId: string): string {
     return `${chaId}/${chatId}`
@@ -132,11 +102,8 @@ function setChatHydrationFailure(key: string, failure: ChatHydrationFailure | nu
     })
 }
 
-/** Hydration in progress — suppress dirty tracking */
-export const hydrationInFlight = new Set<string>()
-
-/** Hydration just applied to memory — suppress until next tick */
-export const hydrationJustApplied = new Set<string>()
+/** Hydration in progress, through the Svelte update after apply — suppress dirty tracking */
+const hydrationInFlight = new Set<string>()
 
 /** Track in-flight hydration promises to avoid duplicate fetches */
 const hydrationPromises = new Map<string, Promise<Chat | null>>()
@@ -155,12 +122,7 @@ function chatDeltaSave(chaId: string, chatIndex: number, chatId: string) {
     if (!save) {
         save = new DeltaSave(
             request => forageStorage.realStorage.patchChatContent(chaId, chatIndex, chatId, request),
-            (snapshot, result) => {
-                acknowledgeChatCommit(snapshot, result.etag)
-                if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
-                    detail: { characterId: chaId, chatId },
-                }))
-            },
+            (snapshot, result) => acknowledgeChatCommit(snapshot, result.etag),
         )
         chatDeltaSaves.set(key, save)
     }
@@ -172,7 +134,6 @@ export function discardPendingChatSaves() {
     chatDeltaSaves.clear()
 }
 
-// ── Server fetch/save ───────────────────────────────────────────────────────
 
 async function queueChatSave(key: string, save: () => Promise<void>) {
     const previous = chatSaveQueues.get(key)
@@ -297,15 +258,16 @@ export function setChatServerEtag(chaId: string, chatId: string, etag: string): 
     forageStorage.realStorage.setChatEtag(chaId, chatId, etag)
 }
 
-// ── Hydration ───────────────────────────────────────────────────────────────
 
 /**
  * Check if a specific chat is currently being hydrated (for dirty tracking suppression).
  */
 export function isHydrating(chaId: string, chatId: string): boolean {
-    const key = chatKey(chaId, chatId)
-    return hydrationInFlight.has(key) || hydrationJustApplied.has(key)
+    return hydrationInFlight.has(chatKey(chaId, chatId))
 }
+
+/** Character fields hydration needs; `chats` is re-read because callers may replace the array. */
+type ChatOwner = { chaId: string, chats: Chat[] }
 
 /**
  * Hydrate a placeholder Chat in-place on the character's chats array.
@@ -313,11 +275,11 @@ export function isHydrating(chaId: string, chatId: string): boolean {
  * Returns the hydrated Chat, or null if its body is missing.
  */
 export async function ensureChatHydrated(
-    chats: Chat[],
+    character: ChatOwner,
     index: number,
-    chaId: string,
 ): Promise<Chat | null> {
-    const slot = chats[index]
+    const { chaId } = character
+    const slot = character.chats[index]
     if (!slot) return null
     if (!slot._placeholder) return slot
 
@@ -345,6 +307,11 @@ export async function ensureChatHydrated(
                 return null
             }
 
+            // Schedule the large chat update for the next animation frame.
+            await new Promise<void>(r => requestAnimationFrame(() => r()))
+
+            // Resolve against the live array: deleting or moving a chat replaces it.
+            const chats = character.chats
             const currentIndex = chats.findIndex(chat => chat?.id === chatId)
             if (currentIndex === -1) {
                 console.warn(`[chatStorage] hydrate skipped: chat removed before apply (${key})`)
@@ -356,18 +323,10 @@ export async function ensureChatHydrated(
                 return currentSlot
             }
 
-            // Schedule the large chat update for the next animation frame.
-            await new Promise<void>(r => requestAnimationFrame(() => r()))
-
-            // Suppress reactive write-back while replacing the placeholder.
-            hydrationJustApplied.add(key)
             chats[currentIndex] = full
 
             // Keep suppression through Svelte's next update.
             await tick()
-            hydrationJustApplied.delete(key)
-
-            setChatHydrationFailure(key, null)
             return full
         } finally {
             hydrationInFlight.delete(key)
@@ -377,15 +336,4 @@ export async function ensureChatHydrated(
 
     hydrationPromises.set(key, promise)
     return promise
-}
-
-/**
- * Convenience: ensure the current active chat for a character is hydrated.
- */
-export async function ensureCurrentChatReady(
-    chats: Chat[],
-    chatPage: number,
-    chaId: string,
-): Promise<Chat | null> {
-    return ensureChatHydrated(chats, chatPage, chaId)
 }

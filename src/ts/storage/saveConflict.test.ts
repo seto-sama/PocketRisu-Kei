@@ -1,7 +1,43 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { get } from 'svelte/store'
 import { applyDelta, createDelta } from '../../../shared/guardedDelta.mjs'
-import { prepareSaveConflict } from './saveConflict'
+import { language } from 'src/lang'
+import {
+    chooseConflictComparison,
+    chooseSaveConflict,
+    prepareSaveConflict,
+    SaveConflictCancelledError,
+    saveConflictDialog,
+    type SaveConflictDialogState,
+} from './saveConflict'
+
+function waitForDialog(title: string) {
+    return new Promise<SaveConflictDialogState>(resolve => {
+        let unsubscribe = () => {}
+        unsubscribe = saveConflictDialog.subscribe(state => {
+            if (state?.title === title) {
+                unsubscribe()
+                resolve(state)
+            }
+        })
+    })
+}
+
+const comparison = (title: string) => ({
+    title,
+    items: [{
+        label: 'Name',
+        blocks: [{
+            server: { name: 'Name', type: 'Text', text: 'Server value' },
+            local: { name: 'Name', type: 'Text', text: 'Local value' },
+        }],
+    }],
+})
+
+afterEach(() => {
+    get(saveConflictDialog)?.complete(null)
+})
 
 describe('save conflict choices', () => {
     it('resolves fields individually and keeps independent changes from both sides', () => {
@@ -46,5 +82,57 @@ describe('save conflict choices', () => {
         expect(plan.items.map(item => item.kind)).toEqual(['order'])
         expect(plan.resolve(['server']).message).toEqual([b, c, { ...a, data: 'mine' }])
         expect(plan.resolve(['local']).message).toEqual(local.message)
+    })
+
+    it('prepares field presentations for the exclusive database resolver', async () => {
+        const base = { name: 'Before' }
+        const local = { name: 'Mine' }
+        const server = { name: 'Theirs' }
+        const shown = waitForDialog(language.saveConflict.title)
+        const pending = chooseSaveConflict(base, createDelta(base, local), server)
+        const state = await shown
+
+        expect(state.multiple).not.toBe(true)
+        expect(state.items).toEqual([{
+            label: language.name,
+            blocks: [{
+                server: { name: language.name, type: language.saveConflict.valueTypes.string, text: 'Theirs' },
+                local: { name: language.name, type: language.saveConflict.valueTypes.string, text: 'Mine' },
+            }],
+        }])
+        state.complete(['local'])
+        await expect(pending).resolves.toEqual(local)
+    })
+
+    it('serializes dialogs and an aborted queued request cannot close the active dialog', async () => {
+        const firstShown = waitForDialog('First comparison')
+        const firstPending = chooseConflictComparison(comparison('First comparison'))
+        const first = await firstShown
+
+        const controller = new AbortController()
+        const secondPending = chooseConflictComparison(comparison('Second comparison'), controller.signal)
+        controller.abort()
+        expect(get(saveConflictDialog)).toBe(first)
+
+        first.complete(['local'])
+        await expect(firstPending).resolves.toEqual(['local'])
+        await expect(secondPending).rejects.toBeInstanceOf(SaveConflictCancelledError)
+        expect(get(saveConflictDialog)).toBeNull()
+    })
+
+    it('closes its active dialog when its signal aborts and preserves explicit no-side choices', async () => {
+        const controller = new AbortController()
+        const shown = waitForDialog('Abortable comparison')
+        const pending = chooseConflictComparison(comparison('Abortable comparison'), controller.signal)
+        const state = await shown
+        controller.abort()
+        await expect(pending).rejects.toBeInstanceOf(SaveConflictCancelledError)
+        expect(get(saveConflictDialog)).toBeNull()
+
+        const nextShown = waitForDialog('Multiple comparison')
+        const nextPending = chooseConflictComparison({ ...comparison('Multiple comparison'), multiple: true })
+        const next = await nextShown
+        next.complete([null])
+        await expect(nextPending).resolves.toEqual([null])
     })
 })

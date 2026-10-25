@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient } from './helpers/client.js'
+import { encodeInlayAsset } from '../../src/ts/storage/inlayTransport'
 
 const servers: ServerHandle[] = []
 
@@ -65,5 +66,47 @@ describe('inlay asset byte ranges', () => {
     const invalidRangeResponse = await fetchAsset({ range: `bytes=${media.length}-` })
     expect(invalidRangeResponse.status).toBe(416)
     expect(invalidRangeResponse.headers.get('content-range')).toBe(`bytes */${media.length}`)
+  })
+
+  test('stores uploaded video previews, keeps existing previews, and removes them with the original', async () => {
+    const srv = await spawnServer()
+    servers.push(srv)
+    const client = await createClient(srv.port, srv.password)
+    const hex = (key: string) => Buffer.from(key, 'utf8').toString('hex')
+    const session = await client.fetch('/api/session', { method: 'POST' })
+    const cookie = session.headers.get('set-cookie')!.split(';', 1)[0]
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l7sAAAAASUVORK5CYII=',
+      'base64',
+    )
+    const upload = await client.fetch('/api/write', {
+      method: 'POST',
+      headers: { 'file-path': hex('inlay/video-upload'), 'content-type': 'application/octet-stream' },
+      body: encodeInlayAsset({ type: 'video', ext: 'mp4', name: 'clip.mp4', mime: 'video/mp4' }, Buffer.from('original-video')),
+    })
+    expect(upload.status).toBe(200)
+    const url = `/api/asset/${hex('inlay_video_thumb/video-upload')}`
+    const fetchThumbnail = (headers?: HeadersInit) => client.fetch(url, { headers: { cookie, ...headers } })
+    expect((await fetchThumbnail()).status).toBe(404)
+
+    const saveThumbnail = (id: string, body: Buffer) => client.fetch(`/api/inlays/${id}/video-thumbnail`, {
+      method: 'POST', headers: { cookie, 'content-type': 'application/octet-stream' }, body,
+    })
+    expect((await saveThumbnail('missing-video', png)).status).toBe(400)
+    expect((await saveThumbnail('video-upload', Buffer.from('invalid-image'))).status).toBe(400)
+    expect((await saveThumbnail('video-upload', png)).status).toBe(204)
+    const first = await fetchThumbnail()
+    expect(first.status).toBe(200)
+    expect(first.headers.get('content-type')).toBe('image/webp')
+    const preview = Buffer.from(await first.arrayBuffer())
+    expect(preview.length).toBeGreaterThan(0)
+    const etag = first.headers.get('etag')!
+    expect((await saveThumbnail('video-upload', png)).status).toBe(204)
+    expect((await fetchThumbnail({ 'if-none-match': etag })).status).toBe(304)
+    expect(Buffer.from(await (await fetchThumbnail()).arrayBuffer())).toEqual(preview)
+
+    expect((await client.fetch('/api/remove', { headers: { 'file-path': hex('inlay/video-upload') } })).status).toBe(200)
+    expect((await fetchThumbnail()).status).toBe(404)
+    expect((await saveThumbnail('video-upload', png)).status).toBe(400)
   })
 })

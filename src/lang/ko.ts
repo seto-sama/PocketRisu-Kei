@@ -5,6 +5,58 @@ const missingItem = (item: string) => `${appendKoreanJosa(item, "이/가")} 없�
 const emptyItem = (item: string) => `${appendKoreanJosa(item, "이/가")} 비어 있습니다.`;
 
 export const languageKorean = {
+  serverDrive: {
+    title: "서버 드라이브",
+    upload: "파일 업로드",
+    uploading: "업로드 중",
+    uploadComplete: "파일 {count}개를 업로드했습니다.",
+    newFolder: "새 폴더",
+    rename: "이름 바꾸기",
+    import: "Risu에 가져오기",
+    moveToTrash: "삭제",
+    trashConfirm: "선택한 항목 {count}개를 드라이브 휴지통으로 이동할까요?",
+    emptyTrashConfirm: "드라이브 휴지통의 모든 파일과 폴더를 영구 삭제할까요? 비우면 복구할 수 없습니다.",
+    refresh: "동기화",
+    navigation: "폴더 이동",
+    shortcuts: "즐겨찾기",
+    addShortcut: "즐겨찾기에 추가",
+    removeShortcut: "즐겨찾기에서 제거",
+    path: "경로",
+    folder: "폴더",
+    childFolders: "하위 폴더 펼치기",
+    noFolders: "하위 폴더 없음",
+    file: "파일",
+    previewUnavailable: "이 파일은 미리보기를 표시할 수 없습니다.",
+    previewTruncated: "파일이 너무 길어 앞부분만 표시됩니다.",
+    size: "크기",
+    created: "생성일",
+    modified: "수정일",
+    metadata: "속성",
+    back: "뒤로",
+    forward: "앞으로",
+    up: "상위 폴더로",
+    driveRoot: "서버 드라이브",
+    conflictTitle: "같은 이름의 항목이 있습니다",
+    conflictDescription: "{name}을(를) 어떻게 처리할까요?",
+    overwrite: "덮어쓰기",
+    mergeFolders: "폴더 합치기",
+    mergeDescription: "왼쪽이 기존 파일, 오른쪽이 새 파일입니다. 양쪽 모두를 선택하면 옮겨오는 파일의 이름에 번호가 추가됩니다.",
+    keepBoth: "둘 다 유지",
+    existing: "기존 항목",
+    incoming: "새 항목",
+    folderConflict: "해당 위치에 이미 '{name}' 폴더가 있습니다. 정말로 폴더를 합칠까요?\n이름이 같은 파일이 있으면 해당 파일을 덮어쓸 것인지 묻는 팝업이 표시됩니다.",
+    empty: "폴더가 비어 있습니다",
+    emptyDescription: "파일을 업로드하거나 새 폴더를 만들어 보세요.",
+    showMore: "더 보기",
+    apply: "적용",
+    open: "열기",
+    pickTitle: "서버 드라이브에서 파일 선택",
+    pickHint: "파일을 선택하세요",
+    notFound: "파일이나 폴더를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.",
+    unsupportedEntry: "링크와 특수 파일은 드라이브에서 접근할 수 없습니다.",
+    unavailable: "드라이브에 접근할 수 없습니다. 서버의 저장 공간과 접근 권한을 확인해 주세요.",
+    remoteAccessDenied: "Cloudflare 원격 접속 중에는 서버 드라이브를 사용할 수 없습니다.",
+  },
   formating: {
     main: "메인 프롬프트",
     jailbreak: "탈옥 프롬프트",
@@ -582,6 +634,7 @@ export const languageKorean = {
   },
   saveConflict: {
     title: "저장 충돌 해결",
+    generated: "생성 결과",
     description: "이 기기와 서버에서 모두 수정된 항목입니다. 각 항목을 저장할 내용으로 선택하세요.",
     server: "서버",
     local: "내 수정",
@@ -714,7 +767,6 @@ export const languageKorean = {
   userSetting: "유저 설정",
   username: "유저 이름",
   userIcon: "유저 아이콘",
-  successExport: "성공적으로 엑스포트하여 다운로드 경로에 다운로드했습니다.",
   successImport: "성공적으로 임포트했습니다.",
   moduleCreated: "모듈이 생성되었습니다.",
   moduleUpdated: "모듈이 수정되었습니다.",
@@ -789,11 +841,12 @@ export const languageKorean = {
     "이 플러그인에는 외부 자바스크립트가 포함되어 있습니다.",
   waifuWidth: "Waifu 채팅창 넓이",
   files: "파일",
-  backupConfirm: "정말로 백업을 저장하시겠습니까?",
+  backupConfirm: "백업 파일을 저장하시겠습니까?",
   backupLoadConfirm:
-    "정말로 백업을 불러오시겠습니까? 현재 데이터가 모두 사라집니다!",
+    "백업을 불러오시겠습니까?\n현재 데이터가 전부 덮어씌워집니다.",
   backupLoadConfirm2:
-    "정말로, 정말로 백업을 불러오시겠습니까? 현재 데이터가 모두 사라집니다!",
+    "정말로 백업을 불러오시겠습니까?\n현재 데이터가 전부 덮어씌워집니다.",
+  backupSelectedFile: (filename: string) => `선택한 파일: ${filename}`,
   others: "기타",
   advancedRequestTab: "리퀘스트",
   dataDisplay: "데이터 표시",
@@ -833,6 +886,25 @@ export const languageKorean = {
   imageStylePresetFolderView: "폴더별 보기",
   imageStylePresetTagView: "태그별 보기",
   imageStylePresetModuleView: "모듈별 보기",
+  imageCharacterPreset: "캐릭터 프리셋",
+  imageCharacterPresetSettings: "캐릭터 프리셋 설정",
+  sdPresetGenerate: "SD 프리셋 생성",
+  sdPresetGenerateHelp: "SD 스튜디오용 씬 프리셋 json 파일을 불러와 이미지를 자동으로 생성합니다.",
+  sdPresetQueued: "프리셋 예약됨",
+  sdPresetInvalid: "JSON 파일에서 생성 가능한 SDStudio 프롬프트를 찾을 수 없습니다.",
+  sdPresetCount: (count: number) => `프리셋 씬 수량: ${count} 개`,
+  imageTagAutocomplete: {
+    label: "단부루 태그",
+    loading: "단부루 태그 목록을 다운로드하는 중입니다.",
+    error: "자동완성을 사용할 수 없습니다. 태그를 직접 입력해 이미지를 생성할 수 있습니다.",
+    categories: {
+      general: "일반",
+      artist: "작가",
+      copyright: "작품",
+      character: "캐릭터",
+      meta: "메타",
+    },
+  },
   imageSettings: {
     steps: "스텝",
     cfgScale: "CFG 스케일",
@@ -937,7 +1009,6 @@ export const languageKorean = {
   noAlternateGreetings: "설정된 추가 첫 메시지가 없습니다.",
   unrecommended: "비권장",
   chatNotes: "채팅 노트",
-  allowV2Plugin: "플러그인 V2 허용",
   altGreet: "추가 첫 메시지",
   scripts: "스크립트",
   settings: "설정",
@@ -1152,8 +1223,10 @@ export const languageKorean = {
   location: "위치",
   noEffect: "효과 없음",
   hideRealm: "신규 캐릭터 숨기기",
-  hidePublicStats: "통계 정보 숨기기",
+  hidePublicStats: "통계 정보 보내기",
   hideAllImages: "모든 이미지 숨기기",
+  hideAllImagesNotice: "{{setting}} 상태입니다",
+  imageNotFound: "이미지를 찾지 못했습니다",
   preloadChatImages: "이미지 미리 로딩",
   popularityLevel: "인기도 {}",
   colorScheme: "색상 팔레트",
@@ -1207,14 +1280,14 @@ export const languageKorean = {
   negativePrompt: "네거티브 프롬프트",
   linkedChat: "연결된 채팅",
   imageInfo: "이미지 정보",
-  generateImage: "이미지 생성",
+  generateImage: "생성",
   imageProviderNotConfigured: "먼저 이미지 생성 프로바이더를 설정해주세요.",
   imageGenerationPromptNotFound: "이 이미지의 생성 프롬프트를 찾을 수 없습니다.",
   translationPrompt: "번역 프롬프트",
   saveBackupLocal: "로컬 백업 저장",
   saveBackupForUpstream: "원본 리스용 백업 내보내기",
   saveBackupForUpstreamConfirm:
-    "이 백업은 원본 RisuAI로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
+    "이 백업은 원본 RisuAI로 데이터를 옮기기 위한 용도로, 인레이 이미지가 포함되지 않습니다.\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
   loadBackupLocal: "로컬 백업 불러오기",
   topP: "Top P",
   genTimes: "생성 횟수",
@@ -1337,6 +1410,31 @@ export const languageKorean = {
   nickname: "닉네임",
   useRegexLorebook: "정규식 사용",
   customPromptTemplateToggle: "커스텀 토글",
+  onboarding: "온보딩",
+  onboardingEnable: "온보딩 사용",
+  onboardingFloatingButton: "플로팅 버튼 표시",
+  onboardingAvailable: "이 캐릭터에는 온보딩이 있습니다",
+  onboardingAvailableDesc: "몇 가지 선택지를 골라 채팅을 설정하세요.",
+  onboardingStart: "시작하기",
+  onboardingSkip: "건너뛰기",
+  onboardingDone: "완료",
+  onboardingModeForm: "폼",
+  onboardingModeHTML: "HTML",
+  onboardingTitle: "제목",
+  onboardingQuestion: "질문",
+  onboardingAddQuestion: "질문 추가",
+  onboardingAddOption: "선택지 추가",
+  onboardingVarName: "변수 이름",
+  onboardingVarNameMissing: "변수 이름을 설정하지 않으면 이 질문은 표시되지 않습니다.",
+  onboardingTypeSingle: "단일 선택",
+  onboardingTypeMultiple: "다중 선택",
+  onboardingTypeText: "텍스트",
+  onboardingOptionLabel: "라벨",
+  onboardingOptionValue: "값 (비우면 라벨 사용)",
+  onboardingPlaceholder: "플레이스홀더",
+  onboardingRequired: "필수",
+  onboardingRequiredMissing: "필수 질문입니다.",
+  onboardingHTMLHint: "요소에 risu-change-var-name과 risu-change-var-value를 사용해 채팅 변수를 설정하세요. 클릭된 요소에는 .selected 클래스가 붙습니다.",
   defaultVariables: "기본 변수",
   lowLevelAccess: "저수준 접근",
   normal: "일반",
@@ -1438,24 +1536,12 @@ export const languageKorean = {
   profileSection: "프로필",
   selectProfile: "프로필 선택",
   searchProfiles: "프로필 검색",
-  noProfileMatch: "일치하는 프로필이 없습니다",
   modelPresetCreated: "모델 프리셋이 생성되었습니다",
   pluginModelProfileDescription: "활성화된 플러그인 API 3.0 프로바이더가 등록한 모델입니다. 이 프리셋을 사용하려면 해당 플러그인을 계속 활성화해야 합니다.",
   pluginModelUnavailable: "플러그인 API 3.0 모델을 사용할 수 없습니다. provider 플러그인이 설치 및 활성화되어 있는지 확인하세요.",
   profileStatusCurrent: "현재",
   profileStatusOutdated: "이전",
   profileStatusDeprecated: "지원 종료 예정",
-  profileTabOfficial: "공식",
-  profileTabCustom: "커스텀",
-  profileImport: "프로필 가져오기",
-  profileExport: "내보내기",
-  profileDelete: "삭제",
-  profileExportNoBase: "base provider를 찾을 수 없어 내보낼 수 없습니다.",
-  profileImportParseError: "JSON 파싱에 실패했습니다.",
-  profileImportInvalid: "프로필 형식이 올바르지 않습니다:",
-  profileOverwriteConfirm: "같은 id의 커스텀 프로필이 이미 있습니다. 덮어쓸까요?",
-  profileImported: "프로필을 가져왔습니다.",
-  customProfileEmpty: "커스텀 프로필이 없습니다. 가져오기로 추가하세요.",
   profileReplace: "프로필 교체",
   profileReplaced: "프로필을 교체했습니다.",
   profileDataIncomplete: "이 프로필의 데이터가 불완전합니다. 모델 프리셋 메뉴를 다시 열어 레지스트리를 갱신한 뒤 다시 시도하세요.",
@@ -1466,7 +1552,6 @@ export const languageKorean = {
   profileLatestVersionLabel: "최신 버전",
   profileModelReleaseDateLabel: "모델 발매일",
   profileDataCutoffLabel: "데이터 컷오프",
-  profileUpdateConfirm: "이 프로필로 업데이트할까요?",
   profileReplaceWarn: "이 프로필과 호환되지 않는 설정은 비활성 상태로 보관됩니다. 계속할까요?",
   profileUpdateLossWarn: "프로필의 설정 구성이 변경될 수 있습니다. 계속할까요?",
   apiKeyManagerMenu: "API 키 관리",
@@ -1709,6 +1794,7 @@ export const languageKorean = {
   },
   bulkEnabling: "한번에 로어북 활성화 버튼",
   showTranslationLoading: "번역 로딩 보이기",
+  cut: "잘라내기",
   copy: "복사",
   paste: "붙여넣기",
   depth: "깊이",
@@ -1726,13 +1812,9 @@ export const languageKorean = {
   pluginMemoryDisableAll: "전부 끄기",
   pluginMemoryProceed: "진행",
   pluginMemoryDisabledForSession: "메모리 보호를 위해 일시적으로 꺼짐",
-  pluginV2Blocked: "레거시 플러그인 V2 차단됨",
   alwaysActiveInChat: "언제나 활성화 (현재 챗)",
   childLoreDesc:
     "이것은 캐릭터 로어의 복사본이며, 삭제하거나 원본 로어에서 직접 비활성화하기 전에는 '언제나 활성화' 상태로 유지됩니다.",
-  thinkingTokens: "사고 토큰",
-  thinkingType: "사고 모드",
-  adaptiveThinkingEffort: "적응형 사고 수준",
   localActivationInGlobalLorebook: "캐릭터 로어북에서 채팅별 활성화",
   cachePoint: "캐시 포인트",
   all: "모두",
@@ -1803,8 +1885,9 @@ export const languageKorean = {
   modelPresetCustomFlagsGroup: "커스텀 플래그",
   modelPresetControlsGroup: "제어",
   modelPresetOtherGroup: "기타",
-  modelPresetEchoMessage: "Echo 메시지",
-  modelPresetEchoDelay: "Echo 지연 시간(초)",
+  modelPresetEchoMessage: "응답 내용",
+  modelPresetEchoDelay: "대기 시간",
+  modelPresetEchoTokensPerSecond: "응답 속도",
   modelPresetPromptPresetFirst: "프롬프트 프리셋 우선",
   modelPresetPromptParamsFirst: "프롬프트 파라미터 우선",
   modelPresetGlobalBinding: "전역 모델 프리셋 바인딩",
@@ -1926,8 +2009,8 @@ export const languageKorean = {
   dynamic: "동적",
   assetStyle: "에셋 스타일",
   insertAssetPrompt: "에셋 프롬프트 삽입",
-  requestLocation: "리퀘스트 위치",
   newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
+  useServerDriveForFileImport: "파일 불러오기 시 서버 드라이브 사용",
   bookmarks: "북마크",
   noBookmarks: "북마크 없음",
   bookmarkAskNameOrDefault:
@@ -1954,31 +2037,6 @@ export const languageKorean = {
   apply: "적용",
   send: "전송",
   add: "추가",
-  pluginRiskDetectedTitle: "플러그인 위험 감지",
-  pluginRiskDetectedAlert:
-    "API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드가 감지되었습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
-  doNotInstall: "설치하지 않음",
-  continueAnyway: "무시하고 계속",
-  pluginNoRiskButAlert:
-    "위험한 코드는 감지되지 않았지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
-  pluginRisksInuserFriendly: {
-    eval: "문자열에서 코드 실행",
-    globalAccess: "글로벌 변수 접근",
-    thisOutsideClass: "클래스 컨텍스트 외부에서 'this' 사용",
-    errorInVerification: "검증 과정 중 오류 발생",
-    storageAccess: "스토리지 접근",
-  },
-  pluginRisksInuserFriendlyDesc: {
-    eval: "플러그인이 문자열에서 코드를 실행하려고 합니다. 악성 코드를 숨기기 위해 문자열이 난독화되었을 수 있습니다.",
-    globalAccess:
-      "플러그인이 글로벌 변수에 접근하려고 합니다. 이는 의도치 않은 부작용이나 보안 취약점으로 이어질 수 있습니다.",
-    thisOutsideClass:
-      "플러그인이 클래스 컨텍스트 외부에서 'this' 키워드를 사용하고 있습니다. 이는 의도치 않은 동작이나 보안 문제로 이어질 수 있습니다.",
-    errorInVerification:
-      "플러그인의 검증 과정 중 오류가 발생했습니다. 이는 기능상의 잠재적인 문제를 나타냅니다.",
-    storageAccess:
-      "플러그인이 스토리지에 접근하려고 합니다. 이는 데이터 유출이나 무단 데이터 조작으로 이어질 수 있습니다.",
-  },
   generatedByAIDisclaimer:
     "이 콘텐츠는 AI에 의해 생성되었으며 부정확하거나 편향된 정보가 포함될 수 있습니다.",
   autoScrollToNewMessage: "새 메시지로 자동 스크롤",
@@ -2071,28 +2129,27 @@ export const languageKorean = {
     `플러그인 ${appendKoreanJosa(pluginName, "이/가")} 사용자 대신 채팅 메시지를 전송할 권한을 요청합니다. AI 응답이 트리거됩니다. 허용하시겠습니까?`,
   inlayPermissionConsent: (pluginName: string) =>
     `플러그인 ${appendKoreanJosa(pluginName, "이/가")} 인레이 에셋 접근 권한을 요청합니다. 채팅에 첨부된 파일이 노출될 수 있습니다. 허용하시겠습니까?`,
+  pluginPermissionDenyGuide: '플러그인 "{}"의 권한 요청을 거부했습니다. 거부한 권한은 다시 묻지 않습니다.\n\n변경하려면 설정 > 플러그인에서 해당 플러그인의 권한 초기화 버튼을 누르세요.',
   resetPluginPermission: "권한 설정 초기화",
   resetPluginPermissionConfirm:
-    '플러그인 "{}"에 저장된 권한 허가 기록을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
-  resetPluginPermissionDone: '"{}"의 권한 허가 기록을 초기화했습니다',
+    '플러그인 "{}"의 권한 응답(허용 / 거부)을 초기화할까요?\n\n다음에 권한을 요청할 때 다시 묻게 됩니다.',
+  resetPluginPermissionDone: '"{}"의 권한 응답을 초기화했습니다',
   createPlugin: "플러그인 만들기",
   importPlugin: "플러그인 불러오기",
   exportPlugin: "플러그인 내보내기",
   editPlugin: "플러그인 편집",
   enablePlugin: "플러그인 켜기",
   disablePlugin: "플러그인 끄기",
+  pluginApiUnsupported: "플러그인 V2는 지원이 종료되었습니다. 플러그인 V3을 사용해 주세요.",
   removePlugin: "플러그인 삭제",
   updatePlugin: "플러그인 업데이트 설치",
   pluginCreated: "플러그인을 만들었습니다.",
   pluginUpdated: "플러그인을 업데이트했습니다.",
-  pluginV2WarningTitle: "구형 플러그인 API 경고",
-  pluginV2Warning:
-    "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",
   partialBackupFirstConfirm:
     "⚠️ 경고: 부분 로컬 백업 ⚠️\n\n이 백업은 최소한의 필수 정보만 빠르게 저장하는 기능입니다.\n\n포함되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n⚠️ 포함되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- 기타 모든 추가 미디어 파일\n\n이 백업 파일에는 모든 캐릭터 에셋이 포함되지 않습니다!\n완전한 백업이 필요하다면 일반 로컬 백업을 사용하세요.\n\n그래도 계속하시겠습니까?",
   partialBackupSecondConfirm:
     "⚠️⚠️ 최종 경고 ⚠️⚠️\n\n이 백업은 캐릭터의 프로필 이미지만 저장하며, 나머지 대부분의 에셋은 저장하지 않습니다!\n\n저장되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n저장되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- 기타 모든 미디어 파일\n\n⚠️ 백업 파일에 캐릭터 에셋이 필요하지 않은 경우에만 진행하세요! ⚠️\n\n정말로 부분 백업을 진행하시겠습니까?",
-  savePartialLocalBackup: "부분 로컬 백업 저장 (캐릭터 에셋 제외)",
+  savePartialLocalBackup: "로컬 백업 다운로드 (미디어 제외)",
   serverBackupSave: "서버에 백업 저장",
   serverBackupManage: "서버 백업 관리",
   serverBackupSaving: "서버에 백업 저장 중...",
@@ -2113,6 +2170,7 @@ export const languageKorean = {
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
   browserDownloadStarted: "다운로드를 시작합니다.",
+  exportAssetsPreparing: "에셋을 정리하는 중",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",
@@ -2240,11 +2298,10 @@ export const languageKorean = {
   appInstallDesc: "PocketRisu Kei를 PWA 애플리케이션 형태로 설치할 수 있습니다.",
   appInstallAction: "앱 설치",
 
-  // 비보안(HTTP) 접속 안내
-  httpInsecureWarningTitle: "HTTP로 접속 중",
-  httpInsecureWarningBody:
-    "플러그인 등 일부 기능이 동작하지 않을 수 있습니다. 원격 접속 기능을 사용하면 HTTPS로 연결할 수 있습니다.",
-  httpInsecureOpenRemoteAccess: "설정 열기",
+  // 보안 연결 필요 안내
+  secureConnectionRequiredTitle: "보안 연결이 필요합니다",
+  secureConnectionRequiredBody:
+    "PocketRisu Kei는 HTTPS 연결만 지원합니다. loaclhost 또는 HTTPS로 접속해주세요.",
 
   // 시스템 페이지
   system: "시스템",
@@ -2279,14 +2336,14 @@ export const languageKorean = {
   systemLogsFailedLoad: "로그를 불러오지 못했습니다",
   systemLogsLoading: "불러오는 중...",
   pluginStorageTab: "플러그인 저장소",
-  pluginStorageDesc: "플러그인이 저장한 데이터를 직접 보고 편집·삭제할 수 있습니다. 모든 플러그인 데이터는 하나의 저장 공간을 공유합니다.",
+  pluginStorageDesc: "플러그인이 저장한 데이터를 직접 보고 편집·삭제할 수 있습니다.",
   pluginStorageLocation: "저장 위치",
-  pluginStorageBackendSave: "세이브 저장",
-  pluginStorageBackendSaveDesc: "세이브 파일에 저장 · 세이브와 함께 이동",
-  pluginStorageBackendLocal: "로컬",
-  pluginStorageBackendLocalDesc: "localStorage 기반 · 문자열만 · 기기 로컬",
-  pluginStorageBackendIdb: "기기 DB",
-  pluginStorageBackendIdbDesc: "IndexedDB 기반 · JSON 지원 · 기기 로컬",
+  pluginStorageBackendSave: "세이브에 포함",
+  pluginStorageBackendSaveDesc: "pluginStorage로 저장됨 · 원본 리스 호환 백업에 포함",
+  pluginStorageBackendLocal: "localStorage",
+  pluginStorageBackendLocalDesc: "safeLocalStorage로 저장됨 · 원본 리스 호환 백업에 미포함",
+  pluginStorageBackendIdb: "localForage",
+  pluginStorageBackendIdbDesc: "getLocalPluginStorage로 저장됨 · 원본 리스 호환 백업에 미포함",
   pluginStorageSearch: "키 또는 값 검색...",
   pluginStorageRefresh: "새로고침",
   pluginStorageEmpty: missingItem("저장된 항목"),
@@ -2318,7 +2375,12 @@ export const languageKorean = {
   popupEditorSearchCount: (current: number, total: number) => `${total}의 ${current}`,
   pluginStorageMetaType: "타입",
   pluginStorageMetaSize: "크기",
+  pluginStorageMetaBinarySize: "바이너리 크기",
+  pluginStorageMetaMime: "MIME 유형",
   pluginStorageMetaChars: "문자 수",
+  pluginStorageMetaAccess: "접근 방식",
+  pluginStorageReadOnly: "읽기 전용",
+  pluginStorageReadOnlyDesc: "이 값에는 바이너리 또는 JSON으로 안전하게 편집할 수 없는 데이터가 포함되어 있어, 데이터 손실을 막기 위해 읽기 전용으로 표시됩니다.",
   pluginStorageOwner: "출처(추정)",
   pluginStorageOwnerUnknown: "미상",
   pluginStorageDeleted: "삭제됨",
@@ -2350,7 +2412,7 @@ export const languageKorean = {
   storageFailedLoad: "스토리지 통계를 불러오지 못했습니다",
   unsupportedRemoteSave: "PocketRisu Kei는 리모트 데이터를 처리하지 않습니다. 기존에 사용 중이던 RisuAI의 고급 설정 탭에서 'Enable Remote Saving' 옵션을 끈 후 save 폴더를 다시 복사해 주세요.",
 
-  // 디스크 사용량 (맥OS 스타일 막대)
+  // 디스크 사용량
   storageDiskUsage: "저장공간",
   storageDiskHeader: (used: number, total: number) =>
     `${(total / 1024 / 1024 / 1024).toFixed(2)} GB 중 ${(used / 1024 / 1024 / 1024).toFixed(2)} GB 사용됨`,
@@ -2360,7 +2422,7 @@ export const languageKorean = {
   storageDiskRisuTotal: (size: number) =>
     `총 ${(size / 1024 / 1024).toFixed(1)} MB 사용 중`,
 
-  // 항목별 라벨 (분포 리스트의 ⓘ 설명)
+  // 저장 공간 항목 라벨
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
     "메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
@@ -2398,7 +2460,7 @@ export const languageKorean = {
   storageInternalOnlyHint:
     "켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
-  // 2 GB BLOB 한계 (별도 섹션)
+  // SQLite BLOB 한계
   storageBlobLimit: "2 GB BLOB 한계",
   storageBlobLimitDesc:
     "SQLite는 단일 행 값을 약 2 GB까지만 허용합니다. database.bin이 하나의 행이라 채팅·설정 합계가 이 값을 넘을 수 없으며, 한계에 가까워지면 저장이 실패하기 시작합니다.",
@@ -2517,7 +2579,7 @@ export const languageKorean = {
 
   storageDebug: "디버그 정보",
 
-  // 데이터 이전 (구 "계정 & 파일")
+  // 데이터 이전
   migration: "데이터 이전",
   migrationDesc:
     "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 PocketRisu Kei 데이터를 원본 호환 형식으로 내보냅니다.",
@@ -2527,7 +2589,6 @@ export const languageKorean = {
     "원본 RisuAI 호환 포맷으로 백업·내보내기를 수행하는 보조 기능들입니다. 일반적인 백업 작업은 백업 탭을 사용하세요.",
   migrationLoadUpstreamBackup: "원본 리스 로컬 백업 불러오기",
   migrationCompatBackupExportButton: "호환 백업 내보내기",
-  migrationCompatSnapshotExportButton: "호환 스냅샷 내보내기",
   migrationCompatBackupImportButton: "호환 백업 불러오기",
   migrationDatasetExportButton: "데이터셋 내보내기",
 
@@ -2565,9 +2626,7 @@ export const languageKorean = {
   backupSnapshotLimitsCurrent: (count: number, bytes: number, logicalBytes?: number) => {
     const disk = (bytes / 1024 / 1024).toFixed(1)
     const saved = (logicalBytes ?? 0) - bytes
-    // Only surface the dedup win when it's meaningful (chunked snapshots share
-    // chunks); for tiny/un-chunked sets logical ≈ disk, so the plain line reads
-    // cleaner without a "(0 MB saved)" tail.
+    // Avoid displaying negligible deduplication savings.
     if (saved > 1024 * 1024) {
       const data = ((logicalBytes ?? 0) / 1024 / 1024).toFixed(0)
       const savedMB = (saved / 1024 / 1024).toFixed(0)
@@ -2637,6 +2696,12 @@ export const languageKorean = {
   backupLocalDesc:
     "사용자 기기로 백업을 다운로드하거나 기기 파일에서 복원합니다.",
   backupLocalDownload: "로컬 백업 다운로드",
+  backupLocalPartialDownload: "부분 로컬 백업 다운로드",
+  backupLocalRestoring: "로컬 백업 불러오는 중...",
+  backupLocalSaving: "현재 데이터 저장 중...",
+  backupLocalCompressing: "백업 압축 중...",
+  backupLocalPreparing: "백업 파일 목록 준비 중...",
+  backupMissingAssets: (files: string) => `다음 에셋을 찾을 수 없어 백업에서 제외했습니다:\n${files}`,
 
   backupSettingsOnly: "설정 내보내기",
   backupSettingsOnlyDesc: "채팅 및 캐릭터 등을 제외한 설정 백업만 내보냅니다.",
@@ -2660,6 +2725,7 @@ export const languageKorean = {
   recentlyUploadedCharacters: "신규 캐릭터",
   relatedLinks: "주요 링크",
   getMoreCharacters: "RisuRealm 검색",
+  realmContentMutedConfirm: "뮤트한 항목입니다. 정말로 표시할까요?",
   realmMuteCharacter: "캐릭터 뮤트",
   realmMuteCreator: "제작자 뮤트",
   realmMuteManagement: "뮤트 관리",
@@ -2715,4 +2781,15 @@ export const languageKorean = {
     tokensPerSec: "tok/s",
     cacheHit: "캐시 적중 · {n} 토큰",
   },
+  risuTosTitle: "RisuAI 이용약관 동의",
+  risuTosDesc: "RisuRealm은 RisuAI가 운영하는 사이트로, 이용하기 위해서는 RisuAI 이용약관 및 개인정보처리방침 동의가 필요합니다.\n동의하지 않아도 PocketRisu Kei의 다른 기능은 그대로 사용할 수 있습니다.",
+  risuTosScope: "이 약관은 다음 기능에만 적용됩니다:",
+  risuTosScopeRealm: "RisuRealm (캐릭터 둘러보기·검색·다운로드·신고)",
+  risuTosScopeMcp: "MCP 서버 OAuth 로그인 (RisuAI 계정 서버를 통한 인증 중계)",
+  risuTosTerms: "RisuAI 이용약관",
+  risuTosPrivacy: "RisuAI 개인정보처리방침",
+  risuTosAccept: "동의",
+  risuTosDecline: "동의하지 않음",
+  risuTosGate: "RisuRealm을 이용하려면 RisuAI 이용약관 동의가 필요합니다.",
+  risuTosGateButton: "약관 확인",
 } satisfies DeepPartial<typeof import("./en").languageEnglish>;

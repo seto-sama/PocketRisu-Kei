@@ -1,10 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    // Restore flow forces a full page reload because the in-memory db cache
-    // is replaced; downloads are handled by the browser without relaying
-    // the backup through this tab.
     import { getCurrentLocale, language } from "src/lang";
-    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError, notifyInfo } from "src/ts/alert";
+    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, notifySuccess, notifyError } from "src/ts/alert";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -14,6 +11,7 @@
     import Button from "../UI/components/Button.svelte";
     import BackupNoteEditor from "src/lib/Setting/BackupNoteEditor.svelte";
     import { updateBackupNote } from "src/ts/drive/backupNotes";
+    import { finishBackupRestore } from "src/ts/drive/backuplocal";
 
     const PAGE_SIZE = 20;
 
@@ -76,36 +74,37 @@
     async function restoreBackup(backup: BackupEntry) {
         if (!(await alertConfirm(language.backupLoadConfirm))) return;
         if (!(await alertConfirm(language.backupLoadConfirm2))) return;
-        alertWait(language.serverBackupRestoring);
+        alertWait(language.serverBackupRestoring, language.serverBackupLoadBackup);
         try {
             const result = await forageStorage.restoreServerBackup(backup.filename, (bytes, totalBytes) => {
                 if (totalBytes > 0) {
-                    const pct = ((bytes / totalBytes) * 100).toFixed(1);
-                    alertWait(`${language.serverBackupRestoring} (${pct}%)`);
+                    alertStore.set({
+                        type: 'progress',
+                        title: language.serverBackupLoadBackup,
+                        msg: language.serverBackupRestoring,
+                        submsg: String(bytes / totalBytes * 100),
+                    });
                 }
             });
-            if (result.coldStorageFailed && result.coldStorageFailed > 0) {
-                alertError(`Warning: ${result.coldStorageFailed} character(s) could not be restored from cold storage. The restored save may be incomplete. The app will now reload.`);
-                await waitAlert();
-            } else {
-                alertStore.set({ type: "wait", msg: "Success, Refreshing your app." });
-            }
-            location.search = '';
-            location.reload();
+            await finishBackupRestore(result);
         } catch (error) {
             alertError(error instanceof Error ? error.message : 'Restore failed');
         }
     }
 
     async function restoreAssets(backup: BackupEntry) {
-        alertWait(language.serverBackupAssetsRestoring);
+        alertWait(language.serverBackupAssetsRestoring, language.serverBackupRestoreAssets);
         try {
             const result = await forageStorage.restoreMissingServerBackupAssets(
                 backup.filename,
                 (bytes, totalBytes) => {
                     if (totalBytes > 0) {
-                        const pct = ((bytes / totalBytes) * 100).toFixed(1);
-                        alertWait(`${language.serverBackupAssetsRestoring} (${pct}%)`);
+                        alertStore.set({
+                            type: 'progress',
+                            title: language.serverBackupRestoreAssets,
+                            msg: language.serverBackupAssetsRestoring,
+                            submsg: String(bytes / totalBytes * 100),
+                        });
                     }
                 },
             );
@@ -121,7 +120,7 @@
     async function downloadBackup(backup: BackupEntry) {
         try {
             await forageStorage.downloadServerBackup(backup.filename);
-            notifyInfo(language.browserDownloadStarted);
+            notifySuccess(language.browserDownloadStarted);
         } catch (error) {
             notifyError(error instanceof Error ? error.message : 'Download failed');
         }

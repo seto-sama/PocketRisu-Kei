@@ -1,11 +1,16 @@
 <script lang="ts">
     import { getChatBoundPersona } from "src/ts/chatBindingState";
 
-    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
+    import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
+    import { setMessageContent } from 'src/ts/storage/messageContent';
+    import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
+
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
+    import { autoSizeTextarea } from 'src/ts/gui/autoSizeTextarea.svelte'
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { loadTogglesFromChat, type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
@@ -17,10 +22,11 @@
     import {
         chatHydrationFailures,
         chatHydrationKey,
-        ensureCurrentChatReady,
+        ensureChatHydrated,
         flushDirtyChatToServer,
     } from "../../ts/storage/chatStorage";
     import { createFrameScheduler, sleep } from "../../ts/util";
+    import { floorCssLengthToPhysicalPixel } from 'src/ts/gui/physicalPixel';
     import { language } from "../../lang";
     import { recoverAuxiliaryTranslationJobs } from "../../ts/translator/translator";
     import { alertConfirm, alertError, notifyError } from "../../ts/alert";
@@ -48,7 +54,7 @@ import { isMobile } from 'src/ts/platform'
     import { runAutomaticRerolls, type AutomaticRerollResult } from 'src/ts/process/automaticReroll';
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset, getInlayAssetUrl, getInlayExplorerItemsBatch, getInlayMeta, type InlayExplorerItem } from 'src/ts/process/files/inlays';
-    import { quickMenu } from 'src/ts/hotkey';
+    import { getFirstInlayId } from 'src/ts/util/inlayTokens';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
     import {
         activeRevenantWorkflows,
@@ -72,10 +78,12 @@ import { isMobile } from 'src/ts/platform'
     import Portal from '../UI/components/overlay/Portal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
     import TranslationDialog from './TranslationDialog.svelte';
+    import OnboardingDialog from '../Others/OnboardingDialog.svelte';
+    import { getActiveOnboarding } from 'src/ts/onboarding';
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
     import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation';
     import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
-    import { isChatImagePreloadingEnabled, preloadInlayAssets } from 'src/ts/parser/parser.svelte';
+    import { HIDE_ALL_IMAGES_LINK_ATTRIBUTE, isChatImagePreloadingEnabled, preloadInlayAssets, replaceBrokenChatImage } from 'src/ts/parser/parser.svelte';
     import AssetViewerActions from '../UI/components/AssetViewerActions.svelte';
     import FullscreenImageViewer from '../UI/components/FullscreenImageViewer.svelte';
     import InlayViewerMetadata from '../UI/components/InlayViewerMetadata.svelte';
@@ -84,16 +92,12 @@ import { isMobile } from 'src/ts/platform'
         collectChatInlayViewerEntries,
         isEmptyChatInlayMessage,
         removeChatInlayOccurrence,
-        removeCurrentEmptyInlaySwipe,
         type ChatInlayViewerEntry,
     } from './chatInlayViewer';
 
-    // Whether an Enter keydown should send (vs insert a newline), based on the
-    // per-platform send-key mode. Mobile uses sendKeyMobile, desktop sendKeyPC.
     function shouldSendOnEnter(e: KeyboardEvent): boolean {
         const mode = isMobile ? DBState.db.sendKeyMobile : DBState.db.sendKeyPC;
-        // Match the configured combo EXACTLY — every other modifier must be absent,
-        // so e.g. Alt+Enter or Ctrl+Shift+Enter inserts a newline instead of sending.
+        // Extra modifiers must keep Enter available for inserting a newline.
         switch (mode) {
             case 'enter': return !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
             case 'ctrl-enter': return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
@@ -113,6 +117,7 @@ import { isMobile } from 'src/ts/platform'
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
     let translationOpen = $state(false)
+    let onboardingOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let fileInput:string[] = $state([])
@@ -122,6 +127,7 @@ import { isMobile } from 'src/ts/platform'
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
     let composerHeight = $state(0)
+    let composerToolbarOffset = $state(0)
     let fixedComposerLeft = $state(0)
     let fixedComposerWidth = $state(0)
     let chatScrollController: ChatScrollController | null = null
@@ -134,8 +140,10 @@ import { isMobile } from 'src/ts/platform'
     } | null = null
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '', portalTarget }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
-    let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
+    let currentChatSlot = $derived(currentCharacter?.chats[getChatPage(currentCharacter)])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
+    // Placeholder chats have no body yet, so their onboardingDone state is unknown.
+    let activeOnboarding = $derived(currentChatReady ? getActiveOnboarding(currentCharacter) : null)
     let currentChatHydrationFailure = $derived(
         currentCharacter?.chaId && currentChatSlot?.id
             ? $chatHydrationFailures.get(chatHydrationKey(currentCharacter.chaId, currentChatSlot.id))
@@ -144,7 +152,7 @@ import { isMobile } from 'src/ts/platform'
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     let loadPagesRoomKey = $state('')
-    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter ? getChatPage(currentCharacter) : -1}:${currentChatSlot?.id ?? ''}`)
     let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
     let inlayViewerOpen = $state(false)
     let inlayViewerEntries: ChatInlayViewerEntry[] = $state([])
@@ -240,6 +248,24 @@ import { isMobile } from 'src/ts/platform'
         return { id, messageIndex, occurrence }
     }
 
+    function handleChatScreenClick(event: MouseEvent) {
+        if (event.target instanceof Element && event.target.closest(`[${HIDE_ALL_IMAGES_LINK_ATTRIBUTE}]`)) {
+            event.preventDefault()
+            event.stopPropagation()
+            void import('src/ts/setting/searchIndex').then(({ openSettingItem }) => openSettingItem('display.hideAllImages'))
+            return
+        }
+        handleInlayViewerClick(event)
+    }
+
+    function handleChatImageError(event: Event) {
+        const target = event.target
+        if (!(target instanceof HTMLImageElement) || !target.closest('[data-chat-index]')) return
+        // newImageHandlingBeta resolves bare asset names after their first failed load.
+        if (DBState.db.newImageHandlingBeta && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
+        replaceBrokenChatImage(target)
+    }
+
     function handleInlayViewerClick(event: MouseEvent) {
         const target = getInlayViewerTarget(event)
         if (!target) return
@@ -295,12 +321,9 @@ import { isMobile } from 'src/ts/platform'
             if (!message) return
             const next = removeChatInlayOccurrence(message.data, entry)
             if (!isEmptyChatInlayMessage(next)) {
-                message.data = next
-                if (message.swipes && message.swipeId !== undefined) {
-                    message.swipes[message.swipeId] = next
-                }
+                setMessageContent(message, next)
                 invalidateChatMessageRender(entry.messageIndex)
-            } else if (removeCurrentEmptyInlaySwipe(message)) {
+            } else if (removeActiveSwipe(message)) {
                 invalidateSwipeMessage(message, entry.messageIndex)
             } else if (currentChatSlot) {
                 currentChatSlot.message = currentChatSlot.message.filter((_, index) => index !== entry.messageIndex)
@@ -323,6 +346,10 @@ import { isMobile } from 'src/ts/platform'
     function trackComposerMetrics(node: HTMLElement) {
         const update = () => {
             composerHeight = node.getBoundingClientRect().height
+            composerToolbarOffset = floorCssLengthToPhysicalPixel(
+                composerHeight,
+                globalThis.devicePixelRatio,
+            )
         }
         const scheduler = createFrameScheduler(update)
         const resizeObserver = typeof ResizeObserver === 'undefined'
@@ -425,7 +452,7 @@ import { isMobile } from 'src/ts/platform'
         message.chatId = messageId
         imageRerollingTarget = { roomId: chat.id, messageId }
         try {
-            const inlayId = message.data.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/)?.[1]
+            const inlayId = getFirstInlayId(message.data)
             const prompt = inlayId ? (await getInlayMeta(inlayId))?.imageGeneration : undefined
             if(!prompt) {
                 notifyError(language.imageGenerationPromptNotFound)
@@ -436,6 +463,7 @@ import { isMobile } from 'src/ts/platform'
                 roomId: chat.id,
                 prompt: prompt.prompt,
                 negativePrompt: prompt.negativePrompt,
+                preset: prompt.preset,
                 label: getCurrentImageGenerationPreset(DBState.db).name,
                 projection: 'reroll',
                 messageId,
@@ -469,9 +497,7 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // History depth belongs to a room. Carrying a large value from search
-    // navigation into the next room mounts its entire
-    // history in one frame and makes translated chats especially expensive.
+    // Reset history depth per room to avoid mounting the next room's entire history.
     $effect.pre(() => {
         if (loadPagesRoomKey === currentChatRoomKey) return
         loadPagesRoomKey = currentChatRoomKey
@@ -518,17 +544,14 @@ import { isMobile } from 'src/ts/platform'
     )
 
     onDestroy(() => {
-        // Room/character navigation can unmount ChatScreen before the target
-        // selection is applied, so detach the foreground observer here too.
+        // Unmount can precede the selection change; detach any remaining observers.
         for (const context of foregroundGenerationContexts) {
             context.detachController.abort()
         }
     })
 
-    // Once the main provider work belongs to another room, detach only this
-    // page's foreground observer. The durable Revenant job/workflow continues
-    // and the ordinary room-entry recovery effect attaches when the user
-    // returns. User cancellation keeps using the separate abortController.
+    // Room changes detach the observer while the durable workflow continues.
+    // User cancellation uses the separate abortController.
     $effect(() => {
         const characterId = currentCharacter?.chaId
         const roomId = currentChatSlot?.id
@@ -542,8 +565,7 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // Workflow ownership is shared across the user's devices. Keep the local
-    // composer flag in sync when another device finishes or cancels the room.
+    // Sync composer state when another device finishes or cancels the room's workflow.
     $effect(() => {
         const characterId = currentCharacter?.chaId
         const roomId = currentChatSlot?.id
@@ -563,10 +585,7 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // ─── Per-chat composer draft ────────────────────────────────────────────
-    // The message input is kept per chat, stored outside the chat body, so it
-    // survives unmounting the chat view (e.g. accidentally opening Settings while
-    // composing a long message). Keyed by character + chat id.
+    // Drafts persist across room changes and page reloads, keyed by character and chat ID.
     let draftChaId = $derived(currentCharacter?.chaId ?? '')
     let draftChatId = $derived(currentChatSlot?.id ?? '')
     let draftLoading = $state(false)
@@ -575,8 +594,7 @@ import { isMobile } from 'src/ts/platform'
         flushChatDraft(draftChaId, draftChatId, { m: messageInput })
     }
 
-    // Load on chat enter (keyed by id, so no wait for hydration); flush the
-    // latest text for the chat being left on switch / unmount.
+    // Load by chat ID before hydration; flush the departing room's draft on cleanup.
     $effect(() => {
         const chaId = draftChaId
         const chatId = draftChatId
@@ -593,10 +611,6 @@ import { isMobile } from 'src/ts/platform'
                 }
                 draftLoading = false
             })
-            // Resize the textarea to fit the cleared/loaded text (height is
-            // updated imperatively, not reactively to messageInput).
-            await tick()
-            if (active) updateInputSizeAll()
         })()
         return () => {
             active = false
@@ -606,8 +620,7 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    // Debounced save while typing (each write is a network round-trip, so it is
-    // coalesced). Suppressed during the initial load to avoid racing it.
+    // Coalesce network writes and wait for the initial draft load.
     $effect(() => {
         const chaId = draftChaId
         const chatId = draftChatId
@@ -616,8 +629,7 @@ import { isMobile } from 'src/ts/platform'
         scheduleSaveChatDraft(chaId, chatId, { m })
     })
 
-    // Best-effort persist on tab hide / unload (refresh, app switch): the
-    // unmount cleanup above does not fire on a hard page teardown.
+    // Flush on tab hide and page teardown, which can bypass component cleanup.
     $effect(() => {
         const onHide = () => { if (document.visibilityState === 'hidden') persistDraftNow() }
         const onPageHide = () => persistDraftNow()
@@ -638,18 +650,18 @@ import { isMobile } from 'src/ts/platform'
         if (!char) return null
         const chatPage = roomId
             ? char.chats.findIndex(chat => chat?.id === roomId)
-            : char.chatPage
+            : getChatPage(char)
         if (chatPage < 0) return null
         const chat = char.chats[chatPage]
         if (!chat) return null
         if (!chat._placeholder) return chat
-        return await ensureCurrentChatReady(char.chats, chatPage, char.chaId)
+        return await ensureChatHydrated(char, chatPage)
     }
 
     async function retryCurrentChatLoad(): Promise<void> {
         const characterIndex = $selectedCharID
         const character = DBState.db.characters[characterIndex]
-        const roomId = character?.chats[character.chatPage]?.id
+        const roomId = character?.chats[getChatPage(character)]?.id
         const characterId = character?.chaId
         if (!characterId || !roomId) return
 
@@ -660,7 +672,7 @@ import { isMobile } from 'src/ts/platform'
                 chat
                 && $selectedCharID === characterIndex
                 && activeCharacter?.chaId === characterId
-                && activeCharacter.chats[activeCharacter.chatPage]?.id === roomId
+                && activeCharacter.chats[getChatPage(activeCharacter)]?.id === roomId
             ) {
                 loadTogglesFromChat(chat)
             }
@@ -675,7 +687,7 @@ import { isMobile } from 'src/ts/platform'
     $effect(() => {
         const selectedChar = $selectedCharID
         const char = DBState.db.characters[selectedChar]
-        const chatId = char?.chats?.[char.chatPage]?.id
+        const chatId = char?.chats?.[getChatPage(char)]?.id
         if (!char?.chaId || !chatId) return
         let recoveryInFlight = false
         let recoveryRequested = false
@@ -759,12 +771,10 @@ import { isMobile } from 'src/ts/platform'
         scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
     }
 
-    // Top of currently loaded messages (no force-load of older pages).
     function scrollToLoadedTop() {
         chatScrollController?.scrollToEdge('top', 'smooth')
     }
 
-    // Literal bottom of the scroll (end of the latest message).
     function scrollToLoadedBottom() {
         chatScrollController?.scrollToEdge('bottom', 'smooth')
     }
@@ -880,7 +890,6 @@ import { isMobile } from 'src/ts/platform'
     })
 
     async function scrollToMessage(index: number, exact = false){
-        // Forces the loading of past messages not rendered on the screen
         // Request-status toast navigation should only move the viewport. The
         // loading veil is reserved for bookmark/history navigation.
         if (!exact) isScrollingToMessage = true
@@ -894,7 +903,6 @@ import { isMobile } from 'src/ts/platform'
             }
 
             let element: Element | null = null;
-            // Poll for element existence (max 5 seconds)
             for(let i = 0; i < 50; i++){
                 element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? null
                 if(element && (!exact || chatScrollController)) break;
@@ -935,7 +943,6 @@ import { isMobile } from 'src/ts/platform'
                             img.onerror = () => resolve(null);
                         });
                     });
-                    // Wait for all images or timeout after 4 seconds
                     await Promise.race([
                         Promise.all(promises),
                         sleep(4000)
@@ -944,7 +951,7 @@ import { isMobile } from 'src/ts/platform'
 
                 if(chatContainer){
                     chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant', followLayout: true })
-                    // Small delay and scroll again to ensure position is correct after any final layout adjustments
+                    // Re-align after late image layout settles.
                     await sleep(50)
                     element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? element
                     chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant', followLayout: true })
@@ -963,7 +970,7 @@ import { isMobile } from 'src/ts/platform'
         }
 
         const generationCharacter = DBState.db.characters[selectedChar]
-        const generationChat = generationCharacter?.chats[generationCharacter.chatPage]
+        const generationChat = generationCharacter?.chats[getChatPage(generationCharacter)]
         if(!generationCharacter?.chaId || !generationChat?.id) return
         const generationTarget = {
             characterId: generationCharacter.chaId,
@@ -1039,8 +1046,7 @@ import { isMobile } from 'src/ts/platform'
             if(targetChatIndex === -1) return
             DBState.db.characters[selectedChar].chats[targetChatIndex].message = cha
 
-            await sleep(10)
-            updateInputSizeAll()
+            await tick()
             foregroundHandedOff = true
             const initialResult = await sendChatMain(
                 undefined,
@@ -1073,11 +1079,7 @@ import { isMobile } from 'src/ts/platform'
             commitMode: 'debounce',
             hideCancel: true,
             submitKind: 'send',
-            onCommit: async (nextValue) => {
-                messageInput = nextValue
-                await tick()
-                updateInputSizeAll()
-            },
+            onCommit: (nextValue) => { messageInput = nextValue },
             onSubmit: (nextValue) => {
                 messageInput = nextValue
                 void send()
@@ -1086,20 +1088,18 @@ import { isMobile } from 'src/ts/platform'
         })
     }
 
-    // With an empty input (and no attachments) and the last message being the
-    // user's, pressing send doesn't add a new message — it regenerates a reply
-    // to that last message. Surface that as a reroll affordance.
+    // Show reroll when sending an empty composer would regenerate the last user message's reply.
     const willResend = $derived.by(() => {
         if (messageInput !== '' || fileInput.length > 0) return false
         const cha = DBState.db.characters[$selectedCharID]
         if (!cha) return false
-        const msgs = cha.chats?.[cha.chatPage]?.message
+        const msgs = cha.chats?.[getChatPage(cha)]?.message
         if (!msgs || msgs.length === 0) return false
         return msgs[msgs.length - 1].role === 'user'
     })
 
     function getLastCharMsg() {
-        const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
+        const msgs = DBState.db.characters[$selectedCharID]?.chats[getChatPage(DBState.db.characters[$selectedCharID])]?.message
         if (!msgs || msgs.length === 0) return null
         for (let i = msgs.length - 1; i >= 0; i--) {
             if (msgs[i].role === 'char' && !msgs[i].isComment && !msgs[i].disabled) return msgs[i]
@@ -1108,7 +1108,7 @@ import { isMobile } from 'src/ts/platform'
     }
 
     function getSwipeTargetMsg(idx?: number) {
-        const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
+        const msgs = DBState.db.characters[$selectedCharID]?.chats[getChatPage(DBState.db.characters[$selectedCharID])]?.message
         if (idx === undefined) return getLastCharMsg()
         if (!msgs?.[idx]) return null
         const msg = msgs[idx]
@@ -1136,7 +1136,7 @@ import { isMobile } from 'src/ts/platform'
         if(idx !== undefined) return failedGenerationAttempt()
         const selectedChar = $selectedCharID
         const rerollCharacter = DBState.db.characters[selectedChar]
-        const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
+        const rerollChat = rerollCharacter?.chats?.[getChatPage(rerollCharacter)]
         if (!rerollCharacter?.chaId || !rerollChat?.id) return failedGenerationAttempt()
         // Let the edit effect pin its canonical base, then settle that edit
         // before the reroll swaps the live body for a temporary placeholder.
@@ -1146,7 +1146,7 @@ import { isMobile } from 'src/ts/platform'
         try {
             await flushDirtyChatToServer(
                 rerollCharacter.chaId,
-                rerollCharacter.chatPage,
+                getChatPage(rerollCharacter),
                 rerollChat,
             )
         } catch (error) {
@@ -1231,29 +1231,7 @@ import { isMobile } from 'src/ts/platform'
 
     function deleteSwipe(idx?: number) {
         const lastMsg = getSwipeTargetMsg(idx)
-        if (!lastMsg || !lastMsg.swipes || lastMsg.swipes.length <= 1) return
-
-        const swipeIdx = lastMsg.swipeId ?? 0
-        lastMsg.swipes.splice(swipeIdx, 1)
-        lastMsg.swipeMetadata?.splice(swipeIdx, 1)
-
-        if (swipeIdx >= lastMsg.swipes.length) {
-            lastMsg.swipeId = lastMsg.swipes.length - 1
-        }
-        lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
-
-        if (lastMsg.swipes.length === 1) {
-            const remainingMetadata = lastMsg.swipeMetadata?.[0]
-            if (remainingMetadata) {
-                lastMsg.chatId = remainingMetadata.chatId ?? lastMsg.chatId
-                lastMsg.time = remainingMetadata.time ?? lastMsg.time
-                lastMsg.generationInfo = remainingMetadata.generationInfo ?? lastMsg.generationInfo
-                lastMsg.promptInfo = remainingMetadata.promptInfo ?? lastMsg.promptInfo
-            }
-            delete lastMsg.swipes
-            delete lastMsg.swipeId
-            delete lastMsg.swipeMetadata
-        }
+        if (!lastMsg || !removeActiveSwipe(lastMsg)) return
         invalidateSwipeMessage(lastMsg, idx)
     }
 
@@ -1367,7 +1345,7 @@ import { isMobile } from 'src/ts/platform'
 
     const boundPersona = $derived(getChatBoundPersona(
         DBState.db,
-        DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage],
+        DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])],
     ))
 
     let { userIconPortrait, currentUsername, userIcon } = $derived.by(() => {
@@ -1388,12 +1366,10 @@ import { isMobile } from 'src/ts/platform'
         }
     })
 
-    let inputHeight = $state("44px")
+    let inputHeight = $state('auto')
     let inputOverflow = $state(false)
     let inputEle:HTMLTextAreaElement = $state()
 
-    // Standard theme: composer width follows the configured chat width (matches message cards).
-    // Other themes: no width limit (original full-width behavior).
     let isStandardTheme = $derived(DBState.db.theme === '')
     let composerWidthClass = $derived(
         !isStandardTheme ? '' :
@@ -1401,16 +1377,11 @@ import { isMobile } from 'src/ts/platform'
         DBState.db.standardChatWidth === 'wide' ? 'max-w-6xl' :
         'max-w-3xl'
     )
-    // Effective persona name for the input placeholder (chat-bound persona overrides the selected one).
     let activePersonaName = $derived(
         (boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])?.name || 'User'
     )
 
-    function updateInputSizeAll() {
-        updateInputSize()
-    }
-
-    async function appendTranslationToMessageInput(translation: string) {
+    function appendTranslationToMessageInput(translation: string) {
         const addition = messageInput
             ? `${messageInput.endsWith('\n') ? '' : '\n'}${translation}`
             : translation
@@ -1421,54 +1392,17 @@ import { isMobile } from 'src/ts/platform'
         const end = inputEle.value.length
         inputEle.setSelectionRange(end, end)
         document.execCommand('insertText', false, addition)
-        await tick()
-        updateInputSizeAll()
     }
 
-    // Measure the textarea's content height at a given css width (empty = current
-    // flex width), restoring the override afterwards.
-    function measureHeightAt(cssWidth:string):number {
-        const prev = inputEle.style.width
-        inputEle.style.height = "0"
-        if(cssWidth) inputEle.style.width = cssWidth
-        const h = inputEle.scrollHeight
-        inputEle.style.width = prev
-        return h
-    }
-
-    // Width available between the fixed action buttons. The textarea keeps this
-    // column at every height so multiline input does not create an empty toolbar row.
-    function inlineColWidth():number {
-        const pill = inputEle.parentElement
-        if(!pill) return 0
-        const cs = getComputedStyle(pill)
-        const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-        const gap = parseFloat(cs.columnGap || cs.gap || '0') || 0
-        let used = 0, others = 0
-        for(const c of Array.from(pill.children) as HTMLElement[]){
-            if(c === inputEle) continue
-            used += c.offsetWidth
-            others++
-        }
-        return pill.clientWidth - padX - used - gap * others
-    }
-
-    function updateInputSize() {
-        if(inputEle){
-            const col = inlineColWidth()
-            const ref = col > 0 ? col + "px" : ""
-            const sh = measureHeightAt(ref)
-            // Cap the composer at ~60% of the viewport; beyond that it scrolls.
-            const maxH = Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.6)
-            inputHeight = Math.min(sh, maxH) + "px"
-            inputEle.style.height = inputHeight
-            inputOverflow = sh > maxH
-        }
-    }
-
-    $effect.pre(() => {
-        updateInputSizeAll()
-    });
+    autoSizeTextarea({
+        element: () => inputEle,
+        text: () => messageInput,
+        maxHeight: () => Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.6),
+        onResize: (height, overflow) => {
+            inputHeight = `${height}px`
+            inputOverflow = overflow
+        },
+    })
 
 </script>
 
@@ -1478,7 +1412,7 @@ import { isMobile } from 'src/ts/platform'
     class="w-full h-full relative"
     class:pocketrisu-standard-chat-surface={DBState.db.theme === '' && $selectedCharID >= 0}
     style={customStyle}
-    style:--chat-fixed-composer-height={DBState.db.fixedChatTextarea ? `${composerHeight}px` : '0px'}
+    style:--chat-fixed-composer-height={DBState.db.fixedChatTextarea ? `${composerToolbarOffset}px` : '0px'}
     use:trackFixedComposerBounds={DBState.db.fixedChatTextarea}
 >
     {#if currentCharacter?.type === 'character'}
@@ -1491,6 +1425,13 @@ import { isMobile } from 'src/ts/platform'
         bind:open={translationOpen}
         onConfirm={appendTranslationToMessageInput}
     />
+    {#if activeOnboarding}
+        <OnboardingDialog
+            bind:open={onboardingOpen}
+            character={currentCharacter as character}
+            chat={currentChatSlot}
+        />
+    {/if}
     
     {#if DBState.db.scrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
@@ -1557,7 +1498,7 @@ import { isMobile } from 'src/ts/platform'
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-themewhite w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-themewhite w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title={language.newMessage}>
                 <ArrowDownIcon size={20} />
             </button>
         {/if}
@@ -1578,7 +1519,7 @@ import { isMobile } from 'src/ts/platform'
     {/if}
     {#if isScrollingToMessage}
         <div class="risu-layer-chrome absolute inset-0 flex items-center justify-center bg-themeblack/50 text-themewhite text-xl font-bold backdrop-blur-sm">
-            Loading...
+            {language.loading}
         </div>
     {/if}
     {#if $selectedCharID < 0}
@@ -1597,16 +1538,13 @@ import { isMobile } from 'src/ts/platform'
                     use:trackComposerMetrics
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
-                <!-- "plugin-compat-items-stretch" is a compat hook (not a Tailwind class):
-                     plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
-                     relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
-                     and it scopes the timer re-flow rules in <style> below. -->
+                <!-- Plugins locate the composer through div[class*="items-stretch"]. -->
                 <IconButtonGroup size="lg" className="risu-field-border risu-chat-composer-field items-end gap-1 rounded-3xl bg-lightbg px-2 py-1.5 plugin-compat-items-stretch">
                     <DropdownMenu.Root bind:open={openMenu}>
                         <DropdownMenu.Trigger>
                             {#snippet child({ props })}
                                 <button {...props}
-                                        aria-label="menu"
+                                        aria-label={language.menu}
                                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-maintext risu-interactive-primary-soft transition-colors">
                                     <MenuIcon />
                                 </button>
@@ -1634,7 +1572,7 @@ import { isMobile } from 'src/ts/platform'
                                         <BrainIcon /><span>{language.hypaMemoryV3Modal}</span>
                                     </DropdownMenu.Item>
                                 {/if}
-                                <DropdownMenu.Item onSelect={async () => {
+                                <DropdownMenu.Item data-file-picker onSelect={async () => {
                                     const results = await postChatFile(messageInput)
                                     if(!results) return
                                     for(const res of results){
@@ -1645,7 +1583,6 @@ import { isMobile } from 'src/ts/platform'
                                             messageInput += `{{file::${res.name}::${res.data}}}`
                                         }
                                     }
-                                    updateInputSizeAll()
                                 }}>
                                     <ImagePlusIcon /><span>{language.postFile}</span>
                                 </DropdownMenu.Item>
@@ -1658,11 +1595,16 @@ import { isMobile } from 'src/ts/platform'
                                     <LanguagesIcon /><span>{language.translate}</span>
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Item onSelect={() => {
-                                    DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
+                                    DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].modules ??= []
                                     openModuleList = true
                                 }}>
                                     <PackageIcon /><span>{language.modules}</span>
                                 </DropdownMenu.Item>
+                                {#if activeOnboarding}
+                                    <DropdownMenu.Item onSelect={() => { onboardingOpen = true }}>
+                                        <CompassIcon /><span>{language.onboarding}</span>
+                                    </DropdownMenu.Item>
+                                {/if}
                                 <DropdownMenu.Item onSelect={openMessageInputPopupEditor}>
                                     <Maximize2Icon /><span>{language.chatInputPopupEditor}</span>
                                 </DropdownMenu.Item>
@@ -1725,14 +1667,12 @@ import { isMobile } from 'src/ts/platform'
                                                 messageInput += `{{file::${res.name}::${res.data}}}`
                                             }
                                         }
-                                        updateInputSizeAll()
                                     }
                                     reader.readAsArrayBuffer(file)
                                 }
                             }
                         }
                     }}
-                          oninput={updateInputSizeAll}
                           onblur={persistDraftNow}
                           style:height={inputHeight}
                 ></textarea>
@@ -1784,7 +1724,6 @@ import { isMobile } from 'src/ts/platform'
                                 {/if}
                                 <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-maintext rounded-md transition-colors risu-interactive-danger" onclick={() => {
                                     fileInput.splice(i, 1)
-                                    updateInputSizeAll()
                                 }}>
                                     <XIcon size={18} />
                                 </button>
@@ -1799,8 +1738,9 @@ import { isMobile } from 'src/ts/platform'
 
         <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen" data-chat-scroll-root
             bind:this={chatScreenRoot}
-            onclickcapture={handleInlayViewerClick}
+            onclickcapture={handleChatScreenClick}
             onkeydowncapture={handleInlayViewerKeydown}
+            onerrorcapture={handleChatImageError}
             class:pocketrisu-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.standardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.standardChatWidth === 'full'}
@@ -1863,7 +1803,7 @@ import { isMobile } from 'src/ts/platform'
                     screenRoot={chatScreenRoot}
                     messages={currentChat}
                     characterIndex={$selectedCharID}
-                    chatPage={currentCharacter.chatPage}
+                    chatPage={getChatPage(currentCharacter)}
                     chatId={currentChatSlot?.id ?? null}
                     blockEditEnabled={DBState.db.enableBlockPartialEdit}
                     dragEditEnabled={DBState.db.enableDragPartialEdit}
@@ -1872,7 +1812,21 @@ import { isMobile } from 'src/ts/platform'
             {/if}
 
             {#if currentChat.length <= loadPages}
-                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
+                {#if activeOnboarding && !currentChatSlot.onboardingDone}
+                    <div class="mx-4 my-2 flex justify-center">
+                        <Alert className="w-full max-w-xl">
+                            {#snippet icon()}<CompassIcon />{/snippet}
+                            {#snippet title()}{language.onboardingAvailable}{/snippet}
+                            {language.onboardingAvailableDesc}
+                            {#snippet action()}
+                                <Button size="sm" variant="primary" onclick={() => { onboardingOpen = true }}>
+                                    {language.onboardingStart}
+                                </Button>
+                            {/snippet}
+                        </Alert>
+                    </div>
+                {/if}
+                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message.length === 0)}
                     <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-subtext italic max-w-2/3 wrap-break-word text-center">
                         {language.generatedByAIDisclaimer}
                     </div>
@@ -1892,27 +1846,27 @@ import { isMobile } from 'src/ts/platform'
                     role='char'
                     img={getCharImage(DBState.db.characters[$selectedCharID].image, 'css')}
                     idx={-1}
-                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0 && (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0 || DBState.db.showPreviousChatSwipeButtons)}
-                    disabled={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].firstMessageDisabled === true}
+                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0 && (DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message.length === 0 || DBState.db.showPreviousChatSwipeButtons)}
+                    disabled={DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].firstMessageDisabled === true}
                     largePortrait={DBState.db.characters[$selectedCharID].largePortrait}
                     firstMessage={true}
                     onReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
-                        const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+                        const chat = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])]
                         if (chat._placeholder) return
                         const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
                         chat.fmIndex = (cur >= cha.alternateGreetings.length - 1) ? -1 : cur + 1
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
+                        DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])] = chat
                     }}
                     unReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
-                        const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+                        const chat = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])]
                         if (chat._placeholder) return
                         const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
                         chat.fmIndex = (cur === -1) ? cha.alternateGreetings.length - 1 : cur - 1
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
+                        DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])] = chat
                     }}
-                    currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
+                    currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
                     renderCacheKey={`${currentChatRoomKey}:first-message`}
                     translationRecoveryScope={currentCharacter.chaId && currentChatSlot?.id
@@ -1980,9 +1934,16 @@ import { isMobile } from 'src/ts/platform'
     {/if}
 </div>
 
-{#if additionalFloatingActionButtons.length > 0}
-    <Portal>
+{#if additionalFloatingActionButtons.length > 0 || activeOnboarding?.floatingButton}
+    <Portal target={portalTarget ?? undefined}>
     <div class="risu-layer-chrome fixed top-4 right-4 flex flex-col gap-3">
+        {#if activeOnboarding?.floatingButton}
+            <button class="bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" title={language.onboarding} aria-label={language.onboarding} onclick={() => {
+                onboardingOpen = true
+            }}>
+                <CompassIcon size={20} />
+            </button>
+        {/if}
         {#each additionalFloatingActionButtons as button}
             <button class="bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()
@@ -2091,21 +2052,11 @@ import { isMobile } from 'src/ts/platform'
         border-top-color: var(--risu-theme-scoped);
         border-left-color: var(--risu-theme-scoped);
     }
-
-
-    @keyframes spin {
-
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-
-    /* gemini-cache-keeper compat: the plugin injects #gck-cache-timer into the composer
-       (found via the .plugin-compat-items-stretch hook) and absolutely positions it over
-       the send button. Re-flow it as an in-line flex item immediately before send. */
+    /* Place gemini-cache-keeper's injected timer beside the send button. */
     :global(.plugin-compat-items-stretch #gck-cache-timer) {
-        position: relative !important;  /* stay a positioned ancestor so the popup still anchors to it */
-        inset: auto !important;         /* clear the plugin's top/right offsets */
-        transform: none !important;     /* clear translateY(-50%) */
-        margin-left: auto;              /* keep the injected timer adjacent to the send button */
+        position: relative !important;  /* Anchor the timer's popup. */
+        inset: auto !important;
+        transform: none !important;
+        margin-left: auto;
     }
 </style>

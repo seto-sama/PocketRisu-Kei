@@ -13,6 +13,7 @@
         sideOffset?: number
         collisionPadding?: number
         side?: 'top' | 'right' | 'bottom' | 'left'
+        arrow?: boolean
         disabled?: boolean
         variant?: 'solid' | 'glass'
         size?: 'default' | 'compact'
@@ -26,6 +27,7 @@
         sideOffset = 4,
         collisionPadding = 8,
         side,
+        arrow,
         disabled = false,
         variant = 'solid',
         size = 'default',
@@ -35,7 +37,7 @@
 
     provideOverlayLayer(() => open)
 
-    const hasArrow = $derived(side !== undefined)
+    const hasArrow = $derived(arrow ?? (side !== undefined))
 
     const contentClass = $derived(
         cn(
@@ -49,7 +51,7 @@
 
     const panelClass = $derived(
         cn(
-            'max-w-96 max-h-80 overflow-y-auto break-keep text-maintext',
+            'max-w-96 max-h-80 overflow-y-auto break-keep risu-plain-text text-maintext',
             size === 'default' && 'px-3 py-2 text-xs leading-relaxed',
             size === 'compact' && 'px-2 py-1 text-[11px] leading-tight',
             className,

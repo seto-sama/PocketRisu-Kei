@@ -36,7 +36,7 @@ const serverChats = new Map<string, { chat: Chat, etag?: string }>()
 const syncAppliedChats = new WeakMap<object, Chat>()
 let nextRevision = 1
 
-export function chatWorkingCopyKey(characterId: string, chatId: string) {
+function chatWorkingCopyKey(characterId: string, chatId: string) {
     return `${characterId}\u0000${chatId}`
 }
 
@@ -85,21 +85,23 @@ export function createChatCommitSnapshot(
     chat: Chat,
     currentServerEtag?: string,
 ): ChatCommitSnapshot {
-    const dirty = dirtyChats.get(chatWorkingCopyKey(characterId, chat.id))
-    const server = serverChats.get(chatWorkingCopyKey(characterId, chat.id))
-    const baseChat = dirty ? dirty.baseChat : server?.chat
+    const key = chatWorkingCopyKey(characterId, chat.id)
+    const dirty = dirtyChats.get(key)
+    const server = serverChats.get(key)
+    const base = dirty ? dirty.baseChat : server?.chat
+    const baseChat = base ? JSON.parse(JSON.stringify(base)) as Chat : undefined
     const edited = JSON.parse(JSON.stringify(chat)) as Chat
     for (const field of runtimeOnlyChatFields) delete (edited as any)[field]
     return {
         characterId,
         chatId: chat.id,
         chat: cloneChatValue(chat),
-        baseChat: baseChat ? cloneChatValue(baseChat) : undefined,
+        baseChat,
         expectedEtag: dirty ? dirty.baseEtag : server?.etag ?? currentServerEtag,
         ...(dirty ? { revision: dirty.revision } : {}),
-        changes: createDelta(baseChat ? JSON.parse(JSON.stringify(baseChat)) : undefined, edited, {
+        changes: createDelta(baseChat, edited, {
             ignoredRootKeys: [...runtimeOnlyChatFields, ...(baseChat ? chatMetadataFields : [])],
-            ignoredMessageIds: [...(serverProjections.get(chatWorkingCopyKey(characterId, chat.id))?.ownedMessageIds ?? [])],
+            ignoredMessageIds: [...(serverProjections.get(key)?.ownedMessageIds ?? [])],
         }),
     }
 }
@@ -118,7 +120,7 @@ export function acknowledgeChatCommit(snapshot: ChatCommitSnapshot, committedEta
 }
 
 /** Used by canonical handoff after generation-owned fields are excluded. */
-export function clearChatWorkingCopy(characterId: string, chatId: string) {
+function clearChatWorkingCopy(characterId: string, chatId: string) {
     dirtyChats.delete(chatWorkingCopyKey(characterId, chatId))
 }
 

@@ -183,9 +183,7 @@
         return counts;
     });
 
-    // Keep the indexes exposed to the parent in sync before Svelte updates the
-    // list DOM. A normal post-render effect leaves one frame where a deleted
-    // item's old index can still be rendered by preset pickers.
+    // Update indexes before rendering so deleted items cannot leave stale rows.
     $effect.pre(() => {
         visibleItemIndexes = itemNames
             .map((_, index) => index)
@@ -305,7 +303,6 @@
     }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
 <OverlayPortal>
 <OverlayBackdrop
     class="risu-modal-backdrop risu-layer-overlay pointer-events-auto flex justify-center items-center"
@@ -320,14 +317,14 @@
         <div class="flex items-center text-maintext mb-4">
             <h2 class="mt-0 mb-0">{title}</h2>
             {#if titleHelpKey}<Help key={titleHelpKey} name={title} />{/if}
-            <div class="grow flex justify-end">
+            <IconButtonGroup className="ml-auto shrink-0">
                 {#if configure}
-                    <IconButton size="lg" onclick={configure} title={language.settings} aria-label={language.settings}>
+                    <IconButton onclick={configure} title={language.settings}>
                         <SettingsIcon />
                     </IconButton>
                 {/if}
-                <IconButton size="lg" onclick={close}><XIcon /></IconButton>
-            </div>
+                <IconButton onclick={close} aria-label={language.close}><XIcon /></IconButton>
+            </IconButtonGroup>
         </div>
     </div>
 
@@ -534,9 +531,7 @@
 </OverlayPortal>
 
 <style>
-    /* CSS draws text-overflow ellipses using the truncating element's own
-       color. When an item combines a primary label with secondary details,
-       keep the label primary but make the generated ellipsis secondary too. */
+    /* Ellipses inherit the truncating element's color; match the secondary details. */
     .preset-picker-item :global(.truncate:has(> .text-subtext)) {
         color: var(--risu-theme-subtext);
     }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+const { decodeFile } = vi.hoisted(() => ({
+    decodeFile: vi.fn(async (_format: string, data: Uint8Array) => JSON.parse(new TextDecoder().decode(data))),
+}))
+
 vi.mock('../stores.svelte', () => ({
     DBState: { db: {} as any },
     selectedCharID: { subscribe: () => () => {} },
@@ -7,7 +11,7 @@ vi.mock('../stores.svelte', () => ({
 }))
 
 vi.mock('../globalApi.svelte', () => ({
-    forageStorage: { realStorage: null },
+    forageStorage: { realStorage: null, decodeFile },
     downloadFile: () => {},
     saveAsset: async () => '',
 }))
@@ -16,7 +20,7 @@ vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 vi.mock('../alert', () => ({ notifySuccess: () => {}, alertError: () => {} }))
 vi.mock('../../lang', () => ({ language: {}, changeLanguage: () => {} }))
 
-const { importPreset, setDatabase } = await import('./database.svelte')
+const { importPreset, isSupportedPromptPresetJSON, setDatabase } = await import('./database.svelte')
 const { DBState } = await import('../stores.svelte') as any
 
 function makeLegacyDatabase(promptTemplate: null | undefined) {
@@ -37,6 +41,7 @@ const migratedLegacyTextItems = [
 ]
 
 beforeEach(() => {
+    decodeFile.mockClear()
     DBState.db = { botPresets: [] }
 })
 
@@ -128,6 +133,28 @@ describe('legacy prompt template migration', () => {
 })
 
 describe('external prompt preset import', () => {
+    test.each([
+        ['Risu', { name: 'Risu preset', promptTemplate: [] }],
+        ['SillyTavern chat completion', {
+            chat_completion_source: 'openai',
+            prompts: [],
+            prompt_order: [],
+        }],
+        ['parameter', { temp: 0.7, rep_pen: 1, min_length: 1 }],
+        ['NovelAI', { presetVersion: 3, parameters: { temperature: 1 } }],
+    ])('recognizes supported %s JSON without mutating the database', async (_name, preset) => {
+        expect(await isSupportedPromptPresetJSON(JSON.stringify(preset))).toBe(true)
+        expect(DBState.db.botPresets).toHaveLength(0)
+    })
+
+    test.each([
+        ['unrelated object', JSON.stringify({ name: 'not a prompt preset' })],
+        ['malformed JSON', '{"prompts":'],
+    ])('rejects %s without mutating the database', async (_name, content) => {
+        expect(await isSupportedPromptPresetJSON(content)).toBe(false)
+        expect(DBState.db.botPresets).toHaveLength(0)
+    })
+
     test('converts a SillyTavern chat completion preset', async () => {
         const importedPreset = {
             name: 'ST preset',

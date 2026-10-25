@@ -8,7 +8,7 @@
     import InlineEditableName from './components/InlineEditableName.svelte'
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
     import { alertConfirm, alertError, notifyError, notifySuccess } from 'src/ts/alert'
-    import { downloadFile } from 'src/ts/globalApi.svelte'
+    import { exportPresetFile } from 'src/ts/preset/export'
     import {
         appendTranslatorPreset,
         createTranslatorPreset,
@@ -88,8 +88,7 @@
         try {
             const preset = presets[index]
             if (!preset) return
-            await downloadFile(getTranslatorPresetDownloadName(preset.name), await encodeTranslatorPresetFile(preset))
-            notifySuccess(language.successExport)
+            await exportPresetFile(getTranslatorPresetDownloadName(preset.name), encodeTranslatorPresetFile(preset))
         } catch (error) {
             alertError(`${error}`)
         }

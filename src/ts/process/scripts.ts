@@ -1,3 +1,6 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
+import { setMessageContent } from 'src/ts/storage/messageContent'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
@@ -9,7 +12,7 @@ import { selectSingleImportFile } from "../util";
 import { type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
 import { getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { hasLuaEditListener, runLuaEditTrigger } from "./scriptings";
-import { pluginV2 } from "../plugins/plugins.svelte";
+import { pluginRuntime } from "../plugins/pluginRuntime";
 import { runTrigger } from "./triggers";
 
 const dreg = /{{data}}/g
@@ -33,7 +36,7 @@ export function exportRegex(script:customscript[]){
         data: script
     }), 'utf-8')
     downloadFile(`regexscript_export.json`,data)
-    notifySuccess(language.successExport)
+    notifySuccess(language.browserDownloadStarted)
 }
 
 export async function importRegex(o:customscript[]):Promise<customscript[]>{
@@ -92,7 +95,7 @@ export function resetScriptCache(){
 }
 
 export async function processScriptFull(char:character|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}){
-    let db = getDatabase()
+    const db = getDatabase()
     let emoChanged = false
     if (mode !== 'editprocess' && hasLuaEditListener(char, mode)) {
         data = await runLuaEditTrigger(char, mode, data, { index:chatID })
@@ -102,7 +105,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
         const currentChar = getCurrentCharacter()
         if(currentChar){
             try{
-                const perf = performance.now()
+                const perf = isDebugEnabled() ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'display', {
                     chat: getCurrentChat(),
                     displayMode: true,
@@ -110,7 +113,9 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                 })
     
                 data = d?.displayData ?? data
-                console.log('Trigger time', performance.now() - perf)
+                if (isDebugEnabled()) {
+                    console.debug('Trigger time', performance.now() - perf)
+                }
             }
             catch(e){
                 console.error(e)
@@ -118,8 +123,8 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
         }
     }
 
-    if(pluginV2[mode].size > 0){
-        for(const plugin of pluginV2[mode]){
+    if(pluginRuntime[mode].size > 0){
+        for(const plugin of pluginRuntime[mode]){
             const res = await plugin(data)
             if(res !== null && res !== undefined){
                 data = res
@@ -155,15 +160,14 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                 flag = script.flag || 'g'
             }
             if(outScript.startsWith('@@move_top') || outScript.startsWith('@@move_bottom') || pscript.actions.includes('move_top') || pscript.actions.includes('move_bottom')){
-                flag = flag.replace('g', '') //temperary fix
+                // Positioning directives are applied to one match at a time.
+                flag = flag.replace('g', '')
             }
             if(outScript.endsWith('>') && !pscript.actions.includes('no_end_nl')){
                 outScript += '\n'
             }
-            //remove unsupported flag
             flag = flag.trim().replace(/[^dgimsuvy]/g, '')
 
-            //remove repeated flags
             flag = flag.split('').filter((v, i, a) => a.indexOf(v) === i).join('')
             
             if(flag.length === 0){
@@ -203,12 +207,10 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     }
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
                         const selchar = db.characters[get(selectedCharID)]
-                        const targetMessage = selchar?.chats?.[selchar.chatPage]?.message?.[chatID]
-                        // Chat sync may replace the message array while prompt
-                        // scripts are awaiting async work. Injection is a side
-                        // effect on the live UI message, so skip it if that old
-                        // numeric position no longer exists.
-                        if(targetMessage) targetMessage.data = data
+                        const targetMessage = selchar?.chats?.[getChatPage(selchar)]?.message?.[chatID]
+                        // Chat sync may replace this message while scripts await;
+                        // skip injection if its original index no longer exists.
+                        if(targetMessage) setMessageContent(targetMessage, data)
                         data = data.replace(reg, "")
                     }
                     else if(
@@ -255,7 +257,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     if((outScript.startsWith('@@repeat_back') || pscript.actions.includes('repeat_back'))  && chatID !== -1){
                         const v = outScript.split(' ', 2)[1]
                         const selchar = db.characters[get(selectedCharID)]
-                        const chat = selchar.chats[selchar.chatPage]
+                        const chat = selchar.chats[getChatPage(selchar)]
                         let lastChat = chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
                         let pointer = chatID - 1
                         while(pointer >= 0){

@@ -1,7 +1,7 @@
 <div class="risu-field-border h-full min-h-0 w-full rounded-md bg-lightbg text-maintext" bind:this={editorRoot}></div>
 
 <script lang="ts">
-    import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext } from '@codemirror/autocomplete'
+    import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext, type CompletionSource } from '@codemirror/autocomplete'
     import {
         SearchQuery,
         closeSearchPanel,
@@ -17,7 +17,7 @@
         setSearchQuery,
     } from '@codemirror/search'
     import { Compartment, EditorState } from '@codemirror/state'
-    import { Decoration, EditorView, ViewPlugin, keymap, type DecorationSet, type Panel, type ViewUpdate } from '@codemirror/view'
+    import { Decoration, EditorView, ViewPlugin, getTooltip, keymap, repositionTooltips, showTooltip, tooltips, type DecorationSet, type Panel, type TooltipView, type ViewUpdate } from '@codemirror/view'
     import { minimalSetup } from 'codemirror'
     import {
         CaseSensitiveIcon,
@@ -36,6 +36,9 @@
     import { layerZIndexes } from 'src/ts/gui/layers'
     import { getCBSHighlightRanges, type HighlightType } from 'src/ts/gui/highlight'
     import { language } from 'src/lang'
+    import { renderCompletionContent } from 'src/ts/gui/completionContent'
+    import { getCompletionAnchor, getCompletionBounds } from 'src/ts/gui/completionPlacement'
+    import { registerTextEntryEscapeHandler } from 'src/ts/gui/escapeKey'
 
     interface Props {
         value: string
@@ -44,6 +47,7 @@
         onValueChange?: (value: string) => void
         searchRequest?: number
         onSearchOpened?: () => void
+        completionSource?: CompletionSource
     }
 
     let {
@@ -53,11 +57,73 @@
         onValueChange = () => {},
         searchRequest = 0,
         onSearchOpened = () => {},
+        completionSource = undefined,
     }: Props = $props()
 
     let editorRoot: HTMLDivElement
     let editor: EditorView | undefined
     const wrapCompartment = new Compartment()
+    const completionCompartment = new Compartment()
+
+    function completionExtension() {
+        return autocompletion({
+            override: completionSource ? [cbsCompletion, completionSource] : [cbsCompletion],
+            activateOnTyping: true,
+            aboveCursor: false,
+            icons: false,
+            tooltipClass: () => 'risu-completion-popup',
+            optionClass: () => 'risu-completion-option',
+            addToOptions: [{ render: renderCompletionContent, position: 90 }],
+        })
+    }
+
+    const completionPositioning = ViewPlugin.fromClass(class {
+        tooltip?: TooltipView
+        readonly view: EditorView
+
+        constructor(view: EditorView) {
+            this.view = view
+            this.measure()
+        }
+
+        update(update: ViewUpdate) {
+            if (update.geometryChanged || update.startState.facet(showTooltip) !== update.state.facet(showTooltip)) this.measure()
+        }
+
+        measure() {
+            const view = this.view
+            view.requestMeasure({
+                key: this,
+                read: () => {
+                    for (const descriptor of view.state.facet(showTooltip)) {
+                        const tooltip = descriptor && getTooltip(view, descriptor)
+                        if (!tooltip?.dom.classList.contains('risu-completion-popup')) continue
+                        const bounds = getCompletionBounds(view.dom)
+                        return { tooltip, width: `${(bounds.right - bounds.left) / view.scaleX}px` }
+                    }
+                    return null
+                },
+                write: measured => {
+                    if (!measured) return
+                    const { tooltip, width } = measured
+                    const changed = this.tooltip !== tooltip
+                    if (changed) {
+                        this.tooltip = tooltip
+                        tooltip.getCoords = pos => {
+                            const bounds = getCompletionBounds(view.dom)
+                            const caret = view.coordsAtPos(view.state.selection.main.head)
+                            if (!caret) return { ...bounds, bottom: bounds.top }
+                            return getCompletionAnchor(bounds, view.coordsAtPos(pos) ?? caret, caret, view.defaultLineHeight * view.scaleY)
+                        }
+                    }
+                    if (changed || tooltip.dom.style.getPropertyValue('--risu-completion-width') !== width) {
+                        tooltip.dom.style.setProperty('--risu-completion-width', width)
+                        repositionTooltips(view)
+                    }
+                },
+            })
+        }
+    })
 
     function handleSearchRequest() {
         if (!editor || searchRequest === 0) return
@@ -102,24 +168,12 @@
 
     const completionOptions = getCBSCompletionEntries().map((entry) => ({
         label: entry.name,
-        type: entry.name.startsWith('#') || entry.name.startsWith('/') ? 'keyword' : 'variable',
         detail: entry.detail,
+        description: entry.hint,
         boost: entry.deprecated ? -1 : 0,
         apply: entry.name.endsWith(':')
             ? `${entry.name}:`
             : entry.name.startsWith('#') ? `${entry.name} ` : `${entry.name}}}`,
-        info: () => {
-            const dom = document.createElement('div')
-            dom.className = 'risu-cbs-completion-info'
-
-            const signature = document.createElement('code')
-            signature.textContent = `{{${entry.name}${entry.name.startsWith('#') ? ' …' : ''}}}`
-
-            const description = document.createElement('div')
-            description.textContent = entry.description
-            dom.append(signature, description)
-            return dom
-        },
     }))
 
     function cbsCompletion(context: CompletionContext) {
@@ -459,82 +513,6 @@
             color: 'var(--risu-theme-maintext)',
             border: '1px solid var(--risu-theme-lightborderc)',
         },
-        '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-            background: 'var(--risu-theme-selected) !important',
-            color: 'var(--risu-theme-maintext)',
-        },
-        '.cm-tooltip.cm-tooltip-autocomplete': {
-            overflow: 'visible',
-            backgroundColor: 'transparent',
-            border: '0',
-            boxShadow: 'none',
-        },
-        '.cm-tooltip-autocomplete > ul': {
-            minWidth: '16rem',
-            maxWidth: 'min(32rem, 80vw)',
-            height: 'auto',
-            maxHeight: '12rem',
-            padding: '0.125rem',
-            fontSize: '0.6875rem',
-            backgroundColor: 'var(--risu-theme-darkbg)',
-            border: '1px solid var(--risu-theme-darkborderc)',
-            borderRadius: '0.25rem',
-        },
-        '.cm-tooltip-autocomplete > ul > li': {
-            display: 'flex',
-            boxSizing: 'border-box',
-            height: '1.125rem',
-            alignItems: 'center',
-            padding: '0 0.25rem',
-            lineHeight: '1',
-            borderRadius: '0.125rem',
-        },
-        '.cm-completionLabel': {
-            minWidth: '0',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-        },
-        '.cm-completionMatchedText': {
-            color: 'var(--risu-theme-primary)',
-            fontWeight: '600',
-            textDecoration: 'none',
-        },
-        '.cm-completionDetail': {
-            flex: '0 0 auto',
-            marginLeft: 'auto',
-            paddingLeft: '0.375rem',
-            color: 'var(--risu-theme-subtext)',
-            fontSize: '0.625rem',
-            fontStyle: 'normal',
-        },
-        '.cm-tooltip.cm-completionInfo': {
-            width: 'min(26rem, 48vw)',
-            maxHeight: 'calc(100dvh - 1rem)',
-            padding: '0',
-            overflowY: 'auto',
-            backgroundColor: 'var(--risu-theme-darkbg)',
-            border: '1px solid var(--risu-theme-darkborderc)',
-            borderRadius: '0.375rem',
-        },
-        '.cm-completionInfo.cm-completionInfo-right, .cm-completionInfo.cm-completionInfo-right-narrow': {
-            marginLeft: '-1px',
-        },
-        '.risu-cbs-completion-info': {
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            padding: '0.5rem 0.625rem',
-            color: 'var(--risu-theme-maintext)',
-            fontSize: '0.6875rem',
-            lineHeight: '1.5',
-            whiteSpace: 'pre-wrap',
-            overflowWrap: 'anywhere',
-        },
-        '.risu-cbs-completion-info code': {
-            color: 'var(--risu-theme-primary)',
-            fontSize: '0.75rem',
-            fontWeight: '600',
-        },
         '.cm-cbs-depth-0': { color: 'var(--color-palette-4)' },
         '.cm-cbs-depth-1': { color: 'var(--color-palette-5)' },
         '.cm-cbs-depth-2': { color: 'var(--color-palette-7)' },
@@ -551,6 +529,12 @@
         },
     })
 
+    function closeEditorOverlay(view: EditorView) {
+        if (completionStatus(view.state)) return closeCompletion(view)
+        if (searchPanelOpen(view.state)) return closeSearchPanel(view)
+        return false
+    }
+
     onMount(() => {
         editor = new EditorView({
             parent: editorRoot,
@@ -559,17 +543,18 @@
                 extensions: [
                     minimalSetup,
                     search({ createPanel: createSearchPanel, top: true }),
-                    autocompletion({ override: [cbsCompletion], activateOnTyping: true, icons: false }),
+                    completionCompartment.of(completionExtension()),
+                    tooltips({ tooltipSpace: view => getCompletionBounds(view.dom) }),
+                    completionPositioning,
+                    EditorView.domEventObservers({
+                        pointerdown: (_event, view) => { closeCompletion(view) },
+                    }),
                     keymap.of([
                         { key: 'Mod-Enter', run: () => { onSave(); return true }, preventDefault: true },
                         { key: 'Mod-h', run: openSearchPanel, preventDefault: true },
                         {
                             key: 'Escape',
-                            run: (view) => {
-                                if (searchPanelOpen(view.state)) return closeSearchPanel(view)
-                                if (completionStatus(view.state)) return closeCompletion(view)
-                                return false
-                            },
+                            run: closeEditorOverlay,
                             stopPropagation: true,
                         },
                         ...completionKeymap,
@@ -587,7 +572,10 @@
                 ],
             }),
         })
+        const view = editor
+        const unregisterEscape = registerTextEntryEscapeHandler(view.contentDOM, () => closeEditorOverlay(view))
         handleSearchRequest()
+        return unregisterEscape
     })
 
     $effect(() => {
@@ -611,6 +599,12 @@
         editor.dispatch({
             effects: wrapCompartment.reconfigure(wordWrap ? EditorView.lineWrapping : []),
         })
+    })
+
+    $effect(() => {
+        void completionSource
+        if (!editor) return
+        editor.dispatch({ effects: completionCompartment.reconfigure(completionExtension()) })
     })
 
     onDestroy(() => {

@@ -6,6 +6,7 @@ import Dialog from './Dialog.svelte'
 import { overlayLayerMinimum } from 'src/ts/gui/overlayStack'
 import OverlayStackHarness from './overlay/OverlayStackHarness.test.svelte'
 import OverlaySiblingDialogHarness from './overlay/OverlaySiblingDialogHarness.test.svelte'
+import DialogStackHarness from './overlay/DialogStackHarness.test.svelte'
 
 const mounted: unknown[] = []
 
@@ -185,6 +186,87 @@ describe('Dialog', () => {
         expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false)
     })
 
+    it('confirms with an unmodified Enter press', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onConfirm = vi.fn()
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, closable: false, onConfirm },
+        })
+        mounted.push(component)
+        await tick()
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true,
+        })
+        document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(event)
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(onConfirm).toHaveBeenCalledExactlyOnceWith()
+    })
+
+    it('ignores IME, repeated, and modified Enter presses', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onConfirm = vi.fn()
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, closable: false, onConfirm },
+        })
+        mounted.push(component)
+        await tick()
+
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+        for (const init of [
+            { isComposing: true },
+            { repeat: true },
+            { ctrlKey: true },
+            { metaKey: true },
+            { altKey: true },
+            { shiftKey: true },
+        ]) {
+            dialog.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                bubbles: true,
+                cancelable: true,
+                ...init,
+            }))
+        }
+
+        expect(onConfirm).not.toHaveBeenCalled()
+    })
+
+    it.each(['Enter', 'Escape'])('handles %s in only the top stacked dialog', async key => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        mounted.push(mount(DialogStackHarness, { target }))
+        await tick()
+
+        document.querySelector<HTMLElement>('[role="alertdialog"]')!.dispatchEvent(
+            new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+        )
+        await tick()
+
+        expect(document.querySelector('[role="alertdialog"][data-state="open"]')).toBeNull()
+        const lower = document.querySelector<HTMLElement>('[role="dialog"][data-state="open"]')!
+        expect(lower).not.toBeNull()
+
+        const repeatedKey = new KeyboardEvent('keydown', { key, repeat: true, bubbles: true, cancelable: true })
+        lower.dispatchEvent(repeatedKey)
+        await tick()
+        expect(repeatedKey.defaultPrevented).toBe(true)
+        expect(document.querySelector('[role="dialog"][data-state="open"]')).toBe(lower)
+
+        lower.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+        await tick()
+        expect(document.querySelector('[role="dialog"][data-state="open"]')).toBeNull()
+    })
+
     it('uses the shared dynamic overlay layer', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -243,7 +325,7 @@ describe('Dialog', () => {
         expect(onRequestClose).toHaveBeenCalledTimes(1)
         expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 
-        document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
+        document.querySelector<HTMLButtonElement>('button[data-risu-dialog-close]')!.click()
         await tick()
 
         expect(onRequestClose).toHaveBeenCalledTimes(2)

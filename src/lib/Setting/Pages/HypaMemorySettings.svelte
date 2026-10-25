@@ -15,7 +15,7 @@
     import Input from "../../UI/components/Input.svelte";
     import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
-    import { downloadFile } from "src/ts/globalApi.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
     import { createHypaV3Preset, HYPA_CHAT_COUNT_MAX, HYPA_CHAT_COUNT_MIN, HYPA_CONCURRENT_REQUEST_MAX, HYPA_CONCURRENT_REQUEST_MIN } from "src/ts/process/memory/hypav3";
     import { DBState } from "src/ts/stores.svelte";
@@ -129,8 +129,7 @@
     async function exportPreset(index: number) {
         try {
             const target = DBState.db.hypaV3Presets[index];
-            await downloadFile(`hypaV3_export_${target.name}.json`, Buffer.from(JSON.stringify({ type: "risu", ver: 1, data: target }), "utf-8"));
-            notifySuccess(language.successExport);
+            await exportPresetFile(`hypaV3_export_${target.name}.json`, JSON.stringify({ type: "risu", ver: 1, data: target }));
         } catch (error) { alertError(`${error}`); }
     }
 

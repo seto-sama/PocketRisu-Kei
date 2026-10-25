@@ -1,7 +1,5 @@
 import { UAParser } from 'ua-parser-js'
-
-// Session auth is loaded through a small storage-only facade inside flush(), so
-// early log capture does not pull the full globalApi graph into bootstrap.
+import { createEntityId } from './id'
 
 const CLIENT_ID_KEY = 'risu-client-id'
 const FLUSH_DELAY_MS = 500
@@ -29,23 +27,16 @@ export interface AddLogInput {
     source?: string
 }
 
-function randomId(): string {
-    return (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
-}
-
 let cachedClientId: string | null = null
-function getClientId(): string {
+export function getLogClientId(): string {
     if (cachedClientId) return cachedClientId
-    // Private-mode browsers and storage-disabled environments throw on localStorage access.
-    // Fall back to a session-only random id so log capture keeps working even without persistence.
+    // Keep a session-only ID when browser storage is unavailable.
     let id: string | null = null
     try {
         id = localStorage.getItem(CLIENT_ID_KEY)
     } catch { /* storage unavailable */ }
     if (!id) {
-        id = randomId()
+        id = createEntityId()
         try {
             localStorage.setItem(CLIENT_ID_KEY, id)
         } catch { /* storage unavailable — id stays session-only */ }
@@ -91,7 +82,7 @@ export function addLog(input: AddLogInput) {
         source: input.source,
         count: 1,
         platform: getPlatform(),
-        clientId: getClientId(),
+        clientId: getLogClientId(),
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
     }
     buffer.push(entry)
@@ -109,19 +100,20 @@ async function flush() {
     if (buffer.length === 0) return
     const batch = buffer.splice(0, Math.min(buffer.length, MAX_BUFFER))
     try {
-        const { createStorageAuth } = await import('./storage/auth')
-        const auth = await createStorageAuth()
+        // Keep storage dependencies out of console-capture initialization.
+        const { forageStorage } = await import('./storage/autoStorage')
+        const auth = await forageStorage.createAuth()
         await fetch('/api/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'risu-auth': auth },
             body: JSON.stringify(batch),
         })
     } catch {
-        // Design decision 4-3: drop on network failure, no retry/persist.
+        // Drop on network failure without retrying or persisting the batch.
     }
 
     if (buffer.length > 0 && !flushTimer) {
-        // Leftover from dedupe during await — schedule another flush.
+        // Entries may arrive while the request is in flight.
         flushTimer = setTimeout(flush, FLUSH_DELAY_MS)
     }
 }

@@ -1,3 +1,6 @@
+import { isDebugEnabled } from 'src/ts/debug'
+import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
+import { setMessageContent } from 'src/ts/storage/messageContent'
 import { get } from "svelte/store";
 import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeChat, setDatabase } from "../storage/database.svelte";
 import { selectedCharID } from "../stores.svelte";
@@ -24,10 +27,14 @@ export async function processMultiCommand(command:string) {
         }
     }
     splited.push(command.slice(lastIndex))
-    console.log(splited)
+    if (isDebugEnabled()) {
+        console.debug(splited)
+    }
     for(let i = 0; i<splited.length; i++){
         const result = await processCommand(splited[i].trim(), pipe)
-        console.log(pipe)
+        if (isDebugEnabled()) {
+            console.debug(pipe)
+        }
         if(result === false){
             return false
         }
@@ -42,7 +49,7 @@ export async function processMultiCommand(command:string) {
 async function processCommand(command:string, pipe:string):Promise<false | string>{
     const db = getDatabase()
     const currentChar = db.characters[get(selectedCharID)]
-    const currentChat = currentChar.chats[currentChar.chatPage]
+    const currentChat = currentChar.chats[getChatPage(currentChar)]
     let {commandName, arg, namedArg} = commandParser(command, pipe)
 
     if(!arg){
@@ -114,9 +121,10 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             return pipe
         }
         case 'comment': {
-            //works differently, but its close enough
+            // Risu stores comments as a block in the previous message.
             const addition = `<Comment>\n${arg}\n</Comment>`
-            currentChat.message[currentChat.message.length-1].data += addition
+            const message = currentChat.message[currentChat.message.length-1]
+            setMessageContent(message, message.data + addition)
             setDatabase(db)
             return pipe
         }
@@ -131,7 +139,7 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
                 currentChat.message = currentChat.message.splice(index, 1)
                 setDatabase(db)
             }
-            else{ //For risu, doesn'ts work for STScript
+            else{ // Risu also accepts a message ID here.
                 const id = arg
                 currentChat.message = currentChat.message.filter((e)=>e.chatId !== id)
                 setDatabase(db)
@@ -175,16 +183,20 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             return ''
         }
         case 'setvar':{
-            console.log(namedArg, arg)
+            if (isDebugEnabled()) {
+                console.debug(namedArg, arg)
+            }
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = arg
-            console.log(chat.scriptstate)
+            if (isDebugEnabled()) {
+                console.debug(chat.scriptstate)
+            }
 
-            char.chats[char.chatPage] = chat
+            char.chats[getChatPage(char)] = chat
             db.characters[selectedChar] = char
             setDatabase(db)
             return ''
@@ -193,11 +205,11 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = (Number(chat.scriptstate['$' + namedArg['key']]) + Number(arg)).toString()
 
-            char.chats[char.chatPage] = chat
+            char.chats[getChatPage(char)] = chat
             db.characters[selectedChar] = char
             setDatabase(db)
             return ''
@@ -206,14 +218,16 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
             const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             pipe = (chat.scriptstate['$' + namedArg['key']]).toString() ?? 'null'
             return pipe
         }
         case 'test_lorebook':{
             const p = await loadLoreBookV3Prompt()
-            console.log(p)
+            if (isDebugEnabled()) {
+                console.debug(p)
+            }
             alertNormal(p.actives.map((e)=>e.prompt).join('§'))
             return JSON.stringify(p)
         }

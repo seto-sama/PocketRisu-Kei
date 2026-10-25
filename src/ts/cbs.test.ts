@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { defaultCBSRegisterArg, getCBSCompletionNames, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
+import { defaultCBSRegisterArg, getCBSCompletionEntries, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
+    it('reads chat macros from the room selected by the calling runtime', () => {
+        const character = { chats: [
+            { message: [{ data: 'First room' }] },
+            { message: [{ data: 'Selected room' }] },
+        ] }
+        let lastMessage: RegisterCallback | undefined
+        registerCBS({
+            ...defaultCBSRegisterArg,
+            getDatabase: () => ({ characters: [character] }) as any,
+            getChatPage: () => 1,
+            registerFunction: definition => {
+                if (definition.name === 'lastmessage' && definition.callback !== 'doc_only') {
+                    lastMessage = definition.callback
+                }
+            },
+        })
+
+        expect(lastMessage!('', {} as any, [], null)).toBe('Selected room')
+    })
+
     it('keeps built-in primary names unique', () => {
         const names:string[] = []
         registerCBS({
@@ -27,8 +47,17 @@ describe('metadata CBS', () => {
         expect(duplicates).toEqual([])
     })
 
-    it('exposes current block syntax to editor tooling', () => {
-        expect(getCBSCompletionNames()).toEqual(expect.arrayContaining(['#when', '/when']))
+    it('provides public completion metadata with concise hints and alias details', () => {
+        const entries = getCBSCompletionEntries()
+        const entry = (name: string) => entries.find(item => item.name === name)!
+
+        expect(entries.filter(item => !item.hint.trim()).map(item => item.name)).toEqual([])
+        expect(entries.filter(item => /\n|Usage::/.test(item.hint)).map(item => item.name)).toEqual([])
+        expect(entries.map(item => item.name)).toEqual(expect.arrayContaining(['#when', '/when']))
+        expect(entries.some(item => item.name === '__')).toBe(false)
+        expect(entry('char').detail).toBe('bot')
+        expect(entry('bot')).toMatchObject({ detail: 'alias of char', hint: entry('char').hint })
+        expect(entry('/when').hint).toBe('Closes the #when block.')
     })
 
     it('uses the effective generation model label for modelname', () => {

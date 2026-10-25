@@ -45,26 +45,3 @@ export function removeChatInlayOccurrence(
 export function isEmptyChatInlayMessage(source: string): boolean {
     return source.trim().length === 0
 }
-
-export function removeCurrentEmptyInlaySwipe(message: Message): boolean {
-    if (!message.swipes || message.swipes.length <= 1) return false
-    const swipeIndex = message.swipeId ?? 0
-    message.swipes.splice(swipeIndex, 1)
-    message.swipeMetadata?.splice(swipeIndex, 1)
-    message.swipeId = Math.min(swipeIndex, message.swipes.length - 1)
-    message.data = message.swipes[message.swipeId]
-
-    if (message.swipes.length === 1) {
-        const remainingMetadata = message.swipeMetadata?.[0]
-        if (remainingMetadata) {
-            message.chatId = remainingMetadata.chatId ?? message.chatId
-            message.time = remainingMetadata.time ?? message.time
-            message.generationInfo = remainingMetadata.generationInfo ?? message.generationInfo
-            message.promptInfo = remainingMetadata.promptInfo ?? message.promptInfo
-        }
-        delete message.swipes
-        delete message.swipeId
-        delete message.swipeMetadata
-    }
-    return true
-}

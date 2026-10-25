@@ -24,14 +24,14 @@ export type ProfileProtocol =
     | 'vertex-gemini'
     | 'bedrock'
 
-export interface ProtocolConnectionFacts {
+interface ProtocolConnectionFacts {
     authKind: AuthKind
     endpointKind: EndpointKind
     credentialKey: string
     credentialLabel?: string
 }
 
-export interface ProtocolModelFacts {
+interface ProtocolModelFacts {
     providerId: string
     modelId: string
     family?: string
@@ -43,7 +43,7 @@ export interface ProtocolModelFacts {
     outputModalities: readonly string[]
 }
 
-export interface BuiltProtocolProfile {
+interface BuiltProtocolProfile {
     adapterKind: AdapterKind
     defaultHeaders: Record<string, string>
     modelId: string
@@ -60,7 +60,6 @@ interface ProtocolDefinition {
     temperaturePath: string
     reasoningPath: string
     reasoningKey: string
-    supportsThinkingBudget?: boolean
     supportsReasoningControl?: boolean
     defaultHeaders?: Record<string, string>
     normalizeModelId?: (modelId: string) => string
@@ -68,7 +67,7 @@ interface ProtocolDefinition {
 
 // Profile-definition revision. Catalog timestamps describe model metadata, so
 // protocol field/UI changes need their own revision when snapshots are refreshed.
-const PROTOCOL_PROFILE_UPDATED_AT = 1787356800000
+const PROTOCOL_PROFILE_UPDATED_AT = 1792886400000
 
 const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
     'openai-chat': {
@@ -91,7 +90,6 @@ const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
         temperaturePath: 'temperature',
         reasoningPath: 'output_config.effort',
         reasoningKey: 'effort',
-        supportsThinkingBudget: true,
         defaultHeaders: { 'anthropic-version': '2023-06-01' },
     },
     gemini: {
@@ -100,7 +98,6 @@ const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
         temperaturePath: 'generationConfig.temperature',
         reasoningPath: 'generationConfig.thinkingConfig.thinkingLevel',
         reasoningKey: 'thinkingLevel',
-        supportsThinkingBudget: true,
     },
     'vertex-gemini': {
         adapterKind: 'google-gemini',
@@ -108,7 +105,6 @@ const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
         temperaturePath: 'generationConfig.temperature',
         reasoningPath: 'generationConfig.thinkingConfig.thinkingLevel',
         reasoningKey: 'thinkingLevel',
-        supportsThinkingBudget: true,
         normalizeModelId: (modelId) => modelId.replace(/^google\//, ''),
     },
     bedrock: {
@@ -320,7 +316,7 @@ function buildProfileFields(
     }
 
     const outputPath = definition.outputPath(facts)
-    const outputKey = outputPath.split('.').at(-1) ?? 'max_tokens'
+    const outputKey = outputPath.slice(outputPath.lastIndexOf('.') + 1)
     fields.push({
         key: outputKey,
         semantic: 'maxOutputTokens',
@@ -367,14 +363,10 @@ function buildProfileFields(
         })
     }
 
-    const reasoningOptions = uniqueStrings([
-        ...facts.reasoningEfforts,
-        ...(definition.supportsThinkingBudget ? ['budget'] : []),
-    ])
     if (
         definition.supportsReasoningControl !== false
         && facts.reasoning
-        && reasoningOptions.length > 0
+        && facts.reasoningEfforts.length > 0
     ) {
         fields.push({
             key: definition.reasoningKey,
@@ -383,7 +375,7 @@ function buildProfileFields(
             label: 'Reasoning Effort',
             labelKey: 'reasoningEffort',
             helpKey: 'reasoningEffort',
-            enum: reasoningOptions.map((value) => ({ value, label: titleCase(value) })),
+            enum: facts.reasoningEfforts.map((value) => ({ value, label: titleCase(value) })),
             mapsTo: { target: 'body', path: definition.reasoningPath },
         })
         uiFields.push({
@@ -394,29 +386,6 @@ function buildProfileFields(
             group: 'connection',
             order: 4,
         })
-        if (definition.supportsThinkingBudget) {
-            fields.push({
-                key: 'thinking_tokens',
-                semantic: 'thinkingBudgetTokens',
-                type: 'integer',
-                label: 'Thinking Tokens',
-                labelKey: 'thinkingTokens',
-                helpKey: 'thinkingBudgetHelp',
-                description: 'Maximum thinking-token budget used when reasoning effort is set to Budget.',
-                default: 1024,
-                min: 1024,
-                step: 1,
-            })
-            uiFields.push({
-                key: 'thinking_tokens',
-                widget: 'number-input',
-                visibility: 'basic',
-                layout: 'row',
-                group: 'connection',
-                order: 5,
-                showIf: { key: definition.reasoningKey, equals: 'budget' },
-            })
-        }
     }
 
     if (hasGptApiMode) {
@@ -611,10 +580,6 @@ function openAiChatOutputPath(facts: ProtocolModelFacts): string {
         return 'max_completion_tokens'
     }
     return 'max_tokens'
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-    return [...new Set(values.filter(Boolean))]
 }
 
 function titleCase(value: string): string {

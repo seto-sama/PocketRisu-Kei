@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { getUserName } from "src/ts/util"
 import type { OpenAIChat } from "../index.svelte"
@@ -46,7 +47,9 @@ export function stringlizeNAIChat(formated:OpenAIChat[], char:string, continued:
     if(!continued){
         res += `${seperator}${char}:`
     }
-    console.log(res)
+    if (isDebugEnabled()) {
+        console.debug(res)
+    }
     return res
 }
 

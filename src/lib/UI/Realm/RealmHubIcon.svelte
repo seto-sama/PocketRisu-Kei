@@ -1,11 +1,13 @@
 <script lang="ts">
     import { BookIcon, ImageIcon, SmileIcon } from "@lucide/svelte";
-    import { hubURL, type hubType } from "src/ts/characterCards";
+    import { type hubType } from "src/ts/characterCards";
+    import { getRealmProxyUrl } from "src/ts/network/proxy";
     import { DBState } from "src/ts/stores.svelte";
     import { parseMultilangString } from "src/ts/util";
     import Button from "../components/Button.svelte";
     import RealmTagList from "./RealmTagList.svelte";
     import CharacterMasonryIcon from "../CharacterMasonryIcon.svelte";
+    import AvatarFallback from "../AvatarFallback.svelte";
     import { language } from "src/lang";
     import * as ContextMenu from "../components/context-menu";
     import { muteRealmCharacter, muteRealmCreator } from "src/ts/realmMute";
@@ -27,7 +29,7 @@
     <ContextMenu.Trigger class="block w-full">
         {#if iconOnly}
             <CharacterMasonryIcon
-                src={`${hubURL}/resource/` + chara.img}
+                src={DBState.db.hideAllImages ? '' : getRealmProxyUrl(`/resource/${chara.img}`)}
                 name={chara.name}
                 hideImage={DBState.db.hideAllImages}
                 onclick={onClick}
@@ -36,11 +38,9 @@
             <Button variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
                 <div class="flex gap-2 w-full">
                 {#if DBState.db.hideAllImages}
-                    <div class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md bg-button flex items-center justify-center text-subtext">
-                        <span class="text-4xl">?</span>
-                    </div>
+                    <AvatarFallback className="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md" iconClass="h-2/5 w-2/5" />
                 {:else}
-                    <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={`${hubURL}/resource/` + chara.img}>
+                    <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={getRealmProxyUrl(`/resource/${chara.img}`)}>
                 {/if}
                 <div class="flex flex-col grow min-w-0">
                     <span class="text-maintext text-lg min-w-0 max-w-full text-ellipsis whitespace-nowrap overflow-hidden text-start">{chara.name}</span>

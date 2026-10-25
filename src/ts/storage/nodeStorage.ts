@@ -1,14 +1,10 @@
 import { encodeAssetBatch, decodeAssetBatch, getAssetUrl } from './assetTransport'
 import { downloadUrl } from '../download'
+import { createEntityId } from '../id'
 import { BINARY_MESSAGE_CONTENT_TYPE } from '../network/binaryMessage'
 import { Buffer } from 'buffer'
+import { encode, decode } from 'msgpackr/index-no-eval'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
-// Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
-// Context (HTTPS/localhost). To support remote access over plain HTTP, signing
-// happens on the server; the client only caches and forwards issued tokens.
-// If upstream changes its auth flow, sync manually.
-// Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
-// /api/login, /api/token/refresh)
 import { language } from "src/lang"
 import { alertInput } from "../alert"
 import { decodeRisuSave } from "./risuSave"
@@ -28,6 +24,18 @@ import type {
 const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
+function authRequest(input: string, init: RequestInit): Promise<Response> {
+    return fetchWithRequestTimeout(signal => fetch(input, { ...init, signal }), {
+        firstResponseTimeoutMs: 30_000,
+        idleTimeoutMs: 30_000,
+    })
+}
+
+async function ensurePluginStorageMigration(): Promise<void> {
+    const { ensurePluginStorageMigration: migrate } = await import('../plugins/pluginSafeClass')
+    await migrate()
+}
+
 function serverErrorMessage(body: any, fallback: string): string {
     return localizedApiErrorMessage({
         code: typeof body?.code === 'string' ? body.code : undefined,
@@ -37,13 +45,71 @@ function serverErrorMessage(body: any, fallback: string): string {
     })
 }
 
-// Warning the server attaches to /api/patch responses when the most recent
-// debounced persist failed (Stage 1 visibility — see issues.md).
+async function* readNdjson(response: Response): AsyncGenerator<any> {
+    if (!response.body) throw new Error('NDJSON response body is unavailable')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamEnded = false
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+                streamEnded = true
+                buffer += decoder.decode()
+                break
+            }
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+                if (line.trim()) yield JSON.parse(line)
+            }
+        }
+
+        if (buffer.trim()) yield JSON.parse(buffer)
+    } finally {
+        if (!streamEnded) await reader.cancel().catch(() => {})
+        reader.releaseLock()
+    }
+}
+
+async function readBackupResult<T>(
+    response: Response,
+    onProgress: ((progress: any) => void) | undefined,
+    failureMessage: string,
+): Promise<T> {
+    let result: T | undefined
+    for await (const message of readNdjson(response)) {
+        if (message.type === 'progress') {
+            const progress = { ...message }
+            delete progress.type
+            onProgress?.(progress)
+        }
+        else if (message.type === 'done') result = message
+        else if (message.type === 'error') throw new Error(serverErrorMessage(message, failureMessage))
+    }
+    if (!result) throw new Error(failureMessage)
+    return result
+}
+
 export interface PersistWarning {
     timestamp: number
     message: string
     attemptedSize: number | null
     source: string
+}
+
+export interface BackupRestoreResult {
+    ok: boolean
+    assetsRestored: number
+    coldStorageFailed?: number
+    pluginStorageColdFailed?: number
+    /** Upstream save blocks Kei cannot restore (SaveKV `kv:<namespace>`), left out of the import */
+    skippedSaveBlocks?: string[]
 }
 
 export interface PatchItemResult {
@@ -56,7 +122,6 @@ export interface PatchItemResult {
     revision?: number
     conflict?: boolean
     persistWarning?: PersistWarning
-    /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
 }
 
@@ -85,19 +150,71 @@ export interface PluginStorageExclusion {
     unclassified?: boolean
 }
 
+export type PluginStorageNamespace = 'localStorage' | 'localForage'
+export type PluginStorageRequest =
+    | { op: 'get', key: string }
+    | { op: 'set', key: string, value: Uint8Array, owner?: string }
+    | { op: 'remove', key: string }
+    | { op: 'clear' }
+    | { op: 'list' }
+    | { op: 'import', entries: Array<{ key: string, value: Uint8Array, owner?: string }> }
+
+export type PluginStorageResponse =
+    | { value: Uint8Array | null }
+    | { success: true }
+    | { entries: Array<{ key: string, owner?: string }> }
+
 export interface ExportBackupOptions {
     target?: 'upstream'
-    mode?: 'settings'
+    mode?: 'settings' | 'partial'
     moduleAssets?: boolean
 }
 
+export type BackupProgress =
+    | { stage: 'saving' }
+    | { stage: 'preparing' }
+    | { stage: 'compressing', bytes: number, totalBytes: number, backupBytes: number }
+    | { stage: 'ready', bytes: number, totalBytes: number }
+    | { stage: 'writing', bytes: number, totalBytes: number }
+
+export type FileFormat = 'save' | 'preset' | 'theme' | 'translator' | 'json'
+
 export interface SettingsBackupEstimate {
     dbBytes: number
+    pluginStorageBytes: number
     baseAssets: { count: number, bytes: number }
     moduleAssets: { count: number, bytes: number, moduleCount: number }
 }
 
-/** Page-scoped id used for sync self-echo suppression and request tracing. */
+export interface DriveEntry {
+    path: string
+    name: string
+    type: 'file' | 'directory'
+    size: number | null
+    createdAt: number | null
+    modifiedAt: number
+}
+
+export type DriveConflict = 'error' | 'overwrite' | 'rename'
+export type DriveMergeChoice = 'server' | 'local' | 'both' | null
+export interface DriveMergeConflict {
+    path: string
+    existing: DriveEntry
+    incoming: DriveEntry
+}
+export interface DriveMergePlan {
+    revision: string
+    conflicts: DriveMergeConflict[]
+}
+export interface DriveMergeResolution {
+    revision: string
+    choices: Record<string, DriveMergeChoice>
+}
+export interface DriveRenameResult {
+    entry: DriveEntry
+    moves: Array<{ from: string, to: string }>
+}
+
 export function getSyncClientId(): string {
     return NodeStorage.getSessionId()
 }
@@ -105,9 +222,8 @@ export function getSyncClientId(): string {
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
-    // Unique per page load — identifies the origin of writes and sync events.
-    private static sessionId: string =
-        crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
+    // Each page needs its own id so sync broadcasts can skip the originating page.
+    private static sessionId: string = createEntityId()
 
     _lastDbEtag: string | null = null
     _lastDbRevision: number | null = null
@@ -130,8 +246,6 @@ export class NodeStorage{
             return this.cachedJwt.token
         }
 
-        // A fresh page has no in-memory JWT. Authenticate first instead of
-        // calling /api/token/refresh with an empty risu-auth header.
         if (!this.cachedJwt) {
             await this.checkAuth()
             if (!this.cachedJwt) {
@@ -143,9 +257,7 @@ export class NodeStorage{
         const token = await this._refreshToken()
         if (token) return token
 
-        // A rejected refresh means the cached token is no longer usable.
-        // Re-establish authentication through /api/test_auth instead of
-        // returning an empty or stale token to the caller.
+        // Reauthenticate after a rejected refresh to avoid reusing its invalid token.
         this.cachedJwt = null
         this.authChecked = false
         await this.checkAuth()
@@ -155,8 +267,7 @@ export class NodeStorage{
         return this.cachedJwt.token
     }
 
-    // Called once after JWT auth is confirmed. Issues a session cookie so that
-    // <img src="/api/asset/..."> can be served without JS-injected headers.
+    // Asset elements cannot attach JWT headers, so they need a session cookie.
     private async initSession(authToken: string) {
         if (NodeStorage.sessionInitialized) return
         if (NodeStorage.sessionPending) return NodeStorage.sessionPending
@@ -166,7 +277,7 @@ export class NodeStorage{
 
     private async _doInitSession(authToken: string) {
         try {
-            const res = await fetch('/api/session', {
+            const res = await authRequest('/api/session', {
                 method: 'POST',
                 headers: {
                     'risu-auth': authToken,
@@ -174,11 +285,11 @@ export class NodeStorage{
                 },
             })
             if (res.ok) {
+                await res.arrayBuffer()
                 NodeStorage.sessionInitialized = true
             }
-            // Non-ok (400/401/500): will retry on next checkAuth() call.
         } catch {
-            // Network error: will retry on next checkAuth() call.
+            // Retry session creation on the next authenticated request.
         } finally {
             NodeStorage.sessionPending = null
         }
@@ -192,7 +303,7 @@ export class NodeStorage{
     }
 
     private async _doRefreshToken(): Promise<string> {
-        const res = await fetch('/api/token/refresh', {
+        const res = await authRequest('/api/token/refresh', {
             method: 'POST',
             headers: { 'risu-auth': this.cachedJwt?.token ?? '' }
         })
@@ -205,7 +316,7 @@ export class NodeStorage{
     }
 
     private async loginWithPassword(password: string) {
-        const response = await fetch('/api/login', {
+        const response = await authRequest('/api/login', {
             method: "POST",
             body: JSON.stringify({ password }),
             headers: {
@@ -310,6 +421,15 @@ export class NodeStorage{
         return new Blob([await response.arrayBuffer()], { type: 'image/webp' })
     }
 
+    async saveInlayVideoThumbnail(id: string, thumbnail: Blob): Promise<void> {
+        const response = await this.authFetch(`/api/inlays/${encodeURIComponent(id)}/video-thumbnail`, {
+            method: 'POST',
+            body: thumbnail,
+            headers: { 'content-type': 'application/octet-stream' },
+        })
+        if (!response.ok) throw await storageRequestError('saveInlayVideoThumbnail', response)
+    }
+
     async getItem(key:string):Promise<Buffer> {
         const headers: Record<string, string> = {
             'file-path': Buffer.from(key, 'utf-8').toString('hex')
@@ -320,7 +440,6 @@ export class NodeStorage{
             throw await storageRequestError('getItem', da)
         }
 
-        // Capture ETag for database.bin
         const etag = da.headers.get('x-db-etag')
         if (etag) {
             this._lastDbEtag = etag
@@ -400,7 +519,7 @@ export class NodeStorage{
 
     private async _doCheckAuth() {
         if(!this.authChecked){
-            const data = await (await fetch('/api/test_auth',{
+            const data = await (await authRequest('/api/test_auth',{
                 headers: {
                     'risu-auth': this.cachedJwt?.token ?? ''
                 }
@@ -408,7 +527,7 @@ export class NodeStorage{
 
             if(data.status === 'unset'){
                 const input = await digestPassword(await alertInput(language.setNodePassword))
-                const response = await fetch('/api/set_password',{
+                const response = await authRequest('/api/set_password',{
                     method: "POST",
                     body:JSON.stringify({
                         password: input 
@@ -422,6 +541,7 @@ export class NodeStorage{
                     throw await apiRequestError(response, 'Failed to set node password')
                 }
 
+                await response.arrayBuffer()
                 await this.loginWithPassword(input)
                 if (!this.cachedJwt) throw new Error('Node auth unavailable')
                 await this.initSession(this.cachedJwt.token)
@@ -447,12 +567,10 @@ export class NodeStorage{
 
     listItem = this.keys
 
-    /** Set cached ETag for database.bin */
     setDbEtag(etag: string | null) {
         this._lastDbEtag = etag
     }
 
-    /** Set the revision associated with the cached database projection. */
     setDbRevision(revision: number | null) {
         this._lastDbRevision = revision
     }
@@ -489,7 +607,17 @@ export class NodeStorage{
         return await response.json() as PluginStorageStartupStats
     }
 
-    /** Read cleanup references without replacing the autosave revision/ETag. */
+    async pluginStorageRequest(namespace: PluginStorageNamespace, request: PluginStorageRequest): Promise<PluginStorageResponse> {
+        const response = await this.authFetch(`/api/plugin-storage/${namespace}`, {
+            method: 'POST',
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE, accept: BINARY_MESSAGE_CONTENT_TYPE },
+            body: encode(request),
+        })
+        if (!response.ok) throw await storageRequestError('pluginStorageRequest', response)
+        return decode(new Uint8Array(await response.arrayBuffer())) as PluginStorageResponse
+    }
+
+    // Cleanup reads must not advance the autosave baseline.
     async scanContentReferences(kind: ContentReferenceKind, candidates: string[]) {
         const response = await this.authFetch('/api/database/content-references', {
             method: 'POST',
@@ -501,9 +629,8 @@ export class NodeStorage{
         return validateContentReferences(await response.json(), kind, candidates)
     }
 
-    /** Load the relational database's client projection as JSON. */
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const headers:Record<string, string> = { accept: 'application/json' }
+        const headers:Record<string, string> = { accept: BINARY_MESSAGE_CONTENT_TYPE }
         if (this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
         }
@@ -515,22 +642,18 @@ export class NodeStorage{
             throw await storageRequestError('getDatabaseProjection', response)
         }
 
-        const data = await response.json() as DatabaseProjection<T>
+        const data = decode(new Uint8Array(await response.arrayBuffer())) as DatabaseProjection<T>
         this._lastDbEtag = data.etag ?? null
         this._lastDbRevision = Number.isSafeInteger(data.revision) ? data.revision : null
         return data
     }
 
-    /**
-     * Initialize a brand-new relational database. The server only accepts this
-     * while revision 0 is still current, so two first-run clients cannot replace
-     * one another's initialized state.
-     */
+    // Revision 0 prevents concurrent first-run clients from overwriting each other.
     async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
         const response = await this.authFetch('/api/database', {
             method: 'PUT',
-            body: JSON.stringify({ database, expectedRevision }),
-            headers: { 'content-type': 'application/json' },
+            body: encode({ database, expectedRevision }),
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
         })
         if (!response.ok && response.status !== 409) throw await storageRequestError('initializeDatabase', response)
         const data = await response.json().catch(() => ({})) as {
@@ -561,7 +684,6 @@ export class NodeStorage{
         }
     }
 
-    /** Apply metadata changes to the relational database projection. */
     async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
         return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
     }
@@ -577,12 +699,12 @@ export class NodeStorage{
         key?: string,
         method: 'POST' | 'PATCH' = 'POST',
     ): Promise<PatchItemResult> {
-        // Empty changes have no write intent and need no network request.
         if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
         const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
+        const binary = method === 'PATCH'
 
         const headers: Record<string, string> = {
-            'content-type': 'application/json',
+            'content-type': binary ? BINARY_MESSAGE_CONTENT_TYPE : 'application/json',
         }
         if (tracksDatabase && this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
@@ -592,7 +714,7 @@ export class NodeStorage{
         }
         const da = await this.authFetch(endpoint, {
             method,
-            body: JSON.stringify(patchData),
+            body: binary ? encode(patchData) : JSON.stringify(patchData),
             headers,
         })
 
@@ -638,7 +760,6 @@ export class NodeStorage{
         return { success: true, etag: nextEtag, revision: nextRevision, persistWarning }
     }
 
-    // ── Bulk asset operations (3-2-B) ──────────────────────────────────────────
     async getItems(keys: string[]): Promise<{key: string, value: Buffer}[]> {
         const da = await this.authFetch('/api/assets/bulk-read', {
             method: 'POST',
@@ -667,23 +788,57 @@ export class NodeStorage{
         }
     }
 
-    async downloadBackupExport(opts?: ExportBackupOptions): Promise<void> {
+    async downloadBackupExport(
+        opts?: ExportBackupOptions,
+        onProgress?: (progress: BackupProgress) => void,
+    ): Promise<{ missingAssets: string[] }> {
+        await ensurePluginStorageMigration()
         const params = new URLSearchParams()
         if(opts?.target === 'upstream') params.set('target', 'upstream')
-        if(opts?.mode === 'settings') params.set('mode', 'settings')
+        if(opts?.mode) params.set('mode', opts.mode)
         if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
         const query = params.toString()
-        const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
-        await this.startCookieDownload(url)
+        const prepared = await this.authFetch(`/api/backup/export/prepare${query ? `?${query}` : ''}`, {
+            method: 'POST',
+            headers: { accept: 'application/x-ndjson' },
+        })
+        if (!prepared.ok) throw await apiRequestError(prepared)
+        const download = await readBackupResult<{ url: string, missingAssets?: string[] }>(
+            prepared,
+            onProgress,
+            'Backup export failed',
+        )
+        if (!download.url) throw new Error('Backup export: no download URL received')
+        await this.startCookieDownload(download.url)
+        return { missingAssets: download.missingAssets ?? [] }
+    }
+
+    private async fileFormatRequest(format: FileFormat, action: 'encode' | 'decode', body: Uint8Array): Promise<Uint8Array> {
+        const response = await this.authFetch(`/api/file-formats/${format}/${action}`, {
+            method: 'POST',
+            headers: { 'content-type': BINARY_MESSAGE_CONTENT_TYPE },
+            body: body as Uint8Array<ArrayBuffer>,
+        })
+        if (!response.ok) throw await apiRequestError(response)
+        return new Uint8Array(await response.arrayBuffer())
+    }
+
+    async encodeFile(format: FileFormat, value: unknown): Promise<Uint8Array> {
+        return this.fileFormatRequest(format, 'encode', encode(value))
+    }
+
+    async decodeFile(format: FileFormat, bytes: Uint8Array): Promise<any> {
+        return decode(await this.fileFormatRequest(format, 'decode', bytes))
     }
 
     private async startCookieDownload(url: string): Promise<void> {
         // Refresh only the download cookie, without registering a sync client.
-        const response = await fetch('/api/session', {
+        const response = await authRequest('/api/session', {
             method: 'POST',
             headers: { 'risu-auth': await this.createAuth() },
         })
         if (!response.ok) throw await storageRequestError('startCookieDownload', response)
+        await response.arrayBuffer()
         downloadUrl(url)
     }
 
@@ -693,13 +848,86 @@ export class NodeStorage{
         await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
     }
 
+    private async driveRequest<T>(url: string, init?: RequestInit): Promise<T> {
+        const response = await this.authFetch(`/api/drive${url}`, init)
+        if (!response.ok) throw await apiRequestError(response)
+        return response.json()
+    }
+
+    async listDrive(path = '', signal?: AbortSignal): Promise<{ path: string, entries: DriveEntry[] }> {
+        return this.driveRequest(`?${new URLSearchParams({ path })}`, { signal })
+    }
+
+    async driveMetadata(path: string, signal?: AbortSignal): Promise<DriveEntry> {
+        return this.driveRequest(`/metadata?${new URLSearchParams({ path })}`, { signal })
+    }
+
+    async createDriveDirectory(path: string, name: string, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/directory', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name, conflict }),
+        })
+        return result.entry
+    }
+
+    async renameDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution, destination?: string): Promise<DriveRenameResult> {
+        return this.driveRequest('/rename', {
+            method: 'PATCH', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name, conflict, merge, destination }),
+        })
+    }
+
+    async copyDriveEntry(path: string, name: string, conflict: DriveConflict = 'error', merge?: DriveMergeResolution, destination?: string): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/copy', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path, name, conflict, merge, destination }),
+        })
+        return result.entry
+    }
+
+    async deleteDriveEntry(path: string): Promise<void> {
+        await this.driveRequest('/entry', {
+            method: 'DELETE', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
+    }
+
+    async emptyDriveTrash(): Promise<void> {
+        await this.driveRequest('/trash', { method: 'DELETE' })
+    }
+
+    async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>(`/file?${new URLSearchParams({ path, name: file.name, conflict })}`, {
+            method: 'PUT', headers: { 'content-type': 'application/octet-stream' },
+            body: file, signal,
+        })
+        return result.entry
+    }
+
+    async downloadDriveFile(path: string): Promise<void> {
+        await this.startCookieDownload(`/api/drive/download?${new URLSearchParams({ path })}`)
+    }
+
+    driveThumbnailUrl(entry: DriveEntry): string {
+        return `/api/drive/thumbnail?${new URLSearchParams({ path: entry.path, v: `${entry.modifiedAt}:${entry.size}` })}`
+    }
+
+    async readDriveFile(path: string, signal?: AbortSignal): Promise<File> {
+        const response = await this.authFetch(`/api/drive/download?${new URLSearchParams({ path })}`, { signal })
+        if (!response.ok) throw await apiRequestError(response)
+        const blob = await response.blob()
+        return new File([blob], path.split('/').pop(), { type: blob.type })
+    }
+
     async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
+        await ensurePluginStorageMigration()
         const response = await this.authFetch('/api/backup/export/settings-estimate')
         if(!response.ok) throw new Error(`settings estimate error: ${response.status}`)
         return await response.json()
     }
 
     async prepareImport(size: number): Promise<void> {
+        await ensurePluginStorageMigration()
         const da = await this.authFetch('/api/backup/import/prepare', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -711,7 +939,7 @@ export class NodeStorage{
     async importBackup(
         file: Blob,
         onProgress?: (loaded: number, total: number) => void
-    ): Promise<{ok: boolean, assetsRestored: number, coldStorageFailed?: number}> {
+    ): Promise<BackupRestoreResult> {
         await this.prepareImport(file.size)
         const authHeader = await this.createAuth()
 
@@ -721,8 +949,7 @@ export class NodeStorage{
             xhr.setRequestHeader('content-type', 'application/x-risu-backup')
             xhr.setRequestHeader('risu-auth', authHeader)
             xhr.setRequestHeader('x-sync-client-id', NodeStorage.sessionId)
-            // Opt into NDJSON streaming so the server keeps the response socket
-            // alive during long post-upload work — prevents reverse-proxy 502s.
+            // Stream restore progress to prevent reverse-proxy timeouts after upload.
             xhr.setRequestHeader('accept', 'application/x-ndjson')
 
             let uploadComplete = false
@@ -735,7 +962,7 @@ export class NodeStorage{
 
             let parsedIndex = 0
             let leftover = ''
-            let result: {ok: boolean, assetsRestored: number, coldStorageFailed?: number} | null = null
+            let result: BackupRestoreResult | null = null
             let serverErrorMsg: string | null = null
 
             const drainNdjson = () => {
@@ -750,15 +977,13 @@ export class NodeStorage{
                     let msg: any
                     try { msg = JSON.parse(line) } catch { continue }
                     if (msg.type === 'progress' && uploadComplete) {
-                        // After upload finishes, surface server-side processing
-                        // progress through the same callback for UI continuity.
+                        // Reuse the upload progress UI for server-side restoration.
                         onProgress?.(msg.bytes, msg.totalBytes)
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
                         serverErrorMsg = serverErrorMessage(msg, 'backup import failed')
                     }
-                    // Ignore 'heartbeat' and unknown event types.
                 }
             }
 
@@ -784,12 +1009,11 @@ export class NodeStorage{
         })
     }
 
-    // ── Server-side backup ─────────────────────────────────────────────────────
-
     async saveServerBackup(
         note = '',
-        onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void
+        onProgress?: (progress: BackupProgress) => void
     ): Promise<{ok: boolean, filename: string, size: number}> {
+        await ensurePluginStorageMigration()
         const da = await this.authFetch('/api/backup/server/save', {
             method: 'POST',
             headers: {
@@ -802,31 +1026,7 @@ export class NodeStorage{
             throw await storageRequestError('saveServerBackup', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {ok: boolean, filename: string, size: number} | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.current, msg.total, msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup save failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup: no result received')
-        return result
+        return readBackupResult(da, onProgress, 'Server backup save failed')
     }
 
     async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number, note?: string}>}> {
@@ -838,7 +1038,7 @@ export class NodeStorage{
     async restoreServerBackup(
         filename: string,
         onProgress?: (bytes: number, totalBytes: number) => void
-    ): Promise<{ok: boolean, assetsRestored: number, coldStorageFailed?: number}> {
+    ): Promise<BackupRestoreResult> {
         const da = await this.authFetch('/api/backup/server/restore', {
             method: 'POST',
             headers: {
@@ -851,31 +1051,7 @@ export class NodeStorage{
             throw await storageRequestError('restoreServerBackup', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {ok: boolean, assetsRestored: number, coldStorageFailed?: number} | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup restore failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup restore: no result received')
-        return result
+        return readBackupResult(da, (progress) => onProgress?.(progress.bytes, progress.totalBytes), 'Server backup restore failed')
     }
 
     async restoreMissingServerBackupAssets(
@@ -903,40 +1079,7 @@ export class NodeStorage{
             throw await storageRequestError('restoreMissingServerBackupAssets', da)
         }
 
-        const reader = da.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let result: {
-            ok: boolean
-            referencedAssets: number
-            missingAssets: number
-            assetsFound: number
-            assetsUnavailable: number
-            assetsRestored: number
-            restoredBytes: number
-            skippedExisting: number
-        } | null = null
-
-        while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()!
-            for (const line of lines) {
-                if (!line) continue
-                const msg = JSON.parse(line)
-                if (msg.type === 'progress') {
-                    onProgress?.(msg.bytes, msg.totalBytes)
-                } else if (msg.type === 'done') {
-                    result = msg
-                } else if (msg.type === 'error') {
-                    throw new Error(serverErrorMessage(msg, 'Server backup asset restore failed'))
-                }
-            }
-        }
-        if (!result) throw new Error('Server backup asset restore: no result received')
-        return result
+        return readBackupResult(da, (progress) => onProgress?.(progress.bytes, progress.totalBytes), 'Server backup asset restore failed')
     }
 
     async deleteServerBackup(filename: string): Promise<void> {
@@ -949,8 +1092,6 @@ export class NodeStorage{
     async downloadServerBackup(filename: string): Promise<void> {
         await this.startCookieDownload(`/api/backup/server/download/${encodeURIComponent(filename)}`)
     }
-
-    // ── Chat content (runtime lazy load) ────────────────────────────────────
 
     async fetchBookmarkCatalog(): Promise<BookmarkCatalog> {
         const da = await this.authFetch(BOOKMARKS_API_PATH)
@@ -1071,7 +1212,7 @@ export class NodeStorage{
 }
 
 async function digestPassword(message:string) {
-    const res = await fetch('/api/crypto', {
+    const res = await authRequest('/api/crypto', {
         body: JSON.stringify({
             data: message
         }),

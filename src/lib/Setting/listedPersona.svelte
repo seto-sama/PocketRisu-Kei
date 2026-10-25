@@ -117,7 +117,7 @@
     {#snippet itemContent(index, renameController)}
         {@const persona = DBState.db.personas[index]}
         <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
-            {#if persona.icon}
+            {#if persona.icon && !DBState.db.hideAllImages}
                 {#await getCharImage(persona.icon, 'css') then imageStyle}
                     <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                 {/await}

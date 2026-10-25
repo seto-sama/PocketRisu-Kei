@@ -1,16 +1,18 @@
 import { Buffer } from 'buffer'
 import { normalizeTrashRetentionDays } from '../trashRetention';
-import { getChatBoundPersona } from '../chatBindingState';
-import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
+import { getEnabledModules } from '../process/moduleSelection';
+import { withExportColorSchemes } from "../../../server/utils/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleImportFiles, selectSingleImportFile } from '../util';
+import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
+import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
-import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
+import { forageStorage, saveAsset as saveImageGlobal } from '../globalApi.svelte';
+import { exportPresetFile } from '../preset/export';
 import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
@@ -32,12 +34,14 @@ import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { normalizeSidebarMenuHidden, normalizeSidebarMenuOrder } from '../sidebarMenuOrder';
 import { normalizeSettingsMenuOrder } from '../settingsMenuOrder';
+import type { RealmMuteEntry } from '../realmMute';
 import { normalizeImageGenerationPresetState, type ImageGenerationPreset } from '../imageGeneration/presets';
 import { normalizeTTSPresetState, type TTSPreset } from '../tts/presets';
 import { normalizeGenerationCount } from '../process/automaticReroll';
 import { OUTPUT_REPETITION_DISABLED } from '../process/request/repetitionDetector';
 import { normalizePresetTagFields, normalizePresetTagState, type PresetTag, type PresetTagFields } from '../preset/tags';
 import { appendPresetItem, clonePresetWithNewId, duplicatePresetItem } from '../preset/collection';
+import { normalizePromptPresetSelection } from '../../../shared/promptPresetSelection.mjs';
 
 export { pocketKeiVer } from '../version'
 export let webAppSubVer = ''
@@ -421,9 +425,6 @@ export function setDatabase(data:Database){
             preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
         }
     }
-    if(checkNullish(data.botPresetsId)){
-        data.botPresetsId = 0
-    }
     if(checkNullish(data.themePresets)){
         let defaultTheme = structuredClone(themePresetTemplate)
         defaultTheme.name = "Default"
@@ -463,9 +464,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.bias)){
         data.bias = []
     }
-    if(checkNullish(data.allowV2Plugin)){
-        data.allowV2Plugin = false
-    }
     if(checkNullish(data.showFirstMessagePages)){
         data.showFirstMessagePages = false
     }
@@ -498,7 +496,6 @@ export function setDatabase(data:Database){
             image:"",
             base64image:"",
             InfoExtracted:1,
-            //add 4
             autoSmea:false,
             legacy_uc:false,
             use_coords:false,
@@ -527,7 +524,6 @@ export function setDatabase(data:Database){
             reference_fidelity: 1,
         }
     }
-    //add NAI v4 (사용중인 사람용 추가 DB Init)
     if(checkNullish(data.NAIImgConfig.v4_prompt)){
         data.NAIImgConfig.autoSmea = false;
         data.NAIImgConfig.use_coords = false;
@@ -653,7 +649,7 @@ export function setDatabase(data:Database){
     }
     data.top_p ??= 1
     if(typeof(data.top_p) !== 'number'){
-        //idk why type changes, but it does so this is a fix
+        // Restore the supported numeric default for malformed persisted values.
         data.top_p = 1
     }
     //@ts-expect-error data.google has required fields (accessToken, projectId), but we use empty object as default and populate below
@@ -867,6 +863,9 @@ export function setDatabase(data:Database){
     data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
     data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
     data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
+    data.blockedRealmCreators ??= []
+    data.blockedRealmCharacters ??= []
+    data.serverDriveShortcuts ??= []
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
     data.scrollButtonType ??= 'four'
@@ -890,8 +889,10 @@ export function setDatabase(data:Database){
 }
 
 function installDatabase(data: Database) {
+    normalizePromptPresetSelection(data)
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
+        initializeChatSelection(character)
         for (const chat of character.chats ?? []) {
             if (!isChatStub(chat)) normalizeChat(chat)
         }
@@ -917,15 +918,11 @@ export function getDatabase(options:getDatabaseOptions = {}):Database{
 }
 
 export function getCurrentCharacter(options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
-    if(!db.characters){
-        db.characters = []
-    }
-    const char = db.characters?.[get(selectedCharID)]
-    return char
+    return getCharacterByIndex(get(selectedCharID), options)
 }
 
 export function setCurrentCharacter(char:character){
+    initializeChatSelection(char, true)
     if(!DBState.db.characters){
         DBState.db.characters = []
     }
@@ -933,15 +930,16 @@ export function setCurrentCharacter(char:character){
 }
 
 export function getCharacterByIndex(index:number,options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
+    const db = getDatabase()
     if(!db.characters){
         db.characters = []
     }
     const char = db.characters?.[index]
-    return char
+    return options.snapshot && char ? $state.snapshot(char) as character : char
 }
 
 export function setCharacterByIndex(index:number,char:character){
+    initializeChatSelection(char, true)
     if(!DBState.db.characters){
         DBState.db.characters = []
     }
@@ -950,12 +948,12 @@ export function setCharacterByIndex(index:number,char:character){
 
 export function getCurrentChat(){
     const char = getCurrentCharacter()
-    return char?.chats[char.chatPage]
+    return char?.chats[getChatPage(char)]
 }
 
 export function setCurrentChat(chat:Chat){
     const char = getCurrentCharacter()
-    char.chats[char.chatPage] = normalizeChat(chat)
+    char.chats[getChatPage(char)] = normalizeChat(chat)
     setCurrentCharacter(char)
 }
 
@@ -968,55 +966,6 @@ export function newChatModelDefaults(): Pick<Chat, 'modelBinding'> {
     }
 }
 
-// ── Prompt Option State (per-chat toggle sync) ──────────────────────
-
-function parseToggleKeysFromTemplate(template:string){
-    const keys = new Set<string>()
-    for(const rawLine of template.split('\n')){
-        const line = rawLine.trim()
-        if(!line){
-            continue
-        }
-        const parts = line.split('=')
-        const key = parts[0]?.trim()
-        const type = parts[2]?.trim()
-        if(!key || type === 'group' || type === 'groupEnd' || type === 'divider' || type === 'caption'){
-            continue
-        }
-        keys.add(`toggle_${key}`)
-    }
-    return Array.from(keys)
-}
-
-function getEnabledModuleDefinitions(db:Database, char:character, chat:Chat){
-    const persona = getChatBoundPersona(db, chat) ?? db.personas?.[db.selectedPersona]
-    const ids = [
-        ...(db.enabledModules ?? []),
-        ...((persona?.id && db.personaEnabledModules?.[persona.id]) ? db.personaEnabledModules[persona.id] : []),
-        ...(char.modules ?? []),
-        ...(chat.modules ?? []),
-        ...(db.moduleIntergration ? db.moduleIntergration.split(',').map((value) => value.trim()).filter(Boolean) : [])
-    ]
-    const idSet = new Set(ids)
-    const seen = new Set<string>()
-    const modules:RisuModule[] = []
-    for(const module of db.modules ?? []){
-        if(!module){
-            continue
-        }
-        if(!idSet.has(module.id) && !(module.namespace && idSet.has(module.namespace))){
-            continue
-        }
-        if(seen.has(module.id)){
-            continue
-        }
-        seen.add(module.id)
-        modules.push(module)
-    }
-    return modules
-}
-
-
 // ─────────────────────────────────────────────────────────────────────
 // Toggle Preset
 // ─────────────────────────────────────────────────────────────────────
@@ -1027,16 +976,28 @@ export interface TogglePreset {
     promptPresetName?: string        // name of the prompt preset active when saved
 }
 
-export function getToggleKeys(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string[]{
-    const moduleToggleTemplate = getEnabledModuleDefinitions(db, char, chat)
+export function getToggleTemplate(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string{
+    const moduleToggleTemplate = getEnabledModules(db, char, chat)
         .map((module) => module.customModuleToggle ?? '')
         .filter(Boolean)
         .join('\n')
-    return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
+    return `${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}\n${char?.customModuleToggle ?? ''}`
 }
 
-export function snapshotToggleValues(db:Database = getDatabase()):Record<string, string>{
-    const values:Record<string, string> = {}
+function getToggleDefaults(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):Record<string, string>{
+    return Object.fromEntries(parseToggleSyntax(getToggleTemplate(db, char, chat))
+        .filter(toggle => toggle.type === undefined || toggle.type === 'select' || toggle.type === 'text' || toggle.type === 'textarea')
+        .map(toggle => [`toggle_${toggle.key}`, toggle.type === 'text' || toggle.type === 'textarea' ? '' : '0']))
+}
+
+export function initializeToggleValues(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):void{
+    for(const [key, value] of Object.entries(getToggleDefaults(db, char, chat))){
+        db.globalChatVariables[key] ??= value
+    }
+}
+
+function snapshotToggleValues(db:Database):Record<string, string>{
+    const values = getToggleDefaults(db)
     for(const [key, value] of Object.entries(db.globalChatVariables)){
         if(key.startsWith('toggle_') && value !== undefined){
             values[key] = value
@@ -1046,47 +1007,29 @@ export function snapshotToggleValues(db:Database = getDatabase()):Record<string,
 }
 
 export function snapshotCurrentToggleValues(db:Database = getDatabase()):Record<string, string>{
-    const keys = getToggleKeys(db)
-    const values:Record<string, string> = {}
-    for(const key of keys){
-        const value = db.globalChatVariables[key]
-        if(value !== undefined){
-            values[key] = value
-        }
-    }
-    return values
+    return Object.fromEntries(Object.entries(getToggleDefaults(db))
+        .map(([key, value]) => [key, db.globalChatVariables[key] ?? value]))
 }
 
 export function applyToggleValues(values:Record<string, string>, db:Database = getDatabase()):void{
-    const keys = getToggleKeys(db)
-    // Apply current preset's keys (reset if not in saved values)
-    for(const key of keys){
-        const value = values[key]
-        if(value === undefined){
-            delete db.globalChatVariables[key]
-            continue
-        }
-        db.globalChatVariables[key] = value
-    }
-    // Restore orphan toggle values from other presets
-    for(const [key, value] of Object.entries(values)){
-        if(!keys.includes(key)){
-            db.globalChatVariables[key] = value
-        }
-    }
+    Object.assign(db.globalChatVariables, getToggleDefaults(db), values)
 }
 
 export function saveTogglesToChat():void{
-    if(getDatabase().disableToggleBinding) return
+    const db = getDatabase()
+    if(db.disableToggleBinding) return
     const chat = getCurrentChat()
     if(!chat) return
-    chat.savedToggleValues = snapshotToggleValues()
+    const values = snapshotToggleValues(db)
+    Object.assign(db.globalChatVariables, values)
+    chat.savedToggleValues = values
 }
 
 export function loadTogglesFromChat(chat:Chat):void{
-    if(getDatabase().disableToggleBinding) return
-    if(!chat?.savedToggleValues) return
-    applyToggleValues(chat.savedToggleValues)
+    const db = getDatabase()
+    if(db.disableToggleBinding || !chat?.savedToggleValues) return
+    Object.assign(db.globalChatVariables, chat.savedToggleValues)
+    initializeToggleValues(db, getCurrentCharacter(), chat)
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1163,12 +1106,7 @@ export interface Database{
     botPresets:botPreset[]
     /** User-defined tags for organizing prompt presets. */
     promptPresetTags?:PresetTag[]
-    /**
-     * @deprecated New code: use getActiveBotPreset() / setActiveBotPresetById() helpers.
-     * Kept as the physical store for upstream RisuAI .bin backup compatibility.
-     * Collection mutations must update it from the shared preset collection result.
-     */
-    botPresetsId:number
+    activePromptPresetId:string
     themePresets:themePreset[]
     /** User-defined tags for organizing theme presets. */
     themePresetTags?:PresetTag[]
@@ -1211,7 +1149,6 @@ export interface Database{
     outputRepetitionLimit:number
     emotionPrompt2:string
     useSayNothing:boolean
-    allowV2Plugin:boolean
     useStreaming:boolean
     voyageApiKey:string
     supaMemoryKey:string
@@ -1271,6 +1208,8 @@ export interface Database{
     animationSpeed:number
     botSettingAtStart:false
     NAIsettings:NAISettings
+    blockedRealmCreators: RealmMuteEntry[]
+    blockedRealmCharacters: RealmMuteEntry[]
     hideRealm:boolean
     hidePublicStats:boolean
     colorScheme:ColorScheme
@@ -1491,17 +1430,13 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
-    requestLocation:string
     newImageHandlingBeta?: boolean
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean
     verbosity:number
     hubServerType?:string
     pluginCustomStorage:{[key:string]:any}
-    // Best-effort "which plugin last wrote this key" sidecar for the save-file
-    // plugin storage. Additive metadata only — never wraps the value itself, so
-    // existing plugins read their keys unchanged. Populated for new V3 writes;
-    // legacy/V2 keys stay unrecorded. See pluginStorageMeta.ts.
+    // Ownership stays separate so existing plugin storage values keep their shape.
     pluginStorageMeta?:{[key:string]:{plugin:string,updatedAt:number}}
     showInputActionBar?: boolean
     chatLoadInitialPages?: number
@@ -1520,6 +1455,8 @@ export interface Database{
     sidebarMenuOrder?:string[]
     sidebarMenuHidden?:string[]
     settingsMenuOrder?:string[]
+    serverDriveShortcuts?:string[]
+    useServerDriveForFileImport?:boolean
     sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
     blockquoteStyling?:boolean
@@ -1575,6 +1512,7 @@ export interface loreBook{
     role?: 'system'|'user'|'assistant'
     extentions?:{
         risu_case_sensitive:boolean
+        risu_imageTagBundleId?:string
     }
     activationPercent?:number
     loreCache?:{
@@ -1596,7 +1534,6 @@ export interface character{
     notes:string
     chats:Chat[]
     chatFolders: ChatFolder[]
-    chatPage: number
     viewScreen: 'emotion'|'none',
     bias: [string, number][]
     emotionImages: [string, string][]
@@ -1646,6 +1583,8 @@ export interface character{
     realmId?:string
     imported?:boolean
     trashTime?:number
+    /** Folder the character left when trashed; restoring recreates it if it was dropped while empty. */
+    trashFolder?:Omit<folder, 'data'>
     nickname?:string
     source?:string[]
     group_only_greetings?:string[]
@@ -1658,6 +1597,7 @@ export interface character{
         ext: string
     }>
     defaultVariables?:string
+    onboarding?:CharacterOnboarding
     lowLevelAccess?:boolean
     hideChatIcon?:boolean
     lastInteraction?:number
@@ -1891,20 +1831,16 @@ export interface NAIImgConfig{
     image:string,
     base64image:string,
     InfoExtracted:number,
-    //add 4
     autoSmea:boolean,
     use_coords:boolean,
     legacy_uc: boolean,
     v4_prompt:NAIImgConfigV4Prompt,
     v4_negative_prompt:NAIImgConfigV4NegativePrompt,
-    //add vibe
     reference_image_multiple?:string[],
     reference_strength_multiple?:number[],
     vibe_data?:NAIVibeData,
     vibe_model_selection?:string
-    //add variety+ option
     variety_plus:boolean,
-    //add character reference
     reference_mode:string,
     character_image:string,
     character_base64image:string,
@@ -1914,23 +1850,19 @@ export interface NAIImgConfig{
     reference_fidelity:number,
 }
 
-//add 4
 interface NAIImgConfigV4Prompt{
     caption: NAIImgConfigV4Caption,
     use_coords: boolean,
     use_order: boolean
 }
-//add 4
 interface NAIImgConfigV4NegativePrompt{
     caption: NAIImgConfigV4Caption,
     legacy_uc: boolean
 }
-//add 4
 interface NAIImgConfigV4Caption{
     base_caption: string,
     char_captions: NAIImgConfigV4CharCaption[]
 }
-//add 4
 interface NAIImgConfigV4CharCaption{
     char_caption: string,
     centers:
@@ -2021,8 +1953,37 @@ export interface Chat{
      * override the preset's sampling parameters with the active prompt preset's
      * (temperature, top_p, penalties, ...). Off (or absent) => preset params only. */
     usePromptPresetParams?: boolean
+    onboardingDone?: boolean
     /** Runtime-only: true while awaiting hydration from server. Never persisted. */
     _placeholder?: boolean
+}
+
+export interface OnboardingOption{
+    label:string
+    value:string
+}
+
+export interface OnboardingQuestion{
+    id:string
+    title:string
+    description?:string
+    type:'single'|'multiple'|'text'
+    varName:string
+    required?:boolean
+    options:OnboardingOption[]
+    placeholder?:string
+}
+
+/** A creator-defined set of choices shown before a chat starts. Each answer is written to a chat variable. */
+export interface CharacterOnboarding{
+    enabled:boolean
+    mode:'form'|'html'
+    title?:string
+    description?:string
+    questions:OnboardingQuestion[]
+    html?:string
+    /** Also shows a floating button on the chat screen that opens the onboarding. */
+    floatingButton?:boolean
 }
 
 // `ChatStub` and `isChatStub` live in chatStub.ts so they can be unit-tested
@@ -2278,29 +2239,12 @@ export const themePresetTemplate: themePreset = {
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
 }
 
-// ─────────────────────────────────────────────────────────────
-// botPreset id-based helper layer
-//
-// Physical storage stays index-based (db.botPresetsId: number) for upstream
-// RisuAI .bin backup compatibility. New code (chat binding etc.) should use
-// these helpers so reorder/delete operations stay stable: withStableActivePreset
-// preserves the active preset by id while the underlying array is mutated.
-// ─────────────────────────────────────────────────────────────
-
 export function createBotPresetTemplate(): botPreset {
     return clonePresetWithNewId(presetTemplate)
 }
 
 export function getActiveBotPreset(): botPreset | null {
-    const db = getDatabase()
-    if (!Array.isArray(db.botPresets) || db.botPresetsId < 0 || db.botPresetsId >= db.botPresets.length) {
-        return null
-    }
-    return db.botPresets[db.botPresetsId] ?? null
-}
-
-export function getActiveBotPresetId(): string | undefined {
-    return getActiveBotPreset()?.id || undefined
+    return getBotPresetById(getDatabase().activePromptPresetId)
 }
 
 export function getBotPresetById(id: string): botPreset | null {
@@ -2309,55 +2253,17 @@ export function getBotPresetById(id: string): botPreset | null {
     return db.botPresets.find((p) => p?.id === id) ?? null
 }
 
-export function getBotPresetIndexById(id: string): number {
-    const db = getDatabase()
-    if (!id || !Array.isArray(db.botPresets)) return -1
-    return db.botPresets.findIndex((p) => p?.id === id)
-}
-
-export function setActiveBotPresetById(id: string | undefined): void {
-    const db = getDatabase()
-    if (id === undefined) {
-        db.botPresetsId = -1
-        return
-    }
-    const idx = getBotPresetIndexById(id)
-    if (idx >= 0) {
-        db.botPresetsId = idx
-    }
-}
-
-/**
- * Compatibility wrapper for callers that still perform an arbitrary botPresets
- * mutation. New collection UI should use the shared preset collection helpers.
- */
-export function withStableActivePreset(fn: () => void): void {
-    const activeId = getActiveBotPresetId()
-    fn()
-    const db = getDatabase()
-    if (activeId) {
-        const newIdx = getBotPresetIndexById(activeId)
-        db.botPresetsId = newIdx >= 0 ? newIdx : 0
-    } else if (Array.isArray(db.botPresets) && db.botPresetsId >= db.botPresets.length) {
-        db.botPresetsId = Math.max(0, db.botPresets.length - 1)
-    }
-}
-
 export function saveCurrentPreset(){
-    let db = getDatabase()
-    let pres = db.botPresets
-
-    if(db.botPresetsId === -1){
-        return
-    }
-    const currentPreset = pres[db.botPresetsId]
+    const db = getDatabase()
+    const currentPreset = getActiveBotPreset()
+    if (!currentPreset) return
     const savedPreset:botPreset =  {
         // Preserve fields unknown to this version so imported presets can be
         // round-tripped by both database backups and individual preset exports.
         ...currentPreset,
-        id: pres[db.botPresetsId]?.id || createEntityId(),
-        name: pres[db.botPresetsId].name,
-        tagIds: structuredClone(pres[db.botPresetsId]?.tagIds),
+        id: currentPreset.id,
+        name: currentPreset.name,
+        tagIds: structuredClone(currentPreset.tagIds),
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         mainPrompt:db.mainPrompt,
@@ -2411,7 +2317,7 @@ export function saveCurrentPreset(){
         customFlags: structuredClone(db.customFlags),
         enableCustomFlags: db.enableCustomFlags,
         regex: db.presetRegex,
-        image: pres?.[db.botPresetsId]?.image ?? '',
+        image: currentPreset.image ?? '',
         reasonEffort: db.reasoningEffort ?? 0,
         thinkingTokens: db.thinkingTokens ?? null,
         thinkingType: db.thinkingType ?? 'budget',
@@ -2423,18 +2329,7 @@ export function saveCurrentPreset(){
         fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
     }
-    
-    if(!Array.isArray(pres)){
-        pres = []
-    }
-    //if out of bounds, create a new preset
-    if(db.botPresetsId >= pres.length){
-        pres.push(savedPreset)
-    }
-    else{
-        pres[db.botPresetsId] = savedPreset
-    }
-    db.botPresets = pres
+    db.botPresets = db.botPresets.map(preset => preset.id === currentPreset.id ? savedPreset : preset)
 }
 
 export function copyPreset(id:number){
@@ -2446,17 +2341,16 @@ export function copyPreset(id:number){
         return copy
     })
     if (result.changed) db.botPresets = result.items
+    return result.item?.id
 }
 
-export function changeToPreset(id =0, savecurrent = true){
-    if(savecurrent){
-        saveCurrentPreset()
-    }
-    let db = getDatabase()
-    let pres = db.botPresets
-    const newPres = pres[id]
-    db.botPresetsId = id
-    db = setPreset(db, newPres)
+export function changeToPreset(id: string){
+    if (!getBotPresetById(id)) return
+    saveCurrentPreset()
+    const db = getDatabase()
+    const newPres = getBotPresetById(id)!
+    db.activePromptPresetId = id
+    setPreset(db, newPres)
     const chat = getCurrentChat()
     if(chat){
         loadTogglesFromChat(chat)
@@ -2674,29 +2568,15 @@ export function copyThemePreset(id: number){
     if (result.changed) db.themePresets = result.items
 }
 
-export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
+export async function downloadThemePreset(id: number){
     const current = getDatabase()
+    if (!current.themePresets[id]) return
     const db = { ...current, themePresets: [...current.themePresets] }
     saveCurrentThemePreset(db)
-    let pres = withExportColorSchemes(structuredClone(db.themePresets[id]))
+    const pres = withExportColorSchemes(structuredClone(db.themePresets[id]))
     pres.customBackground = ''
 
-    if(type === 'json'){
-        downloadFile(pres.name + "_theme.json", Buffer.from(JSON.stringify(pres, null, 2)))
-    } else {
-        const buf = fflate.compressSync(encodeMsgpack({
-            presetVersion: 1,
-            type: 'theme',
-            preset: await encryptBuffer(
-                encodeMsgpack(pres),
-                'risutheme'
-            )
-        }))
-        const buf2 = await encodeRPack(buf)
-        downloadFile(pres.name + "_theme.risutheme", buf2)
-    }
-
-    notifySuccess(language.successExport)
+    await exportPresetFile(`${pres.name}_theme.json`, forageStorage.encodeFile('json', pres))
 }
 
 export async function importThemePreset(f: {
@@ -2710,18 +2590,14 @@ export async function importThemePreset(f: {
 
     let pre: any
     if(f.name.endsWith('.risutheme')){
-        let data = await decodeRPack(f.data)
-        const decoded = await decodeMsgpack(fflate.decompressSync(data))
-        if(decoded.presetVersion === 1 && decoded.type === 'theme'){
-            pre = {
-                ...structuredClone(themePresetTemplate),
-                ...decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset, 'risutheme')))
-            }
+        pre = {
+            ...structuredClone(themePresetTemplate),
+            ...await forageStorage.decodeFile('theme', f.data)
         }
     } else {
         pre = {
             ...structuredClone(themePresetTemplate),
-            ...(JSON.parse(Buffer.from(f.data).toString('utf-8')))
+            ...await forageStorage.decodeFile('json', f.data)
         }
     }
 
@@ -2736,60 +2612,24 @@ export async function importThemePreset(f: {
     notifySuccess(language.successImport)
 }
 
-import { encode as encodeMsgpack, decode as decodeMsgpack } from "msgpackr/index-no-eval";
-import * as fflate from "fflate";
 import type { RisuModule } from '../process/modules';
-import { decodeRPack, encodeRPack } from '../rpack/rpack_js';
 import { DBState, selectedCharID } from '../stores.svelte';
-import { LLMFlags, LLMFormat, LLMTokenizer } from '../model/modellist';
+import { LLMFormat, type LLMFlags } from '../model/types';
 import type { HypaModel } from '../process/memory/hypamemory';
 import type { SerializableHypaV3Data } from '../process/memory/hypav3';
 import type { OpenAIChat } from '../process/index.svelte';
 
-export async function downloadPreset(id:number, type:'json'|'risupreset'|'return' = 'json'){
+export async function downloadPreset(index:number){
+    const db = getDatabase()
+    if (!db.botPresets[index]) return
     saveCurrentPreset()
-    let db = getDatabase()
-    let pres = structuredClone(db.botPresets[id])
-    console.log(pres)
+    const pres = structuredClone(db.botPresets[index])
     pres.openAIKey = ''
     pres.forceReplaceUrl = ''
     pres.forceReplaceUrl2 = ''
     pres.proxyKey = ''
 
-    if(type === 'json'){
-        downloadFile(pres.name + "_preset.json", Buffer.from(JSON.stringify(pres, null, 2)))
-    }
-    else if(type === 'risupreset' || type === 'return'){
-        const buf = fflate.compressSync(encodeMsgpack({
-            presetVersion: 2,
-            type: 'preset',
-            preset: await encryptBuffer(
-                encodeMsgpack(pres),
-                'risupreset'
-            )
-        }))
-
-        const buf2 = await encodeRPack(buf)
-
-        if(type === 'risupreset'){
-            downloadFile(pres.name + "_preset.risup", buf2)
-        }
-        else{
-            return {
-                data: pres,
-                buf: buf2
-            }
-        }
-
-    }
-
-    notifySuccess(language.successExport)
-
-
-    return {
-        data: pres,
-        buf: null
-    }
+    await exportPresetFile(pres.name + "_preset.risup", forageStorage.encodeFile('preset', pres))
 }
 
 
@@ -2798,7 +2638,7 @@ type PresetImportFile = {
     data:Uint8Array
 }
 
-function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
+function isRisuPreset(value:unknown):value is Partial<botPreset>{
     if(!value || typeof value !== 'object' || Array.isArray(value)){
         return false
     }
@@ -2809,6 +2649,29 @@ function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
         || typeof preset.jailbreak === 'string'
         || typeof preset.globalNote === 'string'
         || typeof preset.apiType === 'string'
+}
+
+function isNovelAIPreset(value:unknown):boolean{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
+    }
+    const preset = value as Record<string, unknown>
+    return typeof preset.presetVersion === 'number'
+        && preset.presetVersion >= 3
+        && !!preset.parameters
+        && typeof preset.parameters === 'object'
+        && !Array.isArray(preset.parameters)
+}
+
+export async function isSupportedPromptPresetJSON(content:string):Promise<boolean>{
+    try {
+        const parsed = JSON.parse(content)
+        if(isNovelAIPreset(parsed) || isRisuPreset(parsed)) return true
+    } catch {
+        return false
+    }
+    const { detectPromptJSONType } = await import('../process/prompt')
+    return detectPromptJSONType(content) !== 'NOTSUPPORTED'
 }
 
 function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
@@ -2823,13 +2686,13 @@ function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
     db.botPresets = appendPresetItem(db.botPresets, pre).items
 }
 
-export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null){
+export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null):Promise<boolean>{
     try{
         const files = input
             ? (Array.isArray(input) ? input : [input])
             : await selectMultipleImportFiles()
         if(files.length === 0){
-            return
+            return false
         }
 
         const nativeFiles = files.filter(file => {
@@ -2841,18 +2704,10 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
                 throw new Error('Risu preset files must be imported one at a time.')
             }
             const file = nativeFiles[0]
-            let data = file.data
-            if(file.name.toLowerCase().endsWith('.risup')){
-                data = await decodeRPack(data)
-            }
-            const decoded = await decodeMsgpack(fflate.decompressSync(data))
-            if((decoded.presetVersion !== 0 && decoded.presetVersion !== 2) || decoded.type !== 'preset'){
-                throw new Error('Unsupported Risu preset format.')
-            }
-            const importedPreset = decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset ?? decoded.pres, 'risupreset')))
+            const importedPreset = await forageStorage.decodeFile('preset', file.data)
             const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
             addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
-            return
+            return true
         }
 
         // Prompt conversion pulls in tokenizer-related code, so load it only when
@@ -2873,17 +2728,17 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
                 throw new Error(`Unsupported prompt preset format: ${unsupported.name}`)
             }
             addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
-            return
+            return true
         }
 
         const conversionFile = conversionFiles[0]
         if(conversionFile.type !== 'NOTSUPPORTED'){
             addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
-            return
+            return true
         }
 
-        const importedPreset = JSON.parse(conversionFile.content)
-        if(importedPreset?.presetVersion >= 3){
+        const importedPreset = await forageStorage.decodeFile('json', files[0].data)
+        if(isNovelAIPreset(importedPreset)){
             // NovelAI preset
             const pre = {...presetTemplate, ...importedPreset}
             const pr = structuredClone(prebuiltPresets.NAI)
@@ -2905,15 +2760,17 @@ export async function importPreset(input:PresetImportFile|PresetImportFile[]|nul
             pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
             pr.name = pre.name ?? "Imported"
             addImportedPreset(pr)
-            return
+            return true
         }
 
-        if(!isLegacyRisuPreset(importedPreset)){
+        if(!isRisuPreset(importedPreset)){
             throw new Error(`Unsupported prompt preset format: ${conversionFile.name}`)
         }
         const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
         addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
+        return true
     } catch(error){
         alertError(error)
+        return false
     }
 }

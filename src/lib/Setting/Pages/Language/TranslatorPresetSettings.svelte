@@ -7,7 +7,7 @@
     import type { SettingItem } from "src/ts/setting/types";
     import InlineEditableName from "../../../UI/components/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
-    import { downloadFile } from "src/ts/globalApi.svelte";
+    import { exportPresetFile } from "src/ts/preset/export";
     import { DBState } from "src/ts/stores.svelte";
     import {
         appendTranslatorPreset, createTranslatorPreset, decodeTranslatorPresetFile, defaultTranslatorPrompt,
@@ -74,8 +74,7 @@
     async function exportPreset(index: number) {
         try {
             const preset = DBState.db.translatorPresets[index];
-            await downloadFile(getTranslatorPresetDownloadName(preset.name), await encodeTranslatorPresetFile(preset));
-            notifySuccess(language.successExport);
+            await exportPresetFile(getTranslatorPresetDownloadName(preset.name), encodeTranslatorPresetFile(preset));
         } catch (error) {
             alertError(`${error}`);
         }

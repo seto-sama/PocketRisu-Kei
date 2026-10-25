@@ -1,12 +1,13 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
+    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, DownloadIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
     import { DBState, popUpEditorStore } from 'src/ts/stores.svelte'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
+    import Help from './Help.svelte'
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import CBSCodeEditor from '../UI/components/CBSCodeEditor.svelte'
     import Input from '../UI/components/Input.svelte'
@@ -18,16 +19,17 @@
     import IconButton from '../UI/components/IconButton.svelte'
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte'
     import { risuChatParser } from 'src/ts/parser/parser.svelte'
-    import { getCurrentCharacter } from 'src/ts/storage/database.svelte'
+    import { getCurrentCharacter, getToggleTemplate } from 'src/ts/storage/database.svelte'
     import { getChatVar, getGlobalChatVar } from 'src/ts/parser/chatVar.svelte'
-    import { getModuleToggles } from 'src/ts/process/modules'
-    import { parseToggleSyntax, type sidebarToggle } from 'src/ts/util'
+    import { parseToggleSyntax } from 'src/ts/util'
     import { applyCBSPreviewValues, extractCBSPreviewReferences } from 'src/ts/parser/cbsPreview'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
     import { createPopupEditorCommitController } from 'src/ts/popupEditorCommit'
     import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit'
     import { onDestroy, tick } from 'svelte'
     import CBSDocumentationDialog from './CBSDocumentationDialog.svelte'
+    import { createImageTagCompletionSource, type ImageTagStatus } from 'src/ts/imageGeneration/imageTags'
+    import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
 
     type PreviewToggleDefinition = {
         key:string
@@ -62,6 +64,12 @@
     let previewSearchInput:HTMLInputElement | null = $state(null)
     let previewPane:HTMLDivElement | undefined = $state()
     let documentationOpen = $state(false)
+    let imageTagStatus = $state<ImageTagStatus>('idle')
+    const imageTagCompletion = $derived(popUpEditorStore.imageTags
+        ? createImageTagCompletionSource({
+            onStatus: status => { imageTagStatus = status },
+            getBundles: () => listImageTagBundles(DBState.db, getCurrentCharacter()),
+        }) : undefined)
     const commitController = createPopupEditorCommitController(
         async (value) => popUpEditorStore.onCommit?.(value),
         () => popUpEditorStore.debounceMs,
@@ -117,9 +125,12 @@
         popUpEditorStore.onCommit = null
         popUpEditorStore.onSubmit = null
         popUpEditorStore.title = ''
+        popUpEditorStore.description = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
         popUpEditorStore.mode = 'cbs'
+        popUpEditorStore.imageTags = false
+        imageTagStatus = 'idle'
         popUpEditorStore.commitMode = 'submit'
         popUpEditorStore.debounceMs = INPUT_COMMIT_DEBOUNCE_MS
         popUpEditorStore.hideCancel = false
@@ -152,7 +163,7 @@
     }
 
     async function requestSubmit() {
-        if (!popUpEditorStore.onCommit || saving) return
+        if ((!popUpEditorStore.onCommit && !popUpEditorStore.onSubmit) || saving) return
 
         saving = true
         try {
@@ -243,32 +254,16 @@
     }
 
     function getToggleDefinitions():Map<string, PreviewToggleDefinition> {
-        const character = getCurrentCharacter()
-        const parsed = parseToggleSyntax([
-            DBState.db.customPromptTemplateToggle,
-            getModuleToggles(),
-            character?.customModuleToggle ?? '',
-        ].join('\n'))
         const definitions = new Map<string, PreviewToggleDefinition>()
-
-        const addDefinitions = (items:sidebarToggle[]) => {
-            for (const item of items) {
-                if (item.type === 'group') {
-                    addDefinitions(item.children)
-                } else if (
-                    item.key && item.value &&
-                    item.type !== 'groupEnd' && item.type !== 'caption' && item.type !== 'divider'
-                ) {
-                    definitions.set(item.key, {
-                        key: item.key,
-                        value: item.value,
-                        type: item.type,
-                        options: item.options ?? [],
-                    })
-                }
-            }
+        for (const item of parseToggleSyntax(getToggleTemplate())) {
+            if (item.type === 'group' || item.type === 'groupEnd' || item.type === 'caption' || item.type === 'divider') continue
+            definitions.set(item.key, {
+                key: item.key,
+                value: item.value,
+                type: item.type,
+                options: item.options ?? [],
+            })
         }
-        addDefinitions(parsed)
         return definitions
     }
 
@@ -400,20 +395,44 @@
 
 <svelte:window onkeydowncapture={handlePreviewShortcut} />
 
+{#snippet editorDescription()}{popUpEditorStore.description}{/snippet}
+
 <Dialog
     open={popUpEditorStore.open}
     size="xl"
     onRequestClose={() => void requestClose()}
     contentClass="h-[calc(100dvh-2rem)] gap-3 p-3 sm:p-4"
     bodyClass="flex min-h-0 flex-1 flex-col"
+    description={popUpEditorStore.description ? editorDescription : undefined}
 >
     {#snippet title()}
         <span class:font-mono={popUpEditorStore.title !== ''} class:break-all={popUpEditorStore.title !== ''}>
             {popUpEditorStore.title || language.hotkeyDesc.popupEditor}
         </span>
+        {#if popUpEditorStore.helpKey}
+            <Help key={popUpEditorStore.helpKey} name={popUpEditorStore.title} />
+        {/if}
+    {/snippet}
+
+    {#snippet headerActions()}
+        {#if popUpEditorStore.mode === 'cbs'}
+            <IconButton
+                title={language.cbsDocumentationMenu}
+                data-risu-help
+                disabled={saving}
+                onclick={() => (documentationOpen = true)}
+            >
+                <BookOpenIcon />
+            </IconButton>
+        {/if}
     {/snippet}
 
     <div class="flex min-h-0 flex-1 flex-col gap-2">
+        {#if popUpEditorStore.imageTags && !previewing && imageTagStatus !== 'idle'}
+            <p role="status" class="text-xs text-subtext">
+                {language.imageTagAutocomplete[imageTagStatus]}
+            </p>
+        {/if}
         {#if popUpEditorStore.metadata.length > 0}
             <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 {#each popUpEditorStore.metadata as item (item.label)}
@@ -577,7 +596,7 @@
                     {/if}
                 </aside>
             </div>
-        {:else if popUpEditorStore.mode === 'cbs'}
+        {:else if popUpEditorStore.mode === 'cbs' && popUpEditorStore.onCommit}
             <div
                 class="min-h-0 w-full flex-1 font-mono"
                 class:text-xs={$textAreaTextSize === 0}
@@ -587,6 +606,7 @@
             >
                 <CBSCodeEditor
                     value={popUpEditorStore.value}
+                    completionSource={imageTagCompletion}
                     {wordWrap}
                     {searchRequest}
                     onValueChange={updateEditorValue}
@@ -597,6 +617,7 @@
         {:else}
             <textarea
                 bind:value={popUpEditorStore.value}
+                readonly={!popUpEditorStore.onCommit}
                 wrap={wordWrap ? 'soft' : 'off'}
                 class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-lightbg p-3 font-mono leading-relaxed text-maintext outline-none"
                 class:text-xs={$textAreaTextSize === 0}
@@ -643,17 +664,13 @@
                                 {#if previewing}<SquarePenIcon />{:else}<EyeIcon />{/if}
                                 <span>{previewing ? language.popupEditorEdit : language.popupEditorPreview}</span>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={() => (documentationOpen = true)} disabled={saving}>
-                                <BookOpenIcon />
-                                <span>{language.cbsDocumentationMenu}</span>
-                            </DropdownMenu.Item>
                         {/if}
                         <DropdownMenu.Item onSelect={() => (wordWrap = !wordWrap)} disabled={saving}>
                             <TextWrapIcon />
                             <span>{language.popupEditorWordWrap}</span>
                             {#if wordWrap}<CheckIcon class="ml-auto" />{/if}
                         </DropdownMenu.Item>
-                        {#if popUpEditorStore.formatJson}
+                        {#if popUpEditorStore.formatJson && popUpEditorStore.onCommit}
                             <DropdownMenu.Item onSelect={formatJson} disabled={saving}>
                                 <AlignLeftIcon />
                                 <span>{language.popupEditorFormatJson}</span>
@@ -665,18 +682,23 @@
             <div class="ml-auto flex items-center gap-2">
                 {#if !popUpEditorStore.hideCancel}
                     <Button size="sm" variant="outline" onclick={() => void requestClose()} disabled={saving || confirmingClose}>
-                        {language.cancel}
+                        {popUpEditorStore.onCommit ? language.cancel : language.close}
                     </Button>
                 {/if}
-                <Button size="sm" variant="primary" onclick={requestSubmit} disabled={saving}>
-                    {#if popUpEditorStore.submitKind === 'send'}
-                        <SendIcon />
-                        {language.send}
-                    {:else}
-                        <SaveIcon />
-                        {language.popupEditorSave}
-                    {/if}
-                </Button>
+                {#if popUpEditorStore.onCommit || popUpEditorStore.onSubmit}
+                    <Button size="sm" variant="primary" onclick={requestSubmit} disabled={saving}>
+                        {#if popUpEditorStore.submitKind === 'download'}
+                            <DownloadIcon />
+                            {language.download}
+                        {:else if popUpEditorStore.submitKind === 'send'}
+                            <SendIcon />
+                            {language.send}
+                        {:else}
+                            <SaveIcon />
+                            {language.popupEditorSave}
+                        {/if}
+                    </Button>
+                {/if}
             </div>
         </div>
     {/snippet}

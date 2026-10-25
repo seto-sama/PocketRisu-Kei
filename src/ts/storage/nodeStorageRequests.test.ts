@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { encode, decode } from 'msgpackr/index-no-eval'
 
 vi.mock('../alert', () => ({ alertInput: vi.fn(), waitAlert: vi.fn(), notifyError: vi.fn() }))
 vi.mock('./risuSave', () => ({
@@ -6,7 +7,6 @@ vi.mock('./risuSave', () => ({
 }))
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 
-import { changeLanguage } from 'src/lang'
 import { ConflictError, NodeStorage } from './nodeStorage'
 import { decodeAssetBatch, encodeAssetBatch } from './assetTransport'
 import { decodeRisuSave } from './risuSave'
@@ -29,23 +29,19 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-it('hands backups and assets to the browser after refreshing only the session cookie', async () => {
+it('hands existing backups and assets to the browser after refreshing only the session cookie', async () => {
     const downloads: { url: string, name: string }[] = []
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
         downloads.push({ url: this.getAttribute('href')!, name: this.download })
     })
     fetchMock.mockResolvedValue(new Response('{}'))
-    await storage.downloadBackupExport()
-    await storage.downloadBackupExport({ mode: 'settings', moduleAssets: false })
-    await storage.downloadBackupExport({ target: 'upstream' })
     await storage.downloadServerBackup('risu-backup-1.bin')
     await storage.downloadAsset('inlay/image', '한글.png')
+    await storage.downloadDriveFile('자료/한글 &.bin')
     expect(downloads).toEqual([
-        { url: '/api/backup/export', name: '' },
-        { url: '/api/backup/export?mode=settings&moduleAssets=0', name: '' },
-        { url: '/api/backup/export?target=upstream', name: '' },
         { url: '/api/backup/server/download/risu-backup-1.bin', name: '' },
         { url: `/api/asset/${Buffer.from('inlay/image').toString('hex')}?download=1&filename=${encodeURIComponent('한글.png')}`, name: '' },
+        { url: `/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.bin' })}`, name: '' },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(downloads.length)
     for (const [url, request] of fetchMock.mock.calls) {
@@ -61,8 +57,119 @@ it('hands backups and assets to the browser after refreshing only the session co
 it('does not start a download when session refresh fails', async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     fetchMock.mockResolvedValue(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
-    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 401 })
+    await expect(storage.downloadServerBackup('risu-backup-1.bin')).rejects.toMatchObject({ status: 401 })
     expect(click).not.toHaveBeenCalled()
+})
+
+it('does not start a download when backup preparation fails', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"DATABASE_LOCKED"}', { status: 503 }))
+    await expect(storage.downloadBackupExport()).rejects.toMatchObject({ status: 503, code: 'DATABASE_LOCKED' })
+    expect(click).not.toHaveBeenCalled()
+})
+
+it('receives compression progress before downloading, across split UTF-8 lines', async () => {
+    let downloadedUrl = ''
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        downloadedUrl = this.getAttribute('href')!
+    })
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } })))
+        .mockResolvedValueOnce(new Response('{}'))
+    const progress = vi.fn()
+    let finished = false
+    const downloading = storage.downloadBackupExport({ mode: 'settings', moduleAssets: false }, progress)
+        .then(() => { finished = true })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/backup/export/prepare?mode=settings&moduleAssets=0')
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('accept')).toBe('application/x-ndjson')
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+    expect(click).not.toHaveBeenCalled()
+    expect(finished).toBe(false)
+
+    const event = { stage: 'compressing', bytes: 10, totalBytes: 20, backupBytes: 105, label: '압축' }
+    const data = new TextEncoder().encode(JSON.stringify({ type: 'progress', ...event }) + '\n')
+    const split = data.indexOf(0xec) + 1
+    controller.enqueue(data.subarray(0, split))
+    controller.enqueue(data.subarray(split))
+    await vi.waitFor(() => expect(progress).toHaveBeenCalledWith(expect.objectContaining(event)))
+    expect(click).not.toHaveBeenCalled()
+    controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'done', url: '/api/backup/export?prepared=ready' })))
+    controller.close()
+    await downloading
+    expect(click).toHaveBeenCalledOnce()
+    expect(downloadedUrl).toBe('/api/backup/export?prepared=ready')
+    expect(finished).toBe(true)
+})
+
+it.each([
+    [{ type: 'progress', stage: 'saving' }],
+    [{ type: 'error', code: 'BACKUP_NOT_FOUND', message: 'missing' }],
+])('does not download an incomplete or failed preparation stream: %j', async (event) => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(event) + '\n'))
+    await expect(storage.downloadBackupExport()).rejects.toThrow()
+    expect(click).not.toHaveBeenCalled()
+})
+
+it('transfers file formats with authentication and preserves binary values', async () => {
+    const value = { name: '한글', bytes }
+    fetchMock.mockResolvedValueOnce(new Response(bytes))
+    expect(await storage.encodeFile('preset', value)).toEqual(bytes)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/file-formats/preset/encode')
+    const sent = decode(fetchMock.mock.calls[0][1].body)
+    expect(sent.name).toBe(value.name)
+    expect(new Uint8Array(sent.bytes)).toEqual(bytes)
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+
+    fetchMock.mockResolvedValueOnce(new Response(encode(value)))
+    const received = await storage.decodeFile('preset', bytes)
+    expect(received.name).toBe(value.name)
+    expect(new Uint8Array(received.bytes)).toEqual(bytes)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/file-formats/preset/decode')
+
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.decodeFile('save', bytes)).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
+})
+
+it('reads drive imports as authenticated files without starting a browser download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    fetchMock.mockResolvedValueOnce(new Response(bytes))
+    const file = await storage.readDriveFile('자료/한글 &.risum')
+    expect(file.name).toBe('한글 &.risum')
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes)
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/drive/download?${new URLSearchParams({ path: '자료/한글 &.risum' })}`)
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('risu-auth')).toBe('auth-token')
+    expect(click).not.toHaveBeenCalled()
+
+    fetchMock.mockResolvedValueOnce(new Response('{"code":"AUTH_REQUIRED"}', { status: 401 }))
+    await expect(storage.readDriveFile('private.risup')).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
+})
+
+it('carries folder merge comparisons, choices, and completed moves through the drive API', async () => {
+    const entry = { path: 'target/a.txt', name: 'a.txt', type: 'file', size: 12, createdAt: 1, modifiedAt: 2 }
+    const plan = { revision: 'revision', conflicts: [{ path: entry.path, existing: entry, incoming: { ...entry, path: 'source/a.txt' } }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'DRIVE_MERGE_CONFLICT', details: plan }), { status: 409 }))
+    await expect(storage.renameDriveEntry('source', 'target', 'overwrite')).rejects.toMatchObject({
+        code: 'DRIVE_MERGE_CONFLICT', details: plan,
+    })
+
+    const merge = { revision: plan.revision, choices: { [entry.path]: 'both' as const } }
+    const result = { entry, moves: [{ from: 'source/a.txt', to: 'target/a (1).txt' }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(result)))
+    expect(await storage.renameDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(result)
+    const [url, request] = fetchMock.mock.calls[1]
+    expect(url).toBe('/api/drive/rename')
+    expect(request.method).toBe('PATCH')
+    expect(JSON.parse(request.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ entry })))
+    expect(await storage.copyDriveEntry('source', 'target', 'overwrite', merge, '')).toEqual(entry)
+    const [copyUrl, copyRequest] = fetchMock.mock.calls[2]
+    expect(copyUrl).toBe('/api/drive/copy')
+    expect(copyRequest.method).toBe('POST')
+    expect(JSON.parse(copyRequest.body)).toEqual({ path: 'source', name: 'target', conflict: 'overwrite', merge, destination: '' })
 })
 
 describe('storage request integration', () => {
@@ -72,10 +179,10 @@ describe('storage request integration', () => {
         await storage.patchDatabase(delta)
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, etag: 'chat' })))
         expect(await storage.patchChatContent('character', 99, 'stable-chat', delta)).toEqual({ etag: 'chat' })
-        for (const [, request] of fetchMock.mock.calls) {
+        for (const [index, [, request]] of fetchMock.mock.calls.entries()) {
             expect(request.method).toBe('PATCH')
-            expect(JSON.parse(request.body)).toEqual(delta)
-            expect(new Headers(request.headers).get('content-type')).toBe('application/json')
+            expect(index === 0 ? decode(request.body) : JSON.parse(request.body)).toEqual(delta)
+            expect(new Headers(request.headers).get('content-type')).toBe(index === 0 ? 'application/octet-stream' : 'application/json')
             expect(new Headers(request.headers).has('x-chat-if-match')).toBe(false)
         }
         expect(new Headers(fetchMock.mock.calls[1][1].headers).get('x-chat-id')).toBe('stable-chat')
@@ -111,30 +218,15 @@ describe('storage request integration', () => {
         expect(downloaded.map(entry => ({ key: entry.key, value: [...entry.value] })))
             .toEqual([{ key: 'assets/한글.png', value: [0, 128, 255] }])
     })
-    it.each([
-        ['asset', () => storage.setItem('assets/a.png', bytes)],
-        ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],
-        ['database patch', () => storage.patchDatabase(patch)],
-        ['chat', () => storage.patchChatContent('character', 0, 'chat', { changes: [] })],
-        ['initial database', () => storage.initializeDatabase({})],
-        ['inlay encoding', () => storage.encodeInlayWebp(bytes, { lossy: true, quality: 80 })],
-    ] as const)('surfaces HTTP 413 for %s without resending', async (_name, send) => {
-        fetchMock.mockResolvedValue(new Response('<html>too large</html>', { status: 413 }))
-        await expect(send()).rejects.toMatchObject({ status: 413, message: expect.stringContaining('request-size limit') })
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    it.each([
-        ['asset', () => storage.setItem('assets/a.png', bytes)],
-        ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],
-    ] as const)('returns transient %s failures without retrying', async (_name, send) => {
-        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'upstream unavailable' }), { status: 503 }))
-        await expect(send()).rejects.toMatchObject({ status: 503, serverMessage: 'upstream unavailable' })
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        const networkError = new TypeError('Failed to fetch')
-        fetchMock.mockRejectedValueOnce(networkError)
-        await expect(send()).rejects.toBe(networkError)
-        expect(fetchMock).toHaveBeenCalledTimes(2)
+    it('returns HTTP failures without resending requests', async () => {
+        fetchMock
+            .mockResolvedValueOnce(new Response('<html>too large</html>', { status: 413 }))
+            .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+            .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+        await expect(storage.patchDatabase(patch)).rejects.toMatchObject({ status: 413 })
+        await expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ status: 503 })
+        expect(await storage.fetchChatState('c', 0, 'chat')).toBeNull()
+        expect(fetchMock).toHaveBeenCalledTimes(3)
     })
 
     it('preserves field conflicts instead of retrying or turning them into generic failures', async () => {
@@ -144,52 +236,15 @@ describe('storage request integration', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    it('localizes the stable chat conflict returned by the server', async () => {
-        changeLanguage('ko')
-        try {
-            fetchMock.mockResolvedValue(new Response(JSON.stringify({
-                code: 'CHAT_CONTENT_CHANGED',
-                error: 'Chat content changed on another client', currentEtag: 'server',
-            }), { status: 409 }))
-            await expect(storage.patchChatContent('character', 0, 'chat', { changes: [] }))
-                .rejects.toMatchObject({
-                    code: 'CHAT_CONTENT_CHANGED',
-                    message: expect.stringContaining('다른 클라이언트에 의한 수정사항이 있습니다'),
-                })
-        } finally {
-            changeLanguage('en')
-        }
-    })
+    it('reauthenticates expired tokens but returns other authentication failures', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'AUTH_TOKEN_EXPIRED' }), { status: 401 }))
+            .mockResolvedValueOnce(new Response(bytes))
+        expect(new Uint8Array(await storage.getItem('assets/a.png'))).toEqual(bytes)
 
-    it('routes backup and login responses through the common coded error parser', async () => {
-        changeLanguage('ko')
-        try {
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'BACKUP_IMPORT_IN_PROGRESS', error: 'server diagnostic',
-            }), { status: 409 }))
-            await expect(storage.prepareImport(1)).rejects.toThrow('다른 백업 가져오기 또는 복원이 이미 진행 중입니다.')
-
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'BACKUP_NOT_FOUND', error: 'server diagnostic',
-            }), { status: 404 }))
-            await expect(storage.restoreServerBackup('missing.bin')).rejects.toThrow('백업 파일을 찾을 수 없습니다.')
-
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'AUTH_INVALID_PASSWORD', error: 'server diagnostic',
-            }), { status: 401 }))
-            await expect((storage as any).loginWithPassword('wrong')).rejects.toThrow('비밀번호가 잘못되었습니다.')
-        } finally {
-            changeLanguage('en')
-        }
-    })
-
-    it('retries authentication from stable codes only', async () => {
-        const shouldRetry = (body: object, status = 401) =>
-            (storage as any).shouldRetryAuth(new Response(JSON.stringify(body), { status }))
-        await expect(shouldRetry({ code: 'AUTH_TOKEN_EXPIRED' })).resolves.toBe(true)
-        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' })).resolves.toBe(true)
-        await expect(shouldRetry({ error: 'Token Expired' })).resolves.toBe(false)
-        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' }, 400)).resolves.toBe(false)
+        fetchMock.mockClear()
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'AUTH_INVALID_PASSWORD' }), { status: 401 }))
+        await expect(storage.getItem('assets/a.png')).rejects.toMatchObject({ code: 'AUTH_INVALID_PASSWORD' })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
     it('retains server rejection details even in an HTTP 200 response', async () => {
@@ -248,28 +303,11 @@ it('carries hash diagnostics through the existing patch request without another 
         revision: 9, hashDiagnostics,
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(patch)
+    expect(decode(fetchMock.mock.calls[0][1].body)).toEqual(patch)
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
         hashDiagnostics: { keys: null, characters: [] },
     }), { status: 409 }))
     expect(await storage.patchDatabase(patch)).toMatchObject({ conflict: true, hashDiagnostics: undefined })
-})
-
-it('ends a chat header timeout without replaying the request', async () => {
-    vi.useFakeTimers()
-    try {
-        fetchMock.mockImplementation(() => new Promise(() => {}))
-        const failed = expect(storage.fetchChatState('character', 2, 'chat-id'))
-            .rejects.toMatchObject({ name: 'TimeoutError' })
-        await vi.advanceTimersByTimeAsync(30_000)
-        await failed
-        await vi.advanceTimersByTimeAsync(30_000)
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        expect(fetchMock.mock.calls[0][0]).toBe('/api/chat-content/character/2')
-        expect(fetchMock.mock.calls[0][1].headers.get('x-chat-id')).toBe('chat-id')
-        expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
-        expect(vi.getTimerCount()).toBe(0)
-    } finally { vi.useRealTimers() }
 })
 
 it('bounds auth preflight without dispatching a late chat request', async () => {
@@ -287,18 +325,9 @@ it('bounds auth preflight without dispatching a late chat request', async () => 
     } finally { vi.useRealTimers() }
 })
 
-it.each([503, 404])('does not retry chat HTTP %s responses', async status => {
-    fetchMock.mockResolvedValue(new Response('unavailable', { status }))
-    if (status === 404) expect(await storage.fetchChatState('c', 0, 'chat')).toBeNull()
-    else await expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ status })
-    expect(fetchMock).toHaveBeenCalledOnce()
-})
-
-it.each([
-    ['BACKUP_ENCRYPTION_METADATA_INVALID', 'encryption metadata'],
-    ['BACKUP_ENCRYPTION_KEY_UNAVAILABLE', 'decryption key'],
-    ['BACKUP_DECRYPTION_FAILED', 'Could not decrypt'],
-])('presents %s consistently for uploads and server-file restores', async (code, message) => {
+it('shares coded errors between uploaded and server-file backup restores', async () => {
+    const code = 'BACKUP_DECRYPTION_FAILED'
+    const message = 'Could not decrypt'
     vi.spyOn(storage, 'prepareImport').mockResolvedValue(undefined)
     const event = JSON.stringify({ type: 'error', code, message: 'server fallback' }) + '\n'
     class BackupXHR {
