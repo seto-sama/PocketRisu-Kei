@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { createEntityId } from 'src/ts/id';
 
 type MsgType =
@@ -405,7 +406,7 @@ await (async function() {
 
     try {
         const propsToInit = await window.risuai._getPropertiesForInitialization();
-        ${import.meta.env.DEV ? "console.log('Initializing risuai properties:', propsToInit.list);" : ''}
+        ${isDebugEnabled() ? "console.debug('Initializing risuai properties:', propsToInit.list);" : ''}
         for (let i = 0; i < propsToInit.list.length; i++) {
             const key = propsToInit.list[i];
             const value = propsToInit[key];
@@ -853,9 +854,9 @@ export class SandboxHost {
                     for (const id of usedAbortIds) this.abortControllers.delete(id);
                 }
 
-                if (import.meta.env.DEV) {
-                    console.log("Original request:", data);
-                    console.log('Original response:', response, transferables);
+                if (isDebugEnabled()) {
+                    console.debug("Original request:", data);
+                    console.debug('Original response:', response, transferables);
                 }
                 try {
                     this.iframe.contentWindow?.postMessage(response, '*', transferables);

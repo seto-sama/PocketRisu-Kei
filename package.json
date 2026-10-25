@@ -17,7 +17,8 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "debug": "node server/debug.cjs",
+    "dev": "node server/server.cjs --dev",
     "build": "vite build --sourcemap",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",

@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import { language } from '../../lang'
 import { getDatabase, setDatabaseLite } from '../storage/database.svelte'
@@ -237,8 +238,8 @@ export async function importPlugin(code:string|null = null, argu:{
                     let metaStr = provied.slice(3).join(' ').replace(
                         /{{(.+?)(::?(.+?))?}}/g,
                         (a,g1:string,g2,g3:string) => {
-                            if (import.meta.env.DEV) {
-                                console.log(g1,g3)
+                            if (isDebugEnabled()) {
+                                console.debug(g1,g3)
                             }
                             meta[g1] = g3 || '1'
                             return ''
@@ -368,8 +369,8 @@ export async function importPlugin(code:string|null = null, argu:{
             db.plugins.push(pluginData)
         }
 
-        if (import.meta.env.DEV) {
-            console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
+        if (isDebugEnabled()) {
+            console.debug(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
         }
         setDatabaseLite(db)
         void requestImmediateSave()

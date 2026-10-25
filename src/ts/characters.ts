@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage, setChatPage, initializeChatSelection } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
@@ -110,16 +111,16 @@ export async function selectCharImg(charIndex:number) {
                     continue
                 }
                 if(allowedChunk.includes(chunk.key)){
-                    if (import.meta.env.DEV) {
-                        console.log(chunk.key, chunk.value)
+                    if (isDebugEnabled()) {
+                        console.debug(chunk.key, chunk.value)
                     }
                     db.characters[charIndex].extentions ??= {}
                     db.characters[charIndex].extentions.pngExif ??= {}
                     db.characters[charIndex].extentions.pngExif[chunk.key] = chunk.value
                 }
             }
-            if (import.meta.env.DEV) {
-                console.log(db.characters[charIndex].extentions)
+            if (isDebugEnabled()) {
+                console.debug(db.characters[charIndex].extentions)
             }
         }   
     } catch (error) {

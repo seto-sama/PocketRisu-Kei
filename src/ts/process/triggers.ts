@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { parseChatML } from "../parser/chatML";
 import { risuChatParser } from "../parser/parser.svelte";
 import { getDatabase, type Chat, type character } from "../storage/database.svelte";
@@ -1282,8 +1283,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                 const payload = triggerAction.payload
                 switch(triggerAction.kind){
                     case 'log':
-                        if (import.meta.env.DEV) {
-                            console.log(payload.value)
+                        if (isDebugEnabled()) {
+                            console.debug(payload.value)
                         }
                         break
                     case 'prompt.append':

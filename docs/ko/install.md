@@ -216,6 +216,21 @@ pnpm build
 pnpm runserver
 ```
 
+### 디버그 로그
+
+`pnpm runserver` 대신 `pnpm debug`로 실행하면 서버 진단과 브라우저 디버그 로그, 채팅 저장 상세 진단이 함께 켜집니다. 서버를 재시작한 뒤 브라우저도 새로고침하세요. 브라우저 개발자 도구에서 **Verbose(상세)** 콘솔 수준을 켜면 로그를 볼 수 있습니다. 디버그 메시지는 시스템 로그 DB에 저장되지 않습니다.
+
+개발 모드는 `pnpm dev`, 디버그 로그도 보려면 `pnpm debug dev`로 실행하세요. 개발 모드만으로는 디버그 로그가 켜지지 않습니다.
+
+디버그 명령들은 Node의 `NODE_DEBUG=pocketrisu` 설정을 켭니다. 빌드된 앱도 재빌드 없이 `NODE_DEBUG=pocketrisu pnpm runserver`로 로그를 켤 수 있습니다.
+
+개발 패널은 별도로 유지됩니다. 브라우저 콘솔에서 다음을 실행하면 켜집니다.
+
+```js
+localStorage.setItem('risu-dev-panel', '1')
+location.reload()
+```
+
 ### 로컬 폰트
 
 폰트 파일은 저장소에 포함하지 않습니다. 사용 권한이 있는 폰트를 직접 포함하려면:

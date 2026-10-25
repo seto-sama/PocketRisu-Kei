@@ -140,7 +140,7 @@ class RisuSaveDecoder {
 
                 // Skipped before decompression so a corrupt payload is still reported.
                 if (type === RisuSaveType.UNSUPPORTED_KV) {
-                    logger.warn(`[RisuSaveDecoder] Skipping unsupported SaveKV block ${name}`);
+                    logger.debug(`[RisuSaveDecoder] Skipping unsupported SaveKV block ${name}`);
                     this.skippedBlocks.push(name);
                     continue;
                 }

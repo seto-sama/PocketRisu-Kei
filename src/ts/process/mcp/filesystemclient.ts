@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { MCPClientLike } from "./internalmcp";
 import type { MCPTool, RPCToolCallContent } from "./mcplib";
 
@@ -30,8 +31,8 @@ export class FileSystemClient extends MCPClientLike {
             if (!this.directoryHandle) {
                 throw new Error("Directory selection was cancelled or failed.");
             }
-            if (import.meta.env.DEV) {
-                console.log(`FileSystemClient: Selected directory: ${this.directoryHandle.name}`);
+            if (isDebugEnabled()) {
+                console.debug(`FileSystemClient: Selected directory: ${this.directoryHandle.name}`);
             }
         } catch (error) {
             throw new Error("Directory selection cancelled or failed. Please try again.");

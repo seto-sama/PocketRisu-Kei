@@ -216,6 +216,21 @@ pnpm build
 pnpm runserver
 ```
 
+### Debug logs
+
+Run `pnpm debug` instead of `pnpm runserver` to enable server diagnostics and browser debug logs, including chat-save diagnostics. Reload the browser after restarting the server. In browser developer tools, enable the **Verbose** console level to see these messages. Debug messages are not stored in the system log database.
+
+For development, run `pnpm dev`, or `pnpm debug dev` with debug logs. Development mode alone does not enable debug logs.
+
+The debug commands enable Node's `NODE_DEBUG=pocketrisu` setting; an existing build can also use `NODE_DEBUG=pocketrisu pnpm runserver` without rebuilding.
+
+The developer panel remains separate. Enable it in the browser console, then reload:
+
+```js
+localStorage.setItem('risu-dev-panel', '1')
+location.reload()
+```
+
 ### Local Fonts
 
 Local font files are intentionally not included in the repository. To bundle fonts that you are licensed to use:

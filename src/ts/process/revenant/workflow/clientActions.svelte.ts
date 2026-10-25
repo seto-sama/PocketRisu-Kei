@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createEntityId } from 'src/ts/id';
 import { get } from 'svelte/store'
@@ -256,8 +257,8 @@ async function executeClientAction(
                         : getChatPage(character))
                 }
                 else if (effect.kind === 'log') {
-                    if (import.meta.env.DEV) {
-                        console.log(effect.value)
+                    if (isDebugEnabled()) {
+                        console.debug(effect.value)
                     }
                 }
                 else if (effect.kind === 'tts') {

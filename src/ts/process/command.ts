@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { setMessageContent } from 'src/ts/storage/messageContent'
 import { get } from "svelte/store";
@@ -26,13 +27,13 @@ export async function processMultiCommand(command:string) {
         }
     }
     splited.push(command.slice(lastIndex))
-    if (import.meta.env.DEV) {
-        console.log(splited)
+    if (isDebugEnabled()) {
+        console.debug(splited)
     }
     for(let i = 0; i<splited.length; i++){
         const result = await processCommand(splited[i].trim(), pipe)
-        if (import.meta.env.DEV) {
-            console.log(pipe)
+        if (isDebugEnabled()) {
+            console.debug(pipe)
         }
         if(result === false){
             return false
@@ -182,8 +183,8 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             return ''
         }
         case 'setvar':{
-            if (import.meta.env.DEV) {
-                console.log(namedArg, arg)
+            if (isDebugEnabled()) {
+                console.debug(namedArg, arg)
             }
             const db = getDatabase()
             const selectedChar = get(selectedCharID)
@@ -191,8 +192,8 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             const chat = char.chats[getChatPage(char)]
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = arg
-            if (import.meta.env.DEV) {
-                console.log(chat.scriptstate)
+            if (isDebugEnabled()) {
+                console.debug(chat.scriptstate)
             }
 
             char.chats[getChatPage(char)] = chat
@@ -224,8 +225,8 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
         }
         case 'test_lorebook':{
             const p = await loadLoreBookV3Prompt()
-            if (import.meta.env.DEV) {
-                console.log(p)
+            if (isDebugEnabled()) {
+                console.debug(p)
             }
             alertNormal(p.actives.map((e)=>e.prompt).join('§'))
             return JSON.stringify(p)

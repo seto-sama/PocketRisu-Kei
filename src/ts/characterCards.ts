@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
@@ -135,8 +136,8 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     db.statics.imports += 1
 
     if(fileName.endsWith('.charx') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')){
-        if (import.meta.env.DEV) {
-            console.log('reading charx')
+        if (isDebugEnabled()) {
+            console.debug('reading charx')
         }
         alertStore.set({
             type: 'wait',
@@ -632,8 +633,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         return false
     }
 
-    if (import.meta.env.DEV) {
-        console.log(`Importing ${card.spec}, mode is ${mode}`)
+    if (isDebugEnabled()) {
+        console.debug(`Importing ${card.spec}, mode is ${mode}`)
     }
 
     const data = card.data

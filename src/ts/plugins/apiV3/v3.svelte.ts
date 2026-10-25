@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { handlePluginInstallViaPlugin, type RisuPlugin } from '../plugins.svelte'
 import { allowedDbKeys, createPluginApis } from '../pluginApi.svelte'
 import { pluginProviderRequestContextKey, pluginRuntime, type PluginProviderRequestContext, type PluginProviderArgument, type PluginProviderFunction } from '../pluginRuntime'
@@ -1300,8 +1301,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             removeChatPanel(id);
         },
         log: (message:string) => {
-            if (import.meta.env.DEV) {
-                console.log(`[RisuAI Plugin: ${plugin.name}] ${message}`);
+            if (isDebugEnabled()) {
+                console.debug(`[RisuAI Plugin: ${plugin.name}] ${message}`);
             }
         },
         createMutationObserver(callback: SafeMutationCallback): SafeMutationObserver {
@@ -1557,8 +1558,8 @@ async function executePluginV3(plugin:RisuPlugin){
 
     const alreadyRunning = v3PluginInstances.find(p => p.name === plugin.name);
     if(alreadyRunning){
-        if (import.meta.env.DEV) {
-            console.log(`[RisuAI Plugin: ${plugin.name}] Plugin is already running. Skipping load.`);
+        if (isDebugEnabled()) {
+            console.debug(`[RisuAI Plugin: ${plugin.name}] Plugin is already running. Skipping load.`);
         }
         return;
     }
@@ -1572,8 +1573,8 @@ async function executePluginV3(plugin:RisuPlugin){
         host
     });
     host.run(iframe, plugin.script);
-    if (import.meta.env.DEV) {
-        console.log(`[RisuAI Plugin: ${plugin.name}] Loaded API V3 plugin.`);
+    if (isDebugEnabled()) {
+        console.debug(`[RisuAI Plugin: ${plugin.name}] Loaded API V3 plugin.`);
     }
 }
 

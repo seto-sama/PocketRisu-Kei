@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { tokenizeAccurate } from "../tokenizer";
 import type { botPreset } from "../storage/database.svelte";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
@@ -190,8 +191,8 @@ export function stChatConvert(pre:any){
                     break
                 }
                 default:{
-                    if (import.meta.env.DEV) {
-                        console.log(p)
+                    if (isDebugEnabled()) {
+                        console.debug(p)
                     }
                     promptTemplate.push({
                         type: 'plain',
@@ -203,8 +204,8 @@ export function stChatConvert(pre:any){
             }
         }
         else{
-            if (import.meta.env.DEV) {
-                console.log("Prompt not found", prompt)
+            if (isDebugEnabled()) {
+                console.debug("Prompt not found", prompt)
             }
         
         }

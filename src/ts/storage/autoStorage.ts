@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import {
     NodeStorage,
@@ -36,8 +37,8 @@ export class AutoStorage{
 
     async Init(){
         if(!this.realStorage){
-            if (import.meta.env.DEV) {
-                console.log("using node storage")
+            if (isDebugEnabled()) {
+                console.debug("using node storage")
             }
             this.realStorage = new NodeStorage()
         }

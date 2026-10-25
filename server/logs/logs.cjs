@@ -1,6 +1,7 @@
 'use strict';
 
 const { systemDb: db } = require('./logDatabases.cjs');
+const { debuglog } = require('node:util');
 
 const MAX_ROWS = 5000;
 const MAX_DESCRIPTION_BYTES = 10 * 1024; // 10KB per entry
@@ -215,6 +216,7 @@ function makeServerLogger() {
     }
     // varargs-compatible — drop-in for console.error / console.warn
     return {
+        debug: debuglog('pocketrisu'),
         error: (...args) => { log('error', args); markLogged(args); console.error(...args); },
         warning: (...args) => { log('warning', args); markLogged(args); console.warn(...args); },
         warn: (...args) => { log('warning', args); markLogged(args); console.warn(...args); },

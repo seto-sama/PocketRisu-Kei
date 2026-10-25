@@ -31,21 +31,12 @@ export default defineConfig({
     ],
 
     clearScreen: false,
-    server: {
-      host: '0.0.0.0',
-      port: 5174,
-      strictPort: true,
-    },
     build: {
       target:'baseline-widely-available',
       minify: 'oxc',
       // The tiktoken vocabulary chunk is large but lazy-loaded.
       chunkSizeWarningLimit: 2500,
       rolldownOptions: {
-        // App debug arguments are guarded; remove debug calls from bundled libraries.
-        treeshake: {
-          manualPureFunctions: ['console.log', 'console.debug', 'console.table'],
-        },
         checks: {
           // Plugin timings vary with WASM parsing and are not actionable build checks.
           pluginTimings: false,

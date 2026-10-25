@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { isDebugEnabled } from 'src/ts/debug'
     import isEqual from "fast-deep-equal"
     import { DBState } from 'src/ts/stores.svelte'
     import { alertError } from "../../ts/alert"
@@ -540,8 +541,8 @@
 
             imgs.forEach(async (img) => {
                 const name = img.getAttribute('src')?.toLocaleLowerCase() || ''
-                if (import.meta.env.DEV) {
-                    console.log(name)
+                if (isDebugEnabled()) {
+                    console.debug(name)
                 }
 
                 if(
@@ -553,8 +554,8 @@
                 }
                 
                 const foundAsset = exactAssets.get(name)
-                if (import.meta.env.DEV) {
-                    console.log('Checking image:', name, 'Assets:', assets)
+                if (isDebugEnabled()) {
+                    console.debug('Checking image:', name, 'Assets:', assets)
                 }
                 if(foundAsset){
                     img.classList.add('root-loaded-image')

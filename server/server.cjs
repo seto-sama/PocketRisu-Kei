@@ -2,6 +2,8 @@ const { chatMetadataFields } = require('../shared/chatShape.mjs');
 const express = require('express');
 
 const app = express();
+const isDevelopment = process.argv.includes('--dev');
+let viteDevServer = null;
 const http = require('http');
 const https = require('https');
 const path = require('path');
@@ -690,12 +692,14 @@ function shouldCompress(req, res) {
 app.use(compression({
     filter: shouldCompress,
 }));
-// Vite 산출물은 해시 파일명이므로 /assets는 장기 캐시 안전
-app.use('/assets', express.static(path.join(process.cwd(), 'dist/assets'), {
-    maxAge: '1y',
-    immutable: true,
-}));
-app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
+if (!isDevelopment) {
+    // Vite 산출물은 해시 파일명이므로 /assets는 장기 캐시 안전
+    app.use('/assets', express.static(path.join(process.cwd(), 'dist/assets'), {
+        maxAge: '1y',
+        immutable: true,
+    }));
+    app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
+}
 
 const authState = {
     password: '',
@@ -1819,6 +1823,7 @@ function setupGenerationWebSocket(server) {
     const syncWsServer = new WebSocketServer({ noServer: true });
     server.on('upgrade', async (req, socket, head) => {
         try {
+            if (viteDevServer && ['vite-hmr', 'vite-ping'].includes(req.headers['sec-websocket-protocol'])) return;
             const reqUrl = new URL(req.url, `http://${req.headers.host}`);
             if (reqUrl.pathname === '/sync') {
                 const auth = reqUrl.searchParams.get('risu-auth') || normalizeAuthHeader(req.headers['risu-auth']);
@@ -2265,6 +2270,7 @@ installRevenantGenerationRoutes(app, {
 require('./routes/web.cjs').installWebRoutes(app, {
     enablePatchSync,
     isCloudflareTunnelRequest,
+    getDevServer: () => viteDevServer,
 });
 
 require('./routes/proxy.cjs').installProxyRoutes(app, {
@@ -2452,6 +2458,10 @@ driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
     },
 });
 
+if (isDevelopment) {
+    app.use((req, res, next) => viteDevServer.middlewares(req, res, next));
+}
+
 // ─── Express error middleware — must be registered after all routes ─────────
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
@@ -2503,26 +2513,23 @@ async function startServer() {
         await migrateInlaysToFilesystem();
         const port = process.env.PORT || 6001;
         const httpsOptions = await getHttpsOptions();
-        let server;
-
-        if (httpsOptions) {
-            // HTTPS
-            tunnelState.serverIsHttps = true;
-            server = https.createServer(httpsOptions, app);
-            setupGenerationWebSocket(server);
-            server.listen(port, () => {
-                console.log("[Server] HTTPS server is running.");
-                console.log(`[Server] https://localhost:${port}/`);
+        const protocol = httpsOptions ? 'https' : 'http';
+        const server = httpsOptions ? https.createServer(httpsOptions, app) : http.createServer(app);
+        tunnelState.serverIsHttps = Boolean(httpsOptions);
+        if (isDevelopment) {
+            const { createServer: createViteServer } = await import('vite');
+            viteDevServer = await createViteServer({
+                root: path.join(__dirname, '..'),
+                appType: 'custom',
+                server: { middlewareMode: true, ws: { server } },
             });
-        } else {
-            // HTTP
-            server = http.createServer(app);
-            setupGenerationWebSocket(server);
-            server.listen(port, () => {
-                console.log("[Server] HTTP server is running.");
-                console.log(`[Server] http://localhost:${port}/`);
-            });
+            console.log('[Server] Vite development mode enabled.');
         }
+        setupGenerationWebSocket(server);
+        server.listen(port, () => {
+            console.log(`[Server] ${protocol.toUpperCase()} server is running.`);
+            console.log(`[Server] ${protocol}://localhost:${port}/`);
+        });
     } catch (error) {
         logger.error('[Server] Failed to start server :', error);
         process.exit(1);
@@ -2566,6 +2573,7 @@ async function rebuildMissingGenerationProjections() {
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
+        await viteDevServer?.close();
         stopTunnel();
         await driveRoutes.stopTrashCleanup();
         const generationRuns = [];

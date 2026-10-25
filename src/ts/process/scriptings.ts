@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { asBuffer } from 'src/ts/util';
 import { getChatVarOf, getGlobalChatVar, setChatVarOf } from "../parser/chatVar.svelte";
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
@@ -234,8 +235,8 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('logMain', (value:string) => {
-                if (import.meta.env.DEV) {
-                    console.log(JSON.parse(value))
+                if (isDebugEnabled()) {
+                    console.debug(JSON.parse(value))
                 }
             })
 

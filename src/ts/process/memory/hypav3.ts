@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { type HypaModel, DEFAULT_HYPA_MODEL } from "./hypamemory";
 import { TaskConcurrencyLimiter } from "./taskConcurrencyLimiter";
 import { createClientHypaEmbedder } from "./hypaSelectionEmbedder";
@@ -308,17 +309,17 @@ async function executeHypaSummaryBatches(
         })
     );
 
-    if (import.meta.env.DEV) {
-        console.log(logPrefix, `Starting ${batches.length} summarization.`);
+    if (isDebugEnabled()) {
+        console.debug(logPrefix, `Starting ${batches.length} summarization.`);
     }
-    const startedAt = import.meta.env.DEV ? performance.now() : 0;
+    const startedAt = isDebugEnabled() ? performance.now() : 0;
     try {
         const batchResult = useDurableDispatch
             ? await executeDurableHypaBatch<string>(tasks)
             : await concurrencyLimiter.executeBatch<string>(
                 tasks.map(task => () => task())
             );
-        if (import.meta.env.DEV) {
+        if (isDebugEnabled()) {
             console.debug(
                 `${logPrefix} summarization completed in ${performance.now() - startedAt}ms`
             );
@@ -580,8 +581,8 @@ async function hypaMemoryV3Main(
     }
     currentTokens += reservedMemoryTokens;
 
-    if (import.meta.env.DEV) {
-        console.log(
+    if (isDebugEnabled()) {
+        console.debug(
             logPrefix,
             "Starting index:",
             startIdx,
@@ -635,8 +636,8 @@ async function hypaMemoryV3Main(
         }
 
         if (toSummarize.length > 0) {
-            if (import.meta.env.DEV) {
-                console.log(logPrefix, "Collecting summarization batch:", "\nTarget:", toSummarize);
+            if (isDebugEnabled()) {
+                console.debug(logPrefix, "Collecting summarization batch:", "\nTarget:", toSummarize);
             }
             summarizationBatches.push(toSummarize);
         }
@@ -671,8 +672,8 @@ async function hypaMemoryV3Main(
             room.hypaV3Data = toSerializableHypaV3Data(data);
             await recoverHypaV3SummaryJobs(char, room);
         } catch (error) {
-            if (import.meta.env.DEV) {
-                console.log(logPrefix, "Summarization failed:", `\n${error}`);
+            if (isDebugEnabled()) {
+                console.debug(logPrefix, "Summarization failed:", `\n${error}`);
             }
             return {
                 currentTokens,
@@ -812,10 +813,10 @@ function cleanOrphanedSummary(chats: OpenAIChat[], data: HypaV3Data): void {
         return isSubset(summary.chatMemos, currentChatMemos);
     });
 
-    if (import.meta.env.DEV) {
+    if (isDebugEnabled()) {
         const removedCount = originalLength - data.summaries.length;
         if (removedCount > 0) {
-            console.log(logPrefix, `Cleaned ${removedCount} orphaned summaries.`);
+            console.debug(logPrefix, `Cleaned ${removedCount} orphaned summaries.`);
         }
     }
 }

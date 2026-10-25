@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { setMessageContent } from 'src/ts/storage/messageContent'
 import { Buffer } from 'buffer'
@@ -104,7 +105,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
         const currentChar = getCurrentCharacter()
         if(currentChar){
             try{
-                const perf = import.meta.env.DEV ? performance.now() : 0
+                const perf = isDebugEnabled() ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'display', {
                     chat: getCurrentChat(),
                     displayMode: true,
@@ -112,8 +113,8 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                 })
     
                 data = d?.displayData ?? data
-                if (import.meta.env.DEV) {
-                    console.log('Trigger time', performance.now() - perf)
+                if (isDebugEnabled()) {
+                    console.debug('Trigger time', performance.now() - perf)
                 }
             }
             catch(e){

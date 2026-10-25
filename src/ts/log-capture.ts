@@ -1,5 +1,5 @@
 // Capture console warnings/errors and unhandled errors in system logs.
-// Debug output from console.log is intentionally excluded.
+// Debug output stays in the console and is not persisted.
 import { addLog, type LogLevel } from './log'
 
 // Keep native methods so callers that already use addLog can avoid duplicate entries.

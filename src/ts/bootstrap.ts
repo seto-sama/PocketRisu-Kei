@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { isTrashExpired } from './trashRetention';
 import { checkNullish } from "./util"
 import { createEntityId } from 'src/ts/id';
@@ -438,8 +439,8 @@ async function checkNewFormat(): Promise<void> {
                         await alertMd(language.bootstrap.diagnosticInformation(reportData));
                         await waitAlert();
                         
-                        if (import.meta.env.DEV) {
-                            console.log('Diagnostic information for developers:', diagnosticInfo);
+                        if (isDebugEnabled()) {
+                            console.debug('Diagnostic information for developers:', diagnosticInfo);
                         }
                     } catch (reportError) {
                         console.error('Failed to generate diagnostic report:', reportError);
@@ -450,8 +451,8 @@ async function checkNewFormat(): Promise<void> {
                 
                 if (shouldReset) {
                     v.lorebook = [];
-                    if (import.meta.env.DEV) {
-                        console.log('Lorebook reset to empty array by user choice');
+                    if (isDebugEnabled()) {
+                        console.debug('Lorebook reset to empty array by user choice');
                     }
                 } else {
                     console.warn('User chose to keep corrupted lorebook data');

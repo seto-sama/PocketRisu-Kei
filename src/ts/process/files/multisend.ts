@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getDatabase, setDatabase } from 'src/ts/storage/database.svelte';
@@ -28,8 +29,8 @@ async function sendPofile(arg:sendFileArg){
     let currentChat = currentChar.chats[getChatPage(currentChar)]
     const lines = arg.file.split('\n')
     for(let i=0;i<lines.length;i++){
-        if (import.meta.env.DEV) {
-            console.log(i)
+        if (isDebugEnabled()) {
+            console.debug(i)
         }
         const line = lines[i]
         if(line === ''){
@@ -112,8 +113,8 @@ async function buildFileContext(texts: string[], query: string): Promise<string>
     await hypa.addText(texts)
     const result = await hypa.similaritySearch(query)
     const message = result.slice(0, FILE_CONTEXT_CHUNKS).map(text => `\n${text}`).join('')
-    if (import.meta.env.DEV) {
-        console.log(message)
+    if (isDebugEnabled()) {
+        console.debug(message)
     }
     return Buffer.from(`<File>\n${message}\n</File>\n`).toString('base64')
 }
@@ -189,8 +190,8 @@ export async function postChatFile(query:string|{
 
     for(const file of files){
         const extention = file.name.split('.').at(-1)
-        if (import.meta.env.DEV) {
-            console.log(extention)
+        if (isDebugEnabled()) {
+            console.debug(extention)
         }
 
         switch(extention){

@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
@@ -592,8 +593,8 @@ export async function loadLoreBookV3Prompt(options: {
 
     // Apply lore injection after budgeting to avoid another token-count pass.
 
-    if (import.meta.env.DEV) {
-        console.log('loreinjectionLores', loreinjectionLores)
+    if (isDebugEnabled()) {
+        console.debug('loreinjectionLores', loreinjectionLores)
     }
     for(const lore of loreinjectionLores){
         const foundLoreIndex = activesResorted.findIndex((l) => {

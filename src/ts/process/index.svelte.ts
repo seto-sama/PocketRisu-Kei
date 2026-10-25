@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { get, writable } from "svelte/store";
@@ -709,8 +710,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const normalActives = lorepmt.actives.filter(v => {
         return v.pos === '' && v.inject === null
     })
-    if (import.meta.env.DEV) {
-        console.log(normalActives)
+    if (isDebugEnabled()) {
+        console.debug(normalActives)
     }
 
     for(const lorebook of normalActives){
@@ -794,8 +795,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     currentTokens += 50
     
     const positionParser = (text:string, loc:string) => {
-        if (import.meta.env.DEV) {
-            console.log(injectionLorePosSet)
+        if (isDebugEnabled()) {
+            console.debug(injectionLorePosSet)
         }
         if(injectionLorePosSet.has(loc)){
             const matchings = injectionLorebooks.filter(v => {
@@ -1065,8 +1066,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
     
-    if (import.meta.env.DEV) {
-        console.log('Prepared messages for token calculation:', ms)
+    if (isDebugEnabled()) {
+        console.debug('Prepared messages for token calculation:', ms)
     }
 
     let triggerAdditionalSysPrompt:additonalSysPrompt|undefined
@@ -1217,8 +1218,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
         index++
     }
-    if (import.meta.env.DEV) {
-        console.log(chats)
+    if (isDebugEnabled()) {
+        console.debug(chats)
     }
 
     const depthPrompts = lorepmt.actives.filter(v => {
@@ -1237,8 +1238,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
         chatProcessStage.set(2)
         stageTimings.stage2Start = Date.now()
-        if (import.meta.env.DEV) {
-            console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+        if (isDebugEnabled()) {
+            console.debug("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
         }
         const sp = await hypaMemoryV3(
             chats,
@@ -1259,8 +1260,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 currentChat.hypaV3Data = sp.memory
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
             }
-            if (import.meta.env.DEV) {
-                console.log(sp)
+            if (isDebugEnabled()) {
+                console.debug(sp)
             }
             if(abortSignal.aborted) return finishCancelledGeneration()
             throwError(sp.error)
@@ -1280,8 +1281,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
-        if (import.meta.env.DEV) {
-            console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+        if (isDebugEnabled()) {
+            console.debug("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
         }
         stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
         if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
@@ -1928,16 +1929,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    if (import.meta.env.DEV) {
-        console.log(req)
+    if (isDebugEnabled()) {
+        console.debug(req)
     }
     arg.onMainRequestResult?.({
         toolExecuted: req.type === 'success' && req.toolExecuted === true,
     })
     if(req.model){
         generationInfo.model = getGenerationModelString(req.model)
-        if (import.meta.env.DEV) {
-            console.log(generationInfo.model, req.model)
+        if (isDebugEnabled()) {
+            console.debug(generationInfo.model, req.model)
         }
     }
     try {

@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { MCPClient, type JsonRPC, type MCPTool, type RPCToolCallContent } from "./mcplib";
 import { DBState } from "src/ts/stores.svelte";
@@ -216,8 +217,8 @@ export async function importMCPModule(source:string):Promise<boolean>{
 
     try {
         const metas = (await getMCPMeta([x]))
-        if (import.meta.env.DEV) {
-            console.log(metas)
+        if (isDebugEnabled()) {
+            console.debug(metas)
         }
         const meta = metas[x];
         if(!meta) {

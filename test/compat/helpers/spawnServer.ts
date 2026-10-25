@@ -42,6 +42,7 @@ async function getFreePort(): Promise<number> {
 }
 
 export interface SpawnServerOptions {
+  args?: string[]
   /** Extra env vars to pass to the spawned server process. */
   env?: Record<string, string>
   /**
@@ -63,7 +64,7 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
 
   const child: ChildProcess = spawn(
     process.execPath,
-    [SERVER_SCRIPT],
+    [SERVER_SCRIPT, ...(opts.args ?? [])],
     {
       cwd: tempDir,
       env: { ...process.env, PORT: String(port), NODE_ENV: 'test', ...opts.env },

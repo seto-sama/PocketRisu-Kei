@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import { isNodeServer } from '../../platform'
 import { asBuffer } from '../../util'
@@ -225,7 +226,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         try{
             const currentChar = arg.currentChar ?? getCurrentCharacter()
             if(currentChar){
-                const perf = import.meta.env.DEV ? performance.now() : 0
+                const perf = isDebugEnabled() ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'request', {
                     chat: arg.currentChat ?? getCurrentChat(),
                     displayMode: true,
@@ -237,8 +238,8 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
                     throw new Error('Invalid return')
                 }
                 arg.formated = got
-                if (import.meta.env.DEV) {
-                    console.log('Trigger time', performance.now() - perf)
+                if (isDebugEnabled()) {
+                    console.debug('Trigger time', performance.now() - perf)
                 }
             }
         }
@@ -288,8 +289,8 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         if(da.type === 'success' && db.banCharacterset?.length > 0){
             let failed = false
             for(const set of db.banCharacterset){
-                if (import.meta.env.DEV) {
-                    console.log(set)
+                if (isDebugEnabled()) {
+                    console.debug(set)
                 }
                 const checkRegex = new RegExp(`\\p{Script=${set}}`, 'gu')
 

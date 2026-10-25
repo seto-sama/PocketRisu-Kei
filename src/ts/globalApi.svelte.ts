@@ -1,4 +1,5 @@
 export { globalFetch } from './network/globalFetch';
+import { isDebugEnabled } from './debug'
 import { getChatPage, setChatPage } from './storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { checkNullish, sleep } from "./util"
@@ -253,19 +254,6 @@ function showChatGuardToastThrottled(source: 'client' | 'server') {
 // path via showPersistWarningOnce, so a single corruption won't repeat-toast.
 const CHAT_GUARD_PERSIST_TOAST_INTERVAL_MS = 30 * 1000
 let lastChatGuardPersistToastTs = 0
-
-// Verbose chat-guard dump is gated behind a localStorage flag so chronic
-// root-cause environments (e.g. a still-corrupt v1.4.x install) don't flood
-// the console every 5-second save cycle. Toggle with:
-//   localStorage.setItem('risu-chat-guard-debug', '1')
-const CHAT_GUARD_DEBUG_KEY = 'risu-chat-guard-debug'
-function isChatGuardDebugEnabled(): boolean {
-    try {
-        return typeof localStorage !== 'undefined' && localStorage.getItem(CHAT_GUARD_DEBUG_KEY) === '1'
-    } catch {
-        return false
-    }
-}
 
 function showChatGuardPersistAbortToast() {
     const now = Date.now()
@@ -1062,17 +1050,16 @@ export async function saveDb(onReady?: () => Promise<void>) {
             if (dangerous.length > 0) {
                 // Always log a one-line summary so production environments
                 // see enough to file a bug report. The rich dump below is
-                // gated behind a localStorage flag — chronic loops would
-                // otherwise dump 5 console.errors every 5s save cycle.
+                // enabled by pnpm debug to keep repeated failures concise.
                 const sampleOps = dangerous.slice(0, 3).map(d => `${d.op} ${d.path}`).join(', ')
                 console.error(
                     `[Save] Patcher emitted ${dangerous.length} chat-internal field op(s) — `
                     + `${isNodeServer ? 'refreshing projection baseline' : 'falling back to full write'}. sample: ${sampleOps}`
-                    + ` (verbose dump: localStorage.setItem('${CHAT_GUARD_DEBUG_KEY}', '1') then reproduce)`
+                    + ' (verbose dump: restart with pnpm debug and reload the page)'
                 )
                 showChatGuardToastThrottled('client')
 
-                if (isChatGuardDebugEnabled()) {
+                if (isDebugEnabled()) {
                 // Compare baseline/current shapes and replay chatToStub to locate leaked fields.
                 const affectedChats: Record<string, any> = {}
                 const seen = new Set<string>()
@@ -1180,16 +1167,16 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
                 let activeCharID = -1
                 try { selectedCharID.subscribe(v => { activeCharID = v })() } catch {}
-                console.error('[Save:guard-debug] context:', {
+                console.debug('[Save:guard-debug] context:', {
                     baselineCharsLen,
                     currentCharsLen,
                     selectedCharID: activeCharID,
                     totalDangerousOps: dangerous.length,
                     uniqueAffectedChats: seen.size,
                 })
-                console.error('[Save:guard-debug] all dangerous ops:', dangerous)
-                console.error('[Save:guard-debug] affected chats (baseline / current / stubReplay):', affectedChats)
-                console.error('[Save:guard-debug] chats[] distribution per affected character:', charsDistribution)
+                console.debug('[Save:guard-debug] all dangerous ops:', dangerous)
+                console.debug('[Save:guard-debug] affected chats (baseline / current / stubReplay):', affectedChats)
+                console.debug('[Save:guard-debug] chats[] distribution per affected character:', charsDistribution)
                 }
                 if (isNodeServer) {
                     await rebaseTrackedLocalChangesOnLatestServerDb(null, db, toSave)

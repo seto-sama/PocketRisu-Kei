@@ -1,3 +1,4 @@
+import { isDebugEnabled } from 'src/ts/debug'
 import { Buffer } from 'buffer'
 import { createEntityId } from 'src/ts/id';
 import { fetchNative, openURL } from "../../globalApi.svelte"
@@ -173,8 +174,8 @@ export class MCPClient{
 
                 data = data.trim()
                 if(data){
-                    if (import.meta.env.DEV) {
-                        console.log("MCP SSE Data", {
+                    if (isDebugEnabled()) {
+                        console.debug("MCP SSE Data", {
                             eventName: eventName,
                             data: data
                         })
@@ -492,8 +493,8 @@ export class MCPClient{
     
     async handshake(){
 
-        if (import.meta.env.DEV) {
-            console.log("MCP Handshake", this.url, this.mcpClientObjectId)
+        if (isDebugEnabled()) {
+            console.debug("MCP Handshake", this.url, this.mcpClientObjectId)
         }
         this.protocolVersion = '2025-03-26' //default to latest version
         let {rpc:d,http} = await this.request('initialize', {
@@ -598,8 +599,8 @@ export class MCPClient{
                 this.protocolVersion = d.result.protocolVersion
             }
 
-            if (import.meta.env.DEV) {
-                console.log("MCP Handshake Successful", this.serverInfo, this.mcpClientObjectId)
+            if (isDebugEnabled()) {
+                console.debug("MCP Handshake Successful", this.serverInfo, this.mcpClientObjectId)
             }
             this.initialized = true
 
@@ -807,8 +808,8 @@ export class MCPClient{
             }
 
             const response = await this.request("tools/list", args)
-            if (import.meta.env.DEV) {
-                console.log("MCP Tools List Response", response)
+            if (isDebugEnabled()) {
+                console.debug("MCP Tools List Response", response)
             }
             if(response.rpc.result?.tools){
                 tools.push(...response.rpc.result.tools)
