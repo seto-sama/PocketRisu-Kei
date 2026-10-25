@@ -152,7 +152,17 @@ export const createPluginApis = (pluginName: string) => {
         },
         setDatabase: async (newDb: any) => {
             if (Object.hasOwn(newDb, 'plugins')) {
-                newDb.plugins = await handlePluginInstallViaPlugin(newDb.plugins)
+                const approvedPlugins = await handlePluginInstallViaPlugin(newDb.plugins)
+                const mergedPlugins = [...(getDatabase().plugins ?? [])]
+                for (const approved of approvedPlugins) {
+                    const index = mergedPlugins.findIndex(plugin => plugin.name === approved.name)
+                    if (index !== -1) {
+                        mergedPlugins[index] = approved
+                    } else {
+                        mergedPlugins.push(approved)
+                    }
+                }
+                newDb.plugins = mergedPlugins
             }
             setDatabase(applyDatabaseWrite(newDb))
         },

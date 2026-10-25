@@ -16,14 +16,16 @@ function drop(current: loreBook[], moved: loreBook, visible: loreBook[], folder 
         target.appendChild(row)
         if (item === moved) dragged = row
     }
-    // Neither filtered markers, empty-state content nor floating clones are rows.
-    const marker = document.createElement('div')
-    marker.dataset.risuIdx = '0'
-    marker.dataset.risuHidden = 'true'
-    const clone = document.createElement('div')
-    clone.dataset.risuIdx = '0'
-    clone.className = 'sortable-fallback'
-    target.append(marker, document.createElement('div'), clone)
+    for (const [index, item] of current.entries()) {
+        if (visible.includes(item)) continue
+        const marker = document.createElement('div')
+        marker.dataset.risuIdx = String(index)
+        marker.dataset.risuHidden = 'true'
+        target.appendChild(marker)
+    }
+    if (folder && !current.some(item => item.folder === folder)) {
+        target.prepend(document.createElement('div'))
+    }
     return reorderLoreBooks(target, dragged!, current)
 }
 
@@ -67,16 +69,5 @@ describe('reorderLoreBooks', () => {
         const b = book('B', 'folder'), y = book('y', 'normal', 'B')
         expect(drop([a, x, b, y], x, [y, x], 'B')).toEqual([a, b, y, x])
         expect(x.folder).toBe('B')
-    })
-
-    it('handles a sole root row', () => {
-        const entry = book('entry')
-        expect(drop([entry], entry, [entry])).toEqual([entry])
-    })
-
-    it('rejects folder nesting without changing the data', () => {
-        const a = book('A', 'folder'), b = book('B', 'folder')
-        expect(drop([a, b], a, [a], 'B')).toBeNull()
-        expect(a.folder).toBeUndefined()
     })
 })

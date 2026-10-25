@@ -70,7 +70,7 @@ Cuando termine la compilación, verá:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 Desde el mismo directorio, inicie el servidor:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Una vez que aparezca el registro de arranque del servidor, abra el navegador del teléfono (Chrome, Firefox, etc.) y navegue a:
@@ -119,15 +119,29 @@ Libere con: `termux-wake-unlock`
 
 ## 5. Actualización
 
-Desde el directorio de PocketRisu:
+Detenga el servidor en ejecución con `Ctrl + C` y luego ejecute:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+Cada paso solo se ejecuta si el anterior tuvo éxito. Si `git pull` falla, el comando se detiene antes de instalar dependencias o compilar, así que no volverá a compilar el código antiguo. `pnpm install` es un paso explícito; no se ejecuta automáticamente como parte de `pnpm build`. Ejecútelo en cada actualización. `GYP_DEFINES` es el ajuste de Termux que usa el script de compilación y se necesita al compilar módulos nativos como `msgpackr-extract`. Al terminar, reinicie el servidor con `node server/server.cjs`.
+
+### Si `git pull` falla
+
+Revise los cambios locales:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-Si las dependencias cambiaron, `pnpm install` se ejecuta automáticamente como parte de la compilación. Reinicie el servidor cuando se complete la compilación.
+Si quiere conservar los cambios sin confirmar, confírmelos o guárdelos temporalmente con `git stash push` antes de ejecutar el comando de actualización anterior. Si usa stash, restáurelo después con `git stash pop` y revise si hay conflictos. Si aparece `Not possible to fast-forward`, primero resuelva la divergencia de la rama local; stash no resuelve divergencias entre commits.
 
 
 ---

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { defaultColorScheme, exportColorSchemeWithAliases, withExportColorSchemes, normalizeColorScheme } from '../../../server/shared/colorScheme.js'
+import { defaultColorScheme, exportColorSchemeWithAliases, withExportColorSchemes, normalizeColorScheme } from '../../../server/utils/colorScheme.js'
 
 vi.mock('../stores.svelte', () => ({ DBState: { db: {} }, selectedCharID: { subscribe: () => () => {} }, selIdState: { selId: -1 } }))
 const { forageStorage, requestImmediateSave } = vi.hoisted(() => {

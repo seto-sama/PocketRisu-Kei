@@ -81,7 +81,11 @@ await (async function() {
     const pendingRequests = new Map();
     const callbackRegistry = new Map();
     const callbackIdByFunction = new WeakMap();
-    const proxyRefRegistry = new Map();
+    const proxyRefRegistry = new WeakMap();
+    // Each host ref backs exactly one proxy, so a collected proxy frees its host instance.
+    const releaseOnCollect = typeof FinalizationRegistry === 'function'
+        ? new FinalizationRegistry(id => send({ type: 'RELEASE_INSTANCE', id }))
+        : null;
     const abortControllers = new Map();
     const abortSignalMetadata = new WeakMap();
 
@@ -134,23 +138,24 @@ await (async function() {
                 get: (target, prop) => {
                     if (prop === 'then') return undefined;
                     if (prop === 'release') {
-                        return () => send({ type: 'RELEASE_INSTANCE', id: val.id });
+                        return () => {
+                            releaseOnCollect?.unregister(proxy);
+                            send({ type: 'RELEASE_INSTANCE', id: val.id });
+                        };
                     }
                     return (...args) => sendRequest('CALL_INSTANCE', {
-                        id: val.id,
+                        // Extracted methods must keep their proxy alive until called.
+                        id: proxyRefRegistry.get(proxy),
                         method: prop,
                         args: args
                     });
                 }
             });
-            // Store the mapping so we can serialize it back
             proxyRefRegistry.set(proxy, val.id);
+            releaseOnCollect?.register(proxy, val.id, proxy);
             return proxy;
         }
         if (val && typeof val === 'object' && val.__type === 'CALLBACK_STREAMS') {
-            //specialType, one of
-            // - Response
-            // - none
             const specialType = val.__specialType;
             if (specialType === 'Response') {
                 return new Response(val.value, val.init);
@@ -281,7 +286,6 @@ await (async function() {
             const reqId = Math.random().toString(36).substring(7);
             pendingRequests.set(reqId, { resolve, reject });
 
-
             if (payload.args) {
                 payload.args = payload.args.map(serializeArg);
             }
@@ -292,13 +296,10 @@ await (async function() {
         });
     }
 
-    
-    
-    
     window.addEventListener('message', async (event) => {
+        if (event.source !== window.parent) return;
         const data = event.data;
         if (!data) return;
-
 
         if (data.type === 'RESPONSE' && data.reqId) {
             const req = pendingRequests.get(data.reqId);
@@ -372,7 +373,6 @@ await (async function() {
                 delete response.result;
                 response.error = (e && e.message) || String(e || "Guest callback error");
             }
-            // Clean up abort controllers after callback completes
             for (const id of usedAbortIds) {
                 abortControllers.delete(id);
             }
@@ -391,10 +391,6 @@ await (async function() {
         }
     });
 
-
-
-
-
     const propertyCache = new Map();
 
     window.risuai = new Proxy({}, {
@@ -408,7 +404,6 @@ await (async function() {
     window.Risuai = window.risuai;
 
     try {
-        // Initialize cached properties
         const propsToInit = await window.risuai._getPropertiesForInitialization();
         ${import.meta.env.DEV ? "console.log('Initializing risuai properties:', propsToInit.list);" : ''}
         for (let i = 0; i < propsToInit.list.length; i++) {
@@ -417,7 +412,6 @@ await (async function() {
             propertyCache.set(key, value);
         }
 
-        // Initialize aliases
         const aliases = await window.risuai._getAliases();
         const aliasKeys = Object.keys(aliases);
         for (let i = 0; i < aliasKeys.length; i++) {
@@ -430,8 +424,6 @@ await (async function() {
             }
             propertyCache.set(aliasKey, aliasObj);
         }
-
-        // Initialize helper functions defined in the guest
 
         propertyCache.set('unwarpSafeArray', async (safeArray) => {
             const length = await safeArray.length();
@@ -454,7 +446,7 @@ export class SandboxHost {
     private iframe: HTMLIFrameElement;
     private apiFactory: any;
     private nonce = createEntityId();
-    private csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src * 'unsafe-inline'; default-src 'none'; img-src * data: blob:; font-src * data: blob:; media-src * data: blob:; base-uri 'none';`;
+    private csp: string;
 
     private instanceRegistry = new Map<string, any>();
     private abortControllers = new Map<string, AbortController>();
@@ -470,6 +462,10 @@ export class SandboxHost {
 
     constructor(apiFactory: any) {
         this.apiFactory = apiFactory;
+        const appOrigin = new URL(window.location.href).origin;
+        const resourceOrigin = appOrigin === 'null' ? '' : `${appOrigin}/assets/ `;
+        // Google Fonts serves its stylesheets separately from font files.
+        this.csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src ${resourceOrigin}https://fonts.googleapis.com 'unsafe-inline'; default-src 'none'; img-src ${resourceOrigin}data: blob:; font-src * data: blob:; media-src ${resourceOrigin}data: blob:; form-action 'none'; base-uri 'none';`;
     }
 
     public executeInIframe(code: string): Promise<any> {
@@ -506,10 +502,6 @@ export class SandboxHost {
             (typeof val === 'object' || typeof val === 'function') &&
             val.__classType === 'REMOTE_REQUIRED'
         ) {
-            if (val === null) return null;
-            if (Array.isArray(val)) return val;
-
-
             const id = 'ref_' + Math.random().toString(36).substring(2);
             this.instanceRegistry.set(id, val);
             return { __type: 'REMOTE_REF', id } as RemoteRef;
@@ -540,7 +532,6 @@ export class SandboxHost {
         }
         return val;
     }
-
 
     private deserializeArgs(args: any[], usedAbortIds?: string[]) {
         return args.map(arg => {
@@ -790,7 +781,6 @@ export class SandboxHost {
             if (event.source !== this.iframe.contentWindow) return;
             const data = event.data as RpcMessage;
 
-
             if (data.type === 'CALLBACK_RETURN') {
                 const req = this.pendingCallbacks.get(data.reqId!);
                 if (req) {
@@ -816,12 +806,10 @@ export class SandboxHost {
                 return;
             }
 
-
             if (data.type === 'RELEASE_INSTANCE') {
                 this.instanceRegistry.delete(data.id!);
                 return;
             }
-
 
             if (data.type === 'CALL_ROOT' || data.type === 'CALL_INSTANCE') {
                 const response: RpcMessage = { type: 'RESPONSE', reqId: data.reqId };
@@ -837,10 +825,8 @@ export class SandboxHost {
                 };
 
                 try {
-
                     const args = this.deserializeArgs(data.args || [], usedAbortIds);
                     let result: any;
-
 
                     if (data.type === 'CALL_ROOT') {
                         const fn = this.apiFactory[data.method!];
@@ -852,7 +838,6 @@ export class SandboxHost {
                         if (typeof instance[data.method!] !== 'function') throw new Error(`Method ${data.method} missing on instance`);
                         result = await instance[data.method!](...args);
                     }
-
 
                     response.result = this.serialize(result);
                     const { result: streamResult, ports: streamPorts, cleanups } = this.replaceStreamsWithPorts(response.result);
@@ -890,7 +875,6 @@ export class SandboxHost {
 
         this.messageHandlerRef = messageHandler;
         window.addEventListener('message', this.messageHandlerRef);
-
 
         const html = `
       <!DOCTYPE html>

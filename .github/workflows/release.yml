@@ -241,7 +241,7 @@ jobs:
           osascript << ENDSCRIPT
           tell application "Terminal"
               activate
-              do script "cd '$PORTABLE_DIR' && PORT=$PORT exec ./bin/node server/node/server.cjs"
+              do script "cd '$PORTABLE_DIR' && PORT=$PORT exec ./bin/node server/server.cjs"
           end tell
           ENDSCRIPT
           LAUNCHER
@@ -267,7 +267,7 @@ jobs:
           elif command -v open >/dev/null 2>&1; then
               open "http://localhost:$PORT" 2>/dev/null &
           fi
-          bin/node server/node/server.cjs
+          bin/node server/server.cjs
           EOF
           cat > portable/update.sh << 'EOF'
           #!/bin/bash

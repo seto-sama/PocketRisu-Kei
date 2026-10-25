@@ -24,7 +24,7 @@ Es gibt zwei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (We
 Exportieren Sie eine `.bin`-Backup-Datei aus dem bestehenden RisuAI und importieren Sie sie dann in PocketRisu. Funktioniert unabhängig von der Quellumgebung (Web / Capacitor / lokal).
 
 1. **Im bestehenden RisuAI**: Einstellungen > Backup > "Lokales Backup speichern", um eine `.bin`-Datei zu exportieren.
-2. **In PocketRisu**: Einstellungen > Datenmigration > "Original Risu Local Backup importieren", um die `.bin`-Datei zu importieren.
+2. **In PocketRisu**: Einstellungen > Datenmigration > "Original RisuAI Local Backup importieren", um die `.bin`-Datei zu importieren.
 
 
 ---

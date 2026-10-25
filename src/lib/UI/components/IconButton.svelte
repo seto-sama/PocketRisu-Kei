@@ -93,7 +93,7 @@
         {#snippet trigger(props)}
             {@render button(props)}
         {/snippet}
-        <span class="whitespace-pre-line">{title}</span>
+        <span class="risu-plain-text">{title}</span>
     </Tooltip>
 {:else}
     {@render button()}

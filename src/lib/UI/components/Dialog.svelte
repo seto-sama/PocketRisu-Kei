@@ -144,7 +144,7 @@
     const contentBase =
         'fixed ' +
         'bg-darkbg border-[length:var(--risu-dialog-border-width)] border-darkborderc rounded-md shadow-lg ' +
-        'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none whitespace-pre-wrap ' +
+        'p-[var(--risu-dialog-padding)] flex flex-col gap-4 overflow-y-auto outline-none risu-plain-text ' +
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';

@@ -144,3 +144,25 @@ describe('NodeStorage patch transport', () => {
         expect(request.headers['content-type']).toBe('application/octet-stream')
     })
 })
+
+it('retries shared authentication after header and response-body timeouts', async () => {
+    vi.useFakeTimers()
+    try {
+        const storage = new NodeStorage()
+        const fetchMock = vi.fn()
+            .mockImplementationOnce(() => new Promise(() => {}))
+            .mockResolvedValueOnce(new Response(new ReadableStream()))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok', token: 'token' })))
+            .mockResolvedValueOnce(new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const failed = expect(storage.createAuth()).rejects.toMatchObject({ name: 'TimeoutError' })
+            await vi.advanceTimersByTimeAsync(30_000)
+            await failed
+        }
+        await expect(storage.createAuth()).resolves.toBe('token')
+    } finally {
+        vi.useRealTimers()
+    }
+})

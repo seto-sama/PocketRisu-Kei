@@ -21,6 +21,7 @@ import type {
 import { getComfyBridgeId } from './comfyBridgeId'
 import { ApiRequestError } from 'src/ts/network/apiError'
 import type { ImagePresetMetadata } from '../../files/inlayMeta'
+import type { ImageOrientation } from '../../../imageGeneration/orientation'
 
 const activeWorkflows = new Map<string, RevenantWorkflow>()
 export const activeRevenantWorkflows = writable<RevenantWorkflow[]>([])
@@ -264,6 +265,7 @@ export async function beginImageGenerationWorkflow(arg: {
     roomId: string
     prompt: string
     negativePrompt: string
+    orientation?: ImageOrientation
     seed?: number
     preset?: ImagePresetMetadata
     label: string
@@ -291,6 +293,7 @@ export async function beginImageGenerationWorkflow(arg: {
             },
             prompt: arg.prompt,
             negativePrompt: arg.negativePrompt,
+            orientation: arg.orientation,
             seed: arg.seed,
             preset: arg.preset,
             label: arg.label,

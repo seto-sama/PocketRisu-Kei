@@ -6,22 +6,35 @@ import type {
 } from '../types'
 
 /**
- * Canonical value lookup for a snapshotted preset field.
- *
- * A present-but-undefined user value means "use the snapshotted default"; every
- * other present value (including false, 0, null, and an empty string) is kept.
- * Keeping this rule in one pure module prevents the editor, budget calculator,
- * and wire adapters from gradually acquiring different precedence rules.
+ * Uses the snapshot default for undefined values and choices removed from
+ * option pickers. Other explicit values, including false, 0, null and '',
+ * are preserved so request building and preset compilation agree.
  */
 export function getEffectivePresetValue(
     preset: Pick<ModelPreset, 'profileSnapshot' | 'userValues'>,
     key: string,
 ): unknown {
+    const field = preset.profileSnapshot.schema.find((candidate) => candidate.key === key)
     if (Object.prototype.hasOwnProperty.call(preset.userValues ?? {}, key)) {
         const value = preset.userValues?.[key]
-        if (value !== undefined) return value
+        if (value !== undefined && isOfferedChoice(preset, field, value)) return value
     }
-    return preset.profileSnapshot.schema.find((field) => field.key === key)?.default
+    return field?.default
+}
+
+// Only option pickers restrict input to the enum; other widgets (combobox,
+// text) treat it as suggestions. Pickers store String(option.value), or ''
+// for Disabled.
+function isOfferedChoice(
+    preset: Pick<ModelPreset, 'profileSnapshot'>,
+    field: RegistryFieldSchema | undefined,
+    value: unknown,
+): boolean {
+    if (!field?.enum || value === '') return true
+    const widget = preset.profileSnapshot.uiSchema.fields
+        .find((candidate) => candidate.key === field.key)?.widget
+    if (widget !== 'select' && widget !== 'segmented') return true
+    return field.enum.some((option) => String(option.value) === String(value))
 }
 
 export function getEffectiveMappedValue(
@@ -42,7 +55,7 @@ export function getEffectiveMappedValue(
  * intentionally limited to fields without semantic metadata: once a profile
  * declares a semantic, that declaration is authoritative.
  */
-export function findPresetFieldBySemantic(
+function findPresetFieldBySemantic(
     preset: Pick<ModelPreset, 'profileSnapshot'>,
     semantic: RegistryFieldSemantic,
     legacyKeys: readonly string[] = [],
@@ -56,16 +69,7 @@ export function findPresetFieldBySemantic(
         )
 }
 
-export function getEffectivePresetSemanticValue(
-    preset: Pick<ModelPreset, 'profileSnapshot' | 'userValues'>,
-    semantic: RegistryFieldSemantic,
-    legacyKeys: readonly string[] = [],
-): unknown {
-    const field = findPresetFieldBySemantic(preset, semantic, legacyKeys)
-    return field ? getEffectivePresetValue(preset, field.key) : undefined
-}
-
-export const OUTPUT_TOKEN_FIELD_KEYS = [
+const OUTPUT_TOKEN_FIELD_KEYS = [
     'max_tokens',
     'maxTokens',
     'maxOutputTokens',
@@ -165,7 +169,7 @@ export function getPresetModelIdValue(
     return preset.profileSnapshot.modelId
 }
 
-export function getNestedValue(
+function getNestedValue(
     source: Record<string, unknown>,
     path: string,
 ): unknown {

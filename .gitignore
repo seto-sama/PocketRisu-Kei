@@ -49,7 +49,7 @@ dist.zip
 !/scripts/check-help-keys.mjs
 !/scripts/check-release-version.cjs
 .env
-/server/node/ssl/certificate
+**/ssl/certificate/
 /bin/
 /public/assets/fonts/
 

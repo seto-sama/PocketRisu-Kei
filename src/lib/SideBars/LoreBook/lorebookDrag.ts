@@ -5,7 +5,6 @@ export function reorderLoreBooks(target: HTMLElement, dragged: HTMLElement, curr
     const itemForRow = (row: HTMLElement) => current[Number.parseInt(row.dataset.risuIdx ?? '', 10)]
     const moved = itemForRow(dragged)
     const targetFolder = target.dataset.showFolder || ''
-    // Lorebook folders contain entries, not other folders.
     if (!moved || (moved.mode === 'folder' && targetFolder)) return null
 
     const block = current.filter(item => item === moved || (moved.mode === 'folder' && item.folder === moved.key))

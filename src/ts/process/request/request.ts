@@ -6,7 +6,7 @@ import { language } from "../../../lang";
 import { customV3ProviderMetaStore } from "../../plugins/apiV3/v3.svelte";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginRuntime } from "../../plugins/pluginRuntime";
-import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, type Chat, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { createEntityId } from 'src/ts/id';
 import { simplifySchema, sleep } from "../../util";
@@ -89,6 +89,7 @@ export interface requestDataArgument{
     bias: {[key:number]:number}
     biasString?: [string,number][]
     currentChar?: character
+    currentChat?: Chat
     temperature?: number
     maxTokens?:number
     PresensePenalty?: number
@@ -222,11 +223,11 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         }
 
         try{
-            const currentChar = getCurrentCharacter()
+            const currentChar = arg.currentChar ?? getCurrentCharacter()
             if(currentChar){
                 const perf = import.meta.env.DEV ? performance.now() : 0
                 const d = await runTrigger(currentChar, 'request', {
-                    chat: getCurrentChat(),
+                    chat: arg.currentChat ?? getCurrentChat(),
                     displayMode: true,
                     displayData: JSON.stringify(arg.formated)
                 })
@@ -321,7 +322,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     // later by the adapter loop and are therefore intentionally unaffected.
     arg.formated = removeEmptyChatMessages(arg.formated)
 
-    const currentChat = getCurrentChat()
+    const currentChat = arg.currentChat ?? getCurrentChat()
     const binding = resolveChatModelBinding(currentChat, model, arg.moduleId, arg.modelPresetOverrideId)
     if(binding.kind === 'modelPreset'){
         return executeModelPresetRequest(
@@ -978,7 +979,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     if (compiled.features.cache && mode === 'model'
         && !tools && !arg.previewBody
         && (cacheAuthKind === 'x-goog-api-key' || cacheAuthKind === 'google-service-account')) {
-        const cacheChatKey = getCurrentChat()?.id
+        const cacheChatKey = (arg.currentChat ?? getCurrentChat())?.id
         if (cacheChatKey) {
             cache = {
                 promptCaching: preset.promptCaching,

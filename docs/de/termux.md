@@ -70,7 +70,7 @@ Wenn der Build abgeschlossen ist, sehen Sie:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 Starten Sie den Server aus demselben Verzeichnis:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Sobald das Server-Boot-Protokoll erscheint, öffnen Sie den Browser des Telefons (Chrome, Firefox usw.) und navigieren Sie zu:
@@ -119,15 +119,29 @@ Freigeben mit: `termux-wake-unlock`
 
 ## 5. Aktualisieren
 
-Aus dem PocketRisu-Verzeichnis:
+Beenden Sie den laufenden Server mit `Ctrl + C` und führen Sie dann Folgendes aus:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+Jeder Schritt wird nur ausgeführt, wenn der vorherige erfolgreich war. Wenn `git pull` fehlschlägt, stoppt der Befehl vor der Installation und dem Build. So wird der alte Quellcode nicht erneut gebaut. `pnpm install` muss ausdrücklich ausgeführt werden; es läuft nicht automatisch als Teil von `pnpm build`. Führen Sie es bei jedem Update aus. `GYP_DEFINES` ist die Termux-Einstellung aus dem Build-Skript und wird benötigt, wenn native Module wie `msgpackr-extract` kompiliert werden. Starten Sie den Server nach dem Build mit `node server/server.cjs` neu.
+
+### Wenn `git pull` fehlschlägt
+
+Prüfen Sie Ihre lokalen Änderungen:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-Wenn sich Abhängigkeiten geändert haben, wird `pnpm install` automatisch als Teil des Builds ausgeführt. Starten Sie den Server neu, sobald der Build abgeschlossen ist.
+Wenn Sie nicht festgeschriebene Änderungen behalten möchten, committen Sie sie oder legen Sie sie vor dem Update-Befehl oben vorübergehend mit `git stash push` ab. Stellen Sie den stash nach dem Update mit `git stash pop` wieder her und prüfen Sie, ob Konflikte aufgetreten sind. Bei der Meldung `Not possible to fast-forward` müssen Sie zuerst die Abweichung des lokalen Branches beheben. Ein stash löst keine abweichenden Commits auf.
 
 
 ---

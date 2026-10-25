@@ -113,12 +113,14 @@ describe('server-owned image workflow observer', () => {
             characterId: 'character-1',
             roomId: 'room-1',
             prompt,
+            orientation: 'landscape',
         })).resolves.toBe('{{inlayed::asset-id}}')
 
         expect(workflowMocks.beginImageGenerationWorkflow).toHaveBeenCalledWith({
             characterId: 'character-1',
             roomId: 'room-1',
             prompt,
+            orientation: 'landscape',
             negativePrompt: '',
             label: 'NovelAI',
             messageId: 'room-1',

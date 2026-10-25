@@ -145,7 +145,7 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
         expect(calls[0].body.max_tokens).toBe(4096)
     })
 
-    test('maps Budget effort to Claude thinking tokens', async () => {
+    test('keeps a thinking budget set through Additional Parameters', async () => {
         const base = makeSnapshot()
         const value = makePreset({
             profileSnapshot: makeSnapshot({
@@ -153,24 +153,19 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
                     ...base.schema,
                     {
                         key: 'effort',
+                        semantic: 'reasoningEffort',
                         type: 'string',
                         label: 'Reasoning Effort',
                         mapsTo: { target: 'body', path: 'output_config.effort' },
-                    },
-                    {
-                        key: 'thinking_tokens',
-                        type: 'integer',
-                        label: 'Thinking Tokens',
-                        default: 1024,
                     },
                 ],
                 capabilities: ['streaming', 'reasoning'],
             }),
             userValues: {
                 modelId: 'claude-sonnet-4-6',
-                effort: 'budget',
-                thinking_tokens: 2048,
+                effort: 'medium',
             },
+            additionalParamsText: 'thinking=json::{"type":"enabled","budget_tokens":2048}',
         })
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
@@ -182,11 +177,8 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
             { apiKey: 'key' },
         )
 
-        expect(calls[0].body.thinking).toEqual({
-            type: 'enabled',
-            budget_tokens: 2048,
-        })
-        expect(calls[0].body).not.toHaveProperty('output_config.effort')
+        expect(calls[0].body.thinking).toEqual({ type: 'enabled', budget_tokens: 2048 })
+        expect(calls[0].body.output_config).toMatchObject({ effort: 'medium' })
     })
 
     test('enables adaptive thinking with effort on Claude 4.6 and later', async () => {
@@ -389,11 +381,8 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
     })
 
     test('stale v1 snapshots (empty defaults) get max_tokens from the adapter safety net', async () => {
-        // Presets persisted before the `anthropic` base provider bumped to v2
-        // still carry `defaults: {}`. The profile-update detection compares
-        // profile version (not base-provider version), and we did not bump the
-        // profile, so those snapshots will never get re-resolved automatically.
-        // The adapter fallback keeps them working.
+        // Snapshots persisted before the base provider supplied max_tokens
+        // keep `defaults: {}` until the user refreshes the profile.
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
         )

@@ -1,4 +1,4 @@
-import fileBufferUrl from '../../../server/shared/rpack_map.bin?url';
+import fileBufferUrl from '../../../server/rpack_map.bin?url';
 
 let encodeMap;
 let decodeMap;

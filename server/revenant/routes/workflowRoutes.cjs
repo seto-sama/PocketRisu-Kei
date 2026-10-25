@@ -1,0 +1,419 @@
+'use strict';
+
+const {
+    createGenerationWorkflow,
+    getGenerationWorkflow,
+    getActiveGenerationWorkflow,
+    claimGenerationWorkflowClientAction,
+    resolveGenerationWorkflowClientAction,
+    consumeGenerationWorkflowClientActionJobs,
+    updateGenerationWorkflowStep,
+    putGenerationWorkflowExecution,
+    getGenerationWorkflowExecution,
+    listGenerationWorkflowJobs,
+    acknowledgeTerminalGenerationJobsForRoom,
+} = require('../generationDb.cjs');
+const {
+    isValidRevenantWorkflowKey,
+    normalizeRevenantHypaExecutionRecipe,
+    normalizeRevenantWorkflowContext,
+    normalizeRevenantWorkflowPlan,
+    normalizeRevenantWorkflowStepUpdate,
+    normalizeRevenantWorkflowTerminalStatus,
+} = require('../generation.cjs');
+const {
+    getUnregisteredWorkflowRetryAfterMs,
+    hasRegisteredMainJob,
+    isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
+} = require('./policy.cjs');
+const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
+
+function installRevenantWorkflowRoutes(app, deps) {
+    const {
+        checkProxyAuth,
+        requireSyncClientId,
+        scheduleHypaWorkflowExecution,
+        scheduleRevenantPostprocess = () => {},
+        scheduleImageGenerationWorkflow = () => {},
+        notifyRevenantWorkflowUpdated = () => {},
+        terminateGenerationWorkflow,
+        commitWorkflowInput = async () => {
+            throw new Error('Workflow input commit service unavailable');
+        },
+        cancelGenerationStepExecution,
+        isSyncClientConnected,
+        randomUUID,
+        getWorkflowRequestStatusWorkflow = getGenerationWorkflow,
+        getWorkflowRequestStatusJobs = listGenerationWorkflowJobs,
+    } = deps;
+    const sendWorkflowNotFound = res =>
+        sendApiError(res, 404, codes.REVENANT_WORKFLOW_NOT_FOUND);
+
+    app.post('/api/generation/workflows', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const characterId = typeof req.body?.characterId === 'string' ? req.body.characterId : '';
+        const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId : '';
+        const plan = normalizeRevenantWorkflowPlan(req.body?.plan);
+        const context = normalizeRevenantWorkflowContext(req.body?.context, characterId, roomId);
+        if (!characterId || !roomId || !plan || !context) {
+            res.status(400).send({ error: 'characterId, roomId, plan, and workflow context are required' });
+            return;
+        }
+        // Once the user explicitly starts another generation, output from
+        // older terminal workflows must never be drained back into this
+        // room. A cancelled partial that lost to a swipe deletion is
+        // superseded here, before the new durable input base is captured.
+        acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
+        const input = {
+            workflowId: randomUUID(),
+            characterId,
+            roomId,
+            plan,
+            context,
+        };
+        let result = createGenerationWorkflow(input);
+        if (!result.busy && context.kind === 'image-generation') {
+            const actionId = `image-generation:${context.operationId}`;
+            updateGenerationWorkflowStep(result.workflow.workflowId, 'image.generate', {
+                status: 'running',
+                metadata: {
+                    schemaVersion: 1,
+                    action: {
+                        schemaVersion: 1,
+                        actionId,
+                        kind: 'image.generate',
+                        payload: {
+                            prompt: context.prompt,
+                            negativePrompt: context.negativePrompt,
+                            orientation: context.orientation,
+                            seed: context.seed,
+                            target: context.target,
+                            messageId: context.messageId,
+                            bridgeId: context.comfyBridgeId,
+                        },
+                    },
+                },
+            });
+            result = { ...result, workflow: getGenerationWorkflow(result.workflow.workflowId) };
+            scheduleImageGenerationWorkflow(result.workflow.workflowId);
+        }
+        if (result.busy) {
+            const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+            if (
+                isUnregisteredWorkflowExpired(result.workflow, jobs)
+                || shouldSupersedeFailedActiveWorkflow(result.workflow, jobs)
+            ) {
+                await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
+                result = createGenerationWorkflow({
+                    ...input,
+                    workflowId: randomUUID(),
+                });
+            }
+        }
+        if (result.busy) {
+            const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+            const hasMainJob = hasRegisteredMainJob(jobs);
+            const retryAfterMs = getUnregisteredWorkflowRetryAfterMs(
+                result.workflow,
+                jobs,
+            );
+            res.status(409).send({
+                error: 'A generation workflow is already active for this room',
+                ...(hasMainJob ? { workflow: result.workflow } : {}),
+                ...(retryAfterMs === undefined ? {} : {
+                    busyReason: 'main_job_unregistered',
+                    retryAfterMs,
+                }),
+            });
+            return;
+        }
+        if (context.inputCommit) {
+            try {
+                const workflow = await commitWorkflowInput(
+                    result.workflow,
+                    context.inputCommit,
+                    req,
+                );
+                result = {
+                    ...result,
+                    workflow,
+                };
+            } catch (error) {
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                res.status(error?.httpStatus || 500).send({
+                    error: error?.message || 'Failed to commit workflow input',
+                });
+                return;
+            }
+        }
+        res.send({ workflow: result.workflow });
+    });
+
+    app.get('/api/generation/workflows/active', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const characterId = typeof req.query?.characterId === 'string' ? req.query.characterId : '';
+        const roomId = typeof req.query?.roomId === 'string' ? req.query.roomId : '';
+        if (!characterId || !roomId) {
+            res.status(400).send({ error: 'characterId and roomId are required' });
+            return;
+        }
+        const workflow = getActiveGenerationWorkflow(characterId, roomId);
+        if (!workflow) {
+            res.send({ workflow: null });
+            return;
+        }
+        const jobs = listGenerationWorkflowJobs(workflow.workflowId);
+        if (!hasRegisteredMainJob(jobs) && workflow.context?.kind !== 'image-generation') {
+            if (isUnregisteredWorkflowExpired(workflow, jobs)) {
+                await terminateGenerationWorkflow(workflow.workflowId, 'failed');
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
+            }
+            // Prompt construction and the workflow-to-job registration gap
+            // belong only to the submitting page. Other browsers cannot
+            // observe or recover this pre-job workflow.
+            res.send({ workflow: null });
+            return;
+        }
+        res.send({ workflow });
+    });
+
+    app.get('/api/generation/workflows/:workflowId', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const workflow = getGenerationWorkflow(req.params.workflowId);
+        if (!workflow) {
+            sendWorkflowNotFound(res);
+            return;
+        }
+        res.send({ workflow });
+    });
+
+    app.get('/api/generation/workflows/:workflowId/request-status', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const workflow = getWorkflowRequestStatusWorkflow(req.params.workflowId, false);
+        if (!workflow) {
+            sendWorkflowNotFound(res);
+            return;
+        }
+        // Include consumed jobs: request lifecycle does not depend on whether
+        // a result still needs recovery. Keep prompts and provider data out.
+        const jobs = getWorkflowRequestStatusJobs(workflow.workflowId).map(job => ({
+            jobId: job.jobId, chatId: job.chatId, jobType: job.jobType,
+            workflowId: workflow.workflowId, roomId: job.roomId || workflow.roomId,
+            status: job.status, generationInfo: { model: job.generationInfo?.model },
+            createdAt: job.createdAt, dispatchedAt: job.dispatchedAt,
+            completedAt: job.completedAt, error: job.error || job.finishReason,
+        }));
+        res.send({ workflowId: workflow.workflowId,
+            roomId: workflow.context?.target?.roomId || workflow.roomId, status: workflow.status, jobs });
+    });
+
+    // Cancellation is an authenticated terminal control command. Workflow
+    // execution is server-owned, so any reconnected browser may stop it.
+    app.post('/api/generation/workflows/:workflowId/cancel', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const workflow = getGenerationWorkflow(req.params.workflowId, false);
+        if (!workflow) {
+            sendWorkflowNotFound(res);
+            return;
+        }
+        const result = await terminateGenerationWorkflow(req.params.workflowId, 'cancelled');
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
+        res.send({
+            success: true,
+            ...(result.changed ? {} : { alreadyFinished: true }),
+        });
+    });
+
+    app.put('/api/generation/workflows/:workflowId/steps/:stepKey', async (req, res, next) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const stepKey = req.params.stepKey;
+        const update = normalizeRevenantWorkflowStepUpdate(req.body);
+        if (!isValidRevenantWorkflowKey(stepKey) || !update) {
+            res.status(400).send({ error: 'Invalid generation workflow step update' });
+            return;
+        }
+        try {
+            if (!updateGenerationWorkflowStep(req.params.workflowId, stepKey, update)) {
+                sendWorkflowNotFound(res);
+                return;
+            }
+            res.send({ success: true });
+        } catch (error) {
+            if (String(error?.message || '').startsWith('Unknown generation workflow step:')) {
+                res.status(404).send({ error: error.message });
+                return;
+            }
+            next(error);
+        }
+    });
+
+    app.post('/api/generation/workflows/:workflowId/steps/:stepKey/client-action/claim', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const stepKey = req.params.stepKey;
+        const actionId = typeof req.body?.actionId === 'string' ? req.body.actionId : '';
+        if (!isValidRevenantWorkflowKey(stepKey) || !isValidRevenantWorkflowKey(actionId)) {
+            res.status(400).send({ error: 'Invalid workflow client action' });
+            return;
+        }
+        const result = claimGenerationWorkflowClientAction(
+            req.params.workflowId,
+            stepKey,
+            actionId,
+            String(req.headers['x-sync-client-id'] || ''),
+            undefined,
+            isSyncClientConnected,
+        );
+        if (!result) {
+            sendApiError(res, 404, codes.REVENANT_CLIENT_ACTION_NOT_FOUND);
+            return;
+        }
+        if (result.busy) {
+            res.status(409).send({ error: 'Workflow client action is already claimed', ...result });
+            return;
+        }
+        res.send(result);
+    });
+
+    app.post('/api/generation/workflows/:workflowId/steps/:stepKey/client-action/resolve', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const stepKey = req.params.stepKey;
+        const actionId = typeof req.body?.actionId === 'string' ? req.body.actionId : '';
+        if (
+            !isValidRevenantWorkflowKey(stepKey)
+            || !isValidRevenantWorkflowKey(actionId)
+            || !Object.prototype.hasOwnProperty.call(req.body || {}, 'response')
+        ) {
+            res.status(400).send({ error: 'Invalid workflow client action response' });
+            return;
+        }
+        let serialized;
+        try { serialized = JSON.stringify(req.body.response); }
+        catch {
+            res.status(400).send({ error: 'Workflow client action response must be JSON serializable' });
+            return;
+        }
+        if (serialized === undefined || Buffer.byteLength(serialized) > 8 * 1024 * 1024) {
+            res.status(413).send({ error: 'Workflow client action response is too large' });
+            return;
+        }
+        const delegatedAction = getGenerationWorkflow(req.params.workflowId)
+            ?.steps?.find(step => step.key === stepKey)
+            ?.metadata?.action;
+        const result = resolveGenerationWorkflowClientAction(
+            req.params.workflowId,
+            stepKey,
+            actionId,
+            String(req.headers['x-sync-client-id'] || ''),
+            req.body.response,
+        );
+        if (!result) {
+            sendApiError(res, 404, codes.REVENANT_CLIENT_ACTION_NOT_FOUND);
+            return;
+        }
+        if (result.staleClaim) {
+            res.status(409).send({ error: 'Workflow client action claim is stale', ...result });
+            return;
+        }
+        if (
+            delegatedAction?.kind === 'provider.main'
+            && req.body.response?.success !== true
+        ) {
+            const error = String(
+                req.body.response?.result
+                || 'Plugin provider did not dispatch a durable model request',
+            );
+            updateGenerationWorkflowStep(req.params.workflowId, stepKey, {
+                status: 'failed',
+                metadata: { schemaVersion: 1, error },
+            });
+            await terminateGenerationWorkflow(req.params.workflowId, 'failed');
+            notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
+            res.send({ success: true, ...result });
+            return;
+        }
+        consumeGenerationWorkflowClientActionJobs(req.params.workflowId, actionId);
+        scheduleRevenantPostprocess();
+        res.send({ success: true, ...result });
+    });
+
+    app.post('/api/generation/workflows/:workflowId/step-executions/:executionId/cancel', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        if (!isValidRevenantWorkflowKey(req.params.executionId)) {
+            res.status(400).send({ error: 'Invalid workflow step execution id' });
+            return;
+        }
+        const result = await cancelGenerationStepExecution(
+            req.params.workflowId,
+            req.params.executionId,
+        );
+        if (!result.changed) {
+            res.status(404).send({ error: 'Active workflow step execution not found' });
+            return;
+        }
+        res.send({ success: true, cancelledJobs: result.jobs.length });
+    });
+
+    app.post('/api/generation/workflows/:workflowId/finish', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const status = normalizeRevenantWorkflowTerminalStatus(req.body?.status);
+        if (!status) {
+            res.status(400).send({ error: 'Invalid terminal workflow status' });
+            return;
+        }
+        const result = await terminateGenerationWorkflow(req.params.workflowId, status);
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
+        if (!result.changed) {
+            const existing = getGenerationWorkflow(req.params.workflowId, false);
+            if (!existing) {
+                sendWorkflowNotFound(res);
+                return;
+            }
+            res.send({ success: true, alreadyFinished: true });
+            return;
+        }
+        res.send({ success: true });
+    });
+
+    app.put('/api/generation/workflows/:workflowId/hypav3-execution', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const recipe = normalizeRevenantHypaExecutionRecipe(req.body);
+        if (!recipe) {
+            res.status(400).send({ error: 'Invalid HypaV3 execution recipe' });
+            return;
+        }
+        const execution = putGenerationWorkflowExecution(
+            req.params.workflowId,
+            'hypav3-selection',
+            recipe,
+        );
+        if (!execution) {
+            sendWorkflowNotFound(res);
+            return;
+        }
+        scheduleHypaWorkflowExecution();
+        res.send({ execution });
+    });
+
+    app.get('/api/generation/workflows/:workflowId/hypav3-execution', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const execution = getGenerationWorkflowExecution(req.params.workflowId);
+        if (!execution) {
+            res.status(404).send({ error: 'HypaV3 workflow execution not found' });
+            return;
+        }
+        res.send({ execution });
+    });
+}
+
+module.exports = { installRevenantWorkflowRoutes };

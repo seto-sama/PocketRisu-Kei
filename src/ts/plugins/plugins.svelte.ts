@@ -400,7 +400,7 @@ export async function handlePluginInstallViaPlugin(plugins: RisuPlugin[]){
 
     const trimmedPlugins: RisuPlugin[] = []
     for(const plugin of plugins){
-        if(!DBState.db.plugins.find((p: RisuPlugin) => p.name === plugin.name && p.script === plugin.script)){
+        if(!(DBState.db.plugins ?? []).find((p: RisuPlugin) => p.name === plugin.name && p.script === plugin.script)){
 
             if(!isSupportedPlugin(plugin)){
                 console.warn(`Plugin "${plugin.name}" has version "${plugin.version}", which is not supported for installation via plugin. Only API version 3.0 plugins can be installed via plugin. Skipping installation of this plugin.`)

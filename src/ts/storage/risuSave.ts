@@ -57,6 +57,8 @@ enum RisuSaveType {
     PLUGINS = 9,
     LOADOUTS = 10,
     PLUGIN_STORAGE = 11,
+    /** Reserved: upstream SaveKV namespace block, skipped by the server decoder */
+    UNSUPPORTED_KV = 12,
 }
 
 type EncodeBlockArg = {

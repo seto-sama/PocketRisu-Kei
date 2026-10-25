@@ -68,7 +68,7 @@ When the build finishes, you'll see:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -82,7 +82,7 @@ Then open this address in the phone's own browser:
 From the same directory, start the server:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Once the server boot log appears, open the phone's browser (Chrome, Firefox, etc.) and navigate to:
@@ -117,15 +117,29 @@ Release with: `termux-wake-unlock`
 
 ## 5. Update
 
-From the PocketRisu directory:
+Stop the running server with `Ctrl + C`, then run:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+Each step runs only if the previous one succeeds. If `git pull` fails, the command stops before installing dependencies or building, so it will not rebuild the old source. `pnpm install` is an explicit step; it does not run automatically as part of `pnpm build`. Run it for every update. `GYP_DEFINES` is the Termux setting used by the build script and is needed when native modules such as `msgpackr-extract` are compiled. When the build completes, restart the server with `node server/server.cjs`.
+
+### If `git pull` fails
+
+Inspect your local changes:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-If dependencies changed, `pnpm install` runs automatically as part of the build. Restart the server when the build completes.
+If you want to keep uncommitted changes, commit them or temporarily stash them with `git stash push` before running the update command above. If you stash them, restore them after the update with `git stash pop` and review any conflicts. If the error says `Not possible to fast-forward`, resolve the local branch divergence first; stashing does not resolve divergent commits.
 
 
 ---

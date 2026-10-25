@@ -168,7 +168,7 @@
         <div class="flex flex-col min-w-0 flex-1">
             <span class="text-maintext text-sm font-medium">{title}</span>
             {#if description}
-                <span class="text-subtext text-xs leading-relaxed mt-0.5">{description}</span>
+                <span class="text-subtext text-xs leading-relaxed mt-0.5 risu-plain-text">{description}</span>
             {/if}
         </div>
         <div class="shrink-0">

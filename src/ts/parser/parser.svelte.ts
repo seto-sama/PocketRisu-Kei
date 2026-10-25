@@ -1384,7 +1384,7 @@ export async function ParseMarkdown(
 
 const trimPurifyConfig = {
     ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
+    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-form', 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
 }
 
 const trimCache = new Map<string, string>()
@@ -1406,11 +1406,30 @@ export function trimMarkdown(data:string){
     return cached
 }
 
-function trimMarkdownUncached(data:string){
+// Onboarding HTML can bind clicks and inputs to chat variables, so it gets the
+// regular message config plus the two binding attributes. Messages never do.
+const onboardingPurifyConfig = {
+    ...trimPurifyConfig,
+    ADD_ATTR: [...trimPurifyConfig.ADD_ATTR, 'risu-change-var-name', 'risu-change-var-value'],
+}
+
+/**
+ * Renders a character's onboarding HTML with the chat message asset, CBS,
+ * sanitizer and `<style>` scoping. Scoped styles are prefixed with
+ * `.chattext`, so the caller renders the result inside a `.chattext` element.
+ * The trim cache is bypassed so the wider config never serves a message.
+ */
+export async function parseOnboardingHTML(data:string, char:character){
+    data = await parseAdditionalAssets(data ?? '', char, 'normal', { ch: -1 })
+    data = parseInlayAssets(risuChatParser(data, { chara: char }))
+    return data ? trimMarkdownUncached(encodeStyle(data), onboardingPurifyConfig) : ''
+}
+
+function trimMarkdownUncached(data:string, purifyConfig:typeof trimPurifyConfig = trimPurifyConfig){
     // Most messages contain no custom styles. Keep that hot path to one
     // string-returning sanitize call and avoid constructing a DOM.
     if(!data.includes('<risu-style')){
-        return DOMPurify.sanitize(data, trimPurifyConfig)
+        return DOMPurify.sanitize(data, purifyConfig)
     }
 
     // Parse first so only real elements become placeholders; markup-looking
@@ -1436,7 +1455,7 @@ function trimMarkdownUncached(data:string){
         element.replaceWith(placeholder)
     }
 
-    const sanitized = DOMPurify.sanitize(sourceRoot.innerHTML, trimPurifyConfig)
+    const sanitized = DOMPurify.sanitize(sourceRoot.innerHTML, purifyConfig)
     return sanitized
         .replace(markerRegex, (_marker, index:string) => {
             const decoded = replacements[Number(index)]

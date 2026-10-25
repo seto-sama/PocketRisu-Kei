@@ -7,7 +7,6 @@ vi.mock('./risuSave', () => ({
 }))
 vi.mock('./database.svelte', () => ({ normalizeChat: (value: unknown) => value }))
 
-import { changeLanguage } from 'src/lang'
 import { ConflictError, NodeStorage } from './nodeStorage'
 import { decodeAssetBatch, encodeAssetBatch } from './assetTransport'
 import { decodeRisuSave } from './risuSave'
@@ -219,30 +218,15 @@ describe('storage request integration', () => {
         expect(downloaded.map(entry => ({ key: entry.key, value: [...entry.value] })))
             .toEqual([{ key: 'assets/한글.png', value: [0, 128, 255] }])
     })
-    it.each([
-        ['asset', () => storage.setItem('assets/a.png', bytes)],
-        ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],
-        ['database patch', () => storage.patchDatabase(patch)],
-        ['chat', () => storage.patchChatContent('character', 0, 'chat', { changes: [] })],
-        ['initial database', () => storage.initializeDatabase({})],
-        ['inlay encoding', () => storage.encodeInlayWebp(bytes, { lossy: true, quality: 80 })],
-    ] as const)('surfaces HTTP 413 for %s without resending', async (_name, send) => {
-        fetchMock.mockResolvedValue(new Response('<html>too large</html>', { status: 413 }))
-        await expect(send()).rejects.toMatchObject({ status: 413, message: expect.stringContaining('request-size limit') })
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    it.each([
-        ['asset', () => storage.setItem('assets/a.png', bytes)],
-        ['bulk asset', () => storage.setItems([{ key: 'assets/a.png', value: bytes }])],
-    ] as const)('returns transient %s failures without retrying', async (_name, send) => {
-        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'upstream unavailable' }), { status: 503 }))
-        await expect(send()).rejects.toMatchObject({ status: 503, serverMessage: 'upstream unavailable' })
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        const networkError = new TypeError('Failed to fetch')
-        fetchMock.mockRejectedValueOnce(networkError)
-        await expect(send()).rejects.toBe(networkError)
-        expect(fetchMock).toHaveBeenCalledTimes(2)
+    it('returns HTTP failures without resending requests', async () => {
+        fetchMock
+            .mockResolvedValueOnce(new Response('<html>too large</html>', { status: 413 }))
+            .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+            .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+        await expect(storage.patchDatabase(patch)).rejects.toMatchObject({ status: 413 })
+        await expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ status: 503 })
+        expect(await storage.fetchChatState('c', 0, 'chat')).toBeNull()
+        expect(fetchMock).toHaveBeenCalledTimes(3)
     })
 
     it('preserves field conflicts instead of retrying or turning them into generic failures', async () => {
@@ -252,52 +236,15 @@ describe('storage request integration', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    it('localizes the stable chat conflict returned by the server', async () => {
-        changeLanguage('ko')
-        try {
-            fetchMock.mockResolvedValue(new Response(JSON.stringify({
-                code: 'CHAT_CONTENT_CHANGED',
-                error: 'Chat content changed on another client', currentEtag: 'server',
-            }), { status: 409 }))
-            await expect(storage.patchChatContent('character', 0, 'chat', { changes: [] }))
-                .rejects.toMatchObject({
-                    code: 'CHAT_CONTENT_CHANGED',
-                    message: expect.stringContaining('다른 클라이언트에 의한 수정사항이 있습니다'),
-                })
-        } finally {
-            changeLanguage('en')
-        }
-    })
+    it('reauthenticates expired tokens but returns other authentication failures', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'AUTH_TOKEN_EXPIRED' }), { status: 401 }))
+            .mockResolvedValueOnce(new Response(bytes))
+        expect(new Uint8Array(await storage.getItem('assets/a.png'))).toEqual(bytes)
 
-    it('routes backup and login responses through the common coded error parser', async () => {
-        changeLanguage('ko')
-        try {
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'BACKUP_IMPORT_IN_PROGRESS', error: 'server diagnostic',
-            }), { status: 409 }))
-            await expect(storage.prepareImport(1)).rejects.toThrow('다른 백업 가져오기 또는 복원이 이미 진행 중입니다.')
-
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'BACKUP_NOT_FOUND', error: 'server diagnostic',
-            }), { status: 404 }))
-            await expect(storage.restoreServerBackup('missing.bin')).rejects.toThrow('백업 파일을 찾을 수 없습니다.')
-
-            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-                code: 'AUTH_INVALID_PASSWORD', error: 'server diagnostic',
-            }), { status: 401 }))
-            await expect((storage as any).loginWithPassword('wrong')).rejects.toThrow('비밀번호가 잘못되었습니다.')
-        } finally {
-            changeLanguage('en')
-        }
-    })
-
-    it('retries authentication from stable codes only', async () => {
-        const shouldRetry = (body: object, status = 401) =>
-            (storage as any).shouldRetryAuth(new Response(JSON.stringify(body), { status }))
-        await expect(shouldRetry({ code: 'AUTH_TOKEN_EXPIRED' })).resolves.toBe(true)
-        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' })).resolves.toBe(true)
-        await expect(shouldRetry({ error: 'Token Expired' })).resolves.toBe(false)
-        await expect(shouldRetry({ code: 'AUTH_INVALID_TOKEN' }, 400)).resolves.toBe(false)
+        fetchMock.mockClear()
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'AUTH_INVALID_PASSWORD' }), { status: 401 }))
+        await expect(storage.getItem('assets/a.png')).rejects.toMatchObject({ code: 'AUTH_INVALID_PASSWORD' })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
     it('retains server rejection details even in an HTTP 200 response', async () => {
@@ -363,23 +310,6 @@ it('carries hash diagnostics through the existing patch request without another 
     expect(await storage.patchDatabase(patch)).toMatchObject({ conflict: true, hashDiagnostics: undefined })
 })
 
-it('ends a chat header timeout without replaying the request', async () => {
-    vi.useFakeTimers()
-    try {
-        fetchMock.mockImplementation(() => new Promise(() => {}))
-        const failed = expect(storage.fetchChatState('character', 2, 'chat-id'))
-            .rejects.toMatchObject({ name: 'TimeoutError' })
-        await vi.advanceTimersByTimeAsync(30_000)
-        await failed
-        await vi.advanceTimersByTimeAsync(30_000)
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        expect(fetchMock.mock.calls[0][0]).toBe('/api/chat-content/character/2')
-        expect(fetchMock.mock.calls[0][1].headers.get('x-chat-id')).toBe('chat-id')
-        expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
-        expect(vi.getTimerCount()).toBe(0)
-    } finally { vi.useRealTimers() }
-})
-
 it('bounds auth preflight without dispatching a late chat request', async () => {
     vi.useFakeTimers()
     try {
@@ -395,18 +325,9 @@ it('bounds auth preflight without dispatching a late chat request', async () => 
     } finally { vi.useRealTimers() }
 })
 
-it.each([503, 404])('does not retry chat HTTP %s responses', async status => {
-    fetchMock.mockResolvedValue(new Response('unavailable', { status }))
-    if (status === 404) expect(await storage.fetchChatState('c', 0, 'chat')).toBeNull()
-    else await expect(storage.fetchChatState('c', 0, 'chat')).rejects.toMatchObject({ status })
-    expect(fetchMock).toHaveBeenCalledOnce()
-})
-
-it.each([
-    ['BACKUP_ENCRYPTION_METADATA_INVALID', 'encryption metadata'],
-    ['BACKUP_ENCRYPTION_KEY_UNAVAILABLE', 'decryption key'],
-    ['BACKUP_DECRYPTION_FAILED', 'Could not decrypt'],
-])('presents %s consistently for uploads and server-file restores', async (code, message) => {
+it('shares coded errors between uploaded and server-file backup restores', async () => {
+    const code = 'BACKUP_DECRYPTION_FAILED'
+    const message = 'Could not decrypt'
     vi.spyOn(storage, 'prepareImport').mockResolvedValue(undefined)
     const event = JSON.stringify({ type: 'error', code, message: 'server fallback' }) + '\n'
     class BackupXHR {

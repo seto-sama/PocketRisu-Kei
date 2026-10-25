@@ -1164,6 +1164,7 @@ interface SafeLocalStorage {
     removeItem(key: string): Promise<void>;
     clear(): Promise<void>;
     key(index: number): Promise<string | null>;
+    keys(): Promise<string[]>;
     length(): Promise<number>;
 }
 

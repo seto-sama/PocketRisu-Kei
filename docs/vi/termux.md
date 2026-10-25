@@ -70,7 +70,7 @@ Khi quá trình xây dựng hoàn tất, bạn sẽ thấy:
 
 ```
 Build OK. Start the server with:
-  node server/node/server.cjs
+  node server/server.cjs
 
 Then open this address in the phone's own browser:
   http://localhost:6001
@@ -84,7 +84,7 @@ Then open this address in the phone's own browser:
 Từ cùng thư mục, khởi động máy chủ:
 
 ```bash
-node server/node/server.cjs
+node server/server.cjs
 ```
 
 Sau khi nhật ký khởi động máy chủ xuất hiện, mở trình duyệt điện thoại (Chrome, Firefox, v.v.) và truy cập:
@@ -119,15 +119,29 @@ Giải phóng bằng: `termux-wake-unlock`
 
 ## 5. Cập nhật
 
-Từ thư mục PocketRisu:
+Dừng máy chủ đang chạy bằng `Ctrl + C`, sau đó chạy:
+
+```bash
+cd ~/PocketRisu-Kei && \
+  git pull --ff-only && \
+  GYP_DEFINES="android_ndk_path=''" pnpm install --frozen-lockfile && \
+  NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+```
+
+Mỗi bước chỉ chạy khi bước trước thành công. Nếu `git pull` thất bại, lệnh sẽ dừng trước khi cài phụ thuộc hoặc xây dựng, nên mã nguồn cũ sẽ không được xây dựng lại. `pnpm install` là một bước riêng cần chạy rõ ràng; nó không tự chạy trong `pnpm build`. Hãy chạy lệnh này mỗi lần cập nhật. `GYP_DEFINES` là thiết lập Termux được dùng trong tập lệnh xây dựng và cần thiết khi biên dịch các module gốc như `msgpackr-extract`. Khi xây dựng xong, khởi động lại máy chủ bằng `node server/server.cjs`.
+
+### Nếu `git pull` thất bại
+
+Kiểm tra các thay đổi cục bộ:
 
 ```bash
 cd ~/PocketRisu-Kei
-git pull
-NODE_OPTIONS="--max-old-space-size=2048" pnpm build
+git status
+git diff
+git diff --cached
 ```
 
-Nếu các phụ thuộc thay đổi, `pnpm install` sẽ tự động chạy như một phần của quá trình xây dựng. Khởi động lại máy chủ khi quá trình xây dựng hoàn tất.
+Nếu muốn giữ các thay đổi chưa commit, hãy commit hoặc tạm cất chúng bằng `git stash push` trước khi chạy lệnh cập nhật ở trên. Nếu dùng stash, khôi phục sau khi cập nhật bằng `git stash pop` và kiểm tra xung đột. Nếu gặp lỗi `Not possible to fast-forward`, trước tiên hãy xử lý nhánh cục bộ bị phân kỳ; stash không giải quyết được các commit phân kỳ.
 
 
 ---

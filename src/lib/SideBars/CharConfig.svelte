@@ -22,6 +22,7 @@
     import SelectOption from "../UI/components/SelectOption.svelte";
     import RegexList from "./Scripts/RegexList.svelte";
     import TriggerList from "./Scripts/TriggerList.svelte";
+    import OnboardingEditor from "./OnboardingEditor.svelte";
     import Checkbox from "../UI/components/Checkbox.svelte";
     import { updateInlayScreen } from "src/ts/process/inlayScreen";
     import MultiLangInput from "../UI/components/MultiLangInput.svelte";
@@ -379,6 +380,8 @@
                 <span class="text-maintext">{language.triggerScript}<Help key="triggerScript"/></span>
             {/snippet}
         </TriggerList>
+
+        <OnboardingEditor character={DBState.db.characters[$selectedCharID] as character} />
     {/if}
 {:else if $CharConfigSubMenu === 6}
     {@const licenseRestricted =

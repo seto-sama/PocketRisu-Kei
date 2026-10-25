@@ -11,6 +11,8 @@ import type {
 import type { RevenantOperationContext } from './operations'
 import type { DeltaPatch } from '../../storage/nodeStorage'
 import type { ImagePresetMetadata } from '../files/inlayMeta'
+import type { LuaAxLlmMode } from '../luaLlmCore'
+import type { ImageOrientation } from '../../imageGeneration/orientation'
 export {
     createRevenantOperation,
     getRevenantOperationJobType,
@@ -149,16 +151,19 @@ export interface RevenantPostprocessDatabaseSnapshot {
     emotionPrompt2: string
 }
 
+export interface RevenantProviderSnapshot {
+    backend: 'http' | 'plugin' | 'echo'
+    modelPreset: unknown
+}
+
 export interface RevenantPostprocessRecipe {
     schemaVersion: 1
     messageChatId: string
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
-    auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {
-        backend: 'http' | 'plugin' | 'echo'
-        modelPreset: unknown
-    }>>
+    auxProviders?: Partial<Record<LuaAxLlmMode, RevenantProviderSnapshot>>
+    moduleProviders?: Record<string, RevenantProviderSnapshot>
     character: character
     chat: Chat
     database: RevenantPostprocessDatabaseSnapshot
@@ -221,6 +226,7 @@ export interface RevenantImageWorkflowContext {
     }
     prompt: string
     negativePrompt: string
+    orientation?: ImageOrientation
     seed?: number
     preset?: ImagePresetMetadata
     label: string

@@ -73,7 +73,6 @@ export type RegistryFieldSemantic =
     | 'maxOutputTokens'
     | 'temperature'
     | 'reasoningEffort'
-    | 'thinkingBudgetTokens'
 
 export interface RegistryMapping {
     target: RegistryMappingTarget
@@ -440,34 +439,6 @@ export interface ModelPresetMigrationSummary {
     appliedAt: number
     createdModelPresetCount: number
     manualRequiredCount: number
-    warnings: string[]
-}
-
-export interface PlannedModelPreset {
-    id: string
-    name: string
-    sourceKind: string
-    sourcePath: string
-    profileId: string
-    modelId?: string
-    endpointUrl?: string
-    credentialSource?: {
-        kind: 'legacyKey'
-        sourcePath: string
-    }
-    userValues: Record<string, unknown>
-}
-
-export interface ManualMigrationItem {
-    sourcePath: string
-    reason: string
-    legacySource?: string
-}
-
-export interface MigrationReport {
-    version: 1
-    createdModelPresets: PlannedModelPreset[]
-    manualRequired: ManualMigrationItem[]
     warnings: string[]
 }
 

@@ -36,8 +36,8 @@ int wmain(void) {
     wsprintfW(buf, L"http://localhost:%s", port);
     ShellExecuteW(NULL, L"open", buf, NULL, NULL, SW_SHOWNORMAL);
 
-    /* Launch: bin\node.exe server\node\server.cjs */
-    wsprintfW(cmd, L"\"%s\\bin\\node.exe\" \"%s\\server\\node\\server.cjs\"",
+    /* Launch: bin\node.exe server\server.cjs */
+    wsprintfW(cmd, L"\"%s\\bin\\node.exe\" \"%s\\server\\server.cjs\"",
               dir, dir);
 
     STARTUPINFOW si;

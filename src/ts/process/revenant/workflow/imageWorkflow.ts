@@ -1,5 +1,6 @@
 import { getDatabase } from '../../../storage/database.svelte'
 import { getCurrentImageGenerationPreset } from '../../../imageGeneration/presets'
+import type { ImageOrientation } from '../../../imageGeneration/orientation'
 import { endStatus, setStatusProgress, startStatus } from '../../../status/requestStatus'
 import type { RevenantWorkflow } from '../types'
 import { createRevenantGenerationAuth } from '../transport/client'
@@ -170,6 +171,7 @@ export async function generateImageThroughWorkflow(arg: {
     roomId: string | undefined
     prompt: string
     negativePrompt?: string
+    orientation?: ImageOrientation
 }): Promise<string> {
     if (!arg.roomId) throw new Error('Image generation requires a chat ID')
     const preset = getCurrentImageGenerationPreset(getDatabase())

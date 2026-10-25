@@ -1,10 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
-    // Restore flow forces a full page reload because the in-memory db cache
-    // is replaced; downloads are handled by the browser without relaying
-    // the backup through this tab.
     import { getCurrentLocale, language } from "src/lang";
-    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError } from "src/ts/alert";
+    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, notifySuccess, notifyError } from "src/ts/alert";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -14,6 +11,7 @@
     import Button from "../UI/components/Button.svelte";
     import BackupNoteEditor from "src/lib/Setting/BackupNoteEditor.svelte";
     import { updateBackupNote } from "src/ts/drive/backupNotes";
+    import { finishBackupRestore } from "src/ts/drive/backuplocal";
 
     const PAGE_SIZE = 20;
 
@@ -88,14 +86,7 @@
                     });
                 }
             });
-            if (result.coldStorageFailed && result.coldStorageFailed > 0) {
-                alertError(`Warning: ${result.coldStorageFailed} character(s) could not be restored from cold storage. The restored save may be incomplete. The app will now reload.`);
-                await waitAlert();
-            } else {
-                alertStore.set({ type: "wait", msg: "Success, Refreshing your app." });
-            }
-            location.search = '';
-            location.reload();
+            await finishBackupRestore(result);
         } catch (error) {
             alertError(error instanceof Error ? error.message : 'Restore failed');
         }

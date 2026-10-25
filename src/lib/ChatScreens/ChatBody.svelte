@@ -374,7 +374,7 @@
                 })
                 renderTranslated = false
             }
-            if(!requestStreaming && (requestRetranslate || renderTranslated)){
+            if(DBState.db.translator && !requestStreaming && (requestRetranslate || renderTranslated)){
                 const recoveryHasResult = await revenantTranslationRecovery.waitForResult(
                     recoverySnapshot,
                 )
@@ -470,7 +470,7 @@
             }
             if(tries > 2){
 
-                alertError(`Error while parsing chat message: ${requestTranslated}, ${error.message}, ${error.stack}`)
+                alertError(error)
                 lastParsedQueue = data
                 currentParsedTranslated = false
                 renderResultReady = true

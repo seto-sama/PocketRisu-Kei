@@ -40,7 +40,9 @@
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
     import Toaster from './lib/UI/components/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
-    import sendSound from './etc/send.mp3'
+    import { onDestroy } from 'svelte'
+    import { createKeepAliveAudio } from './ts/keepAliveAudio'
+    import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
@@ -49,7 +51,17 @@
 
     let gridOpen = $state(false)
     let driveOpen = $state(false)
-    let keepingSessionAlive = $state(false)
+    let keepAliveAudio = $state.raw<HTMLAudioElement | null>(null)
+
+    $effect(() => {
+        if (!DBState.db.keepSessionAlive) keepAliveAudio?.pause()
+    })
+
+    onDestroy(() => {
+        if (!keepAliveAudio) return
+        keepAliveAudio.pause()
+        URL.revokeObjectURL(keepAliveAudio.src)
+    })
 
     $effect(() => initializePwaInstall())
 
@@ -135,19 +147,12 @@
         }
     }
 }} onclick={() => {
-    if(keepingSessionAlive){
-        return
-    }
-
-    if(DBState?.db?.keepSessionAlive){
-        if (import.meta.env.DEV) {
-            console.log("Starting silent audio to keep session alive")
-        }
-        const silentAudio = new Audio(sendSound);
-        silentAudio.loop = true;
-        silentAudio.volume = 0.000001;
-        silentAudio.play();
-        keepingSessionAlive = true;
+    if (!DBState.db.keepSessionAlive) return
+    keepAliveAudio ??= createKeepAliveAudio()
+    if (!keepAliveAudio.paused) return
+    void keepAliveAudio.play().catch(() => {})
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: PRODUCT_NAME })
     }
 }}>
     {#if !$loadedStore}

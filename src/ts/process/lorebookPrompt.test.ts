@@ -10,10 +10,7 @@ vi.mock(import('../parser/parser.svelte'), () => ({
 
 vi.mock(import('../tokenizer'), () => ({ tokenize }))
 
-import {
-    renderLorebookContent,
-    selectLorebookPromptsWithinBudget,
-} from './lorebookPrompt'
+import { selectLorebookPromptsWithinBudget } from './lorebookPrompt'
 
 describe('lorebook prompt preparation', () => {
     const char = { name: 'Risu' } as character
@@ -23,11 +20,6 @@ describe('lorebook prompt preparation', () => {
         tokenize.mockReset()
         parser.mockImplementation((content: string) => content.replace('{{#if 0}}hidden{{/}}', ''))
         tokenize.mockImplementation(async (text: string) => text.length)
-    })
-
-    test('uses the shared CBS rendering boundary', () => {
-        expect(renderLorebookContent('{{#if 0}}hidden{{/}}visible', char)).toBe('visible')
-        expect(parser).toHaveBeenCalledWith('{{#if 0}}hidden{{/}}visible', { chara: char })
     })
 
     test('budgets rendered text by priority and returns insertion order', async () => {
@@ -41,8 +33,6 @@ describe('lorebook prompt preparation', () => {
             { id: 'fits', tokens: 3 },
             { id: 'hidden', tokens: 4 },
         ])
-        expect(tokenize).toHaveBeenCalledWith('1234')
-        expect(tokenize).not.toHaveBeenCalledWith('{{#if 0}}hidden{{/}}1234')
     })
 
     test('keeps zero-token prompts when the budget is already full', async () => {

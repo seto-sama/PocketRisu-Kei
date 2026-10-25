@@ -37,7 +37,6 @@ describe('lorebook import target', () => {
         mocks.DBState.db.characters = [character('a'), character('b')]
         setChatPage(mocks.DBState.db.characters[0], 0)
         mocks.selectFile.mockResolvedValue(importedFile())
-        mocks.hydrate.mockImplementation(async (chats: Chat[], index: number) => chats[index])
     })
 
     it('appends to the current original character after selection and projection changes', async () => {
@@ -61,9 +60,10 @@ describe('lorebook import target', () => {
             mocks.DBState.db.characters = [character('b'), target]
             return importedFile()
         })
-        mocks.hydrate.mockImplementation(async () => {
+        mocks.hydrate.mockImplementation(async (chats: Chat[], index: number) => {
             const target = character('a')
             target.chats[0].localLore.push(entry('remote'))
+            chats[index] = target.chats[0]
             mocks.DBState.db.characters = [character('b'), target]
             setChatPage(target, 1)
             return target.chats[0]
@@ -97,8 +97,8 @@ describe('lorebook import target', () => {
     it('does not restore a chat removed during hydration', async () => {
         mocks.DBState.db.characters[0].chats[0] = { id: 'a-1', _placeholder: true } as Chat
         mocks.hydrate.mockImplementation(async () => {
-            const removed = mocks.DBState.db.characters[0].chats.shift()
-            return removed
+            mocks.DBState.db.characters[0].chats.shift()
+            return null
         })
         await importLoreBook('local')
         expect(mocks.DBState.db.characters[0].chats).toEqual([chat('a-2')])

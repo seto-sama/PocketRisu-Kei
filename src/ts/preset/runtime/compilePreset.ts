@@ -9,20 +9,10 @@ import {
     hasPresetImageOutput,
     isCustomPreset,
     resolveCustomRuntimePreset,
-    resolvePresetAuth,
 } from '../adapter/customPreset'
 import { resolveModelPresetAdapterKind } from '../adapter/openaiApiMode'
-import type {
-    AdapterKind,
-    ModelPreset,
-    RegistryAuth,
-    RegistryCapability,
-} from '../types'
-import {
-    getEffectivePresetSemanticValue,
-    getPresetMaxOutputTokens,
-    getPresetModelIdValue,
-} from './effectiveConfig'
+import type { AdapterKind, ModelPreset } from '../types'
+import { getPresetMaxOutputTokens, getPresetModelIdValue } from './effectiveConfig'
 
 export type ModelPresetBackend = 'http' | 'plugin' | 'echo'
 
@@ -33,8 +23,6 @@ export interface CompiledPresetFeatures {
     readonly vision: boolean
     readonly audioInput: boolean
     readonly videoInput: boolean
-    readonly imageOutput: boolean
-    readonly audioOutput: boolean
     readonly mediaOutput: boolean
     readonly cache: boolean
     /** JSON Schema is supported, declared by the profile, and requested now. */
@@ -67,17 +55,12 @@ interface CompiledModelPresetBase {
     readonly preset: ModelPreset
     readonly backend: ModelPresetBackend
     readonly adapterKind: AdapterKind
-    readonly auth: RegistryAuth
     readonly modelId: unknown
-    readonly profileCapabilities: readonly RegistryCapability[]
     readonly availability: CompiledPresetAvailability
     readonly features: CompiledPresetFeatures
     readonly behavior: CompiledPresetBehavior
     readonly generation: {
         readonly maxOutputTokens?: number
-        readonly temperature?: number
-        readonly reasoningEffort?: string
-        readonly thinkingBudgetTokens?: number
     }
 }
 
@@ -123,10 +106,7 @@ export function compileModelPreset(
     const adapterKind = resolveModelPresetAdapterKind(preset)
     const adapter = getModelPresetAdapterDefinition(adapterKind)
     const capabilitiesDeclared = preset.profileSnapshot.capabilities !== undefined
-    const profileCapabilities = Object.freeze([
-        ...(preset.profileSnapshot.capabilities ?? []),
-    ])
-    const declared = new Set(profileCapabilities)
+    const declared = new Set(preset.profileSnapshot.capabilities ?? [])
     const custom = isCustomPreset(preset)
 
     const foldingPolicy = adapter?.support.systemPromptFolding
@@ -157,8 +137,6 @@ export function compileModelPreset(
             && hasPresetFlag(preset, 'hasAudioInput'),
         videoInput: adapterKind === 'google-gemini'
             && hasPresetFlag(preset, 'hasVideoInput'),
-        imageOutput,
-        audioOutput,
         mediaOutput: imageOutput
             || audioOutput
             || (
@@ -194,30 +172,11 @@ export function compileModelPreset(
         sourcePreset,
         preset,
         adapterKind,
-        auth: resolvePresetAuth(preset),
         modelId: getPresetModelIdValue(preset),
-        profileCapabilities,
         availability,
         features,
         behavior,
-        generation: {
-            maxOutputTokens: getPresetMaxOutputTokens(preset),
-            temperature: finiteNumber(getEffectivePresetSemanticValue(
-                preset,
-                'temperature',
-                ['temperature'],
-            )),
-            reasoningEffort: nonEmptyString(getEffectivePresetSemanticValue(
-                preset,
-                'reasoningEffort',
-                ['reasoning_effort', 'effort', 'thinkingLevel'],
-            )),
-            thinkingBudgetTokens: finiteNumber(getEffectivePresetSemanticValue(
-                preset,
-                'thinkingBudgetTokens',
-                ['thinking_tokens', 'thinkingBudget', 'thinking_budget', 'budget_tokens'],
-            )),
-        },
+        generation: { maxOutputTokens: getPresetMaxOutputTokens(preset) },
     }
 
     if (adapterKind === 'plugin') {
@@ -240,16 +199,4 @@ export function compileModelPreset(
         adapterKind: adapter.kind,
         adapter,
     }
-}
-
-function finiteNumber(value: unknown): number | undefined {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : undefined
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-    return typeof value === 'string' && value.length > 0
-        ? value
-        : undefined
 }

@@ -313,7 +313,9 @@ export async function invokeLuaMode(
                 : mode
     const callback = global.get(callbackName)
     if (!callback) return { result: undefined, data }
-    const result = mode === 'onButtonClick'
+    const result = mode === 'onFormSubmit'
+        ? await callback(accessKey, data, JSON.stringify(meta))
+        : mode === 'onButtonClick'
         ? await callback(accessKey, data)
         : await callback(accessKey)
     return { result, data }

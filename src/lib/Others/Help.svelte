@@ -34,5 +34,5 @@
             {/if}
         </span>
     {/snippet}
-    {@html parseMarkdownSafe(language.help[key])}
+    <div class="risu-rich-text">{@html parseMarkdownSafe(language.help[key])}</div>
 </Tooltip>

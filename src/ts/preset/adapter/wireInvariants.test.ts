@@ -55,9 +55,13 @@ describe('resolveWireModelId', () => {
         expect(resolveWireModelId(preset)).toBe('anthropic/claude-opus-4.6')
     })
 
-    test('throws invalid-request when userValues.modelId is an explicit empty string', () => {
+    test.each([
+        ['an empty string', ''],
+        ['null', null],
+        ['a non-string value', 42],
+    ])('throws instead of falling back when userValues.modelId is %s', (_label, modelId) => {
         const preset = makePreset({
-            userValues: { modelId: '' },
+            userValues: { modelId: modelId as unknown as string },
             profileSnapshot: makeSnapshot({
                 schema: [
                     {
@@ -69,53 +73,6 @@ describe('resolveWireModelId', () => {
                     },
                 ],
                 modelId: 'snapshot-model',
-            }),
-        })
-        try {
-            resolveWireModelId(preset, { vendorName: 'TestVendor' })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-                expect(err.retryable).toBe(false)
-                expect(err.message).toContain('TestVendor')
-                expect(err.message).toContain('non-empty')
-            }
-        }
-    })
-
-    test('throws invalid-request when userValues.modelId is explicit null', () => {
-        const preset = makePreset({
-            userValues: { modelId: null as unknown as string },
-            profileSnapshot: makeSnapshot({
-                schema: [
-                    {
-                        key: 'modelId',
-                        type: 'string',
-                        label: 'Model ID',
-                        default: 'fallback-model',
-                        mapsTo: { target: 'body', path: 'model' },
-                    },
-                ],
-            }),
-        })
-        expect(() => resolveWireModelId(preset)).toThrowError(ModelPresetAdapterError)
-    })
-
-    test('throws invalid-request when userValues.modelId is a non-string value', () => {
-        const preset = makePreset({
-            userValues: { modelId: 42 as unknown as string },
-            profileSnapshot: makeSnapshot({
-                schema: [
-                    {
-                        key: 'modelId',
-                        type: 'string',
-                        label: 'Model ID',
-                        default: 'fallback-model',
-                        mapsTo: { target: 'body', path: 'model' },
-                    },
-                ],
             }),
         })
         expect(() => resolveWireModelId(preset)).toThrowError(ModelPresetAdapterError)
@@ -162,24 +119,12 @@ describe('resolveWireModelId', () => {
             userValues: {},
             profileSnapshot: makeSnapshot({ schema: [], modelId: '' }),
         })
-        try {
-            resolveWireModelId(preset, { vendorName: 'Google Gemini' })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-            if (err instanceof ModelPresetAdapterError) {
-                expect(err.kind).toBe('invalid-request')
-                expect(err.message).toContain('Google Gemini')
-            }
-        }
-    })
-
-    test('userValues key present with explicit empty string is preferred over snapshot.modelId (throws, not falls back)', () => {
-        // ensures the empty-string guard does not silently degrade to snapshot.modelId either
-        const preset = makePreset({
-            userValues: { modelId: '' },
-            profileSnapshot: makeSnapshot({ modelId: 'snapshot-model' }),
-        })
-        expect(() => resolveWireModelId(preset)).toThrowError(ModelPresetAdapterError)
+        expect(() => resolveWireModelId(preset, { vendorName: 'Google Gemini' })).toThrowError(
+            expect.objectContaining({
+                kind: 'invalid-request',
+                retryable: false,
+                message: expect.stringContaining('Google Gemini'),
+            }),
+        )
     })
 })

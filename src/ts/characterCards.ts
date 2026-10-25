@@ -18,13 +18,13 @@ import { PngChunk } from "./pngChunk"
 import { CharXImporter, CharXWriter } from "./process/processzip"
 import { zip } from "./process/zip"
 import { encodeModuleLegacy, importModule, isModuleImportJSON, readModule, type RisuModule } from "./process/modules"
-import { readDefaultAvatarImage } from "./avatarImage"
+import { readAvatarImageOrDefault, readDefaultAvatarImage } from "./avatarImage"
 import { getFileType } from "../../shared/fileTypes.mjs"
+import { getRealmProxyUrl } from './network/proxy'
+import { getRealmMutes, isRealmMuted } from './realmMute'
+import { normalizeOnboarding } from './onboarding'
 
 
-const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
-const NIGHTLY_HUB_URL = 'https://nightly.sv.risuai.xyz'
-export const hubURL = '/hub-proxy';
 export const realmURL = 'https://realm.risuai.net';
 
 export async function importCharacter() {
@@ -376,34 +376,36 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     
 }
 
+async function fetchRealmInfo(id: string): Promise<hubType> {
+    const res = await fetch(getRealmProxyUrl(`/hub/info/${encodeURIComponent(id)}`))
+    if (res.status !== 200) throw new Error(await res.text())
+    return res.json()
+}
+
+async function confirmRealmContent(id: string, creator?: string): Promise<boolean> {
+    return !isRealmMuted(id, creator) || alertConfirm(language.realmContentMutedConfirm)
+}
+
 export const getRealmInfo = async (realmPath:string) => {
     const url = new URL(location.href);
     url.searchParams.delete('realm');
     window.history.pushState(null, '', url.toString());
 
-    if(!(await alertTOS())){
-        return
-    }
+    if (!(await alertTOS())) return
 
-    const res = await fetch(`${hubURL}/hub/info/${realmPath}`)
-    if(res.status !== 200){
-        notifyError(await res.text())
-        return
+    try {
+        const info = await fetchRealmInfo(realmPath)
+        if (await confirmRealmContent(realmPath, info.creator)) showRealmInfoStore.set(info)
+    } catch (error) {
+        notifyError(error)
     }
-    showRealmInfoStore.set(await res.json())
 }
 
 export const showRealmInfoStore:Writable<null|hubType> = writable(null)
 
 export async function characterURLImport() {
     const realmPath = (new URLSearchParams(location.search)).get('realm')
-    try {
-        if(realmPath){
-           getRealmInfo(realmPath)
-        }
-    } catch (error) {
-        
-    }
+    if (realmPath) getRealmInfo(realmPath)
 
     const charPath = (new URLSearchParams(location.search)).get('charahub')
     try {
@@ -861,6 +863,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         chaId: createEntityId(),
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
+        onboarding: normalizeOnboarding(data?.extensions?.risuai?.onboarding),
         escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
         customscript: customScripts,
         exampleMessage: data.mes_example ?? '',
@@ -1140,7 +1143,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         else showExportAssetProgress(completed, total)
     }
     try{
-        let img = await readImage(char.image)
+        let img = await readAvatarImageOrDefault(char.image)
         char.image = ''
         img = type === 'png' ? (await reencodeImage(img)) : img
         const localWriter = arg.writer ?? new VirtualWriter()
@@ -1498,6 +1501,7 @@ export function createBaseV3(char:character){
                     toggles: char.customModuleToggle ?? '',
                     moduleNamespace: char.moduleNamespace,
                     hideChatIcon: char.hideChatIcon ?? false,
+                    onboarding: char.onboarding,
                 },
                 depth_prompt: char.depth_prompt
             },
@@ -1559,7 +1563,7 @@ export async function getRisuHub(arg:{
         const search = `${arg.search} __shared`
         const stringArg = `search==${search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==other`
 
-        const da = await fetch(hubURL + '/realm/' + encodeURIComponent(stringArg), {
+        const da = await fetch(getRealmProxyUrl('/realm/' + encodeURIComponent(stringArg)), {
             signal: arg.signal,
             headers: {
                 "x-risuai-info": pocketKeiVer + ';node'
@@ -1580,7 +1584,7 @@ export async function getRisuHub(arg:{
 }
 
 export async function downloadRisuHub(id:string, arg:{
-    forceRedirect?: boolean
+    creator?: string
 } = {}): Promise<boolean> {
     const persistImportedCharacter = async (importedIndex: number | null) => {
         const beforeFormat = getDatabase()
@@ -1589,9 +1593,7 @@ export async function downloadRisuHub(id:string, arg:{
             : beforeFormat.characters[importedIndex]
         if (!importedCharacter) return null
 
-        // Normalize before the structural projection PATCH as a final guard:
-        // every imported chat must have one browser-owned stable id before the
-        // relational store sees it.
+        // Normalize chat identities before persisting the imported character.
         characterFormatUpdate(importedIndex)
         checkCharOrder()
         const db = getDatabase()
@@ -1604,7 +1606,7 @@ export async function downloadRisuHub(id:string, arg:{
     const finishImport = async (importedIndex: number | null) => {
         const persisted = await persistImportedCharacter(importedIndex)
         if (!persisted) return false
-        if (persisted.db.goCharacterOnImport || arg.forceRedirect) {
+        if (persisted.db.goCharacterOnImport) {
             selectedCharID.set(persisted.importedIndex)
         }
         alertStore.set({ type: 'none', msg: '' })
@@ -1616,12 +1618,13 @@ export async function downloadRisuHub(id:string, arg:{
             return false
         }
 
-        if(!arg.forceRedirect){
-            alertStore.set({
-                type: "wait",
-                msg: "Downloading..."
-            })
+        let creator = arg.creator
+        if (!creator?.trim() && getRealmMutes().creators.length > 0) {
+            creator = (await fetchRealmInfo(id)).creator
         }
+        if (!(await confirmRealmContent(id, creator))) return false
+
+        alertStore.set({ type: "wait", msg: "Downloading..." })
         const res = await fetch(`${realmURL}/api/v1/download/dynamic/${encodeURIComponent(id)}?cors=true`, {
             headers: {
                 "x-risu-api-version": "4"
@@ -1670,7 +1673,7 @@ export async function downloadRisuHub(id:string, arg:{
 }
 
 async function getHubResources(id:string) {
-    const res = await fetch(`${hubURL}/resource/${id}`)
+    const res = await fetch(getRealmProxyUrl(`/resource/${id}`))
     if(res.status !== 200){
         throw (await res.text())
     }

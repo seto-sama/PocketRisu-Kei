@@ -114,7 +114,6 @@ const PARAMETER_SCHEMA: Record<string, Omit<RegistryFieldSchema, 'key'>> = {
         step: 0.01,
     },
     thinking_tokens: {
-        semantic: 'thinkingBudgetTokens',
         type: 'integer',
         label: 'Thinking tokens',
         default: 0,
@@ -241,11 +240,8 @@ function buildUiFields(schema: RegistryFieldSchema[]): RegistryUiField[] {
         }
         return {
             key: field.key,
-            widget: field.enum
-                ? 'select'
-                : field.key === 'thinking_tokens'
-                    ? 'number-input'
-                    : 'slider',
+            // Only thinking_tokens reaches here; the rest return above.
+            widget: 'number-input',
             visibility: 'advanced',
             group: 'advanced',
             order: index + 1,

@@ -121,6 +121,8 @@ export const helpEn = {
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
         customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
+        onboarding:
+            "Onboarding lets users pick options before a chat starts, like a short form. Each answer is saved to a chat variable, usable with `{{getvar::name}}` or triggers.\n\nUntil the user finishes or skips it, the chat shows a banner that opens the onboarding. It can be reopened from the chat menu.\n\n**Form** mode builds choices and text questions. Multiple-choice answers are saved as a JSON array.\n\n**HTML** mode lets you write your own layout. CBS and additional assets work, and it is sanitized like chat messages with `<style>` support. Add `risu-change-var-name=\"varname\"` and `risu-change-var-value=\"value\"` to any element to set the variable when it is clicked; the clicked element gets the `selected` class. On `<input>`, `<select>` and `<textarea>`, the variable follows the input's value. Choices are saved when the user presses Done, so CBS such as `{{getvar::name}}` inside the onboarding shows the value from before it was opened.",
         customPromptTemplateToggle:
             "Here you can define your own prompt toggles. use `<toggle variable>=<toggle name>` format, seperated by newline. for example, `cot=Toggle COT`. you can use these toggles in prompt by using `{{getglobalvar::toggle_<toggle variable>}}`. like `{{getglobalvar::toggle_cot}}`.",
         defaultVariables:
@@ -200,7 +202,7 @@ export const helpEn = {
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
-            "Keeps the tab active by playing silent audio, preventing the browser session from expiring due to inactivity. This may require a refresh to take effect.",
+            "Plays audio inaudible to humans to keep the tab active in the background.",
         disableMobileBackNavigation:
             "Prevents the browser back button or back gesture from accidentally leaving the current tab on mobile devices. Some browsers may show a confirmation before leaving.",
         reSummarizationPrompt:
@@ -412,7 +414,6 @@ export const helpEn = {
         modelPresetStopSequencesHelp: "Strings that stop response generation. Enter one per line.",
         modelPresetLocationHelp: "Google Cloud location used by Vertex AI. Keep `global` unless the selected model or your project requires a specific region.",
         cloudflareAccountIdHelp: "Cloudflare account identifier used in the Workers AI API endpoint. Find it in the Cloudflare dashboard.",
-        thinkingBudgetHelp: "Maximum thinking-token budget used by Claude and Gemini when Reasoning Effort is set to Budget. The minimum is 1,024 tokens.",
         customFlagHasImageOutputHelp: "Treat the model as capable of returning generated images.",
         customFlagHasAudioInputHelp: "Allow audio attachments in model input.",
         customFlagHasAudioOutputHelp: "Treat the model as capable of returning generated audio.",
@@ -460,12 +461,6 @@ export const helpEn = {
             "When left blank, a random value is sent.",
         imageGenerationPresetQuickEdit:
             "Right-click the generation settings or style preset field to edit the selected preset directly.",
-        thinkingType:
-            "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
-        thinkingTokens:
-            "Maximum tokens to spend on thinking when in Budget mode. Raise it for harder reasoning, lower it to save cost. `-1` uses the model default.",
-        adaptiveThinkingEffort:
-            "Effort level Claude applies in Adaptive mode.\n\n- **Low**: fast, simple tasks\n- **Medium**: general use\n- **High**: complex reasoning or coding\n- **Max**: maximum effort, with the cost and latency to match",
         topK:
             "Limit candidate tokens to the top K most likely. Lower values feel conservative and repetitive; higher values pull in more variety. Around 40 is a common middle ground. Not all models honor this.",
         minP:
@@ -593,8 +588,8 @@ export const helpEn = {
         autoBackupSchedule:
             "When enabled, backups are created automatically once the specified number of days has passed since the last backup.",
         systemLogsExplicitOnlyHint: "Excludes console, uncaught exceptions, framework captures",
-        migrationUpstreamExportDesc: "Export a backup in the original RisuAI-compatible format.",
-        migrationUpstreamRestoreDesc: "Restore from a local backup exported by the original RisuAI.",
+        migrationUpstreamExportDesc: "Export a backup in the Original RisuAI-compatible format.",
+        migrationUpstreamRestoreDesc: "Restore from a local backup exported by Original RisuAI.",
         migrationPartialBackupDesc: "Save a smaller local backup with database and essential images only.",
         migrationDatasetExportDesc: "Export save data as a dataset file.",
         backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",

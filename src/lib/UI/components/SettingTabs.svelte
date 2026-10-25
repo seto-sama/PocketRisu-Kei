@@ -29,7 +29,7 @@
             {#snippet trigger(props)}
                 {@render tabButton(tab, props)}
             {/snippet}
-            <span class="whitespace-pre-line">{tab.description}</span>
+            <span class="risu-plain-text">{tab.description}</span>
         </Tooltip>
     {:else}
         {@render tabButton(tab)}

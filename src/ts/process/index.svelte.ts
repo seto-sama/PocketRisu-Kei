@@ -66,6 +66,8 @@ import {
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getMessagePromptIdentity } from '../storage/messageIdentity';
 import { getModuleAssets, getModuleRegexScripts, getModules, getModuleTriggers } from "./modules";
+import { LUA_AX_LLM_MODES } from './luaLlmCore';
+import type { ModelModeExtended, RevenantProviderSnapshot } from './revenant/types';
 import { readImage } from "../globalApi.svelte";
 import {
     createChatCommitSnapshot,
@@ -1622,16 +1624,34 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(!outgoingChat.id){
                 throw new Error('Cannot start generation because the chat has no id.')
             }
-            const snapshotAuxProvider = (mode:'submodel'|'emotion'|'otherAx') => {
-                const binding = resolveChatModelBinding(currentChat, mode)
+            const mainProvider = {
+                backend: compiledMainPreset.backend,
+                modelPreset: structuredClone(compiledMainPreset.sourcePreset),
+            }
+            const providerSnapshots = new Map<string, RevenantProviderSnapshot>([
+                [compiledMainPreset.sourcePreset.id, mainProvider],
+            ])
+            const snapshotProvider = (mode: ModelModeExtended, moduleId?: string) => {
+                const binding = resolveChatModelBinding(currentChat, mode, moduleId)
                 if(binding.kind !== 'modelPreset') return undefined
+                const existing = providerSnapshots.get(binding.preset.id)
+                if (existing) return existing
                 const compiled = compileModelPreset(binding.preset, {
                     jsonSchemaRequested: false,
                 })
-                return {
+                const provider = {
                     backend: compiled.backend,
                     modelPreset: structuredClone(compiled.sourcePreset),
                 }
+                providerSnapshots.set(binding.preset.id, provider)
+                return provider
+            }
+            const moduleTriggers = getModuleTriggers(currentChar, currentChat)
+            const moduleProviders: Record<string, RevenantProviderSnapshot> = Object.create(null)
+            for (const moduleId of new Set(moduleTriggers.map(trigger => trigger.moduleId).filter((id): id is string => !!id))) {
+                if (!DBState.db.moduleModelBindings?.[moduleId]) continue
+                const provider = snapshotProvider('model', moduleId)
+                if (provider) moduleProviders[moduleId] = provider
             }
             const resumeContext:RevenantWorkflowResumeContext = {
                 version: 1,
@@ -1671,13 +1691,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     schemaVersion: 1,
                     messageChatId,
                     rerollSnapshot,
-                    providerBackend: compiledMainPreset.backend,
-                    modelPreset: structuredClone(compiledMainPreset.sourcePreset),
-                    auxProviders: {
-                        submodel: snapshotAuxProvider('submodel'),
-                        emotion: snapshotAuxProvider('emotion'),
-                        otherAx: snapshotAuxProvider('otherAx'),
-                    },
+                    providerBackend: mainProvider.backend,
+                    modelPreset: mainProvider.modelPreset,
+                    auxProviders: Object.fromEntries(LUA_AX_LLM_MODES.map(mode => [mode, snapshotProvider(mode)])),
+                    moduleProviders,
                     character: postprocessCharacter,
                     chatPatch: compare(
                         durableInputChat,
@@ -1700,9 +1717,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
                         emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                     },
-                    modules: structuredClone(getModules()),
-                    moduleRegexScripts: structuredClone(getModuleRegexScripts()),
-                    moduleTriggers: structuredClone(getModuleTriggers()),
+                    modules: structuredClone(getModules(currentChar, currentChat)),
+                    moduleRegexScripts: structuredClone(getModuleRegexScripts(currentChar, currentChat)),
+                    moduleTriggers: structuredClone(moduleTriggers),
                 },
             }
             const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({

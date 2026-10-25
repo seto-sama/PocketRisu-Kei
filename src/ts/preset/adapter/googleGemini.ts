@@ -32,8 +32,8 @@ import {
     hasPresetImageOutput,
     isCustomPreset,
     resolveCustomGeminiEndpoint,
+    resolveCustomReasoningEffort,
 } from './customPreset'
-import { resolveThinkingBudget } from './thinkingBudget'
 
 export interface GeminiPart {
     text?: string
@@ -270,7 +270,6 @@ async function prepareGeminiBody(
         if (Object.keys(generationConfig).length > 0) prepared.body.generationConfig = generationConfig
         else delete prepared.body.generationConfig
     }
-    if (!isCustomPreset(preset)) applyGeminiThinkingBudget(prepared.body, preset)
     applyIncludeThoughts(prepared.body, preset)
     applyResponseModalities(prepared.body, preset)
 
@@ -282,25 +281,6 @@ async function prepareGeminiBody(
         prepared.url = `${prepared.url}/${encodeURIComponent(modelId)}${suffix}`
     }
     return { ...prepared, modelId, cacheBoundary: resolvedBoundary }
-}
-
-function applyGeminiThinkingBudget(
-    body: Record<string, unknown>,
-    preset: ModelPreset,
-): void {
-    const budget = resolveThinkingBudget(preset, 'thinkingLevel')
-    if (budget === undefined) return
-
-    const generationConfig = isPlainObject(body.generationConfig)
-        ? { ...body.generationConfig }
-        : {}
-    const thinkingConfig = isPlainObject(generationConfig.thinkingConfig)
-        ? { ...generationConfig.thinkingConfig }
-        : {}
-    delete thinkingConfig.thinkingLevel
-    thinkingConfig.thinkingBudget = budget
-    generationConfig.thinkingConfig = thinkingConfig
-    body.generationConfig = generationConfig
 }
 
 function applyIncludeThoughts(
@@ -315,14 +295,9 @@ function applyIncludeThoughts(
         : {}
     const hasStandardThinking = thinkingConfig.thinkingLevel !== undefined
         || thinkingConfig.thinkingBudget !== undefined
-    const custom = isCustomPreset(preset)
-    const customReasoning = preset.userValues?.reasoning_effort
-    const usesCustomReasoningControl = typeof customReasoning === 'string'
-        && customReasoning.length > 0
-        && customReasoning !== 'none'
-    const forceForCustom = custom && hasCustomFlag(preset, 'geminiIncludeThoughts')
-    const shouldInclude = custom
-        ? usesCustomReasoningControl || forceForCustom
+    const shouldInclude = isCustomPreset(preset)
+        ? resolveCustomReasoningEffort(preset) !== undefined
+            || hasCustomFlag(preset, 'geminiIncludeThoughts')
         : hasStandardThinking
     if (!shouldInclude) return
 

@@ -130,7 +130,7 @@ export function createRevenantChatTranslationRecovery(options: {
             parseMarkdown: ParseMessageMarkdown
         },
     ): Promise<boolean> {
-        if (renderOptions.streaming) return false
+        if (!DBState.db.translator || renderOptions.streaming) return false
         if (!renderOptions.data.trim()) return false
         if (renderOptions.translated) return true
         if (renderOptions.autoTranslationSuppressed) return false

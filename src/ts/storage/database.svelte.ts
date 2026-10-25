@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer'
 import { normalizeTrashRetentionDays } from '../trashRetention';
 import { getEnabledModules } from '../process/moduleSelection';
-import { withExportColorSchemes } from "../../../server/shared/colorScheme.js";
+import { withExportColorSchemes } from "../../../server/utils/colorScheme.js";
 import { remoteHypaModels, DEFAULT_HYPA_MODEL } from '../process/memory/embeddingModels'
 import { get } from 'svelte/store';
 import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
@@ -34,6 +34,7 @@ import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { normalizeSidebarMenuHidden, normalizeSidebarMenuOrder } from '../sidebarMenuOrder';
 import { normalizeSettingsMenuOrder } from '../settingsMenuOrder';
+import type { RealmMuteEntry } from '../realmMute';
 import { normalizeImageGenerationPresetState, type ImageGenerationPreset } from '../imageGeneration/presets';
 import { normalizeTTSPresetState, type TTSPreset } from '../tts/presets';
 import { normalizeGenerationCount } from '../process/automaticReroll';
@@ -862,6 +863,8 @@ export function setDatabase(data:Database){
     data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
     data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
     data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
+    data.blockedRealmCreators ??= []
+    data.blockedRealmCharacters ??= []
     data.serverDriveShortcuts ??= []
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
@@ -915,12 +918,7 @@ export function getDatabase(options:getDatabaseOptions = {}):Database{
 }
 
 export function getCurrentCharacter(options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
-    if(!db.characters){
-        db.characters = []
-    }
-    const char = db.characters?.[get(selectedCharID)]
-    return char
+    return getCharacterByIndex(get(selectedCharID), options)
 }
 
 export function setCurrentCharacter(char:character){
@@ -932,12 +930,12 @@ export function setCurrentCharacter(char:character){
 }
 
 export function getCharacterByIndex(index:number,options:getDatabaseOptions = {}):character{
-    const db = getDatabase(options)
+    const db = getDatabase()
     if(!db.characters){
         db.characters = []
     }
     const char = db.characters?.[index]
-    return char
+    return options.snapshot && char ? $state.snapshot(char) as character : char
 }
 
 export function setCharacterByIndex(index:number,char:character){
@@ -1210,6 +1208,8 @@ export interface Database{
     animationSpeed:number
     botSettingAtStart:false
     NAIsettings:NAISettings
+    blockedRealmCreators: RealmMuteEntry[]
+    blockedRealmCharacters: RealmMuteEntry[]
     hideRealm:boolean
     hidePublicStats:boolean
     colorScheme:ColorScheme
@@ -1430,7 +1430,6 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
-    requestLocation:string
     newImageHandlingBeta?: boolean
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean
@@ -1583,6 +1582,8 @@ export interface character{
     realmId?:string
     imported?:boolean
     trashTime?:number
+    /** Folder the character left when trashed; restoring recreates it if it was dropped while empty. */
+    trashFolder?:Omit<folder, 'data'>
     nickname?:string
     source?:string[]
     group_only_greetings?:string[]
@@ -1595,6 +1596,7 @@ export interface character{
         ext: string
     }>
     defaultVariables?:string
+    onboarding?:CharacterOnboarding
     lowLevelAccess?:boolean
     hideChatIcon?:boolean
     lastInteraction?:number
@@ -1950,8 +1952,37 @@ export interface Chat{
      * override the preset's sampling parameters with the active prompt preset's
      * (temperature, top_p, penalties, ...). Off (or absent) => preset params only. */
     usePromptPresetParams?: boolean
+    onboardingDone?: boolean
     /** Runtime-only: true while awaiting hydration from server. Never persisted. */
     _placeholder?: boolean
+}
+
+export interface OnboardingOption{
+    label:string
+    value:string
+}
+
+export interface OnboardingQuestion{
+    id:string
+    title:string
+    description?:string
+    type:'single'|'multiple'|'text'
+    varName:string
+    required?:boolean
+    options:OnboardingOption[]
+    placeholder?:string
+}
+
+/** A creator-defined set of choices shown before a chat starts. Each answer is written to a chat variable. */
+export interface CharacterOnboarding{
+    enabled:boolean
+    mode:'form'|'html'
+    title?:string
+    description?:string
+    questions:OnboardingQuestion[]
+    html?:string
+    /** Also shows a floating button on the chat screen that opens the onboarding. */
+    floatingButton?:boolean
 }
 
 // `ChatStub` and `isChatStub` live in chatStub.ts so they can be unit-tested

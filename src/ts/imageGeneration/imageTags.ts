@@ -1,5 +1,5 @@
 // Tag names and Korean descriptions: https://huggingface.co/datasets/mengod-hf/danbooru-tags-kr
-// Download metadata and license links are in server/node/imageTags.cjs.
+// Download metadata and license links are in server/imageTags.cjs.
 import type { CompletionSource } from '@codemirror/autocomplete'
 import { language } from 'src/lang'
 import { forageStorage } from '../storage/autoStorage'

@@ -1,6 +1,7 @@
 import { getCurrentChat } from 'src/ts/storage/database.svelte'
 import { compileModelPreset, type CompiledModelPreset } from 'src/ts/preset/runtime/compilePreset'
 import { getPresetModelIdValue } from 'src/ts/preset/runtime/effectiveConfig'
+import { modelPresetSupportsPrefill } from 'src/ts/preset/adapter/openaiCompatible'
 import type { ModelPreset, RegistryTokenizer } from 'src/ts/preset/types'
 import { resolveChatModelBinding } from '../request/modelPresetBinding'
 
@@ -26,12 +27,7 @@ export function getGenerationModelPreset(mode: GenerationModelMode = 'model'): M
     return binding.kind === 'modelPreset' ? binding.preset : undefined
 }
 
-export function getGenerationModelRuntime(mode: GenerationModelMode = 'model'): CompiledModelPreset | undefined {
-    const preset = getGenerationModelPreset(mode)
-    return getModelPresetRuntime(preset)
-}
-
-export function getModelPresetRuntime(preset: ModelPreset | undefined): CompiledModelPreset | undefined {
+function getModelPresetRuntime(preset: ModelPreset | undefined): CompiledModelPreset | undefined {
     if(!preset) return undefined
     try {
         return compileModelPreset(preset)
@@ -74,7 +70,6 @@ export function getModelPresetMetadata(preset: ModelPreset | undefined): Generat
     const adapterKind = runtime?.adapterKind ?? preset?.profileSnapshot.adapterKind ?? ''
     const internalId = stringifyModelId(runtime?.modelId ?? (preset ? getPresetModelIdValue(preset) : ''))
     const name = preset?.name ?? ''
-    const customPrefill = preset?.userValues?.customFlag_hasPrefill === true
     return {
         presetId: preset?.id ?? '',
         name,
@@ -83,7 +78,7 @@ export function getModelPresetMetadata(preset: ModelPreset | undefined): Generat
         format: adapterKind,
         provider: preset?.profileSnapshot.providerBaseId ?? '',
         tokenizer: getModelPresetTokenizer(preset),
-        supportsPrefill: adapterKind === 'anthropic-messages' || customPrefill,
+        supportsPrefill: preset ? modelPresetSupportsPrefill(preset) : false,
         streaming: runtime?.features.streaming ?? false,
         vision: runtime?.features.vision ?? false,
         audioInput: runtime?.features.audioInput ?? false,

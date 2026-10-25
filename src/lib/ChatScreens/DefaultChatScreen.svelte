@@ -5,7 +5,7 @@
     import { setMessageContent } from 'src/ts/storage/messageContent';
     import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
 
-    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon } from "@lucide/svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
@@ -78,6 +78,8 @@ import { isMobile } from 'src/ts/platform'
     import Portal from '../UI/components/overlay/Portal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
     import TranslationDialog from './TranslationDialog.svelte';
+    import OnboardingDialog from '../Others/OnboardingDialog.svelte';
+    import { getActiveOnboarding } from 'src/ts/onboarding';
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
     import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation';
     import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
@@ -115,6 +117,7 @@ import { isMobile } from 'src/ts/platform'
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
     let translationOpen = $state(false)
+    let onboardingOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let fileInput:string[] = $state([])
@@ -139,6 +142,8 @@ import { isMobile } from 'src/ts/platform'
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChatSlot = $derived(currentCharacter?.chats[getChatPage(currentCharacter)])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
+    // Placeholder chats have no body yet, so their onboardingDone state is unknown.
+    let activeOnboarding = $derived(currentChatReady ? getActiveOnboarding(currentCharacter) : null)
     let currentChatHydrationFailure = $derived(
         currentCharacter?.chaId && currentChatSlot?.id
             ? $chatHydrationFailures.get(chatHydrationKey(currentCharacter.chaId, currentChatSlot.id))
@@ -1402,6 +1407,13 @@ import { isMobile } from 'src/ts/platform'
         bind:open={translationOpen}
         onConfirm={appendTranslationToMessageInput}
     />
+    {#if activeOnboarding}
+        <OnboardingDialog
+            bind:open={onboardingOpen}
+            character={currentCharacter as character}
+            chat={currentChatSlot}
+        />
+    {/if}
     
     {#if DBState.db.scrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
@@ -1570,6 +1582,11 @@ import { isMobile } from 'src/ts/platform'
                                 }}>
                                     <PackageIcon /><span>{language.modules}</span>
                                 </DropdownMenu.Item>
+                                {#if activeOnboarding}
+                                    <DropdownMenu.Item onSelect={() => { onboardingOpen = true }}>
+                                        <CompassIcon /><span>{language.onboarding}</span>
+                                    </DropdownMenu.Item>
+                                {/if}
                                 <DropdownMenu.Item onSelect={openMessageInputPopupEditor}>
                                     <Maximize2Icon /><span>{language.chatInputPopupEditor}</span>
                                 </DropdownMenu.Item>
@@ -1776,6 +1793,20 @@ import { isMobile } from 'src/ts/platform'
             {/if}
 
             {#if currentChat.length <= loadPages}
+                {#if activeOnboarding && !currentChatSlot.onboardingDone}
+                    <div class="mx-4 my-2 flex justify-center">
+                        <Alert className="w-full max-w-xl">
+                            {#snippet icon()}<CompassIcon />{/snippet}
+                            {#snippet title()}{language.onboardingAvailable}{/snippet}
+                            {language.onboardingAvailableDesc}
+                            {#snippet action()}
+                                <Button size="sm" variant="primary" onclick={() => { onboardingOpen = true }}>
+                                    {language.onboardingStart}
+                                </Button>
+                            {/snippet}
+                        </Alert>
+                    </div>
+                {/if}
                 {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message.length === 0)}
                     <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-subtext italic max-w-2/3 wrap-break-word text-center">
                         {language.generatedByAIDisclaimer}
@@ -1884,9 +1915,16 @@ import { isMobile } from 'src/ts/platform'
     {/if}
 </div>
 
-{#if additionalFloatingActionButtons.length > 0}
-    <Portal>
+{#if additionalFloatingActionButtons.length > 0 || activeOnboarding?.floatingButton}
+    <Portal target={portalTarget ?? undefined}>
     <div class="risu-layer-chrome fixed top-4 right-4 flex flex-col gap-3">
+        {#if activeOnboarding?.floatingButton}
+            <button class="bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" title={language.onboarding} aria-label={language.onboarding} onclick={() => {
+                onboardingOpen = true
+            }}>
+                <CompassIcon size={20} />
+            </button>
+        {/if}
         {#each additionalFloatingActionButtons as button}
             <button class="bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()

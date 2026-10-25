@@ -7,27 +7,57 @@ describe('SandboxHost lifecycle', () => {
         document.body.replaceChildren()
     })
 
-    it('removes its message listener when the plugin is terminated', () => {
-        const addListener = vi.spyOn(window, 'addEventListener')
-        const removeListener = vi.spyOn(window, 'removeEventListener')
+    it('stops serving RPC requests after the plugin is terminated', async () => {
+        const iframe = document.createElement('iframe')
+        document.body.appendChild(iframe)
+        const ping = vi.fn(async () => 'pong')
+        const host = new SandboxHost({ ping })
+
+        host.run(iframe, '')
+        let resolveResponse!: (message: any) => void
+        const responsePromise = new Promise<any>(resolve => { resolveResponse = resolve })
+        const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage').mockImplementation((message: any) => {
+            resolveResponse(message)
+        })
+        const sendRequest = (reqId: string) => window.dispatchEvent(new MessageEvent('message', {
+            source: iframe.contentWindow,
+            data: { type: 'CALL_ROOT', reqId, method: 'ping', args: [] },
+        }))
+
+        sendRequest('before-termination')
+        await expect(responsePromise).resolves.toMatchObject({
+            type: 'RESPONSE', reqId: 'before-termination', result: 'pong',
+        })
+        expect(ping).toHaveBeenCalledOnce()
+
+        host.terminate()
+        postMessage.mockClear()
+        sendRequest('after-termination')
+        await new Promise(resolve => setTimeout(resolve, 0))
+        expect(ping).toHaveBeenCalledOnce()
+        expect(postMessage).not.toHaveBeenCalled()
+    })
+
+    it('emits the configured CSP and uses its nonce in the bootstrap script', () => {
         const iframe = document.createElement('iframe')
         document.body.appendChild(iframe)
         const host = new SandboxHost({})
-
         host.run(iframe, '')
-        const registration = addListener.mock.calls.find(([type]) => type === 'message')
-        expect(registration).toBeDefined()
+
+        const csp = iframe.getAttribute('csp')!
+        const srcdoc = new DOMParser().parseFromString(iframe.srcdoc, 'text/html')
+        expect(srcdoc.querySelector('meta#csp-meta')?.getAttribute('content')).toBe(csp)
+        const nonce = srcdoc.querySelector('script[nonce]')?.getAttribute('nonce')
+        expect(nonce).toBeTruthy()
+        expect(csp).toContain(`'nonce-${nonce}'`)
+        expect(csp).toContain("connect-src 'none'")
+        expect(csp).toContain(`img-src ${window.location.origin}/assets/ data: blob:`)
+        expect(csp).toContain('font-src * data: blob:')
 
         host.terminate()
-        expect(removeListener).toHaveBeenCalledWith('message', registration?.[1])
-
-        const removals = removeListener.mock.calls.filter(([type]) => type === 'message').length
-        host.terminate()
-        expect(removeListener.mock.calls.filter(([type]) => type === 'message')).toHaveLength(removals)
     })
 
-    it('returns cyclic binary values without duplicating shared buffers in the transfer list', async () => {
-        const addListener = vi.spyOn(window, 'addEventListener')
+    it('returns cyclic values with shared binary buffers intact', async () => {
         const iframe = document.createElement('iframe')
         document.body.appendChild(iframe)
         const backing = new ArrayBuffer(4)
@@ -38,19 +68,19 @@ describe('SandboxHost lifecycle', () => {
         const host = new SandboxHost({ read: () => value })
         host.run(iframe, '')
 
-        const postMessage = vi.fn((_message: any, _targetOrigin?: string | WindowPostMessageOptions, _transfer?: Transferable[]) => {})
-        vi.spyOn(iframe.contentWindow!, 'postMessage').mockImplementation(postMessage)
-        const registration = addListener.mock.calls.find(([type]) => type === 'message')!
-        const handler = registration[1] as (event: MessageEvent) => Promise<void>
-        await handler(new MessageEvent('message', {
+        const responsePromise = new Promise<any>(resolve => {
+            vi.spyOn(iframe.contentWindow!, 'postMessage').mockImplementation((message: any, _origin?: string | WindowPostMessageOptions, transfer?: Transferable[]) => {
+                resolve(structuredClone(message, { transfer }))
+            })
+        })
+        window.dispatchEvent(new MessageEvent('message', {
             source: iframe.contentWindow,
             data: { type: 'CALL_ROOT', reqId: 'read-binary', method: 'read', args: [] },
         }))
 
-        const [response, , transferables] = postMessage.mock.calls[0]
+        const response = await responsePromise
         expect(response.error).toBeUndefined()
-        expect(transferables).toEqual([backing])
-        const received = structuredClone(response.result, { transfer: transferables })
+        const received = response.result
         expect(received.self).toBe(received)
         expect(received.map.get('view').buffer).toBe(received.buffer)
         expect(Array.from(received.view)).toEqual([1, 2, 3, 4])
