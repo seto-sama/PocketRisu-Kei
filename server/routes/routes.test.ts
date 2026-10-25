@@ -236,6 +236,15 @@ describe('server route composition', () => {
         expect((await fetch(base + '/api/drive/thumbnail?path=portrait.png', {
             headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
         })).status).toBe(403)
+        // Character JPEGs append a charx archive after the image data.
+        const characterJpeg = Buffer.concat([
+            Buffer.from('/9j/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APP6/9k=', 'base64'),
+            Buffer.from('504b0506000000000000000000000000000000000000', 'hex'),
+        ])
+        await fetch(base + '/api/drive/file?name=character.jpg', {
+            method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: characterJpeg,
+        })
+        expect((await fetch(base + '/api/drive/thumbnail?path=character.jpg', { headers: { cookie } })).status).toBe(200)
         await fetch(base + '/api/drive/file?name=disguised.png', {
             method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' },
             body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',

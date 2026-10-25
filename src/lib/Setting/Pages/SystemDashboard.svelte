@@ -414,14 +414,9 @@
         return Math.max(0, Math.min(100, (part / whole) * 100))
     }
 
-    // Close the dashboard and select the character this row represents.
-    // Trashed rows aren't in the live characters array, so there's nothing to jump to.
     function jumpToCharacter(c: CharBreakdown) {
         if (c.trashed) return
-        const index = getDatabase().characters.findIndex((ch) => ch.chaId === c.chaId)
-        if (index === -1) return
-        changeChar(index)
-        settingsOpen.set(false)
+        if (changeChar(c.chaId)) settingsOpen.set(false)
     }
 
     const charSlice = $derived(characters?.characters.slice(0, charShown) ?? [])

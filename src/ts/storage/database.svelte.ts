@@ -1456,6 +1456,7 @@ export interface Database{
     sidebarMenuHidden?:string[]
     settingsMenuOrder?:string[]
     serverDriveShortcuts?:string[]
+    useServerDriveForFileImport?:boolean
     sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
     blockquoteStyling?:boolean

@@ -310,6 +310,7 @@
                 title={language.importModule}
                 aria-label={language.importModule}
                 onclick={() => { void importModule() }}
+                data-file-picker
             >
                 <UploadIcon />
             </IconButton>

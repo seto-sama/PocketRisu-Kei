@@ -232,6 +232,7 @@
                 aria-label={language.import}
                 title={language.import}
                 onclick={importAutopilot}
+                data-file-picker
             >
                 <UploadIcon />
             </IconButton>

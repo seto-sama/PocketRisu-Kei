@@ -118,7 +118,7 @@
     }}>
         <DownloadIcon />
     </IconButton>
-    <IconButton onclick={() => {
+    <IconButton data-file-picker onclick={() => {
         importLoreBook(submenu === 'character' ? 'global' : 'local')
     }}>
         <UploadIcon />

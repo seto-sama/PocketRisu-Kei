@@ -33,7 +33,7 @@
         <IconButton onclick={() => exportRegex(DBState.db.presetRegex)} aria-label={language.export}>
             <DownloadIcon />
         </IconButton>
-        <IconButton onclick={importPresetRegex} aria-label={language.import}>
+        <IconButton onclick={importPresetRegex} data-file-picker aria-label={language.import}>
             <UploadIcon />
         </IconButton>
         </IconButtonGroup>

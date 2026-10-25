@@ -258,7 +258,7 @@
                         {#if settings.NAIImgConfig.vibe_data?.thumbnail}
                             <img src={settings.NAIImgConfig.vibe_data.thumbnail} alt={language.imageSettings.vibePreview} class="h-8 w-8 rounded object-cover border border-darkborderc" />
                         {/if}
-                        <Button variant="outline" size="sm" onclick={uploadVibeFile}>
+                        <Button variant="outline" size="sm" onclick={uploadVibeFile} data-file-picker>
                             <ImageIcon />
                             {settings.NAIImgConfig.vibe_data ? language.edit : language.select}
                         </Button>
@@ -340,7 +340,7 @@
                                 {#if image}<img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>{/if}
                             {/await}
                         {/if}
-                        <Button variant="outline" size="sm" onclick={uploadReferenceImage}>
+                        <Button variant="outline" size="sm" onclick={uploadReferenceImage} data-file-picker>
                             <ImageIcon />
                             {settings.NAIImgConfig.character_image ? language.edit : language.select}
                         </Button>
@@ -388,7 +388,7 @@
             {#if settings.NAII2I}
                 <SettingLayout variant="row" title={language.imageSettings.i2iReferenceImage} description={language.imageSettings.useCharacterDefaultHint} stacked>
                 <div class="relative">
-                    <button class="mb-2" onclick={async () => {
+                    <button class="mb-2" data-file-picker onclick={async () => {
                         const img = await selectSingleFile([
                             'jpg',
                             'jpeg',

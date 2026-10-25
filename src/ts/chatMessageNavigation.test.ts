@@ -46,7 +46,7 @@ describe('shared chat message navigation', () => {
             expect(getChatPage(mocks.db.characters[0])).toBe(1)
         })
         expect(navigateToChatMessage({
-            characterIndex: 0,
+            characterId: 'character-1',
             chatIndex: 1,
             messageIndex: 0,
             exact: false,
@@ -63,14 +63,14 @@ describe('shared chat message navigation', () => {
         expect(mocks.requestMessageScroll.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.changeChar.mock.invocationCallOrder[0],
         )
-        expect(mocks.changeChar).toHaveBeenCalledWith(0)
+        expect(mocks.changeChar).toHaveBeenCalledWith('character-1')
         expect(mocks.changeChatTo).not.toHaveBeenCalled()
     })
 
     it('switches only the room when its character is already active', () => {
         selectedCharID.set(0)
 
-        navigateToChatMessage({ characterIndex: 0, chatIndex: 1, messageIndex: 0 })
+        navigateToChatMessage({ characterId: 'character-1', chatIndex: 1, messageIndex: 0 })
 
         expect(mocks.changeChar).not.toHaveBeenCalled()
         expect(mocks.changeChatTo).toHaveBeenCalledWith(1)

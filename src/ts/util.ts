@@ -7,6 +7,7 @@ import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
 import { isIOS } from "src/ts/platform"
+import { pickServerDriveFiles, shouldPickFromServerDrive } from "./serverDriveFilePicker.svelte"
 import PopupList from "src/lib/UI/PopupList.svelte"
 
 export function sleep(ms: number) {
@@ -101,6 +102,9 @@ export function getPersonaPrompt(){
 }
 
 export function selectFileByDom(allowedExtensions:string[], multiple:'multiple'|'single' = 'single') {
+    if (shouldPickFromServerDrive()) {
+        return pickServerDriveFiles(allowedExtensions[0] === '*' ? [] : allowedExtensions, multiple === 'multiple')
+    }
     return new Promise<File[]>((resolve) => {
         const fileInput = document.createElement('input');
         const finish = (files: File[]) => {

@@ -287,6 +287,8 @@ export const helpEn = {
             "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
         newImageHandlingBeta:
             "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
+        useServerDriveForFileImport:
+            "Open Server Drive when loading files. When this setting is off, the device's file browser opens; right-click a button that loads files to open Server Drive.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
         pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",

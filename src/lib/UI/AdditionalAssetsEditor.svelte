@@ -335,7 +335,7 @@
     {/if}
 </div>
 <ListActionBar mode="footer">
-    <IconButton onclick={addAssets} title={language.selectFile} aria-label={language.selectFile}>
+    <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
         <PlusIcon />
     </IconButton>
 </ListActionBar>

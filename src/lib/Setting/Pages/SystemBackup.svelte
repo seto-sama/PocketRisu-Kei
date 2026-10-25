@@ -848,7 +848,7 @@
         </SettingLayout>
         <SettingLayout variant="action" title={language.loadBackupLocal} description={language.help.backupLocalRestoreDesc}>
             {#snippet control()}
-            <Button variant="outline" size="sm" onclick={LoadLocalBackup}>
+            <Button variant="outline" size="sm" onclick={LoadLocalBackup} data-file-picker>
                 <UploadIcon />
                 {language.loadBackupLocal}
             </Button>
@@ -884,7 +884,7 @@
         </SettingLayout>
         <SettingLayout variant="action" title={language.migrationLoadUpstreamBackup} description={language.help.migrationUpstreamRestoreDesc}>
             {#snippet control()}
-            <Button variant="outline" size="sm" onclick={LoadLocalBackup}>
+            <Button variant="outline" size="sm" onclick={LoadLocalBackup} data-file-picker>
                 <UploadIcon />
                 {language.migrationCompatBackupImportButton}
             </Button>

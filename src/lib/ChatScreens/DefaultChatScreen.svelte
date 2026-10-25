@@ -1572,7 +1572,7 @@ import { isMobile } from 'src/ts/platform'
                                         <BrainIcon /><span>{language.hypaMemoryV3Modal}</span>
                                     </DropdownMenu.Item>
                                 {/if}
-                                <DropdownMenu.Item onSelect={async () => {
+                                <DropdownMenu.Item data-file-picker onSelect={async () => {
                                     const results = await postChatFile(messageInput)
                                     if(!results) return
                                     for(const res of results){

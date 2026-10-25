@@ -96,7 +96,7 @@
       mergeVisibleSidebarMenuOrder,
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
-    import { isCloudflareTunnel, isNodeServer } from 'src/ts/platform';
+    import { serverDriveAvailable } from 'src/ts/serverDriveFilePicker.svelte';
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
   let sideBarMode = $state(0);
@@ -113,16 +113,17 @@
     CharEmotion.set({});
   }
 
-  type sortTypeNormal = { type:'normal',img: string, index: number, name:string }
+  type sortTypeNormal = { type:'normal',img: string, chaId: string, name:string }
   type sortType =  sortTypeNormal|{type:'folder',settings:CharacterFolder,folder:sortTypeNormal[],id:string, name:string, color:string}
   let charImages: sortType[] = $state([]);
+  const selectedCharacterId = $derived(DBState.db.characters[$selectedCharID]?.chaId);
   // Recently interacted characters for the home sidebar. Character-level
   // `lastInteraction` is already in memory (no chat hydration needed), so this
   // sort is cheap; the $derived is only read while on the home screen.
   let recentChars = $derived(
     DBState.db.characters
-      .flatMap((c, index) => !c.trashTime && c.lastInteraction > 0
-        ? [{ index, name: c.name, image: c.image, lastInteraction: c.lastInteraction }]
+      .flatMap(c => !c.trashTime && c.lastInteraction > 0
+        ? [{ chaId: c.chaId, name: c.name, image: c.image, lastInteraction: c.lastInteraction }]
         : [])
       .sort((a, b) => b.lastInteraction - a.lastInteraction)
   );
@@ -156,7 +157,7 @@
   ))
   let sidebarMenuPluginKeys = $derived([...sidebarMenuPluginsByKey.keys()])
   let visibleSidebarMenuOrder = $derived(
-    getVisibleSidebarMenuOrder(sidebarMenuOrder.filter(key => (isNodeServer && !isCloudflareTunnel) || key !== SIDEBAR_MENU_DRIVE), sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
+    getVisibleSidebarMenuOrder(sidebarMenuOrder.filter(key => serverDriveAvailable || key !== SIDEBAR_MENU_DRIVE), sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
   )
   let displayedSidebarMenuOrder = $derived(
     getSidebarMenuDisplayOrder(visibleSidebarMenuOrder, !!DBState.db.hamburgerButtonBottom)
@@ -213,7 +214,7 @@
           const cha = DBState.db.characters[index]
           newCharImages.push({
             img:cha.image ?? "",
-            index:index,
+            chaId:cha.chaId,
             type: "normal",
             name: cha.name
           });
@@ -229,7 +230,7 @@
             const cha = DBState.db.characters[index]
             folderCharImages.push({
               img:cha.image ?? "",
-              index:index,
+              chaId:cha.chaId,
               type: "normal",
               name: cha.name
             });
@@ -365,9 +366,7 @@
     
     for (const item of charImages) {
       if (item.type === 'folder') {
-        const foundChar = item.folder.find(c => 
-          DBState.db.characters[c.index]?.chaId === characterId
-        )
+        const foundChar = item.folder.find(c => c.chaId === characterId)
         if (foundChar) {
           targetFolderId = item.id
           break
@@ -604,7 +603,7 @@
     {#each charImages as char, ind}
       <div
         class="flex flex-col items-center"
-        data-sidebar-order-key={char.type === 'normal' ? DBState.db.characters[char.index]?.chaId : char.id}
+        data-sidebar-order-key={char.type === 'normal' ? char.chaId : char.id}
         data-sidebar-kind={char.type === 'normal' ? 'character' : 'folder'}
         data-sortable-no-scale
       >
@@ -617,13 +616,13 @@
             onclick={() => {
               if(suppressNextClick) return
               if(char.type === "normal"){
-                changeChar(char.index, {reseter});
+                changeChar(char.chaId, {reseter});
               }
             }}
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 if(char.type === "normal"){
-                  changeChar(char.index, {reseter});
+                  changeChar(char.chaId, {reseter});
                 }
               }
             }}
@@ -633,15 +632,15 @@
               src={char.img ? getCharImage(char.img, "plain") : ""}
               size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               name={char.name}
-              chaId={DBState.db.characters[char.index]?.chaId}
-              selected={$selectedCharID === char.index && sideBarMode !== 1}
-              mergeTarget={mergeTargetId === DBState.db.characters[char.index]?.chaId}
+              chaId={char.chaId}
+              selected={selectedCharacterId === char.chaId && sideBarMode !== 1}
+              mergeTarget={mergeTargetId === char.chaId}
             />
           {:else if char.type === "folder"}
             {#key char.color}
             {#key char.name}
             <FolderAvatar folder={char.settings} expanded={openFolders.includes(char.id)} size={String(SIDEBAR_ROOT_ITEM_SIZE)}
-              selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
+              selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.chaId === selectedCharacterId)}
               mergeTarget={folderDropTargetId === char.id}
               oncontextmenu={isTouchDevice ? undefined : (e) => {
                 e.preventDefault()
@@ -682,7 +681,7 @@
           {#each char.folder as char2, ind}
               <div class="group relative flex items-center z-10"
               role="listitem"
-              data-sidebar-order-key={DBState.db.characters[char2.index]?.chaId}
+              data-sidebar-order-key={char2.chaId}
               data-sidebar-kind="character"
               data-sortable-no-scale
             >
@@ -692,13 +691,13 @@
                   onclick={() => {
                     if(suppressNextClick) return
                     if(char2.type === "normal"){
-                      changeChar(char2.index, {reseter});
+                      changeChar(char2.chaId, {reseter});
                     }
                   }}
                   onkeydown={(e) => {
                     if (e.key === "Enter") {
                       if(char2.type === "normal"){
-                        changeChar(char2.index, {reseter});
+                        changeChar(char2.chaId, {reseter});
                       }
                     }
                   }}
@@ -707,8 +706,8 @@
                   src={char2.img ? getCharImage(char2.img, "plain") : ""}
                   size={String(SIDEBAR_FOLDER_ITEM_SIZE)}
                   name={char2.name}
-                  chaId={DBState.db.characters[char2.index]?.chaId}
-                  selected={$selectedCharID === char2.index && sideBarMode !== 1}
+                  chaId={char2.chaId}
+                  selected={selectedCharacterId === char2.chaId && sideBarMode !== 1}
                 />
               </div>
             </div>
@@ -807,7 +806,7 @@
               hideImage={DBState.db.hideAllImages && !!rc.image}
               name={rc.name || "Unnamed"}
               subtitle={makeAgoText(rc.lastInteraction)}
-              onclick={() => changeChar(rc.index, {reseter})}
+              onclick={() => changeChar(rc.chaId, {reseter})}
             />
           {/snippet}
         </HorizontalMasonry>

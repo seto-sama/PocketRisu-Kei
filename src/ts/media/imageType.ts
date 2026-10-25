@@ -2,7 +2,8 @@ export type ImageType = 'JPEG' | 'PNG' | 'GIF' | 'BMP' | 'AVIF' | 'WEBP' | 'Unkn
 
 export function getImageType(arr: Uint8Array): ImageType {
     switch (true) {
-        case arr[0] === 0xff && arr[1] === 0xd8 && arr[arr.length - 2] === 0xff && arr[arr.length - 1] === 0xd9:
+        // Only the SOI marker: character JPEGs carry a charx archive after the image's EOI.
+        case arr[0] === 0xff && arr[1] === 0xd8 && arr[2] === 0xff:
             return 'JPEG'
         case arr[0] === 0x89 &&
             arr[1] === 0x50 &&

@@ -96,7 +96,7 @@
     </div>
 
     {#snippet footer()}
-        <Button variant="outline" size="sm" onclick={uploadSound}>
+        <Button variant="outline" size="sm" onclick={uploadSound} data-file-picker>
             <UploadIcon />
             {language.uploadSound}
         </Button>

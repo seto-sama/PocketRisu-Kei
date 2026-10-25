@@ -276,7 +276,7 @@
         <div class="flex flex-col gap-3">
             {#each [
                 { title: language.exportTranslationCache, desc: language.exportTranslationCacheDesc, icon: DownloadIcon, action: exportCache, variant: "outline" as const },
-                { title: language.importTranslationCache, desc: language.importTranslationCacheDesc, icon: UploadIcon, action: importCache, variant: "outline" as const },
+                { title: language.importTranslationCache, desc: language.importTranslationCacheDesc, icon: UploadIcon, action: importCache, variant: "outline" as const, filePicker: true },
                 { title: language.cleanupUnusedTranslationCache, desc: language.cleanupUnusedTranslationCacheDesc, icon: Trash2Icon, action: cleanupUnusedCache, variant: "outline" as const },
             ] as operation}
                 <SettingLayout
@@ -285,6 +285,7 @@
                     description={operation.desc}
                     actionLabel={operation.title}
                     onAction={operation.action}
+                    actionFilePicker={operation.filePicker}
                     actionVariant={operation.variant}
                     actionIcon={operation.icon}
                 />

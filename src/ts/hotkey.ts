@@ -1,6 +1,7 @@
 import { get } from "svelte/store"
 import { alertRequestData, alertSelect, doingAlert, requestDiagnosticsTabs } from "./alert"
 import { getCurrentChat, getDatabase  } from "./storage/database.svelte"
+import { changeChar } from './characters'
 import {
     botMakerMode,
     openHypaV3PresetList,
@@ -298,26 +299,25 @@ function focusQuery(selector: string): boolean {
 }
 
 export function getSidebarCharacterOrder(database: {
-    characters: { chaId: string }[]
+    characters: { chaId: string; trashTime?: number }[]
     characterOrder: (string | { data: string[] })[]
-}): number[] {
-    const indexById = new Map(database.characters.map((character, index) => [character.chaId, index]))
+}): string[] {
+    const characterIds = new Set(database.characters.filter(character => !character.trashTime).map(character => character.chaId))
     const orderedIds = (database.characterOrder ?? []).flatMap((entry) =>
         typeof entry === 'string' ? [entry] : (entry?.data ?? [])
     )
 
-    return orderedIds
-        .map((id) => indexById.get(id))
-        .filter((index): index is number => index !== undefined)
+    return orderedIds.filter(id => characterIds.has(id))
 }
 
 function selectAdjacentCharacter(direction: -1 | 1): boolean {
     const database = getDatabase()
     const sidebarOrder = getSidebarCharacterOrder(database)
-    const currentIndex = sidebarOrder.indexOf(get(selectedCharID))
+    const currentCharacterId = database.characters[get(selectedCharID)]?.chaId
+    const currentIndex = sidebarOrder.indexOf(currentCharacterId)
     const nextIndex = currentIndex + direction
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sidebarOrder.length) return false
-    selectedCharID.set(sidebarOrder[nextIndex])
+    if (!changeChar(sidebarOrder[nextIndex])) return false
     OpenRealmStore.set(false)
     return true
 }

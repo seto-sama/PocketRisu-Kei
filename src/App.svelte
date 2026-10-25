@@ -47,7 +47,7 @@
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
-    import { isCloudflareTunnel, isNodeServer } from './ts/platform'
+    import { installFilePickerContextMenu, serverDriveAvailable, serverDriveFileRequest } from './ts/serverDriveFilePicker.svelte'
 
     let gridOpen = $state(false)
     let driveOpen = $state(false)
@@ -64,6 +64,7 @@
     })
 
     $effect(() => initializePwaInstall())
+    $effect(() => installFilePickerContextMenu())
 
     function openCharacterGrid() {
         gridOpen = true
@@ -75,7 +76,7 @@
     }
 
     function openServerDrive() {
-        if (!isNodeServer || isCloudflareTunnel) return
+        if (!serverDriveAvailable) return
         driveOpen = true
         if ($DynamicGUI) sideBarStore.set(false)
     }
@@ -277,6 +278,11 @@
     {/if}
     {#if driveOpen}
         <ServerDrive bind:open={driveOpen} />
+    {/if}
+    {#if serverDriveFileRequest.current}
+        {#key serverDriveFileRequest.current}
+            <ServerDrive pick={serverDriveFileRequest.current} />
+        {/key}
     {/if}
     <!-- Keep the modal mounted while a chat is selected so work/results survive closing it. -->
     {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[getChatPage(DBState.db.characters[$selectedCharID])]}

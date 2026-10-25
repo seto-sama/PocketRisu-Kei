@@ -32,16 +32,10 @@ import { importRisuChats } from './chatImport'
 
 const BOOKMARK_TAG_DATA_CLASS = 'bookmark-tag-data'
 
-export function createNewCharacter() {
-    let db = getDatabase()
-    db.characters.push(createBlankChar())
-    checkCharOrder()
-    return db.characters.length - 1
-}
-
 async function importCharactersAndPackages() {
     const files = await selectFileByDom(['*'], 'multiple')
-    if (!files) return
+    if (!files.length) return
+    const existingCharacterIds = new Set(getDatabase().characters.map(character => character.chaId))
 
     for (const file of files) {
         if (file.name.toLowerCase().endsWith('.zip')) {
@@ -54,6 +48,8 @@ async function importCharactersAndPackages() {
             checkCharOrder()
         }
     }
+    return getDatabase().characters.findLast(character =>
+        !character.trashTime && !existingCharacterIds.has(character.chaId))?.chaId
 }
 
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
@@ -797,37 +793,38 @@ export async function emptyCharacterTrash(){
 export async function addCharacter(arg:{
     reseter?:()=>any,
 } = {}){
-    const reseter = arg.reseter ?? (() => {})
     const r = await alertAddCharacter()
-    if(r === 'importFromRealm'){
-        selectedCharID.set(-1)
-        OpenRealmStore.set(true)
-        return
-    }
-    reseter();
+    let characterId: string | undefined
     switch(r){
-        case 'createfromScratch':
-            createNewCharacter()
+        case 'importFromRealm':
+            selectedCharID.set(-1)
+            OpenRealmStore.set(true)
+            return
+        case 'createfromScratch': {
+            const character = createBlankChar()
+            getDatabase().characters.push(character)
+            checkCharOrder()
+            characterId = character.chaId
             break
+        }
         case 'importCharacter':
-            await importCharactersAndPackages()
+            characterId = await importCharactersAndPackages()
             break
         default:
             return
     }
-    let db = getDatabase()
-    if(db.characters[db.characters.length-1]){
-        changeChar(db.characters.length-1)
-    }
+    if(characterId) changeChar(characterId, arg)
 }
 
-export function changeChar(index: number, arg:{
+export function changeChar(characterId: string, arg:{
     reseter?:()=>any,
-} = {}) {
-    const reseter = arg.reseter ?? (() => {})
-    const char = getDatabase().characters[index]
-    if(char) dismissClaimedLoadingOverlay()
-    reseter();
+} = {}): boolean {
+    const characters = getDatabase().characters
+    const index = characters.findIndex(character => character.chaId === characterId && !character.trashTime)
+    if(index === -1) return false
+    const char = characters[index]
+    dismissClaimedLoadingOverlay()
+    arg.reseter?.()
     chatDeselected.set(false)
     characterFormatUpdate(index);
     selectedCharID.set(index);
@@ -839,4 +836,5 @@ export function changeChar(index: number, arg:{
             loadTogglesFromChat(chat)
         }
     }
+    return true
 }

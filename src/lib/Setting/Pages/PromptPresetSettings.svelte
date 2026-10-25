@@ -76,7 +76,7 @@
                             {#if activePreset?.image}
                                 <img src={activePreset.image} alt="" class="h-8 w-8 rounded object-cover border border-darkborderc" decoding="async" />
                             {/if}
-                            <Button variant="outline" size="sm" onclick={uploadIcon} disabled={!activePreset}>
+                            <Button variant="outline" size="sm" onclick={uploadIcon} disabled={!activePreset} data-file-picker>
                                 <ImageIcon />
                                 {activePreset?.image ? language.edit : language.select}
                             </Button>

@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest'
 import { getImageType } from '../imageType'
 
-test('should detect JPEG', () => {
-    // JPEG starts with FF D8, ends with FF D9
-    const jpeg = new Uint8Array([0xff, 0xd8, 0x00, 0x00, 0xff, 0xd9])
+test('should detect JPEG with trailing data', () => {
+    // Character JPEGs append a charx zip after the EOI marker (FF D9).
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9, 0x50, 0x4b, 0x05, 0x06])
     expect(getImageType(jpeg)).toBe('JPEG')
 })
 

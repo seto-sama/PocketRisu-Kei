@@ -283,6 +283,7 @@
                 <button
                     class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-subtext opacity-75 risu-interactive-surface risu-interactive-reveal transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                     onclick={async () => {await selectCharImg($selectedCharID);}}
+                    data-file-picker
                 >
                     <PlusIcon />
                 </button>
@@ -375,7 +376,7 @@
                 <IconButton onclick={() => {
                     exportRegex(DBState.db.characters[$selectedCharID].customscript)
                 }}><DownloadIcon /></IconButton>
-                <IconButton onclick={async () => {
+                <IconButton data-file-picker onclick={async () => {
                     DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
                 }}><UploadIcon /></IconButton>
             </ListActionBar>
@@ -467,7 +468,7 @@
                     includeInlays: pkgIncludeInlays
                 })
             }}>{language.characterPackageExport}</Button>
-            <Button className="mt-2 w-full" onclick={async () => {
+            <Button className="mt-2 w-full" data-file-picker onclick={async () => {
                 await importPackageToCharacter($selectedCharID)
             }}>{language.characterPackageImportToChar}</Button>
         </div>

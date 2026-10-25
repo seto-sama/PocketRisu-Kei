@@ -1238,3 +1238,41 @@ it('aborts an in-flight upload when the explorer closes', async () => {
     expect(storage.uploadDriveFile.mock.calls[0][2].aborted).toBe(true)
     expect(notifyError).not.toHaveBeenCalled()
 })
+
+async function mountPicker(extensions: string[]) {
+    await unmount(component)
+    const finish = vi.fn()
+    rootEntries = [{ ...folder }, { ...file, name: 'cover.png', path: 'cover.png' }, { ...file, name: 'notes.txt', path: 'notes.txt' }]
+    const target = document.body.appendChild(document.createElement('div'))
+    component = mount(ServerDrive, { target, props: { pick: { extensions, multiple: false, finish } } })
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('notes.txt'))
+    return finish
+}
+
+it('returns a picked file instead of importing it', async () => {
+    const finish = await mountPicker(['png'])
+    const picked = new File(['image'], 'cover.png')
+    storage.readDriveFile.mockResolvedValueOnce(picked)
+    entry('notes.txt').click()
+    await tick()
+    const openButton = button(language.serverDrive.open)
+    expect(openButton.disabled).toBe(true)
+    openButton.click()
+    expect(finish).not.toHaveBeenCalled()
+    expect(storage.readDriveFile).not.toHaveBeenCalled()
+
+    entry('cover.png').click()
+    await tick()
+    expect(openButton.disabled).toBe(false)
+    openButton.click()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledWith([picked]))
+    expect(storage.readDriveFile).toHaveBeenCalledWith('cover.png', expect.any(AbortSignal))
+    expect(importFile).not.toHaveBeenCalled()
+})
+
+it('returns no files when the picker closes', async () => {
+    const finish = await mountPicker([])
+    button(language.cancel).click()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledWith([]))
+    expect(storage.readDriveFile).not.toHaveBeenCalled()
+})

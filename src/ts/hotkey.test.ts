@@ -40,6 +40,7 @@ vi.mock('./stores.svelte', async () => {
 vi.mock('src/lang', () => ({ language: {} }))
 vi.mock('./gui/colorscheme', () => ({ updateTextThemeAndCSS: vi.fn() }))
 vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
+vi.mock('./characters', () => ({ changeChar: vi.fn() }))
 
 import { hotkeyMatches, isSupportedHotkey } from './defaulthotkeys'
 import { findMostVisibleMessageAction, getSidebarCharacterOrder, initHotkey } from './hotkey'
@@ -224,13 +225,14 @@ describe('getSidebarCharacterOrder', () => {
                 { chaId: 'alpha' },
                 { chaId: 'beta' },
                 { chaId: 'gamma' },
+                { chaId: 'trashed', trashTime: 1 },
             ],
             characterOrder: [
                 'gamma',
-                { data: ['beta', 'missing'] },
+                { data: ['beta', 'missing', 'trashed'] },
                 'alpha',
             ],
-        })).toEqual([2, 1, 0])
+        })).toEqual(['gamma', 'beta', 'alpha'])
     })
 })
 

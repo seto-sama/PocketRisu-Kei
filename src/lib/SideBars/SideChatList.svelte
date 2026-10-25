@@ -357,7 +357,7 @@
             }}>
                 <DownloadIcon />
             </IconButton>
-            <IconButton onclick={() => {
+            <IconButton data-file-picker onclick={() => {
                 importChat()
             }}>
                 <UploadIcon />

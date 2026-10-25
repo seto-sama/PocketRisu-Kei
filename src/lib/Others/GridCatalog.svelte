@@ -70,10 +70,9 @@
         writeViewPreference(viewPreferenceKeys.characterCatalog, mode);
     }
 
-    function selectAndClose(index = -1){
+    function selectAndClose(characterId: string){
         if (suppressRowClick) return;
-        changeChar(index);
-        endGrid();
+        if (changeChar(characterId)) endGrid();
     }
 
     function formatChars(searchValue: string, db: Database, trash = false): CatalogCharacter[] {
@@ -323,7 +322,7 @@
                                 hideImage={DBState.db.hideAllImages && !!char.image}
                                 name={char.name}
                                 selected={char.index === $selectedCharID}
-                                onclick={() => selectAndClose(char.index)}
+                                onclick={() => selectAndClose(char.chaId)}
                             />
                         {/snippet}
                     </HorizontalMasonry>
@@ -402,7 +401,7 @@
                     {@render characterInfo(char)}
                 </div>
             {:else}
-                <button class="character-order-handle flex min-w-0 grow items-center gap-2.5 text-left" title={language.goToChat} onclick={() => selectAndClose(char.index)}>
+                <button class="character-order-handle flex min-w-0 grow items-center gap-2.5 text-left" title={language.goToChat} onclick={() => selectAndClose(char.chaId)}>
                     {@render characterInfo(char)}
                 </button>
             {/if}

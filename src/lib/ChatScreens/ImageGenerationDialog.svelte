@@ -258,7 +258,7 @@
                             <BookImageIcon />
                             <span>{language.imageCharacterPresetSettings}</span>
                         </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={selectSDPreset} disabled={generating}>
+                        <DropdownMenu.Item onSelect={selectSDPreset} disabled={generating} data-file-picker>
                             <UserPlusIcon />
                             <span>{language.sdPresetGenerate}</span>
                             <DropdownMenuHelp text={language.sdPresetGenerateHelp} />

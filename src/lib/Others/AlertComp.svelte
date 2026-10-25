@@ -305,6 +305,7 @@
 
         <button
             class="add-character-option"
+            data-file-picker
             onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
         >
             <span>{language.importCharacterAndPackage}</span>
@@ -683,6 +684,7 @@
                 <Button
                     variant="outline"
                     className="w-full sm:flex-1 sm:w-auto"
+                    data-file-picker
                     onclick={async () => {
                         let f: {name: string, data: Uint8Array} | undefined
                         try {

@@ -158,7 +158,7 @@
                     type="button"
                     class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-button shadow-lg transition-[height,aspect-ratio,border-color] duration-200 hover:border-lightborderc max-sm:h-auto max-sm:w-full {activePersona?.largePortrait ? 'h-56 max-sm:aspect-[11/14]' : 'h-44 max-sm:aspect-square'}"
                     aria-label={language.select}
-                    onclick={selectUserImg}
+                    onclick={selectUserImg} data-file-picker
                 >
                     {#if DBState.db.userIcon && !DBState.db.hideAllImages}
                         {#await getCharImage(DBState.db.userIcon, 'css')}
@@ -170,7 +170,7 @@
                         <AvatarFallback className="h-full w-full" iconSize={56} />
                     {/if}
                 </button>
-                <Button variant="outline" size="sm" className="w-full" onclick={selectUserImg}>
+                <Button variant="outline" size="sm" className="w-full" onclick={selectUserImg} data-file-picker>
                     <ImageIcon/>
                     {language.select}
                 </Button>

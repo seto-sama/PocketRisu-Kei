@@ -36,6 +36,7 @@
         actionVariant = 'outline',
         actionSize = 'sm',
         actionIcon,
+        actionFilePicker = false,
         actions = [],
         control,
         children,
@@ -68,6 +69,8 @@
         actionVariant?: 'outline' | 'primary' | 'destructive';
         actionSize?: 'default' | 'sm';
         actionIcon?: Component<{ size?: number }>;
+        /** Marks the action as a file picker so right-click opens the other file source. */
+        actionFilePicker?: boolean;
         actions?: Array<{
             label: string;
             onclick: () => void | Promise<void>;
@@ -75,6 +78,7 @@
             size?: 'default' | 'sm';
             disabled?: boolean;
             icon?: Component<{ size?: number }>;
+            filePicker?: boolean;
         }>;
         control?: Snippet;
         children?: Snippet;
@@ -177,7 +181,7 @@
             {:else if actions.length > 0}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     {#each actions as action}
-                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled} data-file-picker={action.filePicker || undefined}>
                             {#if action.icon}
                                 {@const ActionIcon = action.icon}
                                 <ActionIcon />
@@ -187,7 +191,7 @@
                     {/each}
                 </div>
             {:else if actionLabel && onAction}
-                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled} data-file-picker={actionFilePicker || undefined}>
                     {#if actionIcon}
                         {@const ActionIcon = actionIcon}
                         <ActionIcon />
@@ -212,7 +216,7 @@
             {:else if actions.length > 0}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     {#each actions as action}
-                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled} data-file-picker={action.filePicker || undefined}>
                             {#if action.icon}
                                 {@const ActionIcon = action.icon}
                                 <ActionIcon />
@@ -222,7 +226,7 @@
                     {/each}
                 </div>
             {:else if actionLabel && onAction}
-                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled} data-file-picker={actionFilePicker || undefined}>
                     {#if actionIcon}
                         {@const ActionIcon = actionIcon}
                         <ActionIcon />

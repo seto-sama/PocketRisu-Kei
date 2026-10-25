@@ -49,6 +49,9 @@ export const languageKorean = {
     emptyDescription: "파일을 업로드하거나 새 폴더를 만들어 보세요.",
     showMore: "더 보기",
     apply: "적용",
+    open: "열기",
+    pickTitle: "서버 드라이브에서 파일 선택",
+    pickHint: "파일을 선택하세요",
     notFound: "파일이나 폴더를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.",
     unsupportedEntry: "링크와 특수 파일은 드라이브에서 접근할 수 없습니다.",
     unavailable: "드라이브에 접근할 수 없습니다. 서버의 저장 공간과 접근 권한을 확인해 주세요.",
@@ -2007,6 +2010,7 @@ export const languageKorean = {
   assetStyle: "에셋 스타일",
   insertAssetPrompt: "에셋 프롬프트 삽입",
   newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
+  useServerDriveForFileImport: "파일 불러오기 시 서버 드라이브 사용",
   bookmarks: "북마크",
   noBookmarks: "북마크 없음",
   bookmarkAskNameOrDefault:

@@ -2,14 +2,13 @@ import { Buffer } from 'buffer'
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
 import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, pocketKeiVer, newChatModelDefaults, isSupportedPromptPresetJSON } from "./storage/database.svelte"
-import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
+import { checkNullish, decryptBuffer, isKnownUri, sleep } from "./util"
 import { language } from "src/lang"
 import { createEntityId } from 'src/ts/id';
-import { characterFormatUpdate } from "./characters"
+import { changeChar, characterFormatUpdate } from "./characters"
 import { AppendableBuffer, BlankWriter, checkCharOrder, forageStorage, loadAsset, type LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { exportPresetFile, showExportAssetProgress } from './preset/export'
 import { compressImage, getImageType } from "./media"
-import { selectedCharID } from "./stores.svelte"
 import { AddonSettingsTab, openAddonSettings, openSettings, SettingsRoute } from "./routing"
 import { hasher } from "./parser/parser.svelte"
 import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
@@ -26,26 +25,6 @@ import { normalizeOnboarding } from './onboarding'
 
 
 export const realmURL = 'https://realm.risuai.net';
-
-export async function importCharacter() {
-    try {
-        const files = await selectFileByDom(["*"], 'multiple')
-        if(!files){
-            return
-        }
-
-        for(const f of files){
-            await importCharacterProcess({
-                name: f.name,
-                data: f
-            })
-            checkCharOrder()
-        }
-    } catch (error) {
-        alertError(error)
-        return null
-    }
-}
 
 function isOffspecCharacterImportJSON(value:unknown):boolean{
     if(!value || typeof value !== 'object' || Array.isArray(value)){
@@ -1599,15 +1578,16 @@ export async function downloadRisuHub(id:string, arg:{
         const db = getDatabase()
         const normalizedCharacter = db.characters[importedIndex]
         if (!normalizedCharacter?.chaId) return null
-        await requestImmediateSave({ characterIds: [normalizedCharacter.chaId] })
-        return { db, importedIndex }
+        const characterId = normalizedCharacter.chaId
+        await requestImmediateSave({ characterIds: [characterId] })
+        return { db, characterId }
     }
 
     const finishImport = async (importedIndex: number | null) => {
         const persisted = await persistImportedCharacter(importedIndex)
         if (!persisted) return false
         if (persisted.db.goCharacterOnImport) {
-            selectedCharID.set(persisted.importedIndex)
+            changeChar(persisted.characterId)
         }
         alertStore.set({ type: 'none', msg: '' })
         return true

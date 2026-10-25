@@ -133,6 +133,7 @@
             title={language.importPlugin}
             aria-label={language.importPlugin}
             onclick={() => void importPlugin()}
+            data-file-picker
         >
             <UploadIcon />
         </IconButton>
