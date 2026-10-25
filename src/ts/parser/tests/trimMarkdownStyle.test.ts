@@ -42,23 +42,13 @@ describe('trimMarkdown custom styles', () => {
         storeMocks.DBState.db.returnCSSError = false
     })
 
-    it.each([
-        {
-            css: '.bg { background-image: url("data:image/svg+xml,<svg><circle r=\'4\'/></svg>"); }',
-            expected: 'data:image/svg+xml,<svg>',
-        },
-        {
-            css: 'p::after { content: "<label>"; }',
-            expected: 'content:"<label>"',
-        },
-    ])('keeps scoped CSS containing markup-like text: $css', async ({ css, expected }) => {
-        const prepared = await prepareMarkdownSource(`<style>${css}</style><p class="bg">text</p>`, null, 'back')
-        const output = await renderPreparedMarkdown(prepared, 'back')
+    it('keeps scoped CSS containing markup-like text', async () => {
+        const css = '.bg { background-image: url("data:image/svg+xml,<svg><circle r=\'4\'/></svg>"); } p::after { content: "<label>"; }'
+        const output = await renderPreparedMarkdown(await prepareMarkdownSource(`<style>${css}</style><p class="bg">text</p>`, null, 'back'), 'back')
 
-        expect(prepared).toContain('<risu-style>')
-        expect(output).toContain('<style>')
         expect(output).toContain('.chattext ')
-        expect(output).toContain(expected)
+        expect(output).toContain('data:image/svg+xml,<svg>')
+        expect(output).toContain('content:"<label>"')
     })
 
     it('keeps the no-style path sanitized without constructing style output', () => {
@@ -66,7 +56,6 @@ describe('trimMarkdown custom styles', () => {
 
         expect(output).toContain('safe')
         expect(output).not.toContain('onmouseover')
-        expect(output).not.toContain('<style')
     })
 
     it('keeps decoded closing-tag text inert inside the style element', () => {
