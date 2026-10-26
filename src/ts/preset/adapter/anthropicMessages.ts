@@ -5,9 +5,12 @@ import {
 } from './error'
 import {
     deriveAdapterHttpError,
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    parseResponseJson,
+    sendPreparedChatRequest,
 } from './httpTransport'
+import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
+import type { LLMRequestInit } from '../../network/transportTypes'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -18,6 +21,7 @@ import type {
     AdapterCredential,
     AdapterPreparedRequest,
     AdapterReasoningPart,
+    AdapterResponseDecoder,
     AdapterToolCall,
     AdapterToolDef,
     AdapterUsage,
@@ -67,13 +71,7 @@ export async function sendAnthropicChatRequest(
     if (isAnthropicBatchingEnabled(preset)) {
         return sendAnthropicBatch(prepared, options, fetchImpl)
     }
-    const raw = await sendPreparedJsonRequest(
-        prepared,
-        options,
-        'Failed to parse Anthropic JSON response',
-    )
-
-    return parseAnthropicMessage(raw)
+    return sendPreparedChatRequest(prepared, options, { adapterKind: 'anthropic-messages', stream: false })
 }
 
 export async function* streamAnthropicChatRequest(
@@ -82,12 +80,35 @@ export async function* streamAnthropicChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareAnthropicBody(preset, options, credential, true)
-    const stream = await openPreparedEventStream(
+    const stream = await openPreparedChatStream(
         prepared,
         options,
+        { adapterKind: 'anthropic-messages', stream: true },
         'Anthropic stream response has no body',
     )
+    yield* readDecodedChatStream(stream)
+}
 
+export function decodeAnthropicResponse(
+    body: string,
+    decoder: AdapterResponseDecoder,
+): AdapterChatResponse {
+    if (decoder.batchCustomId === undefined) {
+        return parseAnthropicMessage(parseResponseJson(body, 'Failed to parse Anthropic JSON response'))
+    }
+    const result = parseBatchResult(body, decoder.batchCustomId)
+    if (result.type !== 'succeeded') {
+        throw new ModelPresetAdapterError('server', extractBatchFailureMessage(result))
+    }
+    const message = parseAnthropicMessage(result.message)
+    return isPlainObject(result.message) && result.message.usage !== undefined
+        ? { ...message, providerUsage: result.message.usage }
+        : message
+}
+
+export async function* decodeAnthropicStream(
+    stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     try {
         for await (const event of parseSseStream(stream)) {
             if (event.event === 'ping') continue
@@ -428,20 +449,16 @@ async function sendAnthropicBatch(
                 : undefined
         }
 
-        const resultsResponse = await fetchImpl(`${batchUrl}/results`, {
+        const resultsInit: LLMRequestInit = {
             method: 'GET',
             headers: prepared.headers,
             signal: options.abortSignal,
-        })
-        if (!resultsResponse.ok) throw await deriveAdapterHttpError(resultsResponse)
-        const resultText = await resultsResponse.text()
-        const result = parseBatchResult(resultText, customId)
-        if (result.type !== 'succeeded') {
-            const message = extractBatchFailureMessage(result)
-            throw new ModelPresetAdapterError('server', message)
+            responseDecoder: { adapterKind: 'anthropic-messages', stream: false, batchCustomId: customId },
         }
+        const resultsResponse = await fetchImpl(`${batchUrl}/results`, resultsInit)
+        if (!resultsResponse.ok) throw await deriveAdapterHttpError(resultsResponse)
         return {
-            ...parseAnthropicMessage(result.message),
+            ...await readDecodedChatResponse(resultsResponse),
             deferredUsageJobId,
         }
     } catch (err) {
@@ -578,7 +595,6 @@ export function parseAnthropicMessage(raw: unknown): AdapterChatResponse {
         providerEcho: Array.isArray(content) ? content : undefined,
         finishReason,
         usage: parseAnthropicUsage(raw['usage']),
-        raw,
     }
 }
 
@@ -587,12 +603,12 @@ export function parseAnthropicStreamDelta(eventName: string | undefined, raw: un
     if (eventName === 'content_block_delta') {
         const delta = raw['delta']
         if (isPlainObject(delta) && delta['type'] === 'text_delta' && typeof delta['text'] === 'string') {
-            return { textDelta: delta['text'] as string, raw }
+            return { textDelta: delta['text'] as string }
         }
         // thinking_delta carries the model's reasoning — keep it separate so it is
         // displayed as <Thoughts>, not concatenated into the visible answer.
         if (isPlainObject(delta) && delta['type'] === 'thinking_delta' && typeof delta['thinking'] === 'string') {
-            return { textDelta: '', reasoningDelta: delta['thinking'] as string, raw }
+            return { textDelta: '', reasoningDelta: delta['thinking'] as string }
         }
         return null
     }
@@ -603,7 +619,7 @@ export function parseAnthropicStreamDelta(eventName: string | undefined, raw: un
             : undefined
         const usage = parseAnthropicUsage(raw['usage'])
         if (finishReason === undefined && usage === undefined) return null
-        return { textDelta: '', finishReason, usage, raw }
+        return { textDelta: '', finishReason, usage }
     }
     return null
 }

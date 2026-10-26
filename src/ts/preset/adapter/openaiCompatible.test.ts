@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { decodingFetch } from './__testDecodingFetch'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'
 import { createThoughtSignatureCollector, restoreThoughtSignatures } from './thoughtSignatures'
@@ -133,7 +134,7 @@ function captureFetch(response: Response | (() => Response)): {
     calls: CapturedCall[]
 } {
     const calls: CapturedCall[] = []
-    const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
         const headers = init?.headers as Record<string, string> | undefined
         const body = init?.body != null ? JSON.parse(init.body as string) : {}
@@ -145,7 +146,7 @@ function captureFetch(response: Response | (() => Response)): {
             signal: init?.signal,
         })
         return typeof response === 'function' ? response() : response
-    }
+    })
     return { fetchImpl, calls }
 }
 
@@ -272,10 +273,10 @@ describe('sendChatRequest (non-stream)', () => {
         const controller = new AbortController()
         const abort = new Error('user cancelled')
         abort.name = 'AbortError'
-        const fetchImpl: typeof fetch = async (_input, init) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (_input, init) => {
             expect(init?.signal).toBe(controller.signal)
             throw abort
-        }
+        })
         await expect(
             sendChatRequest(
                 makePreset(),
@@ -286,9 +287,9 @@ describe('sendChatRequest (non-stream)', () => {
     })
 
     test('network errors are normalized to retryable network kind', async () => {
-        const fetchImpl: typeof fetch = async () => {
+        const fetchImpl: typeof fetch = decodingFetch(async () => {
             throw new TypeError('fetch failed')
-        }
+        })
         await expect(
             sendChatRequest(makePreset(), { messages: userMessages, fetchImpl }, { apiKey: 'sk' }),
         ).rejects.toMatchObject({ kind: 'network', retryable: true, fallbackEligible: true })
@@ -471,10 +472,10 @@ describe('streamChatRequest', () => {
                 controller.error(abort)
             },
         })
-        const fetchImpl: typeof fetch = async () => new Response(stream, {
+        const fetchImpl: typeof fetch = decodingFetch(async () => new Response(stream, {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },
-        })
+        }))
         const gen = streamChatRequest(
             makePreset(),
             { messages: userMessages, fetchImpl },
@@ -501,10 +502,10 @@ describe('streamChatRequest', () => {
                 controller.error(networkErr)
             },
         })
-        const fetchImpl: typeof fetch = async () => new Response(stream, {
+        const fetchImpl: typeof fetch = decodingFetch(async () => new Response(stream, {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },
-        })
+        }))
         const gen = streamChatRequest(
             makePreset(),
             { messages: userMessages, fetchImpl },
@@ -916,7 +917,7 @@ describe('reasoning display (Stage 4a)', () => {
 describe('previewChatRequest (no network)', () => {
     test('returns the prepared body without fetching', async () => {
         let fetched = false
-        const fetchImpl: typeof fetch = async () => { fetched = true; return jsonResponse({}) }
+        const fetchImpl: typeof fetch = decodingFetch(async () => { fetched = true; return jsonResponse({}) })
         const prepared = await previewChatRequest(
             makePreset(),
             { messages: userMessages, tools: [{ name: 'a', parameters: { type: 'object' } }], fetchImpl },

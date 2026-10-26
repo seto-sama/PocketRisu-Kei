@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { decodingFetch } from './__testDecodingFetch'
 import { resetGeminiContextCacheRuntime } from '../cache/geminiContextCache'
 import {
     resetGeminiCacheWiringRuntime,
@@ -7,7 +8,8 @@ import {
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
 import { createThoughtSignatureCollector, restoreThoughtSignatures, type ThoughtSignatureContext } from './thoughtSignatures'
-import { decodeRevenantGenerationJournal } from '../../process/revenant/transport/journalDecoder'
+import { decodeAdapterResponseBody } from './responseDecoder'
+import { createDecodedChatProjection } from './decodedEvents'
 import { expandAdapterMessages, toAdapterMessage } from '../../process/request/modelPresetMessages'
 import { formatPresetMessages } from '../../process/request/formatMessages'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
@@ -111,7 +113,7 @@ function captureFetch(response: Response | (() => Response)): {
     calls: CapturedCall[]
 } {
     const calls: CapturedCall[] = []
-    const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
         const headers = init?.headers as Record<string, string> | undefined
         const body = init?.body != null ? JSON.parse(init.body as string) : {}
@@ -122,7 +124,7 @@ function captureFetch(response: Response | (() => Response)): {
             body,
         })
         return typeof response === 'function' ? response() : response
-    }
+    })
     return { fetchImpl, calls }
 }
 
@@ -626,10 +628,10 @@ describe('streamGoogleChatRequest', () => {
                 controller.error(abort)
             },
         })
-        const fetchImpl: typeof fetch = async () => new Response(stream, {
+        const fetchImpl: typeof fetch = decodingFetch(async () => new Response(stream, {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },
-        })
+        }))
         const gen = streamGoogleChatRequest(
             makePreset(),
             { messages: messagesWithSystem, fetchImpl },
@@ -837,7 +839,7 @@ describe('context caching wiring', () => {
     } {
         const calls: CapturedCall[] = []
         let created = 0
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
             calls.push({
                 url,
@@ -853,7 +855,7 @@ describe('context caching wiring', () => {
                 return jsonResponse({})
             }
             return chatResponse()
-        }
+        })
         return { fetchImpl, calls }
     }
 
@@ -1183,7 +1185,7 @@ describe('context caching wiring', () => {
         // Chat call always 200; the cachedContents POST fails. The first turn must
         // resolve normally and the failed create must not surface on the chat path.
         const calls: CapturedCall[] = []
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
             calls.push({
                 url,
@@ -1193,7 +1195,7 @@ describe('context caching wiring', () => {
             })
             if (url.includes('/cachedContents')) return jsonResponse({}, { status: 403 })
             return chatJson(10_000)()
-        }
+        })
         const result = await sendGoogleChatRequest(
             makePreset(),
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
@@ -1213,7 +1215,7 @@ describe('context caching wiring', () => {
         // retry uncached so the turn succeeds.
         let createdName = ''
         const calls: CapturedCall[] = []
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
             const body = init?.body != null ? JSON.parse(init.body as string) : {}
             calls.push({ url, method: (init?.method ?? 'GET') as string, headers: (init?.headers as Record<string, string>) ?? {}, body })
@@ -1227,7 +1229,7 @@ describe('context caching wiring', () => {
             // A chat call carrying the evicted cachedContent → 404. Uncached → 200.
             if (body.cachedContent) return jsonResponse({ error: { message: 'cache not found' } }, { status: 404 })
             return chatJson(10_000)()
-        }
+        })
         await sendGoogleChatRequest(
             makePreset(),
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
@@ -1272,16 +1274,17 @@ describe('context caching wiring', () => {
 describe('persisted Gemini thought context', () => {
     test('keeps an empty signature part through edits and reverts using the response UUID', async () => {
         let context: ThoughtSignatureContext | undefined
-        const content = await decodeRevenantGenerationJournal(
-            { jobId: 'job', chatId: 'response', adapterKind: 'google-gemini', streaming: true,
-                status: 'generated', responseStatus: 200, createdAt: 1, updatedAt: 2 },
+        const projection = createDecodedChatProjection()
+        await decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
             new Response([
                 'data: {"candidates":[{"content":{"parts":[{"text":"original"}]}}]}\n\n',
                 'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
             ].join('')).body!,
-            undefined, undefined, value => { context = value },
+            event => projection.apply(event),
+            value => { context = value },
         )
-        expect(content).toBe('original')
+        expect(projection.content()).toBe('original')
         const records = [{ responseId: 'response', adapterKind: 'google-gemini', model: 'gemini-demo', turns: [context!] }]
         for (const text of ['edited by plugin', 'original']) {
             const history = formatPresetMessages([
@@ -1300,6 +1303,20 @@ describe('persisted Gemini thought context', () => {
             ])
             expect(messages[0].thoughtContext).toBeUndefined()
         }
+    })
+
+    test('reports the context of complete frames when the journal is truncated', async () => {
+        let context: ThoughtSignatureContext | undefined
+        await expect(decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
+            new Response([
+                'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
+                'data: {"candidates":[',
+            ].join('')).body!,
+            () => {},
+            value => { context = value },
+        )).rejects.toThrow()
+        expect(context?.geminiParts).toEqual([{ text: '', thoughtSignature: 'opaque' }])
     })
 
     test('restores parallel and sequential tool rounds before their results', async () => {

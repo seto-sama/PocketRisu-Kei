@@ -5,9 +5,11 @@ import {
     normalizeProviderStreamError,
 } from './error'
 import {
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    parseResponseJson,
+    sendPreparedChatRequest,
 } from './httpTransport'
+import { readDecodedChatStream } from './decodedEvents'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -42,12 +44,7 @@ export async function sendResponsesRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareResponsesBody(preset, options, credential, false)
-    const raw = await sendPreparedJsonRequest(
-        prepared,
-        options,
-        'Failed to parse OpenAI Responses JSON response',
-    )
-    return parseResponsesResponse(raw)
+    return sendPreparedChatRequest(prepared, options, { adapterKind: 'openai-responses', stream: false })
 }
 
 export async function* streamResponsesRequest(
@@ -56,12 +53,22 @@ export async function* streamResponsesRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareResponsesBody(preset, options, credential, true)
-    const stream = await openPreparedEventStream(
+    const stream = await openPreparedChatStream(
         prepared,
         options,
+        { adapterKind: 'openai-responses', stream: true },
         'OpenAI Responses stream has no body',
     )
+    yield* readDecodedChatStream(stream)
+}
 
+export function decodeResponsesResponse(body: string): AdapterChatResponse {
+    return parseResponsesResponse(parseResponseJson(body, 'Failed to parse OpenAI Responses JSON response'))
+}
+
+export async function* decodeResponsesStream(
+    stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     try {
         for await (const event of parseSseStream(stream)) {
             if (!event.data || event.data === '[DONE]') continue
@@ -267,24 +274,22 @@ export function parseResponsesResponse(raw: unknown): AdapterChatResponse {
         providerEcho: output,
         finishReason: typeof raw.status === 'string' ? raw.status : undefined,
         usage: parseUsage(raw.usage),
-        raw,
     }
 }
 
 export function parseResponsesStreamEvent(raw: unknown): AdapterChatStreamDelta | null {
     if (!isPlainObject(raw) || typeof raw.type !== 'string') return null
     if (raw.type === 'response.output_text.delta' && typeof raw.delta === 'string') {
-        return { textDelta: raw.delta, raw }
+        return { textDelta: raw.delta }
     }
     if (raw.type === 'response.reasoning_summary_text.delta' && typeof raw.delta === 'string') {
-        return { textDelta: '', reasoningDelta: raw.delta, raw }
+        return { textDelta: '', reasoningDelta: raw.delta }
     }
     if (raw.type === 'response.completed' && isPlainObject(raw.response)) {
         return {
             textDelta: '',
             finishReason: typeof raw.response.status === 'string' ? raw.response.status : 'completed',
             usage: parseUsage(raw.response.usage),
-            raw,
         }
     }
     if (raw.type === 'error' || raw.type === 'response.failed') {

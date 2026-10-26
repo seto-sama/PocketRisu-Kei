@@ -81,6 +81,7 @@ function createRevenantMaterializer(options) {
         getEarlierRecoverableGenerationWorkflowJob,
         markGenerationMaterialized,
         readGenerationJobRaw = () => Buffer.alloc(0),
+        replaceGenerationJobEvents = () => false,
         setGenerationJobProjection = () => false,
         setGenerationJobProjectionError = () => false,
         updateGenerationWorkflowStep,
@@ -231,10 +232,13 @@ function createRevenantMaterializer(options) {
         const rawResponse = readGenerationJobRaw(job.jobId);
         if (
             rawResponse.length > 0
+            && job.responseDecoder
             && !isGenerationProjectionCurrent(projection, rawResponse.length)
         ) {
             try {
-                projection = await projectGenerationJournal(job, rawResponse);
+                const rebuilt = await projectGenerationJournal(job, rawResponse);
+                projection = rebuilt.projection;
+                replaceGenerationJobEvents(job.jobId, rebuilt.events);
                 setGenerationJobProjection(job.jobId, projection);
             } catch (error) {
                 setGenerationJobProjectionError(job.jobId, String(error));

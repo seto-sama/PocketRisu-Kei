@@ -30,9 +30,12 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     setDatabase: vi.fn(),
     setDatabaseLite: vi.fn(),
 }))
-vi.mock('src/ts/network/llmTransport', () => ({
-    createLLMTransportFetch: () => (url: RequestInfo | URL, options?: RequestInit) => fetch(url, options),
-}))
+vi.mock('src/ts/network/llmTransport', async () => {
+    const { decodingFetch } = await import('src/ts/preset/adapter/__testDecodingFetch')
+    return {
+        createLLMTransportFetch: () => decodingFetch((url, options) => fetch(url, options)),
+    }
+})
 vi.mock('src/ts/process/mcp/mcp', async importOriginal => ({
     ...await importOriginal<any>(),
     callTool: vi.fn(async () => [{ type: 'text', text: 'Synthetic tool result' }]),
@@ -293,8 +296,8 @@ describe('plugin-backed ModelPreset dispatch', () => {
         const text = result.type === 'streaming' ? await collectStreamingText(result.result) : result.result
         expect(text).toBe('Processed reply')
         expect(fetch).toHaveBeenCalledOnce()
-        expect(fetch.mock.calls[0][0]).toBe('/api/generation/jobs/tool-round/projection')
-        expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ content: 'Processed reply', providerResult: true })
+        expect(fetch.mock.calls[0][0]).toBe('/api/generation/jobs/tool-round/provider-result')
+        expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ content: 'Processed reply' })
     })
 })
 
@@ -336,7 +339,7 @@ describe('HTTP ModelPreset completion', () => {
         }, preset, 'model')
 
         const text = 'Checking\n\n<tool_call>Synthetic saved tool result</tool_call>\n\nFinal answer'
-        expect(checkpoint).toEqual({ content: text, providerResult: true })
+        expect(checkpoint).toEqual({ content: text })
         expect(round).toBe(2)
         expect(callTool).toHaveBeenCalledOnce()
         expect(result).toMatchObject(checkpointStatus === 200

@@ -20,7 +20,7 @@ const {
     stmtSetHeaders,
     stmtFinish,
     stmtSetProjection,
-    stmtSetClientProjection,
+    stmtSetProviderResult,
     stmtSetProjectionError,
     stmtUpdateMetadata,
     stmtListRecoverable,
@@ -646,7 +646,7 @@ function rowToJob(row, includeRaw = true) {
         workflowStepKey: row.workflow_step_key || undefined,
         workflowStepExecutionId: row.step_execution_id || undefined,
         adapterKind: row.adapter_kind || undefined,
-        streaming: row.streaming === 1,
+        responseDecoder: row.response_decoder ? JSON.parse(row.response_decoder) : undefined,
         status: row.status,
         responseStatus: row.response_status,
         responseHeaders: row.response_headers ? JSON.parse(row.response_headers) : {},
@@ -672,7 +672,7 @@ function parseNormalizedProjection(value) {
         const projection = JSON.parse(value);
         if (
             projection?.schemaVersion !== 1
-            || !['server', 'client', 'provider'].includes(projection.source)
+            || !['server', 'provider'].includes(projection.source)
             || typeof projection.adapterKind !== 'string'
             || typeof projection.content !== 'string'
             || (projection.awaitingProviderResult !== undefined
@@ -757,7 +757,7 @@ function createGenerationJob(input) {
                 workflowStepKey: input.workflowStepKey || null,
                 stepExecutionId: input.stepExecutionId || null,
                 adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
-                streaming: input.streaming ? 1 : 0,
+                responseDecoder: input.responseDecoder ? JSON.stringify(input.responseDecoder) : null,
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
                 requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
@@ -889,15 +889,28 @@ function readGenerationJobRaw(jobId) {
     return generationJournalStore.readAll(job?.workflow_id, jobId);
 }
 
+function readGenerationJobEvents(jobId) {
+    const job = stmtGet.get(jobId);
+    return generationJournalStore.readAll(job?.workflow_id, jobId, 'events');
+}
+
+/** Stores the decoded events rebuilt from a job's raw journal. */
+function replaceGenerationJobEvents(jobId, events) {
+    const job = stmtGet.get(jobId);
+    if (!job) return false;
+    generationJournalStore.replace(job.workflow_id, jobId, 'events', events);
+    return true;
+}
+
 function setGenerationJobProjection(jobId, projection) {
     const now = Date.now();
     const result = stmtSetProjection.run(JSON.stringify(projection), now, now, jobId);
     return result.changes === 1;
 }
 
-function setGenerationJobClientProjection(jobId, projection) {
+function setGenerationJobProviderResult(jobId, projection) {
     const now = Date.now();
-    const result = stmtSetClientProjection.run(JSON.stringify(projection), now, now, jobId);
+    const result = stmtSetProviderResult.run(JSON.stringify(projection), now, now, jobId);
     return result.changes === 1;
 }
 
@@ -1032,8 +1045,10 @@ module.exports = {
     claimQueuedGenerationDispatch,
     setGenerationJobHeaders,
     readGenerationJobRaw,
+    readGenerationJobEvents,
+    replaceGenerationJobEvents,
     setGenerationJobProjection,
-    setGenerationJobClientProjection,
+    setGenerationJobProviderResult,
     setGenerationJobProjectionError,
     updateGenerationJobMetadata,
     finishGenerationJob,

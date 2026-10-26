@@ -31,7 +31,6 @@ import { type RevenantChatWorkflowContext, type RevenantWorkflowDependency, type
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
 import {
     cancelRevenantGeneration,
-    checkpointRevenantGeneration,
     registerRevenantGenerationMetadata,
     setRevenantGenerationLocallyObserved,
     updateRevenantGenerationMetadata,
@@ -1983,9 +1982,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         let streamFailure:unknown
         const abortReader = () => {
             streamAborted = true
-            // Workflow-owned streams are cancelled once, after the final
-            // partial checkpoint below. Standalone jobs retain their direct
-            // job cancellation path.
+            // Workflow-owned streams use workflow cancellation; standalone
+            // jobs are cancelled directly here.
             if(!workflowSession.workflowId){
                 void cancelRevenantGeneration(messageChatId).catch(error => {
                     console.error('[GenerationJob] Failed to cancel server generation:', error)
@@ -2025,9 +2023,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         result = ''
                     }
                     rawResult = result
-                    void checkpointRevenantGeneration(messageChatId, rawResult).catch(error => {
-                        console.error('[GenerationJob] Failed to checkpoint parsed response:', error)
-                    })
                     const liveTarget = ensureLiveGenerationTarget()
                     if(!liveTarget){
                         streamFailure = new Error('Generation chat is no longer available')
@@ -2057,25 +2052,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
         }
         finally {
-            if (result) {
-                const checkpoint = checkpointRevenantGeneration(
-                    messageChatId,
-                    rawResult || result,
-                    true,
-                )
-                if(streamDetached){
-                    void checkpoint.catch(error => {
-                        console.error('[GenerationJob] Failed to flush detached response:', error)
-                    })
-                }
-                else{
-                    try {
-                        await checkpoint
-                    } catch (error) {
-                        console.error('[GenerationJob] Failed to flush parsed response:', error)
-                    }
-                }
-            }
             abortSignal.removeEventListener('abort', abortReader)
             arg.detachSignal?.removeEventListener('abort', detachReader)
             if(!streamDetached) finishStreamingDisplay()

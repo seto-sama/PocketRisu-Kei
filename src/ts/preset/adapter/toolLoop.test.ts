@@ -5,7 +5,7 @@ import type { AdapterChatMessage, AdapterChatResponse, AdapterToolCall } from '.
 const NL2 = String.fromCharCode(10, 10) // blank-line separator the loop joins with
 
 function res(text: string, toolCalls?: AdapterToolCall[]): AdapterChatResponse {
-    return { text, toolCalls, raw: {} }
+    return { text, toolCalls }
 }
 
 function call(id: string, name: string, args = '{}'): AdapterToolCall {
@@ -195,7 +195,7 @@ describe('runToolLoop', () => {
     })
 
     test('formatReasoning is prepended to each turn segment when provided', async () => {
-        const withReasoning: AdapterChatResponse = { text: 'visible', reasoning: [{ text: 'chain' }], raw: {} }
+        const withReasoning: AdapterChatResponse = { text: 'visible', reasoning: [{ text: 'chain' }] }
         const { send } = scriptedSend([withReasoning])
         const out = await runToolLoop(initial, {
             send,
@@ -207,7 +207,7 @@ describe('runToolLoop', () => {
     })
 
     test('reasoning is ignored in output when no formatReasoning is injected', async () => {
-        const withReasoning: AdapterChatResponse = { text: 'visible', reasoning: [{ text: 'chain' }], raw: {} }
+        const withReasoning: AdapterChatResponse = { text: 'visible', reasoning: [{ text: 'chain' }] }
         const { send } = scriptedSend([withReasoning])
         const out = await runToolLoop(initial, { send, executeTool: vi.fn(), maxSteps: 8 })
         expect(out).toBe('visible')

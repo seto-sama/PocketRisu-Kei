@@ -6,7 +6,7 @@ function createGenerationStatements(db) {
             job_id, chat_id, job_type, character_id, room_id,
             generation_info, prompt_info, reroll_snapshot,
             operation_context, workflow_id, workflow_step_key, step_execution_id,
-            adapter_kind, streaming,
+            adapter_kind, response_decoder,
             dispatch_group, dispatch_max_concurrent,
             request_spec,
             normalized_projection,
@@ -15,7 +15,7 @@ function createGenerationStatements(db) {
             @jobId, @chatId, @jobType, @characterId, @roomId,
             @generationInfo, @promptInfo, @rerollSnapshot,
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
-            @adapterKind, @streaming,
+            @adapterKind, @responseDecoder,
             @dispatchGroup, @dispatchMaxConcurrent,
             @requestSpec,
             @normalizedProjection,
@@ -73,30 +73,18 @@ function createGenerationStatements(db) {
             ELSE ''
           END <> 'provider'
     `);
-    const stmtSetClientProjection = db.prepare(`
+    const stmtSetProviderResult = db.prepare(`
         UPDATE generation_jobs
         SET normalized_projection = ?, projection_error = NULL,
             projected_at = ?, updated_at = ?
         WHERE job_id = ?
-          AND (
-            (
-              json_valid(normalized_projection)
-              AND json_extract(normalized_projection, '$.source') = 'server'
-              AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
-              AND json_extract(?1, '$.source') = 'provider'
-              AND status = 'generated'
-              AND materialized_at IS NULL
-              AND COALESCE(json_extract(?1, '$.awaitingProviderResult'), 0) <> 1
-            )
-            OR (
-              CASE
-                WHEN json_valid(normalized_projection)
-                    THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-                ELSE ''
-              END NOT IN ('server', 'provider')
-              AND json_extract(?1, '$.source') = 'client'
-            )
-          )
+          AND json_valid(normalized_projection)
+          AND json_extract(normalized_projection, '$.source') = 'server'
+          AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+          AND json_extract(?1, '$.source') = 'provider'
+          AND status = 'generated'
+          AND materialized_at IS NULL
+          AND COALESCE(json_extract(?1, '$.awaitingProviderResult'), 0) <> 1
     `);
     const stmtSetProjectionError = db.prepare(`
         UPDATE generation_jobs
@@ -155,6 +143,7 @@ function createGenerationStatements(db) {
         SELECT *
         FROM generation_jobs
         WHERE raw_bytes > 0
+          AND response_decoder IS NOT NULL
           AND response_status >= 200
           AND response_status < 300
           AND (
@@ -508,7 +497,7 @@ function createGenerationStatements(db) {
         stmtSetHeaders,
         stmtFinish,
         stmtSetProjection,
-        stmtSetClientProjection,
+        stmtSetProviderResult,
         stmtSetProjectionError,
         stmtUpdateMetadata,
         stmtListRecoverable,

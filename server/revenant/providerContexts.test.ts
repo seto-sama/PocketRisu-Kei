@@ -21,7 +21,7 @@ it('persists projected provider contexts through queue claim, request-log cleari
 
                 const native = generation.createSingleGenerationJob({
                     jobId: 'native-job', chatId: 'native-response', jobType: 'model',
-                    adapterKind: 'google-gemini', dispatchGroup: 'native-group', dispatchMaxConcurrent: 1,
+                    adapterKind: 'google-gemini', responseDecoder: { adapterKind: 'google-gemini', stream: false }, dispatchGroup: 'native-group', dispatchMaxConcurrent: 1,
                     requestSpec: {
                         targetUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
                         method: 'POST', body: Buffer.from(JSON.stringify({ contents: [] })),
@@ -29,7 +29,7 @@ it('persists projected provider contexts through queue claim, request-log cleari
                 });
                 const compatible = generation.createSingleGenerationJob({
                     jobId: 'compatible-job', chatId: 'compatible-response', jobType: 'model',
-                    adapterKind: 'openai-compatible', dispatchGroup: 'compatible-group', dispatchMaxConcurrent: 1,
+                    adapterKind: 'openai-compatible', responseDecoder: { adapterKind: 'openai-compatible', stream: false }, dispatchGroup: 'compatible-group', dispatchMaxConcurrent: 1,
                     requestSpec: {
                         targetUrl: 'https://openrouter.ai/api/v1/chat/completions',
                         method: 'POST', body: Buffer.from(JSON.stringify({ model: 'google/gemini-2.5-flash', messages: [] })),
@@ -37,11 +37,11 @@ it('persists projected provider contexts through queue claim, request-log cleari
                 });
                 const direct = generation.createSingleGenerationJob({
                     jobId: 'direct-job', chatId: 'direct-response', jobType: 'model',
-                    adapterKind: 'openai-compatible',
+                    adapterKind: 'openai-compatible', responseDecoder: { adapterKind: 'openai-compatible', stream: false },
                 });
                 const untracked = generation.createSingleGenerationJob({
                     jobId: 'untracked-job', chatId: 'untracked-response', jobType: 'model',
-                    adapterKind: 'google-gemini',
+                    adapterKind: 'google-gemini', responseDecoder: { adapterKind: 'google-gemini', stream: false },
                 });
 
                 logs.addRequestLog({
@@ -67,13 +67,13 @@ it('persists projected provider contexts through queue claim, request-log cleari
                 const untrackedJob = generation.getGenerationJob(untracked.jobId, false);
 
                 await projectGenerationJournal({
-                    ...nativeClaim.job, responseStatus: 200, streaming: false,
+                    ...nativeClaim.job, responseStatus: 200,
                     responseHeaders: { 'content-type': 'application/json' },
                 }, Buffer.from(JSON.stringify({
                     candidates: [{ content: { role: 'model', parts: [{ text: '', thoughtSignature: 'native-opaque-signature' }] } }],
                 })));
                 await projectGenerationJournal({
-                    ...compatibleClaim.job, responseStatus: 200, streaming: false,
+                    ...compatibleClaim.job, responseStatus: 200,
                     responseHeaders: { 'content-type': 'application/json' },
                 }, Buffer.from(JSON.stringify({
                     choices: [{ message: {
@@ -83,7 +83,7 @@ it('persists projected provider contexts through queue claim, request-log cleari
                     } }],
                 })));
                 await projectGenerationJournal({
-                    ...directJob, responseStatus: 200, streaming: false,
+                    ...directJob, responseStatus: 200,
                     responseHeaders: { 'content-type': 'application/json' },
                 }, Buffer.from(JSON.stringify({
                     choices: [{ message: { role: 'assistant', content: 'direct answer', extra_content: { google: { thought_signature: 'direct-opaque-signature' } } } }],
@@ -105,11 +105,11 @@ it('persists projected provider contexts through queue claim, request-log cleari
                     remainingRequestLogs: logs.countRequestLogs(),
                 };
                 const withoutMetadata = await projectGenerationJournal({
-                    ...untrackedJob, responseStatus: 200, streaming: false,
+                    ...untrackedJob, responseStatus: 200,
                 }, Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [
                     { text: 'answer retained', thoughtSignature: 'opaque' },
                 ] } }] })));
-                result.contentWithoutMetadata = withoutMetadata.content;
+                result.contentWithoutMetadata = withoutMetadata.projection.content;
                 result.untrackedContexts = contexts.queryProviderContexts(
                     ['untracked-response'], 'google-gemini', 'unknown-model',
                 );

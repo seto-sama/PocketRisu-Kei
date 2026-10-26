@@ -11,6 +11,7 @@ const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournal
         ws: FakeSocket,
         job: any,
         offset: number,
+        kind: 'journal' | 'events',
         store: {
             readChunk: (
                 workflowId: string | null,
@@ -360,7 +361,7 @@ describe('revenant journal stream', () => {
     it('sends headers, the requested byte suffix, and terminal state', async () => {
         const socket = new FakeSocket()
         const journal = Buffer.from('abcdef')
-        await streamRevenantJournal(socket, job, 3, {
+        await streamRevenantJournal(socket, job, 3, 'journal', {
             async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },
@@ -385,7 +386,7 @@ describe('revenant journal stream', () => {
         await streamRevenantJournal(socket, {
             ...job,
             providerStartedAt: 123,
-        }, 0, {
+        }, 0, 'journal', {
             async readChunk() {
                 return { offset: 0, bytes: Buffer.alloc(0) }
             },
@@ -409,7 +410,7 @@ describe('revenant journal stream', () => {
             journalWaiters: [],
         }
         let journal = Buffer.alloc(0)
-        const streaming = streamRevenantJournal(socket, liveJob, 0, {
+        const streaming = streamRevenantJournal(socket, liveJob, 0, 'journal', {
             async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },
@@ -428,6 +429,27 @@ describe('revenant journal stream', () => {
 
         const chunk = socket.messages.find(message => message.type === 'chunk')
         expect(Buffer.from(chunk.bytes).toString()).toBe('later')
+        expect(socket.messages.at(-1)?.type).toBe('done')
+    })
+
+    it('reads the final bytes written while an EOF read was in flight', async () => {
+        const socket = new FakeSocket()
+        const liveJob = { ...job, done: false, journalWaiters: [] }
+        let journal = Buffer.alloc(0)
+        await streamRevenantJournal(socket, liveJob, 0, 'events', {
+            async readChunk(_workflowId, _jobId, offset) {
+                const bytes = journal.subarray(offset)
+                if (journal.length === 0) {
+                    // The writer finishes after this read saw EOF.
+                    journal = Buffer.from('final')
+                    liveJob.done = true
+                }
+                return { offset, bytes }
+            },
+        })
+
+        expect(socket.messages.filter(message => message.type === 'chunk')
+            .map(message => Buffer.from(message.bytes).toString())).toEqual(['final'])
         expect(socket.messages.at(-1)?.type).toBe('done')
     })
 })

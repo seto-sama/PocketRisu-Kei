@@ -713,9 +713,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 job: {
                     ...requestContext.generationRequest.job,
                     adapterKind: requestContext.generationRequest.job.adapterKind
-                        ?? classification.adapterKind,
-                    streaming: requestContext.generationRequest.job.streaming
-                        ?? classification.streaming,
+                        ?? classification.responseDecoder?.adapterKind,
+                    // The plugin parses the raw response; the server decodes
+                    // a copy for recovery.
+                    responseDecoder: classification.responseDecoder,
                 },
             } : undefined,
         }

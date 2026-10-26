@@ -1,25 +1,35 @@
 import type { AdapterKind, ModelPreset } from '../types'
 import {
+    decodeAmazonBedrockResponse,
+    decodeAmazonBedrockStream,
     previewAmazonBedrockChatRequest,
     sendAmazonBedrockChatRequest,
     streamAmazonBedrockChatRequest,
 } from './amazonBedrock'
 import {
+    decodeAnthropicResponse,
+    decodeAnthropicStream,
     previewAnthropicChatRequest,
     sendAnthropicChatRequest,
     streamAnthropicChatRequest,
 } from './anthropicMessages'
 import {
+    decodeGeminiResponse,
+    decodeGeminiStream,
     previewGoogleChatRequest,
     sendGoogleChatRequest,
     streamGoogleChatRequest,
 } from './googleGemini'
 import {
+    decodeChatCompletionResponse,
+    decodeChatCompletionStream,
     previewChatRequest,
     sendChatRequest,
     streamChatRequest,
 } from './openaiCompatible'
 import {
+    decodeResponsesResponse,
+    decodeResponsesStream,
     previewResponsesRequest,
     sendResponsesRequest,
     streamResponsesRequest,
@@ -30,6 +40,7 @@ import type {
     AdapterChatStreamDelta,
     AdapterCredential,
     AdapterPreparedRequest,
+    AdapterResponseDecoder,
 } from './types'
 
 /**
@@ -67,6 +78,18 @@ export interface ModelPresetAdapterDefinition {
         options: AdapterChatOptions,
         credential?: AdapterCredential,
     ) => AdapterPreparedRequest | Promise<AdapterPreparedRequest>
+    /** Decodes a complete chat response body; the server runs this for the adapter. */
+    readonly decodeResponse: (
+        body: string,
+        decoder: AdapterResponseDecoder,
+        onRaw?: (raw: unknown) => void,
+    ) => AdapterChatResponse
+    /** Decodes a streaming chat response body; the server runs this for the adapter. */
+    readonly decodeStream: (
+        body: ReadableStream<Uint8Array>,
+        decoder: AdapterResponseDecoder,
+        onRaw?: (raw: unknown) => void,
+    ) => AsyncGenerator<AdapterChatStreamDelta, void, void>
 }
 
 /**
@@ -87,6 +110,8 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
         send: sendChatRequest,
         stream: streamChatRequest,
         preview: previewChatRequest,
+        decodeResponse: decodeChatCompletionResponse,
+        decodeStream: decodeChatCompletionStream,
     },
     'openai-responses': {
         kind: 'openai-responses',
@@ -100,6 +125,8 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
         send: sendResponsesRequest,
         stream: streamResponsesRequest,
         preview: previewResponsesRequest,
+        decodeResponse: decodeResponsesResponse,
+        decodeStream: decodeResponsesStream,
     },
     'anthropic-messages': {
         kind: 'anthropic-messages',
@@ -113,6 +140,8 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
         send: sendAnthropicChatRequest,
         stream: streamAnthropicChatRequest,
         preview: previewAnthropicChatRequest,
+        decodeResponse: decodeAnthropicResponse,
+        decodeStream: decodeAnthropicStream,
     },
     'google-gemini': {
         kind: 'google-gemini',
@@ -126,6 +155,8 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
         send: sendGoogleChatRequest,
         stream: streamGoogleChatRequest,
         preview: previewGoogleChatRequest,
+        decodeResponse: (body, _decoder, onRaw) => decodeGeminiResponse(body, onRaw),
+        decodeStream: (body, _decoder, onRaw) => decodeGeminiStream(body, onRaw),
     },
     'amazon-bedrock': {
         kind: 'amazon-bedrock',
@@ -139,6 +170,8 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
         send: sendAmazonBedrockChatRequest,
         stream: streamAmazonBedrockChatRequest,
         preview: previewAmazonBedrockChatRequest,
+        decodeResponse: decodeAmazonBedrockResponse,
+        decodeStream: decodeAmazonBedrockStream,
     },
 } as const satisfies Record<HttpAdapterKind, ModelPresetAdapterDefinition>
 

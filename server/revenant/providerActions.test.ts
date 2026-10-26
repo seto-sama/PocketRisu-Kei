@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import providerPkg from './providerActions.cjs'
 import workerPkg from './postprocessWorker.cjs'
+import projectionPkg from './generationProjection.cjs'
 import serviceAccountPkg from '../googleServiceAccount.cjs'
 import { makeServiceAccountFixture } from '../../src/ts/preset/adapter/googleServiceAccount/__testFixtures'
 
 const { createServerProviderActionExecutor, canExecuteServerProviderAction } = providerPkg
 const { createRevenantPostprocessWorker } = workerPkg
+const { projectGenerationJournal } = projectionPkg
 
 function preset(adapterKind = 'openai-compatible') {
     return {
@@ -56,6 +58,8 @@ function harness(model = preset(), executorOptions = {}) {
             jobs.push({ ...input, status: 'queued' })
         }),
         getGenerationJob: (id: string) => jobs.find(job => job.jobId === id),
+        readGenerationJobRaw: (id: string) => jobs.find(job => job.jobId === id).rawResponse,
+        readGenerationJobEvents: (id: string) => jobs.find(job => job.jobId === id).events,
         markGenerationMaterialized: vi.fn(),
         listReadyChatWorkflowJobs: () => workflow.status === 'active'
             ? [{ jobId: 'main-job', workflowId: workflow.workflowId, projection: { content: 'main answer' } }]
@@ -71,13 +75,22 @@ function harness(model = preset(), executorOptions = {}) {
         },
         finishGenerationWorkflow: (_id: string, status: string) => { workflow.status = status },
     }
-    const scheduleGenerationDispatch = vi.fn(() => {
+    // Completes the latest job the way the server runner does: the provider
+    // response is decoded into events before the job reports generated.
+    const complete = (raw: unknown) => {
         const job = jobs.at(-1)
-        job.status = 'generated'
+        job.status = 'generating'
         job.responseStatus = 200
         job.responseHeaders = { 'content-type': 'application/json' }
-        job.rawResponse = Buffer.from(JSON.stringify({ choices: [{ message: { content: `answer-${jobs.length}` } }] }))
-    })
+        job.rawResponse = Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(raw))
+        void projectGenerationJournal(job, job.rawResponse).then(rebuilt => {
+            job.events = rebuilt?.events
+            job.status = 'generated'
+        })
+    }
+    const scheduleGenerationDispatch = vi.fn(() => complete({
+        choices: [{ message: { content: `answer-${jobs.length}` } }],
+    }))
     const cancelJob = vi.fn((id: string) => { repository.getGenerationJob(id).status = 'cancelled' })
     const executeProviderAction = createServerProviderActionExecutor({
         repository, scheduleGenerationDispatch, sanitizeGenerationTargetUrl: (url: string) => url,
@@ -89,7 +102,7 @@ function harness(model = preset(), executorOptions = {}) {
         actionId: 'trigger.0.provider', kind: 'provider.axllm',
         payload: { backend: 'http', modelPreset: model, prompt: [{ role: 'user', content: 'judge' }] },
     }
-    return { repository, scheduleGenerationDispatch, cancelJob, executeProviderAction,
+    return { repository, scheduleGenerationDispatch, complete, cancelJob, executeProviderAction,
         workflow, recipe, steps, jobs, action, transitions }
 }
 
@@ -104,6 +117,7 @@ describe('server postprocess provider actions', () => {
             const db = require(path.join(base, 'generationDb.cjs'));
             const { generationJournalStore } = require(path.join(base, 'generationJournal.cjs'));
             const { createServerProviderActionExecutor } = require(path.join(base, 'providerActions.cjs'));
+            const { projectGenerationJournal } = require(path.join(base, 'generationProjection.cjs'));
             const { recipe, action } = JSON.parse(process.argv[2]);
             db.createGenerationWorkflow({
                 workflowId: 'workflow-1', characterId: 'char-1', roomId: 'room-1',
@@ -127,9 +141,12 @@ describe('server postprocess provider actions', () => {
                     if (!db.claimQueuedGenerationDispatch(id)) throw new Error('Dispatch claim failed');
                     db.setGenerationJobGenerating(id);
                     db.setGenerationJobHeaders(id, 200, { 'content-type': 'application/json' });
-                    fs.appendFileSync(generationJournalStore.journalPath('workflow-1', id),
-                        JSON.stringify({ choices: [{ message: { content: 'persisted answer' } }] }));
-                    db.finishGenerationJob(id, 'generated', 'provider_complete');
+                    const raw = JSON.stringify({ choices: [{ message: { content: 'persisted answer' } }] });
+                    fs.appendFileSync(generationJournalStore.journalPath('workflow-1', id), raw);
+                    projectGenerationJournal(db.getGenerationJob(id, false), raw).then(rebuilt => {
+                        db.replaceGenerationJobEvents(id, rebuilt.events);
+                        db.finishGenerationJob(id, 'generated', 'provider_complete');
+                    });
                 },
             });
             execute({ workflow: db.getGenerationWorkflow('workflow-1'), action }).then(result => {
@@ -241,9 +258,8 @@ describe('server postprocess provider actions', () => {
             getDatabase: () => ({ apiKeyPool: { 'pool-key': { key: JSON.stringify(sa) } } }),
         })
         if (kind === 'google-gemini') {
-            h.scheduleGenerationDispatch.mockImplementation(() => Object.assign(h.jobs.at(-1), {
-                status: 'generated', responseStatus: 200,
-                rawResponse: Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'answer' }] } }] })),
+            h.scheduleGenerationDispatch.mockImplementation(() => h.complete({
+                candidates: [{ content: { parts: [{ text: 'answer' }] } }],
             }))
         }
         expect(canExecuteServerProviderAction(h.action)).toBe(true)
@@ -262,19 +278,14 @@ describe('server postprocess provider actions', () => {
     it('collects a streaming provider response, including reasoning', async () => {
         const h = harness()
         h.action.payload.options = { streaming: true }
-        h.scheduleGenerationDispatch.mockImplementation(() => {
-            Object.assign(h.jobs.at(-1), {
-                status: 'generated', responseStatus: 200,
-                rawResponse: Buffer.from([
-                    'data: {"choices":[{"delta":{"reasoning_content":"think"}}]}',
-                    'data: {"choices":[{"delta":{"content":"answer"}}]}',
-                    'data: [DONE]', '',
-                ].join('\n\n')),
-            })
-        })
+        h.scheduleGenerationDispatch.mockImplementation(() => h.complete([
+            'data: {"choices":[{"delta":{"reasoning_content":"think"}}]}',
+            'data: {"choices":[{"delta":{"content":"answer"}}]}',
+            'data: [DONE]', '',
+        ].join('\n\n')))
         expect(await h.executeProviderAction({ workflow: h.workflow, action: h.action }))
             .toEqual({ success: true, result: '<Thoughts>\nthink\n</Thoughts>\n\nanswer' })
-        expect(h.jobs[0].streaming).toBe(true)
+        expect(h.jobs[0].responseDecoder).toMatchObject({ adapterKind: 'openai-compatible', stream: true })
     })
 
     it.each([
@@ -285,11 +296,7 @@ describe('server postprocess provider actions', () => {
     ])('reuses the %s request and response adapter', async (kind, response) => {
         const model = preset(kind as string)
         const h = harness(model)
-        h.scheduleGenerationDispatch.mockImplementation(() => {
-            Object.assign(h.jobs.at(-1), {
-                status: 'generated', responseStatus: 200, rawResponse: Buffer.from(JSON.stringify(response)),
-            })
-        })
+        h.scheduleGenerationDispatch.mockImplementation(() => h.complete(response))
         expect(await h.executeProviderAction({ workflow: h.workflow, action: h.action }))
             .toEqual({ success: true, result: 'native answer' })
         expect(h.jobs[0].adapterKind).toBe(kind)

@@ -33,7 +33,6 @@ vi.mock('./revenant/auxiliary', () => ({
     findRecoverableAuxiliaryGeneration: async (predicate: (job: any) => boolean) => state.jobs.find(predicate),
     listRecoverableAuxiliaryGenerations: async () => state.jobs,
     resolveRecoverableAuxiliaryGenerations: async (options: any) => state.jobs.filter(job => options.isContext(job.operationContext) && options.matchesContext(job.operationContext)),
-    updateRecoverableAuxiliaryGenerationProjection: async (jobId: string, content: string) => { state.jobs.find(job => job.jobId === jobId).projection = { content } },
     consumeRecoverableAuxiliaryGeneration: state.consume,
 }))
 vi.mock('./revenant/workflow/imageWorkflow', () => ({ generateImageThroughWorkflow: state.image }))

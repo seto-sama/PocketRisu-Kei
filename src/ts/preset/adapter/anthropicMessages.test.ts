@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { decodingFetch } from './__testDecodingFetch'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendAnthropicChatRequest, streamAnthropicChatRequest } from './anthropicMessages'
 import type { AdapterChatMessage } from './types'
@@ -98,7 +99,7 @@ function captureFetch(response: Response | (() => Response)): {
     calls: CapturedCall[]
 } {
     const calls: CapturedCall[] = []
-    const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
         const headers = init?.headers as Record<string, string> | undefined
         const body = init?.body != null ? JSON.parse(init.body as string) : {}
@@ -110,7 +111,7 @@ function captureFetch(response: Response | (() => Response)): {
             signal: init?.signal,
         })
         return typeof response === 'function' ? response() : response
-    }
+    })
     return { fetchImpl, calls }
 }
 
@@ -760,10 +761,10 @@ describe('streamAnthropicChatRequest', () => {
                 controller.error(abort)
             },
         })
-        const fetchImpl: typeof fetch = async () => new Response(stream, {
+        const fetchImpl: typeof fetch = decodingFetch(async () => new Response(stream, {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },
-        })
+        }))
         const gen = streamAnthropicChatRequest(
             makePreset(),
             { messages: messagesWithSystem, fetchImpl },

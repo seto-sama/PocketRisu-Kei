@@ -8,6 +8,7 @@ const { createGenerationJournalStore } = pkg as {
     createGenerationJournalStore: (options: { revenantDir: string }) => {
         journalKey: (workflowId: string | null, jobId: string) => string
         create: (workflowId: string | null, jobId: string) => string
+        journalPath: (workflowId: string | null, jobId: string, kind?: 'journal' | 'events') => string
         openWriter: (workflowId: string | null, jobId: string) => fs.WriteStream
         readAll: (workflowId: string | null, jobId: string) => Buffer
         readChunk: (workflowId: string | null, jobId: string, offset: number) => Promise<{ offset: number, bytes: Buffer }>
@@ -48,18 +49,24 @@ describe('generation journal store', () => {
         expect(replay.bytes.toString()).toBe('bytes')
     })
 
-    it('removes only old orphan journals', () => {
+    it('removes old orphan journals and abandoned replacements', () => {
         const store = makeStore()
         const keptPath = store.create('workflow-kept', 'kept')
         const orphanPath = store.create('workflow-orphan', 'orphan')
-        fs.utimesSync(keptPath, new Date(0), new Date(0))
-        fs.utimesSync(orphanPath, new Date(0), new Date(0))
+        const eventsPath = store.journalPath('workflow-kept', 'kept', 'events')
+        fs.writeFileSync(eventsPath, '{}\n')
+        fs.writeFileSync(`${eventsPath}.tmp`, '{')
+        for (const file of [keptPath, orphanPath, eventsPath, `${eventsPath}.tmp`]) {
+            fs.utimesSync(file, new Date(0), new Date(0))
+        }
 
         expect(store.removeOrphans(
             new Set([store.journalKey('workflow-kept', 'kept')]),
             Date.now(),
-        )).toBe(1)
+        )).toBe(2)
         expect(store.size('workflow-kept', 'kept')).toBe(0)
+        expect(fs.existsSync(eventsPath)).toBe(true)
+        expect(fs.existsSync(`${eventsPath}.tmp`)).toBe(false)
         expect(fs.existsSync(orphanPath)).toBe(false)
         expect(fs.existsSync(path.dirname(orphanPath))).toBe(false)
     })

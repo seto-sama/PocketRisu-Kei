@@ -5,7 +5,7 @@ import { isLocalNetworkUrl } from './localNetwork'
 import {
     SINGLE_LLM_EXECUTION,
     type LLMExecutionPolicy,
-    type ServerAuthenticatedRequestInit,
+    type LLMRequestInit,
 } from './transportTypes'
 
 export interface LLMTransportFetchOptions {
@@ -55,7 +55,8 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
             interceptor: options.interceptor,
             generationRequest,
             llmExecutionPolicy: executionPolicy,
-            serverProviderAuth: (init as ServerAuthenticatedRequestInit)?.serverProviderAuth,
+            serverProviderAuth: (init as LLMRequestInit)?.serverProviderAuth,
+            responseDecoder: (init as LLMRequestInit)?.responseDecoder,
             networkRoute: localNetwork ? 'local_network' : 'auto',
             requestTimeoutMs: localNetwork
                 ? (options.localNetworkTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)

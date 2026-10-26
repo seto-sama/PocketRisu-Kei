@@ -8,7 +8,9 @@ import {
     parseRetryAfterMs,
 } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
-import { preparedRequestFetch } from './httpTransport'
+import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
+import { parseResponseJson, preparedRequestFetch } from './httpTransport'
+import type { LLMRequestInit } from '../../network/transportTypes'
 import { parseSseStream } from './sse'
 import type {
     AdapterChatMessage,
@@ -95,13 +97,53 @@ export async function sendGoogleChatRequest(
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareGeminiBody(preset, options, credential, false)
     const cacheTurn = beginCacheTurn(prepared, options, credential)
+    const response = await sendGeminiRequest(prepared, options, cacheTurn, false)
+    const parsed = await readDecodedChatResponse(response)
+    // Fire-and-forget cache lifecycle (create/extend/cleanup) off the observed
+    // usage; never blocks or fails the response.
+    cacheTurn?.finish(parsed.usage?.promptTokens)
+    return parsed
+}
+
+export async function* streamGoogleChatRequest(
+    preset: ModelPreset,
+    options: AdapterChatOptions,
+    credential?: AdapterCredential,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
+    const prepared = await prepareGeminiBody(preset, options, credential, true)
+    const cacheTurn = beginCacheTurn(prepared, options, credential)
+    const response = await sendGeminiRequest(prepared, options, cacheTurn, true)
+    if (!response.body) {
+        throw new ModelPresetAdapterError('parse', 'Gemini stream response has no body')
+    }
+
+    // usageMetadata arrives on the last SSE chunk; capture it so the cache
+    // lifecycle can run once the stream completes normally.
+    let lastUsage: AdapterUsage | undefined
+    for await (const delta of readDecodedChatStream(response.body)) {
+        if (delta.usage) lastUsage = delta.usage
+        yield delta
+    }
+    cacheTurn?.finish(lastUsage?.promptTokens)
+}
+
+async function sendGeminiRequest(
+    prepared: GeminiPreparedRequest,
+    options: AdapterChatOptions,
+    cacheTurn: GeminiCacheTurn | null,
+    stream: boolean,
+): Promise<Response> {
     const fetchImpl = preparedRequestFetch(prepared, options)
-    const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
-        method: prepared.method,
-        headers: prepared.headers,
-        body: JSON.stringify(body),
-        signal: options.abortSignal,
-    })
+    const send = (body: Record<string, unknown>): Promise<Response> => {
+        const init: LLMRequestInit = {
+            method: prepared.method,
+            headers: stream ? { ...prepared.headers, Accept: 'text/event-stream' } : prepared.headers,
+            body: JSON.stringify(body),
+            signal: options.abortSignal,
+            responseDecoder: { adapterKind: 'google-gemini', stream },
+        }
+        return fetchImpl(prepared.url, init)
+    }
     let response: Response
     try {
         response = await send(cacheTurn ? cacheTurn.body : prepared.body)
@@ -118,63 +160,21 @@ export async function sendGoogleChatRequest(
     if (!response.ok) {
         throw await deriveHttpError(response)
     }
-
-    let raw: unknown
-    try {
-        raw = await response.json()
-    } catch (err) {
-        throw new ModelPresetAdapterError('parse', 'Failed to parse Gemini JSON response', {
-            cause: err,
-        })
-    }
-
-    const parsed = parseGeminiResponse(raw)
-    // Fire-and-forget cache lifecycle (create/extend/cleanup) off the observed
-    // usage; never blocks or fails the response.
-    cacheTurn?.finish(parsed.usage?.promptTokens)
-    return parsed
+    return response
 }
 
-export async function* streamGoogleChatRequest(
-    preset: ModelPreset,
-    options: AdapterChatOptions,
-    credential?: AdapterCredential,
+export function decodeGeminiResponse(body: string, onRaw?: (raw: unknown) => void): AdapterChatResponse {
+    const raw = parseResponseJson(body, 'Failed to parse Gemini JSON response')
+    onRaw?.(raw)
+    return parseGeminiResponse(raw)
+}
+
+export async function* decodeGeminiStream(
+    stream: ReadableStream<Uint8Array>,
+    onRaw?: (raw: unknown) => void,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-    const prepared = await prepareGeminiBody(preset, options, credential, true)
-    const cacheTurn = beginCacheTurn(prepared, options, credential)
-    const fetchImpl = preparedRequestFetch(prepared, options)
-    const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
-        method: prepared.method,
-        headers: { ...prepared.headers, Accept: 'text/event-stream' },
-        body: JSON.stringify(body),
-        signal: options.abortSignal,
-    })
-    let response: Response
     try {
-        response = await send(cacheTurn ? cacheTurn.body : prepared.body)
-        // Same fallback as the non-stream path: a rejected applied cache drops
-        // the stale entry and retries uncached (spec §4-4).
-        if (!response.ok && cacheTurn?.appliedCache && isCacheRejection(response.status)) {
-            cacheTurn.invalidateAppliedCache()
-            response = await send(prepared.body)
-        }
-    } catch (err) {
-        throw normalizeFetchError(err)
-    }
-
-    if (!response.ok) {
-        throw await deriveHttpError(response)
-    }
-
-    if (!response.body) {
-        throw new ModelPresetAdapterError('parse', 'Gemini stream response has no body')
-    }
-
-    try {
-        // usageMetadata arrives on the last SSE chunk; capture it so the cache
-        // lifecycle can run once the stream completes normally.
-        let lastUsage: AdapterUsage | undefined
-        for await (const event of parseSseStream(response.body)) {
+        for await (const event of parseSseStream(stream)) {
             if (event.data.length === 0) continue
             let raw: unknown
             try {
@@ -186,13 +186,10 @@ export async function* streamGoogleChatRequest(
                     { cause: err },
                 )
             }
+            onRaw?.(raw)
             const delta = parseGeminiStreamDelta(raw)
-            if (delta) {
-                if (delta.usage) lastUsage = delta.usage
-                yield delta
-            }
+            if (delta) yield delta
         }
-        cacheTurn?.finish(lastUsage?.promptTokens)
     } catch (err) {
         if (err instanceof ModelPresetAdapterError) throw err
         throw normalizeFetchError(err)
@@ -535,7 +532,6 @@ export function parseGeminiResponse(raw: unknown): AdapterChatResponse {
         providerEcho: echoParts,
         finishReason,
         usage: parseGeminiUsage(raw['usageMetadata']),
-        raw,
     }
 }
 
@@ -618,7 +614,7 @@ export function parseGeminiStreamDelta(raw: unknown): AdapterChatStreamDelta | n
     if (textDelta.length === 0 && reasoningDelta.length === 0 && finishReason === undefined && usage === undefined) {
         return null
     }
-    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage, raw }
+    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage }
 }
 
 function throwIfPromptBlocked(feedback: unknown): void {

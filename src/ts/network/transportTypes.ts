@@ -1,3 +1,5 @@
+import type { AdapterResponseDecoder } from '../preset/adapter/types'
+
 /**
  * Application-level execution policy for an LLM provider call.
  *
@@ -47,6 +49,9 @@ export interface ServerProviderAuth {
     scope?: string
 }
 
-export interface ServerAuthenticatedRequestInit extends RequestInit {
+/** Fetch init understood by the LLM transport in addition to RequestInit. */
+export interface LLMRequestInit extends RequestInit {
     serverProviderAuth?: ServerProviderAuth
+    /** Marks a chat response that the server decodes for the adapter. */
+    responseDecoder?: AdapterResponseDecoder
 }
