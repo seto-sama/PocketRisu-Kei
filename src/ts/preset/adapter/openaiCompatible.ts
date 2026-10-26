@@ -11,8 +11,9 @@ import {
     normalizeFetchError,
 } from './error'
 import {
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    parseResponseJson,
+    sendPreparedChatRequest,
 } from './httpTransport'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
@@ -25,6 +26,7 @@ import type {
     AdapterImagePart,
     AdapterPreparedRequest,
     AdapterReasoningPart,
+    AdapterResponseDecoder,
     AdapterToolCall,
     AdapterToolDef,
     AdapterUsage,
@@ -75,15 +77,12 @@ export async function sendChatRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareOpenAiBody(preset, options, credential, false)
-    const raw = await sendPreparedJsonRequest(
+    return sendPreparedChatRequest(
         prepared,
         options,
-        'Failed to parse OpenAI-compatible JSON response',
+        openAiChatResponseDecoder(preset, false),
+        decodeChatCompletionResponse,
     )
-
-    return isDirectImageGenerationPreset(preset)
-        ? parseImageGenerationResponse(raw)
-        : parseChatCompletion(raw, resolveReasoningOutputOptions(preset))
 }
 
 export async function* streamChatRequest(
@@ -92,20 +91,44 @@ export async function* streamChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareOpenAiBody(preset, options, credential, true)
-    const stream = await openPreparedEventStream(
+    const decoder = openAiChatResponseDecoder(preset, true)
+    const stream = await openPreparedChatStream(
         prepared,
         options,
+        decoder,
         'OpenAI-compatible stream response has no body',
     )
 
-    yield* parseChatEventStream(stream, preset)
+    yield* decodeChatCompletionStream(stream, decoder)
 }
 
-export async function* parseChatEventStream(
+export function openAiChatResponseDecoder(preset: ModelPreset, stream: boolean): AdapterResponseDecoder {
+    return {
+        adapterKind: 'openai-compatible',
+        stream,
+        reasoning: resolveReasoningOutputOptions(preset),
+        ...(isDirectImageGenerationPreset(preset) ? { imageGeneration: true } : {}),
+    }
+}
+
+export function decodeChatCompletionResponse(
+    body: string,
+    decoder: AdapterResponseDecoder,
+    onRaw?: (raw: unknown) => void,
+): AdapterChatResponse {
+    const raw = parseResponseJson(body, 'Failed to parse OpenAI-compatible JSON response')
+    onRaw?.(raw)
+    return decoder.imageGeneration
+        ? parseImageGenerationResponse(raw)
+        : parseChatCompletion(raw, decoder.reasoning)
+}
+
+export async function* decodeChatCompletionStream(
     stream: ReadableStream<Uint8Array>,
-    preset: ModelPreset,
+    decoder: AdapterResponseDecoder,
+    onRaw?: (raw: unknown) => void,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-    const reasoningOutput = resolveReasoningOutputOptions(preset)
+    const reasoningOutput = decoder.reasoning ?? DEFAULT_REASONING_OUTPUT
     const thinkTagParser = reasoningOutput.thinkTagFallback
         ? new ThinkTagStreamParser()
         : undefined
@@ -123,6 +146,7 @@ export async function* parseChatEventStream(
                     { cause: err },
                 )
             }
+            onRaw?.(raw)
             const parsed = parseChatStreamDelta(raw, reasoningOutput.includeNative)
             const delta = parsed && thinkTagParser
                 ? applyThinkTagStreamFallback(parsed, thinkTagParser)
@@ -424,9 +448,11 @@ function toDataUrl(img: AdapterImagePart): string {
     return `data:${img.mime ?? 'image/png'};base64,${img.base64}`
 }
 
-interface ReasoningOutputOptions {
-    includeNative: boolean
-    thinkTagFallback: boolean
+type ReasoningOutputOptions = NonNullable<AdapterResponseDecoder['reasoning']>
+
+const DEFAULT_REASONING_OUTPUT: ReasoningOutputOptions = {
+    includeNative: true,
+    thinkTagFallback: false,
 }
 
 function isDirectImageGenerationPreset(preset: ModelPreset): boolean {
@@ -464,10 +490,7 @@ function parseImageGenerationResponse(raw: unknown): AdapterChatResponse {
 
 function parseChatCompletion(
     raw: unknown,
-    reasoningOptions: ReasoningOutputOptions = {
-        includeNative: true,
-        thinkTagFallback: false,
-    },
+    reasoningOptions: ReasoningOutputOptions = DEFAULT_REASONING_OUTPUT,
 ): AdapterChatResponse {
     if (!isPlainObject(raw)) {
         throw new ModelPresetAdapterError('parse', 'OpenAI-compatible response is not an object')
@@ -514,10 +537,7 @@ function parseChatCompletion(
 
 /** Pure wire decoder used when a persisted provider journal is replayed. */
 export function parseRecoveredChatCompletion(raw: unknown): AdapterChatResponse {
-    return parseChatCompletion(raw, {
-        includeNative: true,
-        thinkTagFallback: false,
-    })
+    return parseChatCompletion(raw)
 }
 
 // Surface the model's reasoning text for display only. OpenRouter exposes it as

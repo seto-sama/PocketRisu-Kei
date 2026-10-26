@@ -257,10 +257,8 @@ export function isRevenantJobActive(status: string): boolean {
 export interface RevenantProviderJobSpec {
     chatId: string
     jobType: ModelModeExtended
-    /** Concrete client adapter that owns parsing the provider wire response. */
+    /** Concrete backend that executes the request (`echo` runs in-process). */
     adapterKind?: string
-    /** Whether the provider response uses its streaming wire format. */
-    streaming?: boolean
     characterId?: string
     roomId?: string
     operationContext?: RevenantOperationContext

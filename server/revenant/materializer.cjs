@@ -231,6 +231,7 @@ function createRevenantMaterializer(options) {
         const rawResponse = readGenerationJobRaw(job.jobId);
         if (
             rawResponse.length > 0
+            && job.responseDecoder
             && !isGenerationProjectionCurrent(projection, rawResponse.length)
         ) {
             try {

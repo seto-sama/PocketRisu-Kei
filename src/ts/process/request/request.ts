@@ -35,7 +35,12 @@ import {
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
 import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
-import { parseChatEventStream } from 'src/ts/preset/adapter/openaiCompatible';
+import {
+    decodeChatCompletionResponse,
+    decodeChatCompletionStream,
+    openAiChatResponseDecoder,
+} from 'src/ts/preset/adapter/openaiCompatible';
+import { formatAdapterReasoning } from 'src/ts/preset/adapter/responseDecoder';
 import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,
@@ -51,6 +56,7 @@ import {
     SINGLE_LLM_EXECUTION,
     WORKFLOW_LLM_EXECUTION,
     type LLMExecutionPolicy,
+    type LLMRequestInit,
 } from "src/ts/network/transportTypes";
 import {
     startStatus, appendText, endStatus, hasRequestStatus, markPhase, setStatusTokenCounter, addBadge,
@@ -109,7 +115,6 @@ export interface requestDataArgument{
     rememberToolUsage?: boolean
     forceStreaming?: boolean
     revenantAdapterKind?: string
-    revenantStreaming?: boolean
     blockPlugins?: boolean
     /** Module that owns this auxiliary LLM request, when applicable. */
     moduleId?: string
@@ -437,25 +442,32 @@ async function requestEchoPreset(
     const request = buildEchoRequest(preset, resolvePresetStreaming(preset, arg, supportsStreaming), arg.formated)
 
     arg.revenantAdapterKind = 'echo'
-    arg.revenantStreaming = request.stream
+    const responseDecoder = openAiChatResponseDecoder(preset, request.stream)
+    const init: LLMRequestInit = {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: abortSignal ?? undefined,
+        responseDecoder,
+    }
     try {
-        const response = await makeModelTransportFetch(arg, preset)(
-            'https://echo.invalid/v1/chat/completions',
-            {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(request),
-                signal: abortSignal ?? undefined,
-            },
-        )
-        if (response.ok && request.stream) {
+        const response = await makeModelTransportFetch(arg, preset)('https://echo.invalid/v1/chat/completions', init)
+        if (!response.ok) {
+            const body = await response.json() as { error?: { message?: unknown } }
+            return {
+                type: 'fail',
+                result: String(body.error?.message ?? `Echo request failed (${response.status})`),
+                model: preset.name,
+            }
+        }
+        if (request.stream) {
             if (!response.body) throw new Error('Echo stream response has no body')
             const body = response.body
             const stream = applyOutputRepetitionDetection(new ReadableStream<StreamResponseChunk>({
                 start(controller) {
-                    return pumpPresetStream(parseChatEventStream(body, preset), controller, {
+                    return pumpPresetStream(decodeChatCompletionStream(body, responseDecoder), controller, {
                         intervalMs: STREAM_FLUSH_INTERVAL_MS,
-                        formatReasoning: text => formatPresetReasoning([{ text }]),
+                        formatReasoning: text => formatAdapterReasoning([{ text }]),
                     })
                 },
             }), arg.onOutputRepetitionDetected)
@@ -463,20 +475,9 @@ async function requestEchoPreset(
                 ? { type: 'success', result: await collectStreamingText(stream), model: preset.name }
                 : { type: 'streaming', result: stream, model: preset.name }
         }
-        const body = await response.json() as {
-            choices?: Array<{ message?: { content?: unknown } }>
-            error?: { message?: unknown }
-        }
-        if (!response.ok) {
-            return {
-                type: 'fail',
-                result: String(body.error?.message ?? `Echo request failed (${response.status})`),
-                model: preset.name,
-            }
-        }
         return {
             type: 'success',
-            result: String(body.choices?.[0]?.message?.content ?? ''),
+            result: decodeChatCompletionResponse(await response.text(), responseDecoder).text,
             model: preset.name,
         }
     }
@@ -861,17 +862,6 @@ function toAdapterToolDef(tool: MCPTool): AdapterToolDef {
     }
 }
 
-function formatPresetReasoning(reasoning?: AdapterReasoningPart[]): string {
-    if (!reasoning || reasoning.length === 0) return ''
-    let body = ''
-    for (const part of reasoning) {
-        if (part.redactedData !== undefined) body += '\n{{redacted_thinking}}\n'
-        else if (part.text) body += part.text
-    }
-    if (body.trim().length === 0) return ''
-    return `<Thoughts>\n${body}\n</Thoughts>\n\n`
-}
-
 async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<string> {
     if (!media || media.length === 0) return ''
     const markers: string[] = []
@@ -1080,7 +1070,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         // Tool calls need complete structured responses for each round, so this
         // path does not stream or publish status.
         if (tools) {
-            arg.revenantStreaming = false
             const { result, toolsExecuted } = await runModelPresetToolLoop(
                 arg,
                 preset,
@@ -1104,7 +1093,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             && !(kind === 'anthropic-messages'
                 && preset.profileSnapshot.providerBaseId === 'anthropic'
                 && preset.claudeBatching)
-        arg.revenantStreaming = useStreaming
         const options: AdapterChatOptions = {
             messages,
             promptCacheKey: arg.promptCacheKey,
@@ -1148,7 +1136,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 start(controller) {
                     return pumpPresetStream(adapter.stream(preset, options, credential), controller, {
                         intervalMs: STREAM_FLUSH_INTERVAL_MS,
-                        formatReasoning: (text) => formatPresetReasoning([{ text }]),
+                        formatReasoning: (text) => formatAdapterReasoning([{ text }]),
                         // A user cancellation terminates the stream with an
                         // AbortError. It is reflected as an aborted request
                         // status, not persisted as an application error.
@@ -1312,7 +1300,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         const separator = response.text && media ? '\n' : ''
         return {
             type: 'success',
-            result: formatPresetReasoning(response.reasoning) + response.text + separator + media,
+            result: formatAdapterReasoning(response.reasoning) + response.text + separator + media,
             model: preset.name,
         }
     } catch (err) {
@@ -1382,7 +1370,7 @@ async function runModelPresetToolLoop(
     let toolsExecuted = false
     const result = await runToolLoop(messages, {
         maxSteps: MODEL_PRESET_MAX_TOOL_STEPS,
-        formatReasoning: formatPresetReasoning,
+        formatReasoning: formatAdapterReasoning,
         abortSignal: abortSignal ?? undefined,
         send: (convo) => adapter.send(
             preset,

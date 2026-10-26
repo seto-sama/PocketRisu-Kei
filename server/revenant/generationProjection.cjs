@@ -3,16 +3,18 @@
 const path = require('path');
 const { recordGenerationProviderContext } = require('./providerContexts.cjs');
 
-// The browser and Node server deliberately share the exact same ModelPreset
-// adapter decoder. Sucrase is a production dependency and only strips the
-// TypeScript syntax; the decoder itself stays the single source of truth.
+// The server decodes provider responses with the adapters' own decoders and
+// the options the adapter attached to the request. Sucrase is a production
+// dependency and only strips the TypeScript syntax.
 require('sucrase/register/ts');
 
 const {
-    decodeRevenantGenerationJournal,
+    createDecodedChatProjection,
+    decodeAdapterResponseBody,
+    parseAdapterResponseDecoder,
 } = require(path.join(
     __dirname,
-    '../../src/ts/process/revenant/transport/journalDecoder.ts',
+    '../../src/ts/preset/adapter/responseDecoder.ts',
 ));
 
 const NORMALIZED_PROJECTION_SCHEMA_VERSION = 1;
@@ -34,28 +36,37 @@ function createClientGenerationProjection(job, content, providerResult = false) 
         providerResult ? job.projection?.journalBytes ?? job.rawBytes : undefined);
 }
 
+/**
+ * Decodes a complete provider journal. Jobs without a response decoder carry
+ * non-chat provider traffic (batch polling, cache management) and have no
+ * projection.
+ */
 async function projectGenerationJournal(job, rawResponse) {
+    if (!job.responseDecoder) return undefined;
+    if (job.responseStatus != null && (job.responseStatus < 200 || job.responseStatus >= 300)) {
+        throw new Error(`Provider request failed with HTTP ${job.responseStatus}`);
+    }
     const journal = Buffer.from(rawResponse || Buffer.alloc(0));
-    const response = new Response(journal);
-    if (!response.body) throw new Error('Generation journal has no readable body');
-    let awaitingProviderResult = job.projection?.awaitingProviderResult === true;
-    const content = await decodeRevenantGenerationJournal(
-        {
-            ...job,
-            status: ['interrupted', 'cancelled', 'failed_partial'].includes(job.status)
-                ? job.status
-                : 'generated',
-            projection: undefined,
-        },
-        response.body,
-        undefined,
-        progress => { awaitingProviderResult ||= progress.awaitingProviderResult === true; },
-        job.jobId && job.jobType === 'model'
-            ? context => recordGenerationProviderContext(job, context)
-            : undefined,
-    );
+    const projection = createDecodedChatProjection();
+    try {
+        await decodeAdapterResponseBody(
+            job.responseDecoder,
+            new Response(journal).body,
+            event => projection.apply(event),
+            job.jobId && job.jobType === 'model'
+                ? context => recordGenerationProviderContext(job, context)
+                : undefined,
+        );
+    } catch (error) {
+        // An interrupted journal can end inside a provider frame; everything
+        // decoded before it is the partial result.
+        if (!['interrupted', 'cancelled', 'failed_partial'].includes(job.status)) throw error;
+    }
+    // A tool-loop follow-up round inherits its pending provider result.
+    const awaitingProviderResult = job.projection?.awaitingProviderResult === true
+        || projection.progress().awaitingProviderResult === true;
     return {
-        ...createProjection(job, content, 'server', journal.length),
+        ...createProjection(job, projection.content(), 'server', journal.length),
         ...(awaitingProviderResult ? { awaitingProviderResult: true } : {}),
     };
 }
@@ -69,6 +80,7 @@ function isGenerationProjectionCurrent(projection, journalBytes) {
 
 module.exports = {
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
+    parseAdapterResponseDecoder,
     createClientGenerationProjection,
     isGenerationProjectionCurrent,
     projectGenerationJournal,

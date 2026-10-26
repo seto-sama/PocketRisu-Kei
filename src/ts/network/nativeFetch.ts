@@ -8,6 +8,7 @@ import { fetchServerProxy } from './proxy'
 
 export interface FetchNativeArgs {
     serverProviderAuth?: import('./transportTypes').ServerProviderAuth
+    responseDecoder?: import('../preset/adapter/types').AdapterResponseDecoder
     body?: string | Uint8Array | ArrayBuffer
     headers?: Record<string, string>
     method?: 'POST' | 'GET' | 'HEAD' | 'PUT' | 'PATCH' | 'DELETE'
@@ -160,6 +161,7 @@ export async function fetchNative(url: string, input: FetchNativeArgs): Promise<
                     requestTimeoutMs: arg.requestTimeoutMs,
                     generationRequest: revenantRequest,
                     serverProviderAuth: arg.serverProviderAuth,
+                    responseDecoder: arg.responseDecoder,
                     onJobCreated: (jobId, createdAt) => {
                         revenantJobId = jobId
                         revenantRequest.lifecycle?.onJobCreated?.(jobId, createdAt)

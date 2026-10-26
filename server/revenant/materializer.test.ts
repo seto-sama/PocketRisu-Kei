@@ -216,8 +216,9 @@ describe('revenant canonical materializer', () => {
         const job = {
             jobId: 'job-1', workflowId: 'workflow-1', jobType: 'model',
             characterId: 'character-1', roomId: 'room-1', chatId: 'partial-message',
-            status: 'cancelled', rawBytes: 80, streaming: true,
+            status: 'cancelled', rawBytes: 80,
             adapterKind: 'openai-compatible', responseStatus: 200,
+            responseDecoder: { adapterKind: 'openai-compatible', stream: true },
             responseHeaders: { 'content-type': 'text/event-stream' },
             projection: {
                 schemaVersion: 1,

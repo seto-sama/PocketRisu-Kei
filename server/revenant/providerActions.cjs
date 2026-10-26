@@ -135,7 +135,8 @@ function createServerProviderActionExecutor(options) {
                     workflowId: workflow.workflowId,
                     workflowStepKey: `client-action:${action.actionId}`.slice(0, 128),
                     stepExecutionId: randomUUID(),
-                    adapterKind: compiled.adapterKind, streaming,
+                    adapterKind: compiled.adapterKind,
+                    responseDecoder: init.responseDecoder,
                     generationInfo: { model: preset.name },
                     operationContext,
                     dispatchGroup: operationContext?.kind === 'hypav3-summary'

@@ -25,7 +25,10 @@ const {
     normalizeRevenantWorkflowDependency,
     normalizeRevenantOperationContext,
 } = require('../generation.cjs');
-const { createClientGenerationProjection } = require('../generationProjection.cjs');
+const {
+    createClientGenerationProjection,
+    parseAdapterResponseDecoder,
+} = require('../generationProjection.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { decodeGenerationRequest, MAX_GENERATION_REQUEST_BYTES } = require('../protocol.cjs');
 const { decodeBinaryRequest, binaryBodyParser } = require('../../utils/binaryHttp.cjs');
@@ -266,7 +269,7 @@ function installRevenantJobRoutes(app, deps) {
                 workflowStepKey,
                 stepExecutionId,
                 adapterKind: req.body?.adapterKind,
-                streaming: req.body?.streaming === true,
+                responseDecoder: parseAdapterResponseDecoder(req.body?.responseDecoder),
                 dispatchGroup: dispatchPolicy?.dispatchGroup
                     || (workflowDependency ? `${workflowId}:main` : undefined),
                 dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent

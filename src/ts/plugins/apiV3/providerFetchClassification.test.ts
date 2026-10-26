@@ -30,8 +30,7 @@ describe('classifyPluginProviderFetch', () => {
             dependencyPlaceholder,
         )).toEqual({
             generation: true,
-            adapterKind: 'google-gemini',
-            streaming: true,
+            responseDecoder: { adapterKind: 'google-gemini', stream: true },
         })
         expect(classifyPluginProviderFetch(
             'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/models/gemini:streamGenerateContent',
@@ -54,8 +53,7 @@ describe('classifyPluginProviderFetch', () => {
             },
         )).toEqual({
             generation: true,
-            adapterKind: 'openai-responses',
-            streaming: true,
+            responseDecoder: { adapterKind: 'openai-responses', stream: true },
         })
     })
 
@@ -68,8 +66,7 @@ describe('classifyPluginProviderFetch', () => {
             },
         )).toEqual({
             generation: true,
-            adapterKind: 'openai-compatible',
-            streaming: false,
+            responseDecoder: { adapterKind: 'openai-compatible', stream: false },
         })
     })
 

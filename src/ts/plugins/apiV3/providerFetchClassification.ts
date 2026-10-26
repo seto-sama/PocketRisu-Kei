@@ -1,3 +1,5 @@
+import type { AdapterResponseDecoder } from '../../preset/adapter/types'
+
 export interface PluginProviderFetchOptions {
     method?: string
     body?: unknown
@@ -6,8 +8,8 @@ export interface PluginProviderFetchOptions {
 
 export interface PluginProviderFetchClassification {
     generation: boolean
-    adapterKind?: string
-    streaming?: boolean
+    /** Best-effort wire format so the server can project the plugin's response. */
+    responseDecoder?: AdapterResponseDecoder
 }
 
 function requestBodyText(body: unknown): string | undefined {
@@ -86,7 +88,7 @@ function inferAdapterKind(
     pathname: string,
     body: Record<string, unknown> | undefined,
     headers: Record<string, string>,
-): string {
+): AdapterResponseDecoder['adapterKind'] {
     if (
         hostname.includes('bedrock-runtime')
         || pathname.includes('invoke-with-response-stream')
@@ -138,14 +140,16 @@ export function classifyPluginProviderFetch(
     }
 
     const headers = requestHeaders(options?.headers)
-    const streaming = body?.['stream'] === true
+    const stream = body?.['stream'] === true
         || pathname.endsWith(':streamgeneratecontent')
         || pathname.endsWith('/invoke-with-response-stream')
         || headers['accept']?.includes('text/event-stream') === true
         || headers['accept']?.includes('application/vnd.amazon.eventstream') === true
     return {
         generation: true,
-        adapterKind: inferAdapterKind(hostname, pathname, body, headers),
-        streaming,
+        responseDecoder: {
+            adapterKind: inferAdapterKind(hostname, pathname, body, headers),
+            stream,
+        },
     }
 }

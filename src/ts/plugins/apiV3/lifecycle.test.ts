@@ -167,7 +167,8 @@ it('preserves pre-encoded generation bodies in legacy provider requests', async 
 
     const [, sent] = bridge.nativeFetch.mock.lastCall!
     expect(sent.body).toBe(body)
-    expect(sent.generationRequest.job).toMatchObject({ adapterKind: 'openai-compatible', streaming: true })
+    expect(sent.generationRequest.job).toMatchObject({ adapterKind: 'openai-compatible' })
+    expect(sent.responseDecoder).toEqual({ adapterKind: 'openai-compatible', stream: true })
     expect(sent.generationRequest.workflow.dependency.placeholder).toBe(placeholder)
 })
 

@@ -5,9 +5,12 @@ import {
 } from './error'
 import {
     deriveAdapterHttpError,
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    parseResponseJson,
+    readResponseText,
+    sendPreparedChatRequest,
 } from './httpTransport'
+import type { LLMRequestInit } from '../../network/transportTypes'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -18,6 +21,7 @@ import type {
     AdapterCredential,
     AdapterPreparedRequest,
     AdapterReasoningPart,
+    AdapterResponseDecoder,
     AdapterToolCall,
     AdapterToolDef,
     AdapterUsage,
@@ -67,13 +71,12 @@ export async function sendAnthropicChatRequest(
     if (isAnthropicBatchingEnabled(preset)) {
         return sendAnthropicBatch(prepared, options, fetchImpl)
     }
-    const raw = await sendPreparedJsonRequest(
+    return sendPreparedChatRequest(
         prepared,
         options,
-        'Failed to parse Anthropic JSON response',
+        { adapterKind: 'anthropic-messages', stream: false },
+        decodeAnthropicResponse,
     )
-
-    return parseAnthropicMessage(raw)
 }
 
 export async function* streamAnthropicChatRequest(
@@ -82,12 +85,32 @@ export async function* streamAnthropicChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareAnthropicBody(preset, options, credential, true)
-    const stream = await openPreparedEventStream(
+    const stream = await openPreparedChatStream(
         prepared,
         options,
+        { adapterKind: 'anthropic-messages', stream: true },
         'Anthropic stream response has no body',
     )
+    yield* decodeAnthropicStream(stream)
+}
 
+export function decodeAnthropicResponse(
+    body: string,
+    decoder: AdapterResponseDecoder,
+): AdapterChatResponse {
+    if (decoder.batchCustomId === undefined) {
+        return parseAnthropicMessage(parseResponseJson(body, 'Failed to parse Anthropic JSON response'))
+    }
+    const result = parseBatchResult(body, decoder.batchCustomId)
+    if (result.type !== 'succeeded') {
+        throw new ModelPresetAdapterError('server', extractBatchFailureMessage(result))
+    }
+    return parseAnthropicMessage(result.message)
+}
+
+export async function* decodeAnthropicStream(
+    stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     try {
         for await (const event of parseSseStream(stream)) {
             if (event.event === 'ping') continue
@@ -428,20 +451,21 @@ async function sendAnthropicBatch(
                 : undefined
         }
 
-        const resultsResponse = await fetchImpl(`${batchUrl}/results`, {
+        const resultsDecoder: AdapterResponseDecoder = {
+            adapterKind: 'anthropic-messages',
+            stream: false,
+            batchCustomId: customId,
+        }
+        const resultsInit: LLMRequestInit = {
             method: 'GET',
             headers: prepared.headers,
             signal: options.abortSignal,
-        })
-        if (!resultsResponse.ok) throw await deriveAdapterHttpError(resultsResponse)
-        const resultText = await resultsResponse.text()
-        const result = parseBatchResult(resultText, customId)
-        if (result.type !== 'succeeded') {
-            const message = extractBatchFailureMessage(result)
-            throw new ModelPresetAdapterError('server', message)
+            responseDecoder: resultsDecoder,
         }
+        const resultsResponse = await fetchImpl(`${batchUrl}/results`, resultsInit)
+        if (!resultsResponse.ok) throw await deriveAdapterHttpError(resultsResponse)
         return {
-            ...parseAnthropicMessage(result.message),
+            ...decodeAnthropicResponse(await readResponseText(resultsResponse), resultsDecoder),
             deferredUsageJobId,
         }
     } catch (err) {

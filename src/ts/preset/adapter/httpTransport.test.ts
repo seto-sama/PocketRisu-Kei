@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import {
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    sendPreparedChatRequest,
 } from './httpTransport'
-import type { AdapterPreparedRequest } from './types'
+import type { AdapterPreparedRequest, AdapterResponseDecoder } from './types'
 
 const prepared: AdapterPreparedRequest = {
     method: 'POST',
@@ -14,27 +14,31 @@ const prepared: AdapterPreparedRequest = {
     },
     body: { model: 'demo', stream: false },
 }
+const decoder: AdapterResponseDecoder = { adapterKind: 'openai-compatible', stream: false }
+const decodeText = (body: string) => ({ text: body, raw: body })
 
 describe('adapter HTTP transport', () => {
-    test('sends a prepared JSON request and parses its response', async () => {
+    test('sends a prepared request with its decoder and decodes the response body', async () => {
         const controller = new AbortController()
         let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
         const fetchImpl: typeof fetch = async (input, init) => {
             captured = { input, init }
-            return new Response(JSON.stringify({ ok: true }), { status: 200 })
+            return new Response('reply', { status: 200 })
         }
 
-        await expect(sendPreparedJsonRequest(
+        await expect(sendPreparedChatRequest(
             prepared,
             { fetchImpl, abortSignal: controller.signal },
-            'invalid JSON',
-        )).resolves.toEqual({ ok: true })
+            decoder,
+            decodeText,
+        )).resolves.toEqual({ text: 'reply', raw: 'reply' })
         expect(captured?.input).toBe(prepared.url)
         expect(captured?.init).toMatchObject({
             method: 'POST',
             headers: prepared.headers,
             body: JSON.stringify(prepared.body),
             signal: controller.signal,
+            responseDecoder: decoder,
         })
     })
 
@@ -44,10 +48,11 @@ describe('adapter HTTP transport', () => {
             { status: 429, headers: { 'Retry-After': '3' } },
         )
 
-        await expect(sendPreparedJsonRequest(
+        await expect(sendPreparedChatRequest(
             prepared,
             { fetchImpl },
-            'invalid JSON',
+            decoder,
+            decodeText,
         )).rejects.toMatchObject({
             kind: 'rate-limit',
             status: 429,
@@ -67,28 +72,16 @@ describe('adapter HTTP transport', () => {
             { status: 429 },
         )
 
-        await expect(sendPreparedJsonRequest(
+        await expect(sendPreparedChatRequest(
             prepared,
             { fetchImpl },
-            'invalid JSON',
+            decoder,
+            decodeText,
         )).rejects.toMatchObject({
             kind: 'rate-limit',
             status: 429,
             retryable: true,
             fallbackEligible: false,
-        })
-    })
-
-    test('wraps response JSON parse failures with the adapter label', async () => {
-        const fetchImpl: typeof fetch = async () => new Response('not-json', { status: 200 })
-
-        await expect(sendPreparedJsonRequest(
-            prepared,
-            { fetchImpl },
-            'Provider response is not valid JSON',
-        )).rejects.toMatchObject({
-            kind: 'parse',
-            message: 'Provider response is not valid JSON',
         })
     })
 
@@ -100,9 +93,10 @@ describe('adapter HTTP transport', () => {
             return new Response(stream, { status: 200 })
         }
 
-        await expect(openPreparedEventStream(
+        await expect(openPreparedChatStream(
             prepared,
             { fetchImpl },
+            { ...decoder, stream: true },
             'stream has no body',
         )).resolves.toBe(stream)
         expect(headers).toEqual({
@@ -115,9 +109,10 @@ describe('adapter HTTP transport', () => {
     test('rejects a successful SSE response without a body', async () => {
         const fetchImpl: typeof fetch = async () => new Response(null, { status: 200 })
 
-        await expect(openPreparedEventStream(
+        await expect(openPreparedChatStream(
             prepared,
             { fetchImpl },
+            { ...decoder, stream: true },
             'Provider stream has no body',
         )).rejects.toMatchObject({
             kind: 'parse',

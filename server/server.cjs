@@ -1468,8 +1468,11 @@ async function runGenerationProviderJob(job, arg) {
         let terminalFailure;
         if (cancelled || (upstreamResponse.status >= 200 && upstreamResponse.status < 300)) {
             try {
-                projection = await projectGenerationJournal(persisted, rawResponse);
-                setGenerationJobProjection(job.id, projection);
+                const decoded = await projectGenerationJournal(persisted, rawResponse);
+                if (decoded) {
+                    projection = decoded;
+                    setGenerationJobProjection(job.id, projection);
+                }
             } catch (error) {
                 const message = `Failed to normalize provider journal: ${error}`;
                 setGenerationJobProjectionError(job.id, message);

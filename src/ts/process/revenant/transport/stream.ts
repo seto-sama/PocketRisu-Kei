@@ -195,6 +195,7 @@ async function openRecoverableJournalStream(
 
 export async function fetchViaGenerationJob(url: string, arg: {
     serverProviderAuth?: import('../../../network/transportTypes').ServerProviderAuth
+    responseDecoder?: import('../../../preset/adapter/types').AdapterResponseDecoder
     method: string
     headers: Record<string, string>
     body?: Uint8Array
@@ -219,6 +220,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
             method: arg.method,
             headers: arg.headers,
             serverProviderAuth: arg.serverProviderAuth,
+            responseDecoder: arg.responseDecoder,
             body: arg.body,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,

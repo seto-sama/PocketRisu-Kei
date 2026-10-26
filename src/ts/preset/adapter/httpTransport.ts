@@ -5,8 +5,8 @@ import {
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from './error'
-import type { AdapterPreparedRequest } from './types'
-import type { ServerAuthenticatedRequestInit } from '../../network/transportTypes'
+import type { AdapterChatResponse, AdapterPreparedRequest, AdapterResponseDecoder } from './types'
+import type { LLMRequestInit } from '../../network/transportTypes'
 
 export interface AdapterHttpTransportOptions {
     fetchImpl?: typeof fetch
@@ -15,6 +15,7 @@ export interface AdapterHttpTransportOptions {
 
 interface SendPreparedRequestOptions {
     accept?: string
+    responseDecoder?: AdapterResponseDecoder
 }
 
 export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: AdapterHttpTransportOptions): typeof fetch {
@@ -23,7 +24,7 @@ export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: 
     if (!options.fetchImpl) throw new ModelPresetAdapterError('auth', 'Service account requests require server transport')
     return (input, init) => fetchImpl(input, {
         ...init, serverProviderAuth: prepared.serverProviderAuth,
-    } satisfies ServerAuthenticatedRequestInit)
+    } satisfies LLMRequestInit)
 }
 
 /**
@@ -38,16 +39,18 @@ export async function sendPreparedRequest(
     requestOptions: SendPreparedRequestOptions = {},
 ): Promise<Response> {
     const fetchImpl = preparedRequestFetch(prepared, options)
+    const init: LLMRequestInit = {
+        method: prepared.method,
+        headers: requestOptions.accept
+            ? { ...prepared.headers, Accept: requestOptions.accept }
+            : prepared.headers,
+        body: JSON.stringify(prepared.body),
+        signal: options.abortSignal,
+        responseDecoder: requestOptions.responseDecoder,
+    }
     let response: Response
     try {
-        response = await fetchImpl(prepared.url, {
-            method: prepared.method,
-            headers: requestOptions.accept
-                ? { ...prepared.headers, Accept: requestOptions.accept }
-                : prepared.headers,
-            body: JSON.stringify(prepared.body),
-            signal: options.abortSignal,
-        })
+        response = await fetchImpl(prepared.url, init)
     } catch (err) {
         throw normalizeFetchError(err)
     }
@@ -56,26 +59,42 @@ export async function sendPreparedRequest(
     return response
 }
 
-export async function sendPreparedJsonRequest(
-    prepared: AdapterPreparedRequest,
-    options: AdapterHttpTransportOptions,
-    parseErrorMessage: string,
-): Promise<unknown> {
-    const response = await sendPreparedRequest(prepared, options)
+export async function readResponseText(response: Response): Promise<string> {
     try {
-        return await response.json()
+        return await response.text()
+    } catch (err) {
+        throw normalizeFetchError(err)
+    }
+}
+
+/** Parses a complete JSON body, labelling malformed provider output. */
+export function parseResponseJson(text: string, parseErrorMessage: string): unknown {
+    try {
+        return JSON.parse(text)
     } catch (err) {
         throw new ModelPresetAdapterError('parse', parseErrorMessage, { cause: err })
     }
 }
 
-export async function openPreparedEventStream(
+export async function sendPreparedChatRequest(
     prepared: AdapterPreparedRequest,
     options: AdapterHttpTransportOptions,
+    responseDecoder: AdapterResponseDecoder,
+    decodeResponse: (body: string, decoder: AdapterResponseDecoder) => AdapterChatResponse,
+): Promise<AdapterChatResponse> {
+    const response = await sendPreparedRequest(prepared, options, { responseDecoder })
+    return decodeResponse(await readResponseText(response), responseDecoder)
+}
+
+export async function openPreparedChatStream(
+    prepared: AdapterPreparedRequest,
+    options: AdapterHttpTransportOptions,
+    responseDecoder: AdapterResponseDecoder,
     missingBodyMessage: string,
 ): Promise<ReadableStream<Uint8Array>> {
     const response = await sendPreparedRequest(prepared, options, {
         accept: 'text/event-stream',
+        responseDecoder,
     })
     if (!response.body) {
         throw new ModelPresetAdapterError('parse', missingBodyMessage)

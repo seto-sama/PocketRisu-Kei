@@ -5,8 +5,9 @@ import {
     normalizeProviderStreamError,
 } from './error'
 import {
-    openPreparedEventStream,
-    sendPreparedJsonRequest,
+    openPreparedChatStream,
+    parseResponseJson,
+    sendPreparedChatRequest,
 } from './httpTransport'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
@@ -42,12 +43,12 @@ export async function sendResponsesRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareResponsesBody(preset, options, credential, false)
-    const raw = await sendPreparedJsonRequest(
+    return sendPreparedChatRequest(
         prepared,
         options,
-        'Failed to parse OpenAI Responses JSON response',
+        { adapterKind: 'openai-responses', stream: false },
+        decodeResponsesResponse,
     )
-    return parseResponsesResponse(raw)
 }
 
 export async function* streamResponsesRequest(
@@ -56,12 +57,22 @@ export async function* streamResponsesRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareResponsesBody(preset, options, credential, true)
-    const stream = await openPreparedEventStream(
+    const stream = await openPreparedChatStream(
         prepared,
         options,
+        { adapterKind: 'openai-responses', stream: true },
         'OpenAI Responses stream has no body',
     )
+    yield* decodeResponsesStream(stream)
+}
 
+export function decodeResponsesResponse(body: string): AdapterChatResponse {
+    return parseResponsesResponse(parseResponseJson(body, 'Failed to parse OpenAI Responses JSON response'))
+}
+
+export async function* decodeResponsesStream(
+    stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     try {
         for await (const event of parseSseStream(stream)) {
             if (!event.data || event.data === '[DONE]') continue

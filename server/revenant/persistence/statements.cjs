@@ -6,7 +6,7 @@ function createGenerationStatements(db) {
             job_id, chat_id, job_type, character_id, room_id,
             generation_info, prompt_info, reroll_snapshot,
             operation_context, workflow_id, workflow_step_key, step_execution_id,
-            adapter_kind, streaming,
+            adapter_kind, response_decoder,
             dispatch_group, dispatch_max_concurrent,
             request_spec,
             normalized_projection,
@@ -15,7 +15,7 @@ function createGenerationStatements(db) {
             @jobId, @chatId, @jobType, @characterId, @roomId,
             @generationInfo, @promptInfo, @rerollSnapshot,
             @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
-            @adapterKind, @streaming,
+            @adapterKind, @responseDecoder,
             @dispatchGroup, @dispatchMaxConcurrent,
             @requestSpec,
             @normalizedProjection,
@@ -155,6 +155,7 @@ function createGenerationStatements(db) {
         SELECT *
         FROM generation_jobs
         WHERE raw_bytes > 0
+          AND response_decoder IS NOT NULL
           AND response_status >= 200
           AND response_status < 300
           AND (

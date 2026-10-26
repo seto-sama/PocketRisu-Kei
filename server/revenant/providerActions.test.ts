@@ -274,7 +274,7 @@ describe('server postprocess provider actions', () => {
         })
         expect(await h.executeProviderAction({ workflow: h.workflow, action: h.action }))
             .toEqual({ success: true, result: '<Thoughts>\nthink\n</Thoughts>\n\nanswer' })
-        expect(h.jobs[0].streaming).toBe(true)
+        expect(h.jobs[0].responseDecoder).toMatchObject({ adapterKind: 'openai-compatible', stream: true })
     })
 
     it.each([

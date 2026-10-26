@@ -23,7 +23,7 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
         content: string
         journalBytes: number
         awaitingProviderResult?: boolean
-    }>
+    } | undefined>
 }
 
 describe('generation normalized projection', () => {
@@ -38,16 +38,17 @@ describe('generation normalized projection', () => {
         })
     })
 
+    const openAi = (stream: boolean, reasoning?: { includeNative: boolean, thinkTagFallback: boolean }) => ({
+        adapterKind: 'openai-compatible',
+        responseDecoder: { adapterKind: 'openai-compatible', stream, ...(reasoning ? { reasoning } : {}) },
+        responseStatus: 200,
+    })
+
     it('projects an OpenAI-compatible JSON journal with the shared adapter parser', async () => {
         const journal = Buffer.from(JSON.stringify({
             choices: [{ message: { role: 'assistant', content: 'summary' } }],
         }))
-        const projection = await projectGenerationJournal({
-            adapterKind: 'openai-compatible',
-            streaming: false,
-            responseStatus: 200,
-            responseHeaders: { 'content-type': 'application/json' },
-        }, journal)
+        const projection = await projectGenerationJournal(openAi(false), journal)
 
         expect(projection).toEqual({
             schemaVersion: 1,
@@ -58,22 +59,27 @@ describe('generation normalized projection', () => {
         })
     })
 
-    it('projects a streaming journal after the client has disconnected', async () => {
-        const projection = await projectGenerationJournal({
-            adapterKind: 'openai-compatible',
-            streaming: true,
-            responseStatus: 200,
-            responseHeaders: { 'content-type': 'text/event-stream' },
-        }, Buffer.from([
-            'data: {"choices":[{"delta":{"content":"sum"}}]}',
-            '',
-            'data: {"choices":[{"delta":{"content":"mary"}}]}',
-            '',
-            'data: [DONE]',
-            '',
-        ].join('\n')))
+    it('projects a streaming journal with the decoder options the adapter sent', async () => {
+        const projection = await projectGenerationJournal(
+            openAi(true, { includeNative: false, thinkTagFallback: true }),
+            Buffer.from([
+                'data: {"choices":[{"delta":{"content":"<think>plan</think>sum","reasoning_content":"hidden"}}]}',
+                '',
+                'data: {"choices":[{"delta":{"content":"mary"}}]}',
+                '',
+                'data: [DONE]',
+                '',
+            ].join('\n')),
+        )
 
-        expect(projection.content).toBe('summary')
+        expect(projection?.content).toBe('<Thoughts>\nplan\n</Thoughts>\n\nsummary')
+    })
+
+    it('does not project provider traffic that carries no chat response', async () => {
+        await expect(projectGenerationJournal(
+            { adapterKind: 'anthropic-messages', responseStatus: 200 },
+            Buffer.from('{"id":"batch-1","processing_status":"in_progress"}'),
+        )).resolves.toBeUndefined()
     })
 
     it.each([false, true])('waits for processed provider output on a tool-call turn (streaming=%s)', async streaming => {
@@ -90,7 +96,7 @@ describe('generation normalized projection', () => {
             ? `data: ${JSON.stringify({ choices: [{ delta: turn.choices[0].message }] })}\n\n`
                 + 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n'
             : JSON.stringify(turn))
-        const job = { adapterKind: 'openai-compatible', streaming, responseStatus: 200 }
+        const job = openAi(streaming)
         const projection = await projectGenerationJournal(job, journal)
 
         expect(projection).toMatchObject({ content: '', awaitingProviderResult: true })
@@ -98,50 +104,26 @@ describe('generation normalized projection', () => {
             source: 'provider', content: 'Processed reply', journalBytes: journal.length,
         })
 
-        const followup = await projectGenerationJournal({ ...job, streaming: false, projection }, Buffer.from(JSON.stringify({
+        const followup = await projectGenerationJournal({ ...openAi(false), projection }, Buffer.from(JSON.stringify({
             choices: [{ message: { content: 'Raw follow-up' }, finish_reason: 'stop' }],
         })))
         expect(followup).toMatchObject({ content: 'Raw follow-up', awaitingProviderResult: true })
     })
 
-    it('keeps an interrupted journal recoverable up to its last complete event', async () => {
-        const projection = await projectGenerationJournal({
-            adapterKind: 'openai-compatible',
-            streaming: true,
-            status: 'interrupted',
-            responseStatus: 200,
-            responseHeaders: { 'content-type': 'text/event-stream' },
-        }, Buffer.from([
+    it.each(['interrupted', 'cancelled'])('keeps a %s journal recoverable up to its last complete event', async status => {
+        const projection = await projectGenerationJournal({ ...openAi(true), status }, Buffer.from([
             'data: {"choices":[{"delta":{"content":"partial"}}]}',
             '',
             'data: {"choices":[',
         ].join('\n')))
 
-        expect(projection.content).toBe('partial')
-    })
-
-    it('projects a cancelled stream through its last complete journal event', async () => {
-        const projection = await projectGenerationJournal({
-            adapterKind: 'openai-compatible',
-            streaming: true,
-            status: 'cancelled',
-            responseStatus: 200,
-            responseHeaders: { 'content-type': 'text/event-stream' },
-        }, Buffer.from([
-            'data: {"choices":[{"delta":{"content":"kept partial"}}]}',
-            '',
-            'data: {"choices":[',
-        ].join('\n')))
-
-        expect(projection.content).toBe('kept partial')
+        expect(projection?.content).toBe('partial')
     })
 
     it('rejects provider error responses instead of projecting an error body', async () => {
-        await expect(projectGenerationJournal({
-            adapterKind: 'openai-compatible',
-            streaming: false,
-            responseStatus: 429,
-            responseHeaders: { 'content-type': 'application/json' },
-        }, Buffer.from('{"error":"rate limited"}'))).rejects.toThrow('HTTP 429')
+        await expect(projectGenerationJournal(
+            { ...openAi(false), responseStatus: 429 },
+            Buffer.from('{"error":"rate limited"}'),
+        )).rejects.toThrow('HTTP 429')
     })
 })

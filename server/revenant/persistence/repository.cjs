@@ -632,6 +632,7 @@ function rowToJob(row, includeRaw = true) {
         ? generationJournalStore.readAll(row.workflow_id, row.job_id)
         : undefined;
     const rawBytes = rawResponse?.length ?? Math.max(0, Number(row.raw_bytes) || 0);
+    const responseDecoder = row.response_decoder ? JSON.parse(row.response_decoder) : undefined;
     return {
         jobId: row.job_id,
         chatId: row.chat_id,
@@ -646,7 +647,8 @@ function rowToJob(row, includeRaw = true) {
         workflowStepKey: row.workflow_step_key || undefined,
         workflowStepExecutionId: row.step_execution_id || undefined,
         adapterKind: row.adapter_kind || undefined,
-        streaming: row.streaming === 1,
+        responseDecoder,
+        streaming: responseDecoder?.stream === true,
         status: row.status,
         responseStatus: row.response_status,
         responseHeaders: row.response_headers ? JSON.parse(row.response_headers) : {},
@@ -757,7 +759,7 @@ function createGenerationJob(input) {
                 workflowStepKey: input.workflowStepKey || null,
                 stepExecutionId: input.stepExecutionId || null,
                 adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
-                streaming: input.streaming ? 1 : 0,
+                responseDecoder: input.responseDecoder ? JSON.stringify(input.responseDecoder) : null,
                 dispatchGroup: input.dispatchGroup || null,
                 dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
                 requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
