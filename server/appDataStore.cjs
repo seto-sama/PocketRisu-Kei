@@ -149,10 +149,6 @@ function encodedEqual(left, right) {
     return encodeValue(left).equals(encodeValue(right));
 }
 
-function hashProjection(projection) {
-    return crypto.createHash('sha256').update(encodeValue(projection)).digest('hex');
-}
-
 function createAppDataStore(db) {
     if (!db || typeof db.prepare !== 'function' || typeof db.transaction !== 'function') {
         throw new TypeError('createAppDataStore requires a SQLite database');
@@ -177,7 +173,8 @@ function createAppDataStore(db) {
         schema_version INTEGER NOT NULL,
         revision       INTEGER NOT NULL DEFAULT 0,
         initialized    INTEGER NOT NULL DEFAULT 0,
-        updated_at     INTEGER NOT NULL
+        updated_at     INTEGER NOT NULL,
+        metadata_revision INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS app_root_fields (
@@ -264,6 +261,11 @@ function createAppDataStore(db) {
         ON app_messages(character_id, chat_id, position);
     `);
 
+    if (!db.prepare('PRAGMA table_info(app_data_state)').all()
+        .some(column => column.name === 'metadata_revision')) {
+        db.exec('ALTER TABLE app_data_state ADD COLUMN metadata_revision INTEGER NOT NULL DEFAULT 0');
+    }
+
     const now = Date.now();
     db.prepare(`
       INSERT OR IGNORE INTO app_data_state
@@ -272,7 +274,7 @@ function createAppDataStore(db) {
     `).run(STATE_ROW_ID, APP_DATA_SCHEMA_VERSION, now);
 
     const stateRow = db.prepare(`
-      SELECT schema_version, revision, initialized, updated_at
+      SELECT schema_version, revision, initialized, updated_at, metadata_revision
       FROM app_data_state WHERE id = ?
     `);
     const updateState = db.prepare(`
@@ -280,6 +282,13 @@ function createAppDataStore(db) {
       SET revision = ?, initialized = ?, updated_at = ?
       WHERE id = ?
     `);
+    // `revision` also advances on chat body commits. The startup projection
+    // ETag needs a counter that moves only when that projection does, so a
+    // body commit cannot fail an unrelated metadata patch.
+    const bumpMetadataRevision = db.prepare(`
+      UPDATE app_data_state SET metadata_revision = metadata_revision + 1 WHERE id = ?
+    `);
+
     const installedState = stateRow.get(STATE_ROW_ID);
     if (installedState.schema_version === 1) {
         db.prepare('UPDATE app_data_state SET schema_version = ? WHERE id = ?')
@@ -350,6 +359,7 @@ function createAppDataStore(db) {
             revision: row.revision,
             initialized: row.initialized === 1,
             updatedAt: row.updated_at,
+            projectionEtag: `m${row.metadata_revision}`,
         };
     }
 
@@ -491,6 +501,7 @@ function createAppDataStore(db) {
 
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
+        bumpMetadataRevision.run(STATE_ROW_ID);
         return { revision, updatedAt };
     });
 
@@ -1038,8 +1049,7 @@ function createAppDataStore(db) {
 
     const syncStartupTransaction = db.transaction((incoming, options) => {
         const state = getState();
-        const current = exportProjection({ includeMessages: false });
-        const currentEtag = hashProjection(current);
+        const currentEtag = state.projectionEtag;
         if (options.expectedRevision !== undefined
             && options.expectedRevision !== state.revision) {
             throw new AppDataConflictError('Database revision changed', {
@@ -1055,6 +1065,7 @@ function createAppDataStore(db) {
             });
         }
 
+        const current = exportProjection({ includeMessages: false });
         const desired = canonicalStartupProjection(incoming);
         if (state.initialized && encodedEqual(current, desired)) {
             return {
@@ -1139,8 +1150,8 @@ function createAppDataStore(db) {
 
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        const etag = hashProjection(exportProjection({ includeMessages: false }));
-        return { changed: true, revision, updatedAt, etag };
+        bumpMetadataRevision.run(STATE_ROW_ID);
+        return { changed: true, revision, updatedAt, etag: getState().projectionEtag };
     });
 
     /**
@@ -1259,6 +1270,7 @@ function createAppDataStore(db) {
         );
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
+        if (!currentRow) bumpMetadataRevision.run(STATE_ROW_ID);
         return {
             chat: canonical, etag, revision, updatedAt, changed: true,
             // Existing rows retain their stub metadata during content commits.
@@ -1270,15 +1282,6 @@ function createAppDataStore(db) {
     function commitChat(characterId, chatId, incoming, expectedEtag) {
         if (!characterId || !chatId) throw new TypeError('characterId and chatId are required');
         return commitChatTransaction(characterId, chatId, incoming, expectedEtag);
-    }
-
-    function projectionEtag(options = {}) {
-        const projection = exportProjection(options);
-        return hashProjection(projection);
-    }
-
-    function projectionEtagFor(projection) {
-        return hashProjection(projection);
     }
 
     function assertPluginStorageNamespace(namespace) {
@@ -1407,8 +1410,6 @@ function createAppDataStore(db) {
         replacePluginStorage,
         importPluginStorage,
         pluginStorageFootprint,
-        projectionEtag,
-        projectionEtagFor,
         replaceFromProjection,
         syncStartupProjection,
         scanContentReferences,

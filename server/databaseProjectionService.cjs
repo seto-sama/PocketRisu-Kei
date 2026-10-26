@@ -179,7 +179,7 @@ function createDatabaseProjectionService(options = {}) {
         const state = appDataStore.getState();
         return {
             database,
-            etag: appDataStore.projectionEtagFor(database),
+            etag: state.projectionEtag,
             revision: state.revision,
             initialized: state.initialized,
             updatedAt: state.updatedAt,
@@ -280,7 +280,7 @@ function createDatabaseProjectionService(options = {}) {
                 changed: true,
                 revision: state.revision,
                 updatedAt: state.updatedAt,
-                etag: appDataStore.projectionEtag(STARTUP_PROJECTION_OPTIONS),
+                etag: state.projectionEtag,
             };
         } catch (error) {
             wrapStoreConflict(error, { remote }, 'Database changed during initialization');

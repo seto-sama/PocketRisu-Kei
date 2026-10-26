@@ -87,7 +87,7 @@ describe('database projection reads and initialization', () => {
         const result = service.getStartupProjection()
 
         expect(result).toMatchObject({
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
             revision: 1,
             initialized: true,
         })
@@ -195,7 +195,7 @@ describe('database projection reads and initialization', () => {
             statusCode: 409,
             code: 'DATABASE_ALREADY_INITIALIZED',
             currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ko')
     })
@@ -326,7 +326,7 @@ describe('database projection JSON Patch commits', () => {
             }))
             expect(conflict).toMatchObject({
                 code: 'DATABASE_HASH_MISMATCH',
-                currentEtag: store.projectionEtag({ includeMessages: false }),
+                currentEtag: store.getState().projectionEtag,
                 currentRevision: store.getState().revision,
             })
 
@@ -364,7 +364,7 @@ describe('database projection JSON Patch commits', () => {
             changed: true,
             appliedOperations: 1,
             revision: 2,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('en')
         expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual([
@@ -407,7 +407,7 @@ describe('database projection JSON Patch commits', () => {
             changed: false,
             appliedOperations: 0,
             revision: before.revision,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.getState()).toEqual(before)
         expect((sqlite.prepare('SELECT total_changes() AS count').get() as any).count)
@@ -428,7 +428,7 @@ describe('database projection JSON Patch commits', () => {
             statusCode: 409,
             code: 'DATABASE_HASH_MISMATCH',
             currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
             currentHash: expectedHash(service.getStartupProjection().database),
         })
         expect(store.exportProjection().language).toBe('ko')
@@ -496,7 +496,7 @@ describe('database projection JSON Patch commits', () => {
             statusCode: 409,
             code: 'DATABASE_PROJECTION_CHANGED',
             currentRevision: 2,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ja')
     })

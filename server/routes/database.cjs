@@ -151,12 +151,12 @@ function installDatabaseRoutes(app, {
                 await ensureCanonicalStorage();
                 const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
                 if (chatInternalOps.length > 0) {
-                    const current = databaseProjectionService.getStartupProjection(projectionOptions);
+                    const current = appDataStore.getState();
                     const error = new DatabaseProjectionServiceError(
                         apiErrorMessage(codes.CHAT_GUARD_REJECTED),
                         { code: codes.CHAT_GUARD_REJECTED, statusCode: 409 },
                     );
-                    error.currentEtag = current.etag;
+                    error.currentEtag = current.projectionEtag;
                     error.currentRevision = current.revision;
                     throw error;
                 }
@@ -181,7 +181,7 @@ function installDatabaseRoutes(app, {
         // Every database write runs on the storage queue, so draining it is
         // the whole flush.
         await queueStorageOperation(async () => {
-            res.send({ success: true, etag: appDataStore.projectionEtag({ includeMessages: false }) });
+            res.send({ success: true, etag: appDataStore.getState().projectionEtag });
         });
     });
 }

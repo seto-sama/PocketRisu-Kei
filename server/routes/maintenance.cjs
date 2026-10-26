@@ -97,7 +97,7 @@ function installMaintenanceRoutes(app, {
                 backupDisk,
                 estimatedBackupSize,
                 inlayFsBytes,
-                etag: appDataStore.projectionEtag({ includeMessages: false }),
+                etag: appDataStore.getState().projectionEtag,
             });
         }
 
@@ -204,7 +204,7 @@ function installMaintenanceRoutes(app, {
                 file: fileBackups,
             },
             orphan,
-            etag: appDataStore.projectionEtag({ includeMessages: false }),
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -273,7 +273,7 @@ function installMaintenanceRoutes(app, {
                 totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
             },
             chatBytesNote: 'relational msgpack payload bytes',
-            etag: appDataStore.projectionEtag({ includeMessages: false }),
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -319,7 +319,7 @@ function installMaintenanceRoutes(app, {
         }
 
         modules.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({ modules, etag: appDataStore.projectionEtag({ includeMessages: false }) });
+        res.json({ modules, etag: appDataStore.getState().projectionEtag });
     });
 
     app.post('/api/db/assets/purge-orphans', async (req, res) => {

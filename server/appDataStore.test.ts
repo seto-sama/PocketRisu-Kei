@@ -104,10 +104,10 @@ describe('plugin storage namespaces', () => {
     it('isolates identical keys and keeps on-demand storage outside save replacement and sync', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
-        const before = store.projectionEtag({ includeMessages: false })
+        const before = store.getState().projectionEtag
         store.writePluginStorage('localStorage', 'zero', Buffer.from('string'), 'first')
         store.writePluginStorage('localForage', 'zero', Buffer.from('binary'), 'second')
-        expect(store.projectionEtag({ includeMessages: false })).toBe(before)
+        expect(store.getState().projectionEtag).toBe(before)
         expect(store.exportProjection().pluginCustomStorage.zero).toBe(0)
 
         const changed = sampleDatabase()
@@ -490,7 +490,7 @@ describe('startup metadata synchronization', () => {
         incoming.compactMode = true
 
         const result = store.syncStartupProjection(incoming, {
-            expectedEtag: store.projectionEtag({ includeMessages: false }),
+            expectedEtag: store.getState().projectionEtag,
         })
         const exported = store.exportProjection()
 
@@ -594,7 +594,7 @@ describe('startup metadata synchronization', () => {
         incoming.characters[0].chats[0].folderId = null
 
         const result = store.syncStartupProjection(incoming, {
-            expectedEtag: store.projectionEtag({ includeMessages: false }),
+            expectedEtag: store.getState().projectionEtag,
         })
         const after = store.getChatState('character-1', 'chat-1')?.chat
 
@@ -606,7 +606,7 @@ describe('startup metadata synchronization', () => {
         })
         expect(after.message).toEqual(before.message)
         expect(computeChatEtag(after)).not.toBe(beforeEtag)
-        expect(result.etag).toBe(store.projectionEtag({ includeMessages: false }))
+        expect(result.etag).toBe(store.getState().projectionEtag)
         expect((sqlite.prepare(`
           SELECT content_etag AS etag FROM app_chats
           WHERE character_id = 'character-1' AND chat_id = 'chat-1'
@@ -621,7 +621,7 @@ describe('startup metadata synchronization', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
         const staleProjection = store.exportProjection({ includeMessages: false })
-        const staleEtag = store.projectionEtag({ includeMessages: false })
+        const staleEtag = store.getState().projectionEtag
         const first = structuredClone(staleProjection)
         first.language = 'en'
         store.syncStartupProjection(first, { expectedEtag: staleEtag })
@@ -645,14 +645,14 @@ describe('startup metadata synchronization', () => {
         ).get() as any).count
 
         const result = store.syncStartupProjection(incoming, {
-            expectedEtag: store.projectionEtag({ includeMessages: false }),
+            expectedEtag: store.getState().projectionEtag,
         })
 
         expect(result).toEqual({
             changed: false,
             revision: beforeState.revision,
             updatedAt: beforeState.updatedAt,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.getState()).toEqual(beforeState)
         expect((sqlite.prepare('SELECT total_changes() AS count').get() as any).count)
@@ -775,7 +775,34 @@ describe('relational chat content CAS', () => {
         expect(store.getChatState('character-1', 'chat-2')?.chat.message.at(-1).data).toBe('two')
     })
 
+    it('advances the startup projection ETag for chat list changes but not body commits', () => {
+        const { store } = createStore()
+        store.replaceFromProjection(sampleDatabase())
+        const { chat, etag } = store.getChatState('character-1', 'chat-1')
+        const initial = store.getState().projectionEtag
 
+        store.commitChat('character-1', 'chat-1', {
+            ...chat, message: [...chat.message, { chatId: 'message-3', role: 'user', data: 'body' }],
+        }, etag)
+        expect(store.getState().projectionEtag).toBe(initial)
+
+        store.commitChat('character-1', 'chat-2', { id: 'chat-2', name: 'new', message: [] }, undefined)
+        expect(store.getState().projectionEtag).not.toBe(initial)
+    })
+
+    it('adds the metadata counter to an existing state table', () => {
+        const sqlite = new Database(':memory:')
+        openDatabases.push(sqlite)
+        sqlite.exec(`CREATE TABLE app_data_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0, initialized INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL)`)
+        sqlite.prepare('INSERT INTO app_data_state VALUES (1, 2, 7, 1, 0)').run()
+
+        const store = createAppDataStore(sqlite)
+
+        expect(store.getState()).toMatchObject({ revision: 7, projectionEtag: 'm0' })
+    })
 })
 
 
