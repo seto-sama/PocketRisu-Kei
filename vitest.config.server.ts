@@ -1,11 +1,10 @@
 import { defineConfig } from 'vitest/config'
 
-// Server-side (.cjs) unit tests. Node environment — these exercise node:sqlite
-// and pure data-layer logic, no DOM. Kept separate
-// from the default happy-dom suite (vitest.config.ts) like the compat suite.
+// Standalone entry point for the server suite, also included in vitest.config.ts.
 export default defineConfig({
   test: {
     environment: 'node',
+    setupFiles: ['vitest.setup.server.ts'],
     include: ['server/**/*.test.ts'],
     testTimeout: 30_000,
   },

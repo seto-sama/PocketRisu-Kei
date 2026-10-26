@@ -35,12 +35,12 @@ import {
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
 import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
+import { openAiChatResponseDecoder } from 'src/ts/preset/adapter/openaiCompatible';
 import {
-    decodeChatCompletionResponse,
-    decodeChatCompletionStream,
-    openAiChatResponseDecoder,
-} from 'src/ts/preset/adapter/openaiCompatible';
-import { formatAdapterReasoning } from 'src/ts/preset/adapter/decodedEvents';
+    formatAdapterReasoning,
+    readDecodedChatResponse,
+    readDecodedChatStream,
+} from 'src/ts/preset/adapter/decodedEvents';
 import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,
@@ -83,7 +83,7 @@ import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
 import { restoreThoughtSignatures, supportsThoughtSignatures, type ProviderContextRecord } from '../../preset/adapter/thoughtSignatures';
 import { resolveWireModelId } from '../../preset/adapter/wireInvariants';
-import { checkpointRevenantGeneration, queryRevenantProviderContexts } from '../revenant/transport/client';
+import { queryRevenantProviderContexts, submitRevenantProviderResult } from '../revenant/transport/client';
 
 export type ToolCall = {
     name: string;
@@ -390,9 +390,7 @@ async function executeModelPresetRequest(
     const response = await requestModelPreset(targ, preset, abortSignal, model)
     const completesMainResult = !targ.previewBody && model === 'model' && targ.chatId
         && (targ.revenantWorkflowId || targ.revenantClientAction?.workflowId)
-    const completeMainResult = (content: string) => checkpointRevenantGeneration(
-        targ.chatId, content, true, { providerResult: true },
-    )
+    const completeMainResult = (content: string) => submitRevenantProviderResult(targ.chatId, content)
     if (response.type === 'streaming' && (resultPolicy === 'automatic' || completesMainResult)) {
         return {
             ...response,
@@ -442,13 +440,12 @@ async function requestEchoPreset(
     const request = buildEchoRequest(preset, resolvePresetStreaming(preset, arg, supportsStreaming), arg.formated)
 
     arg.revenantAdapterKind = 'echo'
-    const responseDecoder = openAiChatResponseDecoder(preset, request.stream)
     const init: LLMRequestInit = {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(request),
         signal: abortSignal ?? undefined,
-        responseDecoder,
+        responseDecoder: openAiChatResponseDecoder(preset, request.stream),
     }
     try {
         const response = await makeModelTransportFetch(arg, preset)('https://echo.invalid/v1/chat/completions', init)
@@ -465,7 +462,7 @@ async function requestEchoPreset(
             const body = response.body
             const stream = applyOutputRepetitionDetection(new ReadableStream<StreamResponseChunk>({
                 start(controller) {
-                    return pumpPresetStream(decodeChatCompletionStream(body, responseDecoder), controller, {
+                    return pumpPresetStream(readDecodedChatStream(body), controller, {
                         intervalMs: STREAM_FLUSH_INTERVAL_MS,
                         formatReasoning: text => formatAdapterReasoning([{ text }]),
                     })
@@ -477,7 +474,7 @@ async function requestEchoPreset(
         }
         return {
             type: 'success',
-            result: decodeChatCompletionResponse(await response.text(), responseDecoder).text,
+            result: (await readDecodedChatResponse(response)).text,
             model: preset.name,
         }
     }
@@ -1265,7 +1262,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         const response = await adapter.send(preset, options, credential)
         if (response.deferredUsageJobId && response.usage) {
             try {
-                const raw = response.raw as { usage?: unknown } | undefined
                 await reportRevenantGenerationUsage({
                     jobId: response.deferredUsageJobId,
                     timestamp: Date.now(),
@@ -1273,7 +1269,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                     provider: usageIdentity?.usageProviderId,
                     model: usageIdentity?.usageModelId,
                     serviceTier: 'batch',
-                    usage: raw?.usage ?? response.usage,
+                    usage: response.providerUsage ?? response.usage,
                 })
             } catch (usageError) {
                 // Usage accounting must never turn a successful generation into

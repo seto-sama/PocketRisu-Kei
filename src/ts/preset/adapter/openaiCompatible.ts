@@ -15,6 +15,7 @@ import {
     parseResponseJson,
     sendPreparedChatRequest,
 } from './httpTransport'
+import { readDecodedChatStream } from './decodedEvents'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -77,12 +78,7 @@ export async function sendChatRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareOpenAiBody(preset, options, credential, false)
-    return sendPreparedChatRequest(
-        prepared,
-        options,
-        openAiChatResponseDecoder(preset, false),
-        decodeChatCompletionResponse,
-    )
+    return sendPreparedChatRequest(prepared, options, openAiChatResponseDecoder(preset, false))
 }
 
 export async function* streamChatRequest(
@@ -91,15 +87,13 @@ export async function* streamChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareOpenAiBody(preset, options, credential, true)
-    const decoder = openAiChatResponseDecoder(preset, true)
     const stream = await openPreparedChatStream(
         prepared,
         options,
-        decoder,
+        openAiChatResponseDecoder(preset, true),
         'OpenAI-compatible stream response has no body',
     )
-
-    yield* decodeChatCompletionStream(stream, decoder)
+    yield* readDecodedChatStream(stream)
 }
 
 export function openAiChatResponseDecoder(preset: ModelPreset, stream: boolean): AdapterResponseDecoder {
@@ -159,7 +153,6 @@ export async function* decodeChatCompletionStream(
                 yield {
                     textDelta: flushed.text,
                     reasoningDelta: flushed.reasoning,
-                    raw: {},
                 }
             }
         }
@@ -484,7 +477,6 @@ function parseImageGenerationResponse(raw: unknown): AdapterChatResponse {
         text: '',
         media,
         usage: parseUsage(raw['usage']),
-        raw,
     }
 }
 
@@ -531,7 +523,6 @@ function parseChatCompletion(
         providerEcho: isPlainObject(message) ? message : undefined,
         finishReason,
         usage: parseUsage(raw['usage']),
-        raw,
     }
 }
 
@@ -610,7 +601,7 @@ function parseChatStreamDelta(
     if (textDelta.length === 0 && reasoningDelta.length === 0 && finishReason === undefined && usage === undefined) {
         return null
     }
-    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage, raw }
+    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage }
 }
 
 

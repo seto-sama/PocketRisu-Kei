@@ -25,7 +25,6 @@ import {
     findRecoverableAuxiliaryGeneration,
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGenerations,
-    updateRecoverableAuxiliaryGenerationProjection,
 } from "./revenant/auxiliary";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
@@ -464,7 +463,6 @@ export async function runScripted(code:string, arg:{
 
             const completeRevenantLuaCall = async (
                 operationContext: RevenantLuaLlmOperation | undefined,
-                result: string,
             ): Promise<boolean> => {
                 if (!operationContext) return true;
                 const jobs = await listRecoverableAuxiliaryGenerations(true);
@@ -473,7 +471,6 @@ export async function runScripted(code:string, arg:{
                     && candidate.operationContext.operationId === operationContext.operationId);
                 if (!job) return false;
                 if (isRevenantJobActive(job.status)) return false;
-                await updateRecoverableAuxiliaryGenerationProjection(job.jobId, result);
                 ScriptingEngineState.revenantLuaExecution?.completedJobIds.add(job.jobId);
                 return true;
             };
@@ -531,10 +528,7 @@ export async function runScripted(code:string, arg:{
 
                 if(result.type === 'fail'){
                     const failure = luaLlmResult(false, result.result, true)
-                    const completed = await completeRevenantLuaCall(
-                        revenantCall.operationContext,
-                        failure.result,
-                    )
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext)
                     if(!completed && revenantCall.operationContext){
                         throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
                     }
@@ -543,7 +537,7 @@ export async function runScripted(code:string, arg:{
                 if(result.type === 'streaming'){
                     try {
                         const text = await collectLuaStreamText(result.result)
-                        await completeRevenantLuaCall(revenantCall.operationContext, text)
+                        await completeRevenantLuaCall(revenantCall.operationContext)
                         return JSON.stringify(luaLlmResult(true, text))
                     }
                     catch(error){
@@ -554,7 +548,7 @@ export async function runScripted(code:string, arg:{
                 if(result.type === 'multiline'){
                     return JSON.stringify(luaLlmResult(false, result.result))
                 }
-                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
+                await completeRevenantLuaCall(revenantCall.operationContext)
                 return JSON.stringify(luaLlmResult(true, result.result))
             }
 
@@ -588,7 +582,7 @@ export async function runScripted(code:string, arg:{
 
                 if(result.type === 'fail'){
                     const failure = luaLlmResult(false, result.result, true)
-                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, failure.result)
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext)
                     if (!completed && revenantCall.operationContext) {
                         throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
                     }
@@ -599,7 +593,7 @@ export async function runScripted(code:string, arg:{
                     return luaLlmResult(false, result.result)
                 }
 
-                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
+                await completeRevenantLuaCall(revenantCall.operationContext)
                 return luaLlmResult(true, result.result)
             })
             

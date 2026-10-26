@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { recordGenerationProviderContext } = require('./providerContexts.cjs');
+const { waitForDrain } = require('./writableDrain.cjs');
 
 // The server decodes provider responses with the adapters' own decoders and
 // the options the adapter attached to the request. Sucrase is a production
@@ -9,7 +10,11 @@ const { recordGenerationProviderContext } = require('./providerContexts.cjs');
 require('sucrase/register/ts');
 
 const source = file => require(path.join(__dirname, '../../src/ts/preset/adapter', file));
-const { createDecodedChatProjection, encodeDecodedChatEvent } = source('decodedEvents.ts');
+const {
+    createDecodedChatProjection,
+    decodedChatErrorEvent,
+    encodeDecodedChatEvent,
+} = source('decodedEvents.ts');
 const { decodeAdapterResponseBody, parseAdapterResponseDecoder } = source('responseDecoder.ts');
 
 const PARTIAL_STATUSES = ['interrupted', 'cancelled', 'failed_partial'];
@@ -28,14 +33,15 @@ function createProjection(job, content, source, journalBytes) {
     };
 }
 
-function createClientGenerationProjection(job, content, providerResult = false) {
-    return createProjection(job, content, providerResult ? 'provider' : 'client',
-        providerResult ? job.projection?.journalBytes ?? job.rawBytes : undefined);
+/** The browser's processed result for a turn left awaiting it (tool loop, generated media). */
+function createProviderResultProjection(job, content) {
+    return createProjection(job, content, 'provider', job.projection?.journalBytes ?? job.rawBytes);
 }
 
 /**
- * Decodes provider bytes while they arrive. Each decoded event goes to
- * `onEvent`; finish() returns the projection of everything decoded. Partial
+ * Decodes provider bytes while they arrive. Each decoded event, including a
+ * decoding failure, goes to `onEvent`; finish() returns the projection of
+ * everything decoded. Partial
  * journals (cancelled, interrupted) can end inside a provider frame, so a
  * decode error there keeps what was decoded before it.
  */
@@ -58,6 +64,7 @@ function createGenerationJournalDecoder(job, onEvent) {
             : undefined,
     ).then(() => { settled = true; }, error => {
         settled = true;
+        onEvent(decodedChatErrorEvent(error));
         return error;
     });
 
@@ -82,16 +89,24 @@ function createGenerationJournalDecoder(job, onEvent) {
     };
 }
 
-/** Appends a running job's decoded events to its events journal. */
+/**
+ * Appends a running job's decoded events to its events journal. ready()
+ * applies the events writer's backpressure to the provider read loop.
+ */
 function openGenerationEventJournal(job, { journalStore, onWritten }) {
     const writer = journalStore.openWriter(job.workflowId, job.jobId, 'events');
     let writeError = null;
+    let draining = null;
     writer.on('error', error => { writeError ||= error; });
     const decoder = createGenerationJournalDecoder(job, event => {
-        writer.write(encodeDecodedChatEvent(event), onWritten);
+        if (!writer.write(encodeDecodedChatEvent(event), onWritten) && !draining) {
+            // A write error is reported by finish().
+            draining = waitForDrain(writer).catch(() => {}).finally(() => { draining = null; });
+        }
     });
     return {
         push: decoder.push,
+        ready: () => draining ?? Promise.resolve(),
         async finish(partial) {
             let projection;
             let decodeError = null;
@@ -136,7 +151,7 @@ function isGenerationProjectionCurrent(projection, journalBytes) {
 module.exports = {
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     parseAdapterResponseDecoder,
-    createClientGenerationProjection,
+    createProviderResultProjection,
     isGenerationProjectionCurrent,
     openGenerationEventJournal,
     projectGenerationJournal,

@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import projectionPkg from './generationProjection.cjs'
 
-const { createClientGenerationProjection, openGenerationEventJournal, projectGenerationJournal } = projectionPkg as {
+const { createProviderResultProjection, openGenerationEventJournal, projectGenerationJournal } = projectionPkg as {
     openGenerationEventJournal: (
         job: Record<string, unknown>,
         options: { journalStore: { openWriter: () => unknown }, onWritten: () => void },
     ) => {
         push: (bytes: Buffer) => void
+        ready: () => Promise<void>
         finish: (partial: boolean) => Promise<{ content: string, journalBytes: number }>
     }
-    createClientGenerationProjection: (
+    createProviderResultProjection: (
         job: Record<string, unknown>,
         content: string,
-        providerResult?: boolean,
     ) => {
         schemaVersion: number
         source: string
@@ -37,17 +37,6 @@ const { createClientGenerationProjection, openGenerationEventJournal, projectGen
 }
 
 describe('generation normalized projection', () => {
-    it('labels a live client checkpoint as a derived client projection', () => {
-        expect(createClientGenerationProjection({
-            adapterKind: 'anthropic-messages',
-        }, 'partial')).toEqual({
-            schemaVersion: 1,
-            source: 'client',
-            adapterKind: 'anthropic-messages',
-            content: 'partial',
-        })
-    })
-
     const openAi = (stream: boolean, reasoning?: { includeNative: boolean, thinkTagFallback: boolean }) => ({
         adapterKind: 'openai-compatible',
         responseDecoder: { adapterKind: 'openai-compatible', stream, ...(reasoning ? { reasoning } : {}) },
@@ -122,7 +111,7 @@ describe('generation normalized projection', () => {
         const projection = (await projectGenerationJournal(job, journal))?.projection
 
         expect(projection).toMatchObject({ content: '', awaitingProviderResult: true })
-        expect(createClientGenerationProjection({ ...job, projection }, 'Processed reply', true)).toMatchObject({
+        expect(createProviderResultProjection({ ...job, projection }, 'Processed reply')).toMatchObject({
             source: 'provider', content: 'Processed reply', journalBytes: journal.length,
         })
 
@@ -153,7 +142,7 @@ describe('generation normalized projection', () => {
         const written: string[] = []
         const writer = {
             on: vi.fn(),
-            write: (line: string, done: () => void) => { written.push(line); done() },
+            write: (line: string, done: () => void) => { written.push(line); done(); return true },
             end: (done: () => void) => done(),
         }
         const onWritten = vi.fn()

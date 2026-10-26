@@ -5,6 +5,7 @@ import {
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from './error'
+import { readDecodedChatResponse } from './decodedEvents'
 import type { AdapterChatResponse, AdapterPreparedRequest, AdapterResponseDecoder } from './types'
 import type { LLMRequestInit } from '../../network/transportTypes'
 
@@ -30,8 +31,8 @@ export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: 
 /**
  * Sends the common JSON-body request shape produced by preset adapters.
  *
- * This deliberately stops at the HTTP boundary: provider response parsing and
- * stream event semantics remain in each adapter.
+ * This deliberately stops at the HTTP boundary: a request carrying a
+ * `responseDecoder` is answered with the server's decoded events.
  */
 export async function sendPreparedRequest(
     prepared: AdapterPreparedRequest,
@@ -59,14 +60,6 @@ export async function sendPreparedRequest(
     return response
 }
 
-export async function readResponseText(response: Response): Promise<string> {
-    try {
-        return await response.text()
-    } catch (err) {
-        throw normalizeFetchError(err)
-    }
-}
-
 /** Parses a complete JSON body, labelling malformed provider output. */
 export function parseResponseJson(text: string, parseErrorMessage: string): unknown {
     try {
@@ -76,14 +69,13 @@ export function parseResponseJson(text: string, parseErrorMessage: string): unkn
     }
 }
 
+/** Sends a chat request and reads the response the server decoded with `responseDecoder`. */
 export async function sendPreparedChatRequest(
     prepared: AdapterPreparedRequest,
     options: AdapterHttpTransportOptions,
     responseDecoder: AdapterResponseDecoder,
-    decodeResponse: (body: string, decoder: AdapterResponseDecoder) => AdapterChatResponse,
 ): Promise<AdapterChatResponse> {
-    const response = await sendPreparedRequest(prepared, options, { responseDecoder })
-    return decodeResponse(await readResponseText(response), responseDecoder)
+    return readDecodedChatResponse(await sendPreparedRequest(prepared, options, { responseDecoder }))
 }
 
 export async function openPreparedChatStream(

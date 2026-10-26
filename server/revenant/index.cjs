@@ -15,4 +15,5 @@ module.exports = {
     ...require('./generationWorkflowService.cjs'),
     ...require('./materializer.cjs'),
     ...require('./postprocessWorker.cjs'),
+    ...require('./writableDrain.cjs'),
 };

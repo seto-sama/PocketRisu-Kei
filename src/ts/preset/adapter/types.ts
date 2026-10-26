@@ -167,7 +167,8 @@ export interface AdapterChatResponse {
      * reported back into the same usage row.
      */
     deferredUsageJobId?: string
-    raw: unknown
+    /** Anthropic Message Batches: the result's provider usage, reported against deferredUsageJobId. */
+    providerUsage?: unknown
 }
 
 export interface AdapterChatStreamDelta {
@@ -177,7 +178,6 @@ export interface AdapterChatStreamDelta {
     reasoningDelta?: string
     finishReason?: string
     usage?: AdapterUsage
-    raw: unknown
 }
 
 // Context for Gemini explicit context caching. Supplied by request.ts only when

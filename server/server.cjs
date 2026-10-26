@@ -88,6 +88,7 @@ const {
     normalizeGenerationRequestTimeoutMs,
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
+    waitForDrain,
 } = require('./revenant/index.cjs');
 const { createCanonicalChatService } = require('./chatStore.cjs');
 const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
@@ -1437,24 +1438,8 @@ async function runGenerationProviderJob(job, arg) {
                         const writable = journalWriter.write(bytes, () => {
                             notifyRevenantJournalWaiters(job);
                         });
-                        if (!writable) {
-                            await new Promise((resolve, reject) => {
-                                const cleanup = () => {
-                                    journalWriter.off('drain', onDrain);
-                                    journalWriter.off('error', onError);
-                                };
-                                const onDrain = () => {
-                                    cleanup();
-                                    resolve();
-                                };
-                                const onError = (error) => {
-                                    cleanup();
-                                    reject(error);
-                                };
-                                journalWriter.once('drain', onDrain);
-                                journalWriter.once('error', onError);
-                            });
-                        }
+                        if (!writable) await waitForDrain(journalWriter);
+                        await eventJournal?.ready();
                         notifyGenerationJob(job);
                         if (hasGenerationStreamTerminalMarker(completionProbe)) {
                             providerCompleted = true;
@@ -1532,11 +1517,12 @@ async function runGenerationProviderJob(job, arg) {
                 rawResponse.length,
             );
         }
-        // A non-2xx upstream response is still a complete HTTP response. Close
-        // its journal normally so the client adapter can read the provider's
-        // error body and surface the precise message instead of a transport
-        // level "HTTP N" fallback. The job remains failed in durable storage.
-        if (terminalFailure?.finishReason === 'upstream_http_error') {
+        // A non-2xx upstream response is still a complete HTTP response, and a
+        // decoding failure is the last decoded event. Close the journal
+        // normally so the client adapter can read the provider's error body or
+        // the decoder's error and surface the precise message instead of a
+        // transport level fallback. The job remains failed in durable storage.
+        if (['upstream_http_error', 'projection_error'].includes(terminalFailure?.finishReason)) {
             job.terminalEvent = {
                 type: 'done',
                 status: 'failed',

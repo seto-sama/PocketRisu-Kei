@@ -244,7 +244,6 @@ export async function fetchViaGenerationJob(url: string, arg: {
             method: arg.method,
             headers: arg.headers,
             serverProviderAuth: arg.serverProviderAuth,
-            responseDecoder: arg.responseDecoder,
             body: arg.body,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,
@@ -254,6 +253,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
             workflowStepExecutionId: arg.generationRequest.workflow?.executionId,
             workflowDependency: arg.generationRequest.workflow?.dependency,
             workflowClientAction: arg.generationRequest.workflow?.clientAction,
+            responseDecoder: arg.responseDecoder ?? arg.generationRequest.job.responseDecoder,
             ...(arg.generationRequest.job.chatId
                 ? getRevenantGenerationMetadata(arg.generationRequest.job.chatId)
                 : undefined),
@@ -302,6 +302,8 @@ export async function fetchViaGenerationJob(url: string, arg: {
         arg.onProviderStarted,
         arg.onTerminal,
         !arg.generationRequest.workflow?.workflowId,
+        // A caller that attached a decoder reads the server's decoded events.
+        arg.responseDecoder ? 'events' : undefined,
     )
 }
 
@@ -319,6 +321,7 @@ function openGenerationJobResponse(
     onProviderStarted?: (startedAt: number) => void,
     onTerminal?: (terminal: RevenantGenerationTerminal) => void,
     cancelJobOnAbort = true,
+    format?: 'events',
 ): Promise<Response> {
     return new Promise((resolve, reject) => {
         let settled = false
@@ -326,14 +329,24 @@ function openGenerationJobResponse(
             jobId,
             auth,
             signal,
+            format,
             onProviderStarted,
             onHeaders(status, headers) {
                 if (settled) return
                 settled = true
+                // Decoded events replace the provider body and its encoding.
+                const decoded = format === 'events' && status >= 200 && status < 300
+                const bodyHeaders = decoded
+                    ? {
+                        ...Object.fromEntries(Object.entries(headers)
+                            .filter(([key]) => !/^content-(type|length|encoding)$/i.test(key))),
+                        'content-type': 'application/x-ndjson',
+                    }
+                    : headers
                 resolve(new Response(stream, {
                     status,
                     headers: {
-                        ...headers,
+                        ...bodyHeaders,
                         'x-risu-revenant-generation': '1',
                         'x-risu-generation-job-id': jobId,
                     },

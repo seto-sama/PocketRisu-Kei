@@ -139,12 +139,6 @@ describe('generation workflow step executions', () => {
                 journalBytes: 50,
                 awaitingProviderResult: true,
             };
-            const clientProjection = {
-                schemaVersion: 1,
-                source: 'client',
-                adapterKind: 'openai-compatible',
-                content: 'partial client text',
-            };
             const providerProjection = {
                 schemaVersion: 1,
                 source: 'provider',
@@ -157,9 +151,6 @@ describe('generation workflow step executions', () => {
                 bytes: 50,
                 projection: pendingProjection,
             });
-            const ordinaryClientAccepted = db.setGenerationJobClientProjection(
-                'job-provider', clientProjection,
-            );
             const secondRoundPendingProjection = {
                 ...pendingProjection,
                 content: 'intermediate provider text',
@@ -170,10 +161,7 @@ describe('generation workflow step executions', () => {
                 { bytes: 75, projection: secondRoundPendingProjection },
             );
             const readyWhilePending = db.listReadyChatWorkflowJobs();
-            const secondRoundClientAccepted = db.setGenerationJobClientProjection(
-                'job-provider-round-2', clientProjection,
-            );
-            const providerAccepted = db.setGenerationJobClientProjection(
+            const providerAccepted = db.setGenerationJobProviderResult(
                 'job-provider-round-2', { ...providerProjection, journalBytes: 75 },
             );
             const readyAfterProvider = db.listReadyChatWorkflowJobs();
@@ -183,9 +171,6 @@ describe('generation workflow step executions', () => {
             );
             const serverRebuildAccepted = db.setGenerationJobProjection(
                 'job-provider-round-2', { ...secondRoundPendingProjection, content: 'rebuilt server text' },
-            );
-            const laterClientAccepted = db.setGenerationJobClientProjection(
-                'job-provider-round-2', clientProjection,
             );
             const job = db.getGenerationJob('job-provider-round-2');
 
@@ -201,20 +186,17 @@ describe('generation workflow step executions', () => {
                     projection: { ...pendingProjection, content: 'normal server output', awaitingProviderResult: false },
                 },
             );
-            const providerWithoutPendingAccepted = db.setGenerationJobClientProjection(
+            const providerWithoutPendingAccepted = db.setGenerationJobProviderResult(
                 'job-retry-round-2', { ...providerProjection, journalBytes: 25 },
             );
             process.stdout.write(JSON.stringify({
                 readyWhilePending,
-                ordinaryClientAccepted,
                 inheritedProjection,
-                secondRoundClientAccepted,
                 providerAccepted,
                 readyAfterProvider,
                 needsProjectionAfterProvider,
                 providerViaServerSetterAccepted,
                 serverRebuildAccepted,
-                laterClientAccepted,
                 projection: job.projection,
                 otherAttemptProjection,
                 providerWithoutPendingAccepted,
@@ -227,19 +209,16 @@ describe('generation workflow step executions', () => {
             })
             const result = JSON.parse(output)
             expect(result.readyWhilePending).toEqual([])
-            expect(result.ordinaryClientAccepted).toBe(false)
             expect(result.inheritedProjection).toMatchObject({
                 source: 'server',
                 content: '',
                 awaitingProviderResult: true,
             })
-            expect(result.secondRoundClientAccepted).toBe(false)
             expect(result.providerAccepted).toBe(true)
             expect(result.readyAfterProvider.map((job: any) => job.jobId)).toEqual(['job-provider-round-2'])
             expect(result.needsProjectionAfterProvider).toEqual([])
             expect(result.providerViaServerSetterAccepted).toBe(false)
             expect(result.serverRebuildAccepted).toBe(false)
-            expect(result.laterClientAccepted).toBe(false)
             expect(result.projection).toMatchObject({
                 source: 'provider',
                 content: 'resolved provider output',

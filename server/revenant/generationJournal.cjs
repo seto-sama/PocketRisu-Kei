@@ -7,6 +7,7 @@ const path = require('path');
 // `journal` holds the provider's raw bytes; `events` holds the server's
 // decoded NDJSON events for chat responses.
 const JOURNAL_KINDS = new Set(['journal', 'events']);
+const TEMP_SUFFIX = '.tmp';
 const JOURNAL_READ_CHUNK_BYTES = 64 * 1024;
 
 function validateId(value, label) {
@@ -51,9 +52,14 @@ function createGenerationJournalStore(options = {}) {
     /** Replaces a derived file without exposing a partial write to readers. */
     function replace(workflowId, jobId, kind, bytes) {
         const filePath = journalPath(workflowId, jobId, kind);
-        const tempPath = `${filePath}.tmp`;
-        fs.writeFileSync(tempPath, bytes);
-        fs.renameSync(tempPath, filePath);
+        const tempPath = `${filePath}${TEMP_SUFFIX}`;
+        try {
+            fs.writeFileSync(tempPath, bytes);
+            fs.renameSync(tempPath, filePath);
+        } catch (error) {
+            fs.rmSync(tempPath, { force: true });
+            throw error;
+        }
     }
 
     function readAll(workflowId, jobId, kind = 'journal') {
@@ -97,6 +103,7 @@ function createGenerationJournalStore(options = {}) {
         const filePath = journalPath(workflowId, jobId);
         try {
             fs.rmSync(journalPath(workflowId, jobId, 'events'), { force: true });
+            fs.rmSync(`${journalPath(workflowId, jobId, 'events')}${TEMP_SUFFIX}`, { force: true });
             fs.unlinkSync(filePath);
             if (workflowId) {
                 try {
@@ -116,10 +123,13 @@ function createGenerationJournalStore(options = {}) {
         let deleted = 0;
         const inspectFile = (workflowId, entry, parentDir) => {
             if (!entry.isFile()) return;
-            const extension = path.extname(entry.name);
+            // A replacement left behind by a crash is never read again.
+            const abandoned = entry.name.endsWith(TEMP_SUFFIX);
+            const name = abandoned ? entry.name.slice(0, -TEMP_SUFFIX.length) : entry.name;
+            const extension = path.extname(name);
             if (!JOURNAL_KINDS.has(extension.slice(1))) return;
-            const jobId = entry.name.slice(0, -extension.length);
-            if (validJournals.has(journalKey(workflowId, jobId))) return;
+            const jobId = name.slice(0, -extension.length);
+            if (!abandoned && validJournals.has(journalKey(workflowId, jobId))) return;
             const filePath = path.join(parentDir, entry.name);
             if (fs.statSync(filePath).mtimeMs > olderThan) return;
             fs.unlinkSync(filePath);

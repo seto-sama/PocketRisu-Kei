@@ -2,23 +2,21 @@
 import { encodeGenerationRequest } from '../../../src/ts/process/revenant/transport/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const repository = vi.hoisted(() => ({
+const repository = {
     getGenerationWorkflow: vi.fn(),
     hasGenerationWorkflowClientActionClaim: vi.fn(),
     updateGenerationWorkflowStep: vi.fn(),
     createGenerationJob: vi.fn(),
     getGenerationJob: vi.fn(),
     listGenerationWorkflowJobs: vi.fn(),
-    setGenerationJobClientProjection: vi.fn(),
+    setGenerationJobProviderResult: vi.fn(),
     updateGenerationJobMetadata: vi.fn(),
     finishGenerationJob: vi.fn(),
     listRecoverableGenerationJobs: vi.fn(),
     listRecoverableAuxiliaryJobs: vi.fn(),
     markGenerationMaterialized: vi.fn(),
     pruneRetainedGenerationJobs: vi.fn(),
-}))
-
-vi.mock('../generationDb.cjs', () => repository)
+}
 
 const { installRevenantJobRoutes } = await import('./jobRoutes.cjs') as any
 
@@ -337,7 +335,7 @@ describe('generation job cancellation route', () => {
     })
 })
 
-describe('provider generation projection route', () => {
+describe('provider result route', () => {
     beforeEach(() => vi.clearAllMocks())
 
     function installProjectionRoute(job: any, workflow: any, generationRuntimeJobs = new Map()) {
@@ -357,10 +355,10 @@ describe('provider generation projection route', () => {
             terminateGenerationWorkflow: vi.fn(),
             getGenerationJob: repository.getGenerationJob,
             getGenerationWorkflow: repository.getGenerationWorkflow,
-            setGenerationJobClientProjection: repository.setGenerationJobClientProjection,
+            setGenerationJobProviderResult: repository.setGenerationJobProviderResult,
             scheduleRevenantPostprocess,
         })
-        return { handler: routes.get('/api/generation/jobs/:jobId/projection'), scheduleRevenantPostprocess }
+        return { handler: routes.get('/api/generation/jobs/:jobId/provider-result'), scheduleRevenantPostprocess }
     }
 
     const pendingJob = {
@@ -389,7 +387,7 @@ describe('provider generation projection route', () => {
     }
 
     it('waits for the final journal before persisting provider output and scheduling postprocessing', async () => {
-        repository.setGenerationJobClientProjection.mockReturnValue(true)
+        repository.setGenerationJobProviderResult.mockReturnValue(true)
         let finishProvider!: () => void
         const runPromise = new Promise<void>(resolve => { finishProvider = resolve })
         const { handler, scheduleRevenantPostprocess } = installProjectionRoute(
@@ -401,17 +399,17 @@ describe('provider generation projection route', () => {
         const response: any = { send, status: vi.fn(() => response) }
 
         const completion = handler?.(
-            { params: { jobId: 'job-1' }, body: { content: 'final provider text', providerResult: true } },
+            { params: { jobId: 'job-1' }, body: { content: 'final provider text' } },
             response,
         )
 
         await vi.waitFor(() => expect(repository.getGenerationJob).toHaveBeenCalled())
-        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        expect(repository.setGenerationJobProviderResult).not.toHaveBeenCalled()
         repository.getGenerationJob.mockReturnValue(pendingJob)
         finishProvider()
         await completion
 
-        expect(repository.setGenerationJobClientProjection).toHaveBeenCalledWith('job-1', {
+        expect(repository.setGenerationJobProviderResult).toHaveBeenCalledWith('job-1', {
             schemaVersion: 1,
             source: 'provider',
             adapterKind: 'openai-compatible',
@@ -436,11 +434,11 @@ describe('provider generation projection route', () => {
         const response: any = { send, status: vi.fn(() => response) }
 
         await handler?.(
-            { params: { jobId: 'job-1' }, body: { content: 'late provider text', providerResult: true } },
+            { params: { jobId: 'job-1' }, body: { content: 'late provider text' } },
             response,
         )
 
-        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        expect(repository.setGenerationJobProviderResult).not.toHaveBeenCalled()
         expect(scheduleRevenantPostprocess).not.toHaveBeenCalled()
         expect(send).toHaveBeenCalledWith({ success: true, ignored: true })
     })
@@ -453,7 +451,7 @@ describe('provider generation projection route', () => {
             status: vi.fn((code: number) => { blankStatus(code); return blankResponse }),
         }
         await blank.handler?.(
-            { params: { jobId: 'job-1' }, body: { content: '  ', providerResult: true } },
+            { params: { jobId: 'job-1' }, body: { content: '  ' } },
             blankResponse,
         )
         expect(blankStatus).toHaveBeenCalledWith(400)
@@ -465,11 +463,11 @@ describe('provider generation projection route', () => {
             status: vi.fn((code: number) => { finalStatus(code); return finalResponse }),
         }
         await finalized.handler?.(
-            { params: { jobId: 'job-1' }, body: { content: 'late text', providerResult: true } },
+            { params: { jobId: 'job-1' }, body: { content: 'late text' } },
             finalResponse,
         )
         expect(finalStatus).toHaveBeenCalledWith(409)
-        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        expect(repository.setGenerationJobProviderResult).not.toHaveBeenCalled()
 
         const wrongWorkflow = installProjectionRoute(pendingJob, {
             ...providerWorkflow,
@@ -484,10 +482,10 @@ describe('provider generation projection route', () => {
             }),
         }
         await wrongWorkflow.handler?.(
-            { params: { jobId: 'job-1' }, body: { content: 'text', providerResult: true } },
+            { params: { jobId: 'job-1' }, body: { content: 'text' } },
             wrongWorkflowResponse,
         )
         expect(wrongWorkflowStatus).toHaveBeenCalledWith(409)
-        expect(repository.setGenerationJobClientProjection).not.toHaveBeenCalled()
+        expect(repository.setGenerationJobProviderResult).not.toHaveBeenCalled()
     })
 })

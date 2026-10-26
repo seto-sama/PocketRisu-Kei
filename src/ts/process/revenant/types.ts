@@ -9,6 +9,7 @@ import type {
 } from '../../storage/database.svelte'
 
 import type { RevenantOperationContext } from './operations'
+import type { AdapterResponseDecoder } from '../../preset/adapter/types'
 import type { DeltaPatch } from '../../storage/nodeStorage'
 import type { ImagePresetMetadata } from '../files/inlayMeta'
 import type { LuaAxLlmMode } from '../luaLlmCore'
@@ -259,6 +260,11 @@ export interface RevenantProviderJobSpec {
     jobType: ModelModeExtended
     /** Concrete backend that executes the request (`echo` runs in-process). */
     adapterKind?: string
+    /**
+     * Decoder for server projection when the caller reads the raw provider
+     * response itself (plugin providers).
+     */
+    responseDecoder?: AdapterResponseDecoder
     characterId?: string
     roomId?: string
     operationContext?: RevenantOperationContext
@@ -381,7 +387,7 @@ export interface RevenantNormalizedProjection {
     // Tool output is finalized at the shared request boundary; other projections are
     // rebuildable views of the append-only provider journal.
     schemaVersion: 1
-    source: 'server' | 'client' | 'provider'
+    source: 'server' | 'provider'
     adapterKind: string
     content: string
     awaitingProviderResult?: boolean

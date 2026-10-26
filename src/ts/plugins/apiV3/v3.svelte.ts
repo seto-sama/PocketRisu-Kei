@@ -44,7 +44,6 @@ import {
     type TTSHookFn,
 } from "src/ts/process/ttsHooks";
 import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
-import type { AdapterResponseDecoder } from "src/ts/preset/adapter/types";
 import { authorizePluginRequest } from './pluginNetworkPolicy';
 import { resolveProviderRequestContext, withProviderRequestContext } from './providerRequestContext';
 import type { FetchNativeArgs } from 'src/ts/network/nativeFetch';
@@ -699,7 +698,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         url: string,
         options: PluginProviderFetchOptions | undefined,
         requestContext: PluginProviderRequestContext | undefined,
-    ): (PluginProviderRequestContext & { responseDecoder?: AdapterResponseDecoder }) | undefined => {
+    ): PluginProviderRequestContext | undefined => {
         if (!requestContext) return undefined
         const classification = classifyPluginProviderFetch(
             url,
@@ -709,13 +708,15 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         if (!classification.generation) return undefined
         return {
             ...requestContext,
-            responseDecoder: classification.responseDecoder,
             generationRequest: requestContext.generationRequest ? {
                 ...requestContext.generationRequest,
                 job: {
                     ...requestContext.generationRequest.job,
                     adapterKind: requestContext.generationRequest.job.adapterKind
                         ?? classification.responseDecoder?.adapterKind,
+                    // The plugin parses the raw response; the server decodes
+                    // a copy for recovery.
+                    responseDecoder: classification.responseDecoder,
                 },
             } : undefined,
         }
@@ -756,7 +757,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             ...(generationContext ? {
                 chatId: generationContext.chatId,
                 generationRequest: generationContext.generationRequest,
-                responseDecoder: generationContext.responseDecoder,
                 interceptor: generationContext.interceptor,
             } : {}),
         }

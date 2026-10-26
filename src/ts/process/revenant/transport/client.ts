@@ -15,8 +15,6 @@ let dependencies: RevenantGenerationClientDependencies | undefined
 const revenantJobIds = new Map<string, string>()
 const revenantJobWorkflows = new Map<string, string>()
 const locallyObservedRevenantGenerationJobs = new Set<string>()
-const revenantCheckpointAt = new Map<string, number>()
-const revenantCheckpointPending = new Map<string, Promise<void>>()
 const revenantMetadata = new Map<string, RevenantGenerationMetadata>()
 let revenantRetentionPruned = false
 
@@ -158,38 +156,23 @@ export async function updateRevenantGenerationMetadata(
     }
 }
 
-export async function checkpointRevenantGeneration(
+/**
+ * Finishes a turn the server left awaiting the browser (tool loop, generated
+ * media) with the browser's processed result.
+ */
+export async function submitRevenantProviderResult(
     messageChatId: string,
     content: string,
-    force = false,
-    options: { providerResult?: boolean } = {},
 ): Promise<void> {
     const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
-    const now = Date.now()
-    const previous = revenantCheckpointAt.get(messageChatId) ?? 0
-    if (!force && now - previous < 250) return
-    revenantCheckpointAt.set(messageChatId, now)
-    const previousWrite = revenantCheckpointPending.get(messageChatId) ?? Promise.resolve()
-    const write = previousWrite.catch(() => {}).then(async () => {
-        const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
-            method: 'PUT',
-            headers: await createRevenantJobMutationHeaders(jobId, true),
-            body: JSON.stringify({ content, ...options }),
-            // Completed tool results can exceed browser keepalive request limits.
-            keepalive: force && !options.providerResult,
-        })
-        if (!response.ok) {
-            throw await apiRequestError(response, 'Failed to checkpoint generation result')
-        }
+    const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/provider-result`, {
+        method: 'PUT',
+        headers: await createRevenantJobMutationHeaders(jobId, true),
+        body: JSON.stringify({ content }),
     })
-    revenantCheckpointPending.set(messageChatId, write)
-    try {
-        await write
-    } finally {
-        if (revenantCheckpointPending.get(messageChatId) === write) {
-            revenantCheckpointPending.delete(messageChatId)
-        }
+    if (!response.ok) {
+        throw await apiRequestError(response, 'Failed to submit generation result')
     }
 }
 

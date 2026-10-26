@@ -31,7 +31,7 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           include: ['server/**/*.test.ts', 'test/*.test.ts'],
-          setupFiles: [],
+          setupFiles: ['vitest.setup.server.ts'],
           testTimeout: 30_000,
         },
       },

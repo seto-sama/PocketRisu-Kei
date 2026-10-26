@@ -3,6 +3,7 @@ import {
     openPreparedChatStream,
     sendPreparedChatRequest,
 } from './httpTransport'
+import { encodeDecodedChatEvent, type DecodedChatEvent } from './decodedEvents'
 import type { AdapterPreparedRequest, AdapterResponseDecoder } from './types'
 
 const prepared: AdapterPreparedRequest = {
@@ -15,23 +16,22 @@ const prepared: AdapterPreparedRequest = {
     body: { model: 'demo', stream: false },
 }
 const decoder: AdapterResponseDecoder = { adapterKind: 'openai-compatible', stream: false }
-const decodeText = (body: string) => ({ text: body, raw: body })
+const decoded = (event: DecodedChatEvent) => new Response(encodeDecodedChatEvent(event), { status: 200 })
 
 describe('adapter HTTP transport', () => {
-    test('sends a prepared request with its decoder and decodes the response body', async () => {
+    test('sends a prepared request with its decoder and reads the decoded response', async () => {
         const controller = new AbortController()
         let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
         const fetchImpl: typeof fetch = async (input, init) => {
             captured = { input, init }
-            return new Response('reply', { status: 200 })
+            return decoded({ type: 'response', response: { text: 'reply' } })
         }
 
         await expect(sendPreparedChatRequest(
             prepared,
             { fetchImpl, abortSignal: controller.signal },
             decoder,
-            decodeText,
-        )).resolves.toEqual({ text: 'reply', raw: 'reply' })
+        )).resolves.toEqual({ text: 'reply' })
         expect(captured?.input).toBe(prepared.url)
         expect(captured?.init).toMatchObject({
             method: 'POST',
@@ -52,7 +52,6 @@ describe('adapter HTTP transport', () => {
             prepared,
             { fetchImpl },
             decoder,
-            decodeText,
         )).rejects.toMatchObject({
             kind: 'rate-limit',
             status: 429,
@@ -76,12 +75,24 @@ describe('adapter HTTP transport', () => {
             prepared,
             { fetchImpl },
             decoder,
-            decodeText,
         )).rejects.toMatchObject({
             kind: 'rate-limit',
             status: 429,
             retryable: true,
             fallbackEligible: false,
+        })
+    })
+
+    test('rethrows a server decoding failure as the adapter error', async () => {
+        const fetchImpl: typeof fetch = async () => decoded({
+            type: 'error',
+            error: { kind: 'server', message: 'stream failed', retryable: true, fallbackEligible: true },
+        })
+
+        await expect(sendPreparedChatRequest(prepared, { fetchImpl }, decoder)).rejects.toMatchObject({
+            name: 'ModelPresetAdapterError',
+            kind: 'server',
+            message: 'stream failed',
         })
     })
 

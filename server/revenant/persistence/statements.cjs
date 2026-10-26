@@ -73,30 +73,18 @@ function createGenerationStatements(db) {
             ELSE ''
           END <> 'provider'
     `);
-    const stmtSetClientProjection = db.prepare(`
+    const stmtSetProviderResult = db.prepare(`
         UPDATE generation_jobs
         SET normalized_projection = ?, projection_error = NULL,
             projected_at = ?, updated_at = ?
         WHERE job_id = ?
-          AND (
-            (
-              json_valid(normalized_projection)
-              AND json_extract(normalized_projection, '$.source') = 'server'
-              AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
-              AND json_extract(?1, '$.source') = 'provider'
-              AND status = 'generated'
-              AND materialized_at IS NULL
-              AND COALESCE(json_extract(?1, '$.awaitingProviderResult'), 0) <> 1
-            )
-            OR (
-              CASE
-                WHEN json_valid(normalized_projection)
-                    THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-                ELSE ''
-              END NOT IN ('server', 'provider')
-              AND json_extract(?1, '$.source') = 'client'
-            )
-          )
+          AND json_valid(normalized_projection)
+          AND json_extract(normalized_projection, '$.source') = 'server'
+          AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+          AND json_extract(?1, '$.source') = 'provider'
+          AND status = 'generated'
+          AND materialized_at IS NULL
+          AND COALESCE(json_extract(?1, '$.awaitingProviderResult'), 0) <> 1
     `);
     const stmtSetProjectionError = db.prepare(`
         UPDATE generation_jobs
@@ -509,7 +497,7 @@ function createGenerationStatements(db) {
         stmtSetHeaders,
         stmtFinish,
         stmtSetProjection,
-        stmtSetClientProjection,
+        stmtSetProviderResult,
         stmtSetProjectionError,
         stmtUpdateMetadata,
         stmtListRecoverable,

@@ -61,13 +61,12 @@ export async function decodeAdapterResponseBody(
         : undefined
     try {
         if (decoder.stream) {
-            for await (const { raw: _raw, ...delta } of definition.decodeStream(body, decoder, signatures?.add)) {
+            for await (const delta of definition.decodeStream(body, decoder, signatures?.add)) {
                 emit({ type: 'delta', delta })
             }
         } else {
             const text = await new Response(body).text()
-            const { raw: _raw, ...response } = definition.decodeResponse(text, decoder, signatures?.add)
-            emit({ type: 'response', response })
+            emit({ type: 'response', response: definition.decodeResponse(text, decoder, signatures?.add) })
         }
     } finally {
         const context = signatures?.finish()

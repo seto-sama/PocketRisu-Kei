@@ -20,7 +20,7 @@ const {
     stmtSetHeaders,
     stmtFinish,
     stmtSetProjection,
-    stmtSetClientProjection,
+    stmtSetProviderResult,
     stmtSetProjectionError,
     stmtUpdateMetadata,
     stmtListRecoverable,
@@ -672,7 +672,7 @@ function parseNormalizedProjection(value) {
         const projection = JSON.parse(value);
         if (
             projection?.schemaVersion !== 1
-            || !['server', 'client', 'provider'].includes(projection.source)
+            || !['server', 'provider'].includes(projection.source)
             || typeof projection.adapterKind !== 'string'
             || typeof projection.content !== 'string'
             || (projection.awaitingProviderResult !== undefined
@@ -889,6 +889,11 @@ function readGenerationJobRaw(jobId) {
     return generationJournalStore.readAll(job?.workflow_id, jobId);
 }
 
+function readGenerationJobEvents(jobId) {
+    const job = stmtGet.get(jobId);
+    return generationJournalStore.readAll(job?.workflow_id, jobId, 'events');
+}
+
 /** Stores the decoded events rebuilt from a job's raw journal. */
 function replaceGenerationJobEvents(jobId, events) {
     const job = stmtGet.get(jobId);
@@ -903,9 +908,9 @@ function setGenerationJobProjection(jobId, projection) {
     return result.changes === 1;
 }
 
-function setGenerationJobClientProjection(jobId, projection) {
+function setGenerationJobProviderResult(jobId, projection) {
     const now = Date.now();
-    const result = stmtSetClientProjection.run(JSON.stringify(projection), now, now, jobId);
+    const result = stmtSetProviderResult.run(JSON.stringify(projection), now, now, jobId);
     return result.changes === 1;
 }
 
@@ -1040,9 +1045,10 @@ module.exports = {
     claimQueuedGenerationDispatch,
     setGenerationJobHeaders,
     readGenerationJobRaw,
+    readGenerationJobEvents,
     replaceGenerationJobEvents,
     setGenerationJobProjection,
-    setGenerationJobClientProjection,
+    setGenerationJobProviderResult,
     setGenerationJobProjectionError,
     updateGenerationJobMetadata,
     finishGenerationJob,

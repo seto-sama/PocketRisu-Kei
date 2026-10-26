@@ -12,7 +12,8 @@ import {
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from './error'
-import { parseResponseJson, readResponseText } from './httpTransport'
+import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
+import { parseResponseJson } from './httpTransport'
 import { prepareAdapterRequest } from './resolveCredential'
 import type { LLMRequestInit } from '../../network/transportTypes'
 import type {
@@ -64,7 +65,7 @@ export async function sendAmazonBedrockChatRequest(
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareAmazonBedrockBody(preset, options, credential, false)
     const response = await fetchBedrock(prepared, options, { adapterKind: 'amazon-bedrock', stream: false })
-    return decodeAmazonBedrockResponse(await readResponseText(response))
+    return readDecodedChatResponse(response)
 }
 
 export async function* streamAmazonBedrockChatRequest(
@@ -77,7 +78,7 @@ export async function* streamAmazonBedrockChatRequest(
     if (!response.body) {
         throw new ModelPresetAdapterError('parse', 'Amazon Bedrock stream response has no body')
     }
-    yield* decodeAmazonBedrockStream(response.body)
+    yield* readDecodedChatStream(response.body)
 }
 
 export function decodeAmazonBedrockResponse(body: string): AdapterChatResponse {
@@ -416,7 +417,6 @@ export function parseAmazonBedrockResponse(raw: unknown): AdapterChatResponse {
         providerEcho: structuredClone(content),
         finishReason: typeof raw.stopReason === 'string' ? raw.stopReason : undefined,
         usage: parseUsage(raw.usage),
-        raw,
     }
 }
 
@@ -434,18 +434,16 @@ export function parseAmazonBedrockStreamEvent(
             reasoningDelta: typeof reasoningContent?.text === 'string'
                 ? reasoningContent.text
                 : undefined,
-            raw,
         }
     }
     if (eventType === 'messageStop') {
         return {
             textDelta: '',
             finishReason: typeof raw.stopReason === 'string' ? raw.stopReason : undefined,
-            raw,
         }
     }
     if (eventType === 'metadata') {
-        return { textDelta: '', usage: parseUsage(raw.usage), raw }
+        return { textDelta: '', usage: parseUsage(raw.usage) }
     }
     return undefined
 }

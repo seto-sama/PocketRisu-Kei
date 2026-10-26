@@ -431,6 +431,27 @@ describe('revenant journal stream', () => {
         expect(Buffer.from(chunk.bytes).toString()).toBe('later')
         expect(socket.messages.at(-1)?.type).toBe('done')
     })
+
+    it('reads the final bytes written while an EOF read was in flight', async () => {
+        const socket = new FakeSocket()
+        const liveJob = { ...job, done: false, journalWaiters: [] }
+        let journal = Buffer.alloc(0)
+        await streamRevenantJournal(socket, liveJob, 0, 'events', {
+            async readChunk(_workflowId, _jobId, offset) {
+                const bytes = journal.subarray(offset)
+                if (journal.length === 0) {
+                    // The writer finishes after this read saw EOF.
+                    journal = Buffer.from('final')
+                    liveJob.done = true
+                }
+                return { offset, bytes }
+            },
+        })
+
+        expect(socket.messages.filter(message => message.type === 'chunk')
+            .map(message => Buffer.from(message.bytes).toString())).toEqual(['final'])
+        expect(socket.messages.at(-1)?.type).toBe('done')
+    })
 })
 
 describe('revenant workflow validation', () => {

@@ -196,7 +196,7 @@ describe('revenant canonical materializer', () => {
         expect(materialized).toBe(true)
     })
 
-    it('refreshes a stale client checkpoint from the complete journal before materializing cancellation', async () => {
+    it('rebuilds a server projection behind the journal before materializing cancellation', async () => {
         const original = {
             role: 'char', data: 'original', chatId: 'original-message',
             swipes: ['original'], swipeId: 0,
@@ -219,12 +219,12 @@ describe('revenant canonical materializer', () => {
             status: 'cancelled', rawBytes: 80,
             adapterKind: 'openai-compatible', responseStatus: 200,
             responseDecoder: { adapterKind: 'openai-compatible', stream: true },
-            responseHeaders: { 'content-type': 'text/event-stream' },
             projection: {
                 schemaVersion: 1,
-                source: 'client',
+                source: 'server',
                 adapterKind: 'openai-compatible',
                 content: 'before refresh',
+                journalBytes: 40,
             },
             rerollSnapshot,
         }

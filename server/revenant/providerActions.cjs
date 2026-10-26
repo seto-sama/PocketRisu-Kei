@@ -10,6 +10,7 @@ const { compileModelPreset } = source('preset/runtime/compilePreset.ts');
 const { buildEchoRequest } = source('preset/runtime/echo.ts');
 const { resolveModelPresetCredential } = source('preset/runtime/credential.ts');
 const { modelsDevUsageIdentity } = source('preset/runtime/usageIdentity.ts');
+const { formatAdapterReasoning } = source('preset/adapter/decodedEvents.ts');
 const { convertInterfaceToSchemaCore } = source('process/templates/jsonSchemaCore.ts');
 const { formatPresetMessages } = source('process/request/formatMessages.ts');
 const { toAdapterMessage } = source('process/request/modelPresetMessages.ts');
@@ -22,6 +23,7 @@ const {
 const { renderRevenantTemplate } = source('process/revenant/postprocess/headlessParser.ts');
 const { GENERATION_REQUEST_DEFAULT_TIMEOUT_MS } = require('./generationConfig.cjs');
 const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
+const { revenantJournalKind } = require('./generationStream.cjs');
 
 const PROVIDER_ACTIONS = new Set([
     'provider.llm', 'provider.axllm', 'provider.simplellm', 'provider.igp',
@@ -164,8 +166,12 @@ function createServerProviderActionExecutor(options) {
                 if (job.status !== 'generated' && !(job.responseStatus >= 400)) {
                     throw new Error(job.error || `Provider job ${job.status}`);
                 }
-                const raw = repository.getGenerationJob(jobId, true).rawResponse;
-                return new Response(raw, { status: job.responseStatus || 200, headers: job.responseHeaders });
+                // The adapter reads the decoded events it asked for; an HTTP
+                // error or a request without a decoder carries the raw body.
+                const body = revenantJournalKind(job, init.responseDecoder ? 'events' : 'journal') === 'events'
+                    ? repository.readGenerationJobEvents(jobId)
+                    : repository.readGenerationJobRaw(jobId);
+                return new Response(body, { status: job.responseStatus || 200, headers: job.responseHeaders });
             };
             if (compiled.backend === 'echo') {
                 const response = await fetchImpl('https://echo.invalid/v1/chat/completions', {
@@ -187,26 +193,26 @@ function createServerProviderActionExecutor(options) {
                 } : {}),
             };
             let text = '';
-            let thinking = '';
+            let reasoning;
             let media = [];
             if (streaming) {
+                let thinking = '';
                 for await (const delta of compiled.adapter.stream(preset, adapterOptions, credential)) {
                     text += delta.textDelta || '';
                     thinking += delta.reasoningDelta || '';
                 }
+                reasoning = [{ text: thinking }];
             } else {
                 const response = await compiled.adapter.send(preset, adapterOptions, credential);
                 text = response.text;
-                for (const part of response.reasoning || []) {
-                    thinking += part.redactedData !== undefined ? '\n{{redacted_thinking}}\n' : part.text || '';
-                }
+                reasoning = response.reasoning;
                 media = response.media || [];
             }
             signal.throwIfAborted();
             const markers = await Promise.all(media.map(item => writeMedia(item)));
             return {
                 success: true,
-                result: (thinking.trim() ? `<Thoughts>\n${thinking}\n</Thoughts>\n\n` : '')
+                result: formatAdapterReasoning(reasoning)
                     + text + (text && markers.length ? '\n' : '') + markers.join('\n'),
             };
         } catch (error) {

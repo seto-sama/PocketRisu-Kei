@@ -9,6 +9,7 @@ import {
     parseResponseJson,
     sendPreparedChatRequest,
 } from './httpTransport'
+import { readDecodedChatStream } from './decodedEvents'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -43,12 +44,7 @@ export async function sendResponsesRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareResponsesBody(preset, options, credential, false)
-    return sendPreparedChatRequest(
-        prepared,
-        options,
-        { adapterKind: 'openai-responses', stream: false },
-        decodeResponsesResponse,
-    )
+    return sendPreparedChatRequest(prepared, options, { adapterKind: 'openai-responses', stream: false })
 }
 
 export async function* streamResponsesRequest(
@@ -63,7 +59,7 @@ export async function* streamResponsesRequest(
         { adapterKind: 'openai-responses', stream: true },
         'OpenAI Responses stream has no body',
     )
-    yield* decodeResponsesStream(stream)
+    yield* readDecodedChatStream(stream)
 }
 
 export function decodeResponsesResponse(body: string): AdapterChatResponse {
@@ -278,24 +274,22 @@ export function parseResponsesResponse(raw: unknown): AdapterChatResponse {
         providerEcho: output,
         finishReason: typeof raw.status === 'string' ? raw.status : undefined,
         usage: parseUsage(raw.usage),
-        raw,
     }
 }
 
 export function parseResponsesStreamEvent(raw: unknown): AdapterChatStreamDelta | null {
     if (!isPlainObject(raw) || typeof raw.type !== 'string') return null
     if (raw.type === 'response.output_text.delta' && typeof raw.delta === 'string') {
-        return { textDelta: raw.delta, raw }
+        return { textDelta: raw.delta }
     }
     if (raw.type === 'response.reasoning_summary_text.delta' && typeof raw.delta === 'string') {
-        return { textDelta: '', reasoningDelta: raw.delta, raw }
+        return { textDelta: '', reasoningDelta: raw.delta }
     }
     if (raw.type === 'response.completed' && isPlainObject(raw.response)) {
         return {
             textDelta: '',
             finishReason: typeof raw.response.status === 'string' ? raw.response.status : 'completed',
             usage: parseUsage(raw.response.usage),
-            raw,
         }
     }
     if (raw.type === 'error' || raw.type === 'response.failed') {

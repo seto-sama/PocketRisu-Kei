@@ -100,14 +100,14 @@ describe('subscribeRecoverableGeneration', () => {
         expect(vi.getTimerCount()).toBe(0)
     })
 
-    it('returns to unthrottled updates after reaching the live journal tail', async () => {
-        snapshotWith(deltas('a', 'b'))
+    it('joins an event line split between the snapshot and the live tail', async () => {
+        const journal = deltas('a', 'b', '가', 'd')
+        // Cut inside the multibyte character of the third event.
+        const cut = journal.indexOf(0xea) + 1
+        snapshotWith(journal.subarray(0, cut))
         vi.mocked(openRevenantJournalSocket).mockImplementationOnce(() => new ReadableStream({
             start(controller) {
-                // A live chunk can split an event line.
-                const live = deltas('c', 'd')
-                controller.enqueue(live.subarray(0, 10))
-                controller.enqueue(live.subarray(10))
+                controller.enqueue(journal.subarray(cut))
                 controller.close()
             },
         }))
@@ -118,9 +118,9 @@ describe('subscribeRecoverableGeneration', () => {
         subscribeRecoverableGeneration(job, { onContent, onProgress, onDone })
         await vi.waitFor(() => expect(onDone).toHaveBeenCalledOnce())
 
-        expect(onContent.mock.calls.map(call => call[0])).toEqual(['ab', 'abc', 'abcd'])
+        expect(onContent.mock.calls.map(call => call[0])).toEqual(['ab', 'ab가', 'ab가d'])
         expect(onProgress.mock.calls.map(call => call[0].response)).toEqual([
-            'ab', 'abc', 'abcd',
+            'ab', 'ab가', 'ab가d',
         ])
     })
 })

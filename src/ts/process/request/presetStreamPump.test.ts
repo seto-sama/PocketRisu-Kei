@@ -110,7 +110,7 @@ async function* genOf(
     ...deltas: Array<Partial<AdapterChatStreamDelta>>
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     for (const d of deltas) {
-        yield { textDelta: '', raw: null, ...d }
+        yield { textDelta: '', ...d }
     }
 }
 
@@ -159,10 +159,10 @@ describe('pumpPresetStream', () => {
             let release!: () => void
             const gate = new Promise<void>((r) => { release = r })
             async function* paused(): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-                yield { textDelta: 'a', raw: null }
-                yield { textDelta: 'b', raw: null }
+                yield { textDelta: 'a' }
+                yield { textDelta: 'b' }
                 await gate
-                yield { textDelta: 'c', raw: null }
+                yield { textDelta: 'c' }
             }
             const done = pumpPresetStream(paused(), controller, {
                 intervalMs: 50,
@@ -208,7 +208,7 @@ describe('pumpPresetStream', () => {
             const onError = vi.fn()
             const boom = new Error('aborted mid-stream')
             async function* exploding(): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-                yield { textDelta: 'a', raw: null }
+                yield { textDelta: 'a' }
                 throw boom
             }
             await pumpPresetStream(exploding(), controller, {
@@ -276,7 +276,7 @@ describe('pumpPresetStream', () => {
             const controller = makeController()
             const onFinish = vi.fn()
             async function* exploding(): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-                yield { textDelta: 'a', raw: null }
+                yield { textDelta: 'a' }
                 throw new Error('boom')
             }
             await pumpPresetStream(exploding(), controller, {

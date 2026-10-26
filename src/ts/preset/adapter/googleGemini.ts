@@ -8,7 +8,8 @@ import {
     parseRetryAfterMs,
 } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
-import { parseResponseJson, preparedRequestFetch, readResponseText } from './httpTransport'
+import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
+import { parseResponseJson, preparedRequestFetch } from './httpTransport'
 import type { LLMRequestInit } from '../../network/transportTypes'
 import { parseSseStream } from './sse'
 import type {
@@ -97,7 +98,7 @@ export async function sendGoogleChatRequest(
     const prepared = await prepareGeminiBody(preset, options, credential, false)
     const cacheTurn = beginCacheTurn(prepared, options, credential)
     const response = await sendGeminiRequest(prepared, options, cacheTurn, false)
-    const parsed = decodeGeminiResponse(await readResponseText(response))
+    const parsed = await readDecodedChatResponse(response)
     // Fire-and-forget cache lifecycle (create/extend/cleanup) off the observed
     // usage; never blocks or fails the response.
     cacheTurn?.finish(parsed.usage?.promptTokens)
@@ -119,7 +120,7 @@ export async function* streamGoogleChatRequest(
     // usageMetadata arrives on the last SSE chunk; capture it so the cache
     // lifecycle can run once the stream completes normally.
     let lastUsage: AdapterUsage | undefined
-    for await (const delta of decodeGeminiStream(response.body)) {
+    for await (const delta of readDecodedChatStream(response.body)) {
         if (delta.usage) lastUsage = delta.usage
         yield delta
     }
@@ -531,7 +532,6 @@ export function parseGeminiResponse(raw: unknown): AdapterChatResponse {
         providerEcho: echoParts,
         finishReason,
         usage: parseGeminiUsage(raw['usageMetadata']),
-        raw,
     }
 }
 
@@ -614,7 +614,7 @@ export function parseGeminiStreamDelta(raw: unknown): AdapterChatStreamDelta | n
     if (textDelta.length === 0 && reasoningDelta.length === 0 && finishReason === undefined && usage === undefined) {
         return null
     }
-    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage, raw }
+    return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage }
 }
 
 function throwIfPromptBlocked(feedback: unknown): void {
