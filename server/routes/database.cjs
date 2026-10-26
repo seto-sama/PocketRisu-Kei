@@ -22,7 +22,6 @@ function installDatabaseRoutes(app, {
     findChatInternalFieldOps,
     currentPersistWarning,
     sessionAuthMiddleware,
-    flushPendingDb,
     storageState,
 }) {
     const databaseProjectionService = createDatabaseProjectionService({
@@ -186,7 +185,6 @@ function installDatabaseRoutes(app, {
     app.post('/api/db/flush', sessionAuthMiddleware, async (req, res) => {
         if (!requireSyncClientId(req, res)) return;
         await queueStorageOperation(async () => {
-            await flushPendingDb();
             res.send({
                 success: true,
                 etag: storageState.dbEtag ?? undefined

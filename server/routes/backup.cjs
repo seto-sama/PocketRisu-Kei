@@ -42,7 +42,6 @@ function installBackupRoutes(app, {
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    flushPendingDb,
     prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
@@ -298,7 +297,6 @@ function installBackupRoutes(app, {
         kvDelPrefix,
         clearEntities,
         checkpointWal,
-        flushPendingDb,
         createBackupAndRotate: createPreReplacementSnapshot,
         invalidateDbCache,
         prepareDatabaseProjection: prepareImportedDatabaseProjection,
@@ -962,9 +960,6 @@ function installBackupRoutes(app, {
                 return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
 
-            // Include any debounced DB changes before deciding which assets the
-            // current save references. Asset restoration itself is additive.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 sendApiError(res, 409, API_ERROR_CODES.DATABASE_NOT_FOUND);
                 return;
@@ -1228,10 +1223,6 @@ function installBackupRoutes(app, {
 
     async function restoreDatabaseBlob(blob, options = {}) {
         await queueStorageOperation(async () => {
-            // Drain any pending debounced persist first — same pattern as
-            // /api/db/optimize. Without this, an in-flight save could land
-            // after the restore and overwrite the restored snapshot.
-            await flushPendingDb();
             const decoded = await decodeRisuSave(Buffer.from(blob));
             const { database } = normalizeLegacyDatabaseProjection(decoded);
             sqliteDb.transaction(() => {

@@ -29,7 +29,6 @@ function createBackupRestoreService({
     kvDelPrefix,
     clearEntities,
     checkpointWal,
-    flushPendingDb,
     createBackupAndRotate,
     invalidateDbCache,
     prepareDatabaseProjection,
@@ -258,7 +257,6 @@ function createBackupRestoreService({
             iterateStagedPluginStorage = stagingDb.prepare(
                 'SELECT namespace, storage_key, payload, owner FROM plugin_storage_entries ORDER BY rowid',
             );
-            await flushPendingDb();
             for await (const chunk of dataSource) {
                 bytesReceived += chunk.length;
                 if (maxBytes > 0 && bytesReceived > maxBytes) {

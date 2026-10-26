@@ -8,7 +8,6 @@ import { createDelta } from '../shared/guardedDelta.mjs'
 const {
     computeChatEtag,
     commitChatContent,
-    reassembleFullDb,
     createCanonicalChatService,
     CanonicalChatCommitError,
 } = chatStorePkg as any
@@ -58,26 +57,6 @@ function createServiceHarness(initialChat: any, overrides: Record<string, any> =
         service,
     }
 }
-
-describe('full chat export', () => {
-    it('reassembles full chat bodies under the current startup stubs', () => {
-        const chat = {
-            id: 'room', name: 'Room', folderId: null,
-            message: [{ chatId: 'm1', role: 'char', data: 'hello' }],
-        }
-        const startupProjection = {
-            characters: [{
-                chaId: 'character',
-                chats: [{ id: 'room', name: 'Room', folderId: null, _stub: true }],
-            }],
-        }
-        const store = new Map([['character', new Map([['room', chat]])]])
-
-        expect(reassembleFullDb(startupProjection, store)).toEqual({
-            characters: [{ chaId: 'character', chats: [chat] }],
-        })
-    })
-})
 
 describe('chat content compare-and-swap', () => {
     it('accepts the current version and advances the chat etag', () => {

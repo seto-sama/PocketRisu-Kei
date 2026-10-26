@@ -21,7 +21,6 @@ function installMaintenanceRoutes(app, {
     DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
-    flushPendingDb,
 }) {
     const DB_BLOB_KEY = 'database/database.bin';
 
@@ -327,9 +326,8 @@ function installMaintenanceRoutes(app, {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const result = await queueStorageOperation(async () => {
-            // Decide from persisted bytes after pending client writes land; the
+            // Decide from persisted bytes after queued writes land; the
             // dashboard's in-memory estimate is informational only.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 return { error: 'No relational database' };
             }
@@ -385,7 +383,6 @@ function installMaintenanceRoutes(app, {
         }
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             // Reclaim chunks orphaned by edits/snapshot rotation before VACUUM, so
             // their pages get compacted in the same pass. Serialized with saves by
@@ -419,7 +416,6 @@ function installMaintenanceRoutes(app, {
         const preWalSize = statSafe(walFilePath)?.size ?? 0;
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             checkpointWal('TRUNCATE');
             const elapsed = Date.now() - t0;

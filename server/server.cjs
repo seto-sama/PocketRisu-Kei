@@ -88,7 +88,7 @@ const {
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
 } = require('./revenant/index.cjs');
-const { computeChatEtag, commitChatContent, mergeChatStubWithFullChat, reassembleFullDb: reassembleFullDbFromStore, createCanonicalChatService } = require('./chatStore.cjs');
+const { computeChatEtag, commitChatContent, mergeChatStubWithFullChat, createCanonicalChatService } = require('./chatStore.cjs');
 const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
 const { normalizeTrashRetentionDays } = require('../shared/trashRetention.mjs');
@@ -338,17 +338,7 @@ function scheduleBackupAndRotate() {
     });
 }
 
-async function flushPendingDb() {
-    if (saveTimers[DB_HEX_KEY]) {
-        clearTimeout(saveTimers[DB_HEX_KEY]);
-        delete saveTimers[DB_HEX_KEY];
-        await persistFullChatStoreNow();
-        createBackupAndRotate();
-    }
-}
-
 async function prepareDatabaseExport() {
-    await flushPendingDb();
     await ensureCanonicalStorage();
 
     const [checkpoint] = checkpointWal('FULL') ?? [];
@@ -431,10 +421,6 @@ function normalizeLegacyDatabaseProjection(dbObj, options) {
 
     const coldRestoreResult = restoreColdStorageInDb(normalized, options);
     return { database: normalized, coldRestoreResult };
-}
-
-function reassembleFullDb(strippedDb) {
-    return reassembleFullDbFromStore(strippedDb, storageState.fullChatStore);
 }
 
 function isCloudflareTunnelRequest(req) {
@@ -541,39 +527,6 @@ function findChatInternalFieldOps(patch) {
         }
     }
     return violations;
-}
-
-/**
- * Detect chats that lost their `_stub` flag without being upgraded to a real
- * Chat. reassembleFullDb skips merge when `_stub` is falsy, so persisting such
- * a chat would write metadata-only to disk and silently strip messages — the
- * exact data-loss path reported with PATCH `remove /chats/N/{message,...}` ops.
- *
- * A real Chat has `message` (Array). A real stub has `_stub === true`. Anything
- * with neither is a malformed in-between state; treat as a corruption signal.
- */
-/**
- * Persist dbCache to disk with full chats merged back in.
- */
-
-/** Persist the canonical full-chat store immediately, preserving pending stub edits. */
-async function persistFullChatStoreNow() {
-    await ensureChatStore();
-    if (storageState.dbCache[DB_HEX_KEY]) {
-        const fullDb = reassembleFullDb(storageState.dbCache[DB_HEX_KEY]);
-        appDataStore.replaceFromProjection(fullDb, {
-            expectedRevision: appDataStore.getState().revision,
-        });
-        refreshCanonicalDatabaseCache();
-        return;
-    }
-    if (!storageState.fullChatStore || storageState.fullChatStore.size === 0) return;
-    const stripped = appDataStore.exportProjection({ includeMessages: false });
-    const fullDb = reassembleFullDb(stripped);
-    appDataStore.replaceFromProjection(fullDb, {
-        expectedRevision: appDataStore.getState().revision,
-    });
-    refreshCanonicalDatabaseCache();
 }
 
 /**
@@ -2326,7 +2279,6 @@ require('./routes/database.cjs').installDatabaseRoutes(app, {
     findChatInternalFieldOps,
     currentPersistWarning,
     sessionAuthMiddleware,
-    flushPendingDb,
     storageState,
 });
 
@@ -2351,7 +2303,6 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    flushPendingDb,
     prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
@@ -2425,7 +2376,6 @@ require('./routes/maintenance.cjs').installMaintenanceRoutes(app, {
     DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
-    flushPendingDb,
 });
 
 installInlaysRoutes(app, {
@@ -2437,7 +2387,6 @@ installInlaysRoutes(app, {
 require('./routes/system.cjs').installSystemRoutes(app, {
     checkAuth,
     stopTunnel,
-    flushPendingDb,
 });
 
 require('./routes/tunnel.cjs').installTunnelRoutes(app, {
@@ -2588,7 +2537,6 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
             .filter(Boolean);
         if (generationRuns.length > 0) await Promise.allSettled(generationRuns);
         if (imageGenerationRuns.length > 0) await Promise.allSettled(imageGenerationRuns);
-        try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         try { checkpointGenerationDb('TRUNCATE'); } catch { /* non-fatal */ }
         process.exit(0);

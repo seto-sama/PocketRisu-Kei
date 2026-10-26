@@ -117,7 +117,6 @@ async function fullRestoreHarness(
             db.prepare('DELETE FROM kv WHERE key LIKE ?').run(`${prefix}%`),
         clearEntities: () => {},
         checkpointWal: () => {},
-        flushPendingDb: async () => {},
         createBackupAndRotate: () => {},
         invalidateDbCache: () => {},
         prepareDatabaseProjection,

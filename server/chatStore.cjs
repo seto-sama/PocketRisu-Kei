@@ -66,26 +66,6 @@ function mergeChatStubWithFullChat(stub, fullChat) {
     return merged;
 }
 
-function reassembleFullDb(strippedDb, store) {
-    if (!strippedDb?.characters || !store) return strippedDb;
-    const full = { ...strippedDb };
-    full.characters = strippedDb.characters.map(char => {
-        if (!char?.chaId || !char.chats) return char;
-        const charChats = store.get(char.chaId);
-        if (!charChats) return char;
-        return {
-            ...char,
-            chats: char.chats.map(chat => {
-                if (chat && chat._stub && chat.id) {
-                    return mergeChatStubWithFullChat(chat, charChats.get(chat.id));
-                }
-                return chat;
-            }),
-        };
-    });
-    return full;
-}
-
 class CanonicalChatCommitError extends Error {
     constructor(status, message, options = {}) {
         super(message);
@@ -360,7 +340,6 @@ module.exports = {
     commitChatContent,
     chatToStub,
     mergeChatStubWithFullChat,
-    reassembleFullDb,
     CanonicalChatCommitError,
     createCanonicalChatService,
 };
