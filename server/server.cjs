@@ -1,4 +1,3 @@
-const { chatMetadataFields } = require('../shared/chatShape.mjs');
 const express = require('express');
 
 const app = express();
@@ -332,13 +331,14 @@ function assignMissingPersistentIds(dbObj) {
         if (!char?.chats) continue;
         const chatIds = new Set();
         for (const chat of char.chats) {
-            if (!chat || chat._stub) continue;
+            // A metadata-only legacy entry names a body stored elsewhere;
+            // renaming it here would orphan that body.
+            if (!Array.isArray(chat?.message)) continue;
             if (!chat.id || chatIds.has(chat.id)) {
                 chat.id = nodeCrypto.randomUUID();
                 changed = true;
             }
             chatIds.add(chat.id);
-            if (!Array.isArray(chat.message)) continue;
             const messageIds = new Set();
             for (const message of chat.message) {
                 if (!message) continue;
@@ -358,7 +358,7 @@ function assignMissingPersistentIds(dbObj) {
 // folder, then later deleting that folder produced orphans invisible in the
 // sidebar (rendered into neither the no-folder section nor any folder section).
 // Boot-time normalize so historical corruption self-heals; new corruption is
-// blocked by the merge fix in mergeChatStubWithFullChat.
+// blocked by the merge fix in mergeChatMetadata.
 function normalizeOrphanFolderIds(dbObj) {
     let changed = false;
     if (!dbObj?.characters) return changed;
@@ -391,58 +391,6 @@ function isCloudflareTunnelRequest(req) {
 }
 
 // Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
-
-// Stub metadata fields a JSON Patch may legitimately touch on a `chats[i]`
-// entry. Anything else is a chat-internal field and belongs to the chat endpoint. Keep in
-// intentionally limited to metadata that is part of the lazy chat stub.
-const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
-
-// Only add/replace/remove are produced by the legitimate patcher. move/copy
-// could alias _stub or other chat-internal fields through `from`, bypassing
-// the path-based field allowlist. Reject those op types outright on chat
-// paths. test ops can also reveal/manipulate state; deny for symmetry.
-const ALLOWED_CHAT_OP_TYPES = new Set(['add', 'replace', 'remove']);
-
-const CHAT_FIELD_PATH_RE = /^\/characters\/\d+\/chats\/\d+\/([^/]+)/;
-
-/** Detect patch operations outside the legacy chat metadata contract. */
-function findChatInternalFieldOps(patch) {
-    if (!Array.isArray(patch)) return [];
-    const violations = [];
-    for (const op of patch) {
-        if (!op || typeof op !== 'object' || typeof op.path !== 'string') continue;
-
-        const pathMatch = op.path.match(CHAT_FIELD_PATH_RE);
-        const fromMatch = typeof op.from === 'string' ? op.from.match(CHAT_FIELD_PATH_RE) : null;
-        if (!pathMatch && !fromMatch) continue;
-
-        if (!ALLOWED_CHAT_OP_TYPES.has(op.op)) {
-            violations.push({
-                op: op.op,
-                path: op.path,
-                field: (pathMatch && pathMatch[1]) || (fromMatch && fromMatch[1]) || '',
-                reason: 'disallowed op type on chat field',
-            });
-            continue;
-        }
-
-        if (pathMatch) {
-            const field = pathMatch[1];
-            if (!STUB_METADATA_FIELDS.has(field)) {
-                violations.push({ op: op.op, path: op.path, field });
-                continue;
-            }
-            if (field === '_stub') {
-                if (op.op === 'remove') {
-                    violations.push({ op: op.op, path: op.path, field, reason: 'remove _stub' });
-                } else if ((op.op === 'add' || op.op === 'replace') && op.value !== true) {
-                    violations.push({ op: op.op, path: op.path, field, reason: 'non-true _stub value' });
-                }
-            }
-        }
-    }
-    return violations;
-}
 
 /**
  * Read a canonical chat as a caller-owned { chat, etag }. Legacy rows that
@@ -2078,7 +2026,6 @@ installRevenantGenerationRoutes(app, {
 });
 
 require('./routes/web.cjs').installWebRoutes(app, {
-    enablePatchSync: true,
     isCloudflareTunnelRequest,
     getDevServer: () => viteDevServer,
 });
@@ -2118,7 +2065,6 @@ require('./routes/pluginStorage.cjs').installPluginStorageRoutes(app, {
 });
 
 require('./routes/database.cjs').installDatabaseRoutes(app, {
-    findChatInternalFieldOps,
     appDataStore,
     checkAuth,
     queueStorageOperation,

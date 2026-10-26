@@ -7,11 +7,10 @@ const { normalizeJSON } = require('./utils/json.cjs');
 const {
     computeChatEtag,
     MISSING_CHAT_ETAG,
-    chatToStub,
-    mergeChatStubWithFullChat,
+    mergeChatMetadata,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
-const { assertChatIdentity, chatMetadataFields, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
+const { assertChatIdentity, chatMetadataFields, chatToStub, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
 const { ensureDatabasePresetIds, ensureUniqueEntityIds } = require('../shared/entityIds.mjs');
 const { normalizePromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 const {
@@ -126,19 +125,11 @@ function collectionItemKey(item, position, used) {
     return uniqueKey(item?.id, position, used);
 }
 
-function chatMetadata(chat) {
-    const stub = chatToStub(chat ?? {});
-    if (stub && typeof stub === 'object') return stub;
-    return { id: chat?.id ?? '', name: '', _stub: true };
-}
-
-// Metadata synchronization is deliberately stricter than compatibility
-// import. A startup projection may contain placeholders (or, from an older
-// client, an accidentally hydrated chat); neither is allowed to replace the
-// independently stored chat body.
-function startupChatMetadata(chat, chatId) {
-    const source = withoutKeys(chat, ['message', '_stub', '_placeholder']);
-    return { ...chatToStub({ ...source, id: chatId }), id: chatId };
+// List metadata is rebuilt from its fields alone. An incoming `_stub` marker
+// (older clients, backups) is never trusted, and a hydrated chat or runtime
+// placeholder can never replace the independently stored chat body.
+function chatMetadata(chat, chatId) {
+    return chatToStub({ ...withoutKeys(chat, ['_stub']), id: chatId });
 }
 
 function chatContent(chat) {
@@ -427,8 +418,8 @@ function createAppDataStore(db) {
                     message: Array.isArray(chat.message) ? chat.message : [],
                 };
                 ensureUniqueEntityIds(fullChat.message, crypto.randomUUID, 'chatId');
-                const stub = { ...chatMetadata({ ...chat, id: chatId }), id: chatId };
-                const canonicalChat = mergeChatStubWithFullChat(stub, fullChat);
+                const stub = chatMetadata(chat, chatId);
+                const canonicalChat = mergeChatMetadata(stub, fullChat);
                 insertChat.run(
                     characterId,
                     chatId,
@@ -661,7 +652,7 @@ function createAppDataStore(db) {
             id: row.chat_id,
             message: readMessages(characterId, row.chat_id),
         };
-        return mergeChatStubWithFullChat(stub, content);
+        return mergeChatMetadata(stub, content);
     }
 
     function readCharacters(includeMessages) {
@@ -756,7 +747,7 @@ function createAppDataStore(db) {
                     chaId: characterId,
                     chats: chats.map(chat => {
                         const chatId = persistentEntityId(chat?.id, usedChats);
-                        return startupChatMetadata(chat, chatId);
+                        return chatMetadata(chat, chatId);
                     }),
                 };
             });
@@ -957,7 +948,7 @@ function createAppDataStore(db) {
             const currentRow = currentById.get(stub.id);
             if (!currentRow) {
                 const content = { id: stub.id, message: [] };
-                const canonical = mergeChatStubWithFullChat(stub, content);
+                const canonical = mergeChatMetadata(stub, content);
                 insertChat.run(
                     characterId,
                     stub.id,
@@ -981,7 +972,7 @@ function createAppDataStore(db) {
             let etag = currentRow.content_etag;
             if (stubChanged) {
                 const currentFullChat = assembleChat(currentRow, characterId, true);
-                const reconciled = mergeChatStubWithFullChat(stub, currentFullChat);
+                const reconciled = mergeChatMetadata(stub, currentFullChat);
                 content = chatContent(reconciled);
                 etag = computeChatEtag(reconciled);
             }
@@ -1224,10 +1215,10 @@ function createAppDataStore(db) {
         if (currentRow) {
             stub = decodeValue(currentRow.stub_payload);
         } else {
-            stub = { ...chatMetadata({ ...normalized, id: chatId }), id: chatId };
+            stub = chatMetadata(normalized, chatId);
         }
         const content = { ...chatContent(normalized), id: chatId, message: messages };
-        const canonical = mergeChatStubWithFullChat(stub, content);
+        const canonical = mergeChatMetadata(stub, content);
         const etag = computeChatEtag(canonical);
 
         if (currentRow && etag === currentEtag

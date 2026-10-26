@@ -41,7 +41,6 @@ const migratedLegacyTextItems = [
 ]
 
 beforeEach(() => {
-    decodeFile.mockClear()
     DBState.db = { botPresets: [] }
 })
 

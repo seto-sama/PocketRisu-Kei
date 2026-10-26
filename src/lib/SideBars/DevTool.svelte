@@ -5,7 +5,6 @@
     import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
     import Input from "../UI/components/Input.svelte";
     import NumberInput from "../UI/components/NumberInput.svelte";
-    import { previewChatGuardToast, previewPersistFailureToast } from "src/ts/globalApi.svelte";
     import { alertConfirm, alertMd } from "src/ts/alert";
     import Accordion from "../UI/components/Accordion.svelte";
     import Button from "../UI/components/Button.svelte";

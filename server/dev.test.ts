@@ -23,7 +23,6 @@ it('serves Vite modules and backend startup APIs from the same origin without a 
     const html = await page.text()
     expect(page.status).toBe(200)
     expect(html).toContain('globalThis.__NODE__ = true')
-    expect(html).toContain('globalThis.__PATCH_SYNC__ = true')
     expect(html).toContain('globalThis.__POCKETRISU_DEBUG__ = true')
     expect(html).toContain('/@vite/client')
 

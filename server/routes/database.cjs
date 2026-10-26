@@ -4,6 +4,7 @@ const { createDatabaseProjectionService, DatabaseProjectionServiceError } = requ
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
+const { findChatInternalFieldOps } = require('../../shared/chatShape.mjs');
 const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 const { encode, decode } = require('msgpackr');
 const { binaryBodyParser } = require('../utils/binaryHttp.cjs');
@@ -17,14 +18,12 @@ function installDatabaseRoutes(app, {
     isCloudflareTunnelRequest,
     requireSyncClientId,
     syncTrashRetention,
-    findChatInternalFieldOps,
     scheduleBackupAndRotate,
     broadcastDatabaseInvalidated,
     sessionAuthMiddleware,
 }) {
     const databaseProjectionService = createDatabaseProjectionService({
         appDataStore,
-        findChatInternalFieldOps,
         filterRemoteProjection: filterRemoteOnlyFolders,
         mergeRemoteProjection: mergeRemoteFilteredDatabase,
         restoreServerOwnedMetadata: restoreGenerationOwnedMetadata,

@@ -392,6 +392,17 @@ describe('relational app data projection', () => {
         expect(startup.characters[0].chats[0]).not.toHaveProperty('localLore')
     })
 
+    it('rebuilds chat metadata from its fields even when the input claims to be a stub', () => {
+        const { store } = createStore()
+        const source = sampleDatabase()
+        source.characters[0].chats.push({ id: 'chat-2', name: '스텁', _stub: true, localLore: 'leaked' } as any)
+
+        store.replaceFromProjection(source)
+
+        expect(store.exportProjection({ includeMessages: false }).characters[0].chats[1])
+            .toEqual({ id: 'chat-2', name: '스텁', _stub: true })
+    })
+
     it('reads one indexed chat without materializing the full projection', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())

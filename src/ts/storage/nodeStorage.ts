@@ -96,13 +96,6 @@ async function readBackupResult<T>(
     return result
 }
 
-export interface PersistWarning {
-    timestamp: number
-    message: string
-    attemptedSize: number | null
-    source: string
-}
-
 export interface BackupRestoreResult {
     ok: boolean
     assetsRestored: number
@@ -121,7 +114,6 @@ export interface PatchItemResult {
     etag?: string
     revision?: number
     conflict?: boolean
-    persistWarning?: PersistWarning
     chatGuardRejected?: boolean
 }
 
@@ -663,7 +655,6 @@ export class NodeStorage{
             currentEtag?: string
             revision?: number
             currentRevision?: number
-            persistWarning?: PersistWarning
         }
         const etag = data.etag ?? data.currentEtag
         const revision = data.revision ?? data.currentRevision
@@ -676,45 +667,18 @@ export class NodeStorage{
         if (data.error) {
             throw new StorageRequestError('initializeDatabase', response.status, data.error, data.code)
         }
-        return {
-            success: true,
-            etag,
-            revision,
-            persistWarning: data.persistWarning,
-        }
+        return { success: true, etag, revision }
     }
 
     async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
-        return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
-    }
-
-    async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
-        return this.sendPatch('/api/patch', patchData, key === 'database/database.bin', key)
-    }
-
-    private async sendPatch(
-        endpoint: string,
-        patchData: ProjectionPatch,
-        tracksDatabase: boolean,
-        key?: string,
-        method: 'POST' | 'PATCH' = 'POST',
-    ): Promise<PatchItemResult> {
         if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
-        const operation = tracksDatabase ? 'patchDatabase' : 'patchItem'
-        const binary = method === 'PATCH'
-
-        const headers: Record<string, string> = {
-            'content-type': binary ? BINARY_MESSAGE_CONTENT_TYPE : 'application/json',
-        }
-        if (tracksDatabase && this.pluginStorageExclusionHeader) {
+        const headers: Record<string, string> = { 'content-type': BINARY_MESSAGE_CONTENT_TYPE }
+        if (this.pluginStorageExclusionHeader) {
             headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
         }
-        if (key) {
-            headers['file-path'] = Buffer.from(key, 'utf-8').toString('hex')
-        }
-        const da = await this.authFetch(endpoint, {
-            method,
-            body: binary ? encode(patchData) : JSON.stringify(patchData),
+        const da = await this.authFetch('/api/database', {
+            method: 'PATCH',
+            body: encode(patchData),
             headers,
         })
 
@@ -722,10 +686,10 @@ export class NodeStorage{
             const data = await da.json()
             const currentEtag = data.currentEtag as string | undefined
             const currentRevision = data.currentRevision as number | undefined
-            if (tracksDatabase && currentEtag) {
+            if (currentEtag) {
                 this._lastDbEtag = currentEtag
             }
-            if (tracksDatabase && Number.isSafeInteger(currentRevision)) {
+            if (Number.isSafeInteger(currentRevision)) {
                 this._lastDbRevision = currentRevision as number
             }
             const rejectedByChatGuard = data.code === apiErrorCodes.CHAT_GUARD_REJECTED
@@ -742,22 +706,21 @@ export class NodeStorage{
             }
         }
         if (da.status < 200 || da.status >= 300) {
-            throw await storageRequestError(operation, da)
+            throw await storageRequestError('patchDatabase', da)
         }
         const data = await da.json()
         if (data.error) {
-            throw new StorageRequestError(operation, da.status, String(data.error), data.code)
+            throw new StorageRequestError('patchDatabase', da.status, String(data.error), data.code)
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
-        if (tracksDatabase && nextEtag) {
+        if (nextEtag) {
             this._lastDbEtag = nextEtag
         }
-        if (tracksDatabase && Number.isSafeInteger(nextRevision)) {
+        if (Number.isSafeInteger(nextRevision)) {
             this._lastDbRevision = nextRevision as number
         }
-        const persistWarning = data.persistWarning as PersistWarning | undefined
-        return { success: true, etag: nextEtag, revision: nextRevision, persistWarning }
+        return { success: true, etag: nextEtag, revision: nextRevision }
     }
 
     async getItems(keys: string[]): Promise<{key: string, value: Buffer}[]> {

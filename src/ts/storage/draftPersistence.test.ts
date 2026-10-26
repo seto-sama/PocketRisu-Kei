@@ -34,12 +34,15 @@ describe('createDebouncedDraftWriter', () => {
 
     it('contains synchronous storage failures in a scheduled save', async () => {
         vi.useFakeTimers()
-        const writer = createDebouncedDraftWriter(() => {
+        const write = vi.fn((_value: string) => {
             throw new Error('storage unavailable')
-        }, 250)
+        })
+        const writer = createDebouncedDraftWriter(write, 250)
 
         writer.schedule('draft')
+        // A failure escaping the timer callback would reject here.
         await vi.advanceTimersByTimeAsync(250)
+        expect(write).toHaveBeenCalledWith('draft')
         expect(vi.getTimerCount()).toBe(0)
         vi.useRealTimers()
     })

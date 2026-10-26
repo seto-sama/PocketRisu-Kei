@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const API_ERROR_CODES = require('../shared/apiErrorCodes.json');
 const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 const { normalizeJSON } = require('./utils/json.cjs');
-const { assertChatIdentity, chatToStub, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
+const { assertChatIdentity, optionalChatMetadataFields, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
 const { EntityIdValidationError } = require('../shared/entityIds.mjs');
 const { stripChatCompatibility } = require('./bookmarkStore.cjs');
 const {
@@ -22,20 +22,16 @@ function computeChatEtag(chat) {
     return crypto.createHash('sha256').update(encoded).digest('hex');
 }
 
-function mergeChatStubWithFullChat(stub, fullChat) {
-    if (!fullChat) return stub;
-    if (!stub || !stub._stub) return fullChat;
-    const merged = {
-        ...fullChat,
-        id: stub.id || fullChat.id || '',
-        name: stub.name,
-    };
-    if ('_stub' in merged) delete merged._stub;
-    // Stub metadata is authoritative, including key absence. Keeping an old
-    // value from the independently stored body when the stub omits a field
-    // resurrects metadata that another client explicitly removed.
+/**
+ * Overlay the authoritative list metadata on a chat body. Metadata is
+ * authoritative including key absence: keeping an old value from the
+ * independently stored body when the metadata omits a field resurrects
+ * metadata that another client explicitly removed.
+ */
+function mergeChatMetadata(metadata, content) {
+    const merged = { ...content, id: metadata.id || content.id || '', name: metadata.name };
     for (const field of optionalChatMetadataFields) {
-        if (field in stub) merged[field] = stub[field];
+        if (field in metadata) merged[field] = metadata[field];
         else delete merged[field];
     }
     return merged;
@@ -292,8 +288,7 @@ function createCanonicalChatService(options) {
 module.exports = {
     MISSING_CHAT_ETAG,
     computeChatEtag,
-    chatToStub,
-    mergeChatStubWithFullChat,
+    mergeChatMetadata,
     CanonicalChatCommitError,
     createCanonicalChatService,
 };

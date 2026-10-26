@@ -1,5 +1,6 @@
 import { forageStorage } from "./autoStorage"
-import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
+import type { Chat, ChatStub, ChatOrStub } from "./database.svelte"
+import { isChatStub } from "./chatStub"
 import { tick } from "svelte"
 import { writable, type Readable } from 'svelte/store'
 import { DeltaSave } from './deltaSave'

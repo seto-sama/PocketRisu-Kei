@@ -20,15 +20,12 @@ afterEach(() => {
 })
 
 describe('NodeStorage patch transport', () => {
-    it('does not send an empty JSON Patch', async () => {
+    it('does not send an empty projection delta', async () => {
         const storage = new NodeStorage()
         const fetchMock = vi.fn()
         vi.stubGlobal('fetch', fetchMock)
 
-        await expect(storage.patchItem('database/database.bin', {
-            patch: [],
-            expectedHash: 'stale-hash',
-        })).resolves.toEqual({ success: true })
+        await expect(storage.patchDatabase({ changes: [] })).resolves.toEqual({ success: true })
         expect(fetchMock).not.toHaveBeenCalled()
     })
 
@@ -77,7 +74,6 @@ describe('NodeStorage patch transport', () => {
             success: true,
             etag: 'db-etag-5',
             revision: 5,
-            persistWarning: undefined,
         })
         expect(authFetch).toHaveBeenCalledWith('/api/database', {
             method: 'PATCH',

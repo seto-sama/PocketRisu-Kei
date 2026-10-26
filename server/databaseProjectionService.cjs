@@ -5,6 +5,7 @@ const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../sha
 const { calculateHash, normalizeJSON } = require('./utils/json.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
 const { EntityIdValidationError } = require('../shared/entityIds.mjs');
+const { findChatInternalFieldOps } = require('../shared/chatShape.mjs');
 const { createPatchHashDiagnostics } = require('../shared/patchHashDiagnostics.mjs');
 const {
     classifiedPluginOwner,
@@ -346,7 +347,7 @@ function createDatabaseProjectionService(options = {}) {
                 ? applyDelta(patchTarget, request.changes)
                 : applyJsonPatch(patchTarget, patch, true).newDocument;
             appliedOperations = usesDelta ? request.changes.length : patch.length;
-            if (options.findChatInternalFieldOps?.(compare(visible, result)).length > 0) {
+            if (findChatInternalFieldOps(compare(visible, result)).length > 0) {
                 throw new DatabaseProjectionConflictError('Chat body changes require the chat endpoint', {
                     code: 'CHAT_GUARD_REJECTED', currentEtag: snapshot.etag,
                     currentRevision: snapshot.revision,
