@@ -87,7 +87,7 @@ describe('database projection reads and initialization', () => {
         const result = service.getStartupProjection()
 
         expect(result).toMatchObject({
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
             revision: 1,
             initialized: true,
         })
@@ -195,7 +195,7 @@ describe('database projection reads and initialization', () => {
             statusCode: 409,
             code: 'DATABASE_ALREADY_INITIALIZED',
             currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ko')
     })
@@ -209,7 +209,7 @@ describe('database projection reads and initialization', () => {
         })
 
         expect(initialized).toMatchObject({ success: true, revision: 1 })
-        expect(store.getChat('character-1', 'chat-1').message).toEqual([
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual([
             { chatId: 'message-1', role: 'user', data: '본문' },
         ])
         expect(store.exportProjection()).toEqual(database)
@@ -276,7 +276,7 @@ describe('database projection JSON Patch commits', () => {
                 const committed = store.commitChat('character-1', 'chat-2', {
                     id: 'chat-2', name: '새 채팅',
                     message: [{ chatId: 'new-message', role: 'user', data: '새 본문' }],
-                }, undefined, { requireExpected: false })
+                }, undefined)
                 expect(committed.projectionChanged).toBe(true)
             },
         },
@@ -305,9 +305,9 @@ describe('database projection JSON Patch commits', () => {
             change: 'new message',
             conflicts: false,
             commit: (store: any) => {
-                const chat = store.getChat('character-1', 'chat-1')
+                const { chat, etag } = store.getChatState('character-1', 'chat-1')
                 chat.message.push({ chatId: 'message-2', role: 'user', data: 'New message' })
-                store.commitChat('character-1', chat.id, chat, undefined, { requireExpected: false })
+                store.commitChat('character-1', chat.id, chat, etag)
             },
         },
     ])('continues saves after an independent $change commit with a stale cache', ({ commit, conflicts }) => {
@@ -326,7 +326,7 @@ describe('database projection JSON Patch commits', () => {
             }))
             expect(conflict).toMatchObject({
                 code: 'DATABASE_HASH_MISMATCH',
-                currentEtag: store.projectionEtag({ includeMessages: false }),
+                currentEtag: store.getState().projectionEtag,
                 currentRevision: store.getState().revision,
             })
 
@@ -364,10 +364,10 @@ describe('database projection JSON Patch commits', () => {
             changed: true,
             appliedOperations: 1,
             revision: 2,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('en')
-        expect(store.getChat('character-1', 'chat-1').message).toEqual([
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual([
             { chatId: 'message-1', role: 'user', data: '본문' },
         ])
     })
@@ -407,7 +407,7 @@ describe('database projection JSON Patch commits', () => {
             changed: false,
             appliedOperations: 0,
             revision: before.revision,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.getState()).toEqual(before)
         expect((sqlite.prepare('SELECT total_changes() AS count').get() as any).count)
@@ -428,7 +428,7 @@ describe('database projection JSON Patch commits', () => {
             statusCode: 409,
             code: 'DATABASE_HASH_MISMATCH',
             currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
             currentHash: expectedHash(service.getStartupProjection().database),
         })
         expect(store.exportProjection().language).toBe('ko')
@@ -496,7 +496,7 @@ describe('database projection JSON Patch commits', () => {
             statusCode: 409,
             code: 'DATABASE_PROJECTION_CHANGED',
             currentRevision: 2,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ja')
     })
@@ -548,7 +548,7 @@ describe('remote and server-owned projection transforms', () => {
             localOnlyRoot: { secret: true },
         })
         expect(store.exportProjection().characters[0].lastInteraction).toBe(123)
-        expect(store.getChat('character-1', 'chat-1').message[0].data).toBe('본문')
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message[0].data).toBe('본문')
         expect(filterRemoteProjection).toHaveBeenCalled()
         expect(mergeRemoteProjection).toHaveBeenCalledOnce()
         expect(restoreServerOwnedMetadata).toHaveBeenCalledOnce()

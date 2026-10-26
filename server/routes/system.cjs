@@ -15,7 +15,6 @@ const { MANIFEST_NAME, createUpdateManifest } = require('../../shared/updateMani
 function installSystemRoutes(app, {
     checkAuth,
     stopTunnel,
-    flushPendingDb,
 }) {
     const GITHUB_REPO = 'seto-sama/PocketRisu-Kei';
     const RELEASE_TAG_PREFIX = 'kei-v';
@@ -426,7 +425,6 @@ function installSystemRoutes(app, {
             setTimeout(async () => {
                 try {
                 console.log(`[Update] Self-update to v${targetVersion} complete. Restarting...`);
-                try { await flushPendingDb(); } catch {}
                 try { checkpointWal('TRUNCATE'); } catch {}
 
                 const port = process.env.PORT || 6001;

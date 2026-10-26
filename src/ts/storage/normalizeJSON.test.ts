@@ -3,7 +3,6 @@ import { describe, expect, test, vi } from 'vitest';
 // Mock heavy deps so importing risuSave.ts doesn't pull the Svelte runtime or
 // trigger module-level side effects (mirrors risuSavePatcher.test.ts).
 vi.mock('./database.svelte', () => ({}));
-vi.mock('./chatStorage', () => ({ chatToStub: (c: any) => c }));
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }));
 
 const { normalizeJSON } = await import('./risuSave');

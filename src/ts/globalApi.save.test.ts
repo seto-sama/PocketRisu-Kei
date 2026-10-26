@@ -79,10 +79,9 @@ vi.mock('./storage/risuSave', () => ({
     calculateHash: () => 0,
     decodeRisuSave: async () => ({}),
     encodeRisuSaveLegacy: () => new Uint8Array(),
-    findDangerousChatOps: () => [],
 }))
 
-vi.mock('./platform', () => ({ isNodeServer: true, supportsPatchSync: false }))
+vi.mock('./platform', () => ({ isNodeServer: true }))
 vi.mock('./storage/chatSelection.svelte', () => ({ getChatPage: () => 0, setChatPage() {} }))
 vi.mock('./storage/chatStorage', () => ({
     saveChatToServer: mocks.saveChatToServer,

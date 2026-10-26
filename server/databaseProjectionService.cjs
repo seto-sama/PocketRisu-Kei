@@ -5,6 +5,7 @@ const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../sha
 const { calculateHash, normalizeJSON } = require('./utils/json.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
 const { EntityIdValidationError } = require('../shared/entityIds.mjs');
+const { findChatInternalFieldOps } = require('../shared/chatShape.mjs');
 const { createPatchHashDiagnostics } = require('../shared/patchHashDiagnostics.mjs');
 const {
     classifiedPluginOwner,
@@ -148,25 +149,18 @@ function restoreExcludedPluginStorage(incoming, canonical, requestOptions = {}) 
 }
 
 function createDatabaseProjectionService(options = {}) {
-    const appDataStore = options.appDataStore ?? options.store;
+    const { appDataStore } = options;
     if (!appDataStore
         || typeof appDataStore.exportProjection !== 'function'
         || typeof appDataStore.getState !== 'function'
-        || typeof appDataStore.projectionEtag !== 'function'
         || typeof appDataStore.replaceFromProjection !== 'function'
         || typeof appDataStore.syncStartupProjection !== 'function') {
         throw new TypeError('createDatabaseProjectionService requires an appDataStore');
     }
 
-    const filterRemoteProjection = options.filterRemoteProjection
-        ?? options.filterRemoteOnlyFolders
-        ?? identity;
-    const mergeRemoteProjection = options.mergeRemoteProjection
-        ?? options.mergeRemoteFilteredDatabase
-        ?? replaceVisibleProjection;
-    const restoreServerOwnedMetadata = options.restoreServerOwnedMetadata
-        ?? options.restoreGenerationOwnedMetadata
-        ?? identity;
+    const filterRemoteProjection = options.filterRemoteProjection ?? identity;
+    const mergeRemoteProjection = options.mergeRemoteProjection ?? replaceVisibleProjection;
+    const restoreServerOwnedMetadata = options.restoreServerOwnedMetadata ?? identity;
     for (const [name, callback] of [
         ['filterRemoteProjection', filterRemoteProjection],
         ['mergeRemoteProjection', mergeRemoteProjection],
@@ -185,9 +179,7 @@ function createDatabaseProjectionService(options = {}) {
         const state = appDataStore.getState();
         return {
             database,
-            etag: typeof appDataStore.projectionEtagFor === 'function'
-                ? appDataStore.projectionEtagFor(database)
-                : appDataStore.projectionEtag(STARTUP_PROJECTION_OPTIONS),
+            etag: state.projectionEtag,
             revision: state.revision,
             initialized: state.initialized,
             updatedAt: state.updatedAt,
@@ -273,25 +265,8 @@ function createDatabaseProjectionService(options = {}) {
             );
         }
 
-        let incoming = normalizeProjection(database);
-        try {
-            if (remote && snapshot.initialized) {
-                incoming = normalizeProjection(
-                    mergeRemoteProjection(snapshot.database, incoming),
-                );
-            }
-            if (snapshot.initialized) {
-                incoming = normalizeProjection(
-                    restoreServerOwnedMetadata(incoming, snapshot.database),
-                );
-            }
-        } catch (error) {
-            if (error instanceof DatabaseProjectionServiceError) throw error;
-            throw new DatabaseProjectionApplyError(
-                `Database initialization transform failed: ${error?.message ?? error}`,
-                { code: 'DATABASE_INITIALIZATION_TRANSFORM_FAILED', cause: error },
-            );
-        }
+        // A pristine store has no server-owned state to merge into.
+        const incoming = normalizeProjection(database);
 
         let result;
         try {
@@ -305,7 +280,7 @@ function createDatabaseProjectionService(options = {}) {
                 changed: true,
                 revision: state.revision,
                 updatedAt: state.updatedAt,
-                etag: appDataStore.projectionEtag(STARTUP_PROJECTION_OPTIONS),
+                etag: state.projectionEtag,
             };
         } catch (error) {
             wrapStoreConflict(error, { remote }, 'Database changed during initialization');
@@ -372,7 +347,7 @@ function createDatabaseProjectionService(options = {}) {
                 ? applyDelta(patchTarget, request.changes)
                 : applyJsonPatch(patchTarget, patch, true).newDocument;
             appliedOperations = usesDelta ? request.changes.length : patch.length;
-            if (options.findChatInternalFieldOps?.(compare(visible, result)).length > 0) {
+            if (findChatInternalFieldOps(compare(visible, result)).length > 0) {
                 throw new DatabaseProjectionConflictError('Chat body changes require the chat endpoint', {
                     code: 'CHAT_GUARD_REJECTED', currentEtag: snapshot.etag,
                     currentRevision: snapshot.revision,

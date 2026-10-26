@@ -30,9 +30,6 @@ function installBackupRoutes(app, {
     checkDownloadAuth,
     deleteSnapshotStateRows,
     DB_BACKUP_PREFIX,
-    storageState,
-    DB_HEX_KEY,
-    saveTimers,
     backupState,
     BACKUP_FILENAME_REGEX,
     normalizeLegacyDatabaseProjection,
@@ -42,7 +39,6 @@ function installBackupRoutes(app, {
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    flushPendingDb,
     prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
@@ -69,7 +65,7 @@ function installBackupRoutes(app, {
     SNAPSHOT_LIMIT_COUNT_KEY,
     SNAPSHOT_LIMIT_BYTES_KEY,
     trimSnapshotsToLimits,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     DEFAULT_BACKUPS_DIR,
     BACKUP_PATH_CONFIG_KEY,
     writeBackupPathMarker,
@@ -84,16 +80,6 @@ function installBackupRoutes(app, {
             logicalBytes += (kvSize(k) || 0);
         }
         return { count: keys.length, bytes, logicalBytes };
-    }
-
-    function invalidateDbCache() {
-        delete storageState.dbCache[DB_HEX_KEY];
-        storageState.fullChatStore = null;
-        if (saveTimers[DB_HEX_KEY]) {
-            clearTimeout(saveTimers[DB_HEX_KEY]);
-            delete saveTimers[DB_HEX_KEY];
-        }
-        storageState.dbEtag = null;
     }
 
     const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
@@ -298,9 +284,8 @@ function installBackupRoutes(app, {
         kvDelPrefix,
         clearEntities,
         checkpointWal,
-        flushPendingDb,
         createBackupAndRotate: createPreReplacementSnapshot,
-        invalidateDbCache,
+        syncTrashRetention,
         prepareDatabaseProjection: prepareImportedDatabaseProjection,
         replacePluginStorage: (entries) => appDataStore.replacePluginStorage(entries),
         normalizeInlayExt,
@@ -962,9 +947,6 @@ function installBackupRoutes(app, {
                 return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
 
-            // Include any debounced DB changes before deciding which assets the
-            // current save references. Asset restoration itself is additive.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 sendApiError(res, 409, API_ERROR_CODES.DATABASE_NOT_FOUND);
                 return;
@@ -1228,10 +1210,6 @@ function installBackupRoutes(app, {
 
     async function restoreDatabaseBlob(blob, options = {}) {
         await queueStorageOperation(async () => {
-            // Drain any pending debounced persist first — same pattern as
-            // /api/db/optimize. Without this, an in-flight save could land
-            // after the restore and overwrite the restored snapshot.
-            await flushPendingDb();
             const decoded = await decodeRisuSave(Buffer.from(blob));
             const { database } = normalizeLegacyDatabaseProjection(decoded);
             sqliteDb.transaction(() => {
@@ -1252,7 +1230,7 @@ function installBackupRoutes(app, {
                     expectedRevision: appDataStore.getState().revision,
                 });
             })();
-            refreshCanonicalDatabaseCache({ invalidateChats: true });
+            syncTrashRetention();
         });
     }
 

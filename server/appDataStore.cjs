@@ -5,12 +5,12 @@ const { createContentReferenceCollector, validateReferenceCandidates, matchConte
 const { Packr, Unpackr } = require('msgpackr');
 const { normalizeJSON } = require('./utils/json.cjs');
 const {
-    chatToStub,
     computeChatEtag,
-    mergeChatStubWithFullChat,
+    MISSING_CHAT_ETAG,
+    mergeChatMetadata,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
-const { assertChatIdentity, chatMetadataFields, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
+const { assertChatIdentity, chatMetadataFields, chatToStub, runtimeOnlyChatFields } = require('../shared/chatShape.mjs');
 const { ensureDatabasePresetIds, ensureUniqueEntityIds } = require('../shared/entityIds.mjs');
 const { normalizePromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 const {
@@ -20,7 +20,6 @@ const {
 
 const APP_DATA_SCHEMA_VERSION = 2;
 const STATE_ROW_ID = 1;
-const MISSING_CHAT_ETAG = 'missing';
 const PLUGIN_STORAGE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS app_plugin_storage (
     namespace TEXT NOT NULL CHECK (namespace IN ('includedInSave', 'localStorage', 'localForage')),
@@ -126,19 +125,11 @@ function collectionItemKey(item, position, used) {
     return uniqueKey(item?.id, position, used);
 }
 
-function chatMetadata(chat) {
-    const stub = chatToStub(chat ?? {});
-    if (stub && typeof stub === 'object') return stub;
-    return { id: chat?.id ?? '', name: '', _stub: true };
-}
-
-// Metadata synchronization is deliberately stricter than compatibility
-// import. A startup projection may contain placeholders (or, from an older
-// client, an accidentally hydrated chat); neither is allowed to replace the
-// independently stored chat body.
-function startupChatMetadata(chat, chatId) {
-    const source = withoutKeys(chat, ['message', '_stub', '_placeholder']);
-    return { ...chatToStub({ ...source, id: chatId }), id: chatId };
+// List metadata is rebuilt from its fields alone. An incoming `_stub` marker
+// (older clients, backups) is never trusted, and a hydrated chat or runtime
+// placeholder can never replace the independently stored chat body.
+function chatMetadata(chat, chatId) {
+    return chatToStub({ ...withoutKeys(chat, ['_stub']), id: chatId });
 }
 
 function chatContent(chat) {
@@ -156,10 +147,6 @@ function characterMetadata(character) {
 
 function encodedEqual(left, right) {
     return encodeValue(left).equals(encodeValue(right));
-}
-
-function hashProjection(projection) {
-    return crypto.createHash('sha256').update(encodeValue(projection)).digest('hex');
 }
 
 function createAppDataStore(db) {
@@ -186,7 +173,8 @@ function createAppDataStore(db) {
         schema_version INTEGER NOT NULL,
         revision       INTEGER NOT NULL DEFAULT 0,
         initialized    INTEGER NOT NULL DEFAULT 0,
-        updated_at     INTEGER NOT NULL
+        updated_at     INTEGER NOT NULL,
+        metadata_revision INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS app_root_fields (
@@ -273,6 +261,11 @@ function createAppDataStore(db) {
         ON app_messages(character_id, chat_id, position);
     `);
 
+    if (!db.prepare('PRAGMA table_info(app_data_state)').all()
+        .some(column => column.name === 'metadata_revision')) {
+        db.exec('ALTER TABLE app_data_state ADD COLUMN metadata_revision INTEGER NOT NULL DEFAULT 0');
+    }
+
     const now = Date.now();
     db.prepare(`
       INSERT OR IGNORE INTO app_data_state
@@ -281,13 +274,19 @@ function createAppDataStore(db) {
     `).run(STATE_ROW_ID, APP_DATA_SCHEMA_VERSION, now);
 
     const stateRow = db.prepare(`
-      SELECT schema_version, revision, initialized, updated_at
+      SELECT schema_version, revision, initialized, updated_at, metadata_revision
       FROM app_data_state WHERE id = ?
     `);
     const updateState = db.prepare(`
       UPDATE app_data_state
       SET revision = ?, initialized = ?, updated_at = ?
       WHERE id = ?
+    `);
+    // `revision` also advances on chat body commits. The startup projection
+    // ETag needs a counter that moves only when that projection does, so a
+    // body commit cannot fail an unrelated metadata patch.
+    const bumpMetadataRevision = db.prepare(`
+      UPDATE app_data_state SET metadata_revision = metadata_revision + 1 WHERE id = ?
     `);
 
     const installedState = stateRow.get(STATE_ROW_ID);
@@ -360,6 +359,7 @@ function createAppDataStore(db) {
             revision: row.revision,
             initialized: row.initialized === 1,
             updatedAt: row.updated_at,
+            projectionEtag: `m${row.metadata_revision}`,
         };
     }
 
@@ -428,8 +428,8 @@ function createAppDataStore(db) {
                     message: Array.isArray(chat.message) ? chat.message : [],
                 };
                 ensureUniqueEntityIds(fullChat.message, crypto.randomUUID, 'chatId');
-                const stub = { ...chatMetadata({ ...chat, id: chatId }), id: chatId };
-                const canonicalChat = mergeChatStubWithFullChat(stub, fullChat);
+                const stub = chatMetadata(chat, chatId);
+                const canonicalChat = mergeChatMetadata(stub, fullChat);
                 insertChat.run(
                     characterId,
                     chatId,
@@ -501,6 +501,7 @@ function createAppDataStore(db) {
 
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
+        bumpMetadataRevision.run(STATE_ROW_ID);
         return { revision, updatedAt };
     });
 
@@ -642,6 +643,11 @@ function createAppDataStore(db) {
         };
     }
 
+    /** One plain root setting, read without assembling the projection. */
+    function getRootValue(field) {
+        return decodeValue(selectRootValue.get(field)?.payload);
+    }
+
     function readMessages(characterId, chatId) {
         return selectMessages.all(characterId, chatId)
             .map(row => decodeValue(row.payload));
@@ -657,7 +663,7 @@ function createAppDataStore(db) {
             id: row.chat_id,
             message: readMessages(characterId, row.chat_id),
         };
-        return mergeChatStubWithFullChat(stub, content);
+        return mergeChatMetadata(stub, content);
     }
 
     function readCharacters(includeMessages) {
@@ -752,7 +758,7 @@ function createAppDataStore(db) {
                     chaId: characterId,
                     chats: chats.map(chat => {
                         const chatId = persistentEntityId(chat?.id, usedChats);
-                        return startupChatMetadata(chat, chatId);
+                        return chatMetadata(chat, chatId);
                     }),
                 };
             });
@@ -953,7 +959,7 @@ function createAppDataStore(db) {
             const currentRow = currentById.get(stub.id);
             if (!currentRow) {
                 const content = { id: stub.id, message: [] };
-                const canonical = mergeChatStubWithFullChat(stub, content);
+                const canonical = mergeChatMetadata(stub, content);
                 insertChat.run(
                     characterId,
                     stub.id,
@@ -977,7 +983,7 @@ function createAppDataStore(db) {
             let etag = currentRow.content_etag;
             if (stubChanged) {
                 const currentFullChat = assembleChat(currentRow, characterId, true);
-                const reconciled = mergeChatStubWithFullChat(stub, currentFullChat);
+                const reconciled = mergeChatMetadata(stub, currentFullChat);
                 content = chatContent(reconciled);
                 etag = computeChatEtag(reconciled);
             }
@@ -1043,8 +1049,7 @@ function createAppDataStore(db) {
 
     const syncStartupTransaction = db.transaction((incoming, options) => {
         const state = getState();
-        const current = exportProjection({ includeMessages: false });
-        const currentEtag = hashProjection(current);
+        const currentEtag = state.projectionEtag;
         if (options.expectedRevision !== undefined
             && options.expectedRevision !== state.revision) {
             throw new AppDataConflictError('Database revision changed', {
@@ -1060,6 +1065,7 @@ function createAppDataStore(db) {
             });
         }
 
+        const current = exportProjection({ includeMessages: false });
         const desired = canonicalStartupProjection(incoming);
         if (state.initialized && encodedEqual(current, desired)) {
             return {
@@ -1144,8 +1150,8 @@ function createAppDataStore(db) {
 
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        const etag = hashProjection(exportProjection({ includeMessages: false }));
-        return { changed: true, revision, updatedAt, etag };
+        bumpMetadataRevision.run(STATE_ROW_ID);
+        return { changed: true, revision, updatedAt, etag: getState().projectionEtag };
     });
 
     /**
@@ -1156,7 +1162,7 @@ function createAppDataStore(db) {
     function syncStartupProjection(value, options = {}) {
         return syncStartupTransaction(value, {
             expectedRevision: options.expectedRevision,
-            expectedEtag: options.expectedEtag ?? options.expectedProjectionEtag,
+            expectedEtag: options.expectedEtag,
         });
     }
 
@@ -1181,9 +1187,12 @@ function createAppDataStore(db) {
       WHERE character_id = ? AND chat_id = ?
     `);
 
-    function getChat(characterId, chatId) {
+    /** The full chat with the content ETag that commitChat() compares against. */
+    function getChatState(characterId, chatId) {
         const row = selectChat.get(characterId, chatId);
-        return row ? assembleChat(row, characterId, true) : undefined;
+        return row
+            ? { chat: assembleChat(row, characterId, true), etag: row.content_etag }
+            : undefined;
     }
 
     function getChatStubAt(characterId, position) {
@@ -1195,12 +1204,11 @@ function createAppDataStore(db) {
         return Boolean(selectChat.get(characterId, chatId));
     }
 
-    const commitChatTransaction = db.transaction((characterId, chatId, incoming, expectedEtag, options) => {
+    const commitChatTransaction = db.transaction((characterId, chatId, incoming, expectedEtag) => {
         const state = getState();
         const currentRow = selectChat.get(characterId, chatId);
         const currentEtag = currentRow?.content_etag ?? MISSING_CHAT_ETAG;
-        if ((options.requireExpected && currentRow && !expectedEtag)
-            || (expectedEtag && expectedEtag !== currentEtag)) {
+        if ((currentRow && !expectedEtag) || (expectedEtag && expectedEtag !== currentEtag)) {
             throw new AppDataConflictError('Chat content changed', {
                 currentRevision: state.revision,
                 currentEtag,
@@ -1218,10 +1226,10 @@ function createAppDataStore(db) {
         if (currentRow) {
             stub = decodeValue(currentRow.stub_payload);
         } else {
-            stub = { ...chatMetadata({ ...normalized, id: chatId }), id: chatId };
+            stub = chatMetadata(normalized, chatId);
         }
         const content = { ...chatContent(normalized), id: chatId, message: messages };
-        const canonical = mergeChatStubWithFullChat(stub, content);
+        const canonical = mergeChatMetadata(stub, content);
         const etag = computeChatEtag(canonical);
 
         if (currentRow && etag === currentEtag
@@ -1262,6 +1270,7 @@ function createAppDataStore(db) {
         );
         const updatedAt = Date.now();
         updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
+        if (!currentRow) bumpMetadataRevision.run(STATE_ROW_ID);
         return {
             chat: canonical, etag, revision, updatedAt, changed: true,
             // Existing rows retain their stub metadata during content commits.
@@ -1269,58 +1278,10 @@ function createAppDataStore(db) {
         };
     });
 
-    function commitChat(characterId, chatId, incoming, expectedEtag, options = {}) {
+    /** Commit a full chat body; an existing row requires its current content ETag. */
+    function commitChat(characterId, chatId, incoming, expectedEtag) {
         if (!characterId || !chatId) throw new TypeError('characterId and chatId are required');
-        return commitChatTransaction(
-            characterId,
-            chatId,
-            incoming,
-            expectedEtag,
-            { requireExpected: options.requireExpected !== false },
-        );
-    }
-
-    const deleteChatTransaction = db.transaction((characterId, chatId, expectedEtag) => {
-        const state = getState();
-        const row = selectChat.get(characterId, chatId);
-        if (!row) return { deleted: false, revision: state.revision };
-        if (expectedEtag && row.content_etag !== expectedEtag) {
-            throw new AppDataConflictError('Chat content changed', {
-                currentRevision: state.revision,
-                currentEtag: row.content_etag,
-            });
-        }
-        db.prepare(`
-          DELETE FROM app_chats WHERE character_id = ? AND chat_id = ?
-        `).run(characterId, chatId);
-        const revision = state.revision + 1;
-        const updatedAt = Date.now();
-        updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        return { deleted: true, revision, updatedAt };
-    });
-
-    function deleteChat(characterId, chatId, expectedEtag) {
-        return deleteChatTransaction(characterId, chatId, expectedEtag);
-    }
-
-    function clear(options = {}) {
-        return db.transaction(() => {
-            const state = assertExpectedRevision(options.expectedRevision);
-            deleteAllProjectionRows();
-            const revision = state.revision + 1;
-            const updatedAt = Date.now();
-            updateState.run(revision, 0, updatedAt, STATE_ROW_ID);
-            return { revision, updatedAt };
-        })();
-    }
-
-    function projectionEtag(options = {}) {
-        const projection = exportProjection(options);
-        return hashProjection(projection);
-    }
-
-    function projectionEtagFor(projection) {
-        return hashProjection(projection);
+        return commitChatTransaction(characterId, chatId, incoming, expectedEtag);
     }
 
     function assertPluginStorageNamespace(namespace) {
@@ -1430,13 +1391,12 @@ function createAppDataStore(db) {
     }
 
     return {
-        clear,
         commitChat,
-        deleteChat,
         estimateProjectionBytes,
         exportProjection,
-        getChat,
+        getChatState,
         getChatStubAt,
+        getRootValue,
         getState,
         hasChat,
         listCharacterStorage,
@@ -1450,8 +1410,6 @@ function createAppDataStore(db) {
         replacePluginStorage,
         importPluginStorage,
         pluginStorageFootprint,
-        projectionEtag,
-        projectionEtagFor,
         replaceFromProjection,
         syncStartupProjection,
         scanContentReferences,

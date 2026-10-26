@@ -31,8 +31,6 @@ export const languageChineseTraditional = {
         "vertexAuthError": "缺少 Vertex AI 驗證詳細資料。",
         "coldStorageWriteFailed": "冷儲存寫入失敗。您的對話資料已被保留。",
         "coldStorageVerifyFailed": "冷儲存驗證失敗。您的對話資料已被保留。",
-        "persistFailureAttemptedSize": "嘗試儲存大小",
-        "persistFailureTitle": "伺服器儲存失敗 — 變更未寫入磁碟",
     },
     "showHelp": "顯示幫助",
     help: helpZhHant,

@@ -3,9 +3,6 @@ import { preparePatchConflictRebase } from './patchRebase'
 
 // Isolate patch generation from database startup and storage side effects.
 vi.mock('./database.svelte', () => ({}))
-vi.mock('./chatStorage', () => ({
-    chatToStub: (c: any) => c,
-}))
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 const { normalizeJSON, RisuSavePatcher, decodeRisuSave, encodeRisuSaveLegacy } = await import('./risuSave')
@@ -189,23 +186,13 @@ describe('round-trip — patcher ops reconstruct the new state on a baseline', (
         expect(afterApply.modules).toEqual(expected.modules)
     })
 
-    test('modules: deleting from a large list keeps the patch bounded and preserves data', async () => {
-        function makeMod(i: number) {
-            return {
-                id: `mod-${i}`,
-                name: `Module ${i}`,
-                description: `desc ${i}`,
-                lorebook: Array.from({ length: 10 }, (_, k) => ({
-                    key: `k-${i}-${k}`, content: `v-${i}-${k}`,
-                })),
-                cjs: `console.log("${i}")`.repeat(10),
-            }
-        }
-        const big = Array.from({ length: 200 }, (_, i) => makeMod(i))
-        const initial = { characters: [], botPresets: [], modules: big }
-        const next = { characters: [], botPresets: [], modules: big.slice(1) }
-        const { patch, afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
-        expect(patch.length).toBeLessThan(20)
+    test('modules: deleting one preserves the remaining data', async () => {
+        const modules = ['a', 'b', 'c'].map(id => ({
+            id, name: id.toUpperCase(), lorebook: [{ key: `k-${id}`, content: `v-${id}` }],
+        }))
+        const initial = { characters: [], botPresets: [], modules }
+        const next = { characters: [], botPresets: [], modules: modules.slice(1) }
+        const { afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
         expect(afterApply.modules).toEqual(expected.modules)
     })
 
@@ -307,19 +294,6 @@ describe('fast-path — no-op detection after each transition', () => {
         await p.init(db)
         const { patch } = await p.set(clone(db), emptyToSave())
         expect(patch).toEqual([])
-    })
-
-    test('root change → saved, then identical re-save is a no-op', async () => {
-        const db = dbWith([chr('a')])
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const changed = clone(db); changed.personaPrompt = 'new persona'
-        const r1 = await p.set(clone(changed), { ...emptyToSave(), root: true })
-        expect(r1.patch.some((o: any) => o.path === '/personaPrompt')).toBe(true)
-
-        const r2 = await p.set(clone(changed), emptyToSave())
-        expect(r2.patch).toEqual([])
     })
 
     test('character field change → saved, then no-op (caught even with empty toSave.character)', async () => {

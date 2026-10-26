@@ -83,10 +83,6 @@ export class AutoStorage{
         return this.realStorage.decodeFile(format, bytes)
     }
 
-    async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
-        return await this.realStorage.patchItem(key, patchData)
-    }
-
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
         await this.Init()
         return this.realStorage.getDatabaseProjection<T>()

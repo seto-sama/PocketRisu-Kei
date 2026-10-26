@@ -15,13 +15,10 @@ function installMaintenanceRoutes(app, {
     sumInlayFsBytes,
     estimateServerBackupSize,
     appDataStore,
-    storageState,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
-    DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
-    flushPendingDb,
 }) {
     const DB_BLOB_KEY = 'database/database.bin';
 
@@ -100,7 +97,7 @@ function installMaintenanceRoutes(app, {
                 backupDisk,
                 estimatedBackupSize,
                 inlayFsBytes,
-                etag: storageState.dbEtag,
+                etag: appDataStore.getState().projectionEtag,
             });
         }
 
@@ -165,9 +162,11 @@ function installMaintenanceRoutes(app, {
             }
         } catch { /* backups dir may not exist */ }
 
-        // Use the cached projection, then scan plugin values for asset references.
+        // Scan the startup projection, then plugin values, for asset references.
         let orphan = { count: 0, totalSize: 0, available: false };
-        const stripped = storageState.dbCache[DB_HEX_KEY];
+        const stripped = appDataStore.getState().initialized
+            ? appDataStore.exportProjection({ includeMessages: false })
+            : null;
         if (stripped && Array.isArray(stripped.characters)) {
             const victims = findOrphanAssets(
                 storedAssets,
@@ -205,7 +204,7 @@ function installMaintenanceRoutes(app, {
                 file: fileBackups,
             },
             orphan,
-            etag: storageState.dbEtag,
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -216,7 +215,7 @@ function installMaintenanceRoutes(app, {
             res.json({ characters: [], orphan: { count: 0, totalSize: 0 }, chatBytesNote: 'estimate' });
             return;
         }
-        const dbObj = storageState.dbCache[DB_HEX_KEY] ?? { characters: [] };
+        const dbObj = appDataStore.exportProjection({ includeMessages: false });
 
         const assetSize = new Map();
         for (const it of kvListWithSizes('assets/')) {
@@ -274,7 +273,7 @@ function installMaintenanceRoutes(app, {
                 totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
             },
             chatBytesNote: 'relational msgpack payload bytes',
-            etag: storageState.dbEtag,
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -320,16 +319,15 @@ function installMaintenanceRoutes(app, {
         }
 
         modules.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({ modules, etag: storageState.dbEtag });
+        res.json({ modules, etag: appDataStore.getState().projectionEtag });
     });
 
     app.post('/api/db/assets/purge-orphans', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const result = await queueStorageOperation(async () => {
-            // Decide from persisted bytes after pending client writes land; the
+            // Decide from persisted bytes after queued writes land; the
             // dashboard's in-memory estimate is informational only.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 return { error: 'No relational database' };
             }
@@ -385,7 +383,6 @@ function installMaintenanceRoutes(app, {
         }
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             // Reclaim chunks orphaned by edits/snapshot rotation before VACUUM, so
             // their pages get compacted in the same pass. Serialized with saves by
@@ -419,7 +416,6 @@ function installMaintenanceRoutes(app, {
         const preWalSize = statSafe(walFilePath)?.size ?? 0;
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             checkpointWal('TRUNCATE');
             const elapsed = Date.now() - t0;

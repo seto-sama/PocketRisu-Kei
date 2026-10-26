@@ -4,6 +4,7 @@ const { createDatabaseProjectionService, DatabaseProjectionServiceError } = requ
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
+const { findChatInternalFieldOps } = require('../../shared/chatShape.mjs');
 const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 const { encode, decode } = require('msgpackr');
 const { binaryBodyParser } = require('../utils/binaryHttp.cjs');
@@ -16,21 +17,16 @@ function installDatabaseRoutes(app, {
     ensureCanonicalStorage,
     isCloudflareTunnelRequest,
     requireSyncClientId,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     scheduleBackupAndRotate,
     broadcastDatabaseInvalidated,
-    findChatInternalFieldOps,
-    currentPersistWarning,
     sessionAuthMiddleware,
-    flushPendingDb,
-    storageState,
 }) {
     const databaseProjectionService = createDatabaseProjectionService({
         appDataStore,
-        filterRemoteOnlyFolders,
-        mergeRemoteFilteredDatabase,
-        restoreGenerationOwnedMetadata,
-        findChatInternalFieldOps,
+        filterRemoteProjection: filterRemoteOnlyFolders,
+        mergeRemoteProjection: mergeRemoteFilteredDatabase,
+        restoreServerOwnedMetadata: restoreGenerationOwnedMetadata,
     });
 
     const databaseRequestBody = [
@@ -133,7 +129,7 @@ function installDatabaseRoutes(app, {
                         remote: isCloudflareTunnelRequest(req),
                     },
                 );
-                refreshCanonicalDatabaseCache({ invalidateChats: true });
+                syncTrashRetention();
                 scheduleBackupAndRotate();
                 broadcastDatabaseInvalidated(req);
                 return initialized;
@@ -155,27 +151,24 @@ function installDatabaseRoutes(app, {
                 await ensureCanonicalStorage();
                 const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
                 if (chatInternalOps.length > 0) {
-                    const current = databaseProjectionService.getStartupProjection({
-                        ...projectionOptions,
-                    });
+                    const current = appDataStore.getState();
                     const error = new DatabaseProjectionServiceError(
                         apiErrorMessage(codes.CHAT_GUARD_REJECTED),
                         { code: codes.CHAT_GUARD_REJECTED, statusCode: 409 },
                     );
-                    error.currentEtag = current.etag;
+                    error.currentEtag = current.projectionEtag;
                     error.currentRevision = current.revision;
                     throw error;
                 }
                 const patched = databaseProjectionService.patchDatabase(req.body, {
                     ...projectionOptions,
                 });
-                refreshCanonicalDatabaseCache();
+                syncTrashRetention();
                 if (patched.changed) {
                     scheduleBackupAndRotate();
                     broadcastDatabaseInvalidated(req);
                 }
-                const persistWarning = currentPersistWarning();
-                return persistWarning ? { ...patched, persistWarning } : patched;
+                return patched;
             });
             res.json(result);
         } catch (error) {
@@ -185,12 +178,10 @@ function installDatabaseRoutes(app, {
 
     app.post('/api/db/flush', sessionAuthMiddleware, async (req, res) => {
         if (!requireSyncClientId(req, res)) return;
+        // Every database write runs on the storage queue, so draining it is
+        // the whole flush.
         await queueStorageOperation(async () => {
-            await flushPendingDb();
-            res.send({
-                success: true,
-                etag: storageState.dbEtag ?? undefined
-            });
+            res.send({ success: true, etag: appDataStore.getState().projectionEtag });
         });
     });
 }

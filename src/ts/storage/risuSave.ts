@@ -1,8 +1,7 @@
-import { chatMetadataFields } from '../../../shared/chatShape.mjs'
 import { importPromptPresetSelection } from '../../../shared/promptPresetSelection.mjs'
 import { Packr, Unpackr } from "msgpackr/index-no-eval";
 import type { Database } from "./database.svelte";
-import { chatToStub } from "./chatStorage";
+import { chatToStub } from '../../../shared/chatShape.mjs'
 import {
     characterToClientWriteShape,
     characterToPersistentShape,
@@ -820,75 +819,4 @@ export class RisuSavePatcher {
             expectedHash
         }
     }
-}
-
-// Stub metadata fields a patch may legitimately touch on `chats[i]`. Anything
-// else is chat-internal data that lives server-side via /api/chat-content;
-// emitting such ops over /api/patch silently strips the `_stub` flag in the
-// server's dbCache and corrupts the on-disk DB. Keep in sync with chatToStub.
-const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
-
-// Only these op types are legitimate on chat-internal paths. The patcher's
-// fast-json-patch.compare only emits add/replace/remove; move/copy/test would
-// only come from external/legacy clients and could bypass the field-name
-// allowlist by aliasing _stub through `from`. Reject them outright.
-const ALLOWED_CHAT_OP_TYPES = new Set(['add', 'replace', 'remove'])
-
-const CHAT_FIELD_PATH_RE = /^\/characters\/\d+\/chats\/\d+\/([^/]+)/
-
-/**
- * Detect patch ops that mutate chat-internal fields. The patcher should never
- * produce these — chats are always run through chatToStub before diffing — so
- * any hit indicates a baseline-vs-current mismatch that would cause server-side
- * data loss (see findChatInternalFieldOps in server.cjs). Used by the save
- * pipeline to refuse the patch and fall through to a safe full write.
- *
- * The `_stub` field gets stricter treatment than other allowed fields: only
- * `add`/`replace` with literal value `true` is permitted. Removing `_stub`
- * or setting it to a falsy value is itself the loss vector — the server's
- * reassembleFullDb skips fullChat merge when `_stub` is falsy.
- *
- * `move`/`copy` ops on chat-internal paths are rejected wholesale because
- * the field-name allowlist on `path` alone can't catch a `from` that points
- * at `_stub` or another chat-internal field. Both `path` and `from` are
- * checked when present.
- */
-export function findDangerousChatOps(patch: any[]): { op: string; path: string; field: string; reason?: string }[] {
-    if (!Array.isArray(patch)) return []
-    const violations: { op: string; path: string; field: string; reason?: string }[] = []
-    for (const op of patch) {
-        if (!op || typeof op !== 'object' || typeof op.path !== 'string') continue
-
-        const pathMatch = op.path.match(CHAT_FIELD_PATH_RE)
-        const fromMatch = typeof op.from === 'string' ? op.from.match(CHAT_FIELD_PATH_RE) : null
-        if (!pathMatch && !fromMatch) continue
-
-        // Any move/copy/test that touches a chat-internal field — on either
-        // path or from — is a bypass attempt. Block at the op-type layer.
-        if (!ALLOWED_CHAT_OP_TYPES.has(op.op)) {
-            violations.push({
-                op: op.op,
-                path: op.path,
-                field: pathMatch?.[1] ?? fromMatch?.[1] ?? '',
-                reason: `disallowed op type on chat field`,
-            })
-            continue
-        }
-
-        if (pathMatch) {
-            const field = pathMatch[1]
-            if (!STUB_METADATA_FIELDS.has(field)) {
-                violations.push({ op: op.op, path: op.path, field })
-                continue
-            }
-            if (field === '_stub') {
-                if (op.op === 'remove') {
-                    violations.push({ op: op.op, path: op.path, field, reason: 'remove _stub' })
-                } else if ((op.op === 'add' || op.op === 'replace') && op.value !== true) {
-                    violations.push({ op: op.op, path: op.path, field, reason: 'non-true _stub value' })
-                }
-            }
-        }
-    }
-    return violations
 }

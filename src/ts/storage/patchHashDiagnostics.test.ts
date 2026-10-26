@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 vi.mock('./database.svelte', () => ({}))
-vi.mock('./chatStorage', () => ({ chatToStub: (chat: unknown) => chat }))
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 const { calculateHash, RisuSavePatcher } = await import('./risuSave')
 import { createPatchHashDiagnostics, comparePatchHashDiagnostics, isPatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
