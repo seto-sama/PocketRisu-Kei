@@ -11,8 +11,7 @@ function installBookmarksRoutes(app, {
     checkAuth,
     bookmarkStore,
     requireSyncClientId,
-    ensureChatStore,
-    storageState,
+    loadCanonicalChat,
     broadcastBookmarksInvalidated,
 }) {
     const BOOKMARKS_API_PATH = '/api/bookmarks';
@@ -64,12 +63,11 @@ function installBookmarksRoutes(app, {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const { characterId, chatId, messageId } = req.body ?? {};
-        await ensureChatStore(characterId, chatId);
         const visible = await visibleBookmarkChatKeys(req);
         if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
             return sendBookmarkNotFound(res);
         }
-        const chat = storageState.fullChatStore.get(characterId)?.get(chatId);
+        const chat = (await loadCanonicalChat(characterId, chatId))?.chat;
         const message = chat?.message?.find(value => value?.chatId === messageId);
         if (!chat || !message) return sendBookmarkNotFound(res);
         bookmarkStore.upsertBookmarkEntry({

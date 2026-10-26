@@ -88,7 +88,7 @@ const {
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
 } = require('./revenant/index.cjs');
-const { computeChatEtag, commitChatContent, mergeChatStubWithFullChat, createCanonicalChatService } = require('./chatStore.cjs');
+const { createCanonicalChatService } = require('./chatStore.cjs');
 const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
 const { normalizeTrashRetentionDays } = require('../shared/trashRetention.mjs');
@@ -103,20 +103,6 @@ const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
 // Install process-level error handlers before any other init so early crashes get logged.
 installProcessHandlers();
-
-// Configuration flags for patch-based sync
-const enablePatchSync = true;
-
-// In-memory database cache for patch-based sync
-// dbCache stores the STRIPPED (stubs-only) version matching what the client sees.
-// fullChatStore keeps the actual chat data keyed by chaId→chatId.
-const storageState = {
-    dbCache: {},
-    fullChatStore: null,
-    dbEtag: null,
-    lastPersistFailure: null,
-};
-const saveTimers = {};
 
 const MISSING_DATABASE_ETAG = '__missing_database__';
 let restoreColdStorageInDb;
@@ -138,29 +124,6 @@ function queueStorageOperation(operation) {
     const operationRun = storageOperationQueue.then(operation, operation);
     storageOperationQueue = operationRun.catch(() => {});
     return operationRun;
-}
-
-/**
- * Debounce a persist without opening a second writer lane. Once the timer
- * fires it joins the same storage queue as request writes and Revenant
- * materialization, so an older snapshot can never finish after a newer
- * canonical commit. Remove the timer token before queueing: a later debounce
- * must not be deleted by the older queued operation's cleanup.
- */
-
-const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
-
-// ─── Persist failure tracking (Stage 1 visibility) ───────────────────────────
-// Debounced persist runs in setTimeout, so failures cannot be returned in the
-// triggering response. Record the latest failure here and surface it on the
-// next /api/patch response. Cleared on next successful persist.
-
-function clearPersistFailure() {
-    storageState.lastPersistFailure = null;
-}
-
-function currentPersistWarning() {
-    return storageState.lastPersistFailure;
 }
 
 // ─── Server-side database backup (DB-only snapshots) ────────────────────────
@@ -429,36 +392,8 @@ function isCloudflareTunnelRequest(req) {
 
 // Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
 
-/** Ensure the requested chat is present in the process-local hot cache. */
-async function ensureChatStore(characterId, chatId) {
-    await ensureCanonicalStorage();
-    if (!storageState.fullChatStore) storageState.fullChatStore = new Map();
-    if (!appDataStore.getState().initialized || !characterId || !chatId) return;
-    let chats = storageState.fullChatStore.get(characterId);
-    let chat = chats?.get(chatId) ?? appDataStore.getChat(characterId, chatId);
-    if (!chat) return;
-    const messageIds = new Set();
-    const needsIds = (chat.message ?? []).some(message => {
-        if (typeof message?.chatId !== 'string' || !message.chatId || messageIds.has(message.chatId)) return true;
-        messageIds.add(message.chatId);
-        return false;
-    });
-    if (needsIds) {
-        const normalized = structuredClone(chat);
-        assignMissingPersistentIds({ characters: [{ chaId: characterId, chats: [normalized] }] });
-        chat = appDataStore.commitChat(characterId, chatId, normalized, undefined, { requireExpected: false }).chat;
-        refreshCanonicalDatabaseCache();
-    }
-    if (!chats) {
-        chats = new Map();
-        storageState.fullChatStore.set(characterId, chats);
-    }
-    chats.set(chatId, chat);
-}
-
 // Stub metadata fields a JSON Patch may legitimately touch on a `chats[i]`
-// entry. Anything else is a chat-internal field — those live in fullChatStore,
-// not in dbCache, and should never appear in a /api/patch payload. Keep in
+// entry. Anything else is a chat-internal field and belongs to the chat endpoint. Keep in
 // intentionally limited to metadata that is part of the lazy chat stub.
 const STUB_METADATA_FIELDS = new Set([...chatMetadataFields, '_stub']);
 
@@ -470,27 +405,7 @@ const ALLOWED_CHAT_OP_TYPES = new Set(['add', 'replace', 'remove']);
 
 const CHAT_FIELD_PATH_RE = /^\/characters\/\d+\/chats\/\d+\/([^/]+)/;
 
-/**
- * Detect JSON Patch ops that mutate chat-internal fields (anything beyond
- * STUB_METADATA_FIELDS). Such ops are the loss vector: applying them to
- * dbCache leaves a metadata-only chat without `_stub`, which then bypasses
- * fullChat merge in reassembleFullDb and gets persisted as-is.
- *
- * Whole-chat ops (path = `/characters/N/chats/M` or `/characters/N/chats`)
- * are allowed — those replace/add/remove chat slots wholesale and the
- * reassemble guard takes care of validating the resulting state.
- *
- * The `_stub` field gets stricter treatment than other allowed fields: only
- * `add`/`replace` with literal value `true` is permitted. Any op that could
- * remove the flag or set it to a falsy value is itself the loss mechanism
- * (reassembleFullDb skips merge when `_stub` is falsy), so it must be
- * blocked at the patch boundary, not just at the persist boundary.
- *
- * `move`/`copy` ops are rejected wholesale on chat-internal paths because
- * the field-name allowlist on `path` alone can't catch a `from` that points
- * at `_stub` or another chat-internal field. Both `path` and `from` are
- * checked when present.
- */
+/** Detect patch operations outside the legacy chat metadata contract. */
 function findChatInternalFieldOps(patch) {
     if (!Array.isArray(patch)) return [];
     const violations = [];
@@ -530,15 +445,43 @@ function findChatInternalFieldOps(patch) {
 }
 
 /**
- * Persist generation-owned activity metadata together with the already
- * committed chat input. The storage queue serializes this with every other DB
- * mutation, so concurrent devices increment the server value instead of
- * racing client-side snapshots.
+ * Read a canonical chat as a caller-owned { chat, etag }. Legacy rows that
+ * still hold a cold-storage stub are normalized once and
+ * committed under the row's content ETag. `coldRestoreFailed` reports a
+ * cold-storage body that could not be read; the chat is returned as stored.
  */
-async function persistCanonicalChatState({
+async function loadCanonicalChat(characterId, chatId) {
+    await ensureCanonicalStorage();
+    if (!appDataStore.getState().initialized || !characterId || !chatId) return undefined;
+    const state = appDataStore.getChatState(characterId, chatId);
+    if (!state) return undefined;
+    const { chat } = state;
+    const storedMessages = chat.message;
+    let coldRestoreFailed;
+    try {
+        coldRestoreFailed = !restoreColdStorageChat(chat);
+    } catch (error) {
+        logger.error(`[ColdStorage] restore failed for ${characterId}/${chatId}:`, error);
+        coldRestoreFailed = true;
+    }
+    const restored = chat.message !== storedMessages;
+    if (!restored) return { ...state, coldRestoreFailed };
+    assignMissingPersistentIds({ characters: [{ chaId: characterId, chats: [chat] }] });
+    const committed = appDataStore.commitChat(characterId, chatId, chat, state.etag);
+    return { chat: committed.chat, etag: committed.etag, coldRestoreFailed };
+}
+
+/**
+ * Commit a canonical chat body. Generation input and results also update
+ * server-owned activity metadata in the same transaction, read from the store
+ * itself, so concurrent devices increment the server value instead of racing
+ * client-side snapshots.
+ */
+async function persistCanonicalChat({
     characterId,
     chatId,
     chat,
+    expectedEtag,
     generationInput = false,
     mutationPatch,
 }) {
@@ -546,68 +489,29 @@ async function persistCanonicalChatState({
     if (!appDataStore.getState().initialized) {
         throw new Error('Canonical relational database is missing');
     }
-    const previousCachedDb = storageState.dbCache[DB_HEX_KEY]
-        ?? appDataStore.exportProjection({ includeMessages: false });
-    const nextDb = structuredClone(previousCachedDb);
-
-    const metadata = generationInput
-        ? applyGenerationInputMetadata(nextDb, characterId)
-        : undefined;
-    if (generationInput && !metadata) {
-        const error = new Error('Generation input character not found');
-        error.httpStatus = 404;
-        throw error;
-    }
-    if (mutationPatch) {
-        applyMutationPatch(nextDb, characterId, mutationPatch);
-    }
-
-    try {
-        let committed;
-        sqliteDb.transaction(() => {
-            committed = appDataStore.commitChat(
-                characterId,
-                chatId,
-                chat,
-                undefined,
-                { requireExpected: false },
-            );
-            appDataStore.syncStartupProjection(nextDb);
-        })();
-        storageState.dbCache[DB_HEX_KEY] = appDataStore.exportProjection({ includeMessages: false });
-        storageState.dbEtag = computeDatabaseEtagFromObject(storageState.dbCache[DB_HEX_KEY]);
-        clearPersistFailure();
-        try {
-            scheduleBackupAndRotate();
-        } catch (error) {
-            logger.warn('[CanonicalChat] Backup rotation failed:', error);
+    let committed;
+    let metadata;
+    sqliteDb.transaction(() => {
+        committed = appDataStore.commitChat(characterId, chatId, chat, expectedEtag);
+        if (!generationInput && !mutationPatch) return;
+        const nextDb = appDataStore.exportProjection({ includeMessages: false });
+        if (generationInput) {
+            metadata = applyGenerationInputMetadata(nextDb, characterId);
+            if (!metadata) {
+                const error = new Error('Generation input character not found');
+                error.httpStatus = 404;
+                throw error;
+            }
         }
-        return { ...committed, metadata };
-    } catch (error) {
-        storageState.dbCache[DB_HEX_KEY] = previousCachedDb;
-        throw error;
-    }
-}
-
-async function scheduleCanonicalChatPersist({ characterId, chatId, chat }) {
-    await ensureCanonicalStorage();
-    const committed = appDataStore.commitChat(
-        characterId,
-        chatId,
-        chat,
-        undefined,
-        { requireExpected: false },
-    );
-    // Creating a chat also changes the startup list. Keep legacy cache readers
-    // and the database ETag aligned with the durable commit before publishing it.
-    if (committed.projectionChanged) refreshCanonicalDatabaseCache();
-    clearPersistFailure();
+        if (mutationPatch) applyMutationPatch(nextDb, characterId, mutationPatch);
+        appDataStore.syncStartupProjection(nextDb);
+    })();
     try {
         scheduleBackupAndRotate();
     } catch (error) {
         logger.warn('[CanonicalChat] Backup rotation failed:', error);
     }
-    return committed;
+    return { ...committed, metadata };
 }
 
 function shouldCompress(req, res) {
@@ -904,7 +808,7 @@ function broadcastSync(type, payload = {}, excludeClientId = null) {
 function broadcastDatabaseInvalidated(req, payload = {}) {
     broadcastSync(
         'database-invalidated',
-        { ...payload, timestamp: Date.now(), etag: storageState.dbEtag ?? undefined },
+        { ...payload, timestamp: Date.now() },
         String(getSyncClientIdFromRequest(req)),
     );
 }
@@ -920,7 +824,6 @@ function broadcastBookmarksInvalidated(req) {
 function publishChatCommitted(event, originClientId) {
     broadcastSync('database-invalidated', {
         chats: [{ characterId: event.characterId, chatId: event.chatId }],
-        etag: storageState.dbEtag ?? undefined,
         chatEtag: event.etag,
         reason: event.reason,
         timestamp: Date.now(),
@@ -1165,27 +1068,9 @@ const {
 
 const canonicalChatService = createCanonicalChatService({
     queueStorageOperation,
-    ensureChatStore,
-    getChat: (characterId, chatId) => storageState.fullChatStore.get(characterId)?.get(chatId),
-    replaceChat: (characterId, chatId, chat) => {
-        let chats = storageState.fullChatStore.get(characterId);
-        if (!chats && chat) {
-            chats = new Map();
-            storageState.fullChatStore.set(characterId, chats);
-        }
-        if (!chats) return;
-        if (chat) chats.set(chatId, chat);
-        else {
-            chats.delete(chatId);
-            if (chats.size === 0) storageState.fullChatStore.delete(characterId);
-        }
-    },
-    commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
-        commitChatContent(storageState.fullChatStore, characterId, chatId, chat, expectedEtag, options),
-    computeChatEtag,
+    loadChat: loadCanonicalChat,
     getGenerationWorkflowInputChat: generationDb.getGenerationWorkflowInputChat,
-    persistNow: persistCanonicalChatState,
-    schedulePersist: scheduleCanonicalChatPersist,
+    persistChat: persistCanonicalChat,
     publishChatCommitted,
 });
 imageGenerationJobService = createImageGenerationJobService({
@@ -1931,57 +1816,26 @@ appDataMigration = createAppDataMigration({
     normalizeProjection: normalizeJSON,
 });
 
-function reconcileCachedChats(startup) {
-    if (!storageState.fullChatStore) return;
-    const characters = new Map(
-        (startup.characters ?? []).map(character => [character?.chaId, character]),
-    );
-    for (const [characterId, chats] of storageState.fullChatStore) {
-        const character = characters.get(characterId);
-        if (!character) {
-            storageState.fullChatStore.delete(characterId);
-            continue;
-        }
-        const stubs = new Map(
-            (character.chats ?? []).map(stub => [stub?.id, stub]),
-        );
-        for (const [chatId, chat] of chats) {
-            const stub = stubs.get(chatId);
-            if (stub) chats.set(chatId, mergeChatStubWithFullChat(stub, chat));
-            else chats.delete(chatId);
-        }
-        if (chats.size === 0) storageState.fullChatStore.delete(characterId);
-    }
+// Drive trash expiry follows the stored setting; re-arm it when a database
+// write changes the value.
+let trashRetentionDays = normalizeTrashRetentionDays(undefined);
+
+function readTrashRetentionDays() {
+    return appDataStore.getState().initialized
+        ? appDataStore.getRootValue('trashRetentionDays')
+        : undefined;
 }
 
-function refreshDriveTrashRetentionIfChanged(previousRetentionDays, nextRetentionDays) {
-    if (previousRetentionDays === normalizeTrashRetentionDays(nextRetentionDays)) return;
+function syncTrashRetention() {
+    const next = normalizeTrashRetentionDays(readTrashRetentionDays());
+    if (next === trashRetentionDays) return;
+    trashRetentionDays = next;
     const refresh = driveRoutes?.refreshTrashRetention;
     if (refresh) {
         void refresh().catch(error => {
             logger.warn('[Drive] Failed to refresh trash retention:', error);
         });
     }
-}
-
-function refreshCanonicalDatabaseCache(options = {}) {
-    const state = appDataStore.getState();
-    const previousRetentionDays = normalizeTrashRetentionDays(
-        storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays,
-    );
-    if (!state.initialized) {
-        delete storageState.dbCache[DB_HEX_KEY];
-        storageState.fullChatStore = null;
-        storageState.dbEtag = MISSING_DATABASE_ETAG;
-        refreshDriveTrashRetentionIfChanged(previousRetentionDays, undefined);
-        return;
-    }
-    const startup = appDataStore.exportProjection({ includeMessages: false });
-    storageState.dbCache[DB_HEX_KEY] = startup;
-    if (options.invalidateChats) storageState.fullChatStore = null;
-    else reconcileCachedChats(startup);
-    storageState.dbEtag = computeDatabaseEtagFromObject(startup);
-    refreshDriveTrashRetentionIfChanged(previousRetentionDays, startup.trashRetentionDays);
 }
 
 async function ensureCanonicalStorage() {
@@ -2013,18 +1867,21 @@ async function ensureCanonicalStorage() {
 
         migratePromptPresetSelection({ db: sqliteDb, appDataStore });
 
-        if (appDataStore.getState().initialized && bookmarkStore.needsLegacyMigration()) {
+        if (appDataStore.getState().initialized) {
+            const fullProjection = appDataStore.exportProjection({ includeMessages: true });
+            const idsAssigned = assignMissingPersistentIds(fullProjection);
             // Bookmarks already have a canonical relational store. Ingest the
             // compatibility fields once, then remove them from chat payloads.
-            const fullProjection = appDataStore.exportProjection({ includeMessages: true });
-            const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(fullProjection);
-            if (bookmarkMigration.changed) {
+            const bookmarkMigration = bookmarkStore.needsLegacyMigration()
+                ? bookmarkStore.migrateLegacyDatabase(fullProjection)
+                : { changed: false };
+            if (idsAssigned || bookmarkMigration.changed) {
                 appDataStore.replaceFromProjection(fullProjection, {
                     expectedRevision: appDataStore.getState().revision,
                 });
             }
         }
-        refreshCanonicalDatabaseCache({ invalidateChats: true });
+        syncTrashRetention();
     })().catch(error => {
         appDataReadyPromise = null;
         throw error;
@@ -2221,7 +2078,7 @@ installRevenantGenerationRoutes(app, {
 });
 
 require('./routes/web.cjs').installWebRoutes(app, {
-    enablePatchSync,
+    enablePatchSync: true,
     isCloudflareTunnelRequest,
     getDevServer: () => viteDevServer,
 });
@@ -2236,9 +2093,7 @@ require('./routes/fileFormats.cjs').installFileFormatRoutes(app, {
 });
 
 require('./routes/assets/index.cjs').installAssetRoutes(app, {
-    saveTimers,
     queueStorageOperation,
-    storageState,
     bookmarkStore,
     appDataStore,
     inlayService,
@@ -2253,13 +2108,9 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     requireSyncClientId,
     computeDatabaseEtagFromObject,
     normalizeLegacyDatabaseProjection,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     createBackupAndRotate,
     broadcastDatabaseInvalidated,
-    enablePatchSync,
-    currentPersistWarning,
-    getSyncClientIdFromRequest,
-    clearPersistFailure,
 });
 
 require('./routes/pluginStorage.cjs').installPluginStorageRoutes(app, {
@@ -2267,19 +2118,17 @@ require('./routes/pluginStorage.cjs').installPluginStorageRoutes(app, {
 });
 
 require('./routes/database.cjs').installDatabaseRoutes(app, {
+    findChatInternalFieldOps,
     appDataStore,
     checkAuth,
     queueStorageOperation,
     ensureCanonicalStorage,
     isCloudflareTunnelRequest,
     requireSyncClientId,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     scheduleBackupAndRotate,
     broadcastDatabaseInvalidated,
-    findChatInternalFieldOps,
-    currentPersistWarning,
     sessionAuthMiddleware,
-    storageState,
 });
 
 require('./routes/logs.cjs').installLogsRoutes(app, {
@@ -2291,9 +2140,6 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     checkDownloadAuth,
     deleteSnapshotStateRows,
     DB_BACKUP_PREFIX,
-    storageState,
-    DB_HEX_KEY,
-    saveTimers,
     backupState,
     BACKUP_FILENAME_REGEX,
     normalizeLegacyDatabaseProjection,
@@ -2329,7 +2175,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     SNAPSHOT_LIMIT_COUNT_KEY,
     SNAPSHOT_LIMIT_BYTES_KEY,
     trimSnapshotsToLimits,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     DEFAULT_BACKUPS_DIR,
     BACKUP_PATH_CONFIG_KEY,
     writeBackupPathMarker,
@@ -2342,8 +2188,7 @@ require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {
     checkAuth,
     bookmarkStore,
     requireSyncClientId,
-    ensureChatStore,
-    storageState,
+    loadCanonicalChat,
     broadcastBookmarksInvalidated,
 });
 
@@ -2352,9 +2197,7 @@ require('./routes/chats.cjs').installChatsRoutes(app, {
     ensureCanonicalStorage,
     isCloudflareTunnelRequest,
     appDataStore,
-    ensureChatStore,
-    storageState,
-    restoreColdStorageChat,
+    loadCanonicalChat,
     requireSyncClientId,
     canonicalChatService,
     getSyncClientIdFromRequest,
@@ -2370,10 +2213,8 @@ require('./routes/maintenance.cjs').installMaintenanceRoutes(app, {
     sumInlayFsBytes,
     estimateServerBackupSize,
     appDataStore,
-    storageState,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
-    DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
 });
@@ -2403,7 +2244,7 @@ driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
     encodeThumbnail: inlayService.encodeThumbnail,
     getTrashRetentionDays: async () => {
         await ensureCanonicalStorage();
-        return storageState.dbCache[DB_HEX_KEY]?.trashRetentionDays;
+        return readTrashRetentionDays();
     },
 });
 

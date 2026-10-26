@@ -5,19 +5,16 @@ const { binaryBodyParser } = require('../../utils/binaryHttp.cjs');
 
 const { logger } = require('../../logs/logs.cjs');
 const { encodeRisuSaveLegacy, decodeRisuSave } = require('../../utils/risuSave.cjs');
-const { normalizeJSON, calculateHash } = require('../../utils/json.cjs');
+const { normalizeJSON } = require('../../utils/json.cjs');
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
 const { createReadStream } = require('fs');
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
-const { applyPatch } = require('fast-json-patch');
 const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 
 function installAssetRoutes(app, {
-    saveTimers,
     queueStorageOperation,
-    storageState,
     bookmarkStore,
     appDataStore,
     inlayService,
@@ -32,13 +29,9 @@ function installAssetRoutes(app, {
     requireSyncClientId,
     computeDatabaseEtagFromObject,
     normalizeLegacyDatabaseProjection,
-    refreshCanonicalDatabaseCache,
+    syncTrashRetention,
     createBackupAndRotate,
     broadcastDatabaseInvalidated,
-    enablePatchSync,
-    currentPersistWarning,
-    getSyncClientIdFromRequest,
-    clearPersistFailure,
 }) {
     const {
         deleteInlayFile,
@@ -58,38 +51,6 @@ function installAssetRoutes(app, {
         checkAuth, requireSyncClientId, readInlayInfoPayload, kvGet, kvSet,
         transaction: callback => sqliteDb.transaction(callback),
     });
-
-    const SAVE_INTERVAL = 5000;
-
-    function scheduleStorageOperation(key, operation) {
-        if (saveTimers[key]) clearTimeout(saveTimers[key]);
-        const timer = setTimeout(() => {
-            if (saveTimers[key] !== timer) return;
-            delete saveTimers[key];
-            void queueStorageOperation(operation).catch(error => {
-                logger.error(`[Storage] Scheduled operation failed for ${key}:`, error);
-            });
-        }, SAVE_INTERVAL);
-        saveTimers[key] = timer;
-    }
-
-    function recordPersistFailure(error, source) {
-        const message = String(error?.message || error || 'unknown error');
-        const attemptedSize = typeof error?.attemptedSize === 'number' ? error.attemptedSize : null;
-        // Keep identical failures at the same timestamp to avoid repeated notifications.
-        if (storageState.lastPersistFailure
-            && storageState.lastPersistFailure.source === source
-            && storageState.lastPersistFailure.message === message
-            && storageState.lastPersistFailure.attemptedSize === attemptedSize) {
-            return;
-        }
-        storageState.lastPersistFailure = {
-            timestamp: Date.now(),
-            message,
-            attemptedSize,
-            source,
-        };
-    }
 
     const hexRegex = /^[0-9a-fA-F]+$/;
 
@@ -288,8 +249,7 @@ function installAssetRoutes(app, {
         if (key === 'database/database.bin') {
             await ensureCanonicalStorage();
             if (!appDataStore.getState().initialized) {
-                storageState.dbEtag = MISSING_DATABASE_ETAG;
-                res.setHeader('x-db-etag', storageState.dbEtag);
+                res.setHeader('x-db-etag', MISSING_DATABASE_ETAG);
                 return res.send();
             }
             let projection = appDataStore.exportProjection({ includeMessages: true });
@@ -298,11 +258,11 @@ function installAssetRoutes(app, {
                 projection = normalizeJSON(filterRemoteOnlyFolders(projection));
             }
             const value = Buffer.from(encodeRisuSaveLegacy(projection));
-            storageState.dbEtag = computeBufferEtag(value);
-            if (req.headers['if-none-match'] === storageState.dbEtag) {
+            const etag = computeBufferEtag(value);
+            if (req.headers['if-none-match'] === etag) {
                 return res.status(304).end();
             }
-            res.setHeader('x-db-etag', storageState.dbEtag);
+            res.setHeader('x-db-etag', etag);
             res.setHeader('Content-Type', 'application/octet-stream');
             return res.send(value);
         }
@@ -472,18 +432,21 @@ function installAssetRoutes(app, {
                         incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
                         restoreGenerationOwnedMetadata(incomingDb, currentDb);
                     }
-                    const stubOnly = [];
+                    // A chat without a message list is not full content, whatever
+                    // it claims to be. Importing it would replace the stored body
+                    // with an empty one, so reject the whole import instead.
+                    const withoutBody = [];
                     for (const character of incomingDb.characters ?? []) {
                         for (const chat of character?.chats ?? []) {
-                            if (chat?._stub === true && !Array.isArray(chat.message)) {
-                                stubOnly.push(`${character.chaId}/${chat.id}`);
+                            if (!Array.isArray(chat?.message)) {
+                                withoutBody.push(`${character.chaId}/${chat?.id}`);
                             }
                         }
                     }
-                    if (stubOnly.length > 0) {
+                    if (withoutBody.length > 0) {
                         return res.status(400).json({
                             error: 'Compatibility import requires full chat content',
-                            chats: stubOnly.slice(0, 5),
+                            chats: withoutBody.slice(0, 5),
                         });
                     }
                     sqliteDb.transaction(() => {
@@ -512,153 +475,21 @@ function installAssetRoutes(app, {
                 kvSet(key, fileContent);
             }
 
+            let etag;
             if (key === 'database/database.bin') {
-                refreshCanonicalDatabaseCache({ invalidateChats: true });
+                syncTrashRetention();
                 const visibleForEtag = isCloudflareTunnelRequest(req)
                     ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
                     : databaseForEtag;
-                storageState.dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
+                etag = computeDatabaseEtagFromObject(visibleForEtag);
                 createBackupAndRotate();
                 broadcastDatabaseInvalidated(req);
             }
 
-            res.send({
-                success: true,
-                etag: key === 'database/database.bin' ? storageState.dbEtag : undefined
-            });
+            res.send({ success: true, etag });
         });
     });
 
-    app.post('/api/patch', async (req, res) => {
-        if (!enablePatchSync) {
-            res.status(404).send({ error: 'Patch sync is not enabled' });
-            return;
-        }
-        if(!await checkAuth(req, res)){
-            return;
-        }
-        if (!requireSyncClientId(req, res)) return;
-        const filePath = req.headers['file-path'];
-        const patch = req.body.patch;
-        const expectedHash = req.body.expectedHash;
-
-        if (!filePath || !patch || !expectedHash) {
-            res.status(400).send({ error: 'File path, patch, and expected hash required' });
-            return;
-        }
-        if (!isHex(filePath)) {
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-
-        let patchStage = 'load';
-        try {
-            await queueStorageOperation(async () => {
-                const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
-                if (decodedKey === 'database/database.bin') {
-                    res.status(410).json({
-                        error: 'database.bin patch sync was replaced by PATCH /api/database',
-                        code: 'DATABASE_BIN_PROJECTION_ONLY',
-                    });
-                    return;
-                }
-
-                if (!storageState.dbCache[filePath]) {
-                    const fileContent = kvGet(decodedKey);
-                    if (fileContent) {
-                        storageState.dbCache[filePath] = normalizeJSON(await decodeRisuSave(fileContent));
-                    } else {
-                        storageState.dbCache[filePath] = {};
-                    }
-                }
-
-                patchStage = 'hash';
-                const serverHash = calculateHash(storageState.dbCache[filePath]).toString(16);
-
-                // Empty patches do not write or require a matching baseline.
-                if (Array.isArray(patch) && patch.length === 0) {
-                    const responsePayload = {
-                        success: true,
-                        appliedOperations: 0,
-                    };
-                    const persistWarning = currentPersistWarning();
-                    if (persistWarning) responsePayload.persistWarning = persistWarning;
-                    res.send(responsePayload);
-                    return;
-                }
-
-                if (expectedHash !== serverHash) {
-                    const patchPaths = Array.isArray(patch)
-                        ? patch.slice(0, 8).map(operation =>
-                            `${String(operation?.op || '?')} ${String(operation?.path || '?')}`)
-                        : [];
-                    logger.warn(
-                        `[Patch] Hash mismatch for ${decodedKey}: `
-                        + `expected=${expectedHash}, server=${serverHash}, `
-                        + `client=${String(getSyncClientIdFromRequest(req) || 'none')}, `
-                        + `ops=[${patchPaths.join(', ')}]`
-                    );
-                    res.status(409).send({
-                        error: 'Hash mismatch - data out of sync',
-                    });
-                    return;
-                }
-
-                // Clone before applying so failed patches leave the cache intact.
-                // structuredClone avoids the string-size limit of a JSON round-trip.
-                patchStage = 'clone';
-                const snapshot = structuredClone(storageState.dbCache[filePath]);
-                patchStage = 'apply';
-                let result;
-                try {
-                    result = applyPatch(snapshot, patch, true);
-                } catch (patchErr) {
-                    delete storageState.dbCache[filePath];
-                    throw patchErr;
-                }
-                storageState.dbCache[filePath] = snapshot;
-
-                scheduleStorageOperation(filePath, async () => {
-                    try {
-                        const data = Buffer.from(encodeRisuSaveLegacy(storageState.dbCache[filePath]));
-                        try {
-                            kvSet(decodedKey, data);
-                        } catch (err) {
-                            if (err && typeof err === 'object') {
-                                try { err.attemptedSize = data.length; } catch {}
-                            }
-                            throw err;
-                        }
-                        clearPersistFailure();
-                    } catch (error) {
-                        logger.error(`[Patch] Error saving ${decodedKey}:`, error);
-                        recordPersistFailure(error, `patch:${decodedKey}`);
-                    }
-                });
-
-                const responsePayload = {
-                    success: true,
-                    appliedOperations: result.length,
-                };
-                const persistWarning = currentPersistWarning();
-                if (persistWarning) {
-                    responsePayload.persistWarning = persistWarning;
-                }
-                res.send(responsePayload);
-            });
-        } catch (error) {
-            const decodedKeyForLog = isHex(filePath) ? Buffer.from(filePath, 'hex').toString('utf-8') : filePath;
-            logger.error(
-                `[Patch] Error applying patch to ${decodedKeyForLog} `
-                + `(stage=${patchStage}, ops=${Array.isArray(patch) ? patch.length : '?'}): `
-                + `${error?.name}: ${error?.message}`,
-                error?.stack
-            );
-            res.status(500).send({
-                error: 'Patch application failed: ' + (error && error.message ? error.message : error)
-            });
-        }
-    });
 }
 
 module.exports = { installAssetRoutes };

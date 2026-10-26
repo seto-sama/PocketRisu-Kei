@@ -2,7 +2,7 @@
 
 const { isChatHiddenFromRemote } = require('../remoteDatabaseFilter.cjs');
 const { encodeRisuSaveLegacy } = require('../utils/risuSave.cjs');
-const { computeChatEtag, CanonicalChatCommitError } = require('../chatStore.cjs');
+const { CanonicalChatCommitError } = require('../chatStore.cjs');
 const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installChatsRoutes(app, {
@@ -10,9 +10,7 @@ function installChatsRoutes(app, {
     ensureCanonicalStorage,
     isCloudflareTunnelRequest,
     appDataStore,
-    ensureChatStore,
-    storageState,
-    restoreColdStorageChat,
+    loadCanonicalChat,
     requireSyncClientId,
     canonicalChatService,
     getSyncClientIdFromRequest,
@@ -39,15 +37,14 @@ function installChatsRoutes(app, {
         if (!resolvedChatId || !appDataStore.hasChat(chaId, resolvedChatId)) {
             return sendChatNotFound(res);
         }
-        await ensureChatStore(chaId, resolvedChatId);
-        const chat = storageState.fullChatStore.get(chaId)?.get(resolvedChatId);
-        if (!chat) return sendChatNotFound(res);
-        if (!restoreColdStorageChat(chat)) {
+        const current = await loadCanonicalChat(chaId, resolvedChatId);
+        if (!current) return sendChatNotFound(res);
+        if (current.coldRestoreFailed) {
             return sendApiError(res, 500, codes.CHAT_RESTORE_FAILED);
         }
-        const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
+        const encoded = Buffer.from(encodeRisuSaveLegacy(current.chat));
         res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('x-chat-etag', computeChatEtag(chat));
+        res.setHeader('x-chat-etag', current.etag);
         res.send(encoded);
     });
 

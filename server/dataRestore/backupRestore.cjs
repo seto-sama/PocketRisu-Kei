@@ -30,7 +30,7 @@ function createBackupRestoreService({
     clearEntities,
     checkpointWal,
     createBackupAndRotate,
-    invalidateDbCache,
+    syncTrashRetention,
     prepareDatabaseProjection,
     replacePluginStorage,
     normalizeInlayExt,
@@ -544,7 +544,7 @@ function createBackupRestoreService({
             restoreCommitted = true;
             await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
 
-            invalidateDbCache();
+            syncTrashRetention();
 
             const {
                 coldStorageFailed = 0,

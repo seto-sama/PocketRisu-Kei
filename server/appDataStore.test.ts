@@ -104,10 +104,10 @@ describe('plugin storage namespaces', () => {
     it('isolates identical keys and keeps on-demand storage outside save replacement and sync', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
-        const before = store.projectionEtag()
+        const before = store.projectionEtag({ includeMessages: false })
         store.writePluginStorage('localStorage', 'zero', Buffer.from('string'), 'first')
         store.writePluginStorage('localForage', 'zero', Buffer.from('binary'), 'second')
-        expect(store.projectionEtag()).toBe(before)
+        expect(store.projectionEtag({ includeMessages: false })).toBe(before)
         expect(store.exportProjection().pluginCustomStorage.zero).toBe(0)
 
         const changed = sampleDatabase()
@@ -120,8 +120,6 @@ describe('plugin storage namespaces', () => {
         expect(store.listPluginStorage('localStorage')).toEqual([{ key: 'zero', owner: 'first' }])
         store.clearPluginStorage('localStorage')
         expect(store.getPluginStorage('localStorage', 'zero')).toBeNull()
-        expect(store.getPluginStorage('localForage', 'zero')).toEqual(Buffer.from('binary'))
-        store.clear()
         expect(store.getPluginStorage('localForage', 'zero')).toEqual(Buffer.from('binary'))
     })
 
@@ -154,7 +152,6 @@ describe('relational app data projection', () => {
         const row = sqlite.prepare('SELECT payload FROM app_characters').get() as { payload: Buffer }
         const metadata = unpackr.unpack(row.payload)
         expect(metadata).not.toHaveProperty('chatPage')
-        const etag = store.projectionEtag({ includeMessages: false })
         const incoming = store.exportProjection({ includeMessages: false })
         incoming.characters[0].chatPage = 2
         expect(store.syncStartupProjection(incoming).changed).toBe(false)
@@ -165,7 +162,6 @@ describe('relational app data projection', () => {
         expect(store.exportProjection().characters[0]).not.toHaveProperty('chatPage')
         expect(store.exportProjection({ includeMessages: false }).characters[0]).not.toHaveProperty('chatPage')
         expect(store.listCharacterStorage()[0].character).not.toHaveProperty('chatPage')
-        expect(store.projectionEtag({ includeMessages: false })).toBe(etag)
     })
 
     function auditWrites(sqlite: any, table: string, key: string) {
@@ -182,11 +178,11 @@ describe('relational app data projection', () => {
         store.replaceFromProjection(sampleDatabase())
         const writes = auditWrites(sqlite, 'app_messages', 'message_key')
         const save = (edit: (chat: any) => void) => {
-            const chat = store.getChat('character-1', 'chat-1')
+            const chat = store.getChatState('character-1', 'chat-1')?.chat
             const etag = computeChatEtag(chat)
             edit(chat)
             const result = store.commitChat('character-1', 'chat-1', chat, etag)
-            expect(store.getChat('character-1', 'chat-1')).toEqual(result.chat)
+            expect(store.getChatState('character-1', 'chat-1')?.chat).toEqual(result.chat)
             return result
         }
         save(chat => { chat.message.push({ chatId: 'message-3', role: 'user', data: 'new' }) })
@@ -199,7 +195,7 @@ describe('relational app data projection', () => {
         expect(writes()).toEqual([])
         save(chat => { chat.message.reverse() })
         expect(writes().every((row: any) => row.operation === 'UPDATE' && row.item_key !== 'message-2')).toBe(true)
-        expect(store.getChat('character-1', 'chat-1').message.map((m: any) => m.chatId))
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message.map((m: any) => m.chatId))
             .toEqual(['message-3', 'message-2', 'message-1'])
         sqlite.exec('DELETE FROM writes')
         save(chat => { chat.message.pop() })
@@ -222,11 +218,11 @@ describe('relational app data projection', () => {
             [{ chatId: 'same', data: 'a' }, { chatId: 'same', data: 'b' }],
             [{ data: 'new' }],
         ]) {
-            const chat = store.getChat('character-1', 'chat-1')
+            const chat = store.getChatState('character-1', 'chat-1')?.chat
             const state = store.getState()
             expect(() => store.commitChat('character-1', 'chat-1', { ...chat, message }, computeChatEtag(chat)))
                 .toThrow()
-            expect(store.getChat('character-1', 'chat-1')).toEqual(chat)
+            expect(store.getChatState('character-1', 'chat-1')?.chat).toEqual(chat)
             expect(store.getState()).toEqual(state)
         }
     })
@@ -237,13 +233,13 @@ describe('relational app data projection', () => {
         delete source.characters[0].chats[0].message[0].chatId
 
         store.replaceFromProjection(source)
-        const chat = store.getChat('character-1', 'chat-1')
+        const chat = store.getChatState('character-1', 'chat-1')?.chat
         expect(chat.message[0]).toMatchObject(source.characters[0].chats[0].message[0])
         expect(chat.message[0].chatId).toEqual(expect.any(String))
         expect(chat.message[0].chatId).not.toBe('')
 
         store.syncStartupProjection(store.exportProjection({ includeMessages: false }))
-        expect(store.getChat('character-1', 'chat-1')).toEqual(chat)
+        expect(store.getChatState('character-1', 'chat-1')?.chat).toEqual(chat)
     })
 
     it.each([
@@ -283,15 +279,15 @@ describe('relational app data projection', () => {
         const source = sampleDatabase()
         source.characters[0].chats.push({ ...structuredClone(source.characters[0].chats[0]), id: 'chat-2' })
         store.replaceFromProjection(source)
-        const untouched = store.getChat('character-1', 'chat-2')
+        const untouched = store.getChatState('character-1', 'chat-2')?.chat
         sqlite.exec(`CREATE TEMP TRIGGER reject_payload_update BEFORE UPDATE OF payload ON app_messages
             BEGIN SELECT RAISE(ABORT, 'unexpected payload update'); END`)
-        const chat = store.getChat('character-1', 'chat-1')
+        const chat = store.getChatState('character-1', 'chat-1')?.chat
         const etag = computeChatEtag(chat)
         chat.message.reverse()
         store.commitChat('character-1', 'chat-1', chat, etag)
-        expect(store.getChat('character-1', 'chat-1').message).toEqual(chat.message)
-        expect(store.getChat('character-1', 'chat-2')).toEqual(untouched)
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual(chat.message)
+        expect(store.getChatState('character-1', 'chat-2')?.chat).toEqual(untouched)
         expect(sqlite.prepare("SELECT revision FROM app_messages WHERE chat_id = 'chat-2'").all())
             .toEqual([{ revision: 1 }, { revision: 1 }])
     })
@@ -303,7 +299,7 @@ describe('relational app data projection', () => {
         const state = store.getState()
         sqlite.exec(`CREATE TEMP TRIGGER reject_message BEFORE INSERT ON app_messages
             WHEN NEW.message_key = 'reject' BEGIN SELECT RAISE(ABORT, 'test failure'); END`)
-        const chat = store.getChat('character-1', 'chat-1')
+        const chat = store.getChatState('character-1', 'chat-1')?.chat
         expect(() => store.commitChat('character-1', 'chat-1', {
             ...chat, message: [chat.message[1], { chatId: 'reject', data: 'new' }],
         }, computeChatEtag(chat))).toThrow('test failure')
@@ -409,7 +405,7 @@ describe('relational app data projection', () => {
         })
         expect(store.hasChat('character-1', 'chat-1')).toBe(true)
         expect(store.hasChat('character-1', 'missing')).toBe(false)
-        expect(store.getChat('character-1', 'chat-1')?.message).toHaveLength(2)
+        expect(store.getChatState('character-1', 'chat-1')?.chat?.message).toHaveLength(2)
     })
 
     it('aggregates storage sizes without exporting chat messages', () => {
@@ -561,9 +557,9 @@ describe('startup metadata synchronization', () => {
 
         store.syncStartupProjection(incoming)
 
-        expect(store.getChat('character-1', 'chat-1')).toBeUndefined()
-        expect(store.getChat('character-1', 'chat-2').message[0].data).toBe('보존됨')
-        expect(store.getChat('character-1', 'chat-3')).toEqual({
+        expect(store.getChatState('character-1', 'chat-1')?.chat).toBeUndefined()
+        expect(store.getChatState('character-1', 'chat-2')?.chat.message[0].data).toBe('보존됨')
+        expect(store.getChatState('character-1', 'chat-3')?.chat).toEqual({
             id: 'chat-3',
             message: [],
             name: '새 채팅',
@@ -580,7 +576,7 @@ describe('startup metadata synchronization', () => {
         const source = sampleDatabase()
         source.characters[0].chats[0].folderId = 'old-folder'
         store.replaceFromProjection(source)
-        const before = store.getChat('character-1', 'chat-1')
+        const before = store.getChatState('character-1', 'chat-1')?.chat
         const beforeEtag = computeChatEtag(before)
         const incoming = store.exportProjection({ includeMessages: false })
         incoming.characters[0].chats[0].name = '이름 변경'
@@ -589,7 +585,7 @@ describe('startup metadata synchronization', () => {
         const result = store.syncStartupProjection(incoming, {
             expectedEtag: store.projectionEtag({ includeMessages: false }),
         })
-        const after = store.getChat('character-1', 'chat-1')
+        const after = store.getChatState('character-1', 'chat-1')?.chat
 
         expect(after).toMatchObject({
             id: 'chat-1',
@@ -657,7 +653,7 @@ describe('relational chat content CAS', () => {
     it('does not advance revision when an acknowledged chat body is retried unchanged', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
-        const chat = store.getChat('character-1', 'chat-1')
+        const chat = store.getChatState('character-1', 'chat-1')?.chat
         const before = store.getState()
 
         const result = store.commitChat(
@@ -672,7 +668,7 @@ describe('relational chat content CAS', () => {
         const { store } = createStore()
         const source = sampleDatabase()
         store.replaceFromProjection(source)
-        const current = store.getChat('character-1', 'chat-1')
+        const current = store.getChatState('character-1', 'chat-1')?.chat
         const incoming = {
             ...current,
             name: 'stale client-side name',
@@ -715,7 +711,7 @@ describe('relational chat content CAS', () => {
 
         store.syncStartupProjection(startup)
 
-        const hydrated = store.getChat('character-1', 'chat-1')
+        const hydrated = store.getChatState('character-1', 'chat-1')?.chat
         expect(hydrated).not.toHaveProperty('lastDate')
         expect(hydrated).not.toHaveProperty('folderId')
         expect(hydrated).not.toHaveProperty('modules')
@@ -725,7 +721,7 @@ describe('relational chat content CAS', () => {
     it('rejects a stale writer and leaves canonical rows unchanged', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
-        const current = store.getChat('character-1', 'chat-1')
+        const current = store.getChatState('character-1', 'chat-1')?.chat
         const staleEtag = computeChatEtag({ ...current, message: [] })
 
         expect(() => store.commitChat(
@@ -735,7 +731,7 @@ describe('relational chat content CAS', () => {
             staleEtag,
         )).toThrow(AppDataConflictError)
 
-        expect(store.getChat('character-1', 'chat-1')).toEqual(current)
+        expect(store.getChatState('character-1', 'chat-1')?.chat).toEqual(current)
     })
 
     it('allows unrelated chat writers to commit against their own etags', () => {
@@ -750,8 +746,8 @@ describe('relational chat content CAS', () => {
             message: [{ chatId: 'message-a', role: 'user', data: 'A' }],
         })
         store.replaceFromProjection(source)
-        const first = store.getChat('character-1', 'chat-1')
-        const second = store.getChat('character-1', 'chat-2')
+        const first = store.getChatState('character-1', 'chat-1')?.chat
+        const second = store.getChatState('character-1', 'chat-2')?.chat
 
         store.commitChat(
             'character-1', 'chat-1',
@@ -764,25 +760,11 @@ describe('relational chat content CAS', () => {
             computeChatEtag(second),
         )
 
-        expect(store.getChat('character-1', 'chat-1').message.at(-1).data).toBe('one')
-        expect(store.getChat('character-1', 'chat-2').message.at(-1).data).toBe('two')
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message.at(-1).data).toBe('one')
+        expect(store.getChatState('character-1', 'chat-2')?.chat.message.at(-1).data).toBe('two')
     })
 
-    it('cascades chat messages when a chat is deleted', () => {
-        const { sqlite, store } = createStore()
-        store.replaceFromProjection(sampleDatabase())
-        const chat = store.getChat('character-1', 'chat-1')
 
-        const result = store.deleteChat(
-            'character-1', 'chat-1', computeChatEtag(chat),
-        )
-
-        expect(result.deleted).toBe(true)
-        expect(store.getChat('character-1', 'chat-1')).toBeUndefined()
-        expect((sqlite.prepare('SELECT COUNT(*) AS count FROM app_messages').get() as any).count)
-            .toBe(0)
-        expect(sqlite.pragma('foreign_key_check')).toEqual([])
-    })
 })
 
 

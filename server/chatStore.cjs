@@ -22,31 +22,6 @@ function computeChatEtag(chat) {
     return crypto.createHash('sha256').update(encoded).digest('hex');
 }
 
-/**
- * The single compare-and-swap boundary for full chat bodies. Every writer—an
- * HTTP client or a server-side generation materializer—commits through here.
- */
-function commitChatContent(store, characterId, chatId, incomingChat, expectedEtag, options = {}) {
-    const characterChats = store.get(characterId);
-    const currentChat = characterChats?.get(chatId);
-    const currentEtag = computeChatEtag(currentChat);
-
-    if ((options.requireExpected && currentChat && !expectedEtag)
-        || (expectedEtag && expectedEtag !== currentEtag)) {
-        return { success: false, conflict: true, currentEtag };
-    }
-
-    const committedChat = structuredClone(incomingChat);
-    const nextCharacterChats = characterChats ?? new Map();
-    if (!characterChats) store.set(characterId, nextCharacterChats);
-    nextCharacterChats.set(chatId, committedChat);
-    return {
-        success: true,
-        chat: committedChat,
-        etag: computeChatEtag(committedChat),
-    };
-}
-
 function mergeChatStubWithFullChat(stub, fullChat) {
     if (!fullChat) return stub;
     if (!stub || !stub._stub) return fullChat;
@@ -80,37 +55,44 @@ class CanonicalChatCommitError extends Error {
 }
 
 /**
- * Own every canonical full-chat write after the payload store has been
+ * Own every canonical full-chat write after the relational store has been
  * initialized. Generation input, materialized output, and browser edits all
- * pass through the same queue, CAS, persistence, and publish boundary.
+ * pass through the same queue, persistence CAS, and publish boundary.
+ *
+ * loadChat(characterId, chatId) returns a caller-owned { chat, etag } (or
+ * undefined). persist callbacks receive the candidate and the ETag it was
+ * derived from; the durable store rejects the write with an
+ * AppDataConflictError when its row no longer carries that ETag.
  */
 function createCanonicalChatService(options) {
     const {
         queueStorageOperation,
-        ensureChatStore,
-        getChat,
-        replaceChat,
-        commitChatContent,
-        computeChatEtag,
+        loadChat,
         getGenerationWorkflowInputChat,
-        persistNow,
-        schedulePersist,
+        persistChat,
         publishChatCommitted,
     } = options;
 
-    function conflict(message, currentChat, options = {}) {
+    function conflict(message, currentEtag, options = {}) {
         return new CanonicalChatCommitError(409, message, {
-            currentEtag: computeChatEtag(currentChat),
+            currentEtag,
             code: API_ERROR_CODES.CHAT_CONTENT_CHANGED,
             ...options,
         });
+    }
+
+    async function loadExistingChat(characterId, chatId) {
+        const current = await loadChat(characterId, chatId);
+        if (!current || !Array.isArray(current.chat?.message)) {
+            throw new CanonicalChatCommitError(404, 'Target chat not found');
+        }
+        return current;
     }
 
     async function commitCandidate({
         characterId,
         chatId,
         candidate,
-        previous,
         expectedEtag,
         persist,
         reason,
@@ -126,64 +108,46 @@ function createCanonicalChatService(options) {
         }
         for (const field of runtimeOnlyChatFields) delete candidate[field];
         stripChatCompatibility(candidate);
-        const result = commitChatContent(
-            characterId,
-            chatId,
-            candidate,
-            expectedEtag,
-            { requireExpected: true },
-        );
-        if (!result.success) {
-            throw conflict('Chat content changed on another client', getChat(characterId, chatId));
-        }
-        let durableResult = result;
+        let persisted;
         try {
-            const persisted = await persist(result.chat);
-            // The durable relational store may reconcile independently-owned
-            // list metadata (name/folder/modules) against the submitted body.
-            // Adopt that exact canonical value and ETag before responding or
-            // broadcasting so memory, SQL, and all connected clients agree.
-            if (persisted?.chat) {
-                const durableChat = structuredClone(persisted.chat);
-                durableResult = {
-                    ...result,
-                    ...persisted,
-                    success: true,
-                    chat: durableChat,
-                    etag: persisted.etag ?? computeChatEtag(durableChat),
-                };
-                replaceChat(characterId, chatId, durableChat);
-            }
+            persisted = await persist(candidate, expectedEtag);
         } catch (error) {
-            replaceChat(characterId, chatId, previous);
+            if (error?.name === 'AppDataConflictError') {
+                throw conflict('Chat content changed on another client', error.currentEtag);
+            }
             throw error;
         }
+        // The durable relational store may reconcile independently-owned
+        // list metadata (name/folder/modules) against the submitted body.
+        // Respond and broadcast its exact canonical value and ETag so SQL and
+        // all connected clients agree.
+        const result = { ...persisted, success: true };
         // Finalization lives in a separate durable store (the generation
         // journal). Once the canonical chat is persisted, never roll it back
         // merely because bookkeeping that can be retried failed afterward.
-        await finalize?.(durableResult);
+        await finalize?.(result);
         publishChatCommitted({
             characterId,
             chatId,
-            etag: durableResult.etag,
+            etag: result.etag,
             reason,
         }, originClientId);
-        return durableResult;
+        return result;
     }
 
     async function commitGenerationInput({ characterId, chatId, changes }) {
         return queueStorageOperation(async () => {
-            await ensureChatStore(characterId, chatId);
-            const input = applyChatDelta(characterId, chatId, changes);
+            const input = await applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
                 characterId,
                 chatId,
                 ...input,
                 reason: 'generation-input',
-                persist: chat => persistNow({
+                persist: (chat, expectedEtag) => persistChat({
                     characterId,
                     chatId,
                     chat,
+                    expectedEtag,
                     generationInput: true,
                 }),
             });
@@ -202,11 +166,7 @@ function createCanonicalChatService(options) {
             if (isAlreadyCommitted?.()) {
                 return { success: true, alreadyCommitted: true };
             }
-            await ensureChatStore(job.characterId, job.roomId);
-            const currentChat = getChat(job.characterId, job.roomId);
-            if (!currentChat || !Array.isArray(currentChat.message)) {
-                throw new CanonicalChatCommitError(404, 'Target chat not found');
-            }
+            const current = await loadExistingChat(job.characterId, job.roomId);
             const baseChat = workflow
                 ? getGenerationWorkflowInputChat(workflow.workflowId)
                 : undefined;
@@ -218,7 +178,7 @@ function createCanonicalChatService(options) {
                 candidate = mergeGenerationChatResult(
                     baseChat,
                     chat,
-                    currentChat,
+                    current.chat,
                     resolveRevenantPostprocessRecipe(workflow.context, baseChat),
                     workflow.steps?.find(step => step.key === 'message.materialize')?.metadata?.responses,
                 );
@@ -235,13 +195,13 @@ function createCanonicalChatService(options) {
                 characterId: job.characterId,
                 chatId: job.roomId,
                 candidate,
-                previous: currentChat,
-                expectedEtag: computeChatEtag(currentChat),
+                expectedEtag: current.etag,
                 reason: 'generation-result',
-                persist: committedChat => persistNow({
+                persist: (committedChat, expectedEtag) => persistChat({
                     characterId: job.characterId,
                     chatId: job.roomId,
                     chat: committedChat,
+                    expectedEtag,
                     mutationPatch,
                 }),
                 finalize,
@@ -249,14 +209,15 @@ function createCanonicalChatService(options) {
         });
     }
 
-    function applyChatDelta(characterId, chatId, changes) {
-        const current = getChat(characterId, chatId);
+    async function applyChatDelta(characterId, chatId, changes) {
+        const current = await loadChat(characterId, chatId);
+        const expectedEtag = current?.etag ?? MISSING_CHAT_ETAG;
         let candidate;
         try {
-            candidate = applyDelta(current ? normalizeJSON(current) : undefined, changes);
+            candidate = applyDelta(current ? normalizeJSON(current.chat) : undefined, changes);
         } catch (error) {
             if (error instanceof DeltaConflictError) {
-                throw conflict('Chat content changed on another client', current, {
+                throw conflict('Chat content changed on another client', expectedEtag, {
                     conflicts: error.conflicts.map(item => item.change.path),
                 });
             }
@@ -265,17 +226,16 @@ function createCanonicalChatService(options) {
             }
             throw error;
         }
-        return { candidate, previous: current, expectedEtag: computeChatEtag(current) };
+        return { candidate, expectedEtag };
     }
 
     async function commitUserDelta({ characterId, chatId, changes, originClientId }) {
         return queueStorageOperation(async () => {
-            await ensureChatStore(characterId, chatId);
-            const input = applyChatDelta(characterId, chatId, changes);
+            const input = await applyChatDelta(characterId, chatId, changes);
             return commitCandidate({
                 characterId, chatId, ...input,
                 reason: 'user-edit', originClientId,
-                persist: chat => schedulePersist({ characterId, chatId, chat }),
+                persist: (chat, expectedEtag) => persistChat({ characterId, chatId, chat, expectedEtag }),
             });
         });
     }
@@ -287,24 +247,20 @@ function createCanonicalChatService(options) {
         reason = 'server-mutation',
     }) {
         return queueStorageOperation(async () => {
-            await ensureChatStore(characterId, chatId);
-            const currentChat = getChat(characterId, chatId);
-            if (!currentChat || !Array.isArray(currentChat.message)) {
-                throw new CanonicalChatCommitError(404, 'Target chat not found');
-            }
-            const candidate = structuredClone(currentChat);
+            const current = await loadExistingChat(characterId, chatId);
+            const candidate = current.chat;
             const mutated = await mutate(candidate);
             return commitCandidate({
                 characterId,
                 chatId,
                 candidate: mutated || candidate,
-                previous: currentChat,
-                expectedEtag: computeChatEtag(currentChat),
+                expectedEtag: current.etag,
                 reason,
-                persist: committedChat => persistNow({
+                persist: (committedChat, expectedEtag) => persistChat({
                     characterId,
                     chatId,
                     chat: committedChat,
+                    expectedEtag,
                 }),
             });
         });
@@ -312,13 +268,12 @@ function createCanonicalChatService(options) {
 
     async function publishCurrent(characterId, chatId, reason = 'canonical-handoff') {
         return queueStorageOperation(async () => {
-            await ensureChatStore(characterId, chatId);
-            const chat = getChat(characterId, chatId);
-            if (!chat) return false;
+            const current = await loadChat(characterId, chatId);
+            if (!current) return false;
             publishChatCommitted({
                 characterId,
                 chatId,
-                etag: computeChatEtag(chat),
+                etag: current.etag,
                 reason,
             });
             return true;
@@ -337,7 +292,6 @@ function createCanonicalChatService(options) {
 module.exports = {
     MISSING_CHAT_ETAG,
     computeChatEtag,
-    commitChatContent,
     chatToStub,
     mergeChatStubWithFullChat,
     CanonicalChatCommitError,

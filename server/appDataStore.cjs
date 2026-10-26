@@ -5,8 +5,9 @@ const { createContentReferenceCollector, validateReferenceCandidates, matchConte
 const { Packr, Unpackr } = require('msgpackr');
 const { normalizeJSON } = require('./utils/json.cjs');
 const {
-    chatToStub,
     computeChatEtag,
+    MISSING_CHAT_ETAG,
+    chatToStub,
     mergeChatStubWithFullChat,
 } = require('./chatStore.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
@@ -20,7 +21,6 @@ const {
 
 const APP_DATA_SCHEMA_VERSION = 2;
 const STATE_ROW_ID = 1;
-const MISSING_CHAT_ETAG = 'missing';
 const PLUGIN_STORAGE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS app_plugin_storage (
     namespace TEXT NOT NULL CHECK (namespace IN ('includedInSave', 'localStorage', 'localForage')),
@@ -289,7 +289,6 @@ function createAppDataStore(db) {
       SET revision = ?, initialized = ?, updated_at = ?
       WHERE id = ?
     `);
-
     const installedState = stateRow.get(STATE_ROW_ID);
     if (installedState.schema_version === 1) {
         db.prepare('UPDATE app_data_state SET schema_version = ? WHERE id = ?')
@@ -640,6 +639,11 @@ function createAppDataStore(db) {
                 bytes: bytesByPlugin.get(name) ?? 0,
             })).sort((a, b) => b.bytes - a.bytes || a.displayName.localeCompare(b.displayName)),
         };
+    }
+
+    /** One plain root setting, read without assembling the projection. */
+    function getRootValue(field) {
+        return decodeValue(selectRootValue.get(field)?.payload);
     }
 
     function readMessages(characterId, chatId) {
@@ -1156,7 +1160,7 @@ function createAppDataStore(db) {
     function syncStartupProjection(value, options = {}) {
         return syncStartupTransaction(value, {
             expectedRevision: options.expectedRevision,
-            expectedEtag: options.expectedEtag ?? options.expectedProjectionEtag,
+            expectedEtag: options.expectedEtag,
         });
     }
 
@@ -1181,9 +1185,12 @@ function createAppDataStore(db) {
       WHERE character_id = ? AND chat_id = ?
     `);
 
-    function getChat(characterId, chatId) {
+    /** The full chat with the content ETag that commitChat() compares against. */
+    function getChatState(characterId, chatId) {
         const row = selectChat.get(characterId, chatId);
-        return row ? assembleChat(row, characterId, true) : undefined;
+        return row
+            ? { chat: assembleChat(row, characterId, true), etag: row.content_etag }
+            : undefined;
     }
 
     function getChatStubAt(characterId, position) {
@@ -1195,12 +1202,11 @@ function createAppDataStore(db) {
         return Boolean(selectChat.get(characterId, chatId));
     }
 
-    const commitChatTransaction = db.transaction((characterId, chatId, incoming, expectedEtag, options) => {
+    const commitChatTransaction = db.transaction((characterId, chatId, incoming, expectedEtag) => {
         const state = getState();
         const currentRow = selectChat.get(characterId, chatId);
         const currentEtag = currentRow?.content_etag ?? MISSING_CHAT_ETAG;
-        if ((options.requireExpected && currentRow && !expectedEtag)
-            || (expectedEtag && expectedEtag !== currentEtag)) {
+        if ((currentRow && !expectedEtag) || (expectedEtag && expectedEtag !== currentEtag)) {
             throw new AppDataConflictError('Chat content changed', {
                 currentRevision: state.revision,
                 currentEtag,
@@ -1269,49 +1275,10 @@ function createAppDataStore(db) {
         };
     });
 
-    function commitChat(characterId, chatId, incoming, expectedEtag, options = {}) {
+    /** Commit a full chat body; an existing row requires its current content ETag. */
+    function commitChat(characterId, chatId, incoming, expectedEtag) {
         if (!characterId || !chatId) throw new TypeError('characterId and chatId are required');
-        return commitChatTransaction(
-            characterId,
-            chatId,
-            incoming,
-            expectedEtag,
-            { requireExpected: options.requireExpected !== false },
-        );
-    }
-
-    const deleteChatTransaction = db.transaction((characterId, chatId, expectedEtag) => {
-        const state = getState();
-        const row = selectChat.get(characterId, chatId);
-        if (!row) return { deleted: false, revision: state.revision };
-        if (expectedEtag && row.content_etag !== expectedEtag) {
-            throw new AppDataConflictError('Chat content changed', {
-                currentRevision: state.revision,
-                currentEtag: row.content_etag,
-            });
-        }
-        db.prepare(`
-          DELETE FROM app_chats WHERE character_id = ? AND chat_id = ?
-        `).run(characterId, chatId);
-        const revision = state.revision + 1;
-        const updatedAt = Date.now();
-        updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        return { deleted: true, revision, updatedAt };
-    });
-
-    function deleteChat(characterId, chatId, expectedEtag) {
-        return deleteChatTransaction(characterId, chatId, expectedEtag);
-    }
-
-    function clear(options = {}) {
-        return db.transaction(() => {
-            const state = assertExpectedRevision(options.expectedRevision);
-            deleteAllProjectionRows();
-            const revision = state.revision + 1;
-            const updatedAt = Date.now();
-            updateState.run(revision, 0, updatedAt, STATE_ROW_ID);
-            return { revision, updatedAt };
-        })();
+        return commitChatTransaction(characterId, chatId, incoming, expectedEtag);
     }
 
     function projectionEtag(options = {}) {
@@ -1430,13 +1397,12 @@ function createAppDataStore(db) {
     }
 
     return {
-        clear,
         commitChat,
-        deleteChat,
         estimateProjectionBytes,
         exportProjection,
-        getChat,
+        getChatState,
         getChatStubAt,
+        getRootValue,
         getState,
         hasChat,
         listCharacterStorage,

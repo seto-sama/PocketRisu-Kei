@@ -15,10 +15,8 @@ function installMaintenanceRoutes(app, {
     sumInlayFsBytes,
     estimateServerBackupSize,
     appDataStore,
-    storageState,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
-    DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
 }) {
@@ -99,7 +97,7 @@ function installMaintenanceRoutes(app, {
                 backupDisk,
                 estimatedBackupSize,
                 inlayFsBytes,
-                etag: storageState.dbEtag,
+                etag: appDataStore.projectionEtag({ includeMessages: false }),
             });
         }
 
@@ -164,9 +162,11 @@ function installMaintenanceRoutes(app, {
             }
         } catch { /* backups dir may not exist */ }
 
-        // Use the cached projection, then scan plugin values for asset references.
+        // Scan the startup projection, then plugin values, for asset references.
         let orphan = { count: 0, totalSize: 0, available: false };
-        const stripped = storageState.dbCache[DB_HEX_KEY];
+        const stripped = appDataStore.getState().initialized
+            ? appDataStore.exportProjection({ includeMessages: false })
+            : null;
         if (stripped && Array.isArray(stripped.characters)) {
             const victims = findOrphanAssets(
                 storedAssets,
@@ -204,7 +204,7 @@ function installMaintenanceRoutes(app, {
                 file: fileBackups,
             },
             orphan,
-            etag: storageState.dbEtag,
+            etag: appDataStore.projectionEtag({ includeMessages: false }),
         });
     });
 
@@ -215,7 +215,7 @@ function installMaintenanceRoutes(app, {
             res.json({ characters: [], orphan: { count: 0, totalSize: 0 }, chatBytesNote: 'estimate' });
             return;
         }
-        const dbObj = storageState.dbCache[DB_HEX_KEY] ?? { characters: [] };
+        const dbObj = appDataStore.exportProjection({ includeMessages: false });
 
         const assetSize = new Map();
         for (const it of kvListWithSizes('assets/')) {
@@ -273,7 +273,7 @@ function installMaintenanceRoutes(app, {
                 totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
             },
             chatBytesNote: 'relational msgpack payload bytes',
-            etag: storageState.dbEtag,
+            etag: appDataStore.projectionEtag({ includeMessages: false }),
         });
     });
 
@@ -319,7 +319,7 @@ function installMaintenanceRoutes(app, {
         }
 
         modules.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({ modules, etag: storageState.dbEtag });
+        res.json({ modules, etag: appDataStore.projectionEtag({ includeMessages: false }) });
     });
 
     app.post('/api/db/assets/purge-orphans', async (req, res) => {

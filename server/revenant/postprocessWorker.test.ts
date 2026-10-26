@@ -4,7 +4,7 @@ import materializerPkg from './materializer.cjs'
 import chatStorePkg from '../chatStore.cjs'
 
 const { createRevenantMaterializer } = materializerPkg as any
-const { createCanonicalChatService, commitChatContent, computeChatEtag } = chatStorePkg as any
+const { createCanonicalChatService, computeChatEtag } = chatStorePkg as any
 
 const { createRevenantPostprocessWorker } = workerPkg as {
     createRevenantPostprocessWorker: (options: any) => { pump: () => Promise<void> }
@@ -24,13 +24,37 @@ function workflowContext(postprocess: any = {}) {
     }
 }
 
+type Steps = Record<string, { status: string, metadata?: any }>
+
+// In-memory workflow repository for a single job whose steps live in `steps`.
+function createRepository(steps: Steps, {
+    workflowId = 'workflow-1',
+    context = workflowContext(),
+    job = { jobId: 'job-1', workflowId } as any,
+} = {}) {
+    const listSteps = () => Object.entries(steps).map(([key, step]) => ({ key, ...step }))
+    return {
+        listReadyChatWorkflowJobs: () => [job],
+        getGenerationWorkflow: () => ({ workflowId, status: 'active', context, steps: listSteps() }),
+        getGenerationWorkflowInputChat: () => workflowInputChat,
+        claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
+            if (steps[stepKey].status !== 'pending') return null
+            steps[stepKey].status = 'running'
+            return { steps: listSteps() }
+        },
+        updateGenerationWorkflowStep: vi.fn((_workflowId: string, stepKey: string, update: any) => {
+            steps[stepKey] = { status: update.status, metadata: update.metadata }
+        }),
+        finishGenerationWorkflow: vi.fn(),
+    }
+}
+
 describe('revenant postprocess worker', () => {
     it.each([{ choices: ['local'] }, { choices: null }])('settles a real materialization conflict after the client responds: %j', async ({ choices }) => {
         const input = { ...workflowInputChat, scriptstate: { $score: '10' } }
         const current = { ...input, scriptstate: { $score: '20' } }
         const chat = { ...input, scriptstate: { $score: '13' }, message: [{ role: 'char', data: 'answer', chatId: 'generated-1' }] }
         const chats = new Map([['room-1', current]])
-        const store = new Map([['character-1', chats]])
         const job = {
             jobId: 'job-1', workflowId: 'workflow-1', characterId: 'character-1',
             roomId: 'room-1', chatId: 'generated-1', status: 'generated', createdAt: 1,
@@ -61,16 +85,18 @@ describe('revenant postprocess worker', () => {
             updateGenerationWorkflowStep: (_id: string, key: string, update: any) => { steps[key] = update },
             finishGenerationWorkflow: vi.fn((_id: string, terminal: string) => { status = terminal }),
         }
-        const persistNow = vi.fn(async () => {})
+        const persistChat = vi.fn(async ({ chatId, chat }: any) => {
+            chats.set(chatId, chat)
+            return { chat, etag: computeChatEtag(chat) }
+        })
         const canonicalChatService = createCanonicalChatService({
             queueStorageOperation: (operation: () => Promise<any>) => operation(),
-            ensureChatStore: async () => {},
-            getChat: () => chats.get('room-1'),
-            replaceChat: (_characterId: string, roomId: string, value: any) => chats.set(roomId, value),
-            computeChatEtag,
-            commitChatContent: (...args: any[]) => commitChatContent(store, ...args),
+            loadChat: async () => {
+                const chat = chats.get('room-1')
+                return { chat: structuredClone(chat), etag: computeChatEtag(chat) }
+            },
             getGenerationWorkflowInputChat: () => input,
-            persistNow, publishChatCommitted: vi.fn(),
+            persistChat, publishChatCommitted: vi.fn(),
         })
         const materializer = createRevenantMaterializer({ repository, canonicalChatService })
         const materializeGeneration = vi.fn(materializer.materialize)
@@ -83,7 +109,7 @@ describe('revenant postprocess worker', () => {
         expect(steps['message.materialize'].status).toBe('waiting_client')
         const action = steps['message.materialize'].metadata.action
         expect(action.kind).toBe('ui.resolve-conflict')
-        expect(persistNow).not.toHaveBeenCalled()
+        expect(persistChat).not.toHaveBeenCalled()
         await worker.pump()
         expect(materializeGeneration).toHaveBeenCalledOnce()
         expect(repository.finishGenerationWorkflow).not.toHaveBeenCalled()
@@ -94,35 +120,15 @@ describe('revenant postprocess worker', () => {
         expect(status).toBe(terminal)
         expect(onWorkflowUpdated).toHaveBeenLastCalledWith(expect.objectContaining({ status: terminal }))
         expect(chats.get('room-1')).toMatchObject(choices === null ? current : chat)
-        expect(persistNow).toHaveBeenCalledTimes(choices === null ? 0 : 1)
+        expect(persistChat).toHaveBeenCalledTimes(choices === null ? 0 : 1)
     })
 
     it('executes image actions on the server without exposing waiting_client', async () => {
-        const steps: Record<string, { status: string, metadata?: any }> = {
-            'output.transform': { status: 'pending', metadata: {} },
-        }
-        const workflow = () => ({
+        const steps: Steps = { 'output.transform': { status: 'pending', metadata: {} } }
+        const repository = createRepository(steps, {
             workflowId: 'workflow-image',
-            status: 'active',
-            context: workflowContext(),
-            steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+            job: { jobId: 'job-1', workflowId: 'workflow-image', projection: { content: 'result' } },
         })
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{
-                jobId: 'job-1', workflowId: 'workflow-image', projection: { content: 'result' },
-            }],
-            getGenerationWorkflow: workflow,
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
         const action = {
             actionId: 'script.image', kind: 'image.generate',
             payload: { prompt: 'portrait', negativePrompt: '' },
@@ -155,41 +161,24 @@ describe('revenant postprocess worker', () => {
     })
 
     it('claims and transforms terminal model output once', async () => {
-        const steps: Record<string, { status: string, metadata?: any }> = {
+        const steps: Steps = {
             'output.transform': { status: 'pending' },
             'trigger.output': { status: 'pending' },
             'igp': { status: 'pending' },
             'postprocess': { status: 'pending' },
             'message.materialize': { status: 'pending' },
         }
-        const updates: Array<{ step: string, update: any }> = []
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{
-                jobId: 'job-1', workflowId: 'workflow-1', projection: { content: ' result ' },
-            }],
-            getGenerationWorkflow: () => ({
-                workflowId: 'workflow-1',
-                context: workflowContext({ schemaVersion: 1 }),
-                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
-            }),
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-                updates.push({ step: stepKey, update })
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
+        const repository = createRepository(steps, {
+            context: workflowContext({ schemaVersion: 1 }),
+            job: { jobId: 'job-1', workflowId: 'workflow-1', projection: { content: ' result ' } },
+        })
         const transformOutput = vi.fn(() => ({
             text: 'processed', chat: { id: 'room-1', message: [] }, foregroundEffects: [], errors: [],
         }))
+        // Uses the transform the worker hands over, so dropping it fails the test.
         const runOutputStage = vi.fn(async (options: any) => ({
             status: 'completed',
-            ...transformOutput(options.text, options.recipe),
+            ...options.transformOutput(options.text, options.recipe),
         }))
         const runTriggerStage = vi.fn(async (options: any) => ({
             status: 'completed', chat: options.chat, resend: false, foregroundEffects: [], errors: [],
@@ -207,7 +196,7 @@ describe('revenant postprocess worker', () => {
             'result',
             expect.objectContaining({ schemaVersion: 1 }),
         )
-        expect(updates.map(update => update.step)).toEqual([
+        expect(repository.updateGenerationWorkflowStep.mock.calls.map(call => call[1])).toEqual([
             'output.transform', 'trigger.output', 'igp', 'postprocess',
         ])
         expect(steps['output.transform'].metadata).toEqual({
@@ -220,29 +209,10 @@ describe('revenant postprocess worker', () => {
     })
 
     it('fails the workflow only when a server-owned transform throws', async () => {
-        const steps: Record<string, { status: string, metadata?: any }> = {
-            'output.transform': { status: 'pending' },
-        }
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{
-                jobId: 'job-1', workflowId: 'workflow-1', projection: { content: 'result' },
-            }],
-            getGenerationWorkflow: () => ({
-                workflowId: 'workflow-1',
-                context: workflowContext(),
-                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
-            }),
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
+        const steps: Steps = { 'output.transform': { status: 'pending' } }
+        const repository = createRepository(steps, {
+            job: { jobId: 'job-1', workflowId: 'workflow-1', projection: { content: 'result' } },
+        })
         const worker = createRevenantPostprocessWorker({
             repository,
             runOutputStage: vi.fn(async () => { throw new Error('transform failed') }),
@@ -261,28 +231,11 @@ describe('revenant postprocess worker', () => {
 
     it('fails instead of silently materializing a trigger execution error', async () => {
         const chat = { id: 'room-1', message: [{ role: 'char', data: 'answer' }] }
-        const steps: Record<string, { status: string, metadata?: any }> = {
+        const steps: Steps = {
             'output.transform': { status: 'completed', metadata: { text: 'answer', chat } },
             'trigger.output': { status: 'pending' },
         }
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
-            getGenerationWorkflow: () => ({
-                workflowId: 'workflow-1',
-                context: workflowContext(),
-                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
-            }),
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
+        const repository = createRepository(steps)
         const worker = createRevenantPostprocessWorker({
             repository,
             runTriggerStage: vi.fn(async () => ({
@@ -309,7 +262,7 @@ describe('revenant postprocess worker', () => {
         }, {
             role: 'char', data: 'disabled answer', disabled: true,
         }] }
-        const steps: Record<string, { status: string, metadata?: any }> = {
+        const steps: Steps = {
             'output.transform': { status: 'completed', metadata: { text: 'answer', chat } },
             'trigger.output': {
                 status: 'completed',
@@ -319,32 +272,17 @@ describe('revenant postprocess worker', () => {
             'postprocess': { status: 'pending' },
             'message.materialize': { status: 'pending' },
         }
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
-            getGenerationWorkflow: () => ({
-                workflowId: 'workflow-1',
-                context: workflowContext({
-                        database: { igpPrompt: 'raw {{char}}' },
-                        auxProviders: {
-                            emotion: {
-                                backend: 'plugin',
-                                modelPreset: { id: 'aux-preset' },
-                            },
-                        },
-                }),
-                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+        const repository = createRepository(steps, {
+            context: workflowContext({
+                database: { igpPrompt: 'raw {{char}}' },
+                auxProviders: {
+                    emotion: {
+                        backend: 'plugin',
+                        modelPreset: { id: 'aux-preset' },
+                    },
+                },
             }),
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
+        })
         const renderPrompt = vi.fn(() => 'rendered prompt')
         const onWorkflowUpdated = vi.fn()
         const worker = createRevenantPostprocessWorker({
@@ -396,7 +334,7 @@ describe('revenant postprocess worker', () => {
 
     it('waits for a client to run completion UI effects before materializing', async () => {
         const chat = { id: 'room-1', message: [{ role: 'char', data: 'final answer' }] }
-        const steps: Record<string, { status: string, metadata?: any }> = {
+        const steps: Steps = {
             'output.transform': {
                 status: 'completed',
                 metadata: { text: 'final answer', chat, foregroundEffects: [] },
@@ -409,34 +347,19 @@ describe('revenant postprocess worker', () => {
             'postprocess': { status: 'pending' },
             'message.materialize': { status: 'pending' },
         }
-        const repository = {
-            listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
-            getGenerationWorkflow: () => ({
-                workflowId: 'workflow-1',
-                context: workflowContext({
-                        character: {
-                            viewScreen: 'emotion', inlayViewScreen: false,
-                            emotionImages: [['happy', 'asset']],
-                        },
-                        database: {
-                            igpPrompt: '', notification: true,
-                            ttsEnabled: true, ttsAutoSpeech: true,
-                            emotionProcesser: 'embedding', emotionPrompt2: '',
-                        },
-                }),
-                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+        const repository = createRepository(steps, {
+            context: workflowContext({
+                character: {
+                    viewScreen: 'emotion', inlayViewScreen: false,
+                    emotionImages: [['happy', 'asset']],
+                },
+                database: {
+                    igpPrompt: '', notification: true,
+                    ttsEnabled: true, ttsAutoSpeech: true,
+                    emotionProcesser: 'embedding', emotionPrompt2: '',
+                },
             }),
-            getGenerationWorkflowInputChat: () => workflowInputChat,
-            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
-                if (steps[stepKey].status !== 'pending') return null
-                steps[stepKey].status = 'running'
-                return { steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })) }
-            },
-            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
-                steps[stepKey] = { status: update.status, metadata: update.metadata }
-            },
-            finishGenerationWorkflow: vi.fn(),
-        }
+        })
         const materializeGeneration = vi.fn()
         const worker = createRevenantPostprocessWorker({
             repository, materializeGeneration, logger: { error: vi.fn() },

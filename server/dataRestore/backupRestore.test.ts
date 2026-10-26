@@ -118,7 +118,7 @@ async function fullRestoreHarness(
         clearEntities: () => {},
         checkpointWal: () => {},
         createBackupAndRotate: () => {},
-        invalidateDbCache: () => {},
+        syncTrashRetention: () => {},
         prepareDatabaseProjection,
         normalizeInlayExt: (ext: string) => ext || 'bin',
         isSafeInlayId: (id: string) => /^[a-zA-Z0-9_-]+$/.test(id),
