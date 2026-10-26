@@ -7,7 +7,8 @@ import {
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
 import { createThoughtSignatureCollector, restoreThoughtSignatures, type ThoughtSignatureContext } from './thoughtSignatures'
-import { decodeRevenantGenerationJournal } from '../../process/revenant/transport/journalDecoder'
+import { decodeAdapterResponseBody } from './responseDecoder'
+import { createDecodedChatProjection } from './decodedEvents'
 import { expandAdapterMessages, toAdapterMessage } from '../../process/request/modelPresetMessages'
 import { formatPresetMessages } from '../../process/request/formatMessages'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
@@ -1272,16 +1273,17 @@ describe('context caching wiring', () => {
 describe('persisted Gemini thought context', () => {
     test('keeps an empty signature part through edits and reverts using the response UUID', async () => {
         let context: ThoughtSignatureContext | undefined
-        const content = await decodeRevenantGenerationJournal(
-            { jobId: 'job', chatId: 'response', adapterKind: 'google-gemini', streaming: true,
-                status: 'generated', responseStatus: 200, createdAt: 1, updatedAt: 2 },
+        const projection = createDecodedChatProjection()
+        await decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
             new Response([
                 'data: {"candidates":[{"content":{"parts":[{"text":"original"}]}}]}\n\n',
                 'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
             ].join('')).body!,
-            undefined, undefined, value => { context = value },
+            event => projection.apply(event),
+            value => { context = value },
         )
-        expect(content).toBe('original')
+        expect(projection.content()).toBe('original')
         const records = [{ responseId: 'response', adapterKind: 'google-gemini', model: 'gemini-demo', turns: [context!] }]
         for (const text of ['edited by plugin', 'original']) {
             const history = formatPresetMessages([
@@ -1300,6 +1302,20 @@ describe('persisted Gemini thought context', () => {
             ])
             expect(messages[0].thoughtContext).toBeUndefined()
         }
+    })
+
+    test('reports the context of complete frames when the journal is truncated', async () => {
+        let context: ThoughtSignatureContext | undefined
+        await expect(decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
+            new Response([
+                'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
+                'data: {"candidates":[',
+            ].join('')).body!,
+            () => {},
+            value => { context = value },
+        )).rejects.toThrow()
+        expect(context?.geminiParts).toEqual([{ text: '', thoughtSignature: 'opaque' }])
     })
 
     test('restores parallel and sequential tool rounds before their results', async () => {

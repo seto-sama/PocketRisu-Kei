@@ -90,7 +90,11 @@ function installRevenantJobRoutes(app, deps) {
             sendJobNotFound(res);
             return;
         }
-        const bytes = journalStore.readAll(job.workflowId, job.jobId);
+        const bytes = journalStore.readAll(
+            job.workflowId,
+            job.jobId,
+            req.query?.format === 'events' ? 'events' : 'journal',
+        );
         res.set('content-type', 'application/octet-stream');
         res.set('x-risu-journal-offset', String(bytes.length));
         res.send(bytes);

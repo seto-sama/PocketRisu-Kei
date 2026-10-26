@@ -632,7 +632,6 @@ function rowToJob(row, includeRaw = true) {
         ? generationJournalStore.readAll(row.workflow_id, row.job_id)
         : undefined;
     const rawBytes = rawResponse?.length ?? Math.max(0, Number(row.raw_bytes) || 0);
-    const responseDecoder = row.response_decoder ? JSON.parse(row.response_decoder) : undefined;
     return {
         jobId: row.job_id,
         chatId: row.chat_id,
@@ -647,8 +646,7 @@ function rowToJob(row, includeRaw = true) {
         workflowStepKey: row.workflow_step_key || undefined,
         workflowStepExecutionId: row.step_execution_id || undefined,
         adapterKind: row.adapter_kind || undefined,
-        responseDecoder,
-        streaming: responseDecoder?.stream === true,
+        responseDecoder: row.response_decoder ? JSON.parse(row.response_decoder) : undefined,
         status: row.status,
         responseStatus: row.response_status,
         responseHeaders: row.response_headers ? JSON.parse(row.response_headers) : {},
@@ -891,6 +889,14 @@ function readGenerationJobRaw(jobId) {
     return generationJournalStore.readAll(job?.workflow_id, jobId);
 }
 
+/** Stores the decoded events rebuilt from a job's raw journal. */
+function replaceGenerationJobEvents(jobId, events) {
+    const job = stmtGet.get(jobId);
+    if (!job) return false;
+    generationJournalStore.replace(job.workflow_id, jobId, 'events', events);
+    return true;
+}
+
 function setGenerationJobProjection(jobId, projection) {
     const now = Date.now();
     const result = stmtSetProjection.run(JSON.stringify(projection), now, now, jobId);
@@ -1034,6 +1040,7 @@ module.exports = {
     claimQueuedGenerationDispatch,
     setGenerationJobHeaders,
     readGenerationJobRaw,
+    replaceGenerationJobEvents,
     setGenerationJobProjection,
     setGenerationJobClientProjection,
     setGenerationJobProjectionError,

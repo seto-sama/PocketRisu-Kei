@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
-    decode: vi.fn(),
-}))
-
 vi.mock('../workflow/requestStatus', () => ({ observeRevenantWorkflowRequests: vi.fn() }))
 
 vi.mock('./client', () => ({
@@ -24,14 +20,15 @@ vi.mock('./journalSocket', () => ({
     })),
 }))
 
-vi.mock('./journalDecoder', () => ({
-    decodeRevenantGenerationJournal: mocks.decode,
-}))
-
 import { subscribeRecoverableGeneration, fetchViaGenerationJob } from './stream'
 import { decodeGenerationRequest, BINARY_MESSAGE_CONTENT_TYPE } from './protocol'
 import { openRevenantJournalSocket } from './journalSocket'
+import { encodeDecodedChatEvent } from '../../../preset/adapter/decodedEvents'
 import type { RecoverableGenerationJob } from '../types'
+
+const deltas = (...texts: string[]) => new TextEncoder().encode(texts
+    .map(textDelta => encodeDecodedChatEvent({ type: 'delta', delta: { textDelta } }))
+    .join(''))
 
 const job: RecoverableGenerationJob = {
     jobId: 'job-1',
@@ -39,7 +36,6 @@ const job: RecoverableGenerationJob = {
     status: 'generating',
     createdAt: 1,
     updatedAt: 2,
-    streaming: true,
 }
 
 describe('generation job registration', () => {
@@ -70,30 +66,19 @@ describe('generation job registration', () => {
 })
 
 describe('subscribeRecoverableGeneration', () => {
-    const snapshot = new TextEncoder().encode('snapshot')
-
-    beforeEach(() => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(snapshot, {
-            status: 200,
-            headers: { 'x-risu-journal-offset': String(snapshot.length) },
-        })))
-    })
+    const snapshotWith = (snapshot: Uint8Array) => vi.stubGlobal('fetch', vi.fn(async () => new Response(snapshot as BodyInit, {
+        status: 200,
+        headers: { 'x-risu-journal-offset': String(snapshot.length) },
+    })))
 
     afterEach(() => {
         vi.useRealTimers()
-        mocks.decode.mockReset()
         vi.unstubAllGlobals()
     })
 
-    it('coalesces a replay burst and flushes the latest projection before done', async () => {
+    it('coalesces a replayed snapshot and flushes the latest projection before done', async () => {
         vi.useFakeTimers()
-        mocks.decode.mockImplementation(async (_job, _stream, onContent, onProgress) => {
-            for (const content of ['a', 'ab', 'abc']) {
-                onProgress?.({ thinking: '', response: content })
-                onContent?.(content)
-            }
-            return 'abc'
-        })
+        snapshotWith(deltas('a', 'b', 'c'))
         const onContent = vi.fn()
         const onProgress = vi.fn()
         const onDone = vi.fn()
@@ -102,6 +87,7 @@ describe('subscribeRecoverableGeneration', () => {
         subscribeRecoverableGeneration(job, { onContent, onProgress, onDone, onProviderStarted })
         await vi.advanceTimersByTimeAsync(0)
         const socketOptions = vi.mocked(openRevenantJournalSocket).mock.calls.at(-1)![0]
+        expect(socketOptions).toMatchObject({ format: 'events', initialOffset: deltas('a', 'b', 'c').length })
         socketOptions.onProviderStarted?.(123)
         expect(onProviderStarted).toHaveBeenCalledWith(123)
 
@@ -115,20 +101,16 @@ describe('subscribeRecoverableGeneration', () => {
     })
 
     it('returns to unthrottled updates after reaching the live journal tail', async () => {
-        mocks.decode.mockImplementation(async (_job, stream, onContent, onProgress) => {
-            const reader = stream.getReader()
-            await reader.read()
-            for (const content of ['a', 'ab']) {
-                onProgress?.({ thinking: '', response: content })
-                onContent?.(content)
-            }
-            await reader.read()
-            for (const content of ['abc', 'abcd']) {
-                onProgress?.({ thinking: '', response: content })
-                onContent?.(content)
-            }
-            return 'abcd'
-        })
+        snapshotWith(deltas('a', 'b'))
+        vi.mocked(openRevenantJournalSocket).mockImplementationOnce(() => new ReadableStream({
+            start(controller) {
+                // A live chunk can split an event line.
+                const live = deltas('c', 'd')
+                controller.enqueue(live.subarray(0, 10))
+                controller.enqueue(live.subarray(10))
+                controller.close()
+            },
+        }))
         const onContent = vi.fn()
         const onProgress = vi.fn()
         const onDone = vi.fn()

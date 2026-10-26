@@ -11,6 +11,7 @@ const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournal
         ws: FakeSocket,
         job: any,
         offset: number,
+        kind: 'journal' | 'events',
         store: {
             readChunk: (
                 workflowId: string | null,
@@ -360,7 +361,7 @@ describe('revenant journal stream', () => {
     it('sends headers, the requested byte suffix, and terminal state', async () => {
         const socket = new FakeSocket()
         const journal = Buffer.from('abcdef')
-        await streamRevenantJournal(socket, job, 3, {
+        await streamRevenantJournal(socket, job, 3, 'journal', {
             async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },
@@ -385,7 +386,7 @@ describe('revenant journal stream', () => {
         await streamRevenantJournal(socket, {
             ...job,
             providerStartedAt: 123,
-        }, 0, {
+        }, 0, 'journal', {
             async readChunk() {
                 return { offset: 0, bytes: Buffer.alloc(0) }
             },
@@ -409,7 +410,7 @@ describe('revenant journal stream', () => {
             journalWaiters: [],
         }
         let journal = Buffer.alloc(0)
-        const streaming = streamRevenantJournal(socket, liveJob, 0, {
+        const streaming = streamRevenantJournal(socket, liveJob, 0, 'journal', {
             async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },

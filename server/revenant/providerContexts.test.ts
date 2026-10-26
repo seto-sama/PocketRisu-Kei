@@ -109,7 +109,7 @@ it('persists projected provider contexts through queue claim, request-log cleari
                 }, Buffer.from(JSON.stringify({ candidates: [{ content: { parts: [
                     { text: 'answer retained', thoughtSignature: 'opaque' },
                 ] } }] })));
-                result.contentWithoutMetadata = withoutMetadata.content;
+                result.contentWithoutMetadata = withoutMetadata.projection.content;
                 result.untrackedContexts = contexts.queryProviderContexts(
                     ['untracked-response'], 'google-gemini', 'unknown-model',
                 );

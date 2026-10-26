@@ -40,7 +40,7 @@ import {
     decodeChatCompletionStream,
     openAiChatResponseDecoder,
 } from 'src/ts/preset/adapter/openaiCompatible';
-import { formatAdapterReasoning } from 'src/ts/preset/adapter/responseDecoder';
+import { formatAdapterReasoning } from 'src/ts/preset/adapter/decodedEvents';
 import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,

@@ -338,10 +338,8 @@ export interface RecoverableGenerationJob {
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
     adapterKind?: string
-    streaming?: boolean
     status: RevenantJobStatus
     responseStatus?: number
-    responseHeaders?: Record<string, string>
     rawBytes?: number
     projection?: RevenantNormalizedProjection
     projectionError?: string
@@ -365,10 +363,8 @@ export interface RecoverableAuxiliaryJob {
     workflowStepExecutionId?: string
     operationContext?: RevenantOperationContext
     adapterKind?: string
-    streaming?: boolean
     status: RevenantJobStatus
     responseStatus?: number
-    responseHeaders?: Record<string, string>
     rawBytes?: number
     projection?: RevenantNormalizedProjection
     projectionError?: string

@@ -106,11 +106,11 @@ describe('generation journal snapshot route', () => {
         const send = vi.fn()
 
         await routes.get('/api/generation/jobs/:jobId/journal/snapshot')?.(
-            { params: { jobId: 'job-1' } },
+            { params: { jobId: 'job-1' }, query: { format: 'events' } },
             { set, send, status: vi.fn() },
         )
 
-        expect(readAll).toHaveBeenCalledWith('workflow-1', 'job-1')
+        expect(readAll).toHaveBeenCalledWith('workflow-1', 'job-1', 'events')
         expect(set).toHaveBeenCalledWith('x-risu-journal-offset', String(bytes.length))
         expect(send).toHaveBeenCalledWith(bytes)
     })

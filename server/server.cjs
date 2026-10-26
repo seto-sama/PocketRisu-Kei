@@ -61,6 +61,7 @@ const {
     setGenerationJobGenerating,
     setGenerationJobHeaders,
     readGenerationJobRaw,
+    replaceGenerationJobEvents,
     setGenerationJobProjection,
     setGenerationJobProjectionError,
     finishGenerationJob,
@@ -74,6 +75,7 @@ const {
     generationJournalStore,
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     projectGenerationJournal,
+    openGenerationEventJournal,
     installRevenantGenerationRoutes,
     installImageGenerationJobRoutes,
     createImageGenerationJobService,
@@ -1336,6 +1338,7 @@ async function runGenerationProviderJob(job, arg) {
         : undefined;
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
+    let eventJournal = null;
     const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
     let journalWriteError = null;
     let journalClosed = false;
@@ -1395,6 +1398,13 @@ async function runGenerationProviderJob(job, arg) {
         setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
         job.responseStatus = upstreamResponse.status;
         job.responseHeaders = filteredHeaders;
+        const decodable = getGenerationJob(job.id, false);
+        if (decodable?.responseDecoder && upstreamResponse.status >= 200 && upstreamResponse.status < 300) {
+            eventJournal = openGenerationEventJournal(decodable, {
+                journalStore: generationJournalStore,
+                onWritten: () => notifyRevenantJournalWaiters(job),
+            });
+        }
         notifyGenerationJob(job);
 
         if (upstreamResponse.body) {
@@ -1423,6 +1433,7 @@ async function runGenerationProviderJob(job, arg) {
                         }
                         if (journalWriteError) throw journalWriteError;
                         job.rawBytes += bytes.length;
+                        eventJournal?.push(bytes);
                         const writable = journalWriter.write(bytes, () => {
                             notifyRevenantJournalWaiters(job);
                         });
@@ -1466,13 +1477,15 @@ async function runGenerationProviderJob(job, arg) {
         const rawResponse = readGenerationJobRaw(job.id);
         let projection = persisted?.projection;
         let terminalFailure;
-        if (cancelled || (upstreamResponse.status >= 200 && upstreamResponse.status < 300)) {
+        if (!cancelled && (upstreamResponse.status < 200 || upstreamResponse.status >= 300)) {
+            terminalFailure = {
+                finishReason: 'upstream_http_error',
+                message: `Provider request failed with HTTP ${upstreamResponse.status}`,
+            };
+        } else if (eventJournal) {
             try {
-                const decoded = await projectGenerationJournal(persisted, rawResponse);
-                if (decoded) {
-                    projection = decoded;
-                    setGenerationJobProjection(job.id, projection);
-                }
+                projection = await eventJournal.finish(cancelled);
+                setGenerationJobProjection(job.id, projection);
             } catch (error) {
                 const message = `Failed to normalize provider journal: ${error}`;
                 setGenerationJobProjectionError(job.id, message);
@@ -1481,13 +1494,6 @@ async function runGenerationProviderJob(job, arg) {
                 } else {
                     logger.warn(`[GenerationJob] Cancelled projection unavailable for ${job.id}:`, error);
                 }
-            }
-        } else {
-            if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
-                terminalFailure = {
-                    finishReason: 'upstream_http_error',
-                    message: `Provider request failed with HTTP ${upstreamResponse.status}`,
-                };
             }
         }
         updateRequestLogResponseById(
@@ -1561,6 +1567,13 @@ async function runGenerationProviderJob(job, arg) {
         }
         const cancelled = job.abortController.signal.aborted;
         const message = cancelled ? 'Generation job aborted' : `${error}`;
+        if (eventJournal) {
+            try {
+                setGenerationJobProjection(job.id, await eventJournal.finish(true));
+            } catch (projectionError) {
+                logger.warn(`[GenerationJob] Partial projection unavailable for ${job.id}:`, projectionError);
+            }
+        }
         let cancelFinishReason = 'user_cancelled';
         const persistedWithRaw = getGenerationJob(job.id, false);
         const rawResponse = readGenerationJobRaw(job.id);
@@ -1703,6 +1716,7 @@ function setupGenerationWebSocket(server) {
             ws,
             job,
             Number(reqUrl.searchParams.get('offset')),
+            reqUrl.searchParams.get('format') === 'events' ? 'events' : 'journal',
         ).catch((error) => {
             logger.error(`[GenerationJob] Failed to stream journal ${jobId}:`, error);
             try { ws.close(); } catch { /* ignore */ }
@@ -2284,7 +2298,8 @@ async function rebuildMissingGenerationProjections() {
     for (const job of jobs) {
         const rawResponse = readGenerationJobRaw(job.jobId);
         try {
-            const projection = await projectGenerationJournal(job, rawResponse);
+            const { projection, events } = await projectGenerationJournal(job, rawResponse);
+            replaceGenerationJobEvents(job.jobId, events);
             setGenerationJobProjection(job.jobId, projection);
             if (job.status === 'failed' && job.finishReason === 'projection_error') {
                 finishGenerationJob(

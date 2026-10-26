@@ -142,21 +142,24 @@ if (!generationColumns.has('operation_context')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN operation_context TEXT`);
 }
 if (!generationColumns.has('response_decoder')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN response_decoder TEXT`);
     // Journals written before requests carried their decoder were replayed
-    // with the adapter defaults; keep them rebuildable the same way.
-    db.exec(`
-        UPDATE generation_jobs
-        SET response_decoder = json_object(
-            'adapterKind', CASE adapter_kind WHEN 'echo' THEN 'openai-compatible' ELSE adapter_kind END,
-            'stream', json(CASE streaming WHEN 1 THEN 'true' ELSE 'false' END)
-        )
-        WHERE adapter_kind IN (
-            'echo', 'openai-compatible', 'openai-responses',
-            'anthropic-messages', 'google-gemini', 'amazon-bedrock'
-        )
-    `);
-    db.exec(`ALTER TABLE generation_jobs DROP COLUMN streaming`);
+    // with the adapter defaults; keep them rebuildable the same way. One
+    // transaction, so an interrupted startup cannot skip the backfill.
+    db.transaction(() => {
+        db.exec(`ALTER TABLE generation_jobs ADD COLUMN response_decoder TEXT`);
+        db.exec(`
+            UPDATE generation_jobs
+            SET response_decoder = json_object(
+                'adapterKind', CASE adapter_kind WHEN 'echo' THEN 'openai-compatible' ELSE adapter_kind END,
+                'stream', json(CASE streaming WHEN 1 THEN 'true' ELSE 'false' END)
+            )
+            WHERE adapter_kind IN (
+                'echo', 'openai-compatible', 'openai-responses',
+                'anthropic-messages', 'google-gemini', 'amazon-bedrock'
+            )
+        `);
+        db.exec(`ALTER TABLE generation_jobs DROP COLUMN streaming`);
+    })();
 }
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);

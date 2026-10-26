@@ -59,11 +59,13 @@ function sendRevenantJournalEvent(client, job, event) {
 // Replay and live delivery deliberately use the same file reader. A socket
 // reads to the journal's current EOF, waits for the writer, then continues at
 // the next byte offset. There is no replay-to-live handoff where bytes can be
-// missed or reordered.
+// missed or reordered. `kind` selects the provider's raw bytes or the
+// server's decoded events.
 async function streamRevenantJournal(
     ws,
     job,
     requestedOffset,
+    kind = 'journal',
     journalStore = generationJournalStore,
 ) {
     let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0
@@ -89,7 +91,7 @@ async function streamRevenantJournal(
             headersSent = true;
         }
 
-        const replay = await journalStore.readChunk(job.workflowId, job.id, offset);
+        const replay = await journalStore.readChunk(job.workflowId, job.id, offset, kind);
         if (replay.bytes.length > 0) {
             await new Promise((resolve, reject) => {
                 ws.send(encodeJournalChunk(replay.offset, replay.bytes), error => {

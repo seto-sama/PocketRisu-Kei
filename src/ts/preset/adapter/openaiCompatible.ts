@@ -535,10 +535,6 @@ function parseChatCompletion(
     }
 }
 
-/** Pure wire decoder used when a persisted provider journal is replayed. */
-export function parseRecoveredChatCompletion(raw: unknown): AdapterChatResponse {
-    return parseChatCompletion(raw)
-}
 
 // Surface the model's reasoning text for display only. OpenRouter exposes it as
 // `reasoning`, some OpenAI-compatible servers (DeepSeek etc.) as
@@ -617,10 +613,6 @@ function parseChatStreamDelta(
     return { textDelta, reasoningDelta: reasoningDelta.length > 0 ? reasoningDelta : undefined, finishReason, usage, raw }
 }
 
-/** Pure wire decoder used when a persisted provider journal is replayed. */
-export function parseRecoveredChatStreamDelta(raw: unknown): AdapterChatStreamDelta | null {
-    return parseChatStreamDelta(raw, true)
-}
 
 function resolveReasoningOutputOptions(preset: ModelPreset): ReasoningOutputOptions {
     const enabled = hasPresetFlag(preset, 'deepSeekThinkingOutput')

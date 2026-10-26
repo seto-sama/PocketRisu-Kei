@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import projectionPkg from './generationProjection.cjs'
 
-const { createClientGenerationProjection, projectGenerationJournal } = projectionPkg as {
+const { createClientGenerationProjection, openGenerationEventJournal, projectGenerationJournal } = projectionPkg as {
+    openGenerationEventJournal: (
+        job: Record<string, unknown>,
+        options: { journalStore: { openWriter: () => unknown }, onWritten: () => void },
+    ) => {
+        push: (bytes: Buffer) => void
+        finish: (partial: boolean) => Promise<{ content: string, journalBytes: number }>
+    }
     createClientGenerationProjection: (
         job: Record<string, unknown>,
         content: string,
@@ -17,12 +24,15 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
         job: Record<string, unknown>,
         raw: Buffer,
     ) => Promise<{
-        schemaVersion: number
-        source: string
-        adapterKind: string
-        content: string
-        journalBytes: number
-        awaitingProviderResult?: boolean
+        projection: {
+            schemaVersion: number
+            source: string
+            adapterKind: string
+            content: string
+            journalBytes: number
+            awaitingProviderResult?: boolean
+        }
+        events: Buffer
     } | undefined>
 }
 
@@ -48,19 +58,22 @@ describe('generation normalized projection', () => {
         const journal = Buffer.from(JSON.stringify({
             choices: [{ message: { role: 'assistant', content: 'summary' } }],
         }))
-        const projection = await projectGenerationJournal(openAi(false), journal)
+        const rebuilt = await projectGenerationJournal(openAi(false), journal)
 
-        expect(projection).toEqual({
+        expect(rebuilt?.projection).toEqual({
             schemaVersion: 1,
             source: 'server',
             adapterKind: 'openai-compatible',
             content: 'summary',
             journalBytes: journal.length,
         })
+        expect(rebuilt?.events.toString().split('\n').filter(Boolean).map(line => JSON.parse(line))).toEqual([
+            { type: 'response', response: expect.objectContaining({ text: 'summary' }) },
+        ])
     })
 
     it('projects a streaming journal with the decoder options the adapter sent', async () => {
-        const projection = await projectGenerationJournal(
+        const rebuilt = await projectGenerationJournal(
             openAi(true, { includeNative: false, thinkTagFallback: true }),
             Buffer.from([
                 'data: {"choices":[{"delta":{"content":"<think>plan</think>sum","reasoning_content":"hidden"}}]}',
@@ -72,7 +85,16 @@ describe('generation normalized projection', () => {
             ].join('\n')),
         )
 
-        expect(projection?.content).toBe('<Thoughts>\nplan\n</Thoughts>\n\nsummary')
+        expect(rebuilt?.projection.content).toBe('<Thoughts>\nplan\n</Thoughts>\n\nsummary')
+    })
+
+    it('leaves generated images for the browser to store and post back', async () => {
+        const rebuilt = await projectGenerationJournal(
+            { ...openAi(false), responseDecoder: { adapterKind: 'openai-compatible', stream: false, imageGeneration: true } },
+            Buffer.from(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] })),
+        )
+
+        expect(rebuilt?.projection).toMatchObject({ content: '', awaitingProviderResult: true })
     })
 
     it('does not project provider traffic that carries no chat response', async () => {
@@ -97,27 +119,27 @@ describe('generation normalized projection', () => {
                 + 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n'
             : JSON.stringify(turn))
         const job = openAi(streaming)
-        const projection = await projectGenerationJournal(job, journal)
+        const projection = (await projectGenerationJournal(job, journal))?.projection
 
         expect(projection).toMatchObject({ content: '', awaitingProviderResult: true })
         expect(createClientGenerationProjection({ ...job, projection }, 'Processed reply', true)).toMatchObject({
             source: 'provider', content: 'Processed reply', journalBytes: journal.length,
         })
 
-        const followup = await projectGenerationJournal({ ...openAi(false), projection }, Buffer.from(JSON.stringify({
+        const followup = (await projectGenerationJournal({ ...openAi(false), projection }, Buffer.from(JSON.stringify({
             choices: [{ message: { content: 'Raw follow-up' }, finish_reason: 'stop' }],
-        })))
+        }))))?.projection
         expect(followup).toMatchObject({ content: 'Raw follow-up', awaitingProviderResult: true })
     })
 
     it.each(['interrupted', 'cancelled'])('keeps a %s journal recoverable up to its last complete event', async status => {
-        const projection = await projectGenerationJournal({ ...openAi(true), status }, Buffer.from([
+        const rebuilt = await projectGenerationJournal({ ...openAi(true), status }, Buffer.from([
             'data: {"choices":[{"delta":{"content":"partial"}}]}',
             '',
             'data: {"choices":[',
         ].join('\n')))
 
-        expect(projection?.content).toBe('partial')
+        expect(rebuilt?.projection.content).toBe('partial')
     })
 
     it('rejects provider error responses instead of projecting an error body', async () => {
@@ -125,5 +147,29 @@ describe('generation normalized projection', () => {
             { ...openAi(false), responseStatus: 429 },
             Buffer.from('{"error":"rate limited"}'),
         )).rejects.toThrow('HTTP 429')
+    })
+
+    it('writes decoded events while provider bytes are still arriving', async () => {
+        const written: string[] = []
+        const writer = {
+            on: vi.fn(),
+            write: (line: string, done: () => void) => { written.push(line); done() },
+            end: (done: () => void) => done(),
+        }
+        const onWritten = vi.fn()
+        const journal = openGenerationEventJournal(
+            { ...openAi(true), jobId: 'job-1', workflowId: 'workflow-1' },
+            { journalStore: { openWriter: () => writer }, onWritten },
+        )
+        const sse = Buffer.from('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\ndata: {"choices":[{"delta":{"content":"lo"}}]}\n\n')
+
+        journal.push(sse.subarray(0, 60))
+        await vi.waitFor(() => expect(written).toHaveLength(1))
+        journal.push(sse.subarray(60))
+        const projection = await journal.finish(false)
+
+        expect(written.map(line => JSON.parse(line).delta.textDelta)).toEqual(['Hel', 'lo'])
+        expect(projection).toMatchObject({ content: 'Hello', journalBytes: sse.length })
+        expect(onWritten).toHaveBeenCalled()
     })
 })
