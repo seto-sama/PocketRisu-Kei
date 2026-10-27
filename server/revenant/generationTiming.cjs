@@ -3,7 +3,6 @@
 const OTHER_STEP_KEYS = [
     'output.transform',
     'trigger.output',
-    'igp',
     'postprocess',
 ];
 

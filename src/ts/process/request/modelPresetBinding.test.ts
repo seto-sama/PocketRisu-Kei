@@ -33,17 +33,17 @@ beforeEach(() => {
 })
 
 describe('resolveChatModelBinding — model-preset-only mode', () => {
-    test.each(['model', 'submodel', 'memory', 'translate', 'emotion', 'otherAx'] as const)(
+    test.each(['model', 'submodel', 'memory', 'translate', 'otherAx'] as const)(
         'uses the global %s binding while hidden and restores the saved chat binding when shown', (mode) => {
             const globalPreset = { id: 'p-global', name: 'Global' }
             mockDb.modelPresets.push(globalPreset)
             const chat = { modelBinding: {
                 main: 'p-main', sub: 'p-main', separateAux: true,
-                aux: { memory: 'p-main', translate: 'p-main', emotion: 'p-main', otherAx: 'p-main' },
+                aux: { memory: 'p-main', translate: 'p-main', otherAx: 'p-main' },
             } } as any
             mockDb.defaultModelBinding = {
                 main: 'p-global', sub: 'p-global', separateAux: true,
-                aux: { memory: 'p-global', translate: 'p-global', emotion: 'p-global', otherAx: 'p-global' },
+                aux: { memory: 'p-global', translate: 'p-global', otherAx: 'p-global' },
             }
             const savedBinding = structuredClone(chat.modelBinding)
             mockDb.showModelInSidebar = false
@@ -364,7 +364,6 @@ describe('applyPromptPresetParams — prompt-preset sampling override', () => {
         const preset = presetWith({ schema: SAMPLING_SCHEMA })
         expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
         expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'emotion')).toBe(preset)
         expect(applyPromptPresetParams(preset, onChat, 'translate')).toBe(preset)
     })
 

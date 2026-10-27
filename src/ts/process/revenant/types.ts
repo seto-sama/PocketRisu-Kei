@@ -34,7 +34,6 @@ export type ModelModeExtended =
     | 'model'
     | 'submodel'
     | 'memory'
-    | 'emotion'
     | 'otherAx'
     | 'translate'
 
@@ -144,7 +143,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
     selectedPersona: number
     personas: unknown[]
     showPersonaInSidebar?: boolean
-    igpPrompt: string
     notification: boolean
     ttsEnabled: boolean
     ttsAutoSpeech: boolean

@@ -921,7 +921,6 @@ export const languageSpanish = {
     "fallbackModel": "Modelo de Fallback",
     "fallbackWhenBlankResponse": "Fallback Cuando Respuesta en Blanco",
     "doNotChangeFallbackModels": "No Cambiar Modelos de Fallback al Cambiar Preset",
-    "igpPrompt": "Prompt IGP",
     "hypaMemoryV3Modal": "Modal Hypa V3",
     "showMenuHypaMemoryModal": "Mostrar Menú Modal Hypa",
     "promptInfoInsideChat": "Agregar Info de Prompt al Chat",

@@ -7,9 +7,8 @@ const {
     runRevenantOutputStage,
     runRevenantOutputTransform,
     runRevenantTriggerStage,
-    renderRevenantPostprocessPrompt,
 } = require('./postprocessPipeline.cjs');
-const { findLastActiveResponseIndex, setMessageContent } = require('../../src/ts/storage/messageContent.ts');
+const { findLastActiveResponseIndex } = require('../../src/ts/storage/messageContent.ts');
 
 function recipeWithMutations(recipe, ...patches) {
     let character = recipe.character;
@@ -42,7 +41,6 @@ function createRevenantPostprocessWorker(options) {
         transformOutput = runRevenantOutputTransform,
         runOutputStage = runRevenantOutputStage,
         runTriggerStage = runRevenantTriggerStage,
-        renderPrompt = renderRevenantPostprocessPrompt,
         onWorkflowUpdated = () => {},
         materializeGeneration = async () => {
             throw new Error('Revenant materializer is not configured');
@@ -267,100 +265,6 @@ function createRevenantPostprocessWorker(options) {
                 }
 
                 let currentChat = triggerStep.metadata.chat;
-                let igpStep = postTriggerWorkflow?.steps
-                    ?.find(step => step.key === 'igp');
-                if (igpStep?.status === 'pending'
-                    && claimGenerationWorkflowStep(workflow.workflowId, 'igp', 'pending')) {
-                    const rawPrompt = String(
-                        recipe.database?.igpPrompt || '',
-                    ).trim();
-                    const effectiveRecipe = recipeWithMutations(
-                        recipe,
-                        outputStep.metadata.mutations,
-                        triggerStep.metadata.mutations,
-                    );
-                    const prompt = rawPrompt
-                        ? renderPrompt(rawPrompt, effectiveRecipe, currentChat).trim()
-                        : '';
-                    const igpProvider = effectiveRecipe.auxProviders?.emotion;
-                    if (!prompt) {
-                        updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                            status: 'skipped', metadata: { schemaVersion: 1, chat: currentChat },
-                        });
-                    }
-                    else if (!igpProvider) {
-                        updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                            status: 'skipped',
-                            metadata: {
-                                schemaVersion: 1,
-                                chat: currentChat,
-                                error: 'IGP model preset is not configured',
-                            },
-                        });
-                    }
-                    else {
-                        const actionId = 'igp.provider';
-                        const response = igpStep.metadata?.responses?.[actionId];
-                        if (response === undefined) {
-                            const metadata = {
-                                schemaVersion: 1,
-                                ...(igpStep.metadata?.responses
-                                    ? { responses: igpStep.metadata.responses }
-                                    : {}),
-                                action: {
-                                    schemaVersion: 1,
-                                    actionId,
-                                    kind: 'provider.igp',
-                                    payload: {
-                                        backend: igpProvider.backend,
-                                        modelPreset: igpProvider.modelPreset,
-                                        prompt,
-                                    },
-                                },
-                            };
-                            if (!startServerAction(
-                                workflow,
-                                'igp',
-                                metadata,
-                                metadata.action,
-                                currentChat,
-                                effectiveRecipe,
-                            )) {
-                                updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                                    status: 'waiting_client', metadata,
-                                });
-                            }
-                        }
-                        else if (response?.success !== true || typeof response.result !== 'string') {
-                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                                status: 'skipped',
-                                metadata: {
-                                    schemaVersion: 1, chat: currentChat,
-                                    error: String(response?.result || 'IGP provider request failed'),
-                                },
-                            });
-                        }
-                        else {
-                            currentChat = structuredClone(currentChat);
-                            const target = currentChat.message[findLastActiveResponseIndex(currentChat.message)];
-                            if (target) setMessageContent(target, target.data + response.result);
-                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
-                                status: 'completed',
-                                metadata: {
-                                    schemaVersion: 1, chat: currentChat,
-                                    responses: igpStep.metadata.responses,
-                                },
-                            });
-                        }
-                    }
-                    igpStep = getGenerationWorkflow(workflow.workflowId)?.steps
-                        ?.find(step => step.key === 'igp');
-                }
-                if (!['completed', 'skipped'].includes(igpStep?.status)) {
-                    notifyActionableWorkflowState(workflow.workflowId);
-                    continue;
-                }
-                currentChat = igpStep.metadata?.chat || currentChat;
 
                 const foregroundEffects = [
                     ...(outputStep.metadata.foregroundEffects || []),

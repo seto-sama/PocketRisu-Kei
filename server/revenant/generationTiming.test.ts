@@ -29,7 +29,6 @@ function workflow() {
             step('model.main', 2_000, 8_500),
             step('output.transform', 8_100, 8_120),
             step('trigger.output', 8_150, 8_180),
-            step('igp'),
             step('postprocess', 8_200, 8_240),
         ],
     }

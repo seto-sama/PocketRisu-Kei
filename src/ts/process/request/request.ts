@@ -804,7 +804,6 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
     switch (mode) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'
-        case 'emotion': return 'emotion'
         case 'submodel':
         case 'otherAx': return 'sub'
         default: return 'main'

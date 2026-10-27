@@ -34,7 +34,6 @@ function recipe(): RevenantPostprocessRecipe {
             personaPrompt: '',
             selectedPersona: 0,
             personas: [],
-            igpPrompt: '',
             notification: false,
             ttsEnabled: false,
             ttsAutoSpeech: false,

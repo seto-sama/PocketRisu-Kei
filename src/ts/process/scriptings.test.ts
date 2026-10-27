@@ -144,10 +144,12 @@ it('uses the selected auxiliary mode with the originating chat and module', asyn
     const chat = { id: 'origin', message: [] }
     const result = await runScripted(`
         onStart = async(function(id)
-            for _, mode in ipairs({'emotion', 'memory', 'otherAx', 'submodel', 'translate'}) do
+            for _, mode in ipairs({'memory', 'otherAx', 'submodel', 'translate'}) do
                 local response = axLLM(id, {{role = 'user', content = 'prompt'}}, false, {mode = mode})
                 assert(response.success and response.result == mode)
             end
+            local retired = axLLM(id, {{role = 'user', content = 'retired'}}, false, {mode = 'emotion'})
+            assert(retired.success and retired.result == 'otherAx')
             local response = axLLM(id, {{role = 'user', content = 'default'}})
             local invalid = axLLM(id, {{role = 'user', content = 'invalid'}}, false, {mode = 'model'})
             assert(not invalid.success and invalid.result == 'Error: Invalid axLLM mode: model')

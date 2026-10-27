@@ -1699,7 +1699,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         selectedPersona: DBState.db.selectedPersona ?? 0,
                         showPersonaInSidebar: DBState.db.showPersonaInSidebar,
                         personas: structuredClone(DBState.db.personas ?? []),
-                        igpPrompt: DBState.db.igpPrompt ?? '',
                         notification: DBState.db.notification ?? false,
                         ttsEnabled: DBState.db.ttsEnabled ?? false,
                         ttsAutoSpeech: !arg.suppressTts && (DBState.db.ttsAutoSpeech ?? false),
@@ -1712,7 +1711,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
                 resumeContext,
                 hypaEnabled,
-                igpEnabled: !!(DBState.db.igpPrompt ?? '').trim(),
                 // Main provider dispatch remains on the page that built the
                 // prompt. Plugin transports register their durable nativeFetch
                 // job through the same ordinary request path as HTTP adapters.
@@ -2154,30 +2152,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     await setWorkflowStep('output.transform', 'completed')
     await setWorkflowStep('trigger.output', 'completed')
     finishStreamingDisplay()
-
-    const igp = risuChatParser(DBState.db.igpPrompt ?? "")
-
-    if(igp){
-        await setWorkflowStep('igp', 'running')
-        const igpFormated = parseChatML(igp)
-        const rq = await requestChatData({
-            formated: igpFormated,
-            bias: {},
-            currentChar,
-            useStreaming: false,
-        },'emotion', abortSignal)
-
-        if(rq.type === 'success'){
-            const target = DBState.db.characters[selectedChar].chats[selectedChat].message.at(-1)
-            if (target) setMessageContent(target, target.data + rq.result)
-            await setWorkflowStep('igp', 'completed')
-        }
-        else{
-            const reason = rq.type === 'fail' ? rq.result : `unexpected_${rq.type}`
-            console.error('[GenerationWorkflow] IGP request failed:', reason)
-            await setWorkflowStep('igp', 'skipped', { reason })
-        }
-    }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start
 

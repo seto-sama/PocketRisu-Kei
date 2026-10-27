@@ -26,7 +26,7 @@ function recipe(): RevenantPostprocessRecipe {
                 type: 'editoutput', in: '\\[happy\\]', out: '@@emo happy', ableFlag: true, flag: 'g', comment: '',
             }],
             templateDefaultVariables: '', globalChatVariables: {}, username: 'Bob', userIcon: '',
-            personaPrompt: '', selectedPersona: 0, personas: [], igpPrompt: '',
+            personaPrompt: '', selectedPersona: 0, personas: [],
             notification: false, ttsEnabled: false, ttsAutoSpeech: false,
         },
         modules: [], moduleRegexScripts: [], moduleTriggers: [],

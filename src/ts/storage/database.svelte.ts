@@ -1402,7 +1402,6 @@ export interface Database{
     modelPresetDefaultMaxResponse?: number
     modelPresetPromptPresetFirst?: boolean
     modelPresetPromptParamsFirst?: boolean
-    igpPrompt:string
     authRefreshes:{
         url:string
         tokenUrl:string

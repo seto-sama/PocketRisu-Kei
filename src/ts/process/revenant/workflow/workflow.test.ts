@@ -60,7 +60,6 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
             },
             hypaEnabled: false,
-            igpEnabled: true,
             pluginProvider: false,
         })
 
@@ -73,7 +72,6 @@ describe('revenant workflow resume checkpoint', () => {
             'model.main',
             'output.transform',
             'trigger.output',
-            'igp',
             'postprocess',
             'message.materialize',
         ])
@@ -90,7 +88,6 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
             },
             hypaEnabled: false,
-            igpEnabled: false,
             pluginProvider: true,
         })
 
@@ -105,7 +102,6 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
             },
             hypaEnabled: false,
-            igpEnabled: false,
             pluginProvider: false,
         }))
 
@@ -119,7 +115,7 @@ describe('revenant workflow resume checkpoint', () => {
     it('keeps server-planned Hypa pending while marking local prompt assembly complete', () => {
         const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
             resumeContext: { version: 1, chatProcessIndex: -1, messageChatId: 'message' },
-            hypaEnabled: true, igpEnabled: false, pluginProvider: false,
+            hypaEnabled: true, pluginProvider: false,
         }), true)
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('pending')
         expect(plan.find(step => step.key === 'prompt.build')?.status).toBe('completed')

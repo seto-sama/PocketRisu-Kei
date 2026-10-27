@@ -921,7 +921,6 @@ export const languageGerman = {
     "fallbackModel": "Fallback-Modell",
     "fallbackWhenBlankResponse": "Fallback bei leerer Antwort",
     "doNotChangeFallbackModels": "Fallback-Modelle bei Voreinstellungsänderung nicht ändern",
-    "igpPrompt": "IGP-Anweisung",
     "hypaMemoryV3Modal": "Hypa V3 Modal",
     "showMenuHypaMemoryModal": "Menü Hypa Modal anzeigen",
     "promptInfoInsideChat": "Anweisungsinformationen zum Chat hinzufügen",

@@ -38,7 +38,7 @@ function harness(model = preset(), executorOptions = {}) {
         chat, modules: [], moduleTriggers: [], moduleRegexScripts: [],
     }
     const steps: Record<string, any> = Object.fromEntries(
-        ['output.transform', 'trigger.output', 'igp', 'postprocess', 'message.materialize']
+        ['output.transform', 'trigger.output', 'postprocess', 'message.materialize']
             .map(key => [key, { key, status: 'pending' }]),
     )
     const workflow = {
@@ -175,10 +175,8 @@ describe('server postprocess provider actions', () => {
         }
     })
 
-    it('runs consecutive Lua calls and IGP after main completion without any client action', async () => {
+    it('runs consecutive Lua calls after main completion without any client action', async () => {
         const h = harness()
-        h.recipe.auxProviders.emotion = { backend: 'http', modelPreset: preset() }
-        h.recipe.database.igpPrompt = 'finish'
         h.recipe.character.triggerscript = [{
             type: 'output', conditions: [], effect: [{ type: 'triggerlua', code: `
                 onOutput = async(function(id)
@@ -198,13 +196,13 @@ describe('server postprocess provider actions', () => {
         // Repeated wakes while an action is running must not duplicate its request.
         await worker.pump()
         await vi.waitFor(() => expect(h.workflow.status).toBe('completed'))
-        expect(h.jobs).toHaveLength(3)
+        expect(h.jobs).toHaveLength(2)
         const bodies = h.jobs.map(job => JSON.parse(Buffer.from(job.requestSpec.body).toString()))
-        expect(bodies.map(body => body.messages[0].content)).toEqual(['first', 'answer-1', 'finish'])
+        expect(bodies.map(body => body.messages[0].content)).toEqual(['first', 'answer-1'])
         expect(h.steps['trigger.output'].metadata.chat.scriptstate.$auxResult).toBe('answer-2')
         expect(h.transitions).not.toContain('waiting_client')
         expect(h.jobs.every(job => job.workflowStepKey !== 'model.main' && job.jobType !== 'model')).toBe(true)
-        expect(h.repository.markGenerationMaterialized).toHaveBeenCalledTimes(3)
+        expect(h.repository.markGenerationMaterialized).toHaveBeenCalledTimes(2)
         expect(materialize).toHaveBeenCalledTimes(1)
     })
 
@@ -220,7 +218,7 @@ describe('server postprocess provider actions', () => {
         })
     })
 
-    it.each(['emotion', 'memory', 'otherAx', 'submodel', 'translate'])(
+    it.each(['memory', 'otherAx', 'submodel', 'translate'])(
         'records Lua axLLM mode %s on its server provider job', async mode => {
             const h = harness()
             h.action.payload.mode = mode

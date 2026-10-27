@@ -11,7 +11,6 @@ function requestKind(job: RevenantWorkflowRequestJob): RequestKind {
         case 'model': return 'main'
         case 'memory': return 'memory'
         case 'translate': return 'translate'
-        case 'emotion': return 'emotion'
         default: return 'sub'
     }
 }

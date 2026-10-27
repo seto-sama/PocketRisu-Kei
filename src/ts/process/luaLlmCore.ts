@@ -1,10 +1,15 @@
 import type { ModelModeExtended } from './revenant/types'
 
-export const LUA_AX_LLM_MODES = ['emotion', 'memory', 'otherAx', 'submodel', 'translate'] as const satisfies readonly ModelModeExtended[]
+export const LUA_AX_LLM_MODES = ['memory', 'otherAx', 'submodel', 'translate'] as const satisfies readonly ModelModeExtended[]
 export type LuaAxLlmMode = typeof LUA_AX_LLM_MODES[number]
 
+/** The emotion auxiliary slot was retired; callers that still ask for it get otherAx. */
+export function retireEmotionMode<T>(mode: T): T | 'otherAx' {
+    return mode === 'emotion' ? 'otherAx' : mode
+}
+
 export function resolveLuaAxLlmMode(options: Record<string, unknown>): LuaAxLlmMode {
-    const mode = options.mode ?? 'otherAx'
+    const mode = retireEmotionMode(options.mode ?? 'otherAx')
     if (!LUA_AX_LLM_MODES.includes(mode as LuaAxLlmMode)) {
         throw new Error(`Invalid axLLM mode: ${String(mode)}`)
     }

@@ -188,7 +188,6 @@ function auxiliaryRequestKind(jobType: string): RequestKind {
     switch (jobType) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'
-        case 'emotion': return 'emotion'
         default: return 'sub'
     }
 }
@@ -485,7 +484,6 @@ export async function recoverRevenantGenerationsForChat(
             })
             if (activeWorkflow) {
                 if (messageWasMaterialized) {
-                    await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'igp', 'skipped')
                     await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'postprocess', 'skipped')
                     await finishRevenantWorkflow(activeWorkflow.workflowId, 'completed')
                 }

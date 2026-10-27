@@ -26,7 +26,7 @@ const { resolveRevenantPostprocessRecipe } = require('./generation.cjs');
 const { revenantJournalKind } = require('./generationStream.cjs');
 
 const PROVIDER_ACTIONS = new Set([
-    'provider.llm', 'provider.axllm', 'provider.simplellm', 'provider.igp',
+    'provider.llm', 'provider.axllm', 'provider.simplellm',
 ]);
 
 function canExecuteServerProviderAction(action) {
@@ -128,7 +128,6 @@ function createServerProviderActionExecutor(options) {
                 if (action.kind === 'provider.axllm' && LUA_AX_LLM_MODES.includes(payload.mode)) {
                     jobType = payload.mode;
                 }
-                if (action.kind === 'provider.igp') jobType = 'emotion';
                 if (operationContext?.kind === 'hypav3-summary') jobType = 'memory';
                 repository.createGenerationJob({
                     jobId, chatId: jobId,
