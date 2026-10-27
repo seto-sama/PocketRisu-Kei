@@ -581,6 +581,40 @@ $effect.root(() => {
     })
 })
 
+function ensureAssetsCache(char: simpleCharacterArgument|character): AssetPaths {
+    if (!assetsCache || assetsCacheCharacterId !== char.chaId) {
+        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
+    }
+    return assetsCache!
+}
+
+// src holds an asset name, not a URL; an optional closing tag is swallowed too.
+const assetPromptTagRegex = /<assets\s+src\s*=\s*["']([^"']*)["'][^>]*>(?:\s*<\/assets>)?/gi
+// Marks a resolved asset-prompt tag inside {{img::}} so it keeps the asset style.
+const assetPromptMarker = '\uE9b5'
+const assetPromptExtensionRegex = new RegExp(`\\.(?:${imageAssetExtensions.join('|')})$`, 'i')
+
+function normalizeAssetPromptName(name: string): string {
+    return name.toLocaleLowerCase().replace(/[\s_-]/g, '').replace(assetPromptExtensionRegex, '')
+}
+
+// Asset-prompt tags (<assets src="Name">) draw only assets that exist; case, spaces,
+// separators and file extensions are ignored, and unknown names draw nothing.
+function resolveAssetPromptTags(data: string, char: simpleCharacterArgument|character) {
+    if(char.type === 'simple' || !char.prebuiltAssetCommand || !/<assets\s/i.test(data)){
+        return data
+    }
+    const names = new Map<string, string>()
+    for(const key of Object.keys(ensureAssetsCache(char))){
+        const normalized = normalizeAssetPromptName(key)
+        if(!names.has(normalized)) names.set(normalized, key)
+    }
+    return data.replace(assetPromptTagRegex, (_full, name: string) => {
+        const key = names.get(normalizeAssetPromptName(name))
+        return key ? `{{img::${assetPromptMarker}${key}}}` : ''
+    })
+}
+
 const imageCBS = ['img', 'image', 'emotion', 'asset', 'bg', 'raw', 'path', 'source']
 const videoExtensions = ['mp4', 'webm', 'avi', 'm4p', 'm4v']
 
@@ -588,16 +622,14 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     const hideImages = DBState.db.hideAllImages && !arg.showImages
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
-    if (!assetsCache || assetsCacheCharacterId !== char.chaId) {
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
-    }
-
-    const assetPaths = assetsCache!
+    const assetPaths = ensureAssetsCache(char)
 
     let needsSourceAccess = false
     let cx: number|null = null
 
     data = await replaceAsync(data, assetRegex, async (full:string, type:string, name:string) => {
+        const fromAssetPrompt = name.startsWith(assetPromptMarker)
+        if(fromAssetPrompt) name = name.slice(assetPromptMarker.length)
         const displayName = name.trim()
         name = name.toLocaleLowerCase()
         const assetNotice = (kind: ImageNoticeKind, detail = '') => {
@@ -667,6 +699,10 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
                 return p
             case 'img':
             case 'emotion':
+                if(fromAssetPrompt){
+                    const dynamic = (char as character).prebuiltAssetStyle === 'dynamic' ? ' x-risu-asset-prompt-image-dynamic' : ''
+                    return `<img class="x-risu-asset-prompt-image${dynamic}" src="${p}" alt="${p}" style="${assetWidthString} "/>`
+                }
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>`
             case 'image':
                 return `<div class="risu-inlay-image"><img src="${p}" alt="${p}" style="${assetWidthString}"/></div>\n`
@@ -1439,6 +1475,8 @@ export async function prepareMarkdownSource(
         })
         const firstParsed = data
         data = (await processScriptFull(char, data, 'editdisplay', chatID, cbsConditions)).data
+        // After display regex, so a bot's own regex can still rewrite asset tags first.
+        data = resolveAssetPromptTags(data, char)
         if(firstParsed !== data){
             data = await parseAdditionalAssets(data, char, additionalAssetMode, {
                 ch: chatID

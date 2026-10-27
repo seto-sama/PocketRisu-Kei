@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer'
 import type { Database, character, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
+import { formatAssetPromptList, isImageAsset } from './assetPromptList';
 import type { RisuModule } from './process/modules';
 import type { GenerationModelMetadata, GenerationModelMode } from './process/models/modelString';
 
@@ -1572,7 +1573,7 @@ export function registerCBS(arg:CBSRegisterArg) {
             const selchar = db.characters[getSelectedCharID()]
 
             if(!selchar.prebuiltAssetCommand){
-                return makeArray([])
+                return args[0] === 'grouped' ? '' : makeArray([])
             }
 
             const excludes = selchar.prebuiltAssetExclude ?? []
@@ -1580,12 +1581,16 @@ export function registerCBS(arg:CBSRegisterArg) {
                 return !excludes.includes(f[1])
             })
 
+            if(args[0] === 'grouped'){
+                return formatAssetPromptList(arr.filter(isImageAsset).map((f) => f[0]))
+            }
+
             return makeArray(arr.map((f) => {
                 return f[0]
             }))
         },
         alias: [],
-        description: 'Returns a JSON array of character display asset names, filtered by prebuilt asset exclusion settings. Only includes assets not in the exclude list.\n\nUsage:: {{chardisplayasset}}',
+        description: 'Returns a JSON array of character display asset names, filtered by prebuilt asset exclusion settings. Only includes assets not in the exclude list. With `grouped`, returns the image assets as a character list and a keyword list for the asset prompt instead.\n\nUsage:: {{chardisplayasset}}, {{chardisplayasset::grouped}}',
     });
 
     // Missing functions with :: arguments
