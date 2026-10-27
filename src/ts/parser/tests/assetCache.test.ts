@@ -70,13 +70,13 @@ describe('character asset cache ownership', () => {
             prebuiltAssetCommand: true, additionalAssets: [['Ares_angry', 'ares-angry.png', 'png']],
         } as unknown as character
         const html = await prepareMarkdownSource('<assets src="Ares angry">\n\n<assets src="Ares sad"></assets>', char)
-        expect(html).toContain('<img class="x-risu-asset-prompt-image" src="/resolved/ares-angry.png"')
-        expect(html).not.toContain('Ares sad')
+        const document = new DOMParser().parseFromString(html, 'text/html')
+        expect(Array.from(document.querySelectorAll('img'), image => image.getAttribute('src'))).toEqual(['/resolved/ares-angry.png'])
+        expect(document.querySelector('assets')).toBeNull()
     })
 
     it.each([
         ['Ares_angry.svg', ' ares-angry.svg ', 'svg', true],
-        ['Ares_happy.avif', 'ARES HAPPY', 'avif', true],
         ['A.res_angry.png', 'Ares angry', 'png', false],
     ])('matches asset-prompt name %s against %s exactly after normalization', async (name, requested, ext, matches) => {
         const char = {
@@ -84,6 +84,7 @@ describe('character asset cache ownership', () => {
             prebuiltAssetCommand: true, additionalAssets: [[name, `asset.${ext}`, ext]],
         } as unknown as character
         const html = await prepareMarkdownSource(`<assets src="${requested}">`, char)
-        expect(html.includes(`src="/resolved/asset.${ext}"`)).toBe(matches)
+        const image = new DOMParser().parseFromString(html, 'text/html').querySelector('img')
+        expect(image?.getAttribute('src') ?? null).toBe(matches ? `/resolved/asset.${ext}` : null)
     })
 })

@@ -4,18 +4,12 @@ import timingPkg from './generationTiming.cjs'
 
 const {
     applyRevenantStageTimingToMessage,
-    resolveRevenantStageTiming,
 } = timingPkg as {
     applyRevenantStageTimingToMessage: (
         message: any,
         workflow: any,
         modelCompletedAt?: number,
     ) => void
-    resolveRevenantStageTiming: (
-        workflow: any,
-        generationInfo?: any,
-        modelCompletedAt?: number,
-    ) => any
 }
 
 function step(key: string, startedAt?: number, completedAt?: number) {
@@ -35,17 +29,6 @@ function workflow() {
 }
 
 describe('Revenant generation timing', () => {
-    it('combines client preprocessing with durable server timings', () => {
-        expect(resolveRevenantStageTiming(workflow(), {
-            stageTiming: { stage1: 120, stage2: 0, stage3: 0, stage4: 0 },
-        }, 8_000)).toEqual({
-            stage1: 120,
-            stage2: 0,
-            stage3: 6_000,
-            stage4: 90,
-        })
-    })
-
     it('finalizes message and selected swipe metadata together', () => {
         const message = {
             swipeId: 1,

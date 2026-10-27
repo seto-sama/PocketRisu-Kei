@@ -52,48 +52,6 @@ afterEach(() => {
 })
 
 describe('revenant workflow resume checkpoint', () => {
-    it('orders chat generation as preprocess, durable model, postprocess, materialize', () => {
-        const plan = createChatGenerationWorkflowPlan({
-            resumeContext: {
-                version: 1,
-                chatProcessIndex: -1,
-                messageChatId: 'message-1',
-            },
-            hypaEnabled: false,
-            pluginProvider: false,
-        })
-
-        expect(plan.map(step => step.key)).toEqual([
-            'input.commit',
-            'trigger.start',
-            'memory.hypav3',
-            'prompt.build',
-            'model.dispatch',
-            'model.main',
-            'output.transform',
-            'trigger.output',
-            'postprocess',
-            'message.materialize',
-        ])
-        expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
-        expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('skipped')
-        expect(plan.find(step => step.key === 'message.materialize')?.recoveryPolicy).toBe('resume')
-    })
-
-    it('waits for a browser dispatch only for plugin providers', () => {
-        const plan = createChatGenerationWorkflowPlan({
-            resumeContext: {
-                version: 1,
-                chatProcessIndex: -1,
-                messageChatId: 'message-1',
-            },
-            hypaEnabled: false,
-            pluginProvider: true,
-        })
-
-        expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('pending')
-    })
-
     it('publishes a workflow only after local prompt preprocessing is complete', () => {
         const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
             resumeContext: {

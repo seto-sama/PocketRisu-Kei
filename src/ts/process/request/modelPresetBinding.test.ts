@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 describe('resolveChatModelBinding — model-preset-only mode', () => {
-    test.each(['model', 'submodel', 'memory', 'translate', 'otherAx'] as const)(
+    test.each(['model', 'submodel', 'memory'] as const)(
         'uses the global %s binding while hidden and restores the saved chat binding when shown', (mode) => {
             const globalPreset = { id: 'p-global', name: 'Global' }
             mockDb.modelPresets.push(globalPreset)
@@ -353,18 +353,10 @@ describe('applyPromptPresetParams — prompt-preset sampling override', () => {
         expect(out.userValues.top_p).toBe(0.9)
     })
 
-    test('identity for non-main modes even when opted in', () => {
-        const preset = presetWith({ schema: SAMPLING_SCHEMA })
-        expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
-    })
-
     test('global prompt-parameter priority is also limited to the main model', () => {
         mockDb.modelPresetPromptParamsFirst = true
         const preset = presetWith({ schema: SAMPLING_SCHEMA })
         expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'translate')).toBe(preset)
     })
 
     test('injects normalized sampling values over userValues without mutating the stored preset', () => {

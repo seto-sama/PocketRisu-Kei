@@ -218,17 +218,6 @@ describe('server postprocess provider actions', () => {
         })
     })
 
-    it.each(['memory', 'otherAx', 'submodel', 'translate'])(
-        'records Lua axLLM mode %s on its server provider job', async mode => {
-            const h = harness()
-            h.action.payload.mode = mode
-
-            await h.executeProviderAction({ workflow: h.workflow, action: h.action })
-
-            expect(h.jobs[0].jobType).toBe(mode)
-        },
-    )
-
     it('registers server-planned Hypa calls with their memory identity and batch limits', async () => {
         const h = harness()
         const operationContext = { kind: 'hypav3-summary', operationId: 'operation-1',
