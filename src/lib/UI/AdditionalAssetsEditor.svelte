@@ -313,7 +313,8 @@
 
                 <IconButtonGroup direction="vertical" size="sm" className="self-center">
                     {#if showExclusionToggle}
-                        <IconButton onclick={() => toggleExcluded(asset[1])}>
+                        {@const exclusionLabel = excludedPaths.includes(asset[1]) ? language.assetPromptExcluded : language.assetPromptIncluded}
+                        <IconButton onclick={() => toggleExcluded(asset[1])} title={exclusionLabel} aria-label={exclusionLabel}>
                             {#if excludedPaths.includes(asset[1])}
                                 <ImageOffIcon />
                             {:else}

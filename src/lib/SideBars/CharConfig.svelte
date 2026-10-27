@@ -173,6 +173,7 @@
         options={[
             { value: 'icon', label: language.charIcon },
             { value: 'assets', label: language.additionalAssets },
+            { value: 'settings', label: language.settings },
         ]}
         activeColor="selected"
         fullWidth
@@ -289,6 +290,32 @@
                     DBState.db.characters[$selectedCharID].prebuiltAssetExclude = paths
                 }}
             />
+    {:else if viewSubMenu === 'settings'}
+        <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
+
+        {#if DBState.db.newImageHandlingBeta}
+            <SettingsList spacing="none" className="mb-2">
+                <SettingsList variant="row">
+                    <span class="min-w-0 text-maintext">
+                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
+                    </span>
+                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
+                </SettingsList>
+
+                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+                    <SettingsList variant="row">
+                        <span class="min-w-0 text-maintext">
+                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
+                        </span>
+                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                            <SelectOption value="">{language.static}</SelectOption>
+                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+                        </Select>
+                    </SettingsList>
+                {/if}
+            </SettingsList>
+        {/if}
     {/if}
     </div>
 {:else if $CharConfigSubMenu === 3}
@@ -416,33 +443,7 @@
     {/if}
 
 {:else if $CharConfigSubMenu === 2}
-        <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
-        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
-
-        {#if DBState.db.newImageHandlingBeta}
-            <SettingsList spacing="none" className="mb-2">
-                <SettingsList variant="row">
-                    <span class="min-w-0 text-maintext">
-                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
-                    </span>
-                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
-                </SettingsList>
-
-                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-                    <SettingsList variant="row">
-                        <span class="min-w-0 text-maintext">
-                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
-                        </span>
-                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                            <SelectOption value="">{language.static}</SelectOption>
-                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
-                        </Select>
-                    </SettingsList>
-                {/if}
-            </SettingsList>
-        {/if}
-
-        <span class="text-maintext mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
+        <span class="text-maintext">{language.translatorNote}<Help key="translatorNote" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></Textarea>
 
         <span class="text-maintext mt-2">{language.customPromptTemplateToggle}<Help key="customPromptTemplateToggle" /></span>

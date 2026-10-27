@@ -1988,6 +1988,8 @@ export const languageKorean = {
   dynamic: "동적",
   assetStyle: "에셋 스타일",
   insertAssetPrompt: "에셋 프롬프트 삽입",
+  assetPromptIncluded: "에셋 프롬프트에 포함됨. 클릭하면 제외합니다.",
+  assetPromptExcluded: "에셋 프롬프트에서 제외됨. 클릭하면 포함합니다.",
   newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
   useServerDriveForFileImport: "파일 불러오기 시 서버 드라이브 사용",
   bookmarks: "북마크",
