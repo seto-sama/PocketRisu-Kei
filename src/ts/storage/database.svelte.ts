@@ -813,21 +813,6 @@ export function setDatabase(data:Database){
             data.hotkeys.push(...structuredClone(missingHotkeys))
         }
     }
-    
-    data.fallbackModels ??= {
-        memory: [],
-        emotion: [],
-        translate: [],
-        otherAx: [],
-        model: []
-    }
-    data.fallbackModels = {
-        model: data.fallbackModels.model.filter((v) => v !== ''),
-        memory: data.fallbackModels.memory.filter((v) => v !== ''),
-        emotion: data.fallbackModels.emotion.filter((v) => v !== ''),
-        translate: data.fallbackModels.translate.filter((v) => v !== ''),
-        otherAx: data.fallbackModels.otherAx.filter((v) => v !== '')
-    }
     data.authRefreshes ??= []
     data.rememberToolUsage ??= true
     data.simplifiedToolUse ??= false
@@ -1358,15 +1343,6 @@ export interface Database{
         otherAx: string
     }
     hotkeys: Hotkey[]
-    fallbackModels: {
-        memory: string[],
-        emotion: string[],
-        translate: string[],
-        otherAx: string[]
-        model: string[]
-    }
-    doNotChangeFallbackModels: boolean
-    fallbackWhenBlankResponse: boolean
     modelPresets: ModelPreset[]
     /** User-defined tags for organizing model presets. */
     modelPresetTags?: PresetTag[]
@@ -1703,14 +1679,6 @@ export interface botPreset extends PresetTagFields {
         translate: string
         otherAx: string
     }
-    fallbackModels?: {
-        memory: string[],
-        emotion: string[],
-        translate: string[],
-        otherAx: string[]
-        model: string[]
-    }
-    fallbackWhenBlankResponse?: boolean
     verbosity?:number
     modelBinding?: ModelBindingFields['modelBinding']
     subModelBinding?: ModelBindingFields['subModelBinding']
@@ -2304,8 +2272,6 @@ export function saveCurrentPreset(){
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
-        fallbackModels: structuredClone(db.fallbackModels),
-        fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
     }
     db.botPresets = db.botPresets.map(preset => preset.id === currentPreset.id ? savedPreset : preset)
@@ -2416,16 +2382,6 @@ export function setPreset(db:Database, newPres: botPreset){
     // newPres.seperateParametersEnabled, or newPres.seperateParameters. The global
     // database values remain the single source of truth; preset copies are retained
     // only so older exports and clients can still round-trip them.
-    if(!db.doNotChangeFallbackModels){
-        db.fallbackModels = structuredClone(newPres.fallbackModels) ?? {
-            memory: [],
-            emotion: [],
-            translate: [],
-            otherAx: [],
-            model: []
-        }
-        db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
-    }
     db.verbosity = newPres.verbosity ?? 1
 
     return db
