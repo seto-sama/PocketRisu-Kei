@@ -38,8 +38,6 @@ function recipe(): RevenantPostprocessRecipe {
             notification: false,
             ttsEnabled: false,
             ttsAutoSpeech: false,
-            emotionProcesser: 'submodel',
-            emotionPrompt2: '',
         },
         modules: [],
         moduleRegexScripts: [],

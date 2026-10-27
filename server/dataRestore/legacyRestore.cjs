@@ -167,7 +167,7 @@ function createLegacyRestoreService({
         const coldKey = char.coldstorage;
         const defaults = {
             firstMessage: '', desc: '', notes: '', chatFolders: [],
-            emotionImages: [], bias: [], viewScreen: 'none', globalLore: [],
+            bias: [], globalLore: [],
             sdData: [
                 ['always', 'solo, 1girl'], ['negative', ''],
                 ["|character's appearance", ''], ['current situation', ''],

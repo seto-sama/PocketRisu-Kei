@@ -435,7 +435,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         alwaysExistChar = {
             type: 'simple',
             customscript: [],
-            emotionImages: [],
             chaId: 'simple'
         }
     }

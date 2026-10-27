@@ -5,7 +5,6 @@
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { onDestroy } from "svelte";
     import {
-    CharEmotion,
     DynamicGUI,
     botMakerMode,
     selectedCharID,
@@ -110,7 +109,6 @@
     sidebarDevTool.set(false);
     QuickSettings.open = false;
     settingsOpen.set(false);
-    CharEmotion.set({});
   }
 
   type sortTypeNormal = { type:'normal',img: string, chaId: string, name:string }

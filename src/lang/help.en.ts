@@ -38,8 +38,6 @@ export const helpEn = {
         loreActivationKey: "If one of the activation key exists in context, the lore will be activated and prompt will go in. seperated by commas.",
         loreorder: "If insert Order is higher, it will effect the model more, and it will more lessly cuted when activated lore are many.",
         bias: "bias is a key-value data which modifies the likelihood of string appearing.\nit can be -100 to 100, higher values will be more likely to appear, and lower values will be more unlikely to appear. \nAdditionaly, if its set to -101, it would work as 'strong ban word' for some models. \nWarning: if the tokenizer is wrong, it not work properly.",
-        emotion:
-            "Emotion Images option shows image depending at character's emotion which is analized by character's response. you must input emotion name as words *(like joy, happy, fear and etc.)* .emotion named **neutral** will be default emotion if it exists. must be more then 3 images to work properly.",
         regexScript:
             "Regex Script is a custom regex that replaces string that matches IN to OUT.\n\nThere four type options." +
             "\n\n- **Modify Input** modifies user's input" +
@@ -109,7 +107,6 @@ export const helpEn = {
         outputRepetitionDetection: "Automatically cancels the request when the same output is repeated at least the specified number of times.",
         chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
         chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
-        emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
         additionalParams:
             'Additional parameters that would be added to the request body. if you want to exclude some parameters, you can put `{{none}}` to the value. if you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. if you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
         additionalParamsHelp: "One per line. Supports `key=value`, `key=json::{...}`, `header::Name=value`, `key={{none}}`.",
@@ -308,7 +305,6 @@ export const helpEn = {
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
         waifuWidth: "Width of the chat area in the Waifulike theme.",
-        waifuWidth2: "Size of the character illustration in the Waifulike theme.",
         standardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
@@ -528,10 +524,6 @@ export const helpEn = {
             "URL of a locally running VOICEVOX (`https://voicevox.hiroshiba.jp/`) engine (e.g. `http://localhost:50021`). Strong on Japanese synthesis.",
         ttsFishSpeechKey:
             "Fish Audio (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
-
-        emotionMethod:
-            "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **Embedding model**: classify using the configured remote embedding service\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
-
 
         naiModel:
             "NovelAI image model to use. Newer models look better and cost slightly more (Anlas drawn from your subscription plan).",

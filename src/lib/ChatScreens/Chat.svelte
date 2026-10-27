@@ -214,7 +214,6 @@
         try {
             const actions: { id: GeneratedImageAssetTarget, label: string }[] = [
                 { id: 'icon', label: language.charIcon },
-                { id: 'emotion', label: language.emotionImage },
                 { id: 'additional', label: language.additionalAssets },
             ]
             const selected = await alertConfirmMulti(language.addInlayImagePrompt, actions)

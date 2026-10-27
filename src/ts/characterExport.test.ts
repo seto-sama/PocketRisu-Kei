@@ -122,7 +122,7 @@ vi.mock('./pngChunk', () => ({
         readGenerator: vi.fn(),
     },
 }))
-vi.mock('./characters', () => ({ characterFormatUpdate: vi.fn() }))
+vi.mock('./characters', () => ({ characterFormatUpdate: vi.fn(), migrateEmotionImagesToAssets: vi.fn() }))
 vi.mock('./interchangeability', () => ({ convertCharacterToModule: vi.fn(), convertModuleToCharacter: vi.fn() }))
 vi.mock('./preset/tags', () => ({ normalizePresetTagFields: vi.fn() }))
 vi.mock('./process/moduleSelection', () => ({ getEnabledModules: vi.fn() }))

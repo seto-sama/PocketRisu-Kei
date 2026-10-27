@@ -5,6 +5,7 @@ import type { character, Database } from '../../storage/database.svelte'
 const mocks = vi.hoisted(() => ({
     DBState: { db: { hideAllImages: false, assetMaxDifference: 0 } as Database },
     getFileSrc: vi.fn(async (path: string) => `/resolved/${path}`),
+    pickHashRand: vi.fn(() => 0.99),
 }))
 vi.mock(import('../../storage/database.svelte'), () => ({
     pocketKeiVer: 'test', getCurrentCharacter: () => null as character, getDatabase: () => mocks.DBState.db,
@@ -16,8 +17,9 @@ vi.mock(import('../../stores.svelte'), () => ({
     DBState: mocks.DBState, selIdState: { selId: 0 }, selectedCharID: writable(0),
 }))
 vi.mock(import('../../process/modules'), () => ({ getModuleAssets: () => [] }))
+vi.mock(import('../../util'), async (importOriginal) => ({ ...await importOriginal(), pickHashRand: mocks.pickHashRand }))
 vi.mock(import('../../process/scripts'), () => ({
-    processScriptFull: async (_char: unknown, data: string) => ({ data, emoChanged: false }),
+    processScriptFull: async (_char: unknown, data: string) => ({ data }),
 }))
 
 import { prepareMarkdownSource, resetAssetsCache, type simpleCharacterArgument } from '../parser.svelte'
@@ -53,4 +55,13 @@ describe('character asset cache ownership', () => {
         expect(await prepareMarkdownSource('{{raw::shared}}', a)).toBe('/resolved/replacement.png')
         expect(await prepareMarkdownSource('{{raw::shared}}', { type: 'simple', chaId: 'empty', name: 'empty', customscript: [] })).toBe('')
     })
+
+    it('picks same-name image variants even when their extensions differ', async () => {
+        const char: simpleCharacterArgument = {
+            type: 'simple', chaId: 'variants', name: 'variants', customscript: [],
+            additionalAssets: [['happy', 'happy.png', 'png'], ['happy', 'happy-2.webp', 'webp']],
+        }
+        expect(await prepareMarkdownSource('{{raw::happy}}', char)).toBe('/resolved/happy-2.webp')
+    })
+
 })

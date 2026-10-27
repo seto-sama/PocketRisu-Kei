@@ -15,3 +15,10 @@ export function archiveCurrentCharacterIcon(currentCharacter: character): void {
     })
     currentCharacter.image = ''
 }
+
+/** Converts a legacy emotion image row into an additional-asset row. */
+export function emotionImageToAsset([name, path]: [string, string]): [string, string, string] {
+    const fileName = path.split('/').pop() ?? ''
+    const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : DEFAULT_IMAGE_EXTENSION
+    return [name, path, ext]
+}

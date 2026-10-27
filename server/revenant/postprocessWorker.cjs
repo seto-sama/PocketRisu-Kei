@@ -367,30 +367,6 @@ function createRevenantPostprocessWorker(options) {
                     ...(triggerStep.metadata.foregroundEffects || []),
                 ];
                 const finalMessage = currentChat.message[findLastActiveResponseIndex(currentChat.message)];
-                if (
-                    recipe.character?.inlayViewScreen
-                    && finalMessage?.data
-                ) {
-                    foregroundEffects.push({ kind: 'inlay.screen' });
-                }
-                const explicitEmotion = foregroundEffects.some(effect => effect?.kind === 'emotion');
-                const emotionProvider = recipe.auxProviders?.emotion;
-                if (
-                    !recipe.character?.inlayViewScreen
-                    && recipe.character?.viewScreen === 'emotion'
-                    && !explicitEmotion
-                    && finalMessage?.data
-                    && (recipe.database?.emotionProcesser === 'embedding'
-                        || emotionProvider)
-                ) {
-                    foregroundEffects.push({
-                        kind: 'emotion.auto',
-                        text: finalMessage.data,
-                        processor: recipe.database?.emotionProcesser || 'submodel',
-                        prompt: recipe.database?.emotionPrompt2 || '',
-                        ...(emotionProvider ? { provider: emotionProvider } : {}),
-                    });
-                }
                 if (recipe.database?.notification && finalMessage?.data) {
                     foregroundEffects.push({ kind: 'notification', text: finalMessage.data });
                 }

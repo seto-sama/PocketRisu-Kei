@@ -37,8 +37,6 @@ export const sidebarDevTool = writable(false)
 // autopilot draft while its sidebar tab is unmounted and mounted again.
 export const devToolAutopilotStore = writable<string[]>([])
 export const CurrentTriggerIdStore = writable<string | null>(null)
-export const CharEmotion = writable({} as {[key:string]: [string, string, number][]})
-export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 });
 export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')

@@ -3,7 +3,7 @@ import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { setMessageContent } from 'src/ts/storage/messageContent'
 import { Buffer } from 'buffer'
 import { get } from "svelte/store";
-import { CharEmotion, selectedCharID } from "../stores.svelte";
+import { selectedCharID } from "../stores.svelte";
 import { type character, type customscript, getDatabase, getCurrentCharacter, getCurrentChat } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
 import { alertError, notifySuccess } from "../alert";
@@ -96,7 +96,6 @@ export function resetScriptCache(){
 
 export async function processScriptFull(char:character|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}){
     const db = getDatabase()
-    let emoChanged = false
     if (mode !== 'editprocess' && hasLuaEditListener(char, mode)) {
         data = await runLuaEditTrigger(char, mode, data, { index:chatID })
     }
@@ -137,12 +136,12 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
     const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions)
     const cached = getScriptCache(hash)
     if(cached){
-        return {data: cached, emoChanged: false}
+        return {data: cached}
     }
-    
+
     if(scripts.length === 0){
         cacheScript(hash, data)
-        return {data, emoChanged}
+        return {data}
     }
     function executeScript(pscript:pScript){
         const script = pscript.script
@@ -183,27 +182,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
             if(outScript.startsWith('@@') || pscript.actions.length > 0){
                 if(reg.test(data)){
                     if(outScript.startsWith('@@emo ')){
-                        const emoName = script.out.substring(6).trim()
-                        let charemotions = get(CharEmotion)
-                        let tempEmotion = charemotions[char.chaId]
-                        if(!tempEmotion){
-                            tempEmotion = []
-                        }
-                        if(tempEmotion.length > 4){
-                            tempEmotion.splice(0, 1)
-                        }
-                        if(char.type !== 'simple'){
-                            for(const emo of char.emotionImages){
-                                if(emo[0] === emoName){
-                                    const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                                    tempEmotion.push(emos)
-                                    charemotions[char.chaId] = tempEmotion
-                                    CharEmotion.set(charemotions)
-                                    emoChanged = true
-                                    break
-                                }
-                            }
-                        }
+                        // Legacy emotion-display directive; kept as a no-op so it never leaks into text.
                     }
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
                         const selchar = db.characters[get(selectedCharID)]
@@ -346,7 +325,7 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
     }
     cacheScript(hash, data)
 
-    return {data, emoChanged}
+    return {data}
 }
 
 

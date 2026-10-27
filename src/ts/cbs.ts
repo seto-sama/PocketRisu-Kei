@@ -1403,23 +1403,6 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     // Missing basic functions (no arguments)
     registerFunction({
-        name: 'emotionlist',
-        hint: "Returns the current character's emotion image names as a JSON array.",
-        callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            const selchar = db.characters[getSelectedCharID()]
-            if(!selchar){
-                return ''
-            }
-            return makeArray(selchar.emotionImages?.map((f) => {
-                return f[0]
-            })) ?? ''
-        },
-        alias: [],
-        description: 'Returns a JSON array of emotion image names available for the current character. Only includes the names, not the actual image data. Returns empty string if no character or no emotions.\n\nUsage:: {{emotionlist}}',
-    });
-
-    registerFunction({
         name: 'assetlist',
         hint: "Returns the current character's additional asset names as a JSON array.",
         callback: (str, matcherArg, args, vars) => {
@@ -1432,7 +1415,8 @@ export function registerCBS(arg:CBSRegisterArg) {
                 return f[0]
             }))
         },
-        alias: [],
+        // Emotion images were merged into additional assets.
+        alias: ['emotionlist'],
         description: 'Returns a JSON array of additional asset names for the current character. These are extra images/files beyond the main avatar. Returns empty string for groups or characters without assets.\n\nUsage:: {{assetlist}}',
     });
 
@@ -2423,10 +2407,10 @@ export function registerCBS(arg:CBSRegisterArg) {
 
     registerFunction({
         name: 'emotion',
-        hint: "Displays an emotion image asset.",
+        hint: "Legacy alias of img; displays an additional asset as an image.",
         callback: 'doc_only',
         alias: [],
-        description: 'Displays emotion image A as image element.\n\nUsage:: {{emotion::emotionName}}',
+        description: 'Legacy alias of {{img}}. Displays additional asset A as image element.\n\nUsage:: {{emotion::assetName}}',
     });
 
     registerFunction({

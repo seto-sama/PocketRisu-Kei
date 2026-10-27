@@ -406,12 +406,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.waifuWidth)){
         data.waifuWidth = 100
     }
-    if(checkNullish(data.waifuWidth2)){
-        data.waifuWidth2 = 100
-    }
-    if(checkNullish(data.emotionPrompt)){
-        data.emotionPrompt = ""
-    }
     if(checkNullish(data.proxyKey)){
         data.proxyKey = ""
     }
@@ -449,9 +443,6 @@ export function setDatabase(data:Database){
         data.NAIREF = false
     }
     data.textTheme = normalizeTextTheme(data.textTheme)
-    if(checkNullish(data.emotionPrompt2)){
-        data.emotionPrompt2 = ""
-    }
     if(checkNullish(data.requestRetrys)){
         data.requestRetrys = 2
     }
@@ -629,7 +620,6 @@ export function setDatabase(data:Database){
         data.hypaModel = data.voyageApiKey ? 'voyageContext3' : DEFAULT_HYPA_MODEL
     }
     data.mancerHeader ??= ''
-    data.emotionProcesser ??= 'submodel'
     data.translatorType ??= 'bergamot'
     if (!isSupportedTranslatorType(data.translatorType)) {
         data.translatorType = 'bergamot'
@@ -1099,10 +1089,8 @@ export interface Database{
     iconsize:number
     theme: string
     standardChatWidth: 'standard' | 'wide' | 'full'
-    emotionPrompt: string,
     formatversion:number
     waifuWidth:number
-    waifuWidth2:number
     botPresets:botPreset[]
     /** User-defined tags for organizing prompt presets. */
     promptPresetTags?:PresetTag[]
@@ -1147,7 +1135,6 @@ export interface Database{
     }
     requestRetrys:number
     outputRepetitionLimit:number
-    emotionPrompt2:string
     useSayNothing:boolean
     useStreaming:boolean
     voyageApiKey:string
@@ -1218,7 +1205,6 @@ export interface Database{
     hypaModel:HypaModel
     saveTime?:number
     mancerHeader:string
-    emotionProcesser:'submodel'|'embedding',
     showMenuChatList?:boolean,
     translatorType:TranslatorType,
     translatorInputLanguage?:string
@@ -1534,14 +1520,11 @@ export interface character{
     notes:string
     chats:Chat[]
     chatFolders: ChatFolder[]
-    viewScreen: 'emotion'|'none',
     bias: [string, number][]
-    emotionImages: [string, string][]
+    /** Legacy emotion images; migrated into additionalAssets when the character is opened. */
+    emotionImages?: [string, string][]
     globalLore: loreBook[]
     chaId: string
-    newGenData?: {
-        emotionInstructions: string,
-    }
     customscript: customscript[]
     triggerscript: triggerscript[]
     utilityBot: boolean
@@ -1579,7 +1562,6 @@ export interface character{
     depth_prompt?: { depth: number, prompt: string }
     extentions?:{[key:string]:any}
     largePortrait?:boolean
-    inlayViewScreen?:boolean
     realmId?:string
     imported?:boolean
     trashTime?:number
@@ -1754,7 +1736,6 @@ export interface themePreset extends PresetTagFields {
     guiHTML: string
     customCSS: string
     waifuWidth: number
-    waifuWidth2: number
     colorSchemeName: string
     colorScheme: ColorScheme
     textTheme: string
@@ -2198,7 +2179,6 @@ export const themePresetTemplate: themePreset = {
     guiHTML: '',
     customCSS: '',
     waifuWidth: 100,
-    waifuWidth2: 100,
     colorSchemeName: 'default',
     colorScheme: structuredClone(defaultColorScheme),
     textTheme: 'standard',
@@ -2465,7 +2445,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         guiHTML: db.guiHTML,
         customCSS: db.customCSS,
         waifuWidth: db.waifuWidth,
-        waifuWidth2: db.waifuWidth2,
         colorSchemeName: db.colorSchemeName,
         colorScheme: structuredClone(db.colorScheme),
         textTheme: normalizeTextTheme(db.textTheme),
@@ -2523,7 +2502,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.guiHTML = p.guiHTML ?? db.guiHTML
     db.customCSS = p.customCSS ?? db.customCSS
     db.waifuWidth = p.waifuWidth ?? db.waifuWidth
-    db.waifuWidth2 = p.waifuWidth2 ?? db.waifuWidth2
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
     db.colorScheme = normalizeColorScheme(p.colorScheme ?? db.colorScheme) ?? db.colorScheme
     db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)

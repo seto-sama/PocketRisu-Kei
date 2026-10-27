@@ -24,7 +24,6 @@
     import TriggerList from "./Scripts/TriggerList.svelte";
     import OnboardingEditor from "./OnboardingEditor.svelte";
     import Checkbox from "../UI/components/Checkbox.svelte";
-    import { updateInlayScreen } from "src/ts/process/inlayScreen";
     import MultiLangInput from "../UI/components/MultiLangInput.svelte";
     import { exportCharacterPackage, importPackageToCharacter } from "src/ts/characterPackage";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
@@ -53,30 +52,6 @@
     $effect.pre(() => {
         licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
     });
-
-    let emotionAssets = $derived(
-        ((DBState.db.characters[$selectedCharID] as character)?.emotionImages ?? [])
-            .map(([name, path]) => [name, path, 'png'] as [string, string, string])
-    )
-
-    function setEmotionImagesEnabled(enabled: boolean) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.viewScreen = enabled ? 'emotion' : 'none'
-        if(!enabled) char.inlayViewScreen = false
-        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
-    }
-
-    function setEmotionInlayEnabled(enabled: boolean) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.inlayViewScreen = enabled
-        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
-    }
-
-    function setEmotionAssets(assets: [string, string, string][]) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.emotionImages = assets.map(([name, path]) => [name, path])
-    }
-
 
     function moveAlternateGreetingUp(index: number) {
         if(index === 0) return
@@ -197,7 +172,6 @@
         bind:value={viewSubMenu}
         options={[
             { value: 'icon', label: language.charIcon },
-            { value: 'emotion', label: language.emotionImage },
             { value: 'assets', label: language.additionalAssets },
         ]}
         activeColor="selected"
@@ -299,39 +273,6 @@
         {/if}
 
 
-    {:else if viewSubMenu === 'emotion'}
-        <SettingsList spacing="none" className="mb-3">
-            <SettingsList variant="row">
-                <span class="min-w-0 text-maintext">{language.enableEmotionImages}</span>
-                <Switch
-                    checked={DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-                    onCheckedChange={setEmotionImagesEnabled}
-                />
-            </SettingsList>
-            {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-                <SettingsList variant="row">
-                    <span class="min-w-0 text-maintext">{language.inlayViewScreen}</span>
-                    <Switch
-                        checked={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                        onCheckedChange={setEmotionInlayEnabled}
-                    />
-                </SettingsList>
-            {/if}
-        </SettingsList>
-
-        {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-            <AdditionalAssetsEditor
-                assets={emotionAssets}
-                onChange={setEmotionAssets}
-                acceptedExtensions={['png', 'webp', 'gif', 'jpeg', 'jpg', 'svg', 'avif']}
-                previewAllAsImages
-            />
-
-            {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                <span class="mt-3 block text-maintext">{language.emotionInstructions}</span>
-                <Textarea bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
-            {/if}
-        {/if}
     {:else if viewSubMenu === 'assets'}
             <AdditionalAssetsEditor
                 assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}

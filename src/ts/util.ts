@@ -2,7 +2,6 @@ import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
 import { get, writable, type Writable } from "svelte/store"
-import type { Database } from "./storage/database.svelte"
 import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
@@ -201,48 +200,6 @@ export function getCharacterIndexObject() {
         i += 1
     }
     return result
-}
-
-export function defaultEmotion(em:[string,string][]){
-    if(!em){
-        return ''
-    }
-    for(const v of em){
-        if(v[0] === 'neutral'){
-            return v[1]
-        }
-    }
-    return ''
-}
-
-export async function getEmotion(db:Database,chaEmotion:{[key:string]: [string, string, number][]}, type:'contain'|'plain'|'css'){
-    const selectedChar = get(selectedCharID)
-    const currentDat = db.characters[selectedChar]
-    if(!currentDat){
-        return []
-    }
-    let charIdList:string[] = []
-
-    charIdList = [currentDat.chaId]
-
-    let datas: string[] = ['normal']
-    for(const chaid of charIdList){
-        const currentChar = findCharacterbyId(chaid)
-        if(currentChar.viewScreen === 'emotion'){
-            const currEmotion = chaEmotion[currentChar.chaId]
-            let im = ''
-            if(!currEmotion || currEmotion.length === 0){
-                im = (await getCharImage(defaultEmotion(currentChar?.emotionImages),type))
-            }
-            else{
-                im = (await getCharImage(currEmotion[currEmotion.length - 1][1], type))
-            }
-            if(im && im.length > 2){
-                datas.push(im)
-            }
-        }
-    }
-    return datas
 }
 
 export function getAuthorNoteDefaultText(){

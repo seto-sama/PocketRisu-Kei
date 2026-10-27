@@ -349,14 +349,9 @@ describe('revenant postprocess worker', () => {
         }
         const repository = createRepository(steps, {
             context: workflowContext({
-                character: {
-                    viewScreen: 'emotion', inlayViewScreen: false,
-                    emotionImages: [['happy', 'asset']],
-                },
                 database: {
                     igpPrompt: '', notification: true,
                     ttsEnabled: true, ttsAutoSpeech: true,
-                    emotionProcesser: 'embedding', emotionPrompt2: '',
                 },
             }),
         })
@@ -376,10 +371,6 @@ describe('revenant postprocess worker', () => {
                     payload: {
                         chat,
                         effects: [
-                            {
-                                kind: 'emotion.auto', text: 'final answer',
-                                processor: 'embedding', prompt: '',
-                            },
                             { kind: 'notification', text: 'final answer' },
                             { kind: 'tts', text: 'final answer' },
                             { kind: 'chat.resend' },

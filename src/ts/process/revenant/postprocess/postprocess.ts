@@ -3,13 +3,9 @@ import { setMessageContent } from '../../../storage/messageContent'
 import { renderRevenantTemplate } from './headlessParser'
 import type { RevenantPostprocessRecipe } from '../types'
 
-export type RevenantForegroundEffect =
-    | { kind: 'emotion', name: string }
-
 export interface RevenantOutputTransformResult {
     text: string
     chat: Chat
-    foregroundEffects: RevenantForegroundEffect[]
     errors: string[]
 }
 
@@ -59,7 +55,6 @@ export function runRevenantOutputTransform(
     let parsed = renderRevenantTemplate(content, recipe, chat)
     let text = parsed.text
     chat = parsed.chat
-    const foregroundEffects: RevenantForegroundEffect[] = []
     const errors: string[] = []
     const scripts = [
         ...(recipe.database.presetRegex ?? []),
@@ -93,7 +88,7 @@ export function runRevenantOutputTransform(
             else if (regex.test(text)) {
                 regex.lastIndex = 0
                 if (output.startsWith('@@emo ')) {
-                    foregroundEffects.push({ kind: 'emotion', name: script.out.slice(6).trim() })
+                    // Legacy emotion-display directive; kept as a no-op so it never leaks into text.
                 }
                 else if ((output.startsWith('@@inject') || item.actions.includes('inject'))) {
                     const target = chat.message.findIndex(message => message?.chatId === recipe.messageChatId)
@@ -134,5 +129,5 @@ export function runRevenantOutputTransform(
         }
     }
 
-    return { text, chat, foregroundEffects, errors }
+    return { text, chat, errors }
 }

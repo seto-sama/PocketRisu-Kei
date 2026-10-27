@@ -24,6 +24,7 @@ import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import { getChatPage } from '../storage/chatSelection.svelte';
+import { emotionImageToAsset } from '../characterAssets';
 import cssSelectorParser from 'postcss-selector-parser'
 import {
     CHAT_SCROLL_ROOT_SELECTOR,
@@ -515,6 +516,14 @@ async function renderHighlightableMarkdown(data:string) {
 
 export const assetRegex = /{{(raw|path|img|image|video|audio|bgm|bg|emotion|asset|video-img|source)::(.+?)}}/gms
 
+const imageAssetExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif']
+
+// Same-name assets are random variants of one another, but only within one media kind.
+function assetKind(ext: string | undefined) {
+    const normalized = ext?.toLowerCase()
+    return imageAssetExtensions.includes(normalized) ? 'image' : normalized
+}
+
 function getAssetSrc(assetArr: string[][], assetPaths: AssetPaths) {
     for (const asset of assetArr) {
         const key = asset[0].toLocaleLowerCase()
@@ -522,16 +531,8 @@ function getAssetSrc(assetArr: string[][], assetPaths: AssetPaths) {
             srcPaths: [],
             ext: asset[2]
         }
-        if(assetPaths[key].ext === asset[2]){
+        if(assetKind(assetPaths[key].ext) === assetKind(asset[2])){
             assetPaths[key].srcPaths.push(asset[1])
-        }
-    }
-}
-
-function getEmoSrc(emoArr: string[][], emoPaths: AssetPaths) {
-    for (const emo of emoArr) {
-        emoPaths[emo[0].toLocaleLowerCase()] = {
-            srcPaths: [emo[1]]
         }
     }
 }
@@ -554,19 +555,17 @@ type AssetPaths = {[key:string]:{
 }}
 
 let assetsCache: AssetPaths | null = null
-let emoAssetsCache: AssetPaths | null = null
 let assetsCacheCharacterId = ''
 
-export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][], characterId = '') {
+export function resetAssetsCache(charAssets: string[][], legacyEmotionImages: [string, string][], moduleAssets: string[][], characterId = '') {
     const assetPaths: AssetPaths = {}
-    const charEmoPaths: AssetPaths = {}
 
     getAssetSrc(charAssets, assetPaths)
+    // Characters not opened since the emotion-image removal still carry them until migration.
+    getAssetSrc(legacyEmotionImages.map(emotionImageToAsset), assetPaths)
     getAssetSrc(moduleAssets, assetPaths)
-    getEmoSrc(emoAssets, charEmoPaths)
 
     assetsCache = assetPaths
-    emoAssetsCache = charEmoPaths
     assetsCacheCharacterId = characterId
 }
 
@@ -578,11 +577,7 @@ $effect.root(() => {
             return
         }
 
-        const charAssets = char.additionalAssets ?? []
-        const emoAssets = char.emotionImages ?? []
-        const moduleAssets = getModuleAssets()
-
-        resetAssetsCache(charAssets, emoAssets, moduleAssets, char.chaId)
+        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
     })
 })
 
@@ -593,12 +588,11 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     const hideImages = DBState.db.hideAllImages && !arg.showImages
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
-    if (!assetsCache || !emoAssetsCache || assetsCacheCharacterId !== char.chaId) {
+    if (!assetsCache || assetsCacheCharacterId !== char.chaId) {
         resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
     }
 
     const assetPaths = assetsCache!
-    const emoPaths = emoAssetsCache!
 
     let needsSourceAccess = false
     let cx: number|null = null
@@ -629,15 +623,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             }
         }
 
-        if(type === 'emotion'){
-            const srcPath = emoPaths[name]?.srcPaths?.[0]
-            const path = srcPath ? await getFileSrcCached(srcPath) : null
-            if(!path){
-                return ''
-            }
-            return `<img src="${path}" alt="${path}" style="${assetWidthString} "/>`
-        }
-
         if(type === 'source'){
             needsSourceAccess = true
             switch(name){
@@ -657,7 +642,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
 
             if(!match){
                 // Only chat messages show what went missing; elsewhere the asset stays silent.
-                if(mode === 'normal' && (type === 'img' || type === 'image')){
+                if(mode === 'normal' && (type === 'img' || type === 'image' || type === 'emotion')){
                     return assetNotice('missingImage', displayName)
                 }
                 return ''
@@ -681,6 +666,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             case 'path':
                 return p
             case 'img':
+            case 'emotion':
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>`
             case 'image':
                 return `<div class="risu-inlay-image"><img src="${p}" alt="${p}" style="${assetWidthString}"/></div>\n`

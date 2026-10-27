@@ -148,8 +148,6 @@ export interface RevenantPostprocessDatabaseSnapshot {
     notification: boolean
     ttsEnabled: boolean
     ttsAutoSpeech: boolean
-    emotionProcesser: 'submodel' | 'embedding'
-    emotionPrompt2: string
 }
 
 export interface RevenantProviderSnapshot {

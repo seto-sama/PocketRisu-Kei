@@ -33,7 +33,6 @@ export const helpKo = {
         "loreActivationKey": "활성화 키 중 하나가 컨텍스트에 존재하면 해당 로어가 활성화됩니다. 쉼표를 이용해 활성화 키를 구분할 수 있습니다.",
         "loreorder": "숫자가 클수록 모델에 더 많은 영향을 미치며, 활성화된 로어가 많을 때 잘리지 않습니다.",
         "bias": "바이어스는 문자열이 나타날 가능성을 수정하는 키-값 데이터로, -100에서 100까지 가능하며 값이 클수록 나타날 가능성이 높고, 값이 작을수록 나타날 가능성이 낮습니다 \n경고: 토크나이저가 잘못되면 제대로 작동하지 않습니다. 추가적으로, -101로 설정하면 일부 모델에서는 '강력한 단어 밴'으로 작동합니다",
-        "emotion": "감정 이미지 옵션은 캐릭터의 반응으로 분석된 캐릭터의 감정에 따라 이미지를 표시합니다. 감정 이름은 단어 *(예시: joy, happy, fear 등)* 로 입력해야 하며, **neutral** 이라는 이름의 감정이 존재하면 기본 감정이 됩니다. 제대로 작동하려면 이미지가 3개 이상이어야 합니다.",
         "regexScript": "정규식 스크립트는 대상에 매칭되는 텍스트를 출력 형식으로 변경하는 스크립트입니다.\n\n출력 형식에는 대상에서 캡쳐한 $ 패턴 및 CBS, @@를 이용한 데코레이터를 사용할 수 있습니다.",
         "regexOrder": "숫자가 큰 정규식부터 작동합니다. 음수 입력 가능.",
         "exampleMessage": "캐릭터의 출력에 영향을 주는 예시 대화입니다. 토큰을 영구적으로 사용하지 않습니다.\n\n대화의 예시 형식:\n\n```\n<START>\n{{user}}: 안녕\n{{char}}: 안녕하세요\n<START>\n{{user}}: 안녕\n하루이: 안녕하세요\n```\n\n```<START>```는 새로운 대화의 시작을 나타냅니다.",
@@ -77,7 +76,6 @@ export const helpKo = {
         "outputRepetitionDetection": "같은 내용의 출력이 지정된 횟수 이상 반복되면 해당 요청을 자동으로 취소합니다. 값을 비워두면 비활성화됩니다.",
         "chatLoadInitialPages": "채팅 화면을 열 때 처음 렌더링할 최근 채팅 메시지 개수입니다. 값이 높을수록 더 많은 기록을 바로 볼 수 있지만 긴 채팅을 열 때 무거워질 수 있습니다.",
         "chatLoadAdditionalPages": "위로 스크롤할 때마다 추가로 렌더링할 이전 채팅 메시지 개수입니다. 값이 높을수록 반복 로딩은 줄지만 한 번의 로딩이 무거워질 수 있습니다.",
-        "emotionPrompt": "이 옵션은 감정을 감지하는 데 사용되는 프롬프트를 설정하는 데 사용됩니다. 비어 있으면 기본 프롬프트를 사용합니다.",
         "additionalParams": "요청 본문에 추가될 파라미터입니다. 일부 파라미터를 제외하려면 `{{none}}`을 값으로 입력하세요. 본문 대신 헤더에 추가하려면 키 앞에 `header::Authorization`처럼 `header::`를 붙이세요. 값을 JSON으로 보내려면 값 앞에 `json::{\"key\":\"value\"}`처럼 `json::`을 붙이세요. 그렇지 않으면 값의 타입은 자동으로 결정됩니다.",
         "additionalParamsHelp": "한 줄에 하나씩. `key=value` / `key=json::{...}` / `header::Name=value` / `key={{none}}` 지원.",
         "tokenizerOverrideHelp": "토큰 계산용. 자동으로 두면 프로필 권장값을 사용합니다.",
@@ -191,7 +189,6 @@ export const helpKo = {
         "themePresets": "현재 \"소리 및 디스플레이\" 설정(레이아웃, 색상/폰트, 크기, 소리 토글 등)을 묶어 프리셋으로 저장하고 전환합니다. 아래 옵션을 수정하면 현재 프리셋에 자동 반영되며, 버튼을 누르면 프리셋 목록 창이 열려 추가·전환·이름 변경·삭제를 할 수 있습니다.",
         "theme": "전체 채팅 화면 레이아웃 테마입니다.",
         "waifuWidth": "Waifulike 테마의 채팅 영역 너비입니다.",
-        "waifuWidth2": "Waifulike 테마의 캐릭터 일러스트 크기입니다.",
         "standardChatWidth": "PocketRisu Standard 테마에서 메시지 카드의 최대 가로폭입니다.",
         "colorScheme": "Risu UI 전체에 적용되는 색상 팔레트입니다.",
         "colorSchemeTransferDesc": "색상 팔레트 JSON 파일을 가져오거나 내보냅니다.",
@@ -338,7 +335,6 @@ export const helpKo = {
         "ttsVoicevoxUrl": "로컬에서 실행 중인 VOICEVOX(`https://voicevox.hiroshiba.jp/`) 엔진의 URL (예: `http://localhost:50021`). 일본어 합성에 강점.",
         "ttsFishSpeechKey": "Fish Audio (`https://fish.audio/`) API 키. 멀티-스피커 자연스러운 음성을 제공.",
 
-        "emotionMethod": "캐릭터 응답에서 감정을 추출해 감정 이미지를 띄울 때 사용할 분석 방식.",
 
 
         "naiModel": "이미지를 생성할 때 사용할 모델을 선택합니다. V5의 경우 할당량 제한에 주의하세요.",

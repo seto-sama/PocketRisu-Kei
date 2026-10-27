@@ -148,7 +148,6 @@ async function runRevenantOutputStage(options) {
     }
 
     const transformed = await options.transformOutput(text, recipe, chat);
-    foregroundEffects.push(...transformed.foregroundEffects);
     errors.push(...transformed.errors);
     chat = applyGeneratedMessage(transformed.chat, recipe, options.job, transformed.text);
     return {
