@@ -24,7 +24,7 @@ import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import { getChatPage } from '../storage/chatSelection.svelte';
-import { emotionImageToAsset } from '../characterAssets';
+import { emotionImageToAsset, imageAssetExtensions } from '../characterAssets';
 import cssSelectorParser from 'postcss-selector-parser'
 import {
     CHAT_SCROLL_ROOT_SELECTOR,
@@ -516,8 +516,6 @@ async function renderHighlightableMarkdown(data:string) {
 
 export const assetRegex = /{{(raw|path|img|image|video|audio|bgm|bg|emotion|asset|video-img|source)::(.+?)}}/gms
 
-const imageAssetExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif']
-
 // Same-name assets are random variants of one another, but only within one media kind.
 function assetKind(ext: string | undefined) {
     const normalized = ext?.toLowerCase()
@@ -569,22 +567,21 @@ export function resetAssetsCache(charAssets: string[][], legacyEmotionImages: [s
     assetsCacheCharacterId = characterId
 }
 
+function resetCharacterAssetsCache(char: simpleCharacterArgument|character) {
+    resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
+}
+
 $effect.root(() => {
     $effect(() => {
-        const charId = selIdState.selId
-        const char = DBState.db.characters?.[charId]
-        if (!char || char.type !== 'character') {
-            return
-        }
-
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
+        // Store exports are unset while Vitest is still evaluating stores.svelte, which imports this module.
+        if (!selIdState) return
+        const char = DBState.db.characters?.[selIdState.selId]
+        if (char?.type === 'character') resetCharacterAssetsCache(char)
     })
 })
 
 function ensureAssetsCache(char: simpleCharacterArgument|character): AssetPaths {
-    if (!assetsCache || assetsCacheCharacterId !== char.chaId) {
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
-    }
+    if (!assetsCache || assetsCacheCharacterId !== char.chaId) resetCharacterAssetsCache(char)
     return assetsCache!
 }
 
@@ -601,7 +598,7 @@ function normalizeAssetPromptName(name: string): string {
 // Asset-prompt tags (<assets src="Name">) draw only assets that exist; case, spaces,
 // separators and file extensions are ignored, and unknown names draw nothing.
 function resolveAssetPromptTags(data: string, char: simpleCharacterArgument|character) {
-    if(char.type === 'simple' || !char.prebuiltAssetCommand || !/<assets\s/i.test(data)){
+    if(char.type === 'simple' || !/<assets\s/i.test(data)){
         return data
     }
     const names = new Map<string, string>()
@@ -836,7 +833,6 @@ const retainedImagePreloads = new Map<string, RetainedImagePreload>()
 const priorityImageDecodeQueue: QueuedImageDecode[] = []
 const imageDecodeQueue: QueuedImageDecode[] = []
 let imageDecodeRunning = false
-const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
 const INLAY_ID_ATTRIBUTE = 'data-inlay-id'
 const CHAT_IMAGE_PRELOAD_TIMEOUT_MS = 10_000
 const IMAGE_PRELOAD_CACHE_MAX = 512
@@ -1901,7 +1897,7 @@ const dateTimeFormat = (main:string, time = 0) => {
 
 }
 
-const legacyBlockMatcher = (p1:string,matcherArg:matcherArg) => {
+const legacyBlockMatcher = (p1:string) => {
     const bn = p1.indexOf('\n')
 
     if(bn === -1){
@@ -2136,7 +2132,7 @@ function trimLines(p1:string){
     }).join('\n').trim()
 }
 
-function blockEndMatcher(p1:string,type:{type:blockMatch,type2?:string,mode?:string},matcherArg:matcherArg):string{
+function blockEndMatcher(p1:string,type:{type:blockMatch,type2?:string,mode?:string}):string{
     const p1Trimmed = p1.trim() 
     switch(type.type){
         case 'pure':
@@ -2268,7 +2264,6 @@ export function risuChatParser(da:string, arg:{
         chara = aChara
     }
     if(arg.tokenizeAccurate){
-        const db = arg.db ?? DBState.db
         const selchar = chara ?? db.characters[get(selectedCharID)]
         if(!selchar){
             chara = 'bot'
@@ -2338,7 +2333,7 @@ export function risuChatParser(da:string, arg:{
                 }
                 pointer++
                 const dat = nested.shift()
-                const mc = legacyBlockMatcher(dat, matcherObj)
+                const mc = legacyBlockMatcher(dat)
                 nested[0] += mc ?? `{#${dat}#}`
                 break
             }
@@ -2387,7 +2382,7 @@ export function risuChatParser(da:string, arg:{
                         }
                         blockNestType.delete(nested.length)
                         const dat2 = nested.shift()
-                        const matchResult = blockEndMatcher(dat2, blockType, matcherObj)
+                        const matchResult = blockEndMatcher(dat2, blockType)
                         if(blockType.type === 'each'){
                             const asIndex = blockType.type2.lastIndexOf(' as ')
                             let sub = blockType.type2.substring(asIndex + 4).trim()

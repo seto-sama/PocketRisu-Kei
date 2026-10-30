@@ -34,6 +34,7 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import ListActionBar from "../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
+    import { renderPrebuiltAssetCommand } from "src/ts/assetPromptList";
     import TokenCount from "../UI/components/TokenCount.svelte";
     import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
@@ -294,28 +295,30 @@
         <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
 
-        {#if DBState.db.newImageHandlingBeta}
-            <SettingsList spacing="none" className="mb-2">
+        {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+            <span class="mt-4 block text-maintext">{language.assetPrompt}<Help key="assetPrompt"/></span>
+            <Textarea margin="both" readonly value={renderPrebuiltAssetCommand(DBState.db.characters[$selectedCharID] as character)}></Textarea>
+        {/if}
+
+        <SettingsList spacing="none" className="mb-2">
+            {#if DBState.db.newImageHandlingBeta}
                 <SettingsList variant="row">
                     <span class="min-w-0 text-maintext">
                         {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
                     </span>
                     <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
                 </SettingsList>
-
-                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-                    <SettingsList variant="row">
-                        <span class="min-w-0 text-maintext">
-                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
-                        </span>
-                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                            <SelectOption value="">{language.static}</SelectOption>
-                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
-                        </Select>
-                    </SettingsList>
-                {/if}
+            {/if}
+            <SettingsList variant="row">
+                <span class="min-w-0 text-maintext">
+                    {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
+                </span>
+                <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                    <SelectOption value="">{language.static}</SelectOption>
+                    <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+                </Select>
             </SettingsList>
-        {/if}
+        </SettingsList>
     {/if}
     </div>
 {:else if $CharConfigSubMenu === 3}

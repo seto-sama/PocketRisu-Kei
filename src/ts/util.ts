@@ -971,15 +971,6 @@ export function simplifySchema(schema:any, args:{
 
 }
 
-export const prebuiltAssetCommand = `
-<Image Tag Instruction>
-Insert image tags between paragraphs to match the scene: the character on screen, their emotion, outfit and situation.
-Use as many different images as fit, at least one per response, and only names built from the lists below.
-{{chardisplayasset::grouped}}
-Preserve spelling, capitalization and spaces exactly, and never add a file extension.
-</Image Tag Instruction>
-`
-
 export const jsonOutputTrimmer = (data:string) => {
     
     data = data.replace(/<Thoughts>(.+?)<\/Thoughts>/gms, '').trim()

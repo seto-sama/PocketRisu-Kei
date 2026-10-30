@@ -3,6 +3,8 @@ import type { character } from './storage/database.svelte'
 const ARCHIVED_ICON_NAME = 'iconx'
 const DEFAULT_IMAGE_EXTENSION = 'png'
 
+export const imageAssetExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif']
+
 export function archiveCurrentCharacterIcon(currentCharacter: character): void {
     if (!currentCharacter.image) return
 
