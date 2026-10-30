@@ -18,6 +18,53 @@ function recipe(backend = 'http') {
 }
 
 describe('revenant headless Lua executor', () => {
+    it.each([
+        { name: 'missing states', scriptstate: {} },
+        { name: 'empty stack', scriptstate: { '$__stack': '' } },
+        { name: 'empty hidden entries', scriptstate: { '$__stack': '[]', '$__hidden': '' } },
+    ])('initializes and saves $name during output processing', async ({ scriptstate }) => {
+        const input = recipe()
+        const code = `
+            function onOutput(id)
+                local stack = getState(id, 'stack') or {}
+                local hidden = getState(id, 'hidden') or {}
+                table.insert(stack, { chatIndex = getChatLength(id) - 1 })
+                setState(id, 'stack', stack)
+                setState(id, 'hidden', hidden)
+            end
+        `
+        const first = await executeRevenantLua({
+            code, mode: 'output', recipe: input, chat: { ...input.chat, scriptstate },
+        })
+        expect(first.status).toBe('completed')
+        expect(JSON.parse(first.chat.scriptstate.$__stack)).toEqual([{ chatIndex: 0 }])
+
+        const second = await executeRevenantLua({ code, mode: 'output', recipe: input, chat: first.chat })
+        expect(JSON.parse(second.chat.scriptstate.$__stack)).toEqual([{ chatIndex: 0 }, { chatIndex: 0 }])
+        expect(second.chat.scriptstate.$__hidden).toBe(first.chat.scriptstate.$__hidden)
+    })
+
+    it('preserves JSON state values and reports malformed stored JSON', async () => {
+        const result = await executeRevenantLua({
+            code: `
+                function onOutput(id)
+                    setState(id, 'text', '')
+                    setState(id, 'enabled', false)
+                    setState(id, 'count', 0)
+                    assert(getState(id, 'text') == '')
+                    assert(getState(id, 'enabled') == false)
+                    assert(getState(id, 'count') == 0)
+                    setChatVar(id, '__broken', '{')
+                end
+            `,
+            mode: 'output', recipe: recipe(),
+        })
+        await expect(executeRevenantLua({
+            code: "function onOutput(id) getState(id, 'broken') end",
+            mode: 'output', recipe: recipe(), chat: result.chat,
+        })).rejects.toThrow()
+    })
+
     it('propagates Lua errors when no client action was requested', async () => {
         await expect(executeRevenantLua({
             code: "function onOutput(id) error('ordinary Lua failure') end",

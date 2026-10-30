@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     alertInput: vi.fn(),
     request: vi.fn(async (_options?: any, _mode?: string) => ({ type: 'success', result: 'client result' })),
     image: vi.fn(async () => '{{inlayed::image}}'),
+    moduleLorebooks: [] as any[],
     jobs: [] as any[],
     save: vi.fn(async () => {}),
     consume: vi.fn(async (_id: string) => {}),
@@ -24,7 +25,7 @@ vi.mock('../alert', () => ({ alertInput: state.alertInput }))
 vi.mock('../util', () => ({ parseKeyValue: (text = '') => text.split('\n').filter(Boolean).map(line => line.split('=')) }))
 vi.mock('../globalApi.svelte', () => ({ requestImmediateSave: state.save }))
 vi.mock('../tokenizer', () => ({}))
-vi.mock('./modules', () => ({ getModuleTriggers: () => [] }))
+vi.mock('./modules', () => ({ getModuleTriggers: () => [], getModuleLorebooks: () => state.moduleLorebooks }))
 vi.mock('./files/inlays', () => ({}))
 vi.mock('./lorebook.svelte', () => ({}))
 vi.mock('./command', () => ({ processMultiCommand: vi.fn() }))
@@ -57,9 +58,61 @@ afterAll(() => vi.unstubAllGlobals())
 beforeEach(() => {
     state.db = { characters: [], templateDefaultVariables: '', globalChatVariables: {} }
     state.jobs = []
+    state.moduleLorebooks = []
     vi.clearAllMocks()
     state.request.mockResolvedValue({ type: 'success', result: 'client result' })
     state.consume.mockImplementation(async id => { state.jobs = state.jobs.filter(job => job.jobId !== id) })
+})
+
+it('uses the originating character lore and defaults when rendering a simple projection', async () => {
+    const { runScripted } = await import('./scriptings')
+    const chat = { id: 'origin-chat', message: [], localLore: [{ comment: 'local', content: 'local lore' }] }
+    const character = {
+        type: 'character', chaId: 'origin', name: 'Origin', chats: [chat],
+        defaultVariables: '__settings={"enabled":true}',
+        globalLore: [{ comment: 'character', content: 'origin lore' }],
+    }
+    state.db.characters = [
+        { type: 'character', chaId: 'other', globalLore: [{ comment: 'character', content: 'wrong lore' }] },
+        character,
+    ]
+    state.moduleLorebooks = [{ comment: 'lightboard-prelude', content: 'module prelude' }]
+
+    const result = await runScripted(`
+        listenEdit('editDisplay', function(id, data)
+            local prelude = getLoreBooks(id, 'lightboard-prelude')[1]
+            local localLore = getLoreBooks(id, 'local')[1]
+            local characterLore = getLoreBooks(id, 'character')[1]
+            assert(getState(id, 'settings').enabled)
+            return data .. ':' .. prelude.content .. ':' .. localLore.content .. ':' .. characterLore.content
+        end)
+    `, {
+        char: { type: 'simple', chaId: 'origin', customscript: [] } as never,
+        chat: chat as never,
+        mode: 'editDisplay',
+        data: 'display',
+    })
+
+    expect(result.res).toBe('display:module prelude:local lore:origin lore')
+})
+
+it('returns nil for missing and empty states through the browser variable adapter', async () => {
+    const { runScripted } = await import('./scriptings')
+    const chat = { message: [], scriptstate: { '$__empty': '' } }
+    const result = await runScripted(`
+        function onStart(id)
+            assert(getState(id, 'missing') == nil)
+            assert(getState(id, 'empty') == nil)
+            return 'completed'
+        end
+    `, {
+        char: { type: 'character', defaultVariables: '' } as never,
+        chat: chat as never,
+        mode: 'start',
+    })
+
+    expect(result.res).toBe('completed')
+    expect(chat.scriptstate).toEqual({ '$__empty': '' })
 })
 
 it('returns plain Lua tables from client APIs without exposing JS constructors', async () => {

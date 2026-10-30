@@ -69,7 +69,11 @@ function hasEditListener(type)
 end
 
 function getState(id, name)
-    return json.decode(getChatVar(id, '__'..name))
+    local value = getChatVar(id, '__'..name)
+    if value == nil or value == '' then
+        return nil
+    end
+    return json.decode(value)
 end
 
 function setState(id, name, value)

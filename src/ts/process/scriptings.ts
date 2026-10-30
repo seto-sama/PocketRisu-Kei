@@ -109,7 +109,10 @@ export async function runScripted(code:string, arg:{
     moduleId?: string
     revenantReplayJobIds?: string[]
 }){
-    const char = arg.char ?? getCurrentCharacter()
+    const requestedCharacter = arg.char ?? getCurrentCharacter()
+    const char = requestedCharacter.type === 'simple' && requestedCharacter.chaId
+        ? getDatabase().characters.find(character => character.chaId === requestedCharacter.chaId) ?? requestedCharacter
+        : requestedCharacter
     const data = arg.data ?? ''
     const chat = arg.chat ?? getCurrentChat()
     const setVar = arg.setVar ?? ((key, value) => setChatVarOf(chat, key, value))
