@@ -1,7 +1,6 @@
 import { isDebugEnabled } from 'src/ts/debug'
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { createEntityId } from 'src/ts/id';
-import { get } from 'svelte/store'
 import { alertConfirm, alertError, alertInput, alertNormal, alertSelect } from '../../../alert'
 import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
@@ -11,8 +10,7 @@ import { chooseConflictComparison, SaveConflictCancelledError } from '../../../s
 import { presentSaveConflict } from '../../../gui/saveConflictPresentation'
 import type { MergeConflict } from '../../../storage/patchRebase'
 import { language } from '../../../../lang'
-import { findLastActiveResponseIndex, setMessageContent } from '../../../storage/messageContent'
-import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
+import { ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
 import { getInlayAsset, writeInlayImage } from '../../files/inlays'
@@ -20,7 +18,6 @@ import { requestModelPresetData } from '../../request/request'
 import { collectStreamingText } from '../../request/shared'
 import { extractLuaLlmInlays, LUA_AX_LLM_MODES, normalizeLuaLlmPrompt, type LuaAxLlmMode } from '../../luaLlmCore'
 import { sayTTS } from '../../tts'
-import { runInlayScreen } from '../../inlayScreen'
 import { loadLoreBookV3Prompt } from '../../lorebook.svelte'
 import { risuChatParser } from '../../../parser/parser.svelte'
 import { HypaProcesser } from '../../memory/hypamemory'
@@ -183,21 +180,6 @@ async function assetToInlay(assetId: string | undefined): Promise<string> {
     }
 }
 
-function applyCharacterEmotion(character: character, requested: string): boolean {
-    const normalized = requested.replace(/\s+/g, '').toLocaleLowerCase()
-    const names = character.emotionImages?.map(item => item[0]) ?? []
-    const selected = character.emotionImages?.find(item => item[0].toLocaleLowerCase() === normalized)
-        ?? character.emotionImages?.find(item => normalized.includes(item[0].toLocaleLowerCase()))
-        ?? character.emotionImages?.find(item => item[0].toLocaleLowerCase() === 'neutral')
-    if (!selected || names.length === 0) return false
-    const state = get(CharEmotion)
-    const history = state[character.chaId] ?? []
-    history.push([selected[0], selected[1], Date.now()])
-    state[character.chaId] = history.slice(-5)
-    CharEmotion.set(state)
-    return true
-}
-
 async function executeClientAction(
     workflow: RevenantWorkflow,
     stepKey: string,
@@ -241,10 +223,7 @@ async function executeClientAction(
                 const effect = rawEffect && typeof rawEffect === 'object'
                     ? rawEffect as Record<string, unknown>
                     : {}
-                if (effect.kind === 'emotion') {
-                    applyCharacterEmotion(character, String(effect.name ?? ''))
-                }
-                else if (effect.kind === 'alert') {
+                if (effect.kind === 'alert') {
                     if (effect.level === 'error') alertError(effect.message)
                     else alertNormal(String(effect.message ?? ''))
                 }
@@ -275,54 +254,6 @@ async function executeClientAction(
                         }
                     }
                     catch { /* Notifications are best-effort foreground effects. */ }
-                }
-                else if (effect.kind === 'inlay.screen' && resultChat) {
-                    const target = resultChat.message[findLastActiveResponseIndex(resultChat.message)]
-                    if (target?.data) {
-                        const inlay = runInlayScreen(character, target.data)
-                        setMessageContent(target, inlay.promise ? await inlay.promise : inlay.text)
-                    }
-                }
-                else if (effect.kind === 'emotion.auto') {
-                    const emotionNames = character.emotionImages?.map(item => item[0]) ?? []
-                    if (emotionNames.length === 0) continue
-                    let selected = ''
-                    if (effect.processor === 'embedding') {
-                        const processer = new HypaProcesser()
-                        await processer.addText(emotionNames.map(name => `emotion:${name}`))
-                        selected = (await processer.similaritySearch(String(effect.text ?? '')))[0]
-                            ?.replace(/^emotion:/, '') ?? ''
-                    }
-                    else if (effect.provider && typeof effect.provider === 'object') {
-                        const provider = effect.provider as Record<string, unknown>
-                        const prompt = String(effect.prompt || '')
-                            || 'From the list below, choose the single word that best represents the character\'s outfit, action, or emotion.'
-                        const response = await executeProviderAction(
-                            workflow,
-                            stepKey,
-                            {
-                                schemaVersion: 1,
-                                actionId: action.actionId,
-                                kind: 'provider.llm',
-                                payload: {
-                                    backend: provider.backend,
-                                    modelPreset: provider.modelPreset,
-                                    mode: 'emotion',
-                                    prompt: [
-                                        {
-                                            role: 'system',
-                                            content: `${prompt}\n\nList: ${emotionNames.join(', ')}\nOutput only one word.`,
-                                        },
-                                        { role: 'user', content: String(effect.text ?? '') },
-                                    ],
-                                },
-                            },
-                            character,
-                            signal,
-                        )
-                        if (response.success) selected = String(response.result ?? '')
-                    }
-                    if (selected) applyCharacterEmotion(character, selected)
                 }
                 // chat.resend is acknowledged here. The observer starts the
                 // next workflow only after this workflow materializes.

@@ -133,7 +133,7 @@ describe('revenant headless Lua executor', () => {
     })
 
     it('selects each snapshotted auxiliary provider mode from a real Lua axLLM call', async () => {
-        const modes = ['emotion', 'memory', 'submodel', 'translate'] as const
+        const modes = ['memory', 'submodel', 'translate'] as const
         const input = recipe('plugin') as any
         input.auxProviders = Object.fromEntries(modes.map(mode => [mode, {
             backend: 'plugin', modelPreset: { id: `${mode}-preset` },

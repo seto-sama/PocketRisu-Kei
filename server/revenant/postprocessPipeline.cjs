@@ -8,16 +8,9 @@ require('sucrase/register/ts');
 const { runRevenantOutputTransform } = require(path.join(
     __dirname, '../../src/ts/process/revenant/postprocess/postprocess.ts',
 ));
-const { renderRevenantTemplate } = require(path.join(
-    __dirname, '../../src/ts/process/revenant/postprocess/headlessParser.ts',
-));
 const { buildRerollSwipeMetadata } = require(path.join(
     __dirname, '../../src/ts/process/revenant/recovery/chatGenerationTarget.ts',
 ));
-
-function renderRevenantPostprocessPrompt(prompt, recipe, chat) {
-    return renderRevenantTemplate(String(prompt ?? ''), recipe, chat).text;
-}
 
 function outputLuaScripts(recipe) {
     return [
@@ -148,7 +141,6 @@ async function runRevenantOutputStage(options) {
     }
 
     const transformed = await options.transformOutput(text, recipe, chat);
-    foregroundEffects.push(...transformed.foregroundEffects);
     errors.push(...transformed.errors);
     chat = applyGeneratedMessage(transformed.chat, recipe, options.job, transformed.text);
     return {
@@ -175,5 +167,4 @@ module.exports = {
     runRevenantOutputStage,
     runRevenantTriggerStage,
     runRevenantOutputTransform,
-    renderRevenantPostprocessPrompt,
 };

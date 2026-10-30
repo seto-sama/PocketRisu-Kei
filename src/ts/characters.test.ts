@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import type { character } from './storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({
-    db: { characters: [] as character[] },
+    db: { characters: [] as character[], newImageHandlingBeta: false },
     alertAddCharacter: vi.fn(),
     selectFileByDom: vi.fn(),
     importCharacterProcess: vi.fn(),
@@ -32,12 +32,10 @@ vi.mock('./characterCards', () => ({ importCharacterProcess: mocks.importCharact
 vi.mock('./characterPackage', () => ({ importCharacterPackage: mocks.importCharacterPackage }))
 vi.mock('./parser/parser.svelte', () => ({}))
 vi.mock('./translator/translator', () => ({}))
-vi.mock('./process/inlayScreen', () => ({ updateInlayScreen: (character: character) => character }))
 vi.mock('./bookmarks/bookmarkService', () => ({}))
-vi.mock('./characterAssets', () => ({}))
 vi.mock('./chatImport', () => ({}))
 
-import { addCharacter, changeChar, createBlankChar } from './characters'
+import { addCharacter, changeChar, createBlankChar, migrateEmotionImagesToAssets } from './characters'
 import { selectedCharID } from './stores.svelte'
 
 beforeEach(() => {
@@ -100,4 +98,27 @@ it.each(['missing', 'trashed'])('rejects a %s character without resetting the cu
     expect(changeChar(characterId, { reseter })).toBe(false)
     expect(get(selectedCharID)).toBe(0)
     expect(reseter).not.toHaveBeenCalled()
+})
+
+it('moves legacy emotion images into additional assets and enables the asset prompt', () => {
+    const char = {
+        ...createBlankChar(),
+        additionalAssets: [['happy', 'assets/happy.png', 'png']],
+        emotionImages: [['happy', 'assets/happy.png'], ['happy', 'assets/happy-2.webp'], ['sad', 'assets/sad']],
+        viewScreen: 'emotion',
+        inlayViewScreen: true,
+    } as character
+
+    migrateEmotionImagesToAssets(char)
+
+    expect(char.additionalAssets).toEqual([
+        ['happy', 'assets/happy.png', 'png'],
+        ['happy', 'assets/happy-2.webp', 'webp'],
+        ['sad', 'assets/sad', 'png'],
+    ])
+    expect(char.prebuiltAssetCommand).toBe(true)
+    expect(mocks.db.newImageHandlingBeta).toBe(true)
+    expect(char).not.toHaveProperty('emotionImages')
+    expect(char).not.toHaveProperty('viewScreen')
+    expect(char).not.toHaveProperty('inlayViewScreen')
 })

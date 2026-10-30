@@ -16,8 +16,6 @@
     import { saveAsset } from "src/ts/globalApi.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { ImageIcon, XIcon } from "@lucide/svelte";
-    import SettingRenderer from "../SettingRenderer.svelte";
-    import type { SettingItem } from "src/ts/setting/types";
     import PresetHeader from "../../UI/components/PresetHeader.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
@@ -34,17 +32,6 @@
     import NovelAIImageCoreSettings from "src/lib/UI/NovelAIImageCoreSettings.svelte";
     import ImageStylePresetList from "src/lib/UI/ImageStylePresetList.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
-
-    const emotionPromptItems: SettingItem[] = [
-        {
-            id: 'image.emotionPrompt',
-            type: 'textarea',
-            labelKey: 'emotionPrompt',
-            bindKey: 'emotionPrompt2',
-            helpKey: 'emotionPrompt',
-            options: { placeholder: 'Leave it blank to use default' },
-        },
-    ];
 
     const imagePreset = $derived(DBState.db.imageGenerationPresets[DBState.db.imageGenerationPresetId]);
     const settings = $derived(imagePreset.settings);
@@ -183,21 +170,7 @@
 </script>
 
 <div class="flex flex-col w-full">
-    <SettingLayout variant="section" title={language.emotionImage} first>
-        <div class="[&>*:first-child]:border-t-0">
-            <SettingLayout variant="row" title={language.emotionMethod} description={language.help.emotionMethod}>
-                {#snippet control()}
-                    <Select className="w-48 text-sm" size="sm" bind:value={DBState.db.emotionProcesser}>
-                        <SelectOption value="submodel">{language.submodel}</SelectOption>
-                        <SelectOption value="embedding">{language.hypaV3Settings.embeddingModelLabel}</SelectOption>
-                    </Select>
-                {/snippet}
-            </SettingLayout>
-            <SettingRenderer items={emotionPromptItems} layout="row" hideFirstDivider={false} />
-        </div>
-    </SettingLayout>
-
-    <SettingLayout variant="section" title={language.imageGeneration}>
+    <SettingLayout variant="section" title={language.imageGeneration} first>
       <div class="[&>*:first-child]:border-t-0">
         <SettingLayout variant="row" title={language.imageGenerationPreset}>
             {#snippet control()}

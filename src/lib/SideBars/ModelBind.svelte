@@ -29,9 +29,8 @@
         b.main ??= '';
         b.sub ??= '';
         b.separateAux ??= false;
-        b.aux ??= { memory: '', emotion: '', translate: '', otherAx: '' };
+        b.aux ??= { memory: '', translate: '', otherAx: '' };
         b.aux.memory ??= '';
-        b.aux.emotion ??= '';
         b.aux.translate ??= '';
         b.aux.otherAx ??= '';
     }
@@ -65,8 +64,6 @@
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.memory} />
                 <div class="text-[11px] text-subtext px-1">{language.axModelTranslate}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.translate} />
-                <div class="text-[11px] text-subtext px-1">{language.axModelEmotion}</div>
-                <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.emotion} />
                 <div class="text-[11px] text-subtext px-1">{language.axModelOther}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.otherAx} />
             </div>

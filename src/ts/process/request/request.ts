@@ -103,7 +103,6 @@ export interface requestDataArgument{
     frequencyPenalty?: number,
     useStreaming?:boolean
     isGroupChat?:boolean
-    useEmotion?:boolean
     chatId?:string
     noMultiGen?:boolean
     schema?:string
@@ -166,25 +165,16 @@ export type requestDataResponse = {
     // requestChatData loop must not re-run such a response (banned-charset /
     // blank-response retries), or side-effecting tools would fire twice.
     toolExecuted?: boolean,
-    special?: {
-        emotion?: string
-    },
     failByServerError?: boolean
     retryAfterMs?: number
     model?: string
 }|{
     type: "streaming",
     result: ReadableStream<StreamResponseChunk>,
-    special?: {
-        emotion?: string
-    }
     model?: string
 }|{
     type: "multiline",
     result: ['user'|'char',string][],
-    special?: {
-        emotion?: string
-    }
     model?: string
 }
 
@@ -814,7 +804,6 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
     switch (mode) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'
-        case 'emotion': return 'emotion'
         case 'submodel':
         case 'otherAx': return 'sub'
         default: return 'main'

@@ -73,20 +73,6 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         keywords: ['waifu', 'width'],
     },
     {
-        id: 'display.waifuWidth2',
-        type: 'slider',
-        labelKey: 'waifuWidth2',
-        helpKey: 'waifuWidth2',
-        bindKey: 'waifuWidth2',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 20,
-            max: 150,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
-    },
-    {
         id: 'display.customBackground',
         type: 'custom',
         componentId: 'CustomBackgroundToggle',

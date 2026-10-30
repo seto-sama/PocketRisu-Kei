@@ -388,8 +388,6 @@ async function checkNewFormat(): Promise<void> {
         v.firstMessage ??= '';
         v.globalLore ??= [];
         v.name ??= '';
-        v.viewScreen ??= 'none';
-        v.emotionImages = v.emotionImages ?? [];
 
         if (v.type === 'character') {
             v.bias ??= [];

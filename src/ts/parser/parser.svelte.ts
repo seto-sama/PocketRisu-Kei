@@ -24,6 +24,7 @@ import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import { getChatPage } from '../storage/chatSelection.svelte';
+import { emotionImageToAsset, imageAssetExtensions } from '../characterAssets';
 import cssSelectorParser from 'postcss-selector-parser'
 import {
     CHAT_SCROLL_ROOT_SELECTOR,
@@ -515,6 +516,12 @@ async function renderHighlightableMarkdown(data:string) {
 
 export const assetRegex = /{{(raw|path|img|image|video|audio|bgm|bg|emotion|asset|video-img|source)::(.+?)}}/gms
 
+// Same-name assets are random variants of one another, but only within one media kind.
+function assetKind(ext: string | undefined) {
+    const normalized = ext?.toLowerCase()
+    return imageAssetExtensions.includes(normalized) ? 'image' : normalized
+}
+
 function getAssetSrc(assetArr: string[][], assetPaths: AssetPaths) {
     for (const asset of assetArr) {
         const key = asset[0].toLocaleLowerCase()
@@ -522,16 +529,8 @@ function getAssetSrc(assetArr: string[][], assetPaths: AssetPaths) {
             srcPaths: [],
             ext: asset[2]
         }
-        if(assetPaths[key].ext === asset[2]){
+        if(assetKind(assetPaths[key].ext) === assetKind(asset[2])){
             assetPaths[key].srcPaths.push(asset[1])
-        }
-    }
-}
-
-function getEmoSrc(emoArr: string[][], emoPaths: AssetPaths) {
-    for (const emo of emoArr) {
-        emoPaths[emo[0].toLocaleLowerCase()] = {
-            srcPaths: [emo[1]]
         }
     }
 }
@@ -554,37 +553,64 @@ type AssetPaths = {[key:string]:{
 }}
 
 let assetsCache: AssetPaths | null = null
-let emoAssetsCache: AssetPaths | null = null
 let assetsCacheCharacterId = ''
 
-export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], moduleAssets: string[][], characterId = '') {
+export function resetAssetsCache(charAssets: string[][], legacyEmotionImages: [string, string][], moduleAssets: string[][], characterId = '') {
     const assetPaths: AssetPaths = {}
-    const charEmoPaths: AssetPaths = {}
 
     getAssetSrc(charAssets, assetPaths)
+    // Characters not opened since the emotion-image removal still carry them until migration.
+    getAssetSrc(legacyEmotionImages.map(emotionImageToAsset), assetPaths)
     getAssetSrc(moduleAssets, assetPaths)
-    getEmoSrc(emoAssets, charEmoPaths)
 
     assetsCache = assetPaths
-    emoAssetsCache = charEmoPaths
     assetsCacheCharacterId = characterId
+}
+
+function resetCharacterAssetsCache(char: simpleCharacterArgument|character) {
+    resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
 }
 
 $effect.root(() => {
     $effect(() => {
-        const charId = selIdState.selId
-        const char = DBState.db.characters?.[charId]
-        if (!char || char.type !== 'character') {
-            return
-        }
-
-        const charAssets = char.additionalAssets ?? []
-        const emoAssets = char.emotionImages ?? []
-        const moduleAssets = getModuleAssets()
-
-        resetAssetsCache(charAssets, emoAssets, moduleAssets, char.chaId)
+        // Store exports are unset while Vitest is still evaluating stores.svelte, which imports this module.
+        if (!selIdState) return
+        const char = DBState.db.characters?.[selIdState.selId]
+        if (char?.type === 'character') resetCharacterAssetsCache(char)
     })
 })
+
+function ensureAssetsCache(char: simpleCharacterArgument|character): AssetPaths {
+    if (!assetsCache || assetsCacheCharacterId !== char.chaId) resetCharacterAssetsCache(char)
+    return assetsCache!
+}
+
+// src holds an asset name, not a URL; an optional closing tag is swallowed too.
+const assetPromptTagRegex = /<assets\s+src\s*=\s*["']([^"']*)["'][^>]*>(?:\s*<\/assets>)?/gi
+// Marks a resolved asset-prompt tag inside {{img::}} so it keeps the asset style.
+const assetPromptMarker = '\uE9b5'
+const assetPromptExtensionRegex = new RegExp(`\\.(?:${imageAssetExtensions.join('|')})$`, 'i')
+
+function normalizeAssetPromptName(name: string): string {
+    return name.toLocaleLowerCase().replace(/[\s_-]/g, '').replace(assetPromptExtensionRegex, '')
+}
+
+// Asset-prompt tags (<assets src="Name">) draw only assets that exist; case, spaces,
+// separators and file extensions are ignored, and unknown names draw nothing.
+function resolveAssetPromptTags(data: string, char: simpleCharacterArgument|character) {
+    if(char.type === 'simple' || !/<assets\s/i.test(data)){
+        return data
+    }
+    const names = new Map<string, string>()
+    for(const key of Object.keys(ensureAssetsCache(char))){
+        const normalized = normalizeAssetPromptName(key)
+        if(!names.has(normalized)) names.set(normalized, key)
+    }
+    return data.replace(assetPromptTagRegex, (_full, name: string) => {
+        const key = names.get(normalizeAssetPromptName(name))
+        return key ? `{{img::${assetPromptMarker}${key}}}` : ''
+    })
+}
 
 const imageCBS = ['img', 'image', 'emotion', 'asset', 'bg', 'raw', 'path', 'source']
 const videoExtensions = ['mp4', 'webm', 'avi', 'm4p', 'm4v']
@@ -593,17 +619,14 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     const hideImages = DBState.db.hideAllImages && !arg.showImages
     const assetWidthString = (DBState.db.assetWidth && DBState.db.assetWidth !== -1 || DBState.db.assetWidth === 0) ? `max-width:${DBState.db.assetWidth}rem;` : ''
 
-    if (!assetsCache || !emoAssetsCache || assetsCacheCharacterId !== char.chaId) {
-        resetAssetsCache(char.additionalAssets ?? [], char.emotionImages ?? [], getModuleAssets(), char.chaId)
-    }
-
-    const assetPaths = assetsCache!
-    const emoPaths = emoAssetsCache!
+    const assetPaths = ensureAssetsCache(char)
 
     let needsSourceAccess = false
     let cx: number|null = null
 
     data = await replaceAsync(data, assetRegex, async (full:string, type:string, name:string) => {
+        const fromAssetPrompt = name.startsWith(assetPromptMarker)
+        if(fromAssetPrompt) name = name.slice(assetPromptMarker.length)
         const displayName = name.trim()
         name = name.toLocaleLowerCase()
         const assetNotice = (kind: ImageNoticeKind, detail = '') => {
@@ -629,15 +652,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             }
         }
 
-        if(type === 'emotion'){
-            const srcPath = emoPaths[name]?.srcPaths?.[0]
-            const path = srcPath ? await getFileSrcCached(srcPath) : null
-            if(!path){
-                return ''
-            }
-            return `<img src="${path}" alt="${path}" style="${assetWidthString} "/>`
-        }
-
         if(type === 'source'){
             needsSourceAccess = true
             switch(name){
@@ -657,7 +671,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
 
             if(!match){
                 // Only chat messages show what went missing; elsewhere the asset stays silent.
-                if(mode === 'normal' && (type === 'img' || type === 'image')){
+                if(mode === 'normal' && (type === 'img' || type === 'image' || type === 'emotion')){
                     return assetNotice('missingImage', displayName)
                 }
                 return ''
@@ -681,6 +695,11 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             case 'path':
                 return p
             case 'img':
+            case 'emotion':
+                if(fromAssetPrompt){
+                    const dynamic = (char as character).prebuiltAssetStyle === 'dynamic' ? ' x-risu-asset-prompt-image-dynamic' : ''
+                    return `<img class="x-risu-asset-prompt-image${dynamic}" src="${p}" alt="${p}" style="${assetWidthString} "/>`
+                }
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>`
             case 'image':
                 return `<div class="risu-inlay-image"><img src="${p}" alt="${p}" style="${assetWidthString}"/></div>\n`
@@ -814,7 +833,6 @@ const retainedImagePreloads = new Map<string, RetainedImagePreload>()
 const priorityImageDecodeQueue: QueuedImageDecode[] = []
 const imageDecodeQueue: QueuedImageDecode[] = []
 let imageDecodeRunning = false
-const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
 const INLAY_ID_ATTRIBUTE = 'data-inlay-id'
 const CHAT_IMAGE_PRELOAD_TIMEOUT_MS = 10_000
 const IMAGE_PRELOAD_CACHE_MAX = 512
@@ -1453,6 +1471,8 @@ export async function prepareMarkdownSource(
         })
         const firstParsed = data
         data = (await processScriptFull(char, data, 'editdisplay', chatID, cbsConditions)).data
+        // After display regex, so a bot's own regex can still rewrite asset tags first.
+        data = resolveAssetPromptTags(data, char)
         if(firstParsed !== data){
             data = await parseAdditionalAssets(data, char, additionalAssetMode, {
                 ch: chatID
@@ -1877,7 +1897,7 @@ const dateTimeFormat = (main:string, time = 0) => {
 
 }
 
-const legacyBlockMatcher = (p1:string,matcherArg:matcherArg) => {
+const legacyBlockMatcher = (p1:string) => {
     const bn = p1.indexOf('\n')
 
     if(bn === -1){
@@ -2112,7 +2132,7 @@ function trimLines(p1:string){
     }).join('\n').trim()
 }
 
-function blockEndMatcher(p1:string,type:{type:blockMatch,type2?:string,mode?:string},matcherArg:matcherArg):string{
+function blockEndMatcher(p1:string,type:{type:blockMatch,type2?:string,mode?:string}):string{
     const p1Trimmed = p1.trim() 
     switch(type.type){
         case 'pure':
@@ -2244,7 +2264,6 @@ export function risuChatParser(da:string, arg:{
         chara = aChara
     }
     if(arg.tokenizeAccurate){
-        const db = arg.db ?? DBState.db
         const selchar = chara ?? db.characters[get(selectedCharID)]
         if(!selchar){
             chara = 'bot'
@@ -2314,7 +2333,7 @@ export function risuChatParser(da:string, arg:{
                 }
                 pointer++
                 const dat = nested.shift()
-                const mc = legacyBlockMatcher(dat, matcherObj)
+                const mc = legacyBlockMatcher(dat)
                 nested[0] += mc ?? `{#${dat}#}`
                 break
             }
@@ -2363,7 +2382,7 @@ export function risuChatParser(da:string, arg:{
                         }
                         blockNestType.delete(nested.length)
                         const dat2 = nested.shift()
-                        const matchResult = blockEndMatcher(dat2, blockType, matcherObj)
+                        const matchResult = blockEndMatcher(dat2, blockType)
                         if(blockType.type === 'each'){
                             const asIndex = blockType.type2.lastIndexOf(' as ')
                             let sub = blockType.type2.substring(asIndex + 4).trim()

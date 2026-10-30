@@ -474,7 +474,7 @@ describe('revenant workflow validation', () => {
             providerBackend: 'http',
             modelPreset: {},
             auxProviders: {
-                emotion: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
+                otherAx: { backend: 'plugin', modelPreset: { id: 'aux-preset' } },
             },
             character: { chaId: 'character-1' },
             chatPatch: [{ op: 'remove', path: '/message/0' }],
@@ -514,7 +514,7 @@ describe('revenant workflow validation', () => {
                 postprocess: {
                     ...workflowContext.postprocess,
                     auxProviders: {
-                        emotion: { backend: 'legacy', modelPreset: {} },
+                        otherAx: { backend: 'legacy', modelPreset: {} },
                     },
                 },
             },
@@ -571,7 +571,6 @@ describe('revenant workflow validation', () => {
             postprocess: {
                 ...workflowContext.postprocess,
                 auxProviders: {
-                    emotion: { backend: 'plugin', modelPreset: { id: 'emotion' } },
                     memory: { backend: 'http', modelPreset: { id: 'memory' } },
                     otherAx: { backend: 'echo', modelPreset: { id: 'otherAx' } },
                     submodel: { backend: 'plugin', modelPreset: { id: 'submodel' } },

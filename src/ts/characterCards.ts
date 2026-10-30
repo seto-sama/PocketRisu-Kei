@@ -6,7 +6,7 @@ import { type character, setDatabase, type customscript, type loreSettings, type
 import { checkNullish, decryptBuffer, isKnownUri, sleep } from "./util"
 import { language } from "src/lang"
 import { createEntityId } from 'src/ts/id';
-import { changeChar, characterFormatUpdate } from "./characters"
+import { changeChar, characterFormatUpdate, migrateEmotionImagesToAssets } from "./characters"
 import { AppendableBuffer, BlankWriter, checkCharOrder, forageStorage, loadAsset, type LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { exportPresetFile, showExportAssetProgress } from './preset/export'
 import { compressImage, getImageType } from "./media"
@@ -575,10 +575,8 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
             ...newChatModelDefaults()
         }],
         image: imgp,
-        emotionImages: [],
         bias: [],
         globalLore: lorebook,
-        viewScreen: 'none',
         chaId: createEntityId(),
         utilityBot: false,
         lowLevelAccess: false,
@@ -644,7 +642,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     const risuext = structuredClone(data.extensions.risuai)
     let emotions:[string, string][] = []
     let bias:[string, number][] = []
-    let viewScreen: "none" | "emotion" = 'none'
     let customScripts:customscript[] = []
     let utilityBot = false
     let extAssets:[string,string,string][] = []
@@ -706,7 +703,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         }
         if(risuext){
             bias = risuext.bias ?? bias
-            viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
             customScripts = risuext.customScripts ?? customScripts
             utilityBot = risuext.utilityBot ?? utilityBot
         }
@@ -780,7 +776,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
 
         if(risuext){
             bias = risuext.bias ?? bias
-            viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
             customScripts = risuext.customScripts ?? customScripts
             utilityBot = risuext.utilityBot ?? utilityBot
         }
@@ -839,7 +834,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         emotionImages: emotions,
         bias: bias,
         globalLore: lorebook,
-        viewScreen: viewScreen,
         chaId: createEntityId(),
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
@@ -875,8 +869,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         virtualscript: '', // Character scripts are intentionally not imported for security.
         extentions: ext ?? {},
         largePortrait: data?.extensions?.risuai?.largePortrait ?? (!data?.extensions?.risuai),
-        inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
-        newGenData: data?.extensions?.risuai?.newGenData ?? undefined,
         imported: true,
         source: card?.data?.extensions?.risuai?.source ?? [],
         ccAssets: ccAssets,
@@ -897,6 +889,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         char.creation_date = card.data.creation_date ?? 0
         char.modification_date = card.data.modification_date ?? 0
     }
+
+    migrateEmotionImagesToAssets(char)
 
     if(returnValue){
         return char as any
@@ -1081,7 +1075,8 @@ function createBaseV2(char:character) {
             extensions: {
                 risuai: {
                     bias: char.bias,
-                    viewScreen: char.viewScreen,
+                    // Upstream still reads this field; emotion display no longer exists here.
+                    viewScreen: 'none',
                     customScripts: char.customscript,
                     utilityBot: char.utilityBot,
                     backgroundHTML: char.backgroundHTML,
@@ -1090,8 +1085,6 @@ function createBaseV2(char:character) {
                     additionalText: char.additionalText,
                     virtualscript: '', // Character scripts are intentionally not exported for security.
                     largePortrait: char.largePortrait,
-                    inlayViewScreen: char.inlayViewScreen,
-                    newGenData: char.newGenData
                 },
                 depth_prompt: char.depth_prompt
             }
@@ -1122,6 +1115,7 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         if (arg.onProgress) arg.onProgress(msg, total > 0 ? completed / total * 100 : 100)
         else showExportAssetProgress(completed, total)
     }
+    migrateEmotionImagesToAssets(char)
     try{
         let img = await readAvatarImageOrDefault(char.image)
         char.image = ''
@@ -1134,40 +1128,14 @@ export async function exportCharacterCard(char:character, type:'png'|'json'|'cha
         }
         let assetIndex = 0
         if(spec === 'v2'){
+            // V2 cards carry no assets; createBaseV2 leaves them out on purpose.
             const card = await createBaseV2(char)
-            const totalAssets = (card.data.extensions.risuai.emotions?.length ?? 0) + (card.data.extensions.risuai.additionalAssets?.length ?? 0)
-            onProgress('Loading... (Adding Assets)', 0, totalAssets)
-            if(card.data.extensions.risuai.emotions && card.data.extensions.risuai.emotions.length > 0){
-                for(let i=0;i<card.data.extensions.risuai.emotions.length;i++){
-                    const key = card.data.extensions.risuai.emotions[i][1]
-                    const rData = await readImage(key)
-                    const b64encoded = Buffer.from(await compressImage(rData)).toString('base64')
-                    assetIndex++
-                    card.data.extensions.risuai.emotions[i][1] = `__asset:${assetIndex}`
-                    await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
-                    onProgress('Loading... (Adding Emotions)', assetIndex, totalAssets)
-                }
-            }
-    
-            
-            if(card.data.extensions.risuai.additionalAssets && card.data.extensions.risuai.additionalAssets.length > 0){
-                for(let i=0;i<card.data.extensions.risuai.additionalAssets.length;i++){
-                    const key = card.data.extensions.risuai.additionalAssets[i][1]
-                    const rData = await readImage(key)
-                    const b64encoded = Buffer.from(await compressImage(rData)).toString('base64')
-                    assetIndex++
-                    card.data.extensions.risuai.additionalAssets[i][1] = `__asset:${assetIndex}`
-                    await writer.write("chara-ext-asset_:" + assetIndex, b64encoded)
-                    onProgress('Loading... (Adding Additional Assets)', assetIndex, totalAssets)
-                }
-            }
-    
             if(type === 'json'){
                 await exportPresetFile(fileName, JSON.stringify(card, null, 4))
                 return
             }
     
-            onProgress('Loading... (Writing)', assetIndex, totalAssets)
+            onProgress('Loading... (Writing)', 0, 0)
 
             await writer.write("chara", Buffer.from(JSON.stringify(card)).toString('base64'))     
         }
@@ -1380,23 +1348,12 @@ export function createBaseV3(char:character){
         }
     }
 
-    if(char.emotionImages){
-        for(const asset of char.emotionImages){
-            assets.push({
-                type: 'emotion',
-                uri: asset[1],
-                name: asset[0],
-                ext: 'png'
-            })
-        }
-    
-        assets.push({
-            type: 'icon',
-            uri: 'ccdefault:',
-            name: 'main',
-            ext: 'png'
-        })
-    }
+    assets.push({
+        type: 'icon',
+        uri: 'ccdefault:',
+        name: 'main',
+        ext: 'png'
+    })
 
     for(const lore of char.globalLore){
         let ext:{
@@ -1462,7 +1419,8 @@ export function createBaseV3(char:character){
             extensions: {
                 risuai: {
                     bias: char.bias,
-                    viewScreen: char.viewScreen,
+                    // Upstream still reads this field; emotion display no longer exists here.
+                    viewScreen: 'none',
                     customScripts: char.customscript,
                     utilityBot: char.utilityBot,
                     backgroundHTML: char.backgroundHTML,
@@ -1471,8 +1429,6 @@ export function createBaseV3(char:character){
                     additionalText: char.additionalText,
                     virtualscript: '', // Character scripts are intentionally not exported for security.
                     largePortrait: char.largePortrait,
-                    inlayViewScreen: char.inlayViewScreen,
-                    newGenData: char.newGenData,
                     lowLevelAccess: char.lowLevelAccess ?? false,
                     defaultVariables: char.defaultVariables ?? '',
                     prebuiltAssetCommand: char.prebuiltAssetCommand ?? '',
@@ -1512,7 +1468,6 @@ export type hubType = {
     id: string,
     img: string
     tags: string[],
-    viewScreen: "none" | "emotion"
     hasLore:boolean
     hasEmotion:boolean
     hasAsset:boolean
@@ -1666,10 +1621,6 @@ export function isCharacterHasAssets(char:character){
         return true
     }
 
-    if(char.emotionImages && char.emotionImages.length > 0){
-        return true
-    }
-
     if(char.ccAssets && char.ccAssets.length > 0){
         return true
     }
@@ -1700,7 +1651,7 @@ type CharacterCardV2Risu = {
             risuai?:{
                 emotions?:[string, string][]
                 bias?:[string, number][],
-                viewScreen?: any,
+                viewScreen?: 'none',
                 customScripts?:customscript[]
                 utilityBot?: boolean,
                 additionalAssets?:[string,string,string][],
@@ -1711,10 +1662,6 @@ type CharacterCardV2Risu = {
                 additionalText?:string
                 virtualscript?:string
                 largePortrait?:boolean
-                inlayViewScreen?:boolean
-                newGenData?: {
-                    emotionInstructions: string,
-                }
             }
             depth_prompt?: { depth: number, prompt: string }
         }

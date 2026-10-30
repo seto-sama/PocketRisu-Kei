@@ -18,7 +18,7 @@ function workflowContext(postprocess: any = {}) {
         postprocess: {
             ...postprocess,
             character: { chaId: 'character-1', ...postprocess.character },
-            database: { igpPrompt: '', ...postprocess.database },
+            database: { ...postprocess.database },
             chatPatch: postprocess.chatPatch ?? [],
         },
     }
@@ -62,7 +62,6 @@ describe('revenant postprocess worker', () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'completed', metadata: { text: 'answer', chat, foregroundEffects: [] } },
             'trigger.output': { status: 'completed', metadata: { chat, foregroundEffects: [] } },
-            'igp': { status: 'skipped', metadata: { chat } },
             'postprocess': { status: 'completed', metadata: { chat } },
             'message.materialize': { status: 'pending' },
         }
@@ -164,7 +163,6 @@ describe('revenant postprocess worker', () => {
         const steps: Steps = {
             'output.transform': { status: 'pending' },
             'trigger.output': { status: 'pending' },
-            'igp': { status: 'pending' },
             'postprocess': { status: 'pending' },
             'message.materialize': { status: 'pending' },
         }
@@ -197,7 +195,7 @@ describe('revenant postprocess worker', () => {
             expect.objectContaining({ schemaVersion: 1 }),
         )
         expect(repository.updateGenerationWorkflowStep.mock.calls.map(call => call[1])).toEqual([
-            'output.transform', 'trigger.output', 'igp', 'postprocess',
+            'output.transform', 'trigger.output', 'postprocess',
         ])
         expect(steps['output.transform'].metadata).toEqual({
             schemaVersion: 1, status: 'completed', text: 'processed',
@@ -254,84 +252,6 @@ describe('revenant postprocess worker', () => {
         expect(repository.finishGenerationWorkflow).toHaveBeenCalledWith('workflow-1', 'failed')
     })
 
-    it('renders IGP against the completed chat and uses its auxiliary preset', async () => {
-        const chat = { id: 'room-1', message: [{
-            role: 'char', data: 'answer', swipes: ['old answer', 'answer'], swipeId: 1,
-        }, {
-            role: 'char', data: 'branch info', isComment: true,
-        }, {
-            role: 'char', data: 'disabled answer', disabled: true,
-        }] }
-        const steps: Steps = {
-            'output.transform': { status: 'completed', metadata: { text: 'answer', chat } },
-            'trigger.output': {
-                status: 'completed',
-                metadata: { chat, foregroundEffects: [] },
-            },
-            'igp': { status: 'pending' },
-            'postprocess': { status: 'pending' },
-            'message.materialize': { status: 'pending' },
-        }
-        const repository = createRepository(steps, {
-            context: workflowContext({
-                database: { igpPrompt: 'raw {{char}}' },
-                auxProviders: {
-                    emotion: {
-                        backend: 'plugin',
-                        modelPreset: { id: 'aux-preset' },
-                    },
-                },
-            }),
-        })
-        const renderPrompt = vi.fn(() => 'rendered prompt')
-        const onWorkflowUpdated = vi.fn()
-        const worker = createRevenantPostprocessWorker({
-            repository,
-            renderPrompt,
-            onWorkflowUpdated,
-            materializeGeneration: vi.fn(),
-            logger: { error: vi.fn() },
-        })
-
-        await worker.pump()
-
-        expect(renderPrompt).toHaveBeenCalledWith(
-            'raw {{char}}',
-            expect.objectContaining({ auxProviders: expect.any(Object) }),
-            chat,
-        )
-        expect(steps.igp).toMatchObject({
-            status: 'waiting_client',
-            metadata: {
-                action: {
-                    kind: 'provider.igp',
-                    payload: {
-                        backend: 'plugin',
-                        modelPreset: { id: 'aux-preset' },
-                        prompt: 'rendered prompt',
-                    },
-                },
-            },
-        })
-        expect(onWorkflowUpdated).toHaveBeenCalledWith(expect.objectContaining({
-            workflowId: 'workflow-1',
-            steps: expect.arrayContaining([
-                expect.objectContaining({ key: 'igp', status: 'waiting_client' }),
-            ]),
-        }))
-
-        steps.igp = {
-            status: 'pending',
-            metadata: { responses: { 'igp.provider': { success: true, result: '-appended' } } },
-        }
-        await worker.pump()
-
-        expect(steps.igp.metadata.chat.message[0]).toMatchObject({
-            data: 'answer-appended', swipes: ['old answer', 'answer-appended'], swipeId: 1,
-        })
-        expect(steps.igp.metadata.chat.message.slice(1)).toEqual(chat.message.slice(1))
-    })
-
     it('waits for a client to run completion UI effects before materializing', async () => {
         const chat = { id: 'room-1', message: [{ role: 'char', data: 'final answer' }] }
         const steps: Steps = {
@@ -343,20 +263,14 @@ describe('revenant postprocess worker', () => {
                 status: 'completed',
                 metadata: { chat, resend: true, foregroundEffects: [] },
             },
-            'igp': { status: 'skipped', metadata: { chat } },
             'postprocess': { status: 'pending' },
             'message.materialize': { status: 'pending' },
         }
         const repository = createRepository(steps, {
             context: workflowContext({
-                character: {
-                    viewScreen: 'emotion', inlayViewScreen: false,
-                    emotionImages: [['happy', 'asset']],
-                },
                 database: {
-                    igpPrompt: '', notification: true,
+                    notification: true,
                     ttsEnabled: true, ttsAutoSpeech: true,
-                    emotionProcesser: 'embedding', emotionPrompt2: '',
                 },
             }),
         })
@@ -376,10 +290,6 @@ describe('revenant postprocess worker', () => {
                     payload: {
                         chat,
                         effects: [
-                            {
-                                kind: 'emotion.auto', text: 'final answer',
-                                processor: 'embedding', prompt: '',
-                            },
                             { kind: 'notification', text: 'final answer' },
                             { kind: 'tts', text: 'final answer' },
                             { kind: 'chat.resend' },

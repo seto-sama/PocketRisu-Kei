@@ -16,7 +16,6 @@ function createCharacter(name = 'generated-image'): character {
         type: 'character',
         image: 'assets/old.png',
         ccAssets: [],
-        emotionImages: [[name, 'assets/existing.webp']],
         additionalAssets: [[name, 'assets/existing.webp', 'webp']],
     } as unknown as character
 }
@@ -48,24 +47,16 @@ describe('addGeneratedInlayToCharacter', () => {
         })
     })
 
-    it('uses hidden preset metadata and preserves duplicate emotion and additional asset names', async () => {
+    it('uses hidden preset metadata and preserves duplicate additional asset names', async () => {
         const currentCharacter = createCharacter('Miku_smile')
         mocks.getInlayMeta.mockResolvedValue({ imageGeneration: {
             preset: { tagBundleNames: ['Miku'], sceneName: 'smile' },
         } })
 
-        const emotion = await addGeneratedInlayToCharacter(
-            '{{inlayed::inlay-1}}', currentCharacter, 'emotion',
-        )
         const additional = await addGeneratedInlayToCharacter(
             '{{inlayeddata::inlay-1}}', currentCharacter, 'additional',
         )
 
-        expect(emotion.name).toBe('Miku_smile')
-        expect(currentCharacter.emotionImages).toEqual([
-            ['Miku_smile', 'assets/existing.webp'],
-            ['Miku_smile', 'assets/generated.webp'],
-        ])
         expect(additional.name).toBe('Miku_smile')
         expect(currentCharacter.additionalAssets).toEqual([
             ['Miku_smile', 'assets/existing.webp', 'webp'],

@@ -21,7 +21,7 @@ class RevenantMaterializationError extends Error {
 }
 
 function completedServerChat(steps) {
-    for (const key of ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']) {
+    for (const key of ['message.materialize', 'postprocess', 'trigger.output', 'output.transform']) {
         const step = steps.get(key);
         if (step?.status === 'completed' && step.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
             return step.metadata.chat;
@@ -32,7 +32,7 @@ function completedServerChat(steps) {
 
 function completedServerMutationPatch(steps) {
     const patch = {};
-    for (const key of ['output.transform', 'trigger.output', 'igp', 'postprocess']) {
+    for (const key of ['output.transform', 'trigger.output', 'postprocess']) {
         const step = steps.get(key);
         if (step?.status !== 'completed') continue;
         for (const scope of ['character', 'database']) {

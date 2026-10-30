@@ -19,9 +19,9 @@ export type RequestPhase =
 // Request kind = the chip shown after the phase, so the toast says "what" the
 // request is in every state (including done/failed). Maps from the request
 // pipeline's ModelModeExtended: model→main, translate→translate, memory→memory,
-// emotion→emotion, submodel/otherAx→sub. The renderer maps these to localized
-// chip labels (메인 / 번역 / 메모리 / 감정 / 보조).
-export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub' | 'image'
+// submodel/otherAx→sub. The renderer maps these to localized chip labels
+// (메인 / 번역 / 메모리 / 보조).
+export type RequestKind = 'main' | 'translate' | 'memory' | 'sub' | 'image'
 
 // A phase is terminal when the request has finished one way or another; the
 // renderer uses this to decide dismissal/retention.
@@ -39,7 +39,7 @@ export interface StatusBadge {
 export interface RequestStatusEntry {
     id: string                             // per-request key = generationId (issued upstream; we only consume)
     chatId?: string
-    kind: RequestKind                      // chip: main / translate / memory / emotion / sub
+    kind: RequestKind                      // chip: main / translate / memory / sub
     label: string                          // model / preset name
     phase: RequestPhase
     thinkingTokens: number

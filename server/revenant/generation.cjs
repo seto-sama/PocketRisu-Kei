@@ -18,7 +18,7 @@ const { isImageOrientation } = require('../../src/ts/imageGeneration/orientation
 const { REMOTE_HYPA_MODELS, SERVER_HYPA_TOKENIZERS } = require('./hypaExecutor.cjs');
 
 const JOB_TYPES = new Set([
-    'model', 'submodel', 'memory', 'emotion', 'otherAx', 'translate',
+    'model', 'submodel', 'memory', 'otherAx', 'translate',
 ]);
 
 const OPERATION_JOB_TYPES = Object.freeze({

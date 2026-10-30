@@ -24,7 +24,6 @@
     import TriggerList from "./Scripts/TriggerList.svelte";
     import OnboardingEditor from "./OnboardingEditor.svelte";
     import Checkbox from "../UI/components/Checkbox.svelte";
-    import { updateInlayScreen } from "src/ts/process/inlayScreen";
     import MultiLangInput from "../UI/components/MultiLangInput.svelte";
     import { exportCharacterPackage, importPackageToCharacter } from "src/ts/characterPackage";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
@@ -35,6 +34,7 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import ListActionBar from "../UI/components/ListActionBar.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
+    import { renderPrebuiltAssetCommand } from "src/ts/assetPromptList";
     import TokenCount from "../UI/components/TokenCount.svelte";
     import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
@@ -53,30 +53,6 @@
     $effect.pre(() => {
         licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
     });
-
-    let emotionAssets = $derived(
-        ((DBState.db.characters[$selectedCharID] as character)?.emotionImages ?? [])
-            .map(([name, path]) => [name, path, 'png'] as [string, string, string])
-    )
-
-    function setEmotionImagesEnabled(enabled: boolean) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.viewScreen = enabled ? 'emotion' : 'none'
-        if(!enabled) char.inlayViewScreen = false
-        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
-    }
-
-    function setEmotionInlayEnabled(enabled: boolean) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.inlayViewScreen = enabled
-        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
-    }
-
-    function setEmotionAssets(assets: [string, string, string][]) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        char.emotionImages = assets.map(([name, path]) => [name, path])
-    }
-
 
     function moveAlternateGreetingUp(index: number) {
         if(index === 0) return
@@ -197,8 +173,8 @@
         bind:value={viewSubMenu}
         options={[
             { value: 'icon', label: language.charIcon },
-            { value: 'emotion', label: language.emotionImage },
             { value: 'assets', label: language.additionalAssets },
+            { value: 'settings', label: language.settings },
         ]}
         activeColor="selected"
         fullWidth
@@ -299,39 +275,6 @@
         {/if}
 
 
-    {:else if viewSubMenu === 'emotion'}
-        <SettingsList spacing="none" className="mb-3">
-            <SettingsList variant="row">
-                <span class="min-w-0 text-maintext">{language.enableEmotionImages}</span>
-                <Switch
-                    checked={DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-                    onCheckedChange={setEmotionImagesEnabled}
-                />
-            </SettingsList>
-            {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-                <SettingsList variant="row">
-                    <span class="min-w-0 text-maintext">{language.inlayViewScreen}</span>
-                    <Switch
-                        checked={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                        onCheckedChange={setEmotionInlayEnabled}
-                    />
-                </SettingsList>
-            {/if}
-        </SettingsList>
-
-        {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-            <AdditionalAssetsEditor
-                assets={emotionAssets}
-                onChange={setEmotionAssets}
-                acceptedExtensions={['png', 'webp', 'gif', 'jpeg', 'jpg', 'svg', 'avif']}
-                previewAllAsImages
-            />
-
-            {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                <span class="mt-3 block text-maintext">{language.emotionInstructions}</span>
-                <Textarea bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
-            {/if}
-        {/if}
     {:else if viewSubMenu === 'assets'}
             <AdditionalAssetsEditor
                 assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}
@@ -348,6 +291,34 @@
                     DBState.db.characters[$selectedCharID].prebuiltAssetExclude = paths
                 }}
             />
+    {:else if viewSubMenu === 'settings'}
+        <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
+
+        {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+            <span class="mt-4 block text-maintext">{language.assetPrompt}<Help key="assetPrompt"/></span>
+            <Textarea margin="both" readonly value={renderPrebuiltAssetCommand(DBState.db.characters[$selectedCharID] as character)}></Textarea>
+        {/if}
+
+        <SettingsList spacing="none" className="mb-2">
+            {#if DBState.db.newImageHandlingBeta}
+                <SettingsList variant="row">
+                    <span class="min-w-0 text-maintext">
+                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
+                    </span>
+                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
+                </SettingsList>
+            {/if}
+            <SettingsList variant="row">
+                <span class="min-w-0 text-maintext">
+                    {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
+                </span>
+                <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                    <SelectOption value="">{language.static}</SelectOption>
+                    <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+                </Select>
+            </SettingsList>
+        </SettingsList>
     {/if}
     </div>
 {:else if $CharConfigSubMenu === 3}
@@ -475,33 +446,7 @@
     {/if}
 
 {:else if $CharConfigSubMenu === 2}
-        <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
-        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
-
-        {#if DBState.db.newImageHandlingBeta}
-            <SettingsList spacing="none" className="mb-2">
-                <SettingsList variant="row">
-                    <span class="min-w-0 text-maintext">
-                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
-                    </span>
-                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
-                </SettingsList>
-
-                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-                    <SettingsList variant="row">
-                        <span class="min-w-0 text-maintext">
-                            {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>
-                        </span>
-                        <Select size="sm" className="w-32" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                            <SelectOption value="">{language.static}</SelectOption>
-                            <SelectOption value="dynamic">{language.dynamic}</SelectOption>
-                        </Select>
-                    </SettingsList>
-                {/if}
-            </SettingsList>
-        {/if}
-
-        <span class="text-maintext mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
+        <span class="text-maintext">{language.translatorNote}<Help key="translatorNote" /></span>
         <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></Textarea>
 
         <span class="text-maintext mt-2">{language.customPromptTemplateToggle}<Help key="customPromptTemplateToggle" /></span>

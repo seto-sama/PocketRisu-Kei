@@ -24,8 +24,6 @@
         showExclusionToggle?: boolean;
         excludedPaths?: string[];
         onExcludedPathsChange?: (paths: string[]) => void;
-        acceptedExtensions?: string[];
-        previewAllAsImages?: boolean;
     }
 
     let {
@@ -35,9 +33,9 @@
         showExclusionToggle = false,
         excludedPaths = [],
         onExcludedPathsChange,
-        acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'],
-        previewAllAsImages = false,
     }: Props = $props();
+
+    const acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'];
 
     const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif'];
     const loadingAssetPaths = new Set<string>();
@@ -54,7 +52,7 @@
     const extensionOf = (asset: AdditionalAsset) => (asset[2] || asset[1].split('.').pop() || '').toLowerCase();
     let previewIndexes = $derived.by(() => assets
         .map((asset, index) => ({ asset, index }))
-        .filter(({ asset }) => previewAllAsImages || previewableImageExtensions.includes(extensionOf(asset)))
+        .filter(({ asset }) => previewableImageExtensions.includes(extensionOf(asset)))
         .map(({ index }) => index));
     let previewPosition = $derived(previewIndexes.indexOf(previewIndex));
     let previewAsset = $derived(previewIndex >= 0 ? assets[previewIndex] ?? null : null);
@@ -269,7 +267,7 @@
                     use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
                 >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
-                        {#if previewAllAsImages || previewableImageExtensions.includes(extension)}
+                        {#if previewableImageExtensions.includes(extension)}
                             <button
                                 class="w-full h-full cursor-zoom-in"
                                 onclick={() => openPreview(i)}
@@ -315,7 +313,8 @@
 
                 <IconButtonGroup direction="vertical" size="sm" className="self-center">
                     {#if showExclusionToggle}
-                        <IconButton onclick={() => toggleExcluded(asset[1])}>
+                        {@const exclusionLabel = excludedPaths.includes(asset[1]) ? language.assetPromptExcluded : language.assetPromptIncluded}
+                        <IconButton onclick={() => toggleExcluded(asset[1])} title={exclusionLabel} aria-label={exclusionLabel}>
                             {#if excludedPaths.includes(asset[1])}
                                 <ImageOffIcon />
                             {:else}

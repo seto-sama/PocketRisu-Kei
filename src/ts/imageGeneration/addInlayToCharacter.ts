@@ -4,7 +4,7 @@ import { getInlayAssetBlob, getInlayMeta } from '../process/files/inlays'
 import type { character } from '../storage/database.svelte'
 import { getFirstInlayId } from '../util/inlayTokens'
 
-export type GeneratedImageAssetTarget = 'icon' | 'emotion' | 'additional'
+export type GeneratedImageAssetTarget = 'icon' | 'additional'
 
 export class GeneratedInlayAssetError extends Error {}
 
@@ -41,10 +41,6 @@ export async function addGeneratedInlayToCharacter(
     if (target === 'icon') {
         archiveCurrentCharacterIcon(currentCharacter)
         currentCharacter.image = path
-    }
-    else if (target === 'emotion') {
-        currentCharacter.emotionImages ??= []
-        currentCharacter.emotionImages.push([name, path])
     }
     else {
         currentCharacter.additionalAssets ??= []

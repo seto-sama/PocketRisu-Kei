@@ -19,9 +19,8 @@
         binding.main ??= '';
         binding.sub ??= '';
         binding.separateAux ??= false;
-        binding.aux ??= { memory: '', emotion: '', translate: '', otherAx: '' };
+        binding.aux ??= { memory: '', translate: '', otherAx: '' };
         binding.aux.memory ??= '';
-        binding.aux.emotion ??= '';
         binding.aux.translate ??= '';
         binding.aux.otherAx ??= '';
         return binding;
@@ -127,7 +126,6 @@
         {#each [
             { label: language.axModelMemory, key: 'memory' as const },
             { label: language.axModelTranslate, key: 'translate' as const },
-            { label: language.axModelEmotion, key: 'emotion' as const },
             { label: language.axModelOther, key: 'otherAx' as const },
         ] as aux}
             <div class="flex items-center justify-between gap-3 py-3 pl-4 border-t border-darkborderc">

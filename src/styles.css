@@ -859,7 +859,7 @@ html {
   margin-block: 0;
 }
 
-:is(.x-risu-risu-inlay-image img, .root-loaded-image) {
+:is(.x-risu-risu-inlay-image img, .root-loaded-image, .x-risu-asset-prompt-image) {
   filter: drop-shadow(0 0 0.5rem var(--risu-black-50));
   border-radius: 0.5rem;
 }
@@ -990,9 +990,8 @@ html {
   @apply border border-darkborderc bg-darkbg text-maintext rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
-.root-loaded-image {
-  /* This class is used to indicate that the image has been with root-loaded method */
-  /* We need to style it to centered and pretty */
+.root-loaded-image, .x-risu-asset-prompt-image {
+  /* Asset-prompt images resolved by ChatBody (bare src) or the parser (<assets src="...">). */
   display: block;
   margin-left: auto;
   margin-right: auto;
@@ -1001,14 +1000,14 @@ html {
   height: auto;
 }
 
-.root-loaded-image-dynamic {
+.root-loaded-image-dynamic, .x-risu-asset-prompt-image-dynamic {
   max-height: 14rem;
   transition: max-height 0.5s ease;
   object-fit: cover;
   object-position: top;
 }
 
-.root-loaded-image-dynamic:hover {
+.root-loaded-image-dynamic:hover, .x-risu-asset-prompt-image-dynamic:hover {
   max-height: 30rem;
 }
 

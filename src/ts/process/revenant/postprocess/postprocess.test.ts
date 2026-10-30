@@ -26,9 +26,8 @@ function recipe(): RevenantPostprocessRecipe {
                 type: 'editoutput', in: '\\[happy\\]', out: '@@emo happy', ableFlag: true, flag: 'g', comment: '',
             }],
             templateDefaultVariables: '', globalChatVariables: {}, username: 'Bob', userIcon: '',
-            personaPrompt: '', selectedPersona: 0, personas: [], igpPrompt: '',
+            personaPrompt: '', selectedPersona: 0, personas: [],
             notification: false, ttsEnabled: false, ttsAutoSpeech: false,
-            emotionProcesser: 'submodel', emotionPrompt2: '',
         },
         modules: [], moduleRegexScripts: [], moduleTriggers: [],
     }
@@ -37,8 +36,8 @@ function recipe(): RevenantPostprocessRecipe {
 describe('revenant output transform', () => {
     it('runs persisted regex and CBS once over the terminal model output', () => {
         const result = runRevenantOutputTransform('Hello Bob [happy]', recipe())
+        // The legacy @@emo directive is swallowed rather than written into the text.
         expect(result.text).toBe('Alice says: Bob [happy]')
-        expect(result.foregroundEffects).toEqual([{ kind: 'emotion', name: 'happy' }])
         expect(result.errors).toEqual([])
     })
 

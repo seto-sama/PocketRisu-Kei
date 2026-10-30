@@ -390,7 +390,6 @@ export interface ModelBindingSet {
     separateAux: boolean
     aux: {
         memory?: string
-        emotion?: string
         translate?: string
         otherAx?: string
     }
@@ -400,7 +399,7 @@ export interface ModelBindingSet {
  * `bind:value` / `bind:checked` on a $bindable never sees undefined). Shared by
  * the sidebar seeder and the new-chat default seeder. */
 export function emptyModelBinding(): ModelBindingSet {
-    return { main: '', sub: '', separateAux: false, aux: { memory: '', emotion: '', translate: '', otherAx: '' } }
+    return { main: '', sub: '', separateAux: false, aux: { memory: '', translate: '', otherAx: '' } }
 }
 
 export interface ApiKeyPoolEntry {
