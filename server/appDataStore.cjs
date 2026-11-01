@@ -1,6 +1,6 @@
 'use strict';
 
-const { toBuffer, withTransaction } = require('./sqlite.cjs');
+const { columnNames, toBuffer, withTransaction } = require('./sqlite.cjs');
 const crypto = require('crypto');
 const { createContentReferenceCollector, validateReferenceCandidates, matchContentReferences } = require('../shared/contentReferences.mjs');
 const { Packr, Unpackr } = require('msgpackr');
@@ -154,9 +154,10 @@ function createAppDataStore(db) {
     if (typeof db?.prepare !== 'function') {
         throw new TypeError('createAppDataStore requires a SQLite database');
     }
+    const sql = db.createTagStore();
 
-    const pluginStorageColumns = db.prepare('PRAGMA table_info(app_plugin_storage)').all();
-    if (pluginStorageColumns.length && !pluginStorageColumns.some(column => column.name === 'namespace')) {
+    const pluginStorageColumns = columnNames(db, 'app_plugin_storage');
+    if (pluginStorageColumns.size && !pluginStorageColumns.has('namespace')) {
         withTransaction(db, () => {
             db.exec(`
               ALTER TABLE app_plugin_storage RENAME TO app_plugin_storage_legacy;
@@ -261,38 +262,32 @@ function createAppDataStore(db) {
         ON app_messages(character_id, chat_id, position);
     `);
 
-    if (!db.prepare('PRAGMA table_info(app_data_state)').all()
-        .some(column => column.name === 'metadata_revision')) {
+    if (!columnNames(db, 'app_data_state').has('metadata_revision')) {
         db.exec('ALTER TABLE app_data_state ADD COLUMN metadata_revision INTEGER NOT NULL DEFAULT 0');
     }
 
-    const now = Date.now();
-    db.prepare(`
-      INSERT OR IGNORE INTO app_data_state
-        (id, schema_version, revision, initialized, updated_at)
-      VALUES (?, ?, 0, 0, ?)
-    `).run(STATE_ROW_ID, APP_DATA_SCHEMA_VERSION, now);
+    sql.run`
+      INSERT OR IGNORE INTO app_data_state (id, schema_version, revision, initialized, updated_at)
+      VALUES (${STATE_ROW_ID}, ${APP_DATA_SCHEMA_VERSION}, 0, 0, ${Date.now()})
+    `;
 
-    const stateRow = db.prepare(`
+    const readState = () => sql.get`
       SELECT schema_version, revision, initialized, updated_at, metadata_revision
-      FROM app_data_state WHERE id = ?
-    `);
-    const updateState = db.prepare(`
-      UPDATE app_data_state
-      SET revision = ?, initialized = ?, updated_at = ?
-      WHERE id = ?
-    `);
+      FROM app_data_state WHERE id = ${STATE_ROW_ID}
+    `;
     // `revision` also advances on chat body commits. The startup projection
     // ETag needs a counter that moves only when that projection does, so a
     // body commit cannot fail an unrelated metadata patch.
-    const bumpMetadataRevision = db.prepare(`
-      UPDATE app_data_state SET metadata_revision = metadata_revision + 1 WHERE id = ?
-    `);
+    const saveState = (revision, updatedAt, metadataChanged) => sql.run`
+      UPDATE app_data_state
+      SET revision = ${revision}, initialized = 1, updated_at = ${updatedAt},
+          metadata_revision = metadata_revision + ${metadataChanged ? 1 : 0}
+      WHERE id = ${STATE_ROW_ID}
+    `;
 
-    const installedState = stateRow.get(STATE_ROW_ID);
+    const installedState = readState();
     if (installedState.schema_version === 1) {
-        db.prepare('UPDATE app_data_state SET schema_version = ? WHERE id = ?')
-            .run(APP_DATA_SCHEMA_VERSION, STATE_ROW_ID);
+        sql.run`UPDATE app_data_state SET schema_version = ${APP_DATA_SCHEMA_VERSION} WHERE id = ${STATE_ROW_ID}`;
     } else if (installedState.schema_version !== APP_DATA_SCHEMA_VERSION) {
         throw new Error(
             `Unsupported app data schema ${installedState.schema_version}; `
@@ -300,60 +295,34 @@ function createAppDataStore(db) {
         );
     }
 
-    const insertRootField = db.prepare(`
-      INSERT INTO app_root_fields
-        (field_key, position, field_kind, collection, payload, revision)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const insertPreset = db.prepare(`
-      INSERT INTO app_presets (collection, item_key, position, payload, revision)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const insertModule = db.prepare(`
-      INSERT INTO app_modules (item_key, position, payload, revision)
-      VALUES (?, ?, ?, ?)
-    `);
-    const insertPlugin = db.prepare(`
-      INSERT INTO app_plugins (collection, item_key, position, payload, revision)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const insertPersona = db.prepare(`
-      INSERT INTO app_personas (item_key, position, payload, revision)
-      VALUES (?, ?, ?, ?)
-    `);
-    const insertPluginStorage = db.prepare(`
-      INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision)
-      VALUES ('includedInSave', ?, ?, ?)
-    `);
-    const insertCharacter = db.prepare(`
+    const insertRootField = (field, position, kind, collection, payload, revision) => sql.run`
+      INSERT INTO app_root_fields (field_key, position, field_kind, collection, payload, revision)
+      VALUES (${field}, ${position}, ${kind}, ${collection}, ${payload}, ${revision})
+    `;
+    const insertCharacter = (characterId, position, payload, revision) => sql.run`
       INSERT INTO app_characters (character_id, position, payload, revision)
-      VALUES (?, ?, ?, ?)
-    `);
-    const insertChat = db.prepare(`
+      VALUES (${characterId}, ${position}, ${payload}, ${revision})
+    `;
+    const insertChat = (characterId, chatId, position, stub, content, etag, revision) => sql.run`
       INSERT INTO app_chats
         (character_id, chat_id, position, stub_payload, content_payload, content_etag, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    const insertMessage = db.prepare(`
-      INSERT INTO app_messages
-        (character_id, chat_id, message_key, position, payload, revision)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
+      VALUES (${characterId}, ${chatId}, ${position}, ${stub}, ${content}, ${etag}, ${revision})
+    `;
 
-    const deleteAllProjectionRows = () => withTransaction(db, () => {
-        // Parent deletes cascade through chats and messages. The remaining
-        // tables are independent projections of root domains.
-        db.prepare('DELETE FROM app_characters').run();
-        db.prepare('DELETE FROM app_root_fields').run();
-        db.prepare('DELETE FROM app_presets').run();
-        db.prepare('DELETE FROM app_modules').run();
-        db.prepare('DELETE FROM app_plugins').run();
-        db.prepare('DELETE FROM app_personas').run();
-        db.prepare("DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave'").run();
-    });
+    // Parent deletes cascade through chats and messages. The remaining
+    // tables are independent projections of root domains.
+    const deleteAllProjectionRows = () => db.exec(`
+      DELETE FROM app_characters;
+      DELETE FROM app_root_fields;
+      DELETE FROM app_presets;
+      DELETE FROM app_modules;
+      DELETE FROM app_plugins;
+      DELETE FROM app_personas;
+      DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave';
+    `);
 
     function getState() {
-        const row = stateRow.get(STATE_ROW_ID);
+        const row = readState();
         return {
             schemaVersion: row.schema_version,
             revision: row.revision,
@@ -381,16 +350,28 @@ function createAppDataStore(db) {
             const key = collectionItemKey(item, position, used);
             switch (tableKind) {
                 case 'presets':
-                    insertPreset.run(collection, key, position, encodeValue(item), revision);
+                    sql.run`
+                        INSERT INTO app_presets (collection, item_key, position, payload, revision)
+                        VALUES (${collection}, ${key}, ${position}, ${encodeValue(item)}, ${revision})
+                    `;
                     break;
                 case 'modules':
-                    insertModule.run(key, position, encodeValue(item), revision);
+                    sql.run`
+                        INSERT INTO app_modules (item_key, position, payload, revision)
+                        VALUES (${key}, ${position}, ${encodeValue(item)}, ${revision})
+                    `;
                     break;
                 case 'plugins':
-                    insertPlugin.run(collection, key, position, encodeValue(item), revision);
+                    sql.run`
+                        INSERT INTO app_plugins (collection, item_key, position, payload, revision)
+                        VALUES (${collection}, ${key}, ${position}, ${encodeValue(item)}, ${revision})
+                    `;
                     break;
                 case 'personas':
-                    insertPersona.run(key, position, encodeValue(item), revision);
+                    sql.run`
+                        INSERT INTO app_personas (item_key, position, payload, revision)
+                        VALUES (${key}, ${position}, ${encodeValue(item)}, ${revision})
+                    `;
                     break;
                 default:
                     throw new Error(`Unknown collection table kind: ${tableKind}`);
@@ -401,7 +382,10 @@ function createAppDataStore(db) {
     function insertPluginStorageRows(value, revision) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return;
         for (const key of Object.keys(value)) {
-            insertPluginStorage.run(key, encodeValue(value[key]), revision);
+            sql.run`
+                INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision)
+                VALUES ('includedInSave', ${key}, ${encodeValue(value[key])}, ${revision})
+            `;
         }
     }
 
@@ -410,7 +394,7 @@ function createAppDataStore(db) {
         for (let position = 0; position < characters.length; position++) {
             const character = characters[position] ?? {};
             const characterId = persistentEntityId(character.chaId, usedCharacters);
-            insertCharacter.run(
+            insertCharacter(
                 characterId,
                 position,
                 encodeValue(characterMetadata(character)),
@@ -430,7 +414,7 @@ function createAppDataStore(db) {
                 ensureUniqueEntityIds(fullChat.message, crypto.randomUUID, 'chatId');
                 const stub = chatMetadata(chat, chatId);
                 const canonicalChat = mergeChatMetadata(stub, fullChat);
-                insertChat.run(
+                insertChat(
                     characterId,
                     chatId,
                     chatPosition,
@@ -442,21 +426,20 @@ function createAppDataStore(db) {
 
                 for (let messagePosition = 0; messagePosition < fullChat.message.length; messagePosition++) {
                     const message = fullChat.message[messagePosition];
-                    insertMessage.run(
-                        characterId,
-                        chatId,
-                        message.chatId,
-                        messagePosition,
-                        encodeValue(message),
-                        revision,
-                    );
+                    sql.run`
+                        INSERT INTO app_messages
+                          (character_id, chat_id, message_key, position, payload, revision)
+                        VALUES (${characterId}, ${chatId}, ${message.chatId}, ${messagePosition},
+                            ${encodeValue(message)}, ${revision})
+                    `;
                 }
             }
         }
     }
 
-    const replaceTransaction = (projection, expectedRevision) => withTransaction(db, () => {
-        const state = assertExpectedRevision(expectedRevision);
+    const replaceFromProjection = (value, options = {}) => withTransaction(db, () => {
+        const projection = normalizedProjection(value);
+        const state = assertExpectedRevision(options.expectedRevision);
         const revision = state.revision + 1;
         deleteAllProjectionRows();
 
@@ -466,7 +449,7 @@ function createAppDataStore(db) {
             const field = keys[position];
             const special = SPECIAL_ROOT_FIELDS.get(field);
             if (!special) {
-                insertRootField.run(
+                insertRootField(
                     field,
                     position,
                     'value',
@@ -477,7 +460,7 @@ function createAppDataStore(db) {
                 continue;
             }
 
-            insertRootField.run(
+            insertRootField(
                 field,
                 position,
                 special.kind,
@@ -500,92 +483,29 @@ function createAppDataStore(db) {
         }
 
         const updatedAt = Date.now();
-        updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        bumpMetadataRevision.run(STATE_ROW_ID);
+        saveState(revision, updatedAt, true);
         return { revision, updatedAt };
     });
 
-    function replaceFromProjection(value, options = {}) {
-        const projection = normalizedProjection(value);
-        return replaceTransaction(projection, options.expectedRevision);
-    }
-
-    const selectRootFields = db.prepare(`
-      SELECT field_key, field_kind, collection, payload
-      FROM app_root_fields ORDER BY position
-    `);
-    const selectPresets = db.prepare(`
-      SELECT payload FROM app_presets WHERE collection = ? ORDER BY position
-    `);
-    const selectModules = db.prepare('SELECT payload FROM app_modules ORDER BY position');
-    const selectPlugins = db.prepare(`
-      SELECT payload FROM app_plugins WHERE collection = ? ORDER BY position
-    `);
-    const selectPersonas = db.prepare('SELECT payload FROM app_personas ORDER BY position');
-    const selectPluginStorage = db.prepare(`
-      SELECT storage_key, payload FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
-    `);
-    const selectPluginStorageSizes = db.prepare(`
-      SELECT storage_key, LENGTH(payload) AS bytes
-      FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
-    `);
-    const selectRootValue = db.prepare(`
-      SELECT payload FROM app_root_fields WHERE field_key = ?
-    `);
-    const selectCharacters = db.prepare(`
-      SELECT character_id, payload FROM app_characters ORDER BY position
-    `);
-    const selectChats = db.prepare(`
+    const pluginRows = collection => sql.all`
+      SELECT payload FROM app_plugins WHERE collection = ${collection} ORDER BY position
+    `;
+    const rootPayload = field => sql.get`SELECT payload FROM app_root_fields WHERE field_key = ${field}`?.payload;
+    const characterRows = () => sql.iterate`SELECT character_id, payload FROM app_characters ORDER BY position`;
+    const chatRows = characterId => sql.iterate`
       SELECT chat_id, stub_payload, content_payload, content_etag
-      FROM app_chats WHERE character_id = ? ORDER BY position
-    `);
-    const selectMessages = db.prepare(`
-      SELECT payload FROM app_messages
-      WHERE character_id = ? AND chat_id = ? ORDER BY position
-    `);
-    const selectProjectionPayloadBytes = db.prepare(`
-      SELECT
-        (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_root_fields)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_presets)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_modules)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_plugins)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_personas)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_plugin_storage)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_characters)
-        + (SELECT COALESCE(SUM(LENGTH(stub_payload) + LENGTH(content_payload)), 0)
-             FROM app_chats)
-        + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_messages)
-        AS payload_bytes
-    `);
-    const selectCharacterStorage = db.prepare(`
-      SELECT
-        character_id,
-        payload,
-        LENGTH(payload) AS card_bytes,
-        COALESCE((
-          SELECT SUM(LENGTH(chat.stub_payload) + LENGTH(chat.content_payload))
-          FROM app_chats AS chat
-          WHERE chat.character_id = character.character_id
-        ), 0) + COALESCE((
-          SELECT SUM(LENGTH(message.payload))
-          FROM app_messages AS message
-          WHERE message.character_id = character.character_id
-        ), 0) AS chat_bytes
-      FROM app_characters AS character
-      ORDER BY position
-    `);
-    const selectModuleStorage = db.prepare(`
-      SELECT payload, LENGTH(payload) AS body_bytes
-      FROM app_modules ORDER BY position
-    `);
+      FROM app_chats WHERE character_id = ${characterId} ORDER BY position
+    `;
 
     function readCollection(kind, collection) {
         let rows;
         switch (kind) {
-            case 'presets': rows = selectPresets.all(collection); break;
-            case 'modules': rows = selectModules.all(); break;
-            case 'plugins': rows = selectPlugins.all(collection); break;
-            case 'personas': rows = selectPersonas.all(); break;
+            case 'presets': rows = sql.all`
+                SELECT payload FROM app_presets WHERE collection = ${collection} ORDER BY position
+            `; break;
+            case 'modules': rows = sql.all`SELECT payload FROM app_modules ORDER BY position`; break;
+            case 'plugins': rows = pluginRows(collection); break;
+            case 'personas': rows = sql.all`SELECT payload FROM app_personas ORDER BY position`; break;
             default: throw new Error(`Unknown collection kind: ${kind}`);
         }
         return rows.map(row => decodeValue(row.payload));
@@ -593,7 +513,9 @@ function createAppDataStore(db) {
 
     function readPluginStorage() {
         const result = {};
-        for (const row of selectPluginStorage.all()) {
+        for (const row of sql.all`
+            SELECT storage_key, payload FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
+        `) {
             Object.defineProperty(result, row.storage_key, {
                 configurable: true,
                 enumerable: true,
@@ -610,9 +532,9 @@ function createAppDataStore(db) {
      * are read, so the browser can decide before requesting the full DB.
      */
     function pluginStorageFootprint() {
-        const ownerRow = selectRootValue.get('pluginStorageMeta');
-        const ownerMeta = decodeValue(ownerRow?.payload) ?? {};
-        const installedPlugins = selectPlugins.all('legacy')
+        const ownerPayload = rootPayload('pluginStorageMeta');
+        const ownerMeta = decodeValue(ownerPayload) ?? {};
+        const installedPlugins = pluginRows('legacy')
             .map(row => decodeValue(row.payload));
         const v3Plugins = installedV3Plugins(installedPlugins);
         const bytesByPlugin = new Map(
@@ -620,7 +542,10 @@ function createAppDataStore(db) {
         );
         let totalBytes = 0;
         let unclassifiedBytes = 0;
-        for (const row of selectPluginStorageSizes.all()) {
+        for (const row of sql.all`
+            SELECT storage_key, LENGTH(payload) AS bytes
+            FROM app_plugin_storage WHERE namespace = 'includedInSave' ORDER BY rowid
+        `) {
             const bytes = Number(row.bytes ?? 0);
             totalBytes += bytes;
             const owner = classifiedPluginOwner(ownerMeta, row.storage_key, v3Plugins);
@@ -645,11 +570,14 @@ function createAppDataStore(db) {
 
     /** One plain root setting, read without assembling the projection. */
     function getRootValue(field) {
-        return decodeValue(selectRootValue.get(field)?.payload);
+        return decodeValue(rootPayload(field));
     }
 
     function readMessages(characterId, chatId) {
-        return selectMessages.all(characterId, chatId)
+        return sql.all`
+            SELECT payload FROM app_messages
+            WHERE character_id = ${characterId} AND chat_id = ${chatId} ORDER BY position
+        `
             .map(row => decodeValue(row.payload));
     }
 
@@ -667,18 +595,21 @@ function createAppDataStore(db) {
     }
 
     function readCharacters(includeMessages) {
-        return selectCharacters.all().map(row => ({
+        return Array.from(characterRows(), row => ({
             ...characterMetadata(decodeValue(row.payload)),
             chaId: row.character_id,
-            chats: selectChats.all(row.character_id)
-                .map(chat => assembleChat(chat, row.character_id, includeMessages)),
+            chats: Array.from(chatRows(row.character_id),
+                chat => assembleChat(chat, row.character_id, includeMessages)),
         }));
     }
 
     function exportProjection(options = {}) {
         const includeMessages = options.includeMessages !== false;
         const result = {};
-        for (const row of selectRootFields.all()) {
+        for (const row of sql.all`
+            SELECT field_key, field_kind, collection, payload
+            FROM app_root_fields ORDER BY position
+        `) {
             switch (row.field_kind) {
                 case 'value':
                     result[row.field_key] = decodeValue(row.payload);
@@ -708,9 +639,9 @@ function createAppDataStore(db) {
     const scanContentReferences = (kind, candidates) => withTransaction(db, () => {
         validateReferenceCandidates(kind, candidates);
         const collector = createContentReferenceCollector(kind);
-        for (const row of selectCharacters.iterate()) {
+        for (const row of characterRows()) {
             collector.addCharacter(decodeValue(row.payload));
-            for (const chat of selectChats.iterate(row.character_id)) {
+            for (const chat of chatRows(row.character_id)) {
                 collector.addChat(assembleChat(chat, row.character_id, true));
             }
         }
@@ -718,11 +649,40 @@ function createAppDataStore(db) {
     });
 
     function estimateProjectionBytes() {
-        return Number(selectProjectionPayloadBytes.get()?.payload_bytes ?? 0);
+        return Number(sql.get`
+            SELECT
+              (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_root_fields)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_presets)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_modules)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_plugins)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_personas)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_plugin_storage)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_characters)
+              + (SELECT COALESCE(SUM(LENGTH(stub_payload) + LENGTH(content_payload)), 0)
+                   FROM app_chats)
+              + (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM app_messages)
+              AS payload_bytes
+        `?.payload_bytes ?? 0);
     }
 
     function listCharacterStorage() {
-        return selectCharacterStorage.all().map(row => ({
+        return sql.all`
+            SELECT
+              character_id,
+              payload,
+              LENGTH(payload) AS card_bytes,
+              COALESCE((
+                SELECT SUM(LENGTH(chat.stub_payload) + LENGTH(chat.content_payload))
+                FROM app_chats AS chat
+                WHERE chat.character_id = character.character_id
+              ), 0) + COALESCE((
+                SELECT SUM(LENGTH(message.payload))
+                FROM app_messages AS message
+                WHERE message.character_id = character.character_id
+              ), 0) AS chat_bytes
+            FROM app_characters AS character
+            ORDER BY position
+        `.map(row => ({
             character: { ...characterMetadata(decodeValue(row.payload)), chaId: row.character_id },
             cardBytes: Number(row.card_bytes ?? 0),
             chatBytes: Number(row.chat_bytes ?? 0),
@@ -730,7 +690,10 @@ function createAppDataStore(db) {
     }
 
     function listModuleStorage() {
-        return selectModuleStorage.all().map(row => ({
+        return sql.all`
+            SELECT payload, LENGTH(payload) AS body_bytes
+            FROM app_modules ORDER BY position
+        `.map(row => ({
             module: decodeValue(row.payload),
             bodyBytes: Number(row.body_bytes ?? 0),
         }));
@@ -766,82 +729,29 @@ function createAppDataStore(db) {
         return result;
     }
 
-    const selectSyncRootFields = db.prepare(`
-      SELECT field_key, position, field_kind, collection, payload, revision
-      FROM app_root_fields ORDER BY position
-    `);
-    const temporizeRootPositions = db.prepare(`
-      UPDATE app_root_fields SET position = -position - 1
-    `);
-    const deleteRootField = db.prepare(`
-      DELETE FROM app_root_fields WHERE field_key = ?
-    `);
-    const updateRootField = db.prepare(`
-      UPDATE app_root_fields
-      SET position = ?, field_kind = ?, collection = ?, payload = ?, revision = ?
-      WHERE field_key = ?
-    `);
-
-    const deletePresetCollection = db.prepare(`
-      DELETE FROM app_presets WHERE collection = ?
-    `);
-    const deleteModules = db.prepare('DELETE FROM app_modules');
-    const deletePluginCollection = db.prepare(`
-      DELETE FROM app_plugins WHERE collection = ?
-    `);
-    const deletePersonas = db.prepare('DELETE FROM app_personas');
-    const deletePluginStorage = db.prepare("DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave'");
-
-    const selectSyncCharacters = db.prepare(`
-      SELECT character_id, position, payload, revision
-      FROM app_characters ORDER BY position
-    `);
-    const temporizeCharacterPositions = db.prepare(`
-      UPDATE app_characters SET position = -position - 1
-    `);
-    const deleteCharacter = db.prepare(`
-      DELETE FROM app_characters WHERE character_id = ?
-    `);
-    const updateCharacter = db.prepare(`
-      UPDATE app_characters SET position = ?, payload = ?, revision = ?
-      WHERE character_id = ?
-    `);
-    const selectSyncChats = db.prepare(`
-      SELECT chat_id, position, stub_payload, content_payload, content_etag, revision
-      FROM app_chats WHERE character_id = ? ORDER BY position
-    `);
-    const temporizeChatPositions = db.prepare(`
-      UPDATE app_chats SET position = -position - 1 WHERE character_id = ?
-    `);
-    const deleteSyncChat = db.prepare(`
-      DELETE FROM app_chats WHERE character_id = ? AND chat_id = ?
-    `);
-    const updateChatMetadata = db.prepare(`
-      UPDATE app_chats
-      SET position = ?, stub_payload = ?, content_payload = ?,
-          content_etag = ?, revision = ?
-      WHERE character_id = ? AND chat_id = ?
-    `);
-
     function clearSpecialRows(special) {
         switch (special.kind) {
             case 'characters':
-                db.prepare('DELETE FROM app_characters').run();
+                sql.run`DELETE FROM app_characters`;
                 break;
             case 'presets':
-                deletePresetCollection.run(special.collection);
+                sql.run`
+                    DELETE FROM app_presets WHERE collection = ${special.collection}
+                `;
                 break;
             case 'modules':
-                deleteModules.run();
+                sql.run`DELETE FROM app_modules`;
                 break;
             case 'plugins':
-                deletePluginCollection.run(special.collection);
+                sql.run`
+                    DELETE FROM app_plugins WHERE collection = ${special.collection}
+                `;
                 break;
             case 'personas':
-                deletePersonas.run();
+                sql.run`DELETE FROM app_personas`;
                 break;
             case 'plugin-storage':
-                deletePluginStorage.run();
+                sql.run`DELETE FROM app_plugin_storage WHERE namespace = 'includedInSave'`;
                 break;
             default:
                 throw new Error(`Unknown root field kind: ${special.kind}`);
@@ -935,7 +845,10 @@ function createAppDataStore(db) {
     }
 
     function syncChatRows(characterId, desiredChats, revision) {
-        const currentRows = selectSyncChats.all(characterId);
+        const currentRows = sql.all`
+            SELECT chat_id, position, stub_payload, content_payload, content_etag, revision
+            FROM app_chats WHERE character_id = ${characterId} ORDER BY position
+        `;
         const currentById = new Map(currentRows.map(row => [row.chat_id, row]));
         const desiredIds = new Set(desiredChats.map(chat => chat.id));
         const orderChanged = !sameOrderedIds(
@@ -946,11 +859,15 @@ function createAppDataStore(db) {
         );
 
         if (orderChanged && currentRows.length > 0) {
-            temporizeChatPositions.run(characterId);
+            sql.run`
+                UPDATE app_chats SET position = -position - 1 WHERE character_id = ${characterId}
+            `;
         }
         for (const row of currentRows) {
             if (!desiredIds.has(row.chat_id)) {
-                deleteSyncChat.run(characterId, row.chat_id);
+                sql.run`
+                    DELETE FROM app_chats WHERE character_id = ${characterId} AND chat_id = ${row.chat_id}
+                `;
             }
         }
 
@@ -960,7 +877,7 @@ function createAppDataStore(db) {
             if (!currentRow) {
                 const content = { id: stub.id, message: [] };
                 const canonical = mergeChatMetadata(stub, content);
-                insertChat.run(
+                insertChat(
                     characterId,
                     stub.id,
                     position,
@@ -987,20 +904,21 @@ function createAppDataStore(db) {
                 content = chatContent(reconciled);
                 etag = computeChatEtag(reconciled);
             }
-            updateChatMetadata.run(
-                position,
-                encodeValue(stub),
-                encodeValue(content),
-                etag,
-                stubChanged || positionChanged ? revision : currentRow.revision,
-                characterId,
-                stub.id,
-            );
+            sql.run`
+                UPDATE app_chats
+                SET position = ${position}, stub_payload = ${encodeValue(stub)},
+                    content_payload = ${encodeValue(content)}, content_etag = ${etag},
+                    revision = ${stubChanged || positionChanged ? revision : currentRow.revision}
+                WHERE character_id = ${characterId} AND chat_id = ${stub.id}
+            `;
         }
     }
 
     function syncCharacterRows(desiredCharacters, revision) {
-        const currentRows = selectSyncCharacters.all();
+        const currentRows = sql.all`
+            SELECT character_id, position, payload, revision
+            FROM app_characters ORDER BY position
+        `;
         const currentById = new Map(currentRows.map(row => [row.character_id, row]));
         const desiredIds = new Set(desiredCharacters.map(character => character.chaId));
         const orderChanged = !sameOrderedIds(
@@ -1010,9 +928,13 @@ function createAppDataStore(db) {
             character => character.chaId,
         );
 
-        if (orderChanged && currentRows.length > 0) temporizeCharacterPositions.run();
+        if (orderChanged && currentRows.length > 0) sql.run`
+            UPDATE app_characters SET position = -position - 1
+        `;
         for (const row of currentRows) {
-            if (!desiredIds.has(row.character_id)) deleteCharacter.run(row.character_id);
+            if (!desiredIds.has(row.character_id)) sql.run`
+                DELETE FROM app_characters WHERE character_id = ${row.character_id}
+            `;
         }
 
         for (let position = 0; position < desiredCharacters.length; position++) {
@@ -1020,7 +942,7 @@ function createAppDataStore(db) {
             const metadata = characterMetadata(character);
             const currentRow = currentById.get(character.chaId);
             if (!currentRow) {
-                insertCharacter.run(
+                insertCharacter(
                     character.chaId,
                     position,
                     encodeValue(metadata),
@@ -1033,21 +955,24 @@ function createAppDataStore(db) {
                 );
                 const positionChanged = currentRow.position !== position;
                 if (metadataChanged || positionChanged || orderChanged) {
-                    updateCharacter.run(
-                        position,
-                        encodeValue(metadata),
-                        metadataChanged || positionChanged
-                            ? revision
-                            : currentRow.revision,
-                        character.chaId,
-                    );
+                    const rowRevision = metadataChanged || positionChanged ? revision : currentRow.revision;
+                    sql.run`
+                        UPDATE app_characters
+                        SET position = ${position}, payload = ${encodeValue(metadata)}, revision = ${rowRevision}
+                        WHERE character_id = ${character.chaId}
+                    `;
                 }
             }
             syncChatRows(character.chaId, character.chats, revision);
         }
     }
 
-    const syncStartupTransaction = (incoming, options) => withTransaction(db, () => {
+    /**
+     * Synchronize the browser's complete, stubs-only startup projection.
+     * Root/character/chat metadata and ordering are authoritative here; chat
+     * content and message rows remain owned by commitChat().
+     */
+    const syncStartupProjection = (incoming, options = {}) => withTransaction(db, () => {
         const state = getState();
         const currentEtag = state.projectionEtag;
         if (options.expectedRevision !== undefined
@@ -1102,7 +1027,10 @@ function createAppDataStore(db) {
             }
         }
 
-        const rootRows = selectSyncRootFields.all();
+        const rootRows = sql.all`
+            SELECT field_key, position, field_kind, collection, payload, revision
+            FROM app_root_fields ORDER BY position
+        `;
         const rootByField = new Map(rootRows.map(row => [row.field_key, row]));
         const rootOrderChanged = !sameOrderedIds(
             rootRows,
@@ -1110,9 +1038,13 @@ function createAppDataStore(db) {
             row => row.field_key,
             field => field,
         );
-        if (rootOrderChanged && rootRows.length > 0) temporizeRootPositions.run();
+        if (rootOrderChanged && rootRows.length > 0) sql.run`
+            UPDATE app_root_fields SET position = -position - 1
+        `;
         for (const row of rootRows) {
-            if (!desiredKeySet.has(row.field_key)) deleteRootField.run(row.field_key);
+            if (!desiredKeySet.has(row.field_key)) sql.run`
+                DELETE FROM app_root_fields WHERE field_key = ${row.field_key}
+            `;
         }
         for (let position = 0; position < desiredKeys.length; position++) {
             const field = desiredKeys[position];
@@ -1122,7 +1054,7 @@ function createAppDataStore(db) {
             const payload = special ? null : encodeValue(desired[field]);
             const currentRow = rootByField.get(field);
             if (!currentRow) {
-                insertRootField.run(
+                insertRootField(
                     field,
                     position,
                     kind,
@@ -1137,76 +1069,50 @@ function createAppDataStore(db) {
                 || currentRow.field_kind !== kind
                 || currentRow.collection !== collection;
             if (rowChanged || rootOrderChanged) {
-                updateRootField.run(
-                    position,
-                    kind,
-                    collection,
-                    payload,
-                    rowChanged ? revision : currentRow.revision,
-                    field,
-                );
+                sql.run`
+                    UPDATE app_root_fields
+                    SET position = ${position}, field_kind = ${kind}, collection = ${collection}, payload = ${payload},
+                        revision = ${rowChanged ? revision : currentRow.revision}
+                    WHERE field_key = ${field}
+                `;
             }
         }
 
         const updatedAt = Date.now();
-        updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        bumpMetadataRevision.run(STATE_ROW_ID);
+        saveState(revision, updatedAt, true);
         return { changed: true, revision, updatedAt, etag: getState().projectionEtag };
     });
 
-    /**
-     * Synchronize the browser's complete, stubs-only startup projection.
-     * Root/character/chat metadata and ordering are authoritative here; chat
-     * content and message rows remain owned by commitChat().
-     */
-    function syncStartupProjection(value, options = {}) {
-        return syncStartupTransaction(value, {
-            expectedRevision: options.expectedRevision,
-            expectedEtag: options.expectedEtag,
-        });
-    }
-
-    const selectChat = db.prepare(`
+    const chatRow = (characterId, chatId) => sql.get`
       SELECT chat_id, stub_payload, content_payload, content_etag, position
-      FROM app_chats WHERE character_id = ? AND chat_id = ?
-    `);
-    const selectChatStubAt = db.prepare(`
-      SELECT chat_id, stub_payload
-      FROM app_chats WHERE character_id = ? AND position = ?
-    `);
-    const characterExists = db.prepare(`
-      SELECT 1 AS found FROM app_characters WHERE character_id = ?
-    `);
-    const nextChatPosition = db.prepare(`
-      SELECT COALESCE(MAX(position) + 1, 0) AS position
-      FROM app_chats WHERE character_id = ?
-    `);
-    const updateChatContent = db.prepare(`
-      UPDATE app_chats
-      SET content_payload = ?, content_etag = ?, revision = ?
-      WHERE character_id = ? AND chat_id = ?
-    `);
+      FROM app_chats WHERE character_id = ${characterId} AND chat_id = ${chatId}
+    `;
 
     /** The full chat with the content ETag that commitChat() compares against. */
     function getChatState(characterId, chatId) {
-        const row = selectChat.get(characterId, chatId);
+        const row = chatRow(characterId, chatId);
         return row
             ? { chat: assembleChat(row, characterId, true), etag: row.content_etag }
             : undefined;
     }
 
     function getChatStubAt(characterId, position) {
-        const row = selectChatStubAt.get(characterId, position);
+        const row = sql.get`
+            SELECT chat_id, stub_payload
+            FROM app_chats WHERE character_id = ${characterId} AND position = ${position}
+        `;
         return row ? decodeValue(row.stub_payload) : undefined;
     }
 
     function hasChat(characterId, chatId) {
-        return Boolean(selectChat.get(characterId, chatId));
+        return Boolean(chatRow(characterId, chatId));
     }
 
-    const commitChatTransaction = (characterId, chatId, incoming, expectedEtag) => withTransaction(db, () => {
+    /** Commit a full chat body; an existing row requires its current content ETag. */
+    const commitChat = (characterId, chatId, incoming, expectedEtag) => withTransaction(db, () => {
+        if (!characterId || !chatId) throw new TypeError('characterId and chatId are required');
         const state = getState();
-        const currentRow = selectChat.get(characterId, chatId);
+        const currentRow = chatRow(characterId, chatId);
         const currentEtag = currentRow?.content_etag ?? MISSING_CHAT_ETAG;
         if ((currentRow && !expectedEtag) || (expectedEtag && expectedEtag !== currentEtag)) {
             throw new AppDataConflictError('Chat content changed', {
@@ -1214,7 +1120,9 @@ function createAppDataStore(db) {
                 currentEtag,
             });
         }
-        if (!characterExists.get(characterId)) {
+        if (!sql.get`
+            SELECT 1 AS found FROM app_characters WHERE character_id = ${characterId}
+        `) {
             throw new Error(`Character does not exist: ${characterId}`);
         }
 
@@ -1245,18 +1153,19 @@ function createAppDataStore(db) {
         }
 
         if (currentRow) {
-            updateChatContent.run(
-                encodeValue(chatContent(content)),
-                etag,
-                revision,
-                characterId,
-                chatId,
-            );
+            sql.run`
+                UPDATE app_chats
+                SET content_payload = ${encodeValue(chatContent(content))}, content_etag = ${etag}, revision = ${revision}
+                WHERE character_id = ${characterId} AND chat_id = ${chatId}
+            `;
         } else {
-            insertChat.run(
+            insertChat(
                 characterId,
                 chatId,
-                nextChatPosition.get(characterId).position,
+                sql.get`
+                    SELECT COALESCE(MAX(position) + 1, 0) AS position
+                    FROM app_chats WHERE character_id = ${characterId}
+                `.position,
                 encodeValue(stub),
                 encodeValue(chatContent(content)),
                 etag,
@@ -1269,8 +1178,7 @@ function createAppDataStore(db) {
             revision,
         );
         const updatedAt = Date.now();
-        updateState.run(revision, 1, updatedAt, STATE_ROW_ID);
-        if (!currentRow) bumpMetadataRevision.run(STATE_ROW_ID);
+        saveState(revision, updatedAt, !currentRow);
         return {
             chat: canonical, etag, revision, updatedAt, changed: true,
             // Existing rows retain their stub metadata during content commits.
@@ -1278,52 +1186,24 @@ function createAppDataStore(db) {
         };
     });
 
-    /** Commit a full chat body; an existing row requires its current content ETag. */
-    function commitChat(characterId, chatId, incoming, expectedEtag) {
-        if (!characterId || !chatId) throw new TypeError('characterId and chatId are required');
-        return commitChatTransaction(characterId, chatId, incoming, expectedEtag);
-    }
-
     function assertPluginStorageNamespace(namespace) {
         if (namespace !== 'localStorage' && namespace !== 'localForage') {
             throw new TypeError(`Unsupported plugin storage namespace: ${namespace}`);
         }
     }
 
-    const selectNamespacedPluginStorage = db.prepare(`
-      SELECT payload FROM app_plugin_storage WHERE namespace = ? AND storage_key = ?
-    `);
-    const listNamespacedPluginStorage = db.prepare(`
-      SELECT storage_key AS key, owner FROM app_plugin_storage WHERE namespace = ? ORDER BY rowid
-    `);
-    const upsertNamespacedPluginStorage = db.prepare(`
-      INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
-      VALUES (?, ?, ?, 1, ?)
-      ON CONFLICT (namespace, storage_key) DO UPDATE SET
-        payload = excluded.payload, revision = app_plugin_storage.revision + 1,
-        owner = COALESCE(excluded.owner, app_plugin_storage.owner)
-    `);
-    const importNamespacedPluginStorage = db.prepare(`
-      INSERT OR IGNORE INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
-      VALUES (?, ?, ?, 1, ?)
-    `);
-    const deleteNamespacedPluginStorage = db.prepare(`
-      DELETE FROM app_plugin_storage WHERE namespace = ? AND storage_key = ?
-    `);
-    const clearNamespacedPluginStorage = db.prepare('DELETE FROM app_plugin_storage WHERE namespace = ?');
-    const exportNamespacedPluginStorage = db.prepare(`
-      SELECT namespace, storage_key AS key, payload AS value, owner
-      FROM app_plugin_storage WHERE namespace != 'includedInSave' ORDER BY rowid
-    `);
-
     function getPluginStorage(namespace, key) {
         assertPluginStorageNamespace(namespace);
-        return toBuffer(selectNamespacedPluginStorage.get(namespace, key)?.payload) ?? null;
+        return toBuffer(sql.get`
+            SELECT payload FROM app_plugin_storage WHERE namespace = ${namespace} AND storage_key = ${key}
+        `?.payload) ?? null;
     }
 
     function listPluginStorage(namespace) {
         assertPluginStorageNamespace(namespace);
-        return listNamespacedPluginStorage.all(namespace).map(({ key, owner }) => ({
+        return sql.all`
+            SELECT storage_key AS key, owner FROM app_plugin_storage WHERE namespace = ${namespace} ORDER BY rowid
+        `.map(({ key, owner }) => ({
             key, ...(owner ? { owner } : {}),
         }));
     }
@@ -1334,22 +1214,40 @@ function createAppDataStore(db) {
             || (owner !== undefined && typeof owner !== 'string')) {
             throw new TypeError('Invalid plugin storage entry');
         }
-        const statement = options.ifAbsent ? importNamespacedPluginStorage : upsertNamespacedPluginStorage;
-        statement.run(namespace, key, Buffer.from(value), owner || null);
+        owner ||= null;
+        if (options.ifAbsent) {
+            sql.run`
+              INSERT OR IGNORE INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
+              VALUES (${namespace}, ${key}, ${value}, 1, ${owner})
+            `;
+        } else {
+            sql.run`
+              INSERT INTO app_plugin_storage (namespace, storage_key, payload, revision, owner)
+              VALUES (${namespace}, ${key}, ${value}, 1, ${owner})
+              ON CONFLICT (namespace, storage_key) DO UPDATE SET
+                payload = excluded.payload, revision = app_plugin_storage.revision + 1,
+                owner = COALESCE(excluded.owner, app_plugin_storage.owner)
+            `;
+        }
     }
 
     function removePluginStorage(namespace, key) {
         assertPluginStorageNamespace(namespace);
-        deleteNamespacedPluginStorage.run(namespace, key);
+        sql.run`
+            DELETE FROM app_plugin_storage WHERE namespace = ${namespace} AND storage_key = ${key}
+        `;
     }
 
     function clearPluginStorage(namespace) {
         assertPluginStorageNamespace(namespace);
-        clearNamespacedPluginStorage.run(namespace);
+        sql.run`DELETE FROM app_plugin_storage WHERE namespace = ${namespace}`;
     }
 
     function* exportPluginStorage() {
-        for (const row of exportNamespacedPluginStorage.iterate()) yield { ...row, value: toBuffer(row.value) };
+        for (const row of sql.iterate`
+            SELECT namespace, storage_key AS key, payload AS value, owner
+            FROM app_plugin_storage WHERE namespace != 'includedInSave' ORDER BY rowid
+        `) yield { ...row, value: toBuffer(row.value) };
     }
 
     const replacePluginStorage = entries => withTransaction(db, () => {
@@ -1366,26 +1264,22 @@ function createAppDataStore(db) {
         }
     });
 
-    if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get()) {
+    if (sql.get`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kv'`) {
         withTransaction(db, () => {
             const prefix = 'cache/plugin-storage/';
-            const keys = db.prepare('SELECT key FROM kv WHERE substr(key, 1, ?) = ?')
-                .all(prefix.length, prefix);
-            const read = db.prepare('SELECT value FROM kv WHERE key = ?');
-            const remove = db.prepare('DELETE FROM kv WHERE key = ?');
-            for (const { key } of keys) {
+            const read = key => sql.get`SELECT value FROM kv WHERE key = ${key}`?.value;
+            for (const { key } of sql.all`SELECT key FROM kv WHERE substr(key, 1, ${prefix.length}) = ${prefix}`) {
                 const encodedKey = key.slice(prefix.length, -'.json'.length);
                 const decodedKey = Buffer.from(encodedKey, 'base64url').toString('utf-8');
                 if (!key.endsWith('.json') || Buffer.from(decodedKey).toString('base64url') !== encodedKey) continue;
                 const metadataKey = `cache/plugin-storage-meta/${encodedKey}.json`;
                 let owner;
                 try {
-                    owner = JSON.parse(toBuffer(read.get(metadataKey)?.value)?.toString('utf-8') ?? '{}').plugin;
+                    owner = JSON.parse(toBuffer(read(metadataKey))?.toString('utf-8') ?? '{}').plugin;
                 } catch {}
-                writePluginStorage('localForage', decodedKey, read.get(key).value,
+                writePluginStorage('localForage', decodedKey, read(key),
                     typeof owner === 'string' ? owner : undefined, { ifAbsent: true });
-                remove.run(key);
-                remove.run(metadataKey);
+                sql.run`DELETE FROM kv WHERE key IN (${key}, ${metadataKey})`;
             }
         });
     }
