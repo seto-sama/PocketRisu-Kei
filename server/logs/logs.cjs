@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { systemDb: db } = require('./logDatabases.cjs');
 const { debuglog } = require('node:util');
 
@@ -8,19 +9,7 @@ const MAX_DESCRIPTION_BYTES = 10 * 1024; // 10KB per entry
 const MAX_BATCH_SIZE = 1000;             // per addLogBatch / per /api/logs request
 const ROTATE_EVERY_N_ROWS = 100;         // amortize DELETE cost
 
-const stmtInsert = db.prepare(`
-    INSERT INTO logs
-        (timestamp, level, origin, message, description, source, count, platform, client_id, user_agent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
-const stmtRotate = db.prepare(`
-    DELETE FROM logs
-    WHERE id NOT IN (SELECT id FROM logs ORDER BY id DESC LIMIT ?)
-`);
-
-const stmtClearAll = db.prepare(`DELETE FROM logs`);
-const stmtDeleteById = db.prepare(`DELETE FROM logs WHERE id = ?`);
+const sql = db.createTagStore();
 
 // Sources captured by monkey-patched console / window handlers / Express
 // middleware rather than explicit logger calls. Mirrors the client-side
@@ -81,19 +70,18 @@ function insertEntry(entry) {
     const clientId = entry.clientId ? String(entry.clientId).slice(0, 64) : null;
     const userAgent = entry.userAgent ? String(entry.userAgent).slice(0, 512) : null;
 
-    stmtInsert.run(timestamp, level, origin, message, description, source, count, platform, clientId, userAgent);
+    sql.run`
+        INSERT INTO logs
+            (timestamp, level, origin, message, description, source, count, platform, client_id, user_agent)
+        VALUES (${timestamp}, ${level}, ${origin}, ${message}, ${description}, ${source}, ${count},
+            ${platform}, ${clientId}, ${userAgent})
+    `;
 }
-
-const insertMany = db.transaction((entries) => {
-    for (const e of entries) insertEntry(e);
-});
 
 let insertedSinceRotate = 0;
 
 function addLog(entry) {
-    insertMany([entry]);
-    insertedSinceRotate += 1;
-    maybeRotate();
+    addLogBatch([entry]);
 }
 
 function addLogBatch(entries) {
@@ -102,7 +90,7 @@ function addLogBatch(entries) {
     const capped = entries.length > MAX_BATCH_SIZE
         ? entries.slice(entries.length - MAX_BATCH_SIZE)
         : entries;
-    insertMany(capped);
+    withTransaction(db, () => capped.forEach(insertEntry));
     insertedSinceRotate += capped.length;
     maybeRotate();
     return capped.length;
@@ -111,11 +99,11 @@ function addLogBatch(entries) {
 function maybeRotate() {
     if (insertedSinceRotate < ROTATE_EVERY_N_ROWS) return;
     insertedSinceRotate = 0;
-    stmtRotate.run(MAX_ROWS);
+    sql.run`DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY id DESC LIMIT ${MAX_ROWS})`;
 }
 
 function deleteLog(id) {
-    return stmtDeleteById.run(id).changes === 1;
+    return sql.run`DELETE FROM logs WHERE id = ${id}`.changes === 1;
 }
 
 // ─── Server-side logger ──────────────────────────────────────────────────────
@@ -134,15 +122,9 @@ function nodePlatformLabel() {
 }
 const serverPlatform = `Node · ${nodePlatformLabel()}`;
 
-// Backfill historic rows that were stored with `Node · <hostname>` (the old
-// format leaked the user's machine name when sharing logs). Idempotent —
-// after the first boot every matching row is normalized, subsequent boots
-// scan and find no work. Cost on a 10k-row logs table is sub-ms.
-try {
-    db.prepare(
-        `UPDATE logs SET platform = ? WHERE platform LIKE 'Node · %' AND platform != ?`
-    ).run(serverPlatform, serverPlatform);
-} catch { /* logs table may not exist yet on a fresh install — ignore */ }
+// Rows written as `Node · <hostname>` leaked the user's machine name when logs
+// were shared; normalize them. Idempotent and cheap on the capped table.
+sql.run`UPDATE logs SET platform = ${serverPlatform} WHERE platform LIKE 'Node · %' AND platform != ${serverPlatform}`;
 
 function formatErrorWithCause(err) {
     // Walk the cause chain so we don't lose context when a caller switches
@@ -277,7 +259,7 @@ function queryLogs(opts = {}) {
 }
 
 function clearLogs() {
-    stmtClearAll.run();
+    sql.run`DELETE FROM logs`;
     insertedSinceRotate = 0;
 }
 

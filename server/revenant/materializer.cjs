@@ -324,6 +324,5 @@ function createRevenantMaterializer(options) {
 
 module.exports = {
     createRevenantMaterializer,
-    RevenantMaterializationError,
     applyMutationPatch,
 };

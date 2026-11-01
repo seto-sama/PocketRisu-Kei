@@ -173,7 +173,6 @@ function createGenerationJournalStore(options = {}) {
 const generationJournalStore = createGenerationJournalStore();
 
 module.exports = {
-    JOURNAL_READ_CHUNK_BYTES,
     createGenerationJournalStore,
     generationJournalStore,
 };

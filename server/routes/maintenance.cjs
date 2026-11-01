@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { kvList, db: sqliteDb, kvSize, chunkStorageStats, reclaimableChunkBytes, isDbBlobChunked, kvListWithSizes, kvDel, checkpointWal, estimateVacuumRequiredBytes, gcChunks, vacuumDatabase } = require('../db.cjs');
 const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, assetBasename: statsBasename, collectDatabaseAssetBasenames, collectPersistentPluginAssetBasenames } = require('../assetReferences.cjs');
 const fs = require('fs/promises');
@@ -13,13 +14,24 @@ function installMaintenanceRoutes(app, {
     backupState,
     DEFAULT_BACKUPS_DIR,
     sumInlayFsBytes,
-    estimateServerBackupSize,
+    listColdStorageBackupEntries,
     appDataStore,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
     requireSyncClientId,
     queueStorageOperation,
 }) {
+    // Mirrors the enumeration in /api/backup/server/save without writing anything.
+    function estimateServerBackupSize(inlayFsBytes) {
+        let total = appDataStore.getState().initialized
+            ? appDataStore.estimateProjectionBytes()
+            : 0;
+        for (const it of kvListWithSizes('assets/')) total += it.size;
+        for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
+        for (const e of listColdStorageBackupEntries()) total += e.size;
+        return total + inlayFsBytes;
+    }
+
     const DB_BLOB_KEY = 'database/database.bin';
 
     const ASSET_PREFIXES = [
@@ -85,12 +97,7 @@ function installMaintenanceRoutes(app, {
         // storage dashboard.
         if (req.query?.scope === 'backup') {
             const inlayFsBytes = await sumInlayFsBytes();
-            const estimatedBackupSize = await estimateServerBackupSize(
-                appDataStore.getState().initialized
-                    ? appDataStore.estimateProjectionBytes()
-                    : 0,
-                inlayFsBytes,
-            );
+            const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
             return res.json({
                 files,
                 disk,
@@ -101,11 +108,16 @@ function installMaintenanceRoutes(app, {
             });
         }
 
-        const pageSize = sqliteDb.pragma('page_size', { simple: true });
-        const pageCount = sqliteDb.pragma('page_count', { simple: true });
-        const freelistCount = sqliteDb.pragma('freelist_count', { simple: true });
-        const journalMode = sqliteDb.pragma('journal_mode', { simple: true });
-        const autoVacuum = sqliteDb.pragma('auto_vacuum', { simple: true });
+        const {
+            page_size: pageSize,
+            page_count: pageCount,
+            freelist_count: freelistCount,
+            journal_mode: journalMode,
+            auto_vacuum: autoVacuum,
+        } = sqliteDb.prepare(`
+            SELECT * FROM pragma_page_size, pragma_page_count, pragma_freelist_count,
+                pragma_journal_mode, pragma_auto_vacuum
+        `).get();
         const reclaimable = freelistCount * pageSize;
 
         const dbBlobSize = kvSize(DB_BLOB_KEY) || 0;
@@ -145,8 +157,9 @@ function installMaintenanceRoutes(app, {
             prefixes[p] = { totalSize: total, count: items.length };
         }
 
-        const kvRows = sqliteDb.prepare('SELECT COUNT(*) AS c FROM kv').get().c;
-        const kvTotalBytes = sqliteDb.prepare('SELECT COALESCE(SUM(LENGTH(value)), 0) AS s FROM kv').get().s;
+        const { kvRows, kvTotalBytes } = sqliteDb.prepare(
+            'SELECT COUNT(*) AS kvRows, COALESCE(SUM(LENGTH(value)), 0) AS kvTotalBytes FROM kv',
+        ).get();
 
         let fileBackups = { count: 0, totalSize: 0, oldest: null, newest: null };
         try {
@@ -181,12 +194,7 @@ function installMaintenanceRoutes(app, {
         // than in kv `inlay/*` prefixes. Surface explicitly so the dashboard
         // chart can include it in the inlay slice instead of underreporting.
         const inlayFsBytes = await sumInlayFsBytes();
-        const estimatedBackupSize = await estimateServerBackupSize(
-            appDataStore.getState().initialized
-                ? appDataStore.estimateProjectionBytes()
-                : 0,
-            inlayFsBytes,
-        );
+        const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
 
         res.json({
             files,
@@ -349,9 +357,9 @@ function installMaintenanceRoutes(app, {
             }
 
             const victims = findOrphanAssets(storedAssets, databaseReferences);
-            sqliteDb.transaction(() => {
+            withTransaction(sqliteDb, () => {
                 for (const asset of victims) kvDel(asset.key);
-            })();
+            });
 
             const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
             if (victims.length > 0) {

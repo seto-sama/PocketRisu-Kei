@@ -42,8 +42,8 @@ test('reference scans protect hidden content without enumerating it over HTTP', 
   const unauthenticated = await fetch(`http://127.0.0.1:${server.port}/api/database/content-references`, {
     method: 'POST', headers, body: JSON.stringify({ kind: 'translation', candidates: [] }),
   })
-  expect(unauthenticated.status).toBe(400)
-  expect(await unauthenticated.json()).toEqual({ error: 'No auth header' })
+  expect(unauthenticated.status).toBe(401)
+  expect(await unauthenticated.json()).toMatchObject({ code: 'AUTH_REQUIRED' })
   const legacy = await client.fetch('/api/database/content-references?kind=translation', { headers })
   expect(await legacy.text()).not.toContain(secret)
 })

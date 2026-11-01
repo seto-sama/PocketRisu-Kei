@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import chatStorePkg from './chatStore.cjs'
 import appDataStorePkg from './appDataStore.cjs'
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { createDelta } from '../shared/guardedDelta.mjs'
 
 const {
@@ -12,7 +13,7 @@ const {
 } = chatStorePkg as any
 const { createAppDataStore } = appDataStorePkg as any
 
-const openDatabases: Database.Database[] = []
+const openDatabases: DatabaseSync[] = []
 afterEach(() => {
     while (openDatabases.length > 0) openDatabases.pop()?.close()
 })
@@ -22,7 +23,7 @@ const room = (fields: Record<string, any> = {}) => ({ id: 'room-1', name: 'Room'
 // The service runs against the real relational store, so CAS and metadata
 // reconciliation are the production ones rather than a test double.
 function createServiceHarness(initialChat: any, overrides: Record<string, any> = {}) {
-    const sqlite = new Database(':memory:')
+    const sqlite = openDatabase(':memory:')
     openDatabases.push(sqlite)
     const store = createAppDataStore(sqlite)
     store.replaceFromProjection({ characters: [{ chaId: 'character-1', chats: [initialChat] }] })

@@ -5,21 +5,21 @@ const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
 const { codes: API_ERROR_CODES, sendApiError } = require('../utils/apiErrors.cjs');
 const express = require('express');
+const { getSyncClientIdFromRequest } = require('../syncHub.cjs');
 
-function installAuthRoutes(app, {
-    SESSION_FILE,
-    sessions,
-    loginBlockedUntil,
-    LOGIN_FAILURE_WINDOW_MS,
-    jwtSecret,
-    authState,
-    checkAuth,
-    parseSessionCookie,
-    sessionExpiresAt,
-    getSyncClientIdFromRequest,
-    syncClientDevices,
-    passwordPath,
-}) {
+function installAuthRoutes(app, { auth, syncClientDevices }) {
+    const {
+        sessionFile: SESSION_FILE,
+        sessions,
+        loginBlockedUntil,
+        LOGIN_FAILURE_WINDOW_MS,
+        jwtSecret,
+        authState,
+        checkAuth,
+        parseSessionCookie,
+        sessionExpiresAt,
+        passwordPath,
+    } = auth;
     const parseAuthBody = express.json({ limit: '16kb' });
     function saveSessions() {
         try { writeFileSync(SESSION_FILE, JSON.stringify([...sessions])) }

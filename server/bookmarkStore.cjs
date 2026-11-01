@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('./sqlite.cjs');
 const { randomUUID } = require('crypto');
 const LEGACY_MIGRATION_KEY = 'legacy-chat-bookmarks-v1';
 
@@ -72,53 +73,46 @@ function createBookmarkStore(db) {
         CREATE INDEX IF NOT EXISTS idx_bookmark_tag_bindings_tag
             ON bookmark_tag_bindings(tag_id);
     `);
-    const q = {
-        getMeta: db.prepare('SELECT value FROM bookmark_meta WHERE key = ?'),
-        setMeta: db.prepare(`INSERT INTO bookmark_meta(key,value) VALUES (?,?)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
-        tags: db.prepare('SELECT id,name FROM bookmark_tags ORDER BY sort_order,rowid'),
-        all: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
-            custom_name customName,preview,sort_order sortOrder FROM bookmarks ORDER BY rowid`),
-        chat: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
-            custom_name customName,preview,sort_order sortOrder FROM bookmarks
-            WHERE character_id=? AND chat_id=? ORDER BY sort_order,rowid`),
-        bindings: db.prepare(`SELECT character_id characterId,chat_id chatId,
-            message_id messageId,tag_id tagId FROM bookmark_tag_bindings ORDER BY rowid`),
-        chatBindings: db.prepare(`SELECT character_id characterId,chat_id chatId,
-            message_id messageId,tag_id tagId FROM bookmark_tag_bindings
-            WHERE character_id=? AND chat_id=? ORDER BY rowid`),
-        get: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
-            custom_name customName,preview,sort_order sortOrder FROM bookmarks
-            WHERE character_id=? AND chat_id=? AND message_id=?`),
-        next: db.prepare('SELECT COALESCE(MAX(sort_order)+1,0) value FROM bookmarks'),
-        put: db.prepare(`INSERT INTO bookmarks(character_id,chat_id,message_id,sort_order,custom_name,preview)
-            VALUES (?,?,?,?,?,?) ON CONFLICT(character_id,chat_id,message_id) DO UPDATE SET
-            sort_order=excluded.sort_order,custom_name=excluded.custom_name,preview=excluded.preview`),
-        del: db.prepare('DELETE FROM bookmarks WHERE character_id=? AND chat_id=? AND message_id=?'),
-        delChat: db.prepare('DELETE FROM bookmarks WHERE character_id=? AND chat_id=?'),
-        clear: db.prepare('DELETE FROM bookmarks'),
-        bind: db.prepare(`INSERT OR IGNORE INTO bookmark_tag_bindings
-            (character_id,chat_id,message_id,tag_id) VALUES (?,?,?,?)`),
-        delBindings: db.prepare(`DELETE FROM bookmark_tag_bindings
-            WHERE character_id=? AND chat_id=? AND message_id=?`),
-        delChatBindings: db.prepare(`DELETE FROM bookmark_tag_bindings
-            WHERE character_id=? AND chat_id=?`),
-        clearBindings: db.prepare('DELETE FROM bookmark_tag_bindings'),
-        hasTag: db.prepare('SELECT 1 FROM bookmark_tags WHERE id=?'),
-        putTag: db.prepare(`INSERT INTO bookmark_tags(id,name,sort_order) VALUES (?,?,?)
-            ON CONFLICT(id) DO UPDATE SET name=excluded.name,sort_order=excluded.sort_order`),
-        insertTag: db.prepare('INSERT INTO bookmark_tags(id,name,sort_order) VALUES (?,?,?)'),
-        delTag: db.prepare('DELETE FROM bookmark_tags WHERE id=?'),
-        delTagBindings: db.prepare('DELETE FROM bookmark_tag_bindings WHERE tag_id=?'),
-        clearTags: db.prepare('DELETE FROM bookmark_tags'),
-        saveSnapshot: db.prepare(`INSERT INTO bookmark_snapshots(snapshot_key,catalog_json)
-            VALUES (?,?) ON CONFLICT(snapshot_key) DO UPDATE SET catalog_json=excluded.catalog_json`),
-        snapshot: db.prepare('SELECT catalog_json catalogJson FROM bookmark_snapshots WHERE snapshot_key=?'),
-        delSnapshot: db.prepare('DELETE FROM bookmark_snapshots WHERE snapshot_key=?'),
+    const sql = db.createTagStore();
+    const toEntry = row => row && {
+        characterId: row.character_id, chatId: row.chat_id, messageId: row.message_id,
+        customName: row.custom_name, preview: row.preview, sortOrder: row.sort_order,
     };
+    const meta = name => sql.get`SELECT value FROM bookmark_meta WHERE key = ${name}`?.value;
+    const setMeta = (name, value) => sql.run`
+        INSERT INTO bookmark_meta(key, value) VALUES (${name}, ${value})
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
+    const tagRows = () => sql.all`SELECT id, name FROM bookmark_tags ORDER BY sort_order, rowid`;
+    const putTag = (tag, order) => sql.run`
+        INSERT INTO bookmark_tags(id, name, sort_order) VALUES (${tag.id}, ${tag.name}, ${order})
+        ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`;
+    const insertTag = (tag, order) =>
+        sql.run`INSERT INTO bookmark_tags(id, name, sort_order) VALUES (${tag.id}, ${tag.name}, ${order})`;
+    const getEntry = ({ characterId, chatId, messageId }) => toEntry(sql.get`
+        SELECT * FROM bookmarks
+        WHERE character_id = ${characterId} AND chat_id = ${chatId} AND message_id = ${messageId}`);
+    const putEntry = ({ characterId, chatId, messageId }, sortOrder, customName, preview) => sql.run`
+        INSERT INTO bookmarks(character_id, chat_id, message_id, sort_order, custom_name, preview)
+        VALUES (${characterId}, ${chatId}, ${messageId}, ${sortOrder}, ${customName}, ${preview})
+        ON CONFLICT(character_id, chat_id, message_id) DO UPDATE SET
+            sort_order = excluded.sort_order, custom_name = excluded.custom_name, preview = excluded.preview`;
+    const deleteBindings = ({ characterId, chatId, messageId }) => sql.run`
+        DELETE FROM bookmark_tag_bindings
+        WHERE character_id = ${characterId} AND chat_id = ${chatId} AND message_id = ${messageId}`;
+    // Removes the entry and its tag bindings; returns the number of entries removed.
+    function removeEntry(entry) {
+        deleteBindings(entry);
+        return sql.run`
+            DELETE FROM bookmarks WHERE character_id = ${entry.characterId}
+                AND chat_id = ${entry.chatId} AND message_id = ${entry.messageId}`.changes;
+    }
+    const clearAll = () => db.exec('DELETE FROM bookmark_tag_bindings; DELETE FROM bookmarks; DELETE FROM bookmark_tags');
+    const snapshotCatalog = snapshotKey =>
+        sql.get`SELECT catalog_json FROM bookmark_snapshots WHERE snapshot_key = ${snapshotKey}`?.catalog_json;
+
     const key = row => `${row.characterId}\0${row.chatId}\0${row.messageId}`;
-    const revision = () => Number(q.getMeta.get('revision')?.value ?? 0) || 0;
-    const bump = () => q.setMeta.run('revision', String(revision() + 1));
+    const revision = () => Number(meta('revision') ?? 0) || 0;
+    const bump = () => setMeta('revision', String(revision() + 1));
     function normalizeTags(value) {
         const seen = new Set();
         return (Array.isArray(value) ? value : []).flatMap(tag => {
@@ -129,75 +123,82 @@ function createBookmarkStore(db) {
             return [{ id, name }];
         });
     }
-    const validTagIds = ids => normalizeTagIds(ids).filter(id => q.hasTag.get(id));
+    const validTagIds = ids => normalizeTagIds(ids)
+        .filter(id => sql.get`SELECT 1 FROM bookmark_tags WHERE id = ${id}`);
     function withTags(rows, bindings) {
-        const map = new Map(rows.map(row => [key(row), row]));
-        rows.forEach(row => { row.tagIds = []; });
-        bindings.forEach(binding => map.get(key(binding))?.tagIds.push(binding.tagId));
-        return rows;
+        const entries = rows.map(row => ({ ...toEntry(row), tagIds: [] }));
+        const map = new Map(entries.map(entry => [key(entry), entry]));
+        bindings.forEach(binding => map.get(key(toEntry(binding)))?.tagIds.push(binding.tag_id));
+        return entries;
     }
-    const chatRows = (characterId, chatId) =>
-        withTags(q.chat.all(characterId, chatId), q.chatBindings.all(characterId, chatId));
+    const chatRows = (characterId, chatId) => withTags(
+        sql.all`SELECT * FROM bookmarks WHERE character_id = ${characterId} AND chat_id = ${chatId}
+            ORDER BY sort_order, rowid`,
+        sql.all`SELECT * FROM bookmark_tag_bindings WHERE character_id = ${characterId} AND chat_id = ${chatId}
+            ORDER BY rowid`,
+    );
+    const allRows = () => withTags(
+        sql.all`SELECT * FROM bookmarks ORDER BY rowid`,
+        sql.all`SELECT * FROM bookmark_tag_bindings ORDER BY rowid`,
+    );
     function catalog() {
         return {
             revision: revision(),
-            tags: q.tags.all(),
-            entries: withTags(q.all.all(), q.bindings.all()).map(row => ({
+            tags: tagRows(),
+            entries: allRows().map(row => ({
                 ...row, name: row.customName || row.preview || row.messageId,
             })),
         };
     }
     function replaceBindings(entry, ids) {
-        q.delBindings.run(entry.characterId, entry.chatId, entry.messageId);
-        validTagIds(ids).forEach(id =>
-            q.bind.run(entry.characterId, entry.chatId, entry.messageId, id));
+        deleteBindings(entry);
+        validTagIds(ids).forEach(id => sql.run`
+            INSERT OR IGNORE INTO bookmark_tag_bindings (character_id, chat_id, message_id, tag_id)
+            VALUES (${entry.characterId}, ${entry.chatId}, ${entry.messageId}, ${id})`);
     }
-    const upsertTx = db.transaction(entry => {
-        const current = q.get.get(entry.characterId, entry.chatId, entry.messageId);
-        q.put.run(entry.characterId, entry.chatId, entry.messageId,
-            current?.sortOrder ?? q.next.get().value, entry.name || null,
-            normalizePreview(entry.preview, entry.messageId));
-        replaceBindings(entry, entry.tagIds);
-        bump();
-    });
     function upsertBookmarkEntry(entry) {
         if (!entry?.characterId || !entry.chatId || !entry.messageId) return false;
-        upsertTx(entry); return true;
+        withTransaction(db, () => {
+            const sortOrder = getEntry(entry)?.sortOrder
+                ?? sql.get`SELECT COALESCE(MAX(sort_order) + 1, 0) AS next FROM bookmarks`.next;
+            putEntry(entry, sortOrder, entry.name || null, normalizePreview(entry.preview, entry.messageId));
+            replaceBindings(entry, entry.tagIds);
+            bump();
+        });
+        return true;
     }
-    const patchTx = db.transaction((target, patch) => {
-        const row = q.get.get(target.characterId, target.chatId, target.messageId);
+    const patchBookmarkEntry = (target, patch) => withTransaction(db, () => {
+        patch ??= {};
+        const row = getEntry(target);
         if (!row) return false;
-        q.put.run(row.characterId, row.chatId, row.messageId, row.sortOrder,
+        putEntry(row, row.sortOrder,
             Object.hasOwn(patch, 'name') ? patch.name || null : row.customName, row.preview);
         if (Object.hasOwn(patch, 'tagIds')) replaceBindings(row, patch.tagIds);
         bump(); return true;
     });
-    const patchBookmarkEntry = (target, patch) => patchTx(target, patch ?? {});
-    const removeTx = db.transaction(target => {
-        q.delBindings.run(target.characterId, target.chatId, target.messageId);
-        const changed = q.del.run(target.characterId, target.chatId, target.messageId).changes > 0;
-        if (changed) bump();
-        return changed;
-    });
     const removeBookmarkEntry = target => Boolean(target?.characterId && target.chatId
-        && target.messageId && removeTx(target));
-    const replaceTagsTx = db.transaction(tags => {
-        const current = q.tags.all();
-        if (JSON.stringify(current) === JSON.stringify(tags)) return false;
-        const ids = new Set(tags.map(tag => tag.id));
-        current.filter(tag => !ids.has(tag.id)).forEach(tag => {
-            q.delTagBindings.run(tag.id); q.delTag.run(tag.id);
+        && target.messageId && withTransaction(db, () => {
+            const changed = removeEntry(target) > 0;
+            if (changed) bump();
+            return changed;
+        }));
+    function replaceTags(input) {
+        const tags = normalizeTags(input);
+        withTransaction(db, () => {
+            const current = tagRows();
+            if (JSON.stringify(current) === JSON.stringify(tags)) return;
+            const ids = new Set(tags.map(tag => tag.id));
+            current.filter(tag => !ids.has(tag.id)).forEach(tag => {
+                sql.run`DELETE FROM bookmark_tag_bindings WHERE tag_id = ${tag.id}`;
+                sql.run`DELETE FROM bookmark_tags WHERE id = ${tag.id}`;
+            });
+            tags.forEach(putTag);
+            bump();
         });
-        tags.forEach((tag, index) => q.putTag.run(tag.id, tag.name, index));
-        bump(); return true;
-    });
-    function replaceTags(tags) {
-        const normalized = normalizeTags(tags);
-        replaceTagsTx(normalized);
-        return normalized;
+        return tags;
     }
-    const mergeTagsTx = db.transaction(incoming => {
-        const existing = q.tags.all();
+    const mergeTags = incoming => withTransaction(db, () => {
+        const existing = tagRows();
         const byId = new Map(existing.map(tag => [tag.id, tag]));
         const idMap = {};
         let order = existing.length;
@@ -208,7 +209,7 @@ function createBookmarkStore(db) {
                 do { id = randomUUID(); } while (byId.has(id));
             }
             if (!byId.has(id)) {
-                q.insertTag.run(id, tag.name, order++);
+                insertTag({ id, name: tag.name }, order++);
                 byId.set(id, { id, name: tag.name });
                 changed = true;
             }
@@ -217,7 +218,6 @@ function createBookmarkStore(db) {
         if (changed) bump();
         return idMap;
     });
-    const mergeTags = tags => mergeTagsTx(tags);
     function compatibilityForTargets(targets) {
         const entries = [];
         const used = new Set();
@@ -239,7 +239,7 @@ function createBookmarkStore(db) {
                 ...(Object.keys(bookmarkTagIds).length ? { bookmarkTagIds } : {}),
             } });
         });
-        return { entries, tags: q.tags.all().filter(tag => used.has(tag.id)) };
+        return { entries, tags: tagRows().filter(tag => used.has(tag.id)) };
     }
     function projectCatalogCompatibility(database, value) {
         if (!database || typeof database !== 'object') return database;
@@ -269,34 +269,28 @@ function createBookmarkStore(db) {
     }
     const projectDatabaseCompatibility = database => projectCatalogCompatibility(database, catalog());
     function projectSnapshotDatabaseCompatibility(snapshotKey, database) {
-        const value = q.snapshot.get(snapshotKey)?.catalogJson;
+        const value = snapshotCatalog(snapshotKey);
         if (!value) return false;
         try { projectCatalogCompatibility(database, JSON.parse(value)); return true; }
         catch { return false; }
     }
-    const pruneTx = db.transaction(isValid => {
+    const pruneInvalid = isValid => typeof isValid !== 'function' ? 0 : withTransaction(db, () => {
         let removed = 0;
-        q.all.all().forEach(row => {
-            if (isValid(row)) return;
-            q.delBindings.run(row.characterId, row.chatId, row.messageId);
-            removed += q.del.run(row.characterId, row.chatId, row.messageId).changes;
+        sql.all`SELECT * FROM bookmarks ORDER BY rowid`.map(toEntry).forEach(row => {
+            if (!isValid(row)) removed += removeEntry(row);
         });
         if (removed) bump();
         return removed;
     });
-    const pruneInvalid = fn => typeof fn === 'function' ? pruneTx(fn) : 0;
-    const pruneChatTx = db.transaction((characterId, chatId, ids) => {
+    const pruneChatMessages = (characterId, chatId, ids) => !(characterId && chatId && ids instanceof Set)
+        ? 0 : withTransaction(db, () => {
         let removed = 0;
         chatRows(characterId, chatId).forEach(row => {
-            if (ids.has(row.messageId)) return;
-            q.delBindings.run(characterId, chatId, row.messageId);
-            removed += q.del.run(characterId, chatId, row.messageId).changes;
+            if (!ids.has(row.messageId)) removed += removeEntry(row);
         });
         if (removed) bump();
         return removed;
     });
-    const pruneChatMessages = (characterId, chatId, ids) =>
-        characterId && chatId && ids instanceof Set ? pruneChatTx(characterId, chatId, ids) : 0;
     function stripDatabaseCompatibility(database) {
         let changed = false;
         if (Object.hasOwn(database ?? {}, 'bookmarkTags')) {
@@ -309,75 +303,74 @@ function createBookmarkStore(db) {
         return changed;
     }
     function ingest(database, { replaceExisting = false, includeTagData = false } = {}) {
-        if (replaceExisting) {
-            q.clearBindings.run(); q.clear.run(); q.clearTags.run();
-        }
-        if (includeTagData && (replaceExisting || !q.tags.all().length)) {
-            normalizeTags(database?.bookmarkTags).forEach((tag, i) => q.putTag.run(tag.id, tag.name, i));
+        if (replaceExisting) clearAll();
+        if (includeTagData && (replaceExisting || !tagRows().length)) {
+            normalizeTags(database?.bookmarkTags).forEach(putTag);
         }
         let importedChats = 0;
         (Array.isArray(database?.characters) ? database.characters : []).forEach(character =>
             (Array.isArray(character?.chats) ? character.chats : []).forEach(chat => {
                 const rows = readChatCompatibility(chat, { includeTagData });
                 if (!character?.chaId || !chat?.id || !rows) return;
-                q.delChatBindings.run(character.chaId, chat.id);
-                q.delChat.run(character.chaId, chat.id);
+                sql.run`DELETE FROM bookmark_tag_bindings WHERE character_id = ${character.chaId} AND chat_id = ${chat.id}`;
+                sql.run`DELETE FROM bookmarks WHERE character_id = ${character.chaId} AND chat_id = ${chat.id}`;
                 rows.forEach((row, i) => {
                     const entry = { characterId: character.chaId, chatId: chat.id, messageId: row.messageId };
-                    q.put.run(entry.characterId, entry.chatId, entry.messageId, i, row.customName, row.preview);
+                    putEntry(entry, i, row.customName, row.preview);
                     replaceBindings(entry, row.tagIds);
                 });
                 importedChats++;
             }));
         return importedChats;
     }
-    const migrateTx = db.transaction(database => {
-        const complete = q.getMeta.get(LEGACY_MIGRATION_KEY)?.value === '1';
+    const migrateLegacyDatabase = database => withTransaction(db, () => {
+        const complete = meta(LEGACY_MIGRATION_KEY) === '1';
         if (!complete) {
             ingest(database);
-            q.setMeta.run(LEGACY_MIGRATION_KEY, '1');
+            setMeta(LEGACY_MIGRATION_KEY, '1');
             bump();
         }
         return { changed: stripDatabaseCompatibility(database), migrated: !complete };
     });
-    const migrateLegacyDatabase = database => migrateTx(database);
-    const needsLegacyMigration = () => q.getMeta.get(LEGACY_MIGRATION_KEY)?.value !== '1';
-    const replaceDatabaseTx = db.transaction(database => {
+    const needsLegacyMigration = () => meta(LEGACY_MIGRATION_KEY) !== '1';
+    const replaceDatabaseCompatibility = database => withTransaction(db, () => {
         const importedChats = ingest(database, { replaceExisting: true, includeTagData: true });
-        q.setMeta.run(LEGACY_MIGRATION_KEY, '1'); bump();
+        setMeta(LEGACY_MIGRATION_KEY, '1'); bump();
         return { changed: stripDatabaseCompatibility(database), migrated: true, importedChats };
     });
-    const replaceDatabaseCompatibility = database => replaceDatabaseTx(database);
-    const replaceCatalogTx = db.transaction(value => {
-        q.clearBindings.run(); q.clear.run(); q.clearTags.run();
-        normalizeTags(value?.tags).forEach((tag, i) => q.insertTag.run(tag.id, tag.name, i));
+    const replaceCatalog = value => withTransaction(db, () => {
+        clearAll();
+        normalizeTags(value?.tags).forEach(insertTag);
         (Array.isArray(value?.entries) ? value.entries : []).forEach((row, i) => {
             if (!row?.characterId || !row.chatId || !row.messageId) return;
-            q.put.run(row.characterId, row.chatId, row.messageId,
-                Number.isFinite(row.sortOrder) ? row.sortOrder : i,
+            putEntry(row, Number.isFinite(row.sortOrder) ? row.sortOrder : i,
                 typeof row.customName === 'string' && row.customName ? row.customName : null,
                 normalizePreview(row.preview, row.messageId));
             replaceBindings(row, row.tagIds);
         });
         bump();
     });
+    const saveCatalogSnapshot = (key, value) => sql.run`
+        INSERT INTO bookmark_snapshots(snapshot_key, catalog_json) VALUES (${key}, ${JSON.stringify(value)})
+        ON CONFLICT(snapshot_key) DO UPDATE SET catalog_json = excluded.catalog_json`;
     function saveSnapshot(key) {
         if (typeof key !== 'string' || !key || needsLegacyMigration()) return false;
-        q.saveSnapshot.run(key, JSON.stringify(catalog())); return true;
+        saveCatalogSnapshot(key, catalog());
+        return true;
     }
     function restoreSnapshot(key) {
-        const value = q.snapshot.get(key)?.catalogJson;
+        const value = snapshotCatalog(key);
         if (!value) return false;
-        try { replaceCatalogTx(JSON.parse(value)); return true; } catch { return false; }
+        try { replaceCatalog(JSON.parse(value)); return true; } catch { return false; }
     }
-    const deleteSnapshot = key => q.delSnapshot.run(key).changes > 0;
+    const deleteSnapshot = key => sql.run`DELETE FROM bookmark_snapshots WHERE snapshot_key = ${key}`.changes > 0;
     return { catalog, upsertBookmarkEntry, patchBookmarkEntry, removeBookmarkEntry,
         replaceTags, mergeTags, compatibilityForTargets,
         projectDatabaseCompatibility, projectSnapshotDatabaseCompatibility, pruneInvalid,
         pruneChatMessages, stripDatabaseCompatibility, needsLegacyMigration,
-        migrateLegacyDatabase, replaceDatabaseCompatibility, saveSnapshot, restoreSnapshot,
+        migrateLegacyDatabase, replaceDatabaseCompatibility, saveSnapshot, saveCatalogSnapshot, restoreSnapshot,
         deleteSnapshot };
 }
 
 module.exports = { createBookmarkStore, normalizePreview, normalizeTagIds,
-    readChatCompatibility, stripChatCompatibility };
+    stripChatCompatibility };

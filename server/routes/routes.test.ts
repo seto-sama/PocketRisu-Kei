@@ -12,7 +12,7 @@ import { createDelta } from '../../shared/guardedDelta.mjs'
 import { PROXY_PATH, getRealmProxyUrl } from '../../shared/proxy.mjs'
 import { pocketKeiVer } from '../../src/ts/version'
 import { decodeBackup } from '../../test/compat/helpers/decode'
-import Database from '../sqlite.cjs'
+import { openDatabase } from '../sqlite.cjs'
 import appDataStorePkg from '../appDataStore.cjs'
 
 const { decodeRisuSave } = createRequire(import.meta.url)('../utils/risuSave.cjs') as {
@@ -529,7 +529,7 @@ describe('server route composition', () => {
 
         const copyPath = join(directory, 'checkpointed.db')
         copyFileSync(join(directory, 'save/risuai.db'), copyPath)
-        const checkpointed = new Database(copyPath)
+        const checkpointed = openDatabase(copyPath)
         try {
             const store = appDataStorePkg.createAppDataStore(checkpointed)
             expect(store.exportProjection({ includeMessages: false }).globalNote).toBe(globalNote)

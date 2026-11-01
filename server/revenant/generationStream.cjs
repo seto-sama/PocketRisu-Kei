@@ -136,5 +136,4 @@ module.exports = {
     revenantJournalKind,
     sendRevenantJournalEvent,
     streamRevenantJournal,
-    waitForRevenantJournalEvent,
 };

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import crypto from 'node:crypto'
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Packr } from 'msgpackr'
 import appDataMigrationPkg from './appDataMigration.cjs'
@@ -17,7 +18,7 @@ const {
 const { createAppDataStore } = appDataStorePkg as any
 const packr = new Packr({ useRecords: false })
 
-const openDatabases: Database.Database[] = []
+const openDatabases: DatabaseSync[] = []
 
 function sampleDatabase(label = 'legacy') {
     return {
@@ -40,7 +41,7 @@ function sampleDatabase(label = 'legacy') {
 }
 
 function createHarness(options: { source?: unknown } = {}) {
-    const sqlite = new Database(':memory:')
+    const sqlite = openDatabase(':memory:')
     openDatabases.push(sqlite)
     sqlite.exec(`
       CREATE TABLE legacy_kv (
@@ -55,7 +56,8 @@ function createHarness(options: { source?: unknown } = {}) {
     const del = sqlite.prepare('DELETE FROM legacy_kv WHERE key = ?')
     const kv = {
         get(key: string) {
-            return (get.get(key) as { value: Buffer } | undefined)?.value
+            const value = (get.get(key) as { value: Uint8Array } | undefined)?.value
+            return value && Buffer.from(value)
         },
         delete(key: string) {
             del.run(key)
@@ -132,7 +134,7 @@ describe('legacy database migration barrier', () => {
         expect(events).toEqual(['delete'])
         expect(harness.kv.get(LEGACY_DATABASE_KEY)).toBeUndefined()
         expect(harness.appDataStore.exportProjection()).toEqual(source)
-        expect(harness.sqlite.pragma('foreign_key_check')).toEqual([])
+        expect(harness.sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     })
 
     it('rolls back relational rows and the marker when semantic verification fails', async () => {

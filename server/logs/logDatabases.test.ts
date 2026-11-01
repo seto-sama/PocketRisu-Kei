@@ -43,9 +43,9 @@ describe('log database migration', () => {
             const base = process.argv[1];
             const save = path.join(process.cwd(), 'save');
             fs.mkdirSync(save, { recursive: true });
-            const Database = require(path.join(base, '../sqlite.cjs'));
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
 
-            const oldSystem = new Database(path.join(save, 'logs.db'));
+            const oldSystem = openDatabase(path.join(save, 'logs.db'));
             oldSystem.exec(\`
                 CREATE TABLE logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL,
@@ -65,7 +65,7 @@ describe('log database migration', () => {
             oldSystem.prepare('DELETE FROM logs WHERE id = 50').run();
             oldSystem.close();
 
-            const oldRequests = new Database(path.join(save, 'request-logs.db'));
+            const oldRequests = openDatabase(path.join(save, 'request-logs.db'));
             oldRequests.exec(\`
                 CREATE TABLE request_logs (
                     id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL,
@@ -112,7 +112,7 @@ describe('log database migration', () => {
             oldRequests.close();
 
             // An older usage.db can contain rows already deleted from request-logs.db.
-            const staleUsage = new Database(path.join(save, 'usage.db'));
+            const staleUsage = openDatabase(path.join(save, 'usage.db'));
             staleUsage.exec(\`
                 CREATE TABLE generation_usage (
                     job_id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, chat_id TEXT,
@@ -144,7 +144,7 @@ describe('log database migration', () => {
             const requests = require(path.join(base, 'requestLogs.cjs'));
             const usage = require(path.join(base, 'usageDb.cjs'));
             logs.addLog({ timestamp: 300, level: 'info', origin: 'server', message: 'after migration' });
-            const databases = stores.requestDb.pragma('database_list');
+            const databases = stores.requestDb.prepare('PRAGMA database_list').all();
             const mainTables = stores.requestDb.prepare(
                 "SELECT name FROM main.sqlite_master WHERE type = 'table' ORDER BY name",
             ).all().map(row => row.name);
@@ -231,9 +231,9 @@ describe('log database migration', () => {
             const base = process.argv[1];
             const save = path.join(process.cwd(), 'save');
             fs.mkdirSync(save, { recursive: true });
-            const Database = require(path.join(base, '../sqlite.cjs'));
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
 
-            const oldRequests = new Database(path.join(save, 'request-logs.db'));
+            const oldRequests = openDatabase(path.join(save, 'request-logs.db'));
             oldRequests.exec(\`
                 CREATE TABLE request_logs (
                     id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL,
@@ -282,7 +282,7 @@ describe('log database migration', () => {
             \`).run();
             oldRequests.close();
 
-            const staleUsage = new Database(path.join(save, 'usage.db'));
+            const staleUsage = openDatabase(path.join(save, 'usage.db'));
             staleUsage.exec(\`
                 CREATE TABLE generation_usage (
                     job_id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, provider TEXT,
@@ -351,9 +351,9 @@ describe('log database migration', () => {
             const base = process.argv[1];
             const save = path.join(process.cwd(), 'save');
             fs.mkdirSync(save, { recursive: true });
-            const Database = require(path.join(base, '../sqlite.cjs'));
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
 
-            const consolidated = new Database(path.join(save, 'request-logs.db'));
+            const consolidated = openDatabase(path.join(save, 'request-logs.db'));
             consolidated.exec(\`
                 CREATE TABLE request_logs (
                     id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL,
@@ -374,7 +374,7 @@ describe('log database migration', () => {
             \`).run();
             consolidated.close();
 
-            const legacyUsage = new Database(path.join(save, 'usage.db'));
+            const legacyUsage = openDatabase(path.join(save, 'usage.db'));
             legacyUsage.exec(\`
                 CREATE TABLE generation_usage (
                     job_id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, chat_id TEXT,
@@ -436,9 +436,9 @@ describe('log database migration', () => {
             const base = process.argv[1];
             const save = path.join(process.cwd(), 'save');
             fs.mkdirSync(save, { recursive: true });
-            const Database = require(path.join(base, '../sqlite.cjs'));
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
 
-            const oldRequests = new Database(path.join(save, 'request-logs.db'));
+            const oldRequests = openDatabase(path.join(save, 'request-logs.db'));
             oldRequests.exec(\`
                 CREATE TABLE request_logs (
                     id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL,
@@ -447,7 +447,7 @@ describe('log database migration', () => {
                 );
             \`);
             oldRequests.close();
-            const oldUsage = new Database(path.join(save, 'usage.db'));
+            const oldUsage = openDatabase(path.join(save, 'usage.db'));
             oldUsage.exec(\`
                 CREATE TABLE generation_usage (
                     job_id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, chat_id TEXT,
@@ -490,11 +490,11 @@ describe('log database migration', () => {
             const save = path.join(process.cwd(), 'save');
             fs.mkdirSync(save, { recursive: true });
             const sourcePath = path.join(save, 'request-logs.db');
-            const Database = require(path.join(base, '../sqlite.cjs'));
-            const source = new Database(sourcePath);
-            source.pragma('journal_mode = WAL');
-            source.pragma('synchronous = FULL');
-            source.pragma('wal_autocheckpoint = 0');
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
+            const source = openDatabase(sourcePath);
+            source.exec('PRAGMA journal_mode = WAL');
+            source.exec('PRAGMA synchronous = FULL');
+            source.exec('PRAGMA wal_autocheckpoint = 0');
             source.exec(\`
                 CREATE TABLE request_logs (
                     id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL,
@@ -523,9 +523,9 @@ describe('log database migration', () => {
             const save = path.join(process.cwd(), 'save');
             const stores = require(path.join(base, 'logDatabases.cjs'));
             const requests = require(path.join(base, 'requestLogs.cjs'));
-            const Database = require(path.join(base, '../sqlite.cjs'));
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
             const originPath = path.join(save, 'migration', 'origin', 'request-logs', 'request-logs.db');
-            const origin = new Database(originPath, { readOnly: true });
+            const origin = openDatabase(originPath, { readOnly: true });
             const originRow = origin.prepare(
                 'SELECT id, body, header, response FROM request_logs WHERE id = ?'
             ).get('wal-request');

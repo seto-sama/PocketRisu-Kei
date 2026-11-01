@@ -36,6 +36,7 @@ const { decodeBinaryRequest, binaryBodyParser } = require('../../utils/binaryHtt
 const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 const { createProviderCapacityError } = require('../capacity.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
+const { isUniqueConstraintError } = require('../../sqlite.cjs');
 const {
     createGenerationJobCancellationService,
 } = require('../generationWorkflowService.cjs');
@@ -304,7 +305,7 @@ function installRevenantJobRoutes(app, deps) {
                 });
                 return;
             }
-            if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            if (isUniqueConstraintError(error)) {
                 // Another browser can enter pre-model recovery in the small
                 // window between workflow creation and observing the first
                 // durable main job. Both requests represent the same logical

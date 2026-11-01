@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { maskSensitive } = require('./logs.cjs');
 const { requestDb: db, scriptStore } = require('./logDatabases.cjs');
 const { extractRequestModel } = require('./requestMetadata.cjs');
@@ -7,69 +8,8 @@ const { setRequestLogMaxBytes: saveRequestLogMaxBytes } = require('./requestLogL
 
 const REQUEST_LOG_LIST_LIMIT = 100;
 
-const stmtUpsert = db.prepare(`
-    INSERT INTO metadata (
-        id, timestamp, date, url, success, response_type, chat_id,
-        status, client_id, platform, duration_ms, model
-    ) VALUES (
-        @id, @timestamp, @date, @url, @success, @responseType, @chatId,
-        @status, @clientId, @platform, @durationMs, @model
-    )
-    ON CONFLICT(id) DO UPDATE SET
-        timestamp = excluded.timestamp,
-        date = excluded.date,
-        url = excluded.url,
-        success = excluded.success,
-        response_type = excluded.response_type,
-        chat_id = excluded.chat_id,
-        status = excluded.status,
-        client_id = excluded.client_id,
-        platform = excluded.platform,
-        duration_ms = excluded.duration_ms,
-        model = excluded.model
-`);
-function metadataColumns(alias) {
-    return `${alias}.id, ${alias}.timestamp, ${alias}.date, ${alias}.url, ${alias}.success,
-        ${alias}.response_type AS responseType, ${alias}.chat_id AS chatId, ${alias}.status,
-        ${alias}.client_id AS clientId, ${alias}.platform, ${alias}.duration_ms AS responseDurationMs,
-        ${alias}.model`;
-}
+const sql = db.createTagStore();
 
-const stmtQuery = db.prepare(`
-    SELECT ${metadataColumns('log')} FROM metadata AS log
-    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT ?
-`);
-const stmtQueryBefore = db.prepare(`
-    SELECT ${metadataColumns('log')}
-    FROM metadata AS log JOIN metadata AS boundary ON boundary.id = ?
-    WHERE log.timestamp < boundary.timestamp
-        OR (log.timestamp = boundary.timestamp AND log.rowid < boundary.rowid)
-    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT ?
-`);
-const stmtCount = db.prepare('SELECT COUNT(*) AS total FROM metadata');
-const stmtMetadataById = db.prepare(`
-    SELECT ${metadataColumns('log')} FROM metadata AS log WHERE log.id = ?
-`);
-const detailColumns = `${metadataColumns('log')},
-    COALESCE(payload.body, '') AS body, COALESCE(payload.header, '') AS header,
-    COALESCE(payload.response, '') AS response, payload.id IS NOT NULL AS payloadAvailable`;
-const stmtQueryById = db.prepare(`
-    SELECT ${detailColumns} FROM metadata AS log
-    LEFT JOIN request_script.script AS payload ON payload.id = log.id WHERE log.id = ?
-`);
-const stmtQueryByChatId = db.prepare(`
-    SELECT ${detailColumns} FROM metadata AS log
-    LEFT JOIN request_script.script AS payload ON payload.id = log.id WHERE log.chat_id = ?
-    ORDER BY log.timestamp DESC, log.rowid DESC LIMIT 1
-`);
-const stmtClearAll = db.prepare('DELETE FROM metadata');
-const stmtDeleteById = db.prepare('DELETE FROM metadata WHERE id = ?');
-const stmtUpdateById = db.prepare(`
-    UPDATE metadata
-    SET success = @success, status = COALESCE(@status, status), response_type = 'stream',
-        duration_ms = MAX(0, @completedAt - timestamp)
-    WHERE id = @id
-`);
 function sanitize(value) {
     return maskSensitive(String(value ?? ''));
 }
@@ -93,21 +33,31 @@ function normalizeLog(log) {
     };
 }
 
-const writeRequestLog = db.transaction(log => {
-    stmtUpsert.run(log);
-    scriptStore.upsert(log);
-});
-const updateResponse = db.transaction(log => {
-    if (stmtUpdateById.run(log).changes !== 1) return false;
-    scriptStore.updateResponse(log);
-    return true;
-});
-
-function addRequestLog(log) {
-    writeRequestLog.immediate(normalizeLog(log));
+function writeImmediately(fn) {
+    return withTransaction(db, fn, 'IMMEDIATE');
 }
 
-const trimScripts = db.transaction(() => scriptStore.trim());
+function addRequestLog(log) {
+    const entry = normalizeLog(log);
+    writeImmediately(() => {
+        sql.run`
+            INSERT INTO metadata (
+                id, timestamp, date, url, success, response_type, chat_id,
+                status, client_id, platform, duration_ms, model
+            ) VALUES (
+                ${entry.id}, ${entry.timestamp}, ${entry.date}, ${entry.url}, ${entry.success},
+                ${entry.responseType}, ${entry.chatId}, ${entry.status}, ${entry.clientId},
+                ${entry.platform}, ${entry.durationMs}, ${entry.model}
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                timestamp = excluded.timestamp, date = excluded.date, url = excluded.url,
+                success = excluded.success, response_type = excluded.response_type,
+                chat_id = excluded.chat_id, status = excluded.status, client_id = excluded.client_id,
+                platform = excluded.platform, duration_ms = excluded.duration_ms, model = excluded.model
+        `;
+        scriptStore.upsert(entry);
+    });
+}
 
 function getRequestLogStorage() {
     return scriptStore.getStorage();
@@ -115,44 +65,56 @@ function getRequestLogStorage() {
 
 function setRequestLogMaxBytes(maxBytes) {
     saveRequestLogMaxBytes(maxBytes);
-    trimScripts.immediate();
+    writeImmediately(() => scriptStore.trim());
     return getRequestLogStorage();
 }
 
-const clearLogs = db.transaction(scope => {
-    scriptStore.clear();
-    if (scope === 'all') stmtClearAll.run();
-});
-
 function clearRequestLogs(scope) {
-    clearLogs.immediate(scope);
+    writeImmediately(() => {
+        scriptStore.clear();
+        if (scope === 'all') sql.run`DELETE FROM metadata`;
+    });
 }
 
-const deleteLog = db.transaction(id => {
-    scriptStore.delete(id);
-    return stmtDeleteById.run(id).changes === 1;
-});
-
 function deleteRequestLog(id) {
-    return deleteLog.immediate(String(id).slice(0, 128));
+    const key = String(id).slice(0, 128);
+    return writeImmediately(() => {
+        scriptStore.delete(key);
+        return sql.run`DELETE FROM metadata WHERE id = ${key}`.changes === 1;
+    });
 }
 
 function updateRequestLogResponseById(id, response, status, success = true, completedAt = Date.now()) {
     if (!id) return false;
-    const text = sanitize(response);
-    return updateResponse.immediate({
-        id: String(id).slice(0, 128), response: text,
+    const entry = {
+        id: String(id).slice(0, 128), response: sanitize(response),
         success: success ? 1 : 0, status: Number.isInteger(status) ? status : null,
         completedAt: Number.isFinite(completedAt) ? Math.round(completedAt) : Date.now(),
+    };
+    return writeImmediately(() => {
+        const { changes } = sql.run`
+            UPDATE metadata
+            SET success = ${entry.success}, status = COALESCE(${entry.status}, status), response_type = 'stream',
+                duration_ms = MAX(0, ${entry.completedAt} - timestamp)
+            WHERE id = ${entry.id}
+        `;
+        if (changes !== 1) return false;
+        scriptStore.updateResponse(entry);
+        return true;
     });
 }
 
+// Rows are read as stored (`log.*`) and shaped here, so queries never repeat a column list.
 function mapRequestLog(row) {
     if (!row) return null;
+    const {
+        response_type: responseType, chat_id: chatId, client_id: clientId,
+        duration_ms: responseDurationMs, payloadAvailable, ...log
+    } = row;
     return {
-        ...row,
-        success: row.success === 1,
-        ...(row.payloadAvailable !== undefined ? { payloadAvailable: row.payloadAvailable === 1 } : {}),
+        ...log, responseType, chatId, clientId, responseDurationMs,
+        success: log.success === 1,
+        ...(payloadAvailable !== undefined ? { payloadAvailable: payloadAvailable === 1 } : {}),
     };
 }
 
@@ -160,28 +122,43 @@ function queryRequestLogs(options = {}) {
     if (typeof options === 'number') options = { limit: options };
     const safeLimit = Math.min(Math.max(Number(options.limit) || REQUEST_LOG_LIST_LIMIT, 1), REQUEST_LOG_LIST_LIMIT);
     const rows = options.beforeId
-        ? stmtQueryBefore.all(String(options.beforeId).slice(0, 128), safeLimit)
-        : stmtQuery.all(safeLimit);
+        ? sql.all`
+            SELECT * FROM metadata
+            WHERE (timestamp, rowid) < (SELECT timestamp, rowid FROM metadata WHERE id = ${String(options.beforeId).slice(0, 128)})
+            ORDER BY timestamp DESC, rowid DESC LIMIT ${safeLimit}
+        `
+        : sql.all`SELECT * FROM metadata ORDER BY timestamp DESC, rowid DESC LIMIT ${safeLimit}`;
     return rows.map(mapRequestLog);
 }
 
 function countRequestLogs() {
-    return stmtCount.get().total;
+    return sql.get`SELECT COUNT(*) AS total FROM metadata`.total;
 }
 
 function queryRequestLogById(id) {
     if (!id) return null;
-    return mapRequestLog(stmtQueryById.get(String(id).slice(0, 128)));
+    return mapRequestLog(sql.get`
+        SELECT log.*, COALESCE(payload.body, '') AS body, COALESCE(payload.header, '') AS header,
+            COALESCE(payload.response, '') AS response, payload.id IS NOT NULL AS payloadAvailable
+        FROM metadata AS log LEFT JOIN request_script.script AS payload ON payload.id = log.id
+        WHERE log.id = ${String(id).slice(0, 128)}
+    `);
 }
 
 function queryRequestLogMetadataById(id) {
     if (!id) return null;
-    return mapRequestLog(stmtMetadataById.get(String(id).slice(0, 128)));
+    return mapRequestLog(sql.get`SELECT * FROM metadata WHERE id = ${String(id).slice(0, 128)}`);
 }
 
 function queryRequestLogByChatId(chatId) {
     if (!chatId) return null;
-    return mapRequestLog(stmtQueryByChatId.get(String(chatId).slice(0, 128)));
+    return mapRequestLog(sql.get`
+        SELECT log.*, COALESCE(payload.body, '') AS body, COALESCE(payload.header, '') AS header,
+            COALESCE(payload.response, '') AS response, payload.id IS NOT NULL AS payloadAvailable
+        FROM metadata AS log LEFT JOIN request_script.script AS payload ON payload.id = log.id
+        WHERE log.chat_id = ${String(chatId).slice(0, 128)}
+        ORDER BY log.timestamp DESC, log.rowid DESC LIMIT 1
+    `);
 }
 
 function enrichRequestLogs(logs, getUsageByJobIds) {

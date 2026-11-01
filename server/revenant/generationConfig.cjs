@@ -15,6 +15,5 @@ function normalizeGenerationRequestTimeoutMs(value) {
 
 module.exports = {
     GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
-    GENERATION_REQUEST_MAX_TIMEOUT_MS,
     normalizeGenerationRequestTimeoutMs,
 };

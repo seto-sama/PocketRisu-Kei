@@ -1,6 +1,6 @@
 'use strict';
 
-const Database = require('../../sqlite.cjs');
+const { columnNames, openDatabase, withTransaction } = require('../../sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const { recoverInterruptedGenerationWork } = require('./restart.cjs');
@@ -13,12 +13,11 @@ if (!fs.existsSync(saveDir)) {
 const revenantDir = path.join(saveDir, 'revenant');
 fs.mkdirSync(revenantDir, { recursive: true });
 const dbPath = path.join(revenantDir, 'revenant.db');
-const db = new Database(dbPath);
+const db = openDatabase(dbPath);
 
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = FULL');
-db.pragma('busy_timeout = 5000');
-db.pragma('journal_size_limit = 67108864');
+db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA journal_size_limit = 67108864');
+// Views are rebuilt after the migrations below so they never block an ALTER TABLE.
+db.exec('DROP VIEW IF EXISTS recoverable_main_jobs');
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS generation_jobs (
@@ -123,9 +122,7 @@ db.exec(`
 `);
 db.exec(`DROP INDEX IF EXISTS idx_generation_jobs_pending`);
 
-const generationColumns = new Set(
-    db.prepare(`PRAGMA table_info(generation_jobs)`).all().map(column => column.name)
-);
+const generationColumns = columnNames(db, 'generation_jobs');
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
 }
@@ -145,7 +142,7 @@ if (!generationColumns.has('response_decoder')) {
     // Journals written before requests carried their decoder were replayed
     // with the adapter defaults; keep them rebuildable the same way. One
     // transaction, so an interrupted startup cannot skip the backfill.
-    db.transaction(() => {
+    withTransaction(db, () => {
         db.exec(`ALTER TABLE generation_jobs ADD COLUMN response_decoder TEXT`);
         db.exec(`
             UPDATE generation_jobs
@@ -159,7 +156,7 @@ if (!generationColumns.has('response_decoder')) {
             )
         `);
         db.exec(`ALTER TABLE generation_jobs DROP COLUMN streaming`);
-    })();
+    });
 }
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);
@@ -175,6 +172,25 @@ db.exec(`
       AND character_id IS NOT NULL
       AND room_id IS NOT NULL
       AND status IN ('queued', 'generating')
+`);
+
+db.exec(`
+    CREATE VIEW recoverable_main_jobs AS
+    SELECT * FROM generation_jobs
+    WHERE
+        chat_id IS NOT NULL
+        AND job_type = 'model'
+        AND status IN ('queued', 'generating', 'generated', 'cancelled', 'interrupted', 'failed_partial', 'failed')
+        AND (
+          status IN ('queued', 'generating')
+          OR length(normalized_projection) > 0
+          OR (
+              raw_bytes > 0
+              AND response_status >= 200
+              AND response_status < 300
+          )
+        )
+        AND materialized_at IS NULL
 `);
 
 module.exports = { db };
