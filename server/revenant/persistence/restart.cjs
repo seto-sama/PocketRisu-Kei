@@ -9,8 +9,9 @@ const RESTART_ERROR = 'Server restarted during active work';
  * process-local executors cannot be replayed without risking duplicate work.
  */
 function recoverInterruptedGenerationWork(db, restartAt = Date.now()) {
+    const sql = db.createTagStore();
     withTransaction(db, () => {
-        db.prepare(`
+        sql.run`
             UPDATE generation_jobs
             SET status = CASE
                     WHEN status = 'generating' THEN 'interrupted'
@@ -28,53 +29,53 @@ function recoverInterruptedGenerationWork(db, restartAt = Date.now()) {
                 END,
                 completed_at = CASE
                     WHEN status IN ('queued', 'generating')
-                        THEN COALESCE(completed_at, ?)
+                        THEN COALESCE(completed_at, ${restartAt})
                     ELSE completed_at
                 END,
-                materialized_at = COALESCE(materialized_at, ?),
-                updated_at = ?
+                materialized_at = COALESCE(materialized_at, ${restartAt}),
+                updated_at = ${restartAt}
             WHERE materialized_at IS NULL OR status IN ('queued', 'generating')
-        `).run(restartAt, restartAt, restartAt);
+        `;
 
-        db.prepare(`
+        sql.run`
             UPDATE generation_workflow_steps
             SET status = 'failed',
                 metadata = json_patch(
                     CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
-                    json_object('schemaVersion', 1, 'error', ?)
+                    json_object('schemaVersion', 1, 'error', ${RESTART_ERROR})
                 ),
-                completed_at = COALESCE(completed_at, ?),
-                updated_at = ?
+                completed_at = COALESCE(completed_at, ${restartAt}),
+                updated_at = ${restartAt}
             WHERE status NOT IN ('completed', 'skipped', 'failed')
               AND workflow_id IN (
                   SELECT workflow_id FROM generation_workflows WHERE status = 'active'
               )
-        `).run(RESTART_ERROR, restartAt, restartAt);
+        `;
 
-        db.prepare(`
+        sql.run`
             UPDATE generation_workflow_step_executions
-            SET status = 'failed', completed_at = COALESCE(completed_at, ?), updated_at = ?
+            SET status = 'failed', completed_at = COALESCE(completed_at, ${restartAt}), updated_at = ${restartAt}
             WHERE status NOT IN ('completed', 'skipped', 'failed')
               AND workflow_id IN (
                   SELECT workflow_id FROM generation_workflows WHERE status = 'active'
               )
-        `).run(restartAt, restartAt);
+        `;
 
-        db.prepare(`
+        sql.run`
             UPDATE generation_workflow_executions
             SET status = 'failed', recipe = '{}', result = NULL,
-                error = 'server_restart', completed_at = COALESCE(completed_at, ?), updated_at = ?
+                error = 'server_restart', completed_at = COALESCE(completed_at, ${restartAt}), updated_at = ${restartAt}
             WHERE status IN ('queued', 'running')
               AND workflow_id IN (
                   SELECT workflow_id FROM generation_workflows WHERE status = 'active'
               )
-        `).run(restartAt, restartAt);
+        `;
 
-        db.prepare(`
+        sql.run`
             UPDATE generation_workflows
-            SET status = 'failed', completed_at = COALESCE(completed_at, ?), updated_at = ?
+            SET status = 'failed', completed_at = COALESCE(completed_at, ${restartAt}), updated_at = ${restartAt}
             WHERE status = 'active'
-        `).run(restartAt, restartAt);
+        `;
     });
 }
 

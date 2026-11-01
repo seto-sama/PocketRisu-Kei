@@ -4,7 +4,6 @@ const { isUniqueConstraintError, withTransaction } = require('../../sqlite.cjs')
 const { encodeGenerationRequest, decodeGenerationRequest } = require('../protocol.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
-const { createGenerationStatements } = require('./statements.cjs');
 const {
     REVENANT_CAPACITY,
     createWorkflowCapacityError,
@@ -13,84 +12,64 @@ const {
 const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
 
-const {
-    stmtCreate,
-    stmtGet,
-    stmtGetPendingProviderProjectionForExecution,
-    stmtSetGenerating,
-    stmtSetHeaders,
-    stmtFinish,
-    stmtSetProjection,
-    stmtSetProviderResult,
-    stmtSetProjectionError,
-    stmtUpdateMetadata,
-    stmtListRecoverable,
-    stmtGetEarlierRecoverableWorkflowJob,
-    stmtListRecoverableAuxiliary,
-    stmtListNeedingProjection,
-    stmtListQueuedDispatches,
-    stmtDispatchState,
-    stmtClaimDispatch,
-    stmtMarkMaterialized,
-    stmtAcknowledgeSupersededWorkflowStepJobs,
-    stmtMaterializedPayloadTotal,
-    stmtDeleteJob,
-    stmtAllJobIds,
-    stmtSetRawBytes,
-    stmtExpiredTerminalJobs,
-    stmtCreateWorkflow,
-    stmtCreateWorkflowChatSnapshot,
-    stmtGetWorkflowChatSnapshot,
-    stmtCreateWorkflowStep,
-    stmtGetWorkflow,
-    stmtGetActiveWorkflowForRoom,
-    stmtCountActiveWorkflows,
-    stmtListWorkflowSteps,
-    stmtGetWorkflowStep,
-    stmtListReadyChatWorkflowJobs,
-    stmtClaimWorkflowStep,
-    stmtGetStepExecution,
-    stmtListStepExecutions,
-    stmtCreateStepExecution,
-    stmtUpdateStepExecution,
-    stmtNextWorkflowStepOrder,
-    stmtInsertDynamicWorkflowStep,
-    stmtUpdateWorkflowStep,
-    stmtTouchWorkflow,
-    stmtFinishWorkflow,
-    stmtCancelWorkflowExecutions,
-    stmtCancelQueuedWorkflowExecutions,
-    stmtListActiveWorkflowJobs,
-    stmtListActiveStepExecutionJobs,
-    stmtAcknowledgeStepExecutionJobs,
-    stmtCancelStepExecutionJobs,
-    stmtAcknowledgeWorkflowJobs,
-    stmtAcknowledgeCancelledWorkflowJobs,
-    stmtCancelWorkflowJobs,
-    stmtFailActiveWorkflowSteps,
-    stmtFailActiveStepExecutions,
-    stmtDeleteCompletedStepExecutions,
-    stmtDeleteCompletedWorkflowSteps,
-    stmtDeleteCompletedWorkflowChatSnapshots,
-    stmtDeleteCompletedWorkflows,
-    stmtPutWorkflowExecution,
-    stmtGetWorkflowExecution,
-    stmtListQueuedWorkflowExecutions,
-    stmtClaimWorkflowExecution,
-    stmtFinishWorkflowExecution,
-    stmtListWorkflowJobs,
-    stmtAcknowledgeTerminalRoomJobs,
-    stmtDeleteCompletedWorkflowExecutions,
-} = createGenerationStatements(db);
+const sql = db.createTagStore();
+const jsonOrNull = value => (value ? JSON.stringify(value) : null);
+const getJobRow = jobId => sql.get`SELECT * FROM generation_jobs WHERE job_id = ${jobId}`;
+const allJobIds = () => sql.all`SELECT job_id, workflow_id FROM generation_jobs`;
+const setRawBytes = (rawBytes, jobId) => sql.run`UPDATE generation_jobs SET raw_bytes = ${rawBytes} WHERE job_id = ${jobId}`;
+const getWorkflowRow = workflowId => sql.get`SELECT * FROM generation_workflows WHERE workflow_id = ${workflowId}`;
+const getActiveWorkflowRow = (characterId, roomId) => sql.get`
+    SELECT * FROM generation_workflows
+    WHERE character_id = ${characterId} AND room_id = ${roomId} AND status = 'active'
+    LIMIT 1
+`;
+const getWorkflowStepRow = (workflowId, stepKey) => sql.get`
+    SELECT * FROM generation_workflow_steps WHERE workflow_id = ${workflowId} AND step_key = ${stepKey}
+`;
+const getStepExecutionRow = executionId => sql.get`
+    SELECT * FROM generation_workflow_step_executions WHERE execution_id = ${executionId}
+`;
+const updateStepExecution = (status, now, executionId) => sql.run`
+    UPDATE generation_workflow_step_executions
+    SET status = ${status},
+        completed_at = CASE
+            WHEN ${status} IN ('completed', 'skipped', 'failed') THEN ${now}
+            ELSE NULL
+        END,
+        updated_at = ${now}
+    WHERE execution_id = ${executionId}
+`;
+const updateWorkflowStep = (status, metadata, now, workflowId, stepKey) => sql.run`
+    UPDATE generation_workflow_steps
+    SET status = ${status}, metadata = COALESCE(${metadata}, metadata),
+        started_at = CASE
+            WHEN ${status} IN ('running', 'waiting_client', 'waiting_job') THEN COALESCE(started_at, ${now})
+            ELSE started_at
+        END,
+        completed_at = CASE
+            WHEN ${status} IN ('completed', 'skipped', 'failed') THEN ${now}
+            ELSE NULL
+        END,
+        updated_at = ${now}
+    WHERE workflow_id = ${workflowId} AND step_key = ${stepKey}
+`;
+const touchWorkflow = (now, workflowId) => sql.run`
+    UPDATE generation_workflows SET updated_at = ${now} WHERE workflow_id = ${workflowId} AND status = 'active'
+`;
+const finishWorkflow = (status, now, workflowId) => sql.run`
+    UPDATE generation_workflows
+    SET status = ${status}, completed_at = ${now}, updated_at = ${now}
+    WHERE workflow_id = ${workflowId} AND status = 'active'
+`;
+const getWorkflowExecutionRow = workflowId => sql.get`
+    SELECT * FROM generation_workflow_executions WHERE workflow_id = ${workflowId}
+`;
 
 // A process may stop after file append but before the terminal metadata update.
 // The append-only file is authoritative, so reconcile its length on boot.
 withTransaction(db, () => {
-    for (const row of stmtAllJobIds.all()) {
-        stmtSetRawBytes.run(
-            generationJournalStore.size(row.workflow_id, row.job_id),
-            row.job_id,
-        );
+    for (const row of allJobIds()) {
+        setRawBytes(generationJournalStore.size(row.workflow_id, row.job_id), row.job_id);
     }
 });
 
@@ -105,8 +84,11 @@ function rowToWorkflowStep(row) {
         startedAt: row.started_at || undefined,
         completedAt: row.completed_at || undefined,
         updatedAt: row.updated_at,
-        executions: stmtListStepExecutions
-            .all(row.workflow_id, row.step_key)
+        executions: sql.all`
+            SELECT * FROM generation_workflow_step_executions
+            WHERE workflow_id = ${row.workflow_id} AND step_key = ${row.step_key}
+            ORDER BY attempt ASC
+        `
             .map(rowToStepExecution),
     };
 }
@@ -137,44 +119,72 @@ function rowToWorkflow(row, includeSteps = true) {
         updatedAt: row.updated_at,
         completedAt: row.completed_at || undefined,
         ...(includeSteps
-            ? { steps: stmtListWorkflowSteps.all(row.workflow_id).map(rowToWorkflowStep) }
+            ? { steps: sql.all`
+                SELECT * FROM generation_workflow_steps
+                WHERE workflow_id = ${row.workflow_id}
+                ORDER BY step_order ASC
+            `.map(rowToWorkflowStep) }
             : {}),
     };
 }
 
 function getGenerationWorkflowInputChat(workflowId) {
-    const snapshot = stmtGetWorkflowChatSnapshot.get(workflowId);
+    const snapshot = sql.get`
+        SELECT input_chat FROM workflowChatSnapshots WHERE workflow_id = ${workflowId}
+    `;
     return snapshot?.input_chat ? JSON.parse(snapshot.input_chat) : undefined;
 }
 
 function getGenerationWorkflow(workflowId, includeSteps = true) {
-    return rowToWorkflow(stmtGetWorkflow.get(workflowId), includeSteps);
+    return rowToWorkflow(getWorkflowRow(workflowId), includeSteps);
 }
 
 function getActiveGenerationWorkflow(characterId, roomId, includeSteps = true) {
     return rowToWorkflow(
-        stmtGetActiveWorkflowForRoom.get(characterId, roomId),
+        getActiveWorkflowRow(characterId, roomId),
         includeSteps,
     );
 }
 
 function listReadyChatWorkflowJobs(limit = 20) {
-    return stmtListReadyChatWorkflowJobs
-        .all(Math.max(1, Math.min(100, Number(limit) || 20)))
+    return sql.all`
+        SELECT job_id
+        FROM generation_jobs
+        WHERE workflow_id IN (
+            SELECT workflow_id FROM generation_workflows
+            WHERE status = 'active' AND context IS NOT NULL
+        )
+          AND job_type = 'model'
+          AND workflow_step_key = 'model.main'
+          AND status = 'generated'
+          AND normalized_projection IS NOT NULL
+          AND COALESCE(
+            CASE
+                WHEN json_valid(normalized_projection)
+                    THEN json_extract(normalized_projection, '$.awaitingProviderResult')
+                ELSE 0
+            END,
+            0
+          ) <> 1
+          AND materialized_at IS NULL
+        ORDER BY completed_at ASC, created_at ASC
+        LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}
+    `
         .map(row => getGenerationJob(row.job_id, false))
         .filter(Boolean);
 }
 
 function claimGenerationWorkflowStep(workflowId, stepKey, expectedStatus = 'pending') {
     const now = Date.now();
-    if (stmtClaimWorkflowStep.run(
-        now,
-        now,
-        workflowId,
-        stepKey,
-        expectedStatus,
-        workflowId,
-    ).changes !== 1) return null;
+    if (sql.run`
+        UPDATE generation_workflow_steps
+        SET status = 'running', started_at = COALESCE(started_at, ${now}), updated_at = ${now}
+        WHERE workflow_id = ${workflowId} AND step_key = ${stepKey} AND status = ${expectedStatus}
+          AND EXISTS (
+              SELECT 1 FROM generation_workflows
+              WHERE workflow_id = ${workflowId} AND status = 'active'
+          )
+    `.changes !== 1) return null;
     return getGenerationWorkflow(workflowId);
 }
 
@@ -199,8 +209,8 @@ function claimGenerationWorkflowClientAction(
     isClientConnected,
 ) {
     return withTransaction(db, () => {
-        const workflow = stmtGetWorkflow.get(workflowId);
-        const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+        const workflow = getWorkflowRow(workflowId);
+        const row = getWorkflowStepRow(workflowId, stepKey);
         if (!workflow || workflow.status !== 'active' || row?.status !== 'waiting_client') return null;
         const metadata = parseStepMetadata(row);
         if (metadata.action?.actionId !== actionId) return null;
@@ -228,11 +238,8 @@ function claimGenerationWorkflowClientAction(
             expiresAt: now + Math.max(1000, Number(leaseMs) || CLIENT_ACTION_LEASE_MS),
         };
         metadata.clientClaim = claim;
-        stmtUpdateWorkflowStep.run(
-            'waiting_client', JSON.stringify(metadata), 'waiting_client', now,
-            'waiting_client', now, now, workflowId, stepKey,
-        );
-        stmtTouchWorkflow.run(now, workflowId);
+        updateWorkflowStep('waiting_client', JSON.stringify(metadata), now, workflowId, stepKey);
+        touchWorkflow(now, workflowId);
         return { busy: false, action: metadata.action, claim };
     });
 }
@@ -243,8 +250,8 @@ function hasGenerationWorkflowClientActionClaim(
     actionId,
     clientId,
 ) {
-    const workflow = stmtGetWorkflow.get(workflowId);
-    const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+    const workflow = getWorkflowRow(workflowId);
+    const row = getWorkflowStepRow(workflowId, stepKey);
     if (!workflow || workflow.status !== 'active' || row?.status !== 'waiting_client') return false;
     const metadata = parseStepMetadata(row);
     return metadata.action?.actionId === actionId
@@ -259,8 +266,8 @@ function resolveGenerationWorkflowClientAction(
     response,
 ) {
     return withTransaction(db, () => {
-        const workflow = stmtGetWorkflow.get(workflowId);
-        const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+        const workflow = getWorkflowRow(workflowId);
+        const row = getWorkflowStepRow(workflowId, stepKey);
         if (!workflow || workflow.status !== 'active' || !row) return null;
         const metadata = parseStepMetadata(row);
         if (Object.prototype.hasOwnProperty.call(metadata.responses || {}, actionId)) {
@@ -274,11 +281,8 @@ function resolveGenerationWorkflowClientAction(
         }
         const responses = { ...(metadata.responses || {}), [actionId]: structuredClone(response) };
         const nextMetadata = { schemaVersion: 1, responses };
-        stmtUpdateWorkflowStep.run(
-            'pending', JSON.stringify(nextMetadata), 'pending', now,
-            'pending', now, now, workflowId, stepKey,
-        );
-        stmtTouchWorkflow.run(now, workflowId);
+        updateWorkflowStep('pending', JSON.stringify(nextMetadata), now, workflowId, stepKey);
+        touchWorkflow(now, workflowId);
         return { alreadyResolved: false };
     });
 }
@@ -308,39 +312,45 @@ function createGenerationWorkflow(input) {
     let activeWorkflowId;
     try {
         withTransaction(db, () => {
-            const activeWorkflow = stmtGetActiveWorkflowForRoom.get(
-                input.characterId,
-                input.roomId,
-            );
+            const activeWorkflow = getActiveWorkflowRow(input.characterId, input.roomId);
             if (activeWorkflow) {
                 activeWorkflowId = activeWorkflow.workflow_id;
                 return;
             }
-            const activeCount = Number(stmtCountActiveWorkflows.get()?.count) || 0;
+            const activeCount = Number(sql.get`
+                SELECT COUNT(*) AS count FROM generation_workflows WHERE status = 'active'
+            `?.count) || 0;
             if (activeCount >= REVENANT_CAPACITY.maxActiveWorkflows) {
                 throw createWorkflowCapacityError();
             }
-            stmtCreateWorkflow.run(
-                input.workflowId,
-                input.characterId,
-                input.roomId,
-                context ? JSON.stringify(context) : null,
-                now,
-                now,
-            );
+            sql.run`
+                INSERT INTO generation_workflows (
+                    workflow_id, character_id, room_id,
+                    plan_version, context, status, created_at, updated_at
+                ) VALUES (
+                    ${input.workflowId}, ${input.characterId}, ${input.roomId},
+                    1, ${jsonOrNull(context)}, 'active', ${now}, ${now}
+                )
+            `;
             if (inputChat) {
-                stmtCreateWorkflowChatSnapshot.run(
-                    input.workflowId,
-                    JSON.stringify(inputChat),
-                );
+                sql.run`
+                    INSERT INTO workflowChatSnapshots (workflow_id, input_chat)
+                    VALUES (${input.workflowId}, ${JSON.stringify(inputChat)})
+                `;
             }
             for (const step of input.plan) {
-                stmtCreateWorkflowStep.run({
-                    workflowId: input.workflowId,
-                    ...step,
-                    metadata: step.metadata ? JSON.stringify(step.metadata) : null,
-                    now,
-                });
+                sql.run`
+                    INSERT INTO generation_workflow_steps (
+                        workflow_id, step_key, step_order, kind, recovery_policy,
+                        status, metadata, started_at, completed_at, updated_at
+                    ) VALUES (
+                        ${input.workflowId}, ${step.key}, ${step.order}, ${step.kind}, ${step.recoveryPolicy},
+                        ${step.status}, ${jsonOrNull(step.metadata)},
+                        CASE WHEN ${step.status} = 'completed' THEN ${now} ELSE NULL END,
+                        CASE WHEN ${step.status} IN ('completed', 'skipped') THEN ${now} ELSE NULL END,
+                        ${now}
+                    )
+                `;
             }
         });
     } catch (error) {
@@ -367,40 +377,28 @@ function updateGenerationWorkflowStep(
     update,
     dynamic = undefined,
 ) {
-    const workflow = stmtGetWorkflow.get(workflowId);
+    const workflow = getWorkflowRow(workflowId);
     if (!workflow || workflow.status !== 'active') return false;
     const now = Date.now();
     withTransaction(db, () => {
-        if (!stmtGetWorkflowStep.get(workflowId, stepKey)) {
+        if (!getWorkflowStepRow(workflowId, stepKey)) {
             if (!dynamic) throw new Error(`Unknown generation workflow step: ${stepKey}`);
             const terminal = ['completed', 'skipped', 'failed'].includes(update.status);
-            stmtInsertDynamicWorkflowStep.run(
-                workflowId,
-                stepKey,
-                stmtNextWorkflowStepOrder.get(workflowId).next_order,
-                dynamic.kind,
-                dynamic.recoveryPolicy,
-                update.status,
-                update.metadata ? JSON.stringify(update.metadata) : null,
-                ['running', 'waiting_client', 'waiting_job'].includes(update.status) ? now : null,
-                terminal ? now : null,
-                now,
-            );
+            const startedAt = ['running', 'waiting_client', 'waiting_job'].includes(update.status) ? now : null;
+            sql.run`
+                INSERT INTO generation_workflow_steps (
+                    workflow_id, step_key, step_order, kind, recovery_policy,
+                    status, metadata, started_at, completed_at, updated_at
+                )
+                SELECT ${workflowId}, ${stepKey}, COALESCE(MAX(step_order), -1) + 1, ${dynamic.kind}, ${dynamic.recoveryPolicy},
+                    ${update.status}, ${jsonOrNull(update.metadata)}, ${startedAt}, ${terminal ? now : null}, ${now}
+                FROM generation_workflow_steps WHERE workflow_id = ${workflowId}
+            `;
         } else {
             const metadata = update.metadata ? JSON.stringify(update.metadata) : null;
-            stmtUpdateWorkflowStep.run(
-                update.status,
-                metadata,
-                update.status,
-                now,
-                update.status,
-                now,
-                now,
-                workflowId,
-                stepKey,
-            );
+            updateWorkflowStep(update.status, metadata, now, workflowId, stepKey);
         }
-        stmtTouchWorkflow.run(now, workflowId);
+        touchWorkflow(now, workflowId);
     });
     return true;
 }
@@ -409,8 +407,13 @@ function finishGenerationWorkflow(workflowId, status) {
     const now = Date.now();
     let changed = false;
     withTransaction(db, () => {
-        changed = stmtFinishWorkflow.run(status, now, now, workflowId).changes === 1;
-        if (changed) stmtCancelQueuedWorkflowExecutions.run(now, now, workflowId);
+        changed = finishWorkflow(status, now, workflowId).changes === 1;
+        if (changed) sql.run`
+            UPDATE generation_workflow_executions
+            SET status = 'failed', recipe = '{}', error = 'workflow_completed',
+                completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId} AND status = 'queued'
+        `;
     });
     return changed;
 }
@@ -419,11 +422,14 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
     if (!['cancelled', 'failed'].includes(terminalStatus)) {
         throw new Error(`Invalid workflow cancellation status: ${terminalStatus}`);
     }
-    const workflow = stmtGetWorkflow.get(workflowId);
+    const workflow = getWorkflowRow(workflowId);
     if (!workflow || workflow.status !== 'active') {
         return { changed: false, jobs: [] };
     }
-    const jobs = stmtListActiveWorkflowJobs.all(workflowId).map(row => ({
+    const jobs = sql.all`
+        SELECT job_id, status FROM generation_jobs
+        WHERE workflow_id = ${workflowId} AND status IN ('queued', 'generating')
+    `.map(row => ({
         jobId: row.job_id,
         status: row.status,
     }));
@@ -432,26 +438,55 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
         ? 'workflow_cancelled'
         : 'workflow_failed';
     withTransaction(db, () => {
-        stmtFinishWorkflow.run(terminalStatus, now, now, workflowId);
+        finishWorkflow(terminalStatus, now, workflowId);
         // Failed workflows discard all child output. A user cancellation keeps
         // the model journal unacknowledged until the server materializer has
         // committed its partial projection; auxiliary children are discarded.
         if (terminalStatus === 'cancelled') {
-            stmtAcknowledgeCancelledWorkflowJobs.run(now, workflowId);
+            sql.run`
+                UPDATE generation_jobs
+                SET materialized_at = COALESCE(materialized_at, ${now})
+                WHERE workflow_id = ${workflowId} AND COALESCE(job_type, 'model') <> 'model'
+            `;
         } else {
-            stmtAcknowledgeWorkflowJobs.run(now, workflowId);
+            sql.run`
+                UPDATE generation_jobs
+                SET materialized_at = COALESCE(materialized_at, ${now})
+                WHERE workflow_id = ${workflowId}
+            `;
         }
-        stmtCancelWorkflowJobs.run(finishReason, now, now, workflowId);
-        stmtCancelWorkflowExecutions.run(finishReason, now, now, workflowId);
-        stmtFailActiveWorkflowSteps.run(now, now, workflowId);
-        stmtFailActiveStepExecutions.run(now, now, workflowId);
+        sql.run`
+            UPDATE generation_jobs
+            SET status = 'cancelled', finish_reason = ${finishReason}, error = NULL,
+                request_spec = NULL,
+                completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId} AND status IN ('queued', 'generating')
+        `;
+        sql.run`
+            UPDATE generation_workflow_executions
+            SET status = 'failed', recipe = '{}', error = ${finishReason},
+                completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId} AND status IN ('queued', 'running')
+        `;
+        sql.run`
+            UPDATE generation_workflow_steps
+            SET status = 'failed', completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId}
+              AND status NOT IN ('completed', 'skipped', 'failed')
+        `;
+        sql.run`
+            UPDATE generation_workflow_step_executions
+            SET status = 'failed', completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId}
+              AND status NOT IN ('completed', 'skipped', 'failed')
+        `;
     });
     return { changed: true, jobs };
 }
 
 function cancelGenerationStepExecution(workflowId, executionId) {
-    const workflow = stmtGetWorkflow.get(workflowId);
-    const execution = stmtGetStepExecution.get(executionId);
+    const workflow = getWorkflowRow(workflowId);
+    const execution = getStepExecutionRow(executionId);
     if (
         !workflow
         || workflow.status !== 'active'
@@ -461,15 +496,29 @@ function cancelGenerationStepExecution(workflowId, executionId) {
     if (['completed', 'skipped', 'failed'].includes(execution.status)) {
         return { changed: false, jobs: [] };
     }
-    const jobs = stmtListActiveStepExecutionJobs.all(workflowId, executionId).map(row => ({
+    const jobs = sql.all`
+        SELECT job_id, status FROM generation_jobs
+        WHERE workflow_id = ${workflowId} AND step_execution_id = ${executionId}
+          AND status IN ('queued', 'generating')
+    `.map(row => ({
         jobId: row.job_id,
         status: row.status,
     }));
     const now = Date.now();
     withTransaction(db, () => {
-        stmtAcknowledgeStepExecutionJobs.run(now, now, workflowId, executionId);
-        stmtCancelStepExecutionJobs.run(now, now, workflowId, executionId);
-        stmtUpdateStepExecution.run('failed', 'failed', now, now, executionId);
+        sql.run`
+            UPDATE generation_jobs
+            SET materialized_at = COALESCE(materialized_at, ${now}), updated_at = ${now}
+            WHERE workflow_id = ${workflowId} AND step_execution_id = ${executionId}
+        `;
+        sql.run`
+            UPDATE generation_jobs
+            SET status = 'cancelled', finish_reason = 'step_cancelled', error = NULL,
+                request_spec = NULL, completed_at = ${now}, updated_at = ${now}
+            WHERE workflow_id = ${workflowId} AND step_execution_id = ${executionId}
+              AND status IN ('queued', 'generating')
+        `;
+        updateStepExecution('failed', now, executionId);
         updateGenerationWorkflowStep(workflowId, execution.step_key, { status: 'failed' });
     });
     return { changed: true, jobs, stepKey: execution.step_key };
@@ -491,61 +540,76 @@ function rowToWorkflowExecution(row, includeRecipe = false) {
 }
 
 function putGenerationWorkflowExecution(workflowId, kind, recipe) {
-    const workflow = stmtGetWorkflow.get(workflowId);
+    const workflow = getWorkflowRow(workflowId);
     if (!workflow || workflow.status !== 'active') return null;
     const now = Date.now();
-    stmtPutWorkflowExecution.run(workflowId, kind, JSON.stringify(recipe), now, now);
-    return rowToWorkflowExecution(stmtGetWorkflowExecution.get(workflowId));
+    sql.run`
+        INSERT INTO generation_workflow_executions (
+            workflow_id, execution_kind, status, recipe, created_at, updated_at
+        ) VALUES (${workflowId}, ${kind}, 'queued', ${JSON.stringify(recipe)}, ${now}, ${now})
+        ON CONFLICT(workflow_id) DO NOTHING
+    `;
+    return rowToWorkflowExecution(getWorkflowExecutionRow(workflowId));
 }
 
 function getGenerationWorkflowExecution(workflowId, includeRecipe = false) {
-    return rowToWorkflowExecution(stmtGetWorkflowExecution.get(workflowId), includeRecipe);
+    return rowToWorkflowExecution(getWorkflowExecutionRow(workflowId), includeRecipe);
 }
 
 function listQueuedGenerationWorkflowExecutions(limit = 20) {
-    return stmtListQueuedWorkflowExecutions
-        .all(Math.max(1, Math.min(100, Number(limit) || 20)))
+    return sql.all`
+        SELECT * FROM generation_workflow_executions
+        WHERE execution_kind = 'hypav3-selection' AND status = 'queued'
+        ORDER BY created_at ASC LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}
+    `
         .map(row => rowToWorkflowExecution(row, true));
 }
 
 function claimGenerationWorkflowExecution(workflowId) {
     const now = Date.now();
-    if (stmtClaimWorkflowExecution.run(now, workflowId).changes !== 1) return null;
+    if (sql.run`
+        UPDATE generation_workflow_executions
+        SET status = 'running', updated_at = ${now}
+        WHERE workflow_id = ${workflowId} AND status = 'queued'
+    `.changes !== 1) return null;
     return getGenerationWorkflowExecution(workflowId, true);
 }
 
 function finishGenerationWorkflowExecution(workflowId, status, result, error) {
     const now = Date.now();
-    return stmtFinishWorkflowExecution.run(
-        status,
-        result ? JSON.stringify(result) : null,
-        error || null,
-        now,
-        now,
-        workflowId,
-    ).changes === 1;
+    return sql.run`
+        UPDATE generation_workflow_executions
+        SET status = ${status}, result = ${jsonOrNull(result)}, error = ${error || null},
+            recipe = '{}', completed_at = ${now}, updated_at = ${now}
+        WHERE workflow_id = ${workflowId} AND status IN ('queued', 'running')
+    `.changes === 1;
 }
 
 function listGenerationWorkflowJobs(workflowId) {
-    return stmtListWorkflowJobs.all(workflowId).map(row => rowToJob(row, false));
+    return sql.all`
+        SELECT * FROM generation_jobs WHERE workflow_id = ${workflowId} ORDER BY created_at ASC
+    `.map(row => rowToJob(row, false));
 }
 
 /** A new user generation supersedes partial output from older terminal work. */
 function acknowledgeTerminalGenerationJobsForRoom(characterId, roomId) {
     const now = Date.now();
-    return stmtAcknowledgeTerminalRoomJobs.run(
-        now,
-        now,
-        characterId,
-        roomId,
-        characterId,
-        roomId,
-    ).changes;
+    return sql.run`
+        UPDATE generation_jobs
+        SET materialized_at = COALESCE(materialized_at, ${now}), updated_at = ${now}
+        WHERE character_id = ${characterId} AND room_id = ${roomId}
+          AND job_type = 'model' AND materialized_at IS NULL
+          AND workflow_id IN (
+              SELECT workflow_id FROM generation_workflows
+              WHERE character_id = ${characterId} AND room_id = ${roomId}
+                AND status IN ('cancelled', 'failed')
+          )
+    `.changes;
 }
 
 function ensureGenerationStepExecution(input, status) {
     if (!input.workflowId) return undefined;
-    const existing = stmtGetStepExecution.get(input.stepExecutionId);
+    const existing = getStepExecutionRow(input.stepExecutionId);
     if (existing) {
         if (
             existing.workflow_id !== input.workflowId
@@ -555,32 +619,26 @@ function ensureGenerationStepExecution(input, status) {
             error.httpStatus = 409;
             throw error;
         }
-        stmtUpdateStepExecution.run(
-            status,
-            status,
-            Date.now(),
-            Date.now(),
-            input.stepExecutionId,
-        );
-        return rowToStepExecution(stmtGetStepExecution.get(input.stepExecutionId));
+        updateStepExecution(status, Date.now(), input.stepExecutionId);
+        return rowToStepExecution(getStepExecutionRow(input.stepExecutionId));
     }
     const now = Date.now();
-    stmtCreateStepExecution.run(
-        input.stepExecutionId,
-        input.workflowId,
-        input.workflowStepKey,
-        status,
-        now,
-        now,
-        input.workflowId,
-        input.workflowStepKey,
-    );
-    return rowToStepExecution(stmtGetStepExecution.get(input.stepExecutionId));
+    sql.run`
+        INSERT INTO generation_workflow_step_executions (
+            execution_id, workflow_id, step_key, attempt, status,
+            created_at, updated_at
+        )
+        SELECT ${input.stepExecutionId}, ${input.workflowId}, ${input.workflowStepKey},
+            COALESCE(MAX(attempt), 0) + 1, ${status}, ${now}, ${now}
+        FROM generation_workflow_step_executions
+        WHERE workflow_id = ${input.workflowId} AND step_key = ${input.workflowStepKey}
+    `;
+    return rowToStepExecution(getStepExecutionRow(input.stepExecutionId));
 }
 
 function linkGenerationJobToWorkflow(input) {
     if (!input.workflowId) return;
-    const workflow = stmtGetWorkflow.get(input.workflowId);
+    const workflow = getWorkflowRow(input.workflowId);
     const context = workflow?.context ? JSON.parse(workflow.context) : undefined;
     const target = context?.kind === 'llm-request' ? context.target
         : { characterId: workflow?.character_id, roomId: workflow?.room_id };
@@ -607,7 +665,7 @@ function linkGenerationJobToWorkflow(input) {
 }
 
 function updateGenerationJobWorkflowStep(jobId, status) {
-    const row = stmtGet.get(jobId);
+    const row = getJobRow(jobId);
     if (!row?.workflow_id || !row.workflow_step_key) return;
     if (row.step_execution_id) {
         ensureGenerationStepExecution({
@@ -705,7 +763,7 @@ function createSingleGenerationJob(input) {
 function createGenerationJob(input) {
     const now = Date.now();
     const activeWorkflow = input.characterId && input.roomId
-        ? stmtGetActiveWorkflowForRoom.get(input.characterId, input.roomId)
+        ? getActiveWorkflowRow(input.characterId, input.roomId)
         : null;
     if (activeWorkflow && activeWorkflow.workflow_id !== input.workflowId
         && getGenerationWorkflow(input.workflowId, false)?.context?.kind !== 'llm-request') {
@@ -727,57 +785,79 @@ function createGenerationJob(input) {
                 && input.workflowStepKey === 'model.main'
                 && input.workflowId
                 && input.stepExecutionId
-                ? stmtGetPendingProviderProjectionForExecution.get(
-                    input.workflowId,
-                    input.workflowStepKey,
-                    input.stepExecutionId,
-                )
+                ? sql.get`
+                    SELECT adapter_kind
+                    FROM generation_jobs AS jobs
+                    WHERE workflow_id = ${input.workflowId}
+                      AND workflow_step_key = ${input.workflowStepKey}
+                      AND step_execution_id = ${input.stepExecutionId}
+                      AND job_type = 'model'
+                      AND status = 'generated'
+                      AND materialized_at IS NULL
+                      AND json_valid(normalized_projection)
+                      AND json_extract(normalized_projection, '$.source') = 'server'
+                      AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+                      AND EXISTS (
+                          SELECT 1 FROM generation_workflows AS workflows
+                          WHERE workflows.workflow_id = jobs.workflow_id
+                            AND workflows.status = 'active'
+                            AND json_valid(workflows.context)
+                            AND json_extract(workflows.context, '$.kind') = 'chat-generation'
+                      )
+                    ORDER BY rowid DESC
+                    LIMIT 1
+                `
                 : undefined;
+            const adapterKind = typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null;
+            const requestSpec = input.requestSpec
+                ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer)
+                : null;
             const normalizedProjection = pendingProviderRound
                 ? JSON.stringify({
                     schemaVersion: 1,
                     source: 'server',
-                    adapterKind: typeof input.adapterKind === 'string'
-                        ? input.adapterKind.slice(0, 64)
-                        : pendingProviderRound.adapter_kind || 'openai-compatible',
+                    adapterKind: adapterKind ?? (pendingProviderRound.adapter_kind || 'openai-compatible'),
                     content: '',
                     awaitingProviderResult: true,
                 })
                 : null;
-            stmtCreate.run({
-                jobId: input.jobId,
-                chatId: input.chatId || null,
-                jobType: input.jobType || 'model',
-                characterId: input.characterId || null,
-                roomId: input.roomId || null,
-                generationInfo: input.generationInfo ? JSON.stringify(input.generationInfo) : null,
-                promptInfo: input.promptInfo ? JSON.stringify(input.promptInfo) : null,
-                rerollSnapshot: input.rerollSnapshot ? JSON.stringify(input.rerollSnapshot) : null,
-                operationContext: input.operationContext ? JSON.stringify(input.operationContext) : null,
-                workflowId: input.workflowId || null,
-                workflowStepKey: input.workflowStepKey || null,
-                stepExecutionId: input.stepExecutionId || null,
-                adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
-                responseDecoder: input.responseDecoder ? JSON.stringify(input.responseDecoder) : null,
-                dispatchGroup: input.dispatchGroup || null,
-                dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
-                requestSpec: input.requestSpec ? Buffer.from(encodeGenerationRequest(input.requestSpec).buffer) : null,
-                normalizedProjection,
-                now,
-            });
+            sql.run`
+                INSERT INTO generation_jobs (
+                    job_id, chat_id, job_type, character_id, room_id,
+                    generation_info, prompt_info, reroll_snapshot,
+                    operation_context, workflow_id, workflow_step_key, step_execution_id,
+                    adapter_kind, response_decoder,
+                    dispatch_group, dispatch_max_concurrent,
+                    request_spec,
+                    normalized_projection,
+                    status, created_at, updated_at
+                ) VALUES (
+                    ${input.jobId}, ${input.chatId || null}, ${input.jobType || 'model'},
+                    ${input.characterId || null}, ${input.roomId || null},
+                    ${jsonOrNull(input.generationInfo)}, ${jsonOrNull(input.promptInfo)}, ${jsonOrNull(input.rerollSnapshot)},
+                    ${jsonOrNull(input.operationContext)}, ${input.workflowId || null},
+                    ${input.workflowStepKey || null}, ${input.stepExecutionId || null},
+                    ${adapterKind}, ${jsonOrNull(input.responseDecoder)},
+                    ${input.dispatchGroup || null}, ${input.dispatchMaxConcurrent || null},
+                    ${requestSpec},
+                    ${normalizedProjection},
+                    'queued', ${now}, ${now}
+                )
+            `;
             linkGenerationJobToWorkflow(input);
             if (input.workflowId && input.workflowStepKey) {
                 // Tool loops and application retries can issue more than one
                 // provider round for one logical step execution. The aggregate
                 // step retains the latest job while the execution keeps the
                 // complete one-to-many relationship.
-                stmtAcknowledgeSupersededWorkflowStepJobs.run(
-                    now,
-                    now,
-                    input.workflowId,
-                    input.workflowStepKey,
-                    input.jobId,
-                );
+                sql.run`
+                    UPDATE generation_jobs
+                    SET materialized_at = COALESCE(materialized_at, ${now}), updated_at = ${now}
+                    WHERE workflow_id = ${input.workflowId}
+                      AND workflow_step_key = ${input.workflowStepKey}
+                      AND job_id <> ${input.jobId}
+                      AND status NOT IN ('queued', 'generating')
+                `;
             }
         });
     } catch (error) {
@@ -788,18 +868,28 @@ function createGenerationJob(input) {
 }
 
 function getGenerationJob(jobId, includeRaw = true) {
-    return rowToJob(stmtGet.get(jobId), includeRaw);
+    return rowToJob(getJobRow(jobId), includeRaw);
 }
 
 function setGenerationJobGenerating(jobId) {
     const now = Date.now();
-    stmtSetGenerating.run(now, now, jobId);
+    sql.run`
+        UPDATE generation_jobs
+        SET status = 'generating', dispatched_at = COALESCE(dispatched_at, ${now}), updated_at = ${now}
+        WHERE job_id = ${jobId} AND status = 'queued'
+    `;
     updateGenerationJobWorkflowStep(jobId, 'waiting_job');
 }
 
 function listQueuedGenerationDispatches(limit = 500) {
     const normalized = Math.max(1, Math.min(1000, Number(limit) || 500));
-    return stmtListQueuedDispatches.all(normalized).map(row => ({
+    return sql.all`
+        SELECT *
+        FROM generation_jobs
+        WHERE status = 'queued' AND request_spec IS NOT NULL
+        ORDER BY created_at ASC
+        LIMIT ${normalized}
+    `.map(row => ({
         job: rowToJob(row, false),
         dispatchGroup: row.dispatch_group,
         maxConcurrent: Math.max(1, Number(row.dispatch_max_concurrent) || 1),
@@ -808,18 +898,28 @@ function listQueuedGenerationDispatches(limit = 500) {
 }
 
 function getGenerationDispatchState(dispatchGroup) {
-    const row = stmtDispatchState.get(dispatchGroup);
+    const row = sql.get`
+        SELECT
+            COALESCE(SUM(CASE WHEN status = 'generating' THEN 1 ELSE 0 END), 0) AS active
+        FROM generation_jobs
+        WHERE dispatch_group = ${dispatchGroup}
+    `;
     return {
         active: Math.max(0, Number(row?.active) || 0),
     };
 }
 
 function claimQueuedGenerationDispatch(jobId) {
-    const row = stmtGet.get(jobId);
+    const row = getJobRow(jobId);
     if (!row?.request_spec || row.status !== 'queued') return undefined;
     const requestSpec = decodeGenerationRequest(row.request_spec);
     const now = Date.now();
-    const result = stmtClaimDispatch.run(now, now, jobId);
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET status = 'generating', request_spec = NULL,
+            dispatched_at = ${now}, updated_at = ${now}
+        WHERE job_id = ${jobId} AND status = 'queued' AND request_spec IS NOT NULL
+    `;
     if (result.changes !== 1) return undefined;
     updateGenerationJobWorkflowStep(jobId, 'waiting_job');
     return {
@@ -834,12 +934,16 @@ function claimQueuedGenerationDispatch(jobId) {
 }
 
 function setGenerationJobHeaders(jobId, status, headers) {
-    stmtSetHeaders.run(status, JSON.stringify(headers || {}), Date.now(), jobId);
+    sql.run`
+        UPDATE generation_jobs
+        SET response_status = ${status}, response_headers = ${JSON.stringify(headers || {})}, updated_at = ${Date.now()}
+        WHERE job_id = ${jobId}
+    `;
 }
 
 function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes) {
     const now = Date.now();
-    const job = stmtGet.get(jobId);
+    const job = getJobRow(jobId);
     const journalBytes = Number.isSafeInteger(rawBytes) && rawBytes >= 0
         ? rawBytes
         : generationJournalStore.size(job?.workflow_id, jobId);
@@ -850,10 +954,15 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
     if (!['queued', 'generating'].includes(job?.status) && !rebuildingProjection) {
         // Cancellation can win while the provider stream is unwinding. Preserve
         // that terminal state, but reconcile the append-only journal length.
-        if (job) stmtSetRawBytes.run(journalBytes, jobId);
+        if (job) setRawBytes(journalBytes, jobId);
         return false;
     }
-    stmtFinish.run(status, finishReason || null, error || null, journalBytes, now, now, jobId);
+    sql.run`
+        UPDATE generation_jobs
+        SET status = ${status}, finish_reason = ${finishReason || null}, error = ${error || null},
+            raw_bytes = ${journalBytes}, request_spec = NULL, completed_at = ${now}, updated_at = ${now}
+        WHERE job_id = ${jobId}
+    `;
     updateGenerationJobWorkflowStep(
         jobId,
         status === 'generated' ? 'output_ready' : 'failed',
@@ -886,18 +995,18 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
 }
 
 function readGenerationJobRaw(jobId) {
-    const job = stmtGet.get(jobId);
+    const job = getJobRow(jobId);
     return generationJournalStore.readAll(job?.workflow_id, jobId);
 }
 
 function readGenerationJobEvents(jobId) {
-    const job = stmtGet.get(jobId);
+    const job = getJobRow(jobId);
     return generationJournalStore.readAll(job?.workflow_id, jobId, 'events');
 }
 
 /** Stores the decoded events rebuilt from a job's raw journal. */
 function replaceGenerationJobEvents(jobId, events) {
-    const job = stmtGet.get(jobId);
+    const job = getJobRow(jobId);
     if (!job) return false;
     generationJournalStore.replace(job.workflow_id, jobId, 'events', events);
     return true;
@@ -905,58 +1014,139 @@ function replaceGenerationJobEvents(jobId, events) {
 
 function setGenerationJobProjection(jobId, projection) {
     const now = Date.now();
-    const result = stmtSetProjection.run(JSON.stringify(projection), now, now, jobId);
+    const json = JSON.stringify(projection);
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET normalized_projection = ${json}, projection_error = NULL,
+            projected_at = ${now}, updated_at = ${now}
+        WHERE job_id = ${jobId}
+          AND json_extract(${json}, '$.source') = 'server'
+          AND CASE
+            WHEN json_valid(normalized_projection)
+                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+            ELSE ''
+          END <> 'provider'
+    `;
     return result.changes === 1;
 }
 
 function setGenerationJobProviderResult(jobId, projection) {
     const now = Date.now();
-    const result = stmtSetProviderResult.run(JSON.stringify(projection), now, now, jobId);
+    const json = JSON.stringify(projection);
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET normalized_projection = ${json}, projection_error = NULL,
+            projected_at = ${now}, updated_at = ${now}
+        WHERE job_id = ${jobId}
+          AND json_valid(normalized_projection)
+          AND json_extract(normalized_projection, '$.source') = 'server'
+          AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
+          AND json_extract(${json}, '$.source') = 'provider'
+          AND status = 'generated'
+          AND materialized_at IS NULL
+          AND COALESCE(json_extract(${json}, '$.awaitingProviderResult'), 0) <> 1
+    `;
     return result.changes === 1;
 }
 
 function setGenerationJobProjectionError(jobId, error) {
-    const result = stmtSetProjectionError.run(String(error ?? ''), Date.now(), jobId);
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET projection_error = ${String(error ?? '')}, updated_at = ${Date.now()}
+        WHERE job_id = ${jobId}
+    `;
     return result.changes === 1;
 }
 
 function updateGenerationJobMetadata(jobId, generationInfo, promptInfo) {
-    const result = stmtUpdateMetadata.run(
-        generationInfo ? JSON.stringify(generationInfo) : null,
-        promptInfo ? JSON.stringify(promptInfo) : null,
-        Date.now(),
-        jobId,
-    );
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET generation_info = ${jsonOrNull(generationInfo)}, prompt_info = ${jsonOrNull(promptInfo)},
+            updated_at = ${Date.now()}
+        WHERE job_id = ${jobId}
+    `;
     return result.changes === 1;
 }
 
 function listRecoverableGenerationJobs(limit = 50) {
     const normalized = Math.max(1, Math.min(200, Number(limit) || 50));
-    return stmtListRecoverable.all(normalized).map(row => rowToJob(row, false));
+    return sql.all`
+        SELECT * FROM recoverable_main_jobs
+        ORDER BY updated_at DESC
+        LIMIT ${normalized}
+    `.map(row => rowToJob(row, false));
 }
 
 function getEarlierRecoverableGenerationWorkflowJob(characterId, roomId, createdAt) {
     return rowToJob(
-        stmtGetEarlierRecoverableWorkflowJob.get(characterId, roomId, createdAt),
+        sql.get`
+            SELECT * FROM recoverable_main_jobs
+            WHERE workflow_id IS NOT NULL
+              AND character_id = ${characterId}
+              AND room_id = ${roomId}
+              AND created_at < ${createdAt}
+            ORDER BY created_at ASC
+            LIMIT 1
+        `,
         false,
     );
 }
 
 function listRecoverableAuxiliaryJobs(limit = 200) {
     const normalized = Math.max(1, Math.min(500, Number(limit) || 200));
-    return stmtListRecoverableAuxiliary.all(normalized).map(row => rowToJob(row, false));
+    return sql.all`
+        SELECT *
+        FROM generation_jobs
+        WHERE job_type <> 'model'
+          AND operation_context IS NOT NULL
+          AND status IN ('queued', 'generating', 'generated', 'cancelled', 'interrupted', 'failed_partial', 'failed')
+          AND materialized_at IS NULL
+        ORDER BY created_at ASC
+        LIMIT ${normalized}
+    `.map(row => rowToJob(row, false));
 }
 
 function listGenerationJobsNeedingProjection(limit = 200, schemaVersion = 1) {
     const normalized = Math.max(1, Math.min(500, Number(limit) || 200));
-    return stmtListNeedingProjection
-        .all(Number(schemaVersion) || 1, normalized)
+    return sql.all`
+        SELECT *
+        FROM generation_jobs
+        WHERE raw_bytes > 0
+          AND response_decoder IS NOT NULL
+          AND response_status >= 200
+          AND response_status < 300
+          AND (
+            normalized_projection IS NULL
+            OR CASE
+                WHEN json_valid(normalized_projection)
+                    THEN COALESCE(json_extract(normalized_projection, '$.schemaVersion'), 0)
+                ELSE 0
+            END <> ${Number(schemaVersion) || 1}
+            OR CASE
+                WHEN json_valid(normalized_projection)
+                    THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+                ELSE ''
+            END <> 'server'
+          )
+          AND CASE
+            WHEN json_valid(normalized_projection)
+                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
+            ELSE ''
+          END <> 'provider'
+          AND status IN ('generated', 'interrupted', 'cancelled', 'failed_partial', 'failed')
+        ORDER BY updated_at ASC
+        LIMIT ${normalized}
+    `
         .map(row => rowToJob(row, false));
 }
 
 function markGenerationMaterialized(jobId) {
-    const job = stmtGet.get(jobId);
-    const result = stmtMarkMaterialized.run(Date.now(), Date.now(), jobId);
+    const job = getJobRow(jobId);
+    const result = sql.run`
+        UPDATE generation_jobs
+        SET materialized_at = ${Date.now()}, updated_at = ${Date.now()}
+        WHERE job_id = ${jobId}
+    `;
     if (result.changes === 1) {
         updateGenerationJobWorkflowStep(
             jobId,
@@ -983,31 +1173,75 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
         // Recoverable output is retained for one day even when a client never
         // returns to materialize/consume it. After that deadline, terminal jobs
         // and their journals are no longer useful and must not accumulate.
-        for (const row of stmtExpiredTerminalJobs.all(cutoff)) {
-            stmtDeleteJob.run(row.job_id);
+        for (const row of sql.all`
+            SELECT job_id, workflow_id
+            FROM generation_jobs
+            WHERE status NOT IN ('queued', 'generating')
+              AND completed_at IS NOT NULL
+              AND completed_at < ${cutoff}
+            ORDER BY completed_at ASC, created_at ASC
+        `) {
+            sql.run`DELETE FROM generation_jobs WHERE job_id = ${row.job_id}`;
             deletedJobs.push({ jobId: row.job_id, workflowId: row.workflow_id });
         }
     });
     for (const job of deletedJobs) {
         generationJournalStore.remove(job.workflowId, job.jobId);
     }
-    const validJournals = new Set(stmtAllJobIds.all().map(row =>
+    const validJournals = new Set(allJobIds().map(row =>
         generationJournalStore.journalKey(row.workflow_id, row.job_id)));
     const orphaned = generationJournalStore.removeOrphans(validJournals, cutoff);
     let workflowsDeleted = 0;
     withTransaction(db, () => {
-        stmtDeleteCompletedWorkflowExecutions.run(cutoff);
-        stmtDeleteCompletedStepExecutions.run(cutoff);
-        stmtDeleteCompletedWorkflowSteps.run(cutoff);
-        stmtDeleteCompletedWorkflowChatSnapshots.run(cutoff);
-        workflowsDeleted = stmtDeleteCompletedWorkflows.run(cutoff).changes;
+        sql.run`
+            DELETE FROM generation_workflow_executions
+            WHERE status IN ('completed', 'failed') AND completed_at < ${cutoff}
+        `;
+        sql.run`
+            DELETE FROM generation_workflow_step_executions
+            WHERE workflow_id IN (
+                SELECT workflow_id FROM generation_workflows
+                WHERE status <> 'active' AND completed_at < ${cutoff}
+            )
+        `;
+        sql.run`
+            DELETE FROM generation_workflow_steps
+            WHERE workflow_id IN (
+                SELECT workflow_id FROM generation_workflows
+                WHERE status <> 'active' AND completed_at < ${cutoff}
+            )
+        `;
+        sql.run`
+            DELETE FROM workflowChatSnapshots
+            WHERE workflow_id IN (
+                SELECT workflow_id FROM generation_workflows
+                WHERE status <> 'active' AND completed_at < ${cutoff}
+            )
+        `;
+        workflowsDeleted = sql.run`
+            DELETE FROM generation_workflows
+            WHERE status <> 'active' AND completed_at < ${cutoff}
+        `.changes;
     });
     if (deletedJobs.length > 0) checkpointGenerationDb();
     return {
         deleted: deletedJobs.length,
         orphaned,
         workflowsDeleted,
-        bytes: Number(stmtMaterializedPayloadTotal.get()?.total) || 0,
+        bytes: Number(sql.get`
+            SELECT COALESCE(SUM(
+                raw_bytes + length(CAST(COALESCE(normalized_projection, '') AS BLOB))
+                + length(CAST(COALESCE(projection_error, '') AS BLOB))
+                + length(CAST(COALESCE(generation_info, '') AS BLOB))
+                + length(CAST(COALESCE(prompt_info, '') AS BLOB))
+                + length(CAST(COALESCE(reroll_snapshot, '') AS BLOB))
+                + length(CAST(COALESCE(operation_context, '') AS BLOB))
+                + length(CAST(COALESCE(response_headers, '') AS BLOB))
+                + length(CAST(COALESCE(error, '') AS BLOB))
+            ), 0) AS total
+            FROM generation_jobs
+            WHERE materialized_at IS NOT NULL
+        `?.total) || 0,
     };
 }
 

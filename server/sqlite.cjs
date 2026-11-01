@@ -8,10 +8,9 @@ const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
 let savepointSequence = 0;
 
-// Every connection waits out short lock contention, and named-parameter
-// statements accept row objects that carry more fields than they bind.
+// Every connection waits out short lock contention instead of failing at once.
 function openDatabase(location, options) {
-    return new DatabaseSync(location, { timeout: 5000, allowUnknownNamedParameters: true, ...options });
+    return new DatabaseSync(location, { timeout: 5000, ...options });
 }
 
 // Runs fn inside a transaction, or inside a savepoint when one is already open.
@@ -32,6 +31,10 @@ function withTransaction(db, fn, mode = 'DEFERRED') {
     }
 }
 
+function columnNames(db, table) {
+    return new Set(db.prepare('SELECT name FROM pragma_table_info(?)').all(table).map(column => column.name));
+}
+
 // node:sqlite returns BLOBs as Uint8Array; wrap without copying where callers need Buffer APIs.
 function toBuffer(value) {
     return value instanceof Uint8Array && !Buffer.isBuffer(value)
@@ -48,4 +51,4 @@ function isUniqueConstraintError(error) {
         && (error.errcode === SQLITE_CONSTRAINT_UNIQUE || error.errcode === SQLITE_CONSTRAINT_PRIMARYKEY);
 }
 
-module.exports = { openDatabase, withTransaction, toBuffer, isBusyError, isUniqueConstraintError };
+module.exports = { openDatabase, withTransaction, columnNames, toBuffer, isBusyError, isUniqueConstraintError };

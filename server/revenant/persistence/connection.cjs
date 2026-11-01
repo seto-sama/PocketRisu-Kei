@@ -1,6 +1,6 @@
 'use strict';
 
-const { openDatabase, withTransaction } = require('../../sqlite.cjs');
+const { columnNames, openDatabase, withTransaction } = require('../../sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const { recoverInterruptedGenerationWork } = require('./restart.cjs');
@@ -16,6 +16,8 @@ const dbPath = path.join(revenantDir, 'revenant.db');
 const db = openDatabase(dbPath);
 
 db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA journal_size_limit = 67108864');
+// Views are rebuilt after the migrations below so they never block an ALTER TABLE.
+db.exec('DROP VIEW IF EXISTS recoverable_main_jobs');
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS generation_jobs (
@@ -120,9 +122,7 @@ db.exec(`
 `);
 db.exec(`DROP INDEX IF EXISTS idx_generation_jobs_pending`);
 
-const generationColumns = new Set(
-    db.prepare(`PRAGMA table_info(generation_jobs)`).all().map(column => column.name)
-);
+const generationColumns = columnNames(db, 'generation_jobs');
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
 }
@@ -172,6 +172,25 @@ db.exec(`
       AND character_id IS NOT NULL
       AND room_id IS NOT NULL
       AND status IN ('queued', 'generating')
+`);
+
+db.exec(`
+    CREATE VIEW recoverable_main_jobs AS
+    SELECT * FROM generation_jobs
+    WHERE
+        chat_id IS NOT NULL
+        AND job_type = 'model'
+        AND status IN ('queued', 'generating', 'generated', 'cancelled', 'interrupted', 'failed_partial', 'failed')
+        AND (
+          status IN ('queued', 'generating')
+          OR length(normalized_projection) > 0
+          OR (
+              raw_bytes > 0
+              AND response_status >= 200
+              AND response_status < 300
+          )
+        )
+        AND materialized_at IS NULL
 `);
 
 module.exports = { db };
