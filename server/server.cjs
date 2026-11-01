@@ -31,6 +31,7 @@ const getVips = () => {
 }
 const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvListWithSizes, checkpointWal, snapshotSetFootprint, db: sqliteDb } = require('./db.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
+const { removeRuntimeCharacterFields } = require('./persistenceShape.cjs');
 const {
     AppDataMigrationCleanupError,
     createAppDataMigration,
@@ -103,7 +104,6 @@ const {
 } = require('../shared/promptPresetSelection.mjs');
 const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
-// Install process-level error handlers before any other init so early crashes get logged.
 installProcessHandlers();
 
 const MISSING_DATABASE_ETAG = '__missing_database__';
@@ -136,15 +136,15 @@ function queueStorageOperation(operation) {
 const SNAPSHOT_LIMIT_COUNT_KEY = 'config/snapshot-max-count';
 const SNAPSHOT_LIMIT_BYTES_KEY = 'config/snapshot-max-bytes';
 const SNAPSHOT_LIMIT_DEFAULT_COUNT = 20;
-const SNAPSHOT_LIMIT_DEFAULT_BYTES = 500 * 1024 * 1024; // 500 MB
+const SNAPSHOT_LIMIT_DEFAULT_BYTES = 500 * 1024 * 1024;
 // Safety bounds to keep a stray PUT from making the system unusable.
 const SNAPSHOT_LIMIT_MIN_COUNT = 1;
 const SNAPSHOT_LIMIT_MAX_COUNT = 100;
-const SNAPSHOT_LIMIT_MIN_BYTES = 10 * 1024 * 1024;        // 10 MB
-const SNAPSHOT_LIMIT_MAX_BYTES = 50 * 1024 * 1024 * 1024; // 50 GB
+const SNAPSHOT_LIMIT_MIN_BYTES = 10 * 1024 * 1024;
+const SNAPSHOT_LIMIT_MAX_BYTES = 50 * 1024 * 1024 * 1024;
 const BACKUP_INTERVAL_MS = process.env.POCKETRISU_BACKUP_INTERVAL_MS
     ? Number(process.env.POCKETRISU_BACKUP_INTERVAL_MS)
-    : 5 * 60 * 1000; // 5 minutes (override for tests to force snapshot creation)
+    : 5 * 60 * 1000;
 let lastBackupTime = null;
 let backupRotationScheduled = false;
 let backupWorker = null;
@@ -212,13 +212,6 @@ function trimSnapshotsToLimits() {
     deleteSnapshotStates(toDelete);
     return { kept: entries.length - toDelete.length, removed: toDelete.length };
 }
-
-// Current snapshot count + two totals:
-//   bytes        — physical union of all selected snapshot rows and unique
-//                  content-addressed chunks, exactly matching quota trimming.
-//   logicalBytes — sum of each snapshot's full logical size (kvSize), i.e. what
-//                  the snapshots would cost WITHOUT dedup. Drives the "saved by
-//                  deduplication" figure; never used for trimming.
 
 function makeSnapshotKey(now = Date.now()) {
     let tick = Math.round(now / 100);
@@ -318,8 +311,6 @@ async function prepareDatabaseExport() {
     }
 }
 
-// ─── Chat runtime lazy load helpers ─────────────────────────────────────────
-
 function assignMissingPersistentIds(dbObj) {
     let changed = false;
     if (!dbObj?.characters) return changed;
@@ -356,12 +347,8 @@ function assignMissingPersistentIds(dbObj) {
     return changed;
 }
 
-// Recovers chats whose folderId points to a deleted folder. The previous merge
-// layer silently kept stale folderId on disk when a user moved a chat out of a
-// folder, then later deleting that folder produced orphans invisible in the
-// sidebar (rendered into neither the no-folder section nor any folder section).
-// Boot-time normalize so historical corruption self-heals; new corruption is
-// blocked by the merge fix in mergeChatMetadata.
+// Older saves can keep a folderId for a deleted folder, which hides the chat
+// from every sidebar section; clear it so those chats show up again.
 function normalizeOrphanFolderIds(dbObj) {
     let changed = false;
     if (!dbObj?.characters) return changed;
@@ -392,8 +379,6 @@ function normalizeLegacyDatabaseProjection(dbObj, options) {
 function isCloudflareTunnelRequest(req) {
     return isCloudflareTunnelRequestForUrl(req, tunnelState.tunnelUrl);
 }
-
-// Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
 
 /**
  * Read a canonical chat as a caller-owned { chat, etag }. Legacy rows that
@@ -476,14 +461,8 @@ function shouldCompress(req, res) {
     if (contentType.includes('text/event-stream')) {
         return false;
     }
-    // NDJSON endpoints (backup import/restore, inlay bulk compression) emit
-    // small per-line events and rely on real-time flushes — keepalive
-    // heartbeats in particular must reach reverse proxies before their
-    // response timeout fires. gzip would buffer those lines until enough
-    // bytes accumulated for an efficient compression block, defeating the
-    // 502-avoidance the streaming endpoints were built for. compressible's
-    // mime-db happens not to list application/x-ndjson today (so this is
-    // a no-op in practice) but a future dep upgrade could flip it on.
+    // NDJSON progress streams must flush each line so keepalives reach reverse
+    // proxies before they time out; gzip would buffer them.
     if (contentType.includes('application/x-ndjson')) {
         return false;
     }
@@ -513,7 +492,6 @@ const authState = {
     password: '',
 };
 
-// Ensure /save/ exists for password file and migration source
 const savePath = path.join(process.cwd(), "save")
 if(!existsSync(savePath)){
     mkdirSync(savePath)
@@ -544,8 +522,7 @@ function writeBackupPathMarker(absPath) {
     try {
         require('fs').writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
     } catch {
-        // Best-effort; marker absence only means the updater falls back to the
-        // hard-coded `backups` keep — same as before this feature existed.
+        // Best-effort; without the marker the updater keeps only `backups`.
     }
 }
 
@@ -564,13 +541,9 @@ if(existsSync(passwordPath)){
     authState.password = readFileSync(passwordPath, 'utf-8')
 }
 
-// Server-side JWT signing allows authentication over plain HTTP, where the
-// browser's crypto.subtle API is unavailable outside localhost.
-// Upstream uses client-side ECDSA JWT via crypto.subtle, which requires
-// Secure Context (HTTPS or localhost), so signing and verification use
-// HMAC-SHA256 on the server instead.
-// If upstream changes its auth flow, this section needs manual sync.
-// Related: createServerJwt(), checkAuth(), /api/login, /api/token/refresh
+// Upstream signs ECDSA JWTs in the browser with crypto.subtle, which needs a
+// secure context. Signing with HMAC-SHA256 on the server keeps login working
+// over plain HTTP. Sync manually if upstream changes its auth flow.
 const jwtSecretPath = path.join(savePath, '__jwt_secret')
 let jwtSecret
 if (existsSync(jwtSecretPath)) {
@@ -580,25 +553,16 @@ if (existsSync(jwtSecretPath)) {
     writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
 }
 
-// Minimum free disk space headroom multiplier: require 2× the backup size to be free
-
-// Heartbeat interval for NDJSON import progress stream. 5 s by default —
-// shorter than every common reverse-proxy response timeout (nginx 60 s, Cloudflare
-// 100 s). Operators behind more aggressive proxies can tighten this. Clamped to
-// 100 ms so a misconfiguration can't spam the socket.
-
 // ── Cloudflare Quick Tunnel ─────────────────────────────────────────────────
 
 const tunnelState = {
     tunnelProcess: null,
     tunnelUrl: null,
-    tunnelStatus: 'off',
+    tunnelStatus: 'off', // 'off' | 'downloading' | 'starting' | 'running' | 'error'
     tunnelError: null,
     tunnelStartTimeout: null,
     serverIsHttps: false,
 };
-
-   // 'off' | 'downloading' | 'starting' | 'running' | 'error'
 
 function stopTunnel() {
     if (tunnelState.tunnelStartTimeout) { clearTimeout(tunnelState.tunnelStartTimeout); tunnelState.tunnelStartTimeout = null; }
@@ -611,12 +575,7 @@ function stopTunnel() {
     tunnelState.tunnelError = null;
 }
 
-// ── Update check ─────────────────────────────────────────────────────────────
-
-// Re-read on each call so non-portable updates (docker/git pull) without a
-// process restart don't keep reporting the old version to the update worker.
-
-// ── Session store for direct asset URL auth (F-0) ──────────────────────────
+// ── Session store for direct asset URL auth ─────────────────────────────────
 // <img src="/api/asset/..."> cannot send custom headers, so we use a session
 // cookie issued after initial JWT auth. Single-user environment: Map is fine.
 // Sessions are persisted to disk so they survive server restarts.
@@ -821,12 +780,6 @@ const loginBlockCleanupTimer = setInterval(() => {
     }
 }, LOGIN_FAILURE_WINDOW_MS);
 loginBlockCleanupTimer.unref?.();
-
-async function hashJSON(json){
-    const hash = nodeCrypto.createHash('sha256');
-    hash.update(JSON.stringify(json));
-    return hash.digest('hex');
-}
 
 // --- Generation: auth helpers ---
 
@@ -1726,20 +1679,9 @@ function setupGenerationWebSocket(server) {
     });
 }
 
-// Legacy storage codecs and migrations are provided by dataRestore/legacyRestore.cjs.
-
-/**
- * Decode an external database.bin projection, then return a synchronous
- * installer for the caller's outer SQLite transaction. Cold-storage references
- * are resolved during install, after staged coldstorage/ rows join it.
- */
-
 const {
     normalizeColdStorageStorageKey,
-    parseColdStorageJsonBuffer,
-    encodeColdStorageCanonicalBuffer,
     normalizeColdStorageBackupBuffer,
-    readColdStorageJsonEntry,
     listColdStorageBackupEntries,
     restoreColdStorageInDb: restoreColdStorage,
     restoreColdStorageChat: restoreColdChat,
@@ -1762,7 +1704,10 @@ appDataMigration = createAppDataMigration({
     },
     decodeLegacyBlob: async raw => {
         const decoded = await decodeRisuSave(raw);
-        return normalizeLegacyDatabaseProjection(decoded).database;
+        const { database } = normalizeLegacyDatabaseProjection(decoded);
+        // Relational rows omit chatPage and runtime fields; verify against that shape.
+        for (const char of database.characters ?? []) removeRuntimeCharacterFields(char);
+        return database;
     },
     normalizeProjection: normalizeJSON,
 });
@@ -1841,70 +1786,39 @@ async function ensureCanonicalStorage() {
 }
 
 async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = false} = {}){
+    const reject = (code) => {
+        if(!returnOnlyStatus){
+            sendApiError(res, 401, code);
+        }
+        return false
+    }
     try {
         const authHeader = req.headers['risu-auth'];
-
         if(!authHeader){
-            if(returnOnlyStatus){
-                return false;
-            }
-            sendApiError(res, 401, API_ERROR_CODES.AUTH_REQUIRED);
-            return false
+            return reject(API_ERROR_CODES.AUTH_REQUIRED)
         }
 
-        //jwt token
-        const [
-            jsonHeaderB64,
-            jsonPayloadB64,
-            signatureB64,
-        ] = authHeader.split('.');
-
-        //alg, typ
+        const [jsonHeaderB64, jsonPayloadB64, signatureB64] = authHeader.split('.');
         const jsonHeader = JSON.parse(Buffer.from(jsonHeaderB64, 'base64url').toString('utf-8'));
-
-        //iat, exp
         const jsonPayload = JSON.parse(Buffer.from(jsonPayloadB64, 'base64url').toString('utf-8'));
 
-        //check expiration
-        if(!allowExpired){
-            const now = Math.floor(Date.now() / 1000);
-            if(jsonPayload.exp < now){
-                if(returnOnlyStatus){
-                    return false;
-                }
-                sendApiError(res, 401, API_ERROR_CODES.AUTH_TOKEN_EXPIRED);
-                return false
-            }
+        if(!allowExpired && jsonPayload.exp < Math.floor(Date.now() / 1000)){
+            return reject(API_ERROR_CODES.AUTH_TOKEN_EXPIRED)
         }
-
-        //check signature (HMAC-SHA256)
         if(jsonHeader.alg !== "HS256"){
-            if(returnOnlyStatus){
-                return false;
-            }
-            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
-            return false
+            return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
         }
 
         const expectedSig = nodeCrypto.createHmac('sha256', jwtSecret)
             .update(`${jsonHeaderB64}.${jsonPayloadB64}`)
             .digest()
         const actualSig = Buffer.from(signatureB64, 'base64url')
-
         if(expectedSig.length !== actualSig.length || !nodeCrypto.timingSafeEqual(expectedSig, actualSig)){
-            if(returnOnlyStatus){
-                return false;
-            }
-            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
-            return false
+            return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
         }
         return true
     } catch {
-        if(returnOnlyStatus){
-            return false;
-        }
-        sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_TOKEN);
-        return false
+        return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
     }
 }
 
@@ -1930,23 +1844,20 @@ function resolveAssetPayload(key, rawValue) {
             const json = JSON.parse(rawValue.toString('utf-8'))
             const dataUri = json.data
             if (typeof dataUri === 'string' && dataUri.startsWith('data:')) {
-                // Parse "data:<mime>;base64,<payload>"
                 const commaIdx = dataUri.indexOf(',')
-                const meta = dataUri.substring(5, commaIdx) // after "data:"
+                const meta = dataUri.substring(5, commaIdx)
                 const mime = meta.split(';')[0]
                 const binary = Buffer.from(dataUri.substring(commaIdx + 1), 'base64')
                 return { binary, contentType: mime || 'application/octet-stream' }
             }
-            // Fallback: ext field
             const ext = (json.ext || '').toLowerCase()
             const mime = ASSET_EXT_MIME[ext] || 'application/octet-stream'
             return { binary: rawValue, contentType: mime }
         } catch {
-            // JSON parse failed — treat as raw binary
+            // Not JSON: serve the raw bytes.
         }
     }
 
-    // assets/* and others: raw binary
     const ext = key.split('.').pop()?.toLowerCase()
     const contentType = ASSET_EXT_MIME[ext] || detectMime(rawValue)
     return { binary: rawValue, contentType }
@@ -2217,8 +2128,6 @@ app.use((err, req, res, next) => {
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getHttpsOptions() {
     const sslPath = await migrateCertificates(process.cwd());
     const keyPath = path.join(sslPath, 'server.key');
@@ -2309,7 +2218,7 @@ async function rebuildMissingGenerationProjections() {
     }
 }
 
-// Graceful shutdown: flush pending patches and checkpoint WAL before exit
+// Graceful shutdown: stop running jobs and checkpoint WAL before exit
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
@@ -2378,7 +2287,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         catch { /* non-fatal */ }
         try { checkpointGenerationDb('PASSIVE'); }
         catch { /* non-fatal */ }
-    }, 5 * 60 * 1000); // every 5 minutes
+    }, 5 * 60 * 1000);
 
     // Terminal recovery data is temporary. Keep it for one day, then remove DB
     // metadata and its journal even if no client reconnects.

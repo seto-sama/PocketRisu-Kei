@@ -72,6 +72,7 @@ function installBackupRoutes(app, {
 }) {
     const deleteSnapshotState = sqliteDb.transaction(deleteSnapshotStateRows);
 
+    // Physical usage matches quota trimming; logicalBytes measures dedup savings.
     function snapshotUsage() {
         const keys = kvList(DB_BACKUP_PREFIX);
         const bytes = snapshotSetFootprint(keys);
