@@ -6,111 +6,38 @@ const { extractRequestModel } = require('./requestMetadata.cjs');
 
 const USAGE_LIST_LIMIT = 100;
 
-const stmtUpsert = db.prepare(`
-    INSERT INTO usage (
-        job_id, timestamp, chat_id, provider, model,
-        prompt_tokens, completion_tokens, total_tokens,
-        cached_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens,
-        service_tier, gateway_cost, usage_json
-    ) VALUES (
-        @jobId, @timestamp, @chatId, @provider, @model,
-        @promptTokens, @completionTokens, @totalTokens,
-        @cachedTokens, @cacheReadTokens, @cacheCreationTokens, @reasoningTokens,
-        @serviceTier, @gatewayCost, @usageJson
-    )
-    ON CONFLICT(job_id) DO UPDATE SET
-        timestamp = excluded.timestamp,
-        chat_id = excluded.chat_id,
-        provider = excluded.provider,
-        model = excluded.model,
-        prompt_tokens = excluded.prompt_tokens,
-        completion_tokens = excluded.completion_tokens,
-        total_tokens = excluded.total_tokens,
-        cached_tokens = excluded.cached_tokens,
-        cache_read_tokens = excluded.cache_read_tokens,
-        cache_creation_tokens = excluded.cache_creation_tokens,
-        reasoning_tokens = excluded.reasoning_tokens,
-        service_tier = excluded.service_tier,
-        gateway_cost = excluded.gateway_cost,
-        usage_json = excluded.usage_json
-`);
-
-const usageValuePredicate = (prefix = '') => `(
-    ${prefix}prompt_tokens IS NOT NULL
-    OR ${prefix}completion_tokens IS NOT NULL
-    OR ${prefix}total_tokens IS NOT NULL
-    OR ${prefix}cached_tokens IS NOT NULL
-    OR ${prefix}cache_read_tokens IS NOT NULL
-    OR ${prefix}cache_creation_tokens IS NOT NULL
-    OR ${prefix}reasoning_tokens IS NOT NULL
-    OR ${prefix}gateway_cost IS NOT NULL
-)`;
-
-const stmtList = db.prepare(`
-    SELECT
-        job_id AS jobId, timestamp, chat_id AS chatId, provider, model,
-        prompt_tokens AS promptTokens, completion_tokens AS completionTokens,
-        total_tokens AS totalTokens, cached_tokens AS cachedTokens,
-        cache_read_tokens AS cacheReadTokens,
-        cache_creation_tokens AS cacheCreationTokens,
-        reasoning_tokens AS reasoningTokens,
-        service_tier AS serviceTier, gateway_cost AS gatewayCost
-    FROM usage
-    WHERE timestamp >= ? AND timestamp <= ?
-        AND ${usageValuePredicate()}
-    ORDER BY timestamp DESC, rowid DESC
-    LIMIT ?
-`);
-const stmtListBefore = db.prepare(`
-    SELECT
-        current.job_id AS jobId, current.timestamp, current.chat_id AS chatId,
-        current.provider, current.model,
-        current.prompt_tokens AS promptTokens,
-        current.completion_tokens AS completionTokens,
-        current.total_tokens AS totalTokens,
-        current.cached_tokens AS cachedTokens,
-        current.cache_read_tokens AS cacheReadTokens,
-        current.cache_creation_tokens AS cacheCreationTokens,
-        current.reasoning_tokens AS reasoningTokens,
-        current.service_tier AS serviceTier,
-        current.gateway_cost AS gatewayCost
-    FROM usage AS current
-    JOIN usage AS boundary ON boundary.job_id = ?
-    WHERE current.timestamp >= ? AND current.timestamp <= ?
-        AND ${usageValuePredicate('current.')}
-        AND (
-            current.timestamp < boundary.timestamp
-            OR (current.timestamp = boundary.timestamp AND current.rowid < boundary.rowid)
-        )
-    ORDER BY current.timestamp DESC, current.rowid DESC
-    LIMIT ?
-`);
-const stmtCountRange = db.prepare(`
-    SELECT COUNT(*) AS total
-    FROM usage
-    WHERE timestamp >= ? AND timestamp <= ?
-        AND ${usageValuePredicate()}
-`);
-const stmtSummaryRange = db.prepare(`
-    SELECT
-        timestamp, provider, model,
-        prompt_tokens AS promptTokens,
-        completion_tokens AS completionTokens,
-        total_tokens AS totalTokens,
-        cached_tokens AS cachedTokens,
-        cache_read_tokens AS cacheReadTokens,
-        cache_creation_tokens AS cacheCreationTokens,
-        reasoning_tokens AS reasoningTokens,
-        service_tier AS serviceTier,
-        gateway_cost AS gatewayCost
-    FROM usage
-    WHERE timestamp >= ? AND timestamp <= ?
-        AND ${usageValuePredicate()}
-    ORDER BY timestamp ASC, rowid ASC
-`);
-const stmtClear = db.prepare(`DELETE FROM usage`);
-const stmtDelete = db.prepare(`DELETE FROM usage WHERE job_id = ?`);
+// Listing, counting, and summaries read the `reported_usage` view (see logDatabases.cjs).
+const sql = db.createTagStore();
 const fallbackOpenAIEncoding = get_encoding('o200k_base');
+
+const camelCase = name => name.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+const toUsage = ({ seq, usage_json, ...row }) =>
+    Object.fromEntries(Object.entries(row).map(([key, value]) => [camelCase(key), value]));
+
+function upsertUsage(usage) {
+    sql.run`
+        INSERT INTO usage (
+            job_id, timestamp, chat_id, provider, model,
+            prompt_tokens, completion_tokens, total_tokens,
+            cached_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens,
+            service_tier, gateway_cost, usage_json
+        ) VALUES (
+            ${usage.jobId}, ${usage.timestamp}, ${usage.chatId}, ${usage.provider}, ${usage.model},
+            ${usage.promptTokens}, ${usage.completionTokens}, ${usage.totalTokens},
+            ${usage.cachedTokens}, ${usage.cacheReadTokens}, ${usage.cacheCreationTokens}, ${usage.reasoningTokens},
+            ${usage.serviceTier}, ${usage.gatewayCost}, ${usage.usageJson}
+        )
+        ON CONFLICT(job_id) DO UPDATE SET
+            timestamp = excluded.timestamp, chat_id = excluded.chat_id,
+            provider = excluded.provider, model = excluded.model,
+            prompt_tokens = excluded.prompt_tokens, completion_tokens = excluded.completion_tokens,
+            total_tokens = excluded.total_tokens, cached_tokens = excluded.cached_tokens,
+            cache_read_tokens = excluded.cache_read_tokens,
+            cache_creation_tokens = excluded.cache_creation_tokens,
+            reasoning_tokens = excluded.reasoning_tokens, service_tier = excluded.service_tier,
+            gateway_cost = excluded.gateway_cost, usage_json = excluded.usage_json
+    `;
+}
 
 function getUsageByJobIds(jobIds) {
     const ids = [...new Set(
@@ -119,15 +46,8 @@ function getUsageByJobIds(jobIds) {
             .map(id => id.slice(0, 128))
     )].slice(0, USAGE_LIST_LIMIT);
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(', ');
-    return db.prepare(`
-        SELECT
-            job_id AS jobId, provider, model,
-            prompt_tokens AS promptTokens,
-            completion_tokens AS completionTokens
-        FROM usage
-        WHERE job_id IN (${placeholders})
-    `).all(...ids);
+    return sql.all`SELECT * FROM usage WHERE job_id IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`
+        .map(toUsage);
 }
 
 function number(value) {
@@ -296,7 +216,7 @@ function recordGenerationUsage(arg) {
             && usage.completionTokens !== undefined) {
             usage.totalTokens = usage.promptTokens + usage.completionTokens;
         }
-        stmtUpsert.run({
+        upsertUsage({
             jobId: String(arg.jobId).slice(0, 128),
             timestamp: Number(arg.timestamp) || Date.now(),
             chatId: arg.chatId ? String(arg.chatId).slice(0, 128) : null,
@@ -334,7 +254,7 @@ function recordReportedUsage(arg) {
             && usage.completionTokens !== undefined) {
             usage.totalTokens = usage.promptTokens + usage.completionTokens;
         }
-        stmtUpsert.run({
+        upsertUsage({
             jobId: String(arg.jobId).slice(0, 128),
             timestamp: Number(arg.timestamp) || Date.now(),
             chatId: arg.chatId ? String(arg.chatId).slice(0, 128) : null,
@@ -368,32 +288,45 @@ function normalizeUsageRange(options = {}) {
 
 function listUsage(options = {}) {
     if (typeof options === 'number') options = { limit: options };
-    const range = normalizeUsageRange(options);
+    const { start, end } = normalizeUsageRange(options);
     const limit = Math.min(
         Math.max(Number(options.limit) || USAGE_LIST_LIMIT, 1),
         USAGE_LIST_LIMIT,
     );
-    return options.beforeId
-        ? stmtListBefore.all(String(options.beforeId).slice(0, 128), range.start, range.end, limit)
-        : stmtList.all(range.start, range.end, limit);
+    const rows = options.beforeId
+        ? sql.all`
+            SELECT * FROM reported_usage WHERE timestamp BETWEEN ${start} AND ${end}
+                AND (timestamp, seq) < (SELECT timestamp, rowid FROM usage WHERE job_id = ${String(options.beforeId).slice(0, 128)})
+            ORDER BY timestamp DESC, seq DESC LIMIT ${limit}
+        `
+        : sql.all`
+            SELECT * FROM reported_usage WHERE timestamp BETWEEN ${start} AND ${end}
+            ORDER BY timestamp DESC, seq DESC LIMIT ${limit}
+        `;
+    return rows.map(toUsage);
 }
 
 function countUsage(options = {}) {
-    const range = normalizeUsageRange(options);
-    return stmtCountRange.get(range.start, range.end).total;
+    const { start, end } = normalizeUsageRange(options);
+    return sql.get`SELECT COUNT(*) AS total FROM reported_usage WHERE timestamp BETWEEN ${start} AND ${end}`.total;
 }
 
 function summarizeUsage(options = {}) {
-    const range = normalizeUsageRange(options);
-    return stmtSummaryRange.all(range.start, range.end);
+    const { start, end } = normalizeUsageRange(options);
+    return sql.all`
+        SELECT * FROM reported_usage WHERE timestamp BETWEEN ${start} AND ${end} ORDER BY timestamp, seq
+    `.map(row => {
+        const { jobId, chatId, ...summary } = toUsage(row);
+        return summary;
+    });
 }
 
 function clearUsage() {
-    stmtClear.run();
+    sql.run`DELETE FROM usage`;
 }
 
 function deleteUsage(jobId) {
-    return stmtDelete.run(String(jobId).slice(0, 128)).changes === 1;
+    return sql.run`DELETE FROM usage WHERE job_id = ${String(jobId).slice(0, 128)}`.changes === 1;
 }
 
 

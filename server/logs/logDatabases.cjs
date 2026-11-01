@@ -48,6 +48,8 @@ function openRequestDatabase(directory, journalMode = 'WAL') {
         db.prepare('ATTACH DATABASE ? AS request_script').run(path.join(directory, 'request-script.db'));
         db.exec(`PRAGMA request_script.auto_vacuum = FULL; ${journalPragmas(journalMode, 'request_script')}`);
         db.exec(`
+            -- Views are rebuilt after the tables so they never block a schema change.
+            DROP VIEW IF EXISTS reported_usage;
             CREATE TABLE IF NOT EXISTS metadata (
                 id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, date TEXT NOT NULL, url TEXT NOT NULL,
                 success INTEGER NOT NULL, response_type TEXT, chat_id TEXT, status INTEGER,
@@ -62,6 +64,12 @@ function openRequestDatabase(directory, journalMode = 'WAL') {
                 service_tier TEXT, gateway_cost REAL, usage_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage(timestamp DESC);
+            -- Records without any reported value are kept for bookkeeping but never
+            -- listed, counted, or summarized. seq exposes rowid for stable ordering.
+            CREATE VIEW reported_usage AS
+                SELECT rowid AS seq, * FROM usage
+                WHERE COALESCE(prompt_tokens, completion_tokens, total_tokens, cached_tokens,
+                    cache_read_tokens, cache_creation_tokens, reasoning_tokens, gateway_cost) IS NOT NULL;
             CREATE TABLE IF NOT EXISTS thought_signatures (
                 response_id TEXT PRIMARY KEY, adapter_kind TEXT NOT NULL, model TEXT NOT NULL,
                 created_at INTEGER NOT NULL, turns_json TEXT NOT NULL
@@ -79,8 +87,8 @@ function openRequestDatabase(directory, journalMode = 'WAL') {
 function withLegacyDatabase(directory, filename, migrate) {
     const filenamePath = path.join(directory, filename);
     if (!fs.existsSync(filenamePath)) return;
-    const source = openDatabase(filenamePath, { readOnly: true });
-    try { migrate(source); } finally { source.close(); }
+    using source = openDatabase(filenamePath, { readOnly: true });
+    migrate(source);
 }
 
 function columns(db, table) {
@@ -142,21 +150,19 @@ if (fs.existsSync(path.join(saveDir, 'logs.db'))) {
     runFileMigration({
         saveDir, name: 'system-logs', sources: ['logs.db'], targets: ['system-logs.db'],
         build(tmp, origin) {
-            const db = openSystemDatabase(tmp, 'DELETE');
-            try {
-                withTransaction(db, () => {
-                    withLegacyDatabase(origin, 'logs.db', source => {
-                        copyTable(source, 'logs', db, 'logs');
-                        const sequence = source.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'logs'").get();
-                        if (sequence) {
-                            db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'logs'").run(sequence.seq);
-                            db.prepare("INSERT INTO sqlite_sequence (name, seq) SELECT 'logs', ? WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'logs')").run(sequence.seq);
-                        }
-                    });
-                    db.exec('PRAGMA user_version = 1');
-                }, 'IMMEDIATE');
-                validateDatabase(db);
-            } finally { db.close(); }
+            using db = openSystemDatabase(tmp, 'DELETE');
+            withTransaction(db, () => {
+                withLegacyDatabase(origin, 'logs.db', source => {
+                    copyTable(source, 'logs', db, 'logs');
+                    const sequence = source.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'logs'").get();
+                    if (sequence) {
+                        db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'logs'").run(sequence.seq);
+                        db.prepare("INSERT INTO sqlite_sequence (name, seq) SELECT 'logs', ? WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'logs')").run(sequence.seq);
+                    }
+                });
+                db.exec('PRAGMA user_version = 1');
+            }, 'IMMEDIATE');
+            validateDatabase(db);
         },
     });
 }
@@ -167,28 +173,26 @@ if (requestSources.some(filename => fs.existsSync(path.join(saveDir, filename)))
     runFileMigration({
         saveDir, name: 'request-logs', sources: requestSources, targets: requestTargets,
         build(tmp, origin) {
-            const db = openRequestDatabase(tmp, 'DELETE');
-            try {
-                withTransaction(db, () => {
-                    let usageMigrated = false;
-                    withLegacyDatabase(origin, 'request-logs.db', source => {
-                        migrateRequests(source, db);
-                        usageMigrated = columns(source, 'generation_usage').length > 0;
-                        if (usageMigrated) copyTable(source, 'generation_usage', db, 'usage');
-                        if (columns(source, 'request_log_migrations').length > 0) {
-                            usageMigrated = Boolean(source.prepare(`
-                                SELECT 1 FROM request_log_migrations WHERE key = 'legacy-usage-db-v1'
-                            `).get());
-                        }
-                    });
-                    // A completed consolidation is authoritative even if its usage was later cleared.
-                    if (!usageMigrated) withLegacyDatabase(origin, 'usage.db', source =>
-                        copyTable(source, 'generation_usage', db, 'usage'));
-                    db.exec('PRAGMA user_version = 1; PRAGMA request_script.user_version = 1');
-                }, 'IMMEDIATE');
-                validateDatabase(db);
-                validateDatabase(db, 'request_script');
-            } finally { db.close(); }
+            using db = openRequestDatabase(tmp, 'DELETE');
+            withTransaction(db, () => {
+                let usageMigrated = false;
+                withLegacyDatabase(origin, 'request-logs.db', source => {
+                    migrateRequests(source, db);
+                    usageMigrated = columns(source, 'generation_usage').length > 0;
+                    if (usageMigrated) copyTable(source, 'generation_usage', db, 'usage');
+                    if (columns(source, 'request_log_migrations').length > 0) {
+                        usageMigrated = Boolean(source.prepare(`
+                            SELECT 1 FROM request_log_migrations WHERE key = 'legacy-usage-db-v1'
+                        `).get());
+                    }
+                });
+                // A completed consolidation is authoritative even if its usage was later cleared.
+                if (!usageMigrated) withLegacyDatabase(origin, 'usage.db', source =>
+                    copyTable(source, 'generation_usage', db, 'usage'));
+                db.exec('PRAGMA user_version = 1; PRAGMA request_script.user_version = 1');
+            }, 'IMMEDIATE');
+            validateDatabase(db);
+            validateDatabase(db, 'request_script');
         },
     });
 }
