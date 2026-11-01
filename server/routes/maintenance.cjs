@@ -13,13 +13,24 @@ function installMaintenanceRoutes(app, {
     backupState,
     DEFAULT_BACKUPS_DIR,
     sumInlayFsBytes,
-    estimateServerBackupSize,
+    listColdStorageBackupEntries,
     appDataStore,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
     requireSyncClientId,
     queueStorageOperation,
 }) {
+    // Mirrors the enumeration in /api/backup/server/save without writing anything.
+    function estimateServerBackupSize(inlayFsBytes) {
+        let total = appDataStore.getState().initialized
+            ? appDataStore.estimateProjectionBytes()
+            : 0;
+        for (const it of kvListWithSizes('assets/')) total += it.size;
+        for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
+        for (const e of listColdStorageBackupEntries()) total += e.size;
+        return total + inlayFsBytes;
+    }
+
     const DB_BLOB_KEY = 'database/database.bin';
 
     const ASSET_PREFIXES = [
@@ -85,12 +96,7 @@ function installMaintenanceRoutes(app, {
         // storage dashboard.
         if (req.query?.scope === 'backup') {
             const inlayFsBytes = await sumInlayFsBytes();
-            const estimatedBackupSize = await estimateServerBackupSize(
-                appDataStore.getState().initialized
-                    ? appDataStore.estimateProjectionBytes()
-                    : 0,
-                inlayFsBytes,
-            );
+            const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
             return res.json({
                 files,
                 disk,
@@ -181,12 +187,7 @@ function installMaintenanceRoutes(app, {
         // than in kv `inlay/*` prefixes. Surface explicitly so the dashboard
         // chart can include it in the inlay slice instead of underreporting.
         const inlayFsBytes = await sumInlayFsBytes();
-        const estimatedBackupSize = await estimateServerBackupSize(
-            appDataStore.getState().initialized
-                ? appDataStore.estimateProjectionBytes()
-                : 0,
-            inlayFsBytes,
-        );
+        const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
 
         res.json({
             files,

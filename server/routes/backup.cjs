@@ -46,7 +46,6 @@ function installBackupRoutes(app, {
     ensureInlayDir,
     normalizeColdStorageStorageKey,
     normalizeColdStorageBackupBuffer,
-    ensureCanonicalStorage,
     checkAuth,
     listInlayFiles,
     getInlaySidecarPath,

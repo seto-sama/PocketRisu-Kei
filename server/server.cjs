@@ -29,7 +29,7 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvListWithSizes, checkpointWal, snapshotSetFootprint, db: sqliteDb } = require('./db.cjs');
+const { kvGet, kvSet, kvSetChunked, kvDel, kvList, checkpointWal, snapshotSetFootprint, db: sqliteDb } = require('./db.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
 const { removeRuntimeCharacterFields } = require('./persistenceShape.cjs');
 const {
@@ -106,10 +106,38 @@ const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
 installProcessHandlers();
 
+const {
+    normalizeColdStorageStorageKey,
+    normalizeColdStorageBackupBuffer,
+    listColdStorageBackupEntries,
+    restoreColdStorageInDb,
+    restoreColdStorageChat,
+} = createLegacyRestoreService({
+    sqliteDb,
+    kvGet,
+    kvSet,
+    kvDel,
+    logger,
+});
+
+const appDataMigration = createAppDataMigration({
+    db: sqliteDb,
+    appDataStore,
+    kv: {
+        get: kvGet,
+        delete: kvDel,
+    },
+    decodeLegacyBlob: async raw => {
+        const decoded = await decodeRisuSave(raw);
+        const { database } = normalizeLegacyDatabaseProjection(decoded);
+        // Relational rows omit chatPage and runtime fields; verify against that shape.
+        for (const char of database.characters ?? []) removeRuntimeCharacterFields(char);
+        return database;
+    },
+    normalizeProjection: normalizeJSON,
+});
+
 const MISSING_DATABASE_ETAG = '__missing_database__';
-let restoreColdStorageInDb;
-let restoreColdStorageChat;
-let appDataMigration;
 let appDataReadyPromise = null;
 let driveRoutes;
 
@@ -133,6 +161,7 @@ function queueStorageOperation(operation) {
 // Snapshots live as `database/dbbackup-{ts}.bin` keys inside the kv table.
 // They're created on every successful persist (with a cooldown) and rotated
 // to fit user-configured count/size limits — see SNAPSHOT_LIMIT_* below.
+const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const SNAPSHOT_LIMIT_COUNT_KEY = 'config/snapshot-max-count';
 const SNAPSHOT_LIMIT_BYTES_KEY = 'config/snapshot-max-bytes';
 const SNAPSHOT_LIMIT_DEFAULT_COUNT = 20;
@@ -147,7 +176,6 @@ const BACKUP_INTERVAL_MS = process.env.POCKETRISU_BACKUP_INTERVAL_MS
     : 5 * 60 * 1000;
 let lastBackupTime = null;
 let backupRotationScheduled = false;
-let backupWorker = null;
 
 function readSnapshotConfigInt(key, fallback, min, max) {
     try {
@@ -239,10 +267,6 @@ const createSnapshotState = sqliteDb.transaction(() => {
     return backupKey;
 });
 
-function createSnapshotNow() {
-    return createSnapshotState();
-}
-
 function createBackupAndRotate() {
     const now = Date.now();
     if (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS) {
@@ -250,7 +274,7 @@ function createBackupAndRotate() {
     }
     lastBackupTime = now;
 
-    createSnapshotNow();
+    createSnapshotState();
 }
 
 function scheduleBackupAndRotate() {
@@ -271,7 +295,6 @@ function scheduleBackupAndRotate() {
                 maxBytes: limits.maxBytes,
             },
         });
-        backupWorker = worker;
         let reported = false;
         worker.once('message', message => {
             reported = true;
@@ -290,7 +313,6 @@ function scheduleBackupAndRotate() {
                 lastBackupTime = null;
                 logger.warn(`[Snapshot] Worker exited with code ${code}`);
             }
-            if (backupWorker === worker) backupWorker = null;
             backupRotationScheduled = false;
         });
     });
@@ -520,7 +542,7 @@ function readBackupsDirConfig() {
 
 function writeBackupPathMarker(absPath) {
     try {
-        require('fs').writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
+        writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
     } catch {
         // Best-effort; without the marker the updater keeps only `backups`.
     }
@@ -752,7 +774,6 @@ function broadcastRevenantWorkflowUpdated(workflow) {
 }
 
 // --- Generation Job constants ---
-const GENERATION_JOB_DEFAULT_TIMEOUT_MS = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS;
 const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
 const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
 const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
@@ -783,15 +804,14 @@ loginBlockCleanupTimer.unref?.();
 
 // --- Generation: auth helpers ---
 
-function normalizeAuthHeader(authHeader) {
-    if (Array.isArray(authHeader)) {
-        return authHeader[0] || '';
-    }
-    return typeof authHeader === 'string' ? authHeader : '';
-}
-
-async function isAuthorizedProxyRequest(req) {
-    return await checkAuth(req, null, true);
+// WebSocket clients may pass the token as a query parameter because browsers
+// cannot set custom headers on the upgrade request.
+function isAuthorizedUpgrade(req, reqUrl) {
+    const header = Array.isArray(req.headers['risu-auth'])
+        ? req.headers['risu-auth'][0]
+        : req.headers['risu-auth'];
+    const auth = reqUrl.searchParams.get('risu-auth') || (typeof header === 'string' ? header : '');
+    return checkAuth({ headers: { 'risu-auth': auth } }, null, true);
 }
 
 function sanitizeGenerationTargetUrl(raw) {
@@ -813,10 +833,6 @@ function normalizeForwardHeaders(input) {
     return filterUpstreamRequestHeaders(Object.fromEntries(
         Object.entries(input).filter(([, value]) => typeof value === 'string'),
     ));
-}
-
-function normalizeGenerationJobTimeoutMs(timeoutMs) {
-    return normalizeGenerationRequestTimeoutMs(timeoutMs);
 }
 
 function normalizeHeartbeatSec(heartbeatSec) {
@@ -862,7 +878,7 @@ function hasGenerationStreamTerminalMarker(rawBuffer) {
 
 function createGenerationRuntimeJob(arg) {
     const jobId = arg.jobId || nodeCrypto.randomUUID();
-    const timeoutMs = normalizeGenerationJobTimeoutMs(Number(arg.timeoutMs));
+    const timeoutMs = normalizeGenerationRequestTimeoutMs(Number(arg.timeoutMs));
     const heartbeatSec = normalizeHeartbeatSec(arg.heartbeatSec);
     const controller = new AbortController();
     const createdAt = Date.now();
@@ -925,7 +941,7 @@ function loadPersistedGenerationRuntimeJob(jobId) {
         cancelUpstream: null,
         deadlineAt: Date.now(),
         heartbeatSec: GENERATION_JOB_DEFAULT_HEARTBEAT_SEC,
-        timeoutMs: GENERATION_JOB_DEFAULT_TIMEOUT_MS,
+        timeoutMs: GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
     };
     generationRuntimeJobs.set(jobId, job);
     return job;
@@ -1316,6 +1332,18 @@ async function runGenerationProviderJob(job, arg) {
         notifyRevenantJournalWaiters(job);
         if (journalWriteError) throw journalWriteError;
     };
+    const recordUsage = (persisted, rawResponse, outputText) => recordGenerationUsage({
+        jobId: job.id,
+        timestamp: persisted?.createdAt,
+        chatId: persisted?.chatId,
+        targetUrl,
+        body: arg.body,
+        rawResponse,
+        outputText,
+        usageProviderId: arg.usageProviderId,
+        usageModelId: arg.usageModelId,
+        usageServiceTier: arg.usageServiceTier,
+    });
 
     try {
         await resolveProviderAuth(arg.serverProviderAuth, headers, job.abortController.signal);
@@ -1441,18 +1469,10 @@ async function runGenerationProviderJob(job, arg) {
             upstreamResponse.status >= 200 && upstreamResponse.status < 400,
             providerCompletedAt,
         );
-        recordGenerationUsage({
-            jobId: job.id,
-            timestamp: persisted?.createdAt,
-            chatId: persisted?.chatId,
-            targetUrl,
-            body: arg.body,
-            rawResponse,
-            outputText: projection?.content,
-            usageProviderId: arg.usageProviderId,
-            usageModelId: arg.usageModelId,
-            usageServiceTier: arg.usageServiceTier,
-        });
+        recordUsage(persisted, rawResponse, projection?.content);
+        const finishReason = cancelled
+            ? cancelFinishReason
+            : (providerCompleted ? 'provider_complete' : 'upstream_complete');
         if (terminalFailure) {
             finishGenerationJob(
                 job.id,
@@ -1465,7 +1485,7 @@ async function runGenerationProviderJob(job, arg) {
             finishGenerationJob(
                 job.id,
                 cancelled ? 'cancelled' : 'generated',
-                cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                finishReason,
                 null,
                 rawResponse.length,
             );
@@ -1493,7 +1513,7 @@ async function runGenerationProviderJob(job, arg) {
                 type: 'done',
                 status: cancelled ? 'cancelled' : 'generated',
                 partial: cancelled,
-                finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                finishReason,
             };
         }
         markGenerationJobDone(job);
@@ -1513,7 +1533,6 @@ async function runGenerationProviderJob(job, arg) {
                 logger.warn(`[GenerationJob] Partial projection unavailable for ${job.id}:`, projectionError);
             }
         }
-        let cancelFinishReason = 'user_cancelled';
         const persistedWithRaw = getGenerationJob(job.id, false);
         const rawResponse = readGenerationJobRaw(job.id);
         updateRequestLogResponseById(
@@ -1522,20 +1541,9 @@ async function runGenerationProviderJob(job, arg) {
             persistedWithRaw?.responseStatus,
             false,
         );
-        recordGenerationUsage({
-            jobId: job.id,
-            timestamp: persistedWithRaw?.createdAt,
-            chatId: persistedWithRaw?.chatId,
-            targetUrl,
-            body: arg.body,
-            rawResponse,
-            outputText: persistedWithRaw?.projection?.content,
-            usageProviderId: arg.usageProviderId,
-            usageModelId: arg.usageModelId,
-            usageServiceTier: arg.usageServiceTier,
-        });
+        recordUsage(persistedWithRaw, rawResponse, persistedWithRaw?.projection?.content);
         const hasPartial = rawResponse.length > 0;
-        cancelFinishReason = persistedWithRaw?.finishReason || cancelFinishReason;
+        const cancelFinishReason = persistedWithRaw?.finishReason || 'user_cancelled';
         finishGenerationJob(
             job.id,
             cancelled ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
@@ -1567,9 +1575,8 @@ function setupGenerationWebSocket(server) {
             if (viteDevServer && ['vite-hmr', 'vite-ping'].includes(req.headers['sec-websocket-protocol'])) return;
             const reqUrl = new URL(req.url, `http://${req.headers.host}`);
             if (reqUrl.pathname === '/sync') {
-                const auth = reqUrl.searchParams.get('risu-auth') || normalizeAuthHeader(req.headers['risu-auth']);
                 const clientId = reqUrl.searchParams.get('client-id');
-                if (!clientId || !await isAuthorizedProxyRequest({ headers: { 'risu-auth': auth } })) {
+                if (!clientId || !await isAuthorizedUpgrade(req, reqUrl)) {
                     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
                     socket.destroy();
                     return;
@@ -1587,8 +1594,7 @@ function setupGenerationWebSocket(server) {
                 return;
             }
 
-            const auth = reqUrl.searchParams.get('risu-auth') || normalizeAuthHeader(req.headers['risu-auth']);
-            if (!await isAuthorizedProxyRequest({ headers: { 'risu-auth': auth } })) {
+            if (!await isAuthorizedUpgrade(req, reqUrl)) {
                 socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
                 socket.destroy();
                 return;
@@ -1678,39 +1684,6 @@ function setupGenerationWebSocket(server) {
         });
     });
 }
-
-const {
-    normalizeColdStorageStorageKey,
-    normalizeColdStorageBackupBuffer,
-    listColdStorageBackupEntries,
-    restoreColdStorageInDb: restoreColdStorage,
-    restoreColdStorageChat: restoreColdChat,
-} = createLegacyRestoreService({
-    sqliteDb,
-    kvGet,
-    kvSet,
-    kvDel,
-    logger,
-});
-restoreColdStorageInDb = restoreColdStorage;
-restoreColdStorageChat = restoreColdChat;
-
-appDataMigration = createAppDataMigration({
-    db: sqliteDb,
-    appDataStore,
-    kv: {
-        get: kvGet,
-        delete: kvDel,
-    },
-    decodeLegacyBlob: async raw => {
-        const decoded = await decodeRisuSave(raw);
-        const { database } = normalizeLegacyDatabaseProjection(decoded);
-        // Relational rows omit chatPage and runtime fields; verify against that shape.
-        for (const char of database.characters ?? []) removeRuntimeCharacterFields(char);
-        return database;
-    },
-    normalizeProjection: normalizeJSON,
-});
 
 // Drive trash expiry follows the stored setting; re-arm it when a database
 // write changes the value.
@@ -1863,30 +1836,6 @@ function resolveAssetPayload(key, rawValue) {
     return { binary: rawValue, contentType }
 }
 
-const DB_BACKUP_PREFIX = 'database/dbbackup-';
-
-// Estimated server-backup size — mirrors the enumeration in
-// /api/backup/server/save without writing anything. Inlay files live on the
-// filesystem (post-migration), so we have to fs.stat them rather than read
-// kvSize. Cost: ~5-50 ms typical, ~200 ms for users with thousands of inlays.
-async function estimateServerBackupSize(dbBytesOverride = null, inlayBytesOverride = null) {
-    let total = 0;
-    if (typeof dbBytesOverride === 'number') {
-        total += dbBytesOverride;
-    } else {
-        total += appDataStore.getState().initialized
-            ? appDataStore.estimateProjectionBytes()
-            : 0;
-    }
-    for (const it of kvListWithSizes('assets/')) total += it.size;
-    for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
-    for (const e of listColdStorageBackupEntries()) total += e.size;
-    total += typeof inlayBytesOverride === 'number'
-        ? inlayBytesOverride
-        : await sumInlayFsBytes();
-    return total;
-}
-
 require('./routes/auth.cjs').installAuthRoutes(app, {
     SESSION_FILE,
     sessions,
@@ -1935,8 +1884,6 @@ installRevenantGenerationRoutes(app, {
     countActiveProviderJobs,
     capacity: REVENANT_CAPACITY,
     randomUUID: () => nodeCrypto.randomUUID(),
-    addRequestLog,
-    materializeGeneration: revenantMaterializer.materialize,
 });
 
 require('./routes/web.cjs').installWebRoutes(app, {
@@ -2016,7 +1963,6 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     ensureInlayDir,
     normalizeColdStorageStorageKey,
     normalizeColdStorageBackupBuffer,
-    ensureCanonicalStorage,
     checkAuth,
     listInlayFiles,
     getInlaySidecarPath,
@@ -2071,7 +2017,7 @@ require('./routes/maintenance.cjs').installMaintenanceRoutes(app, {
     backupState,
     DEFAULT_BACKUPS_DIR,
     sumInlayFsBytes,
-    estimateServerBackupSize,
+    listColdStorageBackupEntries,
     appDataStore,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
@@ -2271,7 +2217,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
                 continue;
             }
             if (!job.done && !job.waitingDispatch
-                && now - job.updatedAt > Math.max(GENERATION_JOB_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
+                && now - job.updatedAt > Math.max(GENERATION_REQUEST_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
                 cleanupGenerationRuntimeJob(jobId);
             }
         }
