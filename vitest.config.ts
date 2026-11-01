@@ -1,6 +1,6 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte"
 import { defineConfig } from 'vitest/config'
-import { localFontsPlugin } from './vite.localFonts'
+import { localFontsPlugin } from './vite.localFonts.ts'
 
 export default defineConfig({
   plugins: [

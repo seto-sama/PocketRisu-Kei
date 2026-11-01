@@ -1,8 +1,8 @@
-import { defineConfig } from "vite";
-import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte";
-import wasm from "vite-plugin-wasm";
+import { defineConfig } from 'vite'
+import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte'
+import wasm from 'vite-plugin-wasm'
 import tailwindcss from '@tailwindcss/vite'
-import { localFontsPlugin } from './vite.localFonts';
+import { localFontsPlugin } from './vite.localFonts.ts'
 
 const browserCompatibleNodeImporters = [
   '/node_modules/@browsermt/bergamot-translator/',
@@ -15,65 +15,53 @@ function isExpectedBrowserExternalization(warning: { message: string }) {
     && browserCompatibleNodeImporters.some(importer => message.includes(importer))
 }
 
+const rolldownOptions = {
+  checks: {
+    // WASM parsing makes build timing warnings noisy.
+    bundlerTimings: false,
+    ineffectiveDynamicImport: false,
+  },
+}
+
 export default defineConfig({
-    plugins: [
-      localFontsPlugin(),
-      svelte({
-        configFile: false,
-        preprocess: vitePreprocess(),
-        onwarn: (warning, handler) => {
-          if (warning.code.startsWith("a11y-")) return;
-          handler(warning);
-        },
-      }),
-      tailwindcss(),
-      wasm(),
-    ],
-
-    clearScreen: false,
-    build: {
-      target:'baseline-widely-available',
-      minify: 'oxc',
-      // The tiktoken vocabulary chunk is large but lazy-loaded.
-      chunkSizeWarningLimit: 2500,
-      rolldownOptions: {
-        checks: {
-          // Plugin timings vary with WASM parsing and are not actionable build checks.
-          pluginTimings: false,
-        },
-        onwarn(warning, handler) {
-          // These browser-capable WASM libraries also ship guarded Node.js
-          // branches. Rolldown sees their built-in imports statically even
-          // though those branches are unreachable in the browser.
-          if (isExpectedBrowserExternalization(warning)) return
-          if (warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT') return
-          handler(warning)
-        },
+  plugins: [
+    localFontsPlugin(),
+    svelte({
+      configFile: false,
+      preprocess: vitePreprocess(),
+      onwarn(warning, handler) {
+        if (warning.code.startsWith('a11y-')) return
+        handler(warning)
+      },
+    }),
+    tailwindcss(),
+    wasm(),
+  ],
+  clearScreen: false,
+  build: {
+    sourcemap: true,
+    // The tiktoken vocabulary chunk is large but lazy-loaded.
+    chunkSizeWarningLimit: 2500,
+    rolldownOptions: {
+      ...rolldownOptions,
+      onwarn(warning, handler) {
+        // These WASM libraries guard their Node.js-only imports at runtime.
+        if (isExpectedBrowserExternalization(warning)) return
+        handler(warning)
       },
     },
-    
-    optimizeDeps:{
-      exclude: [
-        "@browsermt/bergamot-translator"
-      ]
+  },
+  optimizeDeps: {
+    exclude: ['@browsermt/bergamot-translator'],
+  },
+  resolve: {
+    alias: {
+      src: '/src',
+      $lib: '/src/lib',
     },
-
-    resolve:{
-      alias:{
-        'src':'/src',
-        '$lib':'/src/lib',
-      }
-    },
-    worker: {
-      format: 'es',
-      rolldownOptions: {
-        checks: {
-          pluginTimings: false,
-        },
-        onwarn(warning, handler) {
-          if (isExpectedBrowserExternalization(warning)) return
-          handler(warning)
-        },
-      },
-    }
-});
+  },
+  worker: {
+    format: 'es',
+    rolldownOptions,
+  },
+})
