@@ -87,8 +87,6 @@ function hasGenerationStreamTerminalMarker(rawBuffer) {
     return false;
 }
 
-// In-memory state for provider requests: the durable job lives in the
-// generation DB, while this map tracks abort controllers and journal sockets.
 function createProviderJobRunner(options) {
     const repository = options.repository || require('./generationDb.cjs');
     const {
@@ -542,7 +540,6 @@ function createProviderJobRunner(options) {
         }, GENERATION_JOB_GC_INTERVAL_MS);
     }
 
-    // Stop every unfinished provider request and return their run promises.
     function abortAll() {
         const runs = [];
         for (const job of generationRuntimeJobs.values()) {

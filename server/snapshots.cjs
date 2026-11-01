@@ -6,9 +6,6 @@ const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 const { exportPromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 const { createSnapshotKey, trimSnapshots } = require('./snapshotWorker.cjs');
 
-// Snapshots live as `database/dbbackup-{ts}.bin` keys inside the kv table.
-// They're created on every successful persist (with a cooldown) and rotated
-// to fit user-configured count/size limits — see SNAPSHOT_LIMIT_* below.
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const SNAPSHOT_LIMIT_COUNT_KEY = 'config/snapshot-max-count';
 const SNAPSHOT_LIMIT_BYTES_KEY = 'config/snapshot-max-bytes';
@@ -64,8 +61,6 @@ function createSnapshotService({
         bookmarkStore.deleteSnapshot(key);
     }
 
-    // Same rotation the background worker runs after each persist: newest
-    // first, always keep the most recent, count shared chunks once.
     function trimSnapshotsToLimits() {
         const { maxCount, maxBytes } = getSnapshotLimits();
         return trimSnapshots(sqliteDb, chunkStore, DB_BACKUP_PREFIX, maxCount, maxBytes);

@@ -2,6 +2,7 @@ import { createHash, createCipheriv } from 'node:crypto'
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { gzipSync } from 'node:zlib'
 import { encode as encodeMessagePack } from 'msgpackr'
 import Database from '../sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -56,6 +57,10 @@ function pluginStorageBackupEntry(namespace: string, key: string, value: Buffer,
         `plugin-storage/${namespace}/${encodedKey}`,
         encodeMessagePack({ value, ...(owner ? { owner } : {}) }),
     )
+}
+
+function coldStorageBuffer(value: unknown): Buffer {
+    return gzipSync(Buffer.from(JSON.stringify(value), 'utf-8'))
 }
 
 function freshDb() {
@@ -491,7 +496,7 @@ describe('createBackupRestoreService', () => {
         store = createAppDataStore(harness.db)
         store.replaceFromProjection({ characters: [], pluginCustomStorage: { existing: 'replaced by backup' } })
         harness.db.prepare('INSERT INTO kv (key, value) VALUES (?, ?)')
-            .run('coldstorage/missing-id', harness.coldStorage.encodeColdStorageCanonicalBuffer('old server value'))
+            .run('coldstorage/missing-id', coldStorageBuffer('old server value'))
         const index = {
             type: 'risu-plugin-storage-index', version: 1,
             entries: [
@@ -544,7 +549,7 @@ describe('createBackupRestoreService', () => {
                 },
             }
         })
-        const oldColdValue = harness.coldStorage.encodeColdStorageCanonicalBuffer({ old: true })
+        const oldColdValue = coldStorageBuffer({ old: true })
         harness.db.prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, 1)')
             .run('coldstorage/old-cold-id', oldColdValue)
         await writeFile(join(harness.inlayDir, 'old.png'), Buffer.from('old inlay'))
@@ -616,10 +621,10 @@ describe('createLegacyRestoreService', () => {
     it('discards an unsupported plugin index while restoring independent legacy values', () => {
         const service = createLegacyRestoreService({ logger: { error() {} } })
         const staged = new Map([
-            ['coldstorage/index', service.encodeColdStorageCanonicalBuffer({
+            ['coldstorage/index', coldStorageBuffer({
                 type: 'risu-plugin-storage-index', version: 2, entries: [], trash: [],
             })],
-            ['coldstorage/legacy', service.encodeColdStorageCanonicalBuffer(false)],
+            ['coldstorage/legacy', coldStorageBuffer(false)],
         ])
         const database = {
             pluginCustomStorage: {
@@ -660,7 +665,7 @@ describe('createLegacyRestoreService', () => {
         }
         set.run(
             `coldstorage/${id}`,
-            service.encodeColdStorageCanonicalBuffer(coldData),
+            coldStorageBuffer(coldData),
             1,
         )
         const database = {

@@ -1128,12 +1128,7 @@ function installBackupRoutes(app, {
         const out = kvList(DB_BACKUP_PREFIX).map((key) => {
             const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
             const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
-            // Logical size — the full data this snapshot represents (the whole DB),
-            // not its marginal on-disk cost. Users expect "this backup = my 53 MB
-            // DB"; the dedup win is shown once, as the section's savings figure.
-            // (kvSize reassembles via the manifest; the marker's 13 bytes are not
-            // what a user wants to see for a full backup.) Trimming still sizes by
-            // snapshotFootprint in db.cjs, so this display change can't over-trim.
+            // Display full backup size; quota trimming counts shared chunks once.
             return { key, size: kvSize(key) || 0, timestamp: ts };
         }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
         res.json({ snapshots: out });

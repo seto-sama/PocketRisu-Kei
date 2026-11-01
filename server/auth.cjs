@@ -27,9 +27,7 @@ function createAuthService({ savePath }) {
         password: existsSync(passwordPath) ? readFileSync(passwordPath, 'utf-8') : '',
     };
 
-    // Upstream signs ECDSA JWTs in the browser with crypto.subtle, which needs a
-    // secure context. Signing with HMAC-SHA256 on the server keeps login working
-    // over plain HTTP. Sync manually if upstream changes its auth flow.
+    // Sign on the server so login works over HTTP without browser crypto.subtle.
     const jwtSecretPath = path.join(savePath, '__jwt_secret')
     let jwtSecret
     if (existsSync(jwtSecretPath)) {
@@ -39,11 +37,9 @@ function createAuthService({ savePath }) {
         writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
     }
 
-    // <img src="/api/asset/..."> cannot send custom headers, so we use a session
-    // cookie issued after initial JWT auth. Single-user environment: Map is fine.
-    // Sessions are persisted to disk so they survive server restarts.
+    // Image requests cannot send auth headers, so they use a session cookie.
     const sessionFile = path.join(savePath, '__sessions')
-    const sessions = new Map() // token → expiresAt (ms)
+    const sessions = new Map()
     try {
         const raw = readFileSync(sessionFile, 'utf-8')
         const now = Date.now()

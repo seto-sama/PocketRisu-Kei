@@ -71,8 +71,6 @@ function normalizeOrphanFolderIds(dbObj) {
     return changed;
 }
 
-// Relational app data plus the legacy normalization and cold-storage restore
-// that still run when older saves or chat rows are read.
 function createCanonicalStorage({
     sqliteDb,
     kvGet,
@@ -129,8 +127,6 @@ function createCanonicalStorage({
         return { database: normalized, coldRestoreResult };
     }
 
-    // Drive trash expiry follows the stored setting; re-arm it when a database
-    // write changes the value.
     let trashRetentionDays = normalizeTrashRetentionDays(undefined);
 
     function readTrashRetentionDays() {
@@ -217,12 +213,8 @@ function createCanonicalStorage({
         }
     }
 
-    /**
-     * Read a canonical chat as a caller-owned { chat, etag }. Legacy rows that
-     * still hold a cold-storage stub are normalized once and
-     * committed under the row's content ETag. `coldRestoreFailed` reports a
-     * cold-storage body that could not be read; the chat is returned as stored.
-     */
+    // Commit restored cold-storage bodies under the row's ETag; if restoration
+    // fails, return the stored chat with coldRestoreFailed.
     async function loadCanonicalChat(characterId, chatId) {
         await ensureCanonicalStorage();
         if (!appDataStore.getState().initialized || !characterId || !chatId) return undefined;
@@ -244,12 +236,8 @@ function createCanonicalStorage({
         return { chat: committed.chat, etag: committed.etag, coldRestoreFailed };
     }
 
-    /**
-     * Commit a canonical chat body. Generation input and results also update
-     * server-owned activity metadata in the same transaction, read from the store
-     * itself, so concurrent devices increment the server value instead of racing
-     * client-side snapshots.
-     */
+    // Update activity metadata from the store in the same transaction so
+    // concurrent devices do not race using client-side snapshots.
     async function persistCanonicalChat({
         characterId,
         chatId,

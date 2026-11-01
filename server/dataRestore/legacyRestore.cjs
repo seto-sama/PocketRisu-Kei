@@ -291,10 +291,7 @@ function createLegacyRestoreService({
 
     return {
         normalizeColdStorageStorageKey,
-        parseColdStorageJsonBuffer,
-        encodeColdStorageCanonicalBuffer,
         normalizeColdStorageBackupBuffer,
-        readColdStorageJsonEntry,
         listColdStorageBackupEntries,
         restoreColdStorageInDb,
         restoreColdStorageChat,

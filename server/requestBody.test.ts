@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const express = require('express') as typeof import('express')
@@ -13,10 +13,10 @@ const { installAuthenticatedBodyParsing } = require('./requestBody.cjs') as {
 }
 const { installProxyRoutes } = require('./routes/proxy.cjs')
 const { installAuthRoutes } = require('./routes/auth.cjs') as { installAuthRoutes(app: any, options: any): void }
+const { createAuthService } = require('./auth.cjs')
 
 type Fixture = {
     base: string
-    authCalls: Array<{ token: string | undefined; options: Record<string, unknown> }>
     close(): Promise<void>
 }
 
@@ -24,38 +24,16 @@ const fixtures: Fixture[] = []
 
 async function startFixture(): Promise<Fixture> {
     const directory = mkdtempSync(join(tmpdir(), 'risu-request-body-'))
-    const authCalls: Fixture['authCalls'] = []
-    const authState = { password: '' }
-    const sessions = new Map<string, number>()
-    const loginBlockedUntil = new Map<string, number>()
-    const checkAuth = async (req: any, res: any, _returnOnlyStatus = false, options: Record<string, unknown> = {}) => {
-        const token = req.get('risu-auth') as string | undefined
-        authCalls.push({ token, options })
-        const sessionCookie = String(req.get('cookie') || '').split(';').some((part: string) => part.trim() === 'risu-session=session-equivalent')
-        if (token === 'valid-token' || sessionCookie || (token === 'expired-token' && options.allowExpired === true)) return true
-        res.status(401).json({ code: 'AUTH_REQUIRED' })
-        return false
-    }
+    const auth = createAuthService({ savePath: directory })
 
     const app = express()
     installAuthRoutes(app, {
-        auth: {
-            sessionFile: join(directory, 'sessions.json'),
-            sessions,
-            loginBlockedUntil,
-            LOGIN_FAILURE_WINDOW_MS: 60_000,
-            jwtSecret: 'request-body-test-secret',
-            authState,
-            checkAuth,
-            parseSessionCookie: () => undefined,
-            sessionExpiresAt: (session: number | undefined) => session ?? 0,
-            passwordPath: join(directory, 'password'),
-        },
+        auth,
         syncClientDevices: new Map(),
     })
-    installAuthenticatedBodyParsing(app, { checkAuth })
+    installAuthenticatedBodyParsing(app, { checkAuth: auth.checkDownloadAuth })
     app.post('/api/body-check', (req: any, res: any) => res.json({ body: req.body ?? null }))
-    installProxyRoutes(app, { checkAuth })
+    installProxyRoutes(app, { checkAuth: auth.checkAuth })
 
     const server = app.listen(0, '127.0.0.1')
     await new Promise<void>((resolve, reject) => {
@@ -67,7 +45,6 @@ async function startFixture(): Promise<Fixture> {
     const base = `http://127.0.0.1:${address.port}`
     const fixture: Fixture = {
         base,
-        authCalls,
         close: async () => {
             server.closeAllConnections()
             await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
@@ -79,8 +56,22 @@ async function startFixture(): Promise<Fixture> {
 }
 
 afterEach(async () => {
+    vi.useRealTimers()
     await Promise.all(fixtures.splice(0).map(fixture => fixture.close()))
 })
+
+async function login(fixture: Fixture): Promise<Record<string, string>> {
+    const options = {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: 'chosen-password' }),
+    }
+    expect((await fetch(`${fixture.base}/api/set_password`, options)).status).toBe(200)
+    const response = await fetch(`${fixture.base}/api/login`, options)
+    expect(response.status).toBe(200)
+    const { token } = await response.json()
+    return { 'risu-auth': token }
+}
 
 describe('authenticated request body parsing', () => {
     it('rejects unauthenticated malformed and compressed JSON before parsing', async () => {
@@ -97,7 +88,6 @@ describe('authenticated request body parsing', () => {
             body: gzipSync(Buffer.from('{broken')),
         })
         expect(compressed.status).toBe(401)
-        expect(fixture.authCalls).toHaveLength(2)
     })
 
     it('rejects incomplete unauthenticated binary and form requests before parsing', async () => {
@@ -131,14 +121,16 @@ describe('authenticated request body parsing', () => {
         const send = (path: string, contentType: string, body: BodyInit, headers: Record<string, string> = {}) => fetch(fixture.base + path, {
             method: 'POST', headers: { ...headers, 'content-type': contentType }, body,
         })
-        const authorized = { 'risu-auth': 'valid-token' }
+        const authorized = await login(fixture)
 
         const json = await send('/api/body-check', 'application/json', JSON.stringify({ value: 7 }), authorized)
         expect(await json.json()).toEqual({ body: { value: 7 } })
         const text = await send('/api/body-check', 'text/plain', 'plain body', authorized)
         expect(await text.json()).toEqual({ body: 'plain body' })
+        const sessionResponse = await fetch(`${fixture.base}/api/session`, { method: 'POST', headers: authorized })
+        expect(sessionResponse.status).toBe(200)
         const session = await send('/api/body-check', 'application/json', JSON.stringify({ via: 'session' }), {
-            cookie: 'risu-session=session-equivalent',
+            cookie: sessionResponse.headers.get('set-cookie')!.split(';')[0],
         })
         expect(await session.json()).toEqual({ body: { via: 'session' } })
     })
@@ -158,12 +150,20 @@ describe('authenticated request body parsing', () => {
         expect((await postJson('/api/set_password', '{malformed')).status).toBe(409)
     })
 
-    it('allows the refresh route to validate an expired token with its route-specific option', async () => {
+    it('refreshes an expired token into one accepted by protected routes', async () => {
         const fixture = await startFixture()
+        vi.useFakeTimers({ toFake: ['Date'] })
+        const authorized = await login(fixture)
+        vi.setSystemTime(Date.now() + 6 * 60 * 1000)
+        const sendBody = (headers: Record<string, string>) => fetch(`${fixture.base}/api/body-check`, {
+            method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}',
+        })
+        expect((await sendBody(authorized)).status).toBe(401)
         const response = await fetch(fixture.base + '/api/token/refresh', {
-            method: 'POST', headers: { 'risu-auth': 'expired-token' },
+            method: 'POST', headers: authorized,
         })
         expect(response.status).toBe(200)
-        expect(fixture.authCalls).toContainEqual({ token: 'expired-token', options: { allowExpired: true } })
+        const { token } = await response.json()
+        expect((await sendBody({ 'risu-auth': token })).status).toBe(200)
     })
 })

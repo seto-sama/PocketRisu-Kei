@@ -380,4 +380,4 @@ function createBookmarkStore(db) {
 }
 
 module.exports = { createBookmarkStore, normalizePreview, normalizeTagIds,
-    readChatCompatibility, stripChatCompatibility };
+    stripChatCompatibility };

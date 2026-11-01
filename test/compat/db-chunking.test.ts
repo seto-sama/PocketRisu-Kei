@@ -7,14 +7,11 @@ import { createClient, type RisuClient } from './helpers/client.js'
 import { createSeedBackup } from './helpers/seed.js'
 import { normalizeBackup } from './helpers/normalize.js'
 
-// Chunk legacy blobs and migration artifacts above 4 KB.
-const CHUNK_ENV = { POCKETRISU_CHUNK_THRESHOLD: '4096' }
-
 const servers: ServerHandle[] = []
 afterAll(async () => { await Promise.allSettled(servers.map((s) => s.cleanup())) })
 
 async function boot(): Promise<{ client: RisuClient; srv: ServerHandle }> {
-  const srv = await spawnServer({ env: CHUNK_ENV })
+  const srv = await spawnServer()
   servers.push(srv)
   const client = await createClient(srv.port, srv.password)
   return { client, srv }
@@ -55,13 +52,12 @@ function expectNoLiveDatabaseBlob(stats: any) {
   expect(stats.prefixes['database/database.bin']).toEqual({ totalSize: 0, count: 0 })
 }
 
-describe('chunking lifecycle (real server, low threshold)', () => {
+describe('database backup round-trip and save-folder migration', () => {
   test('relational DB exports to standard .bin and round-trips into a fresh server', async () => {
     const { client } = await boot()
     await client.importBackup(oversizedSeed())
 
     const exported = await client.exportBackup()
-    expect(exported.byteLength).toBeGreaterThan(4096)
 
     const { client: client2 } = await boot()
     const r2 = await client2.importBackup(exported)
@@ -75,11 +71,8 @@ describe('chunking lifecycle (real server, low threshold)', () => {
     expect(chars.characters.length).toBeGreaterThanOrEqual(5)
   })
 
-  test('pre-SQLite hex save folder keeps a chunked immutable migration artifact', async () => {
-    // Plant an old file-based save folder (hex-named files, no SQLite marker)
-    // with an oversized database.bin before the server boots.
+  test('pre-SQLite hex save folder migrates chat data into relational storage', async () => {
     const srv = await spawnServer({
-      env: CHUNK_ENV,
       seedSave: async (saveDir) => {
         await writeFile(path.join(saveDir, DB_BLOB_HEX), bigDbBlob('HEX'))
       },
@@ -87,11 +80,8 @@ describe('chunking lifecycle (real server, low threshold)', () => {
     servers.push(srv)
     const client = await createClient(srv.port, srv.password)
 
-    // Boot installs rows and removes the live blob. The exact pre-cutover bytes
-    // remain as a chunkable migration-backup artifact.
     const s = await getStats(client)
     expectNoLiveDatabaseBlob(s)
-    expect(s.chunks.count).toBeGreaterThan(1)
     expect(await exportedDatabaseContains(client, 'HEX')).toBe(true)
   })
 })

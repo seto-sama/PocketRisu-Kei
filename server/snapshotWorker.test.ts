@@ -30,7 +30,7 @@ async function createFixture() {
         updated_at INTEGER NOT NULL
       )
     `)
-    createChunkStore(db, { threshold: 256 })
+    createChunkStore(db)
     const appDataStore = createAppDataStore(db)
     appDataStore.replaceFromProjection({
         characters: [{
@@ -57,21 +57,20 @@ afterEach(async () => {
 })
 
 describe('relational snapshot worker', () => {
-    it('creates a compatible chunked snapshot and rotates it by count', async () => {
+    it('creates a compatible snapshot and rotates it by count', async () => {
         const dbPath = await createFixture()
         const options = {
             dbPath,
             prefix: 'database/dbbackup-',
             maxCount: 1,
             maxBytes: 1024 * 1024,
-            chunkThreshold: 256,
         }
 
         const first = createRelationalSnapshot(options)
         const second = createRelationalSnapshot(options)
 
         const db = new Database(dbPath)
-        const chunkStore = createChunkStore(db, { threshold: 256 })
+        const chunkStore = createChunkStore(db)
         const rows = db.prepare(`
           SELECT key FROM kv WHERE key LIKE 'database/dbbackup-%'
         `).all() as Array<{ key: string }>
@@ -80,10 +79,9 @@ describe('relational snapshot worker', () => {
         expect(second.trim.removed).toBe(1)
         const decoded = await decodeRisuSave(chunkStore.getValue(second.key))
         expect(decoded.characters[0].chats[0].message).toHaveLength(20)
-        expect(db.prepare(`
-          SELECT COUNT(*) AS count FROM bookmark_snapshots
-        `).get()).toEqual({ count: 1 })
-        expect(first.logicalBytes).toBeGreaterThan(0)
+        const bookmarkStore = createBookmarkStore(db)
+        expect(bookmarkStore.restoreSnapshot(first.key)).toBe(false)
+        expect(bookmarkStore.restoreSnapshot(second.key)).toBe(true)
         db.close()
     })
 
@@ -92,19 +90,16 @@ describe('relational snapshot worker', () => {
         const db = new Database(dbPath)
         const chunkStore = createChunkStore(db, { threshold: 256 })
         createBookmarkStore(db)
-        // Uniform bytes cut into identical chunks, so the manifest repeats a hash.
-        chunkStore.putValue('database/dbbackup-2.bin', Buffer.alloc(4 * 65536, 7))
-        chunkStore.putValue('database/dbbackup-1.bin', Buffer.alloc(5000, 3))
         const keys = ['database/dbbackup-2.bin', 'database/dbbackup-1.bin']
-        const manifest = db.prepare(`
-          SELECT COUNT(*) AS rows, COUNT(DISTINCT hash) AS hashes
-          FROM manifest_chunks WHERE manifest_key = ?
-        `).get(keys[0]) as { rows: number; hashes: number }
-        expect(manifest.rows).toBeGreaterThan(manifest.hashes)
+        // Uniform bytes produce repeated chunks, so physical cost is below logical size.
+        const values = [Buffer.alloc(256 * 1024, 7), Buffer.alloc(5000, 3)]
+        keys.forEach((key, index) => chunkStore.putValue(key, values[index]))
+        const budget = chunkStore.keySetPhysicalCost(keys)
+        expect(budget).toBeLessThan(values[0].length)
 
-        const trim = trimSnapshots(db, chunkStore, 'database/dbbackup-', 10, chunkStore.keySetPhysicalCost(keys))
+        trimSnapshots(db, chunkStore, 'database/dbbackup-', 10, budget)
 
-        expect(trim.removed).toBe(0)
+        keys.forEach((key, index) => expect(chunkStore.getValue(key)).toEqual(values[index]))
         db.close()
     })
 })

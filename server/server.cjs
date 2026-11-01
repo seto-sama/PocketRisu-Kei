@@ -138,7 +138,6 @@ function isCloudflareTunnelRequest(req) {
 }
 
 function shouldCompress(req, res) {
-    // Keep proxied responses and streaming downloads uncompressed.
     const url = req.originalUrl || req.url;
     if (res.locals.skipCompression || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
         return false;
@@ -185,8 +184,6 @@ const { checkAuth, checkDownloadAuth, sessionAuthMiddleware } = auth;
 
 const backupLocation = createBackupLocation({ savePath, kvGet });
 const { backupState, DEFAULT_BACKUPS_DIR, BACKUP_FILENAME_REGEX } = backupLocation;
-
-// ── Cloudflare Quick Tunnel ─────────────────────────────────────────────────
 
 const tunnelState = {
     tunnelProcess: null,
@@ -369,8 +366,6 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
-// --- WebSocket setup ---
-
 // WebSocket clients may pass the token as a query parameter because browsers
 // cannot set custom headers on the upgrade request.
 function isAuthorizedUpgrade(req, reqUrl) {
@@ -435,7 +430,6 @@ function setupGenerationWebSocket(server) {
     wsServer.on('connection', providerJobs.handleJournalConnection);
 }
 
-// --- Revenant generation jobs -------------------------------------------------
 async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     return canonicalChatService.commitGenerationInput({
         characterId,
@@ -638,7 +632,7 @@ if (isDevelopment) {
     app.use((req, res, next) => viteDevServer.middlewares(req, res, next));
 }
 
-// ─── Express error middleware — must be registered after all routes ─────────
+// Error middleware must be registered after all routes.
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
@@ -710,7 +704,6 @@ async function startServer() {
     }
 }
 
-// Graceful shutdown: stop running jobs and checkpoint WAL before exit
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
@@ -750,7 +743,6 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
 
     await startServer();
 
-    // Periodically checkpoint WAL to reclaim disk space.
     // TRUNCATE (vs RESTART) shrinks the -wal file on disk, not just the writer
     // pointer — required for journal_size_limit to actually take effect.
     setInterval(() => {
@@ -760,8 +752,6 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         catch { /* non-fatal */ }
     }, 5 * 60 * 1000);
 
-    // Terminal recovery data is temporary. Keep it for one day, then remove DB
-    // metadata and its journal even if no client reconnects.
     setInterval(() => {
         try { pruneRetainedGenerationJobs(); }
         catch (error) { logger.error('[GenerationJob] Retention cleanup failed:', error); }

@@ -1417,7 +1417,6 @@ function createAppDataStore(db) {
 }
 
 module.exports = {
-    APP_DATA_SCHEMA_VERSION,
     AppDataConflictError,
     createAppDataStore,
 };

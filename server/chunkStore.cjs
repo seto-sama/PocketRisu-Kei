@@ -138,17 +138,6 @@ function createChunkStore(db, opts = {}) {
       UPDATE chunk_store_stats
       SET reclaimable_bytes = ?, reclaimable_dirty = 0 WHERE id = 1
     `);
-    // Bytes of chunks referenced by `key` but NOT by `baseKey` — i.e. what `key`
-    // uniquely keeps alive beyond the base. Used to size snapshots for the disk
-    // limit by their real marginal cost, not their (shared) logical size.
-    const selMarginal = db.prepare(
-        `SELECT COALESCE(SUM(LENGTH(c.data)), 0) AS n FROM chunks c
-         WHERE c.hash IN (SELECT hash FROM manifest_chunks WHERE manifest_key = ?)
-           AND c.hash NOT IN (SELECT hash FROM manifest_chunks WHERE manifest_key = ?)`,
-    );
-    const copyManifest = db.prepare(
-        'INSERT INTO manifest_chunks (manifest_key, seq, hash) SELECT ?, seq, hash FROM manifest_chunks WHERE manifest_key = ?',
-    );
     const kvSet = db.prepare('INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)');
     const kvGet = db.prepare('SELECT value FROM kv WHERE key = ?');
     const kvDel = db.prepare('DELETE FROM kv WHERE key = ?');
@@ -237,16 +226,6 @@ function createChunkStore(db, opts = {}) {
         return row.value.length;
     }
 
-    // Marginal disk cost of a (snapshot) key relative to baseKey (the live blob):
-    // raw value → its full length; chunked → bytes of chunks not shared with base.
-    // A snapshot identical to base costs ~0; a divergent one costs its real delta.
-    function snapshotCost(key, baseKey) {
-        const row = kvGet.get(key);
-        if (!row) return 0;
-        if (!isChunked(row.value)) return row.value.length;
-        return selMarginal.get(key, baseKey).n;
-    }
-
     // Physical value bytes retained by a set of keys. Every existing kv row is
     // counted once (a raw value in full, or CHUNK_MARKER for a chunked value),
     // then every distinct chunk payload referenced by those live marker-backed
@@ -272,27 +251,6 @@ function createChunkStore(db, opts = {}) {
         for (const size of chunkSizes.values()) bytes += size;
         return bytes;
     }
-
-    // Copy src's value to dst. For a chunked src, only the manifest (list of
-    // chunk hashes) is copied — chunks stay shared, so a snapshot costs ~nothing
-    // and never duplicates bytes. A missing source is a no-op.
-    const snapshotValue = db.transaction((srcKey, dstKey) => {
-        const row = kvGet.get(srcKey);
-        if (!row) return;
-        delManifest.run(dstKey);
-        if (isChunked(row.value)) {
-            copyManifest.run(dstKey, srcKey);
-            kvSet.run(dstKey, CHUNK_MARKER, Date.now());
-            const logicalSize = selectCachedSize.get(srcKey)?.n
-                ?? Number(selSize.get(srcKey).n ?? 0);
-            upsertCachedSize.run(srcKey, logicalSize);
-            upsertCachedSize.run(dstKey, logicalSize);
-        } else {
-            deleteCachedSize.run(dstKey);
-            kvSet.run(dstKey, row.value, Date.now());
-        }
-        markReclaimableDirty.run();
-    });
 
     // Remove a key entirely (its manifest + kv row). Chunks it referenced
     // become orphans, reclaimed by the next gc(). Used for snapshot rotation.
@@ -344,9 +302,7 @@ function createChunkStore(db, opts = {}) {
         putPreparedValue,
         getValue,
         sizeValue,
-        snapshotCost,
         keySetPhysicalCost,
-        snapshotValue,
         dropValue,
         gc,
         reclaimableBytes,

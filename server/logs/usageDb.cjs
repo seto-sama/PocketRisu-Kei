@@ -108,19 +108,6 @@ const stmtSummaryRange = db.prepare(`
         AND ${usageValuePredicate()}
     ORDER BY timestamp ASC, rowid ASC
 `);
-const stmtTotals = db.prepare(`
-    SELECT
-        COUNT(*) AS requests,
-        COALESCE(SUM(prompt_tokens), 0) AS promptTokens,
-        COALESCE(SUM(completion_tokens), 0) AS completionTokens,
-        COALESCE(SUM(total_tokens), 0) AS totalTokens,
-        COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
-        COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens,
-        COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
-        COALESCE(SUM(reasoning_tokens), 0) AS reasoningTokens
-    FROM usage
-    WHERE ${usageValuePredicate()}
-`);
 const stmtClear = db.prepare(`DELETE FROM usage`);
 const stmtDelete = db.prepare(`DELETE FROM usage WHERE job_id = ?`);
 const fallbackOpenAIEncoding = get_encoding('o200k_base');
@@ -401,10 +388,6 @@ function summarizeUsage(options = {}) {
     return stmtSummaryRange.all(range.start, range.end);
 }
 
-function getUsageTotals() {
-    return stmtTotals.get();
-}
-
 function clearUsage() {
     stmtClear.run();
 }
@@ -421,7 +404,6 @@ module.exports = {
     listUsage,
     countUsage,
     summarizeUsage,
-    getUsageTotals,
     clearUsage,
     deleteUsage,
 };

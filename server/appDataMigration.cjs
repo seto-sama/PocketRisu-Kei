@@ -366,10 +366,8 @@ function migratePromptPresetSelection({ db, appDataStore }) {
 
 module.exports = {
     AppDataMigrationCleanupError,
-    AppDataMigrationError,
     AppDataMigrationVerificationError,
     LEGACY_DATABASE_KEY,
-    LEGACY_DATABASE_MIGRATION_KEY,
     createAppDataMigration,
     migratePromptPresetSelection,
     semanticProjectionHash,

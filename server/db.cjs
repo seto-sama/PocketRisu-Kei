@@ -100,15 +100,12 @@ function migrateFromSaveDir() {
 // with no benefit. Creates its own chunks/manifest tables (kv stays as-is).
 // Built before migrateFromSaveDir so legacy blob migration can chunk too.
 const DB_BLOB_KEY = 'database/database.bin';
-const chunkThreshold = process.env.POCKETRISU_CHUNK_THRESHOLD
-    ? Number(process.env.POCKETRISU_CHUNK_THRESHOLD)
-    : undefined;
-const chunkStore = createChunkStore(db, { threshold: chunkThreshold });
+const chunkStore = createChunkStore(db);
 
 migrateFromSaveDir();
 
 // ─── KV operations ────────────────────────────────────────────────────────────
-// kv reads/writes for the DB blob route through chunkStore (get/put/size/copy);
+// kv reads/writes for the DB blob route through chunkStore (get/put/size);
 // the statements below serve the remaining direct-row keys.
 const stmtKvSet = db.prepare(`INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`);
 const stmtKvUpdatedAt = db.prepare(`SELECT updated_at FROM kv WHERE key = ?`);
@@ -245,17 +242,7 @@ function isDbBlobChunked() {
     return chunkStore.isChunkedKey(DB_BLOB_KEY);
 }
 
-// Marginal disk cost of a snapshot key vs the live DB blob (chunks it uniquely
-// keeps alive). Use this to size snapshots for the disk limit — kvSize/LENGTH
-// would report a chunked snapshot's shared logical size and over-trim.
-function snapshotFootprint(key, baseKey = null) {
-    return chunkStore.snapshotCost(key, baseKey);
-}
-
-// Aggregate physical value bytes retained by a snapshot collection. Unlike
-// summing snapshotFootprint(key), this charges a chunk shared by two or more
-// snapshots only once while still charging each snapshot's own kv marker/raw
-// row. This is the appropriate quota measure for a complete snapshot set.
+// Count shared chunks once across the snapshot set, plus each key's stored value.
 function snapshotSetFootprint(keys) {
     return chunkStore.keySetPhysicalCost(keys);
 }
@@ -282,6 +269,5 @@ module.exports = {
     reclaimableChunkBytes,
     chunkStorageStats,
     isDbBlobChunked,
-    snapshotFootprint,
     snapshotSetFootprint,
 };

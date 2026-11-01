@@ -743,5 +743,4 @@ async function restoreMissingAssetsFromBackupFile({
 module.exports = {
     createBackupRestoreService,
     restoreMissingAssetsFromBackupFile,
-    validateHashedAsset,
 };

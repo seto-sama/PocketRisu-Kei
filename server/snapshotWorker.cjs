@@ -8,9 +8,9 @@ const { createChunkStore, CHUNK_MARKER } = require('./chunkStore.cjs');
 const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 const { exportPromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 
-function createSnapshotKey(db, prefix, now = Date.now()) {
+function createSnapshotKey(db, prefix) {
     const exists = db.prepare('SELECT 1 FROM kv WHERE key = ?');
-    let tick = Math.round(now / 100);
+    let tick = Math.round(Date.now() / 100);
     let key = `${prefix}${tick}.bin`;
     while (exists.get(key)) {
         tick += 1;
@@ -85,9 +85,7 @@ function createRelationalSnapshot(options) {
             throw new Error('Cannot create snapshot: relational database is missing');
         }
         const bookmarkStore = createBookmarkStore(db);
-        const chunkStore = createChunkStore(db, options.chunkThreshold === undefined
-            ? undefined
-            : { threshold: options.chunkThreshold });
+        const chunkStore = createChunkStore(db);
         const readProjection = db.transaction(() => {
             const projection = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(projection);

@@ -57,5 +57,4 @@ function applyRevenantStageTimingToMessage(message, workflow, modelCompletedAt) 
 
 module.exports = {
     applyRevenantStageTimingToMessage,
-    resolveRevenantStageTiming,
 };

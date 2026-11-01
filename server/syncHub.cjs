@@ -2,10 +2,7 @@
 
 const { codes: API_ERROR_CODES, sendApiError } = require('./utils/apiErrors.cjs');
 
-// Each page has an opaque client id. It is not a write lock: this is a
-// single-user server, so every authenticated page may submit mutations. The id
-// is retained to suppress self-echoes on the sync WebSocket.
-
+// Client IDs suppress self-echoes on the sync WebSocket.
 function getSyncClientIdFromRequest(req) {
     return req?.headers?.['x-sync-client-id'] || req?.headers?.['x-session-id'] || ''
 }

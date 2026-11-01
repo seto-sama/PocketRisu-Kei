@@ -5,17 +5,13 @@ const { existsSync, mkdirSync, writeFileSync } = require('fs');
 
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
 
-// Server-side backup directory (outside save/ to avoid bloating updater copies).
-// Configurable at runtime via the kv key `config/server-backup-path`. When the
-// user changes the path the old directory is left in place (existing backups
-// stay where they were); only future backups land at the new path.
 function createBackupLocation({ savePath, kvGet }) {
+    // Keep backups outside save/ to avoid bloating updater copies.
     const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
     const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
 
-    // Plaintext marker the updater reads to preserve a custom in-tree backup dir
-    // during in-place updates. KV lives inside the SQLite DB so the updater (which
-    // runs without npm deps) can't read it; this marker bridges that gap.
+    // The updater runs without SQLite dependencies and needs this marker to
+    // preserve a custom backup directory during in-place updates.
     const BACKUP_PATH_MARKER = path.join(savePath, '__backup_path');
 
     function readBackupsDirConfig() {

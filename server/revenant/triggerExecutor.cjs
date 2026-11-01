@@ -328,4 +328,4 @@ async function executeRevenantOutputTriggers(options) {
     return outcome('completed');
 }
 
-module.exports = { executeRevenantOutputTriggers, passesConditions };
+module.exports = { executeRevenantOutputTriggers };

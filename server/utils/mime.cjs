@@ -14,7 +14,6 @@ function normalizeInlayExt(ext) {
     return normalized || 'bin';
 }
 
-// MIME detection by magic bytes (fallback when key has no extension)
 function detectMime(buf) {
     if (!buf || buf.length < 12) return 'application/octet-stream'
     if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
@@ -31,12 +30,7 @@ function getMimeFromExt(ext, buffer) {
     return ASSET_EXT_MIME[normalizeInlayExt(ext)] || detectMime(buffer);
 }
 
-/**
- * Extract raw binary and content-type from a KV value.
- * Handles both raw binary (assets/) and JSON+base64 wrapped (inlay/) formats.
- */
 function resolveAssetPayload(key, rawValue) {
-    // inlay/ and inlay_thumb/ keys store JSON with base64 data URI
     if (key.startsWith('inlay/') || key.startsWith('inlay_thumb/')) {
         try {
             const json = JSON.parse(rawValue.toString('utf-8'))
