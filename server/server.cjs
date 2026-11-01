@@ -12,12 +12,11 @@ const { codes: API_ERROR_CODES, createApiError } = require('./utils/apiErrors.cj
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 const { createAuthService } = require('./auth.cjs');
 const { createSyncHub, getSyncClientIdFromRequest, requireSyncClientId } = require('./syncHub.cjs');
-const { getMimeFromExt, resolveAssetPayload } = require('./utils/mime.cjs');
+const { getMimeFromExt } = require('./utils/mime.cjs');
 
 const { existsSync, mkdirSync, writeFileSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
-const imagePromptFormattingPromise = import('./imagePromptFormatting.mjs')
 
 const { WebSocketServer } = require('ws')
 const { Worker } = require('worker_threads')
@@ -50,36 +49,16 @@ const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const bookmarkStore = createBookmarkStore(sqliteDb);
 
 const { logger, installProcessHandlers, expressErrorMiddleware } = require('./logs/logs.cjs');
-const { addRequestLog, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
-const { recordGenerationUsage } = require('./logs/usageDb.cjs');
-const {
-    executeEchoProviderRequest,
-    executeUpstreamRequest,
-    filterUpstreamRequestHeaders,
-} = require('./upstreamRequest.cjs');
 const { REVENANT_CAPACITY } = require('./revenant/capacity.cjs');
 
 const {
     generationDb,
-    getGenerationJob,
-    setGenerationJobGenerating,
-    setGenerationJobHeaders,
-    readGenerationJobRaw,
-    replaceGenerationJobEvents,
-    setGenerationJobProjection,
-    setGenerationJobProjectionError,
-    finishGenerationJob,
     finishGenerationWorkflow,
     getGenerationWorkflow,
     cancelGenerationWorkflow,
     cancelGenerationStepExecution,
-    listGenerationJobsNeedingProjection,
     pruneRetainedGenerationJobs,
     checkpointGenerationDb,
-    generationJournalStore,
-    NORMALIZED_PROJECTION_SCHEMA_VERSION,
-    projectGenerationJournal,
-    openGenerationEventJournal,
     installRevenantGenerationRoutes,
     installImageGenerationJobRoutes,
     createImageGenerationJobService,
@@ -88,12 +67,13 @@ const {
     createRevenantPostprocessWorker,
     createGenerationWorkflowService,
     applyMutationPatch,
-    GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
-    normalizeGenerationRequestTimeoutMs,
-    notifyRevenantJournalWaiters,
-    streamRevenantJournal,
-    waitForDrain,
 } = require('./revenant/index.cjs');
+const {
+    createProviderJobRunner,
+    normalizeForwardHeaders,
+    sanitizeGenerationTargetUrl,
+} = require('./revenant/providerJobRunner.cjs');
+const { createServerImageActions } = require('./revenant/serverImageAction.cjs');
 const { createCanonicalChatService } = require('./chatStore.cjs');
 const { applyGenerationInputMetadata } = require('./revenant/generationInputMetadata.cjs');
 const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
@@ -603,8 +583,6 @@ const {
     writeInlayFile,
     migrateInlaysToFilesystem,
     sumInlayFsBytes,
-    normalizeInlayImageSettings,
-    encodeInlayImageBuffer,
     decodeDataUri,
 } = inlayService;
 
@@ -618,189 +596,22 @@ const {
     broadcastRevenantWorkflowUpdated,
 } = syncHub;
 
-// --- Generation Job constants ---
-const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
-const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
-const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
-const GENERATION_JOB_GC_INTERVAL_MS = 60000;
-const GENERATION_JOB_DONE_GRACE_MS = 30000;
-const generationRuntimeJobs = new Map();
+const providerJobs = createProviderJobRunner({
+    repository: generationDb,
+    outboundPolicy,
+    scheduleHypaWorkflowExecution: () => scheduleHypaWorkflowExecution(),
+    scheduleRevenantPostprocess: () => scheduleRevenantPostprocess(),
+});
+const {
+    generationRuntimeJobs,
+    createGenerationRuntimeJob,
+    markGenerationJobDone,
+    runGenerationProviderJob,
+} = providerJobs;
 let imageGenerationJobService;
 
 function countActiveProviderJobs() {
-    let count = imageGenerationJobService?.countActiveJobs() ?? 0;
-    for (const job of generationRuntimeJobs.values()) {
-        if (!job.done && !job.waitingDispatch) count += 1;
-    }
-    return count;
-}
-
-
-
-// --- Generation: auth helpers ---
-
-// WebSocket clients may pass the token as a query parameter because browsers
-// cannot set custom headers on the upgrade request.
-function isAuthorizedUpgrade(req, reqUrl) {
-    const header = Array.isArray(req.headers['risu-auth'])
-        ? req.headers['risu-auth'][0]
-        : req.headers['risu-auth'];
-    const auth = reqUrl.searchParams.get('risu-auth') || (typeof header === 'string' ? header : '');
-    return checkAuth({ headers: { 'risu-auth': auth } }, null, true);
-}
-
-function sanitizeGenerationTargetUrl(raw) {
-    if (typeof raw !== 'string' || raw.trim() === '') return null;
-    try {
-        const parsed = new URL(raw);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-        if (parsed.username || parsed.password) return null;
-        return parsed.toString();
-    } catch {
-        return null;
-    }
-}
-
-// --- Generation: request/response helpers ---
-
-function normalizeForwardHeaders(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
-    return filterUpstreamRequestHeaders(Object.fromEntries(
-        Object.entries(input).filter(([, value]) => typeof value === 'string'),
-    ));
-}
-
-function normalizeHeartbeatSec(heartbeatSec) {
-    if (!Number.isFinite(heartbeatSec)) {
-        return GENERATION_JOB_DEFAULT_HEARTBEAT_SEC;
-    }
-    const parsed = Math.floor(heartbeatSec);
-    return Math.min(GENERATION_JOB_HEARTBEAT_MAX_SEC, Math.max(GENERATION_JOB_HEARTBEAT_MIN_SEC, parsed));
-}
-
-function hasGenerationStreamTerminalMarker(rawBuffer) {
-    const text = Buffer.from(rawBuffer || '').toString('utf-8');
-    for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
-        if (data === '[DONE]') return true;
-        if (!data) continue;
-        try {
-            const payload = JSON.parse(data);
-            if (
-                payload?.type === 'message_stop'
-                || payload?.type === 'response.completed'
-                || payload?.type === 'response.done'
-            ) {
-                return true;
-            }
-            if (payload?.candidates?.some(candidate =>
-                typeof candidate?.finishReason === 'string'
-                && candidate.finishReason !== ''
-                && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED'
-            )) {
-                return true;
-            }
-        } catch {
-            // Partial/non-JSON SSE event.
-        }
-    }
-    return false;
-}
-
-// --- Generation: job lifecycle ---
-
-function createGenerationRuntimeJob(arg) {
-    const jobId = arg.jobId || nodeCrypto.randomUUID();
-    const timeoutMs = normalizeGenerationRequestTimeoutMs(Number(arg.timeoutMs));
-    const heartbeatSec = normalizeHeartbeatSec(arg.heartbeatSec);
-    const controller = new AbortController();
-    const createdAt = Date.now();
-    const job = {
-        id: jobId,
-        workflowId: arg.workflowId || null,
-        createdAt,
-        updatedAt: createdAt,
-        done: false,
-        cleanupAt: 0,
-        clients: new Set(),
-        rawBytes: 0,
-        journalWaiters: [],
-        providerStartedAt: null,
-        responseStatus: null,
-        responseHeaders: {},
-        terminalEvent: null,
-        abortController: controller,
-        cancelUpstream: null,
-        deadlineAt: createdAt + timeoutMs,
-        heartbeatSec,
-        timeoutMs
-    };
-    generationRuntimeJobs.set(jobId, job);
-    return job;
-}
-
-function loadPersistedGenerationRuntimeJob(jobId) {
-    const persisted = getGenerationJob(jobId, false);
-    if (!persisted) return null;
-    const createdAt = persisted.createdAt || Date.now();
-    const active = ['queued', 'generating'].includes(persisted.status);
-    const job = {
-        id: jobId,
-        workflowId: persisted.workflowId || null,
-        createdAt,
-        updatedAt: persisted.updatedAt || createdAt,
-        done: !active,
-        waitingDispatch: persisted.status === 'queued',
-        cleanupAt: active ? 0 : Date.now() + GENERATION_JOB_DONE_GRACE_MS,
-        clients: new Set(),
-        rawBytes: persisted.rawBytes || 0,
-        journalWaiters: [],
-        providerStartedAt: persisted.dispatchedAt || null,
-        responseStatus: persisted.responseStatus || null,
-        responseHeaders: persisted.responseHeaders || {},
-        terminalEvent: active ? null : persisted.status === 'failed'
-            ? {
-                type: 'error',
-                status: 502,
-                message: persisted.error || 'Generation job failed',
-            }
-            : {
-                type: 'done',
-                status: persisted.status,
-                partial: ['cancelled', 'interrupted', 'failed_partial'].includes(persisted.status),
-                finishReason: persisted.finishReason,
-            },
-        abortController: new AbortController(),
-        cancelUpstream: null,
-        deadlineAt: Date.now(),
-        heartbeatSec: GENERATION_JOB_DEFAULT_HEARTBEAT_SEC,
-        timeoutMs: GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
-    };
-    generationRuntimeJobs.set(jobId, job);
-    return job;
-}
-
-function notifyGenerationJob(job) {
-    job.updatedAt = Date.now();
-    notifyRevenantJournalWaiters(job);
-}
-
-function markGenerationJobDone(job) {
-    if (job.done) return;
-    job.done = true;
-    job.cleanupAt = Date.now() + GENERATION_JOB_DONE_GRACE_MS;
-    notifyRevenantJournalWaiters(job);
-}
-
-function cleanupGenerationRuntimeJob(jobId) {
-    const job = generationRuntimeJobs.get(jobId);
-    if (!job) return;
-    for (const client of job.clients) {
-        try { client.close(); } catch { /* ignore */ }
-    }
-    generationRuntimeJobs.delete(jobId);
+    return (imageGenerationJobService?.countActiveJobs() ?? 0) + providerJobs.countActiveJobs();
 }
 
 const generationWorkers = createGenerationWorkers({
@@ -834,235 +645,20 @@ imageGenerationJobService = createImageGenerationJobService({
     countActiveProviderJobs,
 });
 
-function currentServerImageGenerationSettings() {
-    const database = appDataStore.exportProjection({ includeMessages: false });
-    const preset = database.imageGenerationPresets?.[database.imageGenerationPresetId]
-        ?? database.imageGenerationPresets?.[0];
-    const settings = preset?.settings;
-    if (!settings || typeof settings !== 'object') {
-        throw new Error('Image generation preset is not configured');
-    }
-    const keyRef = settings.imageApiKeyRefs?.novelai;
-    const apiKey = String(database.apiKeyPool?.[keyRef]?.key ?? settings.NAIApiKey ?? '').trim();
-    return {
-        settings: structuredClone(settings),
-        apiKey,
-        label: typeof preset.name === 'string' ? preset.name : String(settings.sdProvider || 'Image'),
-        inlaySettings: normalizeInlayImageSettings({
-            size: database.inlayImageCompression ? database.inlayImageSize : 'original',
-            format: database.inlayImageCompression ? database.inlayImageFormat : 'png',
-            lossy: database.inlayImageLossy,
-            quality: database.inlayImageQuality,
-        }),
-    };
-}
-
-function imageGenerationSeed(provider, requestedSeed) {
-    if (Number.isFinite(requestedSeed) && requestedSeed >= 0) return requestedSeed;
-    const value = nodeCrypto.randomBytes(4).readUInt32BE(0);
-    return provider === 'comfyui' ? value % 1_000_000_000 : value;
-}
-
-const IMAGE_INLAY_UUID_NAMESPACE = Buffer.from('6ba7b8119dad11d180b400c04fd430c8', 'hex');
-
-function imageInlayId(jobId) {
-    const bytes = nodeCrypto.createHash('sha1')
-        .update(IMAGE_INLAY_UUID_NAMESPACE)
-        .update(`pocketrisu:image-inlay:${jobId}`)
-        .digest()
-        .subarray(0, 16);
-    // Keep the ID deterministic for workflow recovery while matching the UUID
-    // shape used by regular inlay assets. Mark it as a name-based UUID (v5).
-    bytes[6] = (bytes[6] & 0x0f) | 0x50;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = bytes.toString('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-async function readServerImageReference(reference) {
-    if (typeof reference !== 'string' || !reference) return null;
-    if (reference.startsWith('data:')) {
-        const comma = reference.indexOf(',');
-        return comma >= 0 ? Buffer.from(reference.slice(comma + 1), 'base64') : null;
-    }
-    const inlayMatch = reference.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/);
-    if (inlayMatch) return (await readInlayFile(inlayMatch[1]))?.buffer || null;
-    const stored = kvGet(reference);
-    if (!stored) return null;
-    if (reference.startsWith('inlay/')) {
-        return resolveAssetPayload(reference, stored).binary;
-    }
-    return Buffer.from(stored);
-}
-
-async function prepareNovelAIDirectorReference(buffer) {
-    const vips = await getVips();
-    const source = vips.Image.newFromBuffer(buffer);
-    let rotated = null;
-    let resized = null;
-    let embedded = null;
-    try {
-        rotated = source.autorot();
-        const scale = Math.min(1472 / rotated.width, 1472 / rotated.height);
-        resized = scale === 1 ? rotated : rotated.resize(scale, { kernel: vips.Kernel.lanczos3 });
-        const x = Math.floor((1472 - resized.width) / 2);
-        const y = Math.floor((1472 - resized.height) / 2);
-        embedded = resized.embed(x, y, 1472, 1472, { extend: vips.Extend.black });
-        return Buffer.from(embedded.writeToBuffer('.png', { Q: 100 }));
-    } finally {
-        if (embedded) embedded.delete();
-        if (resized && resized !== rotated) resized.delete();
-        if (rotated) rotated.delete();
-        source.delete();
-    }
-}
-
-async function executeServerImageAction({ workflow, action }) {
-    const payload = action?.payload || {};
-    const imageContext = workflow.context?.kind === 'image-generation' ? workflow.context : undefined;
-    const target = payload.target || (imageContext
-        ? imageContext.target
-        : {
-            characterId: workflow.characterId,
-            roomId: workflow.roomId,
-        });
-    if (!target?.characterId || !target?.roomId) throw new Error('Image generation target is missing');
-    const config = currentServerImageGenerationSettings();
-    const provider = config.settings.sdProvider;
-    const seed = imageGenerationSeed(provider, payload.seed);
-    const jobId = `${workflow.workflowId}:${action.actionId}`;
-    let references;
-    if (provider === 'novelai') {
-        const database = appDataStore.exportProjection({ includeMessages: false });
-        const character = database.characters?.find(item => item?.chaId === target.characterId);
-        const imageConfig = config.settings.NAIImgConfig || {};
-        const fallbackImage = character?.image;
-        const initImage = config.settings.NAII2I
-            ? await readServerImageReference(imageConfig.image || fallbackImage)
-            : null;
-        const rawDirectorReference = imageConfig.reference_mode === 'reference'
-            ? await readServerImageReference(imageConfig.character_image || fallbackImage)
-            : null;
-        const directorReference = rawDirectorReference
-            ? await prepareNovelAIDirectorReference(rawDirectorReference)
-            : null;
-        references = {
-            ...(initImage ? { initImageBase64: initImage.toString('base64') } : {}),
-            ...(directorReference
-                ? { directorReferenceBase64: directorReference.toString('base64') }
-                : {}),
-        };
-    }
-    const promptFormatting = await imagePromptFormattingPromise;
-    const rawPrompt = String(payload.prompt || '');
-    const requestPrompt = provider === 'novelai'
-        ? promptFormatting.formatNovelAIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
-        : provider === 'comfyui'
-            ? promptFormatting.formatComfyUIPrompt(rawPrompt, config.settings.animaArtistTagCompatibility === true)
-            : rawPrompt;
-    const negativePrompt = String(payload.negativePrompt || '');
-    const generated = await imageGenerationJobService.executeImageGeneration({
-        jobId,
-        settings: provider === 'comfyui' ? {
-            sdProvider: 'comfyui',
-            comfyConfig: { timeout: config.settings.comfyConfig?.timeout },
-        } : config.settings,
-        apiKey: config.apiKey,
-        prompt: requestPrompt,
-        negativePrompt,
-        orientation: payload.orientation,
-        seed,
-        references,
-        bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,
-    });
-    let encoded;
-    try {
-        encoded = await encodeInlayImageBuffer(generated.image, config.inlaySettings);
-    } finally {
-        imageGenerationJobService.releaseResult(jobId);
-    }
-    const inlayId = imageInlayId(jobId);
-    await writeInlayFile(inlayId, encoded.ext, encoded.buffer, {
-        name: inlayId,
-        type: 'image',
-        width: encoded.width,
-        height: encoded.height,
-    });
-    const now = Date.now();
-    kvSet(`inlay_meta/${inlayId}`, Buffer.from(JSON.stringify({
-        createdAt: now,
-        updatedAt: now,
-        charId: target.characterId,
-        chatId: target.roomId,
-        imageGeneration: { prompt: requestPrompt, negativePrompt, seed, preset: imageContext?.preset },
-    })));
-    const reference = `{{inlayed::${inlayId}}}`;
-    const projection = imageContext
-        ? imageContext.projection || 'append'
-        : undefined;
-    if (projection === 'append' || projection === 'reroll') {
-        await canonicalChatService.commitServerMutation({
-            characterId: target.characterId,
-            chatId: target.roomId,
-            reason: 'image-generation-result',
-            mutate: chat => {
-                const messageId = String(payload.messageId || '');
-                if (projection === 'reroll') {
-                    const message = chat.message.find(item => item?.chatId === messageId);
-                    if (!message || message.kind !== 'imageGeneration') {
-                        throw new Error('Image reroll target no longer exists');
-                    }
-                    const swipes = message.swipes ?? [message.data];
-                    message.swipes = swipes.includes(reference) ? swipes : [...swipes, reference];
-                    message.swipeId = message.swipes.indexOf(reference);
-                    message.data = reference;
-                    message.time = now;
-                }
-                else if (!chat.message.some(item => item?.chatId === messageId)) {
-                    chat.message.push({
-                        role: 'char',
-                        data: reference,
-                        kind: 'imageGeneration',
-                        saying: target.characterId,
-                        chatId: messageId,
-                        time: now,
-                    });
-                }
-                return chat;
-            },
-        });
-    }
-    return { reference, jobId, seed, label: config.label };
-}
-
-function scheduleImageGenerationWorkflow(workflowId) {
-    void (async () => {
-        const workflow = getGenerationWorkflow(workflowId);
-        const step = workflow?.steps?.find(item => item.key === 'image.generate');
-        const action = step?.metadata?.action;
-        if (!workflow || !step || !action) return;
-        try {
-            const result = await executeServerImageAction({ workflow, action });
-            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
-                status: 'completed',
-                metadata: { ...step.metadata, schemaVersion: 1, result },
-            });
-            finishGenerationWorkflow(workflowId, 'completed');
-        }
-        catch (error) {
-            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
-                status: 'failed',
-                metadata: {
-                    ...step.metadata,
-                    schemaVersion: 1,
-                    error: error instanceof Error ? error.message : String(error),
-                },
-            });
-            finishGenerationWorkflow(workflowId, 'failed');
-        }
-        broadcastRevenantWorkflowUpdated(getGenerationWorkflow(workflowId));
-    })();
-}
+const {
+    executeServerImageAction,
+    scheduleImageGenerationWorkflow,
+} = createServerImageActions({
+    repository: generationDb,
+    appDataStore,
+    canonicalChatService,
+    imageGenerationJobService,
+    inlayService,
+    getVips,
+    kvGet,
+    kvSet,
+    onWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+});
 const revenantMaterializer = createRevenantMaterializer({
     repository: generationDb,
     canonicalChatService,
@@ -1127,280 +723,18 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
-const resolveProviderAuth = require('./googleServiceAccount.cjs').createServerProviderAuthResolver();
 
-async function runGenerationProviderJob(job, arg) {
-    const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
-    if (!targetUrl) {
-        finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
-        markGenerationJobDone(job);
-        return;
-    }
+// --- WebSocket setup ---
 
-    const headers = normalizeForwardHeaders(arg.headers);
-    const bodyBuffer = arg.body?.length
-        ? Buffer.from(arg.body.buffer, arg.body.byteOffset, arg.body.byteLength)
-        : undefined;
-    let completionProbe = Buffer.alloc(0);
-    let providerCompleted = false;
-    let eventJournal = null;
-    const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
-    let journalWriteError = null;
-    let journalClosed = false;
-    journalWriter?.on('error', (error) => {
-        journalWriteError ||= error;
-        notifyRevenantJournalWaiters(job);
-    });
-    const closeJournal = async () => {
-        if (journalClosed) return;
-        journalClosed = true;
-        if (!journalWriter.destroyed) {
-            await new Promise((resolve) => {
-                const done = () => {
-                    journalWriter.off('close', done);
-                    resolve();
-                };
-                journalWriter.once('close', done);
-                journalWriter.end();
-            });
-        }
-        notifyRevenantJournalWaiters(job);
-        if (journalWriteError) throw journalWriteError;
-    };
-    const recordUsage = (persisted, rawResponse, outputText) => recordGenerationUsage({
-        jobId: job.id,
-        timestamp: persisted?.createdAt,
-        chatId: persisted?.chatId,
-        targetUrl,
-        body: arg.body,
-        rawResponse,
-        outputText,
-        usageProviderId: arg.usageProviderId,
-        usageModelId: arg.usageModelId,
-        usageServiceTier: arg.usageServiceTier,
-    });
-
-    try {
-        await resolveProviderAuth(arg.serverProviderAuth, headers, job.abortController.signal);
-        job.providerStartedAt ||= Date.now();
-        notifyRevenantJournalWaiters(job);
-        setGenerationJobGenerating(job.id);
-        addRequestLog({
-            id: job.id,
-            timestamp: job.providerStartedAt,
-            date: new Date(job.providerStartedAt).toLocaleTimeString(),
-            url: targetUrl,
-            body: bodyBuffer?.toString('utf-8') || '',
-            header: JSON.stringify(headers, null, 2),
-            response: 'Streamed Fetch',
-            responseType: 'stream',
-            success: true,
-            chatId: arg.requestLog?.chatId,
-            clientId: arg.requestLog?.clientId,
-            platform: arg.requestLog?.platform,
-        });
-        const providerRequest = {
-            url: targetUrl,
-            method: arg.method,
-            headers,
-            body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
-            signal: job.abortController.signal,
-            outboundPolicy,
-        };
-        const upstreamResponse = arg.adapterKind === 'echo'
-            ? await executeEchoProviderRequest(providerRequest)
-            : await executeUpstreamRequest(providerRequest);
-        const filteredHeaders = upstreamResponse.headers;
-
-        setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
-        job.responseStatus = upstreamResponse.status;
-        job.responseHeaders = filteredHeaders;
-        const decodable = getGenerationJob(job.id, false);
-        if (decodable?.responseDecoder && upstreamResponse.status >= 200 && upstreamResponse.status < 300) {
-            eventJournal = openGenerationEventJournal(decodable, {
-                journalStore: generationJournalStore,
-                onWritten: () => notifyRevenantJournalWaiters(job),
-            });
-        }
-        notifyGenerationJob(job);
-
-        if (upstreamResponse.body) {
-            const iterator = upstreamResponse.body[Symbol.asyncIterator]();
-            let upstreamDone = false;
-            let cancelPromise = null;
-            const cancelUpstream = (reason) => {
-                if (upstreamDone || typeof iterator.return !== 'function') return Promise.resolve();
-                cancelPromise ||= Promise.resolve(iterator.return(reason)).then(() => {});
-                return cancelPromise;
-            };
-            job.cancelUpstream = cancelUpstream;
-            try {
-                while (!job.abortController.signal.aborted) {
-                    const next = await iterator.next();
-                    if (next.done) {
-                        upstreamDone = true;
-                        break;
-                    }
-                    const value = next.value;
-                    if (value && value.length > 0) {
-                        const bytes = Buffer.from(value);
-                        completionProbe = Buffer.concat([completionProbe, bytes]);
-                        if (completionProbe.length > 256 * 1024) {
-                            completionProbe = completionProbe.subarray(completionProbe.length - 256 * 1024);
-                        }
-                        if (journalWriteError) throw journalWriteError;
-                        job.rawBytes += bytes.length;
-                        eventJournal?.push(bytes);
-                        const writable = journalWriter.write(bytes, () => {
-                            notifyRevenantJournalWaiters(job);
-                        });
-                        if (!writable) await waitForDrain(journalWriter);
-                        await eventJournal?.ready();
-                        notifyGenerationJob(job);
-                        if (hasGenerationStreamTerminalMarker(completionProbe)) {
-                            providerCompleted = true;
-                            break;
-                        }
-                    }
-                }
-            } finally {
-                if (!upstreamDone) {
-                    await cancelUpstream(job.abortController.signal.reason);
-                }
-                if (job.cancelUpstream === cancelUpstream) job.cancelUpstream = null;
-            }
-        }
-        await closeJournal();
-        const providerCompletedAt = Date.now();
-        const cancelled = job.abortController.signal.aborted;
-        const persisted = getGenerationJob(job.id, false);
-        const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
-        const rawResponse = readGenerationJobRaw(job.id);
-        let projection = persisted?.projection;
-        let terminalFailure;
-        if (!cancelled && (upstreamResponse.status < 200 || upstreamResponse.status >= 300)) {
-            terminalFailure = {
-                finishReason: 'upstream_http_error',
-                message: `Provider request failed with HTTP ${upstreamResponse.status}`,
-            };
-        } else if (eventJournal) {
-            try {
-                projection = await eventJournal.finish(cancelled);
-                setGenerationJobProjection(job.id, projection);
-            } catch (error) {
-                const message = `Failed to normalize provider journal: ${error}`;
-                setGenerationJobProjectionError(job.id, message);
-                if (!cancelled) {
-                    terminalFailure = { finishReason: 'projection_error', message };
-                } else {
-                    logger.warn(`[GenerationJob] Cancelled projection unavailable for ${job.id}:`, error);
-                }
-            }
-        }
-        updateRequestLogResponseById(
-            job.id,
-            rawResponse.toString('utf-8'),
-            upstreamResponse.status,
-            upstreamResponse.status >= 200 && upstreamResponse.status < 400,
-            providerCompletedAt,
-        );
-        recordUsage(persisted, rawResponse, projection?.content);
-        const finishReason = cancelled
-            ? cancelFinishReason
-            : (providerCompleted ? 'provider_complete' : 'upstream_complete');
-        if (terminalFailure) {
-            finishGenerationJob(
-                job.id,
-                'failed',
-                terminalFailure.finishReason,
-                terminalFailure.message,
-                rawResponse.length,
-            );
-        } else {
-            finishGenerationJob(
-                job.id,
-                cancelled ? 'cancelled' : 'generated',
-                finishReason,
-                null,
-                rawResponse.length,
-            );
-        }
-        // A non-2xx upstream response is still a complete HTTP response, and a
-        // decoding failure is the last decoded event. Close the journal
-        // normally so the client adapter can read the provider's error body or
-        // the decoder's error and surface the precise message instead of a
-        // transport level fallback. The job remains failed in durable storage.
-        if (['upstream_http_error', 'projection_error'].includes(terminalFailure?.finishReason)) {
-            job.terminalEvent = {
-                type: 'done',
-                status: 'failed',
-                partial: false,
-                finishReason: terminalFailure.finishReason,
-            };
-        } else if (terminalFailure) {
-            job.terminalEvent = {
-                type: 'error',
-                status: 502,
-                message: terminalFailure.message,
-            };
-        } else {
-            job.terminalEvent = {
-                type: 'done',
-                status: cancelled ? 'cancelled' : 'generated',
-                partial: cancelled,
-                finishReason,
-            };
-        }
-        markGenerationJobDone(job);
-        scheduleHypaWorkflowExecution();
-        scheduleRevenantPostprocess();
-    } catch (error) {
-        job.cancelUpstream = null;
-        try { await closeJournal(); } catch (persistError) {
-            logger.error('[GenerationJob] Failed to close partial response journal:', persistError);
-        }
-        const cancelled = job.abortController.signal.aborted;
-        const message = cancelled ? 'Generation job aborted' : `${error}`;
-        if (eventJournal) {
-            try {
-                setGenerationJobProjection(job.id, await eventJournal.finish(true));
-            } catch (projectionError) {
-                logger.warn(`[GenerationJob] Partial projection unavailable for ${job.id}:`, projectionError);
-            }
-        }
-        const persistedWithRaw = getGenerationJob(job.id, false);
-        const rawResponse = readGenerationJobRaw(job.id);
-        updateRequestLogResponseById(
-            job.id,
-            rawResponse.length > 0 ? rawResponse.toString('utf-8') : message,
-            persistedWithRaw?.responseStatus,
-            false,
-        );
-        recordUsage(persistedWithRaw, rawResponse, persistedWithRaw?.projection?.content);
-        const hasPartial = rawResponse.length > 0;
-        const cancelFinishReason = persistedWithRaw?.finishReason || 'user_cancelled';
-        finishGenerationJob(
-            job.id,
-            cancelled ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
-            cancelled ? cancelFinishReason : 'upstream_error',
-            message,
-            rawResponse.length,
-        );
-        job.rawBytes = rawResponse.length;
-        job.terminalEvent = cancelled
-            ? {
-                type: 'done',
-                status: 'cancelled',
-                partial: true,
-                finishReason: cancelFinishReason,
-            }
-            : { type: 'error', status: 504, message };
-        markGenerationJobDone(job);
-        scheduleHypaWorkflowExecution();
-    }
+// WebSocket clients may pass the token as a query parameter because browsers
+// cannot set custom headers on the upgrade request.
+function isAuthorizedUpgrade(req, reqUrl) {
+    const header = Array.isArray(req.headers['risu-auth'])
+        ? req.headers['risu-auth'][0]
+        : req.headers['risu-auth'];
+    const auth = reqUrl.searchParams.get('risu-auth') || (typeof header === 'string' ? header : '');
+    return checkAuth({ headers: { 'risu-auth': auth } }, null, true);
 }
-
-// --- Generation: WebSocket setup ---
 
 function setupGenerationWebSocket(server) {
     const wsServer = new WebSocketServer({ noServer: true });
@@ -1436,8 +770,7 @@ function setupGenerationWebSocket(server) {
             }
 
             const jobId = decodeURIComponent(generationJournalMatch[1]);
-            const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
-            if (!job) {
+            if (!providerJobs.findJob(jobId)) {
                 socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
                 socket.destroy();
                 return;
@@ -1454,43 +787,7 @@ function setupGenerationWebSocket(server) {
 
     syncWsServer.on('connection', syncHub.handleSyncConnection);
 
-    wsServer.on('connection', (ws, req, jobId) => {
-        const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
-        if (!job) {
-            ws.close();
-            return;
-        }
-
-        const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-        ws.journalRecoverySubscriber = reqUrl.searchParams.get('recovery') === '1';
-        job.clients.add(ws);
-        ws.send(JSON.stringify({ type: 'job_accepted', jobId }));
-        void streamRevenantJournal(
-            ws,
-            job,
-            Number(reqUrl.searchParams.get('offset')),
-            reqUrl.searchParams.get('format') === 'events' ? 'events' : 'journal',
-        ).catch((error) => {
-            logger.error(`[GenerationJob] Failed to stream journal ${jobId}:`, error);
-            try { ws.close(); } catch { /* ignore */ }
-        });
-
-        const pingTimer = setInterval(() => {
-            if (ws.readyState !== ws.OPEN) return;
-            ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
-        }, job.heartbeatSec * 1000);
-
-        ws.on('close', () => {
-            clearInterval(pingTimer);
-            const currentJob = generationRuntimeJobs.get(jobId);
-            if (!currentJob) return;
-            currentJob.clients.delete(ws);
-        });
-
-        ws.on('error', () => {
-            clearInterval(pingTimer);
-        });
-    });
+    wsServer.on('connection', providerJobs.handleJournalConnection);
 }
 
 // Drive trash expiry follows the stored setting; re-arm it when a database
@@ -1857,39 +1154,6 @@ async function startServer() {
     }
 }
 
-async function rebuildMissingGenerationProjections() {
-    const jobs = listGenerationJobsNeedingProjection(
-        200,
-        NORMALIZED_PROJECTION_SCHEMA_VERSION,
-    );
-    let rebuilt = 0;
-    for (const job of jobs) {
-        const rawResponse = readGenerationJobRaw(job.jobId);
-        try {
-            const { projection, events } = await projectGenerationJournal(job, rawResponse);
-            replaceGenerationJobEvents(job.jobId, events);
-            setGenerationJobProjection(job.jobId, projection);
-            if (job.status === 'failed' && job.finishReason === 'projection_error') {
-                finishGenerationJob(
-                    job.jobId,
-                    'generated',
-                    'projection_rebuilt',
-                    null,
-                    rawResponse.length,
-                );
-            }
-            rebuilt += 1;
-        } catch (error) {
-            setGenerationJobProjectionError(
-                job.jobId,
-                `Failed to rebuild normalized projection: ${error}`,
-            );
-        }
-    }
-    if (rebuilt > 0) {
-        logger.info(`[GenerationJob] Rebuilt ${rebuilt} normalized projection(s) from raw journals`);
-    }
-}
 
 // Graceful shutdown: stop running jobs and checkpoint WAL before exit
 for (const sig of ['SIGTERM', 'SIGINT']) {
@@ -1898,12 +1162,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         await viteDevServer?.close();
         stopTunnel();
         await driveRoutes.stopTrashCleanup();
-        const generationRuns = [];
-        for (const job of generationRuntimeJobs.values()) {
-            if (job.done) continue;
-            job.abortController.abort();
-            if (job.runPromise) generationRuns.push(job.runPromise);
-        }
+        const generationRuns = providerJobs.abortAll();
         imageGenerationJobService.abortAll();
         const imageGenerationRuns = [...imageGenerationJobService.jobs.values()]
             .map(job => job.runPromise)
@@ -1924,7 +1183,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         process.exitCode = 1;
         return;
     }
-    try { await rebuildMissingGenerationProjections(); }
+    try { await providerJobs.rebuildMissingGenerationProjections(); }
     catch (error) { logger.error('[GenerationJob] Initial projection rebuild failed:', error); }
     try { pruneRetainedGenerationJobs(); }
     catch (error) { logger.error('[GenerationJob] Initial retention cleanup failed:', error); }
@@ -1932,23 +1191,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     scheduleHypaWorkflowExecution();
     scheduleRevenantPostprocess();
 
-    // In-memory generation runtime garbage collection
-    setInterval(() => {
-        const now = Date.now();
-        for (const [jobId, job] of generationRuntimeJobs.entries()) {
-            if (!job.done && !job.waitingDispatch && now >= job.deadlineAt && !job.abortController.signal.aborted) {
-                job.abortController.abort();
-            }
-            if (job.done && job.clients.size === 0 && job.cleanupAt > 0 && now >= job.cleanupAt) {
-                cleanupGenerationRuntimeJob(jobId);
-                continue;
-            }
-            if (!job.done && !job.waitingDispatch
-                && now - job.updatedAt > Math.max(GENERATION_REQUEST_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
-                cleanupGenerationRuntimeJob(jobId);
-            }
-        }
-    }, GENERATION_JOB_GC_INTERVAL_MS);
+    providerJobs.startGarbageCollection();
 
     await startServer();
 
