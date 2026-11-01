@@ -1,16 +1,9 @@
 import { beginGeminiCacheTurn, type GeminiCacheTurn } from '../cache/geminiCacheWiring'
 import type { ModelPreset } from '../types'
-import {
-    ModelPresetAdapterError,
-    extractErrorDetails,
-    normalizeFetchError,
-    normalizeHttpStatus,
-    parseRetryAfterMs,
-} from './error'
+import { ModelPresetAdapterError, normalizeFetchError } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
 import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
-import { parseResponseJson, preparedRequestFetch } from './httpTransport'
-import type { LLMRequestInit } from '../../network/transportTypes'
+import { parseResponseJson, preparedRequestFetch, sendPreparedRequest } from './httpTransport'
 import { parseSseStream } from './sse'
 import type {
     AdapterChatMessage,
@@ -51,18 +44,11 @@ interface GeminiContent {
     parts: GeminiPart[]
 }
 
-// Prepared request plus the context-cache inputs only this adapter can compute:
-// the wire model id and the cache boundary (last native message.cachePoint
-// mapped to a `contents` index). Extra fields are invisible to previewBody,
-// which serializes url/body/headers only.
 interface GeminiPreparedRequest extends AdapterPreparedRequest {
     modelId: string
     cacheBoundary: number | null
 }
 
-// Context caching pre-request step. Returns null (uncached request) unless
-// request.ts supplied a cache context AND the prompt carries a cachePoint AND
-// the cache layer decides to participate — see beginGeminiCacheTurn.
 function beginCacheTurn(
     prepared: GeminiPreparedRequest,
     options: AdapterChatOptions,
@@ -81,15 +67,6 @@ function beginCacheTurn(
     })
 }
 
-// A chat call that carried a cachedContent can fail because the cache resource
-// is gone (server evicted it ahead of the local expiry) rather than because the
-// prompt is bad. Gemini surfaces a missing/forbidden cachedContent as 404 (not
-// found) or 403 (permission denied); these are the only statuses we retry
-// uncached, so a genuine prompt error (e.g. 400) still propagates unchanged.
-function isCacheRejection(status: number): boolean {
-    return status === 404 || status === 403
-}
-
 export async function sendGoogleChatRequest(
     preset: ModelPreset,
     options: AdapterChatOptions,
@@ -99,8 +76,6 @@ export async function sendGoogleChatRequest(
     const cacheTurn = beginCacheTurn(prepared, options, credential)
     const response = await sendGeminiRequest(prepared, options, cacheTurn, false)
     const parsed = await readDecodedChatResponse(response)
-    // Fire-and-forget cache lifecycle (create/extend/cleanup) off the observed
-    // usage; never blocks or fails the response.
     cacheTurn?.finish(parsed.usage?.promptTokens)
     return parsed
 }
@@ -117,8 +92,7 @@ export async function* streamGoogleChatRequest(
         throw new ModelPresetAdapterError('parse', 'Gemini stream response has no body')
     }
 
-    // usageMetadata arrives on the last SSE chunk; capture it so the cache
-    // lifecycle can run once the stream completes normally.
+    // Finish caching only after the stream completes, using its final usage.
     let lastUsage: AdapterUsage | undefined
     for await (const delta of readDecodedChatStream(response.body)) {
         if (delta.usage) lastUsage = delta.usage
@@ -133,34 +107,21 @@ async function sendGeminiRequest(
     cacheTurn: GeminiCacheTurn | null,
     stream: boolean,
 ): Promise<Response> {
-    const fetchImpl = preparedRequestFetch(prepared, options)
-    const send = (body: Record<string, unknown>): Promise<Response> => {
-        const init: LLMRequestInit = {
-            method: prepared.method,
-            headers: stream ? { ...prepared.headers, Accept: 'text/event-stream' } : prepared.headers,
-            body: JSON.stringify(body),
-            signal: options.abortSignal,
+    const send = (body: Record<string, unknown>) => sendPreparedRequest(
+        { ...prepared, body }, options, {
+            accept: stream ? 'text/event-stream' : undefined,
             responseDecoder: { adapterKind: 'google-gemini', stream },
-        }
-        return fetchImpl(prepared.url, init)
-    }
-    let response: Response
+        },
+    )
     try {
-        response = await send(cacheTurn ? cacheTurn.body : prepared.body)
-        // Drop rejected cache entries and retry once with the full prompt so caching never
-        // interrupts an otherwise valid request.
-        if (!response.ok && cacheTurn?.appliedCache && isCacheRejection(response.status)) {
-            cacheTurn.invalidateAppliedCache()
-            response = await send(prepared.body)
-        }
+        return await send(cacheTurn ? cacheTurn.body : prepared.body)
     } catch (err) {
-        throw normalizeFetchError(err)
+        if (!cacheTurn?.appliedCache || !(err instanceof ModelPresetAdapterError)
+            || (err.status !== 403 && err.status !== 404)) throw err
+        // A missing or inaccessible cache gets one retry with the full prompt.
+        cacheTurn.invalidateAppliedCache()
+        return send(prepared.body)
     }
-
-    if (!response.ok) {
-        throw await deriveHttpError(response)
-    }
-    return response
 }
 
 export function decodeGeminiResponse(body: string, onRaw?: (raw: unknown) => void): AdapterChatResponse {
@@ -196,8 +157,6 @@ export async function* decodeGeminiStream(
     }
 }
 
-// Build the request without sending it (previewBody). The model id lives in the
-// URL path for Gemini, so the preview carries it there.
 export function previewGoogleChatRequest(
     preset: ModelPreset,
     options: AdapterChatOptions,
@@ -218,57 +177,42 @@ async function prepareGeminiBody(
         tokenCache: options.tokenCache,
         abortSignal: options.abortSignal,
     })
-    // Wire invariants overwrite any customBody collisions (plan §4-5):
-    //   - contents / systemInstruction → adapter owns the prompt structure
-    //   - model (URL path)             → adapter selects the endpoint, not
-    //                                    body.model (which Gemini ignores)
-    // Resolve modelId from the preset's user values / schema, not the
-    // customBody-merged body, so `customBody.model` cannot redirect the URL.
+    // Prompt structure and the URL model come from the request, overriding customBody.
     const modelId = resolveWireModelId(preset, { vendorName: 'Google Gemini' })
     delete prepared.body.model
 
     const { system, chat, systemCachePoint } = collectSystemAndChat(options.messages)
     const { contents, cacheBoundary } = toGeminiContents(chat)
-    // A cachePoint carried only by system messages (cache prompt card /
-    // automaticCachePoint landing on the system role) used to be dropped when
-    // collectSystemAndChat hoisted those messages into systemInstruction,
-    // silently disabling caching. When the chat side has no cachePoint of its
-    // own, fall back to boundary 0 = "cache the systemInstruction only": an
-    // empty cached-prefix of contents plus the full systemInstruction. A chat
-    // cachePoint always wins (it is the deeper, larger cacheable prefix).
+    // Boundary 0 caches only systemInstruction; a chat cache point covers a larger prefix.
     const resolvedBoundary = cacheBoundary ?? (systemCachePoint ? 0 : null)
-    prepared.body.contents = contents
+    delete prepared.body.systemInstruction
+    delete prepared.body.contents
     if (system.length > 0) {
         prepared.body.systemInstruction = { parts: [{ text: system }] }
-    } else {
-        delete prepared.body.systemInstruction
     }
+    prepared.body.contents = contents
     if (options.tools && options.tools.length > 0) {
         prepared.body.tools = [{ functionDeclarations: options.tools.map(toGeminiFunctionDeclaration) }]
     } else {
-        // Tools are gated by the request, not customBody / additionalParams:
-        // strip the whole tool-control surface when off so the OFF toggle is a
-        // hard text-only gate (a lingering toolConfig would force/restrict calls).
+        // Also remove customBody tool controls when tools are disabled.
         delete prepared.body.tools
         delete prepared.body.toolConfig
     }
-    applyVisionQuality(prepared.body, preset)
+    const generationConfig = isPlainObject(prepared.body.generationConfig)
+        ? { ...prepared.body.generationConfig }
+        : {}
+    applyVisionQuality(generationConfig, preset)
     if (options.structuredOutput) {
-        const generationConfig = isPlainObject(prepared.body.generationConfig)
-            ? { ...prepared.body.generationConfig }
-            : {}
         generationConfig.responseMimeType = 'application/json'
         generationConfig.responseJsonSchema = options.structuredOutput.schema
-        prepared.body.generationConfig = generationConfig
-    } else if (isPlainObject(prepared.body.generationConfig)) {
-        const generationConfig = { ...prepared.body.generationConfig }
+    } else {
         delete generationConfig.responseMimeType
         delete generationConfig.responseJsonSchema
-        if (Object.keys(generationConfig).length > 0) prepared.body.generationConfig = generationConfig
-        else delete prepared.body.generationConfig
     }
-    applyIncludeThoughts(prepared.body, preset)
-    applyResponseModalities(prepared.body, preset)
+    applyIncludeThoughts(generationConfig, preset)
+    applyResponseModalities(generationConfig, preset)
+    if (Object.keys(generationConfig).length > 0) prepared.body.generationConfig = generationConfig
+    else delete prepared.body.generationConfig
 
     const customEndpoint = resolveCustomGeminiEndpoint(preset, prepared.url, modelId, stream)
     if (customEndpoint) {
@@ -281,12 +225,9 @@ async function prepareGeminiBody(
 }
 
 function applyIncludeThoughts(
-    body: Record<string, unknown>,
+    generationConfig: Record<string, unknown>,
     preset: ModelPreset,
 ): void {
-    const generationConfig = isPlainObject(body.generationConfig)
-        ? { ...body.generationConfig }
-        : {}
     const thinkingConfig = isPlainObject(generationConfig.thinkingConfig)
         ? { ...generationConfig.thinkingConfig }
         : {}
@@ -300,42 +241,32 @@ function applyIncludeThoughts(
 
     thinkingConfig.includeThoughts = true
     generationConfig.thinkingConfig = thinkingConfig
-    body.generationConfig = generationConfig
 }
 
 function applyResponseModalities(
-    body: Record<string, unknown>,
+    generationConfig: Record<string, unknown>,
     preset: ModelPreset,
 ): void {
     const imageOutput = hasPresetImageOutput(preset)
     const audioOutput = hasPresetFlag(preset, 'hasAudioOutput')
     if (!imageOutput && !audioOutput) return
 
-    const generationConfig = isPlainObject(body.generationConfig)
-        ? { ...body.generationConfig }
-        : {}
     generationConfig.responseModalities = imageOutput
         ? hasFixedImageOutput(preset) ? ['IMAGE'] : ['TEXT', 'IMAGE']
         : ['TEXT', 'AUDIO']
-    body.generationConfig = generationConfig
 }
 
 function applyVisionQuality(
-    body: Record<string, unknown>,
+    generationConfig: Record<string, unknown>,
     preset: ModelPreset,
 ): void {
     const quality = preset.gptVisionQuality
     if (quality === undefined) return
-    const generationConfig = isPlainObject(body.generationConfig)
-        ? { ...body.generationConfig }
-        : {}
     if (quality === 'low' || quality === 'medium' || quality === 'high') {
         generationConfig.mediaResolution = `MEDIA_RESOLUTION_${quality.toUpperCase()}`
     } else {
         delete generationConfig.mediaResolution
     }
-    if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig
-    else delete body.generationConfig
 }
 
 function toGeminiFunctionDeclaration(tool: AdapterToolDef): Record<string, unknown> {
@@ -345,10 +276,6 @@ function toGeminiFunctionDeclaration(tool: AdapterToolDef): Record<string, unkno
 function collectSystemAndChat(messages: AdapterChatMessage[]): {
     system: string
     chat: AdapterChatMessage[]
-    // True when any system message carried a cachePoint. These messages are
-    // hoisted into systemInstruction (which the cache always covers anyway), so
-    // their cachePoint would otherwise vanish; the caller folds it into a
-    // boundary-0 (systemInstruction-only) cache when the chat side has none.
     systemCachePoint: boolean
 } {
     const systems: string[] = []
@@ -359,30 +286,14 @@ function collectSystemAndChat(messages: AdapterChatMessage[]): {
             systems.push(message.content)
             if (message.cachePoint) systemCachePoint = true
         } else {
-            // tool / user / assistant flow into the wire builder, which maps tool
-            // results to functionResponse parts on a user turn (Gemini shape).
             chat.push(message)
         }
     }
     return { system: systems.join('\n\n'), chat, systemCachePoint }
 }
 
-// Build Gemini `contents`. Consecutive tool messages collapse into one `user`
-// turn of `functionResponse` parts (Gemini answers tool calls on the user role).
-// Assistant ("model") turns emit thought parts first (carrying thoughtSignature),
-// then text, then functionCall parts — each functionCall echoing the signature
-// Gemini issued, which thinking models require on the follow-up request.
-//
-// cacheBoundary is the context-cache boundary mapped to a contents index: the
-// count of emitted contents up to AND INCLUDING the one holding the last
-// message flagged cachePoint (Anthropic allows multiple incremental points;
-// Gemini's single continuous prefix folds them to the deepest = the largest
-// cacheable prefix). Tracking happens here, in the same pass that collapses
-// tool turns, so the index can never drift from the wire shape. System
-// messages never reach this function (collectSystemAndChat hoists them into
-// systemInstruction), so a chat-side cachePoint here always wins; a cachePoint
-// carried ONLY by system messages yields null here and is folded into a
-// boundary-0 (systemInstruction-only) cache by prepareGeminiBody.
+// Group adjacent tool results into user turns. Track the cache boundary in
+// emitted contents so grouping cannot shift it away from the marked message.
 function toGeminiContents(chat: AdapterChatMessage[]): {
     contents: GeminiContent[]
     cacheBoundary: number | null
@@ -396,8 +307,6 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
         if (pendingFnResponses.length > 0) {
             out.push({ role: 'user', parts: pendingFnResponses })
             pendingFnResponses = []
-            // A collapsed tool turn carried a cachePoint: the boundary lands
-            // after the content it was folded into.
             if (pendingCachePoint) {
                 cacheBoundary = out.length
                 pendingCachePoint = false
@@ -411,8 +320,7 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
                 name: message.name ?? '',
                 response: { result: message.content },
             }
-            // Echo Gemini's call id (when present) so parallel same-name results
-            // match unambiguously. Empty toolCallId → name-based matching.
+            // IDs distinguish parallel calls to the same tool.
             if (message.toolCallId) functionResponse.id = message.toolCallId
             pendingFnResponses.push({ functionResponse })
             if (message.cachePoint) pendingCachePoint = true
@@ -433,7 +341,6 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
     return { contents: out, cacheBoundary }
 }
 
-// A user turn: text followed by enabled inline image/audio/video data.
 function toUserParts(message: AdapterChatMessage): GeminiPart[] {
     const parts: GeminiPart[] = []
     if (message.content.length > 0) parts.push({ text: message.content })
@@ -480,33 +387,13 @@ function parseToolArgs(args: string): unknown {
     catch { return {} }
 }
 
-async function deriveHttpError(response: Response): Promise<ModelPresetAdapterError> {
-    let bodyText = ''
-    try {
-        bodyText = await response.text()
-    } catch {
-        // ignore body read failures
-    }
-    const error = extractErrorDetails(bodyText)
-    return normalizeHttpStatus(response.status, error.message ?? undefined, {
-        retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
-        providerCode: error.code,
-    })
-        ?? new ModelPresetAdapterError('unknown', error.message ?? `HTTP ${response.status}`, {
-            status: response.status,
-        })
-}
-
 export function parseGeminiResponse(raw: unknown): AdapterChatResponse {
     if (!isPlainObject(raw)) {
         throw new ModelPresetAdapterError('parse', 'Gemini response is not an object')
     }
     const candidates = raw['candidates']
     if (!Array.isArray(candidates) || candidates.length === 0) {
-        // Per Google docs, no-candidates responses signal that the prompt
-        // itself was rejected. Surface promptFeedback.blockReason as a
-        // non-retryable invalid-request rather than misclassifying as parser
-        // failure (which would otherwise be retry/fallback eligible).
+        // Prompt blocks must not be retried as malformed responses.
         throwIfPromptBlocked(raw['promptFeedback'])
         throw new ModelPresetAdapterError('parse', 'Gemini response has no candidates')
     }
@@ -526,18 +413,13 @@ export function parseGeminiResponse(raw: unknown): AdapterChatResponse {
         media: parsed.media.length > 0 ? parsed.media : undefined,
         toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
         reasoning: parsed.reasoning.length > 0 ? parsed.reasoning : undefined,
-        // Keep the raw parts so a tool follow-up resends the model turn verbatim —
-        // Gemini requires every thoughtSignature back on the exact part it issued,
-        // including signatures on plain text parts.
+        // Replay signatures on their original parts, including plain text parts.
         providerEcho: echoParts,
         finishReason,
         usage: parseGeminiUsage(raw['usageMetadata']),
     }
 }
 
-// Split a Gemini candidate's content into visible text, tool calls, and reasoning
-// (thought) parts. functionCall parts carry a thoughtSignature that thinking
-// models require echoed back on the follow-up request.
 function parseGeminiParts(content: unknown): {
     text: string
     toolCalls: AdapterToolCall[]
@@ -557,11 +439,7 @@ function parseGeminiParts(content: unknown): {
             const fn = part['functionCall']
             if (isPlainObject(fn) && typeof fn['name'] === 'string') {
                 toolCalls.push({
-                    // Keep Gemini's real call id when present so it round-trips on
-                    // the wire (functionCall/functionResponse id matching for
-                    // same-name parallel calls). When omitted, leave it empty:
-                    // encodeToolCall mints a unique KV key with createEntityId(), and the
-                    // wire falls back to name-based matching.
+                    // Missing provider IDs use name matching; storage assigns its own ID.
                     id: typeof fn['id'] === 'string' ? (fn['id'] as string) : '',
                     name: fn['name'] as string,
                     arguments: JSON.stringify(fn['args'] ?? {}),
@@ -594,8 +472,6 @@ function parseGeminiParts(content: unknown): {
 
 export function parseGeminiStreamDelta(raw: unknown): AdapterChatStreamDelta | null {
     if (!isPlainObject(raw)) return null
-    // Surface stream-level prompt blocks the same way as non-stream so the
-    // user sees a real error instead of an empty stream that ends silently.
     throwIfPromptBlocked(raw['promptFeedback'])
     const candidates = raw['candidates']
     let textDelta = ''
@@ -631,9 +507,6 @@ function throwIfPromptBlocked(feedback: unknown): void {
     )
 }
 
-// Split a streamed candidate's parts into visible text vs reasoning (thought)
-// text. Thought parts carry `thought: true`; merging them into the visible text
-// would leak the model's internal reasoning into the saved answer.
 function splitStreamParts(content: unknown): { text: string; reasoning: string } {
     if (!isPlainObject(content)) return { text: '', reasoning: '' }
     const parts = content['parts']

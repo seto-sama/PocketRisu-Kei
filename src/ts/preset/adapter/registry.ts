@@ -56,8 +56,8 @@ export interface ModelPresetAdapterSupport {
     readonly vision: boolean
     /** Whether this wire implementation can enforce a JSON Schema response. */
     readonly jsonSchema: boolean
-    /** Editor/runtime policy for rewriting system messages into user turns. */
-    readonly systemPromptFolding: 'always' | 'custom-only' | 'never'
+    /** Folding availability, or required folding that preserves only the leading system block. */
+    readonly systemPromptFolding: 'always' | 'custom-only' | 'never' | 'leading-only'
 }
 
 export interface ModelPresetAdapterDefinition {
@@ -150,7 +150,7 @@ export const MODEL_PRESET_ADAPTER_REGISTRY = {
             tools: true,
             vision: true,
             jsonSchema: true,
-            systemPromptFolding: 'never',
+            systemPromptFolding: 'leading-only',
         },
         send: sendGoogleChatRequest,
         stream: streamGoogleChatRequest,

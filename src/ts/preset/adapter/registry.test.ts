@@ -55,7 +55,6 @@ describe('model preset adapter registry', () => {
             })
         for (const kind of [
             'anthropic-messages',
-            'google-gemini',
             'amazon-bedrock',
         ] as const) {
             expect(getModelPresetAdapterDefinition(kind).support)

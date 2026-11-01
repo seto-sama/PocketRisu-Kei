@@ -110,6 +110,7 @@ export function compileModelPreset(
     const custom = isCustomPreset(preset)
 
     const foldingPolicy = adapter?.support.systemPromptFolding
+    const keepOnlyLeadingSystemPrompt = foldingPolicy === 'leading-only'
     const canFoldSystemPrompt = adapterKind === 'plugin'
         || foldingPolicy === 'always'
         || (foldingPolicy === 'custom-only' && custom)
@@ -151,11 +152,13 @@ export function compileModelPreset(
     }
     const behavior: CompiledPresetBehavior = {
         canFoldSystemPrompt,
-        foldSystemPrompt: canFoldSystemPrompt && preset.foldSystemPrompt === true,
+        foldSystemPrompt: keepOnlyLeadingSystemPrompt
+            || (canFoldSystemPrompt && preset.foldSystemPrompt === true),
         keepFirstSystemPrompt:
-            canFoldSystemPrompt
-            && preset.foldSystemPrompt === true
-            && preset.keepFirstSystemPrompt === true,
+            keepOnlyLeadingSystemPrompt
+            || (canFoldSystemPrompt
+                && preset.foldSystemPrompt === true
+                && preset.keepFirstSystemPrompt === true),
         alternateRole: preset.alternateRole === true,
         startWithUserInput: preset.startWithUserInput === true,
         developerRole:
