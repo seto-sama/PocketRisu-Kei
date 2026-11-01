@@ -501,7 +501,7 @@ function createBackupRestoreService({
             stagedInlaysPromoted = true;
             await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 
-            const replaceLiveState = () => withTransaction(sqliteDb, () => {
+            withTransaction(sqliteDb, () => {
                 kvDelPrefix('assets/');
                 kvDelPrefix('inlay/');
                 kvDelPrefix('inlay_thumb/');
@@ -539,7 +539,6 @@ function createBackupRestoreService({
                     replacePluginStorage(stagedPluginStorage());
                 }
             });
-            replaceLiveState();
             restoreCommitted = true;
             await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
 
@@ -708,7 +707,7 @@ async function restoreMissingAssetsFromBackupFile({
         const insert = db.prepare(
             'INSERT OR IGNORE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
         );
-        const restore = () => withTransaction(db, () => {
+        const restored = withTransaction(db, () => {
             let assetsRestored = 0;
             let restoredBytes = 0;
             const now = Date.now();
@@ -724,7 +723,6 @@ async function restoreMissingAssetsFromBackupFile({
             }
             return { assetsRestored, restoredBytes };
         });
-        const restored = restore();
 
         return {
             referencedMissing: targets.size,

@@ -67,22 +67,6 @@ function createSnapshotService({
         return trimSnapshots(sqliteDb, chunkStore, DB_BACKUP_PREFIX, maxCount, maxBytes);
     }
 
-    const createSnapshotState = () => withTransaction(sqliteDb, () => {
-        if (!appDataStore.getState().initialized) {
-            throw new Error('Cannot create snapshot: relational database is missing');
-        }
-        const backupKey = createSnapshotKey(sqliteDb, DB_BACKUP_PREFIX);
-        const projection = appDataStore.exportProjection({ includeMessages: true });
-        bookmarkStore.projectDatabaseCompatibility(projection);
-        kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(
-            exportPromptPresetSelection(projection),
-        )));
-        if (!kvGet(backupKey)) throw new Error('Cannot create snapshot: database blob is missing');
-        bookmarkStore.saveSnapshot(backupKey);
-        trimSnapshotsToLimits();
-        return backupKey;
-    });
-
     function createBackupAndRotate() {
         const now = Date.now();
         if (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS) {
@@ -90,7 +74,20 @@ function createSnapshotService({
         }
         lastBackupTime = now;
 
-        createSnapshotState();
+        withTransaction(sqliteDb, () => {
+            if (!appDataStore.getState().initialized) {
+                throw new Error('Cannot create snapshot: relational database is missing');
+            }
+            const backupKey = createSnapshotKey(sqliteDb, DB_BACKUP_PREFIX);
+            const projection = appDataStore.exportProjection({ includeMessages: true });
+            bookmarkStore.projectDatabaseCompatibility(projection);
+            kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(
+                exportPromptPresetSelection(projection),
+            )));
+            if (!kvGet(backupKey)) throw new Error('Cannot create snapshot: database blob is missing');
+            bookmarkStore.saveSnapshot(backupKey);
+            trimSnapshotsToLimits();
+        });
     }
 
     function scheduleBackupAndRotate() {
@@ -105,7 +102,7 @@ function createSnapshotService({
             const limits = getSnapshotLimits();
             const worker = new Worker(path.join(__dirname, 'snapshotWorker.cjs'), {
                 workerData: {
-                    dbPath: path.join(process.cwd(), 'save', 'risuai.db'),
+                    dbPath: sqliteDb.location(),
                     prefix: DB_BACKUP_PREFIX,
                     maxCount: limits.maxCount,
                     maxBytes: limits.maxBytes,

@@ -6,9 +6,7 @@ const fs = require('fs');
 const { createChunkStore } = require('./chunkStore.cjs');
 
 const saveDir = path.join(process.cwd(), 'save');
-if (!fs.existsSync(saveDir)) {
-    fs.mkdirSync(saveDir, { recursive: true });
-}
+fs.mkdirSync(saveDir, { recursive: true });
 const dbPath = path.join(saveDir, 'risuai.db');
 // Keep SQLite spill files on persistent storage. Container /tmp is commonly a
 // tmpfs and Termux may not provide it, either of which makes a large VACUUM
@@ -49,43 +47,37 @@ db.exec(`
 // destructive DDL on upgrade. clearEntities() handles cleanup during import.
 
 // ─── Migration: /save/ hex files → kv table ──────────────────────────────────
-const savePath = path.join(process.cwd(), 'save');
-const migrationMarker = path.join(process.cwd(), 'save', '.migrated_to_sqlite');
+const migrationMarker = path.join(saveDir, '.migrated_to_sqlite');
 
 function migrateFromSaveDir() {
-    if (!fs.existsSync(savePath)) return;
     if (fs.existsSync(migrationMarker)) return;
 
-    const hexRegex = /^[0-9a-fA-F]+$/;
     let files;
     try {
-        files = fs.readdirSync(savePath);
+        files = fs.readdirSync(saveDir);
     } catch {
         return;
     }
 
-    const hexFiles = files.filter(f => hexRegex.test(f));
+    const hexFiles = files.filter(f => /^[0-9a-fA-F]+$/.test(f));
     if (hexFiles.length === 0) return;
 
     console.log(`[DB] Migrating ${hexFiles.length} file(s) from /save/ to SQLite...`);
-
-    const insert = db.prepare(
-        `INSERT OR IGNORE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
-    );
+    const insert = db.prepare('INSERT OR IGNORE INTO kv (key, value, updated_at) VALUES (?, ?, ?)');
     const now = Date.now();
 
     withTransaction(db, () => {
-        for (let i = 0; i < hexFiles.length; i++) {
+        hexFiles.forEach((file, i) => {
             if (i % 100 === 0 || i === hexFiles.length - 1) {
                 console.log(`[DB] Migrating... ${i + 1}/${hexFiles.length}`);
             }
-            const key = Buffer.from(hexFiles[i], 'hex').toString('utf-8');
-            const value = fs.readFileSync(path.join(savePath, hexFiles[i]));
+            const key = Buffer.from(file, 'hex').toString('utf-8');
+            const value = fs.readFileSync(path.join(saveDir, file));
             // Route the DB blob through chunking so an oversized legacy
             // database.bin migrates instead of hitting the BLOB bind limit.
             if (key === DB_BLOB_KEY) chunkStore.putValue(key, value);
             else insert.run(key, value, now);
-        }
+        });
     });
 
     fs.writeFileSync(migrationMarker, new Date().toISOString(), 'utf-8');
@@ -106,9 +98,8 @@ migrateFromSaveDir();
 
 // ─── KV operations ────────────────────────────────────────────────────────────
 // kv reads/writes for the DB blob route through chunkStore (get/put/size);
-// the statements below serve the remaining direct-row keys.
-const stmtKvSet = db.prepare(`INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`);
-const stmtKvUpdatedAt = db.prepare(`SELECT updated_at FROM kv WHERE key = ?`);
+// the queries below serve the remaining direct-row keys.
+const sql = db.createTagStore();
 const queryKvList = prepareKvPrefixQuery('SELECT key FROM kv', 'all');
 const queryKvCount = prepareKvPrefixQuery('SELECT COUNT(*) AS total FROM kv', 'get');
 const queryKvRecent = prepareKvPrefixQuery(
@@ -117,10 +108,10 @@ const queryKvRecent = prepareKvPrefixQuery(
 const queryKvSizes = prepareKvPrefixQuery('SELECT key, LENGTH(value) AS size FROM kv', 'all');
 const queryKvDelete = prepareKvPrefixQuery('DELETE FROM kv', 'run');
 
-function prepareKvPrefixQuery(sql, method, suffix = '') {
-    const all = db.prepare(sql + suffix);
-    const range = db.prepare(`${sql} WHERE key >= ? AND key < ?${suffix}`);
-    const like = db.prepare(`${sql} WHERE key LIKE ? ESCAPE '\\'${suffix}`);
+function prepareKvPrefixQuery(query, method, suffix = '') {
+    const all = db.prepare(query + suffix);
+    const range = db.prepare(`${query} WHERE key >= ? AND key < ?${suffix}`);
+    const like = db.prepare(`${query} WHERE key LIKE ? ESCAPE '\\'${suffix}`);
 
     return (prefix, ...args) => {
         if (!prefix) return all[method](...args);
@@ -136,47 +127,14 @@ function prepareKvPrefixQuery(sql, method, suffix = '') {
     };
 }
 
-function kvGet(key) {
-    // Reassembles chunked values; returns raw value for everything else.
-    return chunkStore.getValue(key);
-}
-
 function kvSet(key, value) {
     // Only the DB blob is chunked; all other keys keep the exact prior path.
-    if (key === DB_BLOB_KEY) {
-        chunkStore.putValue(key, value);
-    } else {
-        stmtKvSet.run(key, value, Date.now());
-    }
-}
-
-// Explicit large-value path for compatibility projections such as rotated
-// snapshots. The live application database no longer uses this opaque store,
-// but export artifacts can still exceed SQLite's single-value comfort zone.
-function kvSetChunked(key, value) {
-    chunkStore.putValue(key, value);
-}
-
-function kvDel(key) {
-    // Route through the chunk store so a chunked key (the DB blob or a chunked
-    // snapshot, e.g. a rotated dbbackup-*) also drops its manifest — otherwise
-    // its chunks stay referenced and GC can never reclaim them. For non-chunked
-    // keys the manifest delete is a no-op, so this is safe and atomic for all.
-    chunkStore.dropValue(key);
-}
-
-function kvSize(key) {
-    // Logical (reassembled) size for chunked values; raw length otherwise.
-    return chunkStore.sizeValue(key);
+    if (key === DB_BLOB_KEY) chunkStore.putValue(key, value);
+    else sql.run`INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (${key}, ${value}, ${Date.now()})`;
 }
 
 function kvGetUpdatedAt(key) {
-    const row = stmtKvUpdatedAt.get(key);
-    return row ? row.updated_at : null;
-}
-
-function kvDelPrefix(prefix) {
-    queryKvDelete(prefix);
+    return sql.get`SELECT updated_at FROM kv WHERE key = ${key}`?.updated_at ?? null;
 }
 
 function kvList(prefix, options = {}) {
@@ -192,14 +150,6 @@ function kvList(prefix, options = {}) {
     return rows.map(r => r.key);
 }
 
-function kvCount(prefix) {
-    return queryKvCount(prefix).total;
-}
-
-function kvListWithSizes(prefix) {
-    return queryKvSizes(prefix);
-}
-
 function checkpointWal(mode = 'TRUNCATE') {
     return db.prepare(`PRAGMA wal_checkpoint(${mode})`).get();
 }
@@ -209,7 +159,7 @@ function estimateVacuumRequiredBytes(databaseBytes) {
 }
 
 function vacuumDatabase() {
-    const previousTempStore = db.prepare('PRAGMA temp_store').get().temp_store;
+    const previousTempStore = sql.get`PRAGMA temp_store`.temp_store;
     db.exec('PRAGMA temp_store = FILE');
     try {
         db.exec('VACUUM');
@@ -217,34 +167,6 @@ function vacuumDatabase() {
         // Preserve the connection policy instead of assuming MEMORY forever.
         db.exec(`PRAGMA temp_store = ${previousTempStore}`);
     }
-}
-
-// Reclaim chunks no longer referenced by any manifest (live blob + snapshots).
-// Returns the number deleted. Caller should run it serialized with saves (e.g.
-// inside the storage queue) and before VACUUM so freed pages get compacted.
-function gcChunks() {
-    return chunkStore.gc();
-}
-
-// Bytes the next gc() would reclaim (true orphans + chunks held only by stale
-// manifests). Drives the Optimize button so self-healable leaks can be cleared.
-function reclaimableChunkBytes() {
-    return chunkStore.reclaimableBytes();
-}
-
-function chunkStorageStats() {
-    return chunkStore.stats();
-}
-
-// Whether the live DB blob is actually stored chunked right now (marker-backed),
-// not merely that a manifest row exists.
-function isDbBlobChunked() {
-    return chunkStore.isChunkedKey(DB_BLOB_KEY);
-}
-
-// Count shared chunks once across the snapshot set, plus each key's stored value.
-function snapshotSetFootprint(keys) {
-    return chunkStore.keySetPhysicalCost(keys);
 }
 
 function clearEntities() {
@@ -260,14 +182,34 @@ module.exports = {
     db,
     chunkStore,
     // KV
-    kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt,
+    // Reassembles chunked values; returns the raw value for everything else.
+    kvGet: chunkStore.getValue,
+    kvSet,
+    // Explicit large-value path for compatibility projections such as rotated
+    // snapshots, which can exceed SQLite's single-value comfort zone.
+    kvSetChunked: chunkStore.putValue,
+    // Routed through the chunk store so a chunked key also drops its manifest;
+    // otherwise its chunks stay referenced and GC can never reclaim them.
+    kvDel: chunkStore.dropValue,
+    kvList,
+    kvCount: prefix => queryKvCount(prefix).total,
+    kvDelPrefix: prefix => { queryKvDelete(prefix); },
+    kvListWithSizes: queryKvSizes,
+    // Logical (reassembled) size for chunked values; raw length otherwise.
+    kvSize: chunkStore.sizeValue,
+    kvGetUpdatedAt,
     clearEntities,
     checkpointWal,
     estimateVacuumRequiredBytes,
     vacuumDatabase,
-    gcChunks,
-    reclaimableChunkBytes,
-    chunkStorageStats,
-    isDbBlobChunked,
-    snapshotSetFootprint,
+    // Reclaim chunks no longer referenced by any manifest. Run serialized with
+    // saves (inside the storage queue) and before VACUUM so freed pages compact.
+    gcChunks: chunkStore.gc,
+    // Bytes the next gc() would reclaim; drives the Optimize button.
+    reclaimableChunkBytes: chunkStore.reclaimableBytes,
+    chunkStorageStats: chunkStore.stats,
+    // Whether the live DB blob is stored chunked right now (marker-backed).
+    isDbBlobChunked: () => chunkStore.isChunkedKey(DB_BLOB_KEY),
+    // Count shared chunks once across the snapshot set, plus each key's stored value.
+    snapshotSetFootprint: chunkStore.keySetPhysicalCost,
 };

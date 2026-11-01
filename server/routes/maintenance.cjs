@@ -157,8 +157,9 @@ function installMaintenanceRoutes(app, {
             prefixes[p] = { totalSize: total, count: items.length };
         }
 
-        const kvRows = sqliteDb.prepare('SELECT COUNT(*) AS c FROM kv').get().c;
-        const kvTotalBytes = sqliteDb.prepare('SELECT COALESCE(SUM(LENGTH(value)), 0) AS s FROM kv').get().s;
+        const { kvRows, kvTotalBytes } = sqliteDb.prepare(
+            'SELECT COUNT(*) AS kvRows, COALESCE(SUM(LENGTH(value)), 0) AS kvTotalBytes FROM kv',
+        ).get();
 
         let fileBackups = { count: 0, totalSize: 0, oldest: null, newest: null };
         try {
