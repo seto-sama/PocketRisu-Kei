@@ -6,12 +6,10 @@
 
 > 🌐 Hướng dẫn này được dịch bằng máy. Để có thông tin chính xác nhất, vui lòng tham khảo phiên bản [tiếng Anh](../en/install.md) hoặc [tiếng Hàn](../ko/install.md).
 
-PocketRisu có thể được cài đặt theo bốn cách.
+PocketRisu có thể được cài đặt theo hai cách.
 
-- [1. Gói portable](#1-gói-portable) — Tệp nhị phân được biên dịch sẵn. Không cần Node.js.
-- [2. Docker](#2-docker) — Môi trường container.
-- [3. Script cài đặt](#3-script-cài-đặt) — Build tự động từ mã nguồn. Dành cho máy chủ Linux/macOS.
-- [4. Git Clone](#4-git-clone) — Build mã nguồn thủ công. Dành cho nhà phát triển / người dùng nâng cao.
+- [1. Docker](#1-docker) — Môi trường container.
+- [2. Git Clone](#2-git-clone) — Clone và tự build mã nguồn.
 
 
 ## Yêu cầu hệ thống
@@ -21,96 +19,14 @@ PocketRisu có thể được cài đặt theo bốn cách.
 | **CPU**      | 1 nhân                   | 2+ nhân                                  |
 | **RAM**      | 1 GB (chỉ chạy)          | 4+ GB (bao gồm build)                    |
 | **Đĩa**      | 1 GB                     | 2+ GB                                    |
-| **Node.js**  | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (không cần cho portable/Docker)          |
+| **Node.js**  | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (không cần cho Docker)          |
 
-Gói portable và Docker không cần bước build và có thể chạy với 1 GB RAM. Build trực tiếp (Git Clone, script cài đặt) tiêu tốn nhiều bộ nhớ khi build, vì vậy khuyến nghị 4 GB trở lên.
-
-
----
-
-## 1. Gói portable
-
-Tải xuống và chạy tệp nhị phân được biên dịch sẵn. Không cần Node.js, Docker hay công cụ khác. Hỗ trợ Windows, macOS (Apple Silicon) và Linux (x64/ARM).
-
-### Tải xuống
-
-Lấy tệp cho OS của bạn từ [trang Releases](https://github.com/seto-sama/PocketRisu-Kei/releases).
-
-| OS                       | Tệp                                       |
-| ------------------------ | ----------------------------------------- |
-| Windows (x64)            | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
-| macOS (Apple Silicon)    | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
-| Linux (x64)              | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
-| Linux (ARM)              | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
-
-### Chạy
-
-**Windows**
-
-Giải nén tệp zip và nhấp đúp vào `PocketRisu-Kei.exe`. Trình duyệt tự động mở tại `http://localhost:6001`.
-
-**macOS**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
-open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
-```
-
-Lệnh `xattr` là thao tác một lần để bỏ qua cảnh báo "Apple không thể xác minh".
-
-**Linux**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
-cd PocketRisu-Kei-vX.X.X-linux-*
-./start.sh
-```
-
-Mở `http://localhost:6001` trong trình duyệt.
-
-### Máy chủ không GUI (tải xuống một dòng)
-
-Đối với máy chủ Linux/macOS không có GUI, tải xuống và chạy phiên bản mới nhất bằng một lệnh.
-
-**Linux (x64):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-cd PocketRisu-Kei-v${VERSION}-linux-x64
-./start.sh
-```
-
-**Linux (ARM):** Thay `linux-x64` bằng `linux-arm64` trong lệnh trên.
-
-**macOS (Apple Silicon):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
-cd PocketRisu-Kei-v${VERSION}-macos-arm64
-./start.sh
-```
-
-### Cập nhật
-
-Nhấp "Cập nhật ngay" trong popup cập nhật trên màn hình chính của giao diện web, hoặc chạy script cập nhật trong thư mục cài đặt.
-
-- **Windows**: Nhấp đúp `update.bat`
-- **macOS / Linux**: `./update.sh`
-
-Dữ liệu trong thư mục `save/` được bảo toàn.
+Docker không cần bước build và có thể chạy với 1 GB RAM. Build trực tiếp (Git Clone) tiêu tốn nhiều bộ nhớ khi build, vì vậy khuyến nghị 4 GB trở lên.
 
 
 ---
 
-## 2. Docker
+## 1. Docker
 
 Chạy trên hệ thống có Docker hoặc Docker Desktop được cài đặt.
 
@@ -144,11 +60,9 @@ Tất cả dữ liệu (cuộc trò chuyện, nhân vật, v.v.) được lưu t
 
 ---
 
-## 3. Script cài đặt
+## 2. Git Clone
 
-Lấy mã nguồn và build tự động với Node.js. Chạy trên máy chủ Linux/macOS. Sử dụng nếu bạn muốn quản lý cập nhật qua `git pull`.
-
-### Điều kiện tiên quyết
+Clone mã nguồn và tự build.
 
 Cần Node.js 24.x (phiên bản 24.22.1 trở lên) hoặc 26.x (phiên bản 26.12.1 trở lên):
 
@@ -158,45 +72,6 @@ node --version
 ```
 
 Cài đặt từ [trang chính thức của Node.js](https://nodejs.org/) nếu chưa có.
-
-### Cài đặt
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
-```
-
-Thông báo trạng thái hiển thị khi cài đặt hoàn tất.
-
-### Khởi động máy chủ
-
-```bash
-cd ~/pocketrisu-kei
-pnpm runserver
-```
-
-Mở `http://localhost:6001` trong trình duyệt.
-
-### Cập nhật
-
-```bash
-cd ~/pocketrisu-kei
-./update.sh
-```
-
-> Nếu cần, hãy thay `update.sh` bằng phiên bản mới nhất trước khi cập nhật:
-> ```bash
-> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
-> ./update.sh
-> ```
->
-> Các cập nhật tiếp theo chạy bằng `./update.sh` như thường lệ.
-
-
----
-
-## 4. Git Clone
-
-Clone và build mã nguồn thủ công. Dành cho nhà phát triển cần sửa đổi hoặc gỡ lỗi mã.
 
 ```bash
 git clone https://github.com/seto-sama/PocketRisu-Kei.git

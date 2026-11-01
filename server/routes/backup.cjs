@@ -87,7 +87,6 @@ function installBackupRoutes(app, {
         BACKUP_FILENAME_REGEX,
         DEFAULT_BACKUPS_DIR,
         BACKUP_PATH_CONFIG_KEY,
-        writeBackupPathMarker,
     } = backupLocation;
     const deleteSnapshotState = key => withTransaction(sqliteDb, () => deleteSnapshotStateRows(key));
 
@@ -102,7 +101,7 @@ function installBackupRoutes(app, {
         return { count: keys.length, bytes, logicalBytes };
     }
 
-    const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
+    const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules']);
 
     function isManagedBackupPath(absPath) {
         const rel = path.relative(process.cwd(), absPath);
@@ -1413,7 +1412,6 @@ function installBackupRoutes(app, {
         const previous = backupState.backupsDir;
         backupState.backupsDir = resolved;
         kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
-        writeBackupPathMarker(resolved);
         res.json({
             path: backupState.backupsDir,
             previous,

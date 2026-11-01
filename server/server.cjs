@@ -182,7 +182,7 @@ if(!existsSync(savePath)){
 const auth = createAuthService({ savePath });
 const { checkAuth, checkDownloadAuth, sessionAuthMiddleware } = auth;
 
-const backupLocation = createBackupLocation({ savePath, kvGet });
+const backupLocation = createBackupLocation({ kvGet });
 const { backupState, DEFAULT_BACKUPS_DIR, BACKUP_FILENAME_REGEX } = backupLocation;
 
 const tunnelState = {
@@ -605,10 +605,7 @@ installInlaysRoutes(app, {
     inlayService,
 });
 
-require('./routes/system.cjs').installSystemRoutes(app, {
-    checkAuth,
-    stopTunnel,
-});
+require('./routes/system.cjs').installSystemRoutes(app);
 
 require('./routes/tunnel.cjs').installTunnelRoutes(app, {
     checkAuth,

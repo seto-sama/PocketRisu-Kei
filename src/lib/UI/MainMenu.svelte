@@ -37,18 +37,12 @@
     <h3 class="text-subtext mt-1">v{getVersionString()}</h3>
     {#if $updateInfoStore?.hasUpdate}
         <Button
-          variant={$updateInfoStore.severity === 'optional' ? 'success' : 'destructive'}
+          variant="success"
           size="sm"
           className="mt-1.5 rounded-full"
           onclick={() => updatePopupStore.set($updateInfoStore)}
         >
-          {#if $updateInfoStore.severity === 'outdated'}
-            ⚠ {language.updateOutdated.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {:else if $updateInfoStore.severity === 'required'}
-            ⚠ {language.updateRequired.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {:else}
-            {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {/if}
+          {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
         </Button>
     {/if}
     {#if !DBState.db.hidePublicStats && $publicStatsStore}

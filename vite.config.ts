@@ -21,6 +21,10 @@ const rolldownOptions = {
     bundlerTimings: false,
     ineffectiveDynamicImport: false,
   },
+  experimental: {
+    // Skip compiling unused @lucide/svelte icons to reduce build time.
+    lazyBarrel: true,
+  },
 }
 
 export default defineConfig({

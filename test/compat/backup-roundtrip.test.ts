@@ -10,7 +10,6 @@
 import { describe, test, expect, afterAll } from 'vitest'
 import { encodeLocalPluginStorageValue } from '../../shared/localPluginStorageValue.mjs'
 import path from 'node:path'
-import { readFile } from 'node:fs/promises'
 import { decode as decodeMessagePack, encode as encodeMessagePack } from 'msgpackr'
 import { createDelta } from '../../shared/guardedDelta.mjs'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
@@ -59,9 +58,6 @@ describe('server smoke', () => {
     const safeBody = await safeRes.json() as { path: string; isDefault: boolean }
     expect(safeBody.path).toBe(safePath)
     expect(safeBody.isDefault).toBe(false)
-
-    const marker = await readFile(path.join(srv.cwd, 'save', '__backup_path'), 'utf-8')
-    expect(marker.trim()).toBe(safePath)
   })
 })
 

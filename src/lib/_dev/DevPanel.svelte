@@ -27,12 +27,7 @@
     import { alertStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import { resetAllPluginPermissions } from "src/ts/plugins/apiV3/v3.svelte";
-    import {
-        updatePopupStore,
-        selfUpdateProgressStore,
-        type UpdateInfo,
-        type SelfUpdateProgress,
-    } from "src/ts/update";
+    import { updatePopupStore, type UpdateInfo } from "src/ts/update";
     import Dialog from "../UI/components/Dialog.svelte";
     import Button from "../UI/components/Button.svelte";
     import Badge from "../UI/components/Badge.svelte";
@@ -385,7 +380,7 @@ function hello(): string {
     // ─── Section 5: Reset utilities ──────────────────────────────────────────
 
     // ─── Section 6: UpdatePopup simulation ───────────────────────────────────
-    // Drives updatePopupStore + selfUpdateProgressStore directly so the real
+    // Drives updatePopupStore directly so the real
     // <UpdatePopup /> mounted in App.svelte renders. dismissUpdatePopup()
     // does NOT touch the per-version dismissed key (only showUpdatePopupOnce
     // does), so triggering demos here is safe — real updates are not lost.
@@ -393,24 +388,12 @@ function hello(): string {
         currentVersion: '1.3.0',
         latestVersion: '99.99.99-demo',
         hasUpdate: true,
-        severity: 'optional',
-        releaseUrl: 'https://github.com/seto-sama/PocketRisu-Kei/releases',
-        releaseName: 'v99.99.99-demo (Dev Panel sample)',
-        publishedAt: new Date().toISOString(),
-        canSelfUpdate: true,
-        deploymentType: 'portable',
-        simulation: true,
+        releaseNotes: '',
     };
-    const SAMPLE_POPUP_MESSAGE = '- 채팅 로딩 속도 개선\n- 백업 안정성 향상\n- shadcn 기반 다이얼로그 도입';
+    const SAMPLE_RELEASE_NOTES = '- 채팅 로딩 속도 개선\n- 백업 안정성 향상\n- shadcn 기반 다이얼로그 도입';
 
     function showUpdate(overrides: Partial<UpdateInfo> = {}) {
-        selfUpdateProgressStore.set(null);
         updatePopupStore.set({ ...SAMPLE_UPDATE_BASE, ...overrides });
-    }
-
-    function showProgress(progress: SelfUpdateProgress, infoOverrides: Partial<UpdateInfo> = {}) {
-        updatePopupStore.set({ ...SAMPLE_UPDATE_BASE, ...infoOverrides });
-        selfUpdateProgressStore.set(progress);
     }
 
     // ─── Section 7: Component gallery ────────────────────────────────────────
@@ -541,38 +524,12 @@ function hello(): string {
         <h3 class="text-sm font-semibold text-maintext">6. UpdatePopup 시뮬레이션</h3>
         <p class="text-xs text-subtext">
             실제 <code class="bg-lightbg px-1 py-0.5 rounded">&lt;UpdatePopup /&gt;</code>
-            (App.svelte에 항상 마운트)을 직접 띄웁니다. 진행 단계는 2초 후 완료되며,
-            완료 후 Reload 버튼이나 X 버튼으로 닫아도 새로고침되지 않습니다. 실제 업데이트 요청은 실행하지 않습니다.
+            (App.svelte에 항상 마운트)을 직접 띄웁니다.
         </p>
 
-        <div class="mt-1 flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">Idle 상태</span>
-            <div class="flex flex-wrap gap-2">
-                <Button size="sm" onclick={() => showUpdate()}>Optional + Self-update</Button>
-                <Button size="sm" onclick={() => showUpdate({ severity: 'required' })}>Required + Self-update</Button>
-                <Button size="sm" onclick={() => showUpdate({ canSelfUpdate: false })}>Optional + View Release only</Button>
-                <Button size="sm" onclick={() => showUpdate({ severity: 'required', canSelfUpdate: false })}>Required + View Release only</Button>
-                <Button size="sm" onclick={() => showUpdate({ popupMessage: SAMPLE_POPUP_MESSAGE })}>+ popupMessage</Button>
-            </div>
-        </div>
-
-        <div class="mt-1 flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">진행 단계 (X 숨김 / 블로킹)</span>
-            <div class="flex flex-wrap gap-2">
-                <Button size="sm" onclick={() => showProgress({ step: 'checking', progress: 0, message: '업데이트 정보 확인 중...' })}>checking</Button>
-                <Button size="sm" onclick={() => showProgress({ step: 'downloading', progress: 50, message: 'v99.99.99-demo 다운로드 중... (3.2 MB / 6.4 MB)' })}>downloading 50%</Button>
-                <Button size="sm" onclick={() => showProgress({ step: 'extracting', progress: null, message: '아카이브 추출 중...' })}>extracting</Button>
-                <Button size="sm" onclick={() => showProgress({ step: 'replacing', progress: null, message: '실행 파일 교체 중...' })}>replacing</Button>
-                <Button size="sm" onclick={() => showProgress({ step: 'restarting', progress: null, message: '서버 재시작 대기 중...' })}>restarting</Button>
-            </div>
-        </div>
-
-        <div class="mt-1 flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">종료 단계 (X 노출 / 닫기 가능)</span>
-            <div class="flex flex-wrap gap-2">
-                <Button size="sm" variant="success" onclick={() => showProgress({ step: 'done', progress: 100, message: '업데이트 완료.' })}>done</Button>
-                <Button size="sm" variant="destructive" onclick={() => showProgress({ step: 'error', progress: null, message: '업데이트 실패: 서버 응답 없음 (HTTP 502)' })}>error</Button>
-            </div>
+        <div class="mt-1 flex flex-wrap gap-2">
+            <Button size="sm" onclick={() => showUpdate()}>기본</Button>
+            <Button size="sm" onclick={() => showUpdate({ releaseNotes: SAMPLE_RELEASE_NOTES })}>+ 패치내역</Button>
         </div>
     </div>
 

@@ -11,8 +11,6 @@ node_modules
 dist/
 save/
 backups/
-.installed-version
-.installed-manifest
 dist-web/
 dist-ssr
 *.local
@@ -44,8 +42,6 @@ recc.md
 __pycache__/
 dist.zip
 /scripts/*
-!/scripts/updater.cjs
-!/scripts/portable/
 !/scripts/termux/
 !/scripts/check-help-keys.mjs
 !/scripts/check-release-version.cjs

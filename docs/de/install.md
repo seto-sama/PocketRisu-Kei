@@ -6,12 +6,10 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/install.md) oder [koreanische](../ko/install.md) Version.
 
-PocketRisu kann auf vier Arten installiert werden.
+PocketRisu kann auf zwei Arten installiert werden.
 
-- [1. Portable-Paket](#1-portable-paket) — Vorkompilierte Binärdatei. Kein Node.js erforderlich.
-- [2. Docker](#2-docker) — Container-Umgebung.
-- [3. Installationsskript](#3-installationsskript) — Automatischer Build aus dem Quellcode. Für Linux/macOS-Server.
-- [4. Git Clone](#4-git-clone) — Manueller Quellbuild. Für Entwickler / fortgeschrittene Benutzer.
+- [1. Docker](#1-docker) — Container-Umgebung.
+- [2. Git Clone](#2-git-clone) — Quellcode klonen und selbst bauen.
 
 
 ## Systemanforderungen
@@ -21,96 +19,14 @@ PocketRisu kann auf vier Arten installiert werden.
 | **CPU**     | 1 Kern               | 2+ Kerne                                   |
 | **RAM**     | 1 GB (nur Ausführen) | 4+ GB (inkl. Build)                        |
 | **Disk**    | 1 GB                 | 2+ GB                                      |
-| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (nicht erforderlich für Portable/Docker)   |
+| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (nicht erforderlich für Docker)   |
 
-Das Portable-Paket und Docker benötigen keinen Build-Schritt und können mit 1 GB RAM laufen. Direkte Builds (Git Clone, Installationsskript) verbrauchen während des Builds viel Speicher; 4 GB oder mehr werden empfohlen.
-
-
----
-
-## 1. Portable-Paket
-
-Laden Sie eine vorkompilierte Binärdatei herunter und führen Sie sie aus. Kein Node.js, Docker oder andere Tools erforderlich. Unterstützt Windows, macOS (Apple Silicon) und Linux (x64/ARM).
-
-### Download
-
-Holen Sie die Datei für Ihr OS von der [Releases-Seite](https://github.com/seto-sama/PocketRisu-Kei/releases).
-
-| OS                      | Datei                                     |
-| ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
-| macOS (Apple Silicon)   | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
-| Linux (x64)             | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
-| Linux (ARM)             | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
-
-### Ausführen
-
-**Windows**
-
-Entpacken Sie die zip und doppelklicken Sie auf `PocketRisu-Kei.exe`. Ein Browser öffnet sich automatisch unter `http://localhost:6001`.
-
-**macOS**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
-open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
-```
-
-Der `xattr`-Befehl ist ein einmaliger Schritt, um die "Apple kann nicht verifizieren"-Warnung zu umgehen.
-
-**Linux**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
-cd PocketRisu-Kei-vX.X.X-linux-*
-./start.sh
-```
-
-Öffnen Sie `http://localhost:6001` in Ihrem Browser.
-
-### Headless-Server (Ein-Zeilen-Download)
-
-Für Linux/macOS-Server ohne GUI: Neueste Version in einem Befehl herunterladen und ausführen.
-
-**Linux (x64):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-cd PocketRisu-Kei-v${VERSION}-linux-x64
-./start.sh
-```
-
-**Linux (ARM):** Ersetzen Sie `linux-x64` durch `linux-arm64` im obigen Befehl.
-
-**macOS (Apple Silicon):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
-cd PocketRisu-Kei-v${VERSION}-macos-arm64
-./start.sh
-```
-
-### Aktualisieren
-
-Klicken Sie auf "Jetzt aktualisieren" im Update-Popup auf dem Startbildschirm der Web-UI, oder führen Sie das Update-Skript im Installationsordner aus.
-
-- **Windows**: Doppelklick auf `update.bat`
-- **macOS / Linux**: `./update.sh`
-
-Daten im `save/`-Ordner bleiben erhalten.
+Docker benötigt keinen Build-Schritt und kann mit 1 GB RAM laufen. Direkte Builds (Git Clone) verbrauchen während des Builds viel Speicher; 4 GB oder mehr werden empfohlen.
 
 
 ---
 
-## 2. Docker
+## 1. Docker
 
 Läuft auf einem System mit installiertem Docker oder Docker Desktop.
 
@@ -144,11 +60,9 @@ Alle Daten (Chats, Charaktere usw.) werden im Docker-Volume `risuai-save` gespei
 
 ---
 
-## 3. Installationsskript
+## 2. Git Clone
 
-Holt den Quellcode und baut automatisch mit Node.js. Läuft auf Linux/macOS-Servern. Verwenden Sie dies, wenn Sie Updates über `git pull` verwalten möchten.
-
-### Voraussetzungen
+Klonen Sie den Quellcode und bauen Sie ihn selbst.
 
 Node.js 24.x (24.22.1 oder höher) oder 26.x (26.12.1 oder höher) ist erforderlich:
 
@@ -158,45 +72,6 @@ node --version
 ```
 
 Installieren Sie von der [offiziellen Node.js-Website](https://nodejs.org/), falls nicht vorhanden.
-
-### Installieren
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
-```
-
-Eine Statusmeldung wird angezeigt, wenn die Installation abgeschlossen ist.
-
-### Server starten
-
-```bash
-cd ~/pocketrisu-kei
-pnpm runserver
-```
-
-Öffnen Sie `http://localhost:6001` in Ihrem Browser.
-
-### Aktualisieren
-
-```bash
-cd ~/pocketrisu-kei
-./update.sh
-```
-
-> Ersetzen Sie bei Bedarf vor dem Update `update.sh` durch die neueste Version:
-> ```bash
-> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
-> ./update.sh
-> ```
->
-> Nachfolgende Updates laufen wie gewohnt mit `./update.sh`.
-
-
----
-
-## 4. Git Clone
-
-Manuelles Klonen und Bauen des Quellcodes. Für Entwickler, die Code ändern oder debuggen müssen.
 
 ```bash
 git clone https://github.com/seto-sama/PocketRisu-Kei.git

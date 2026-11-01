@@ -113,4 +113,6 @@ export const helpZhHant = {
         "removePunctuationHypa": "啟用後，將在執行 HypaMemory 前移除標點符號。",
         "groupOtherBotRole": "用於定義群組對話中非發言者的角色。",
         "coldstorage": "Cold Storage 是一項會自動將舊對話與角色資料移到獨立儲存空間的功能，可減少主要儲存空間大小並提升效能。這會降低傳輸時間與傳輸流量，並改善載入對話時的效能。",
+        "updatePopupGit": "請在 PocketRisu Kei 資料夾中執行，然後重新啟動伺服器。",
+        "updatePopupDocker": "請在包含 docker-compose.yml 的資料夾中執行。",
     }

@@ -589,4 +589,6 @@ export const helpEn = {
         migrationDatasetExportDesc: "Export save data as a dataset file.",
         backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
         backupLocalRestoreDesc: "Restore from a backup file on your device.",
+        updatePopupGit: "Run in the PocketRisu Kei folder, then restart the server.",
+        updatePopupDocker: "Run in the folder that contains docker-compose.yml.",
 }

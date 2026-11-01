@@ -376,5 +376,7 @@ export const helpKo = {
         "migrationPartialBackupDesc": "데이터베이스와 필수 이미지만 포함한 작은 로컬 백업을 저장합니다.",
         "migrationDatasetExportDesc": "세이브 데이터를 데이터셋 파일로 내보냅니다.",
         "backupLocalDownloadDesc": "현재 데이터로 새 백업을 만들어 사용자 기기로 즉시 다운로드합니다.",
-        "backupLocalRestoreDesc": "사용자 기기의 백업 파일에서 복원합니다."
+        "backupLocalRestoreDesc": "사용자 기기의 백업 파일에서 복원합니다.",
+        "updatePopupGit": "PocketRisu Kei 폴더에서 실행한 뒤 서버를 재시작하세요.",
+        "updatePopupDocker": "docker-compose.yml이 있는 폴더에서 실행하세요."
 }
