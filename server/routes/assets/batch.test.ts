@@ -17,7 +17,7 @@ describe('binary asset API', () => {
         checkAuth: async () => true, requireSyncClientId: () => true,
         kvGet: key => values.get(key) ?? null, kvSet: write,
         readInlayInfoPayload,
-        transaction: callback => callback,
+        transaction: callback => callback(),
     })
     app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
         errors.push(error)

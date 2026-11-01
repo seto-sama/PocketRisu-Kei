@@ -1,5 +1,6 @@
 'use strict';
 
+const { toBuffer, withTransaction } = require('./sqlite.cjs');
 const crypto = require('crypto');
 const { createContentReferenceCollector, validateReferenceCandidates, matchContentReferences } = require('../shared/contentReferences.mjs');
 const { Packr, Unpackr } = require('msgpackr');
@@ -150,14 +151,13 @@ function encodedEqual(left, right) {
 }
 
 function createAppDataStore(db) {
-    if (!db || typeof db.prepare !== 'function' || typeof db.transaction !== 'function') {
+    if (typeof db?.prepare !== 'function') {
         throw new TypeError('createAppDataStore requires a SQLite database');
     }
 
-    db.pragma('foreign_keys = ON');
     const pluginStorageColumns = db.prepare('PRAGMA table_info(app_plugin_storage)').all();
     if (pluginStorageColumns.length && !pluginStorageColumns.some(column => column.name === 'namespace')) {
-        db.transaction(() => {
+        withTransaction(db, () => {
             db.exec(`
               ALTER TABLE app_plugin_storage RENAME TO app_plugin_storage_legacy;
               ${PLUGIN_STORAGE_TABLE_SQL};
@@ -165,7 +165,7 @@ function createAppDataStore(db) {
                 SELECT 'includedInSave', storage_key, payload, revision FROM app_plugin_storage_legacy;
               DROP TABLE app_plugin_storage_legacy;
             `);
-        })();
+        });
     }
     db.exec(`
       CREATE TABLE IF NOT EXISTS app_data_state (
@@ -340,7 +340,7 @@ function createAppDataStore(db) {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    const deleteAllProjectionRows = db.transaction(() => {
+    const deleteAllProjectionRows = () => withTransaction(db, () => {
         // Parent deletes cascade through chats and messages. The remaining
         // tables are independent projections of root domains.
         db.prepare('DELETE FROM app_characters').run();
@@ -455,7 +455,7 @@ function createAppDataStore(db) {
         }
     }
 
-    const replaceTransaction = db.transaction((projection, expectedRevision) => {
+    const replaceTransaction = (projection, expectedRevision) => withTransaction(db, () => {
         const state = assertExpectedRevision(expectedRevision);
         const revision = state.revision + 1;
         deleteAllProjectionRows();
@@ -705,7 +705,7 @@ function createAppDataStore(db) {
 
     // A consistent server snapshot, decoding one chat at a time. Only the
     // caller-owned candidates receive usage flags; no text or ids leave the server.
-    const scanContentReferences = db.transaction((kind, candidates) => {
+    const scanContentReferences = (kind, candidates) => withTransaction(db, () => {
         validateReferenceCandidates(kind, candidates);
         const collector = createContentReferenceCollector(kind);
         for (const row of selectCharacters.iterate()) {
@@ -892,7 +892,7 @@ function createAppDataStore(db) {
                 const order = ordered ? [position] : [];
                 if (!row) {
                     insert.run(...scope, item.key, payload, revision, ...order);
-                } else if (!row.payload.equals(payload)) {
+                } else if (!payload.equals(row.payload)) {
                     update.run(payload, revision, ...order, ...scope, item.key);
                 } else if (ordered && row.position !== position) {
                     updatePosition.run(position, revision, ...scope, item.key);
@@ -1047,7 +1047,7 @@ function createAppDataStore(db) {
         }
     }
 
-    const syncStartupTransaction = db.transaction((incoming, options) => {
+    const syncStartupTransaction = (incoming, options) => withTransaction(db, () => {
         const state = getState();
         const currentEtag = state.projectionEtag;
         if (options.expectedRevision !== undefined
@@ -1204,7 +1204,7 @@ function createAppDataStore(db) {
         return Boolean(selectChat.get(characterId, chatId));
     }
 
-    const commitChatTransaction = db.transaction((characterId, chatId, incoming, expectedEtag) => {
+    const commitChatTransaction = (characterId, chatId, incoming, expectedEtag) => withTransaction(db, () => {
         const state = getState();
         const currentRow = selectChat.get(characterId, chatId);
         const currentEtag = currentRow?.content_etag ?? MISSING_CHAT_ETAG;
@@ -1318,7 +1318,7 @@ function createAppDataStore(db) {
 
     function getPluginStorage(namespace, key) {
         assertPluginStorageNamespace(namespace);
-        return selectNamespacedPluginStorage.get(namespace, key)?.payload ?? null;
+        return toBuffer(selectNamespacedPluginStorage.get(namespace, key)?.payload) ?? null;
     }
 
     function listPluginStorage(namespace) {
@@ -1349,10 +1349,10 @@ function createAppDataStore(db) {
     }
 
     function* exportPluginStorage() {
-        yield* exportNamespacedPluginStorage.iterate();
+        for (const row of exportNamespacedPluginStorage.iterate()) yield { ...row, value: toBuffer(row.value) };
     }
 
-    const replacePluginStorage = db.transaction(entries => {
+    const replacePluginStorage = entries => withTransaction(db, () => {
         clearPluginStorage('localStorage');
         clearPluginStorage('localForage');
         for (const { namespace, key, value, owner } of entries) {
@@ -1360,14 +1360,14 @@ function createAppDataStore(db) {
         }
     });
 
-    const importPluginStorage = db.transaction((namespace, entries) => {
+    const importPluginStorage = (namespace, entries) => withTransaction(db, () => {
         for (const { key, value, owner } of entries) {
             writePluginStorage(namespace, key, value, owner, { ifAbsent: true });
         }
     });
 
     if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get()) {
-        db.transaction(() => {
+        withTransaction(db, () => {
             const prefix = 'cache/plugin-storage/';
             const keys = db.prepare('SELECT key FROM kv WHERE substr(key, 1, ?) = ?')
                 .all(prefix.length, prefix);
@@ -1380,14 +1380,14 @@ function createAppDataStore(db) {
                 const metadataKey = `cache/plugin-storage-meta/${encodedKey}.json`;
                 let owner;
                 try {
-                    owner = JSON.parse(read.get(metadataKey)?.value?.toString('utf-8') ?? '{}').plugin;
+                    owner = JSON.parse(toBuffer(read.get(metadataKey)?.value)?.toString('utf-8') ?? '{}').plugin;
                 } catch {}
                 writePluginStorage('localForage', decodedKey, read.get(key).value,
                     typeof owner === 'string' ? owner : undefined, { ifAbsent: true });
                 remove.run(key);
                 remove.run(metadataKey);
             }
-        })();
+        });
     }
 
     return {

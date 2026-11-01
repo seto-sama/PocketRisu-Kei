@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { systemDb: db } = require('./logDatabases.cjs');
 const { debuglog } = require('node:util');
 
@@ -84,7 +85,7 @@ function insertEntry(entry) {
     stmtInsert.run(timestamp, level, origin, message, description, source, count, platform, clientId, userAgent);
 }
 
-const insertMany = db.transaction((entries) => {
+const insertMany = entries => withTransaction(db, () => {
     for (const e of entries) insertEntry(e);
 });
 

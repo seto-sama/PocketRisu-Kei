@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { kvList, db: sqliteDb, kvSize, chunkStorageStats, reclaimableChunkBytes, isDbBlobChunked, kvListWithSizes, kvDel, checkpointWal, estimateVacuumRequiredBytes, gcChunks, vacuumDatabase } = require('../db.cjs');
 const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, assetBasename: statsBasename, collectDatabaseAssetBasenames, collectPersistentPluginAssetBasenames } = require('../assetReferences.cjs');
 const fs = require('fs/promises');
@@ -107,11 +108,16 @@ function installMaintenanceRoutes(app, {
             });
         }
 
-        const pageSize = sqliteDb.pragma('page_size', { simple: true });
-        const pageCount = sqliteDb.pragma('page_count', { simple: true });
-        const freelistCount = sqliteDb.pragma('freelist_count', { simple: true });
-        const journalMode = sqliteDb.pragma('journal_mode', { simple: true });
-        const autoVacuum = sqliteDb.pragma('auto_vacuum', { simple: true });
+        const {
+            page_size: pageSize,
+            page_count: pageCount,
+            freelist_count: freelistCount,
+            journal_mode: journalMode,
+            auto_vacuum: autoVacuum,
+        } = sqliteDb.prepare(`
+            SELECT * FROM pragma_page_size, pragma_page_count, pragma_freelist_count,
+                pragma_journal_mode, pragma_auto_vacuum
+        `).get();
         const reclaimable = freelistCount * pageSize;
 
         const dbBlobSize = kvSize(DB_BLOB_KEY) || 0;
@@ -350,9 +356,9 @@ function installMaintenanceRoutes(app, {
             }
 
             const victims = findOrphanAssets(storedAssets, databaseReferences);
-            sqliteDb.transaction(() => {
+            withTransaction(sqliteDb, () => {
                 for (const asset of victims) kvDel(asset.key);
-            })();
+            });
 
             const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
             if (victims.length > 0) {

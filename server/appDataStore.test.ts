@@ -1,5 +1,6 @@
 // @vitest-environment node
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Packr, Unpackr } from 'msgpackr'
 import appDataStorePkg from './appDataStore.cjs'
@@ -11,10 +12,10 @@ const {
 } = appDataStorePkg as any
 const { computeChatEtag } = chatStorePkg as any
 
-const openDatabases: Database.Database[] = []
+const openDatabases: DatabaseSync[] = []
 
 function createStore() {
-    const sqlite = new Database(':memory:')
+    const sqlite = openDatabase(':memory:')
     openDatabases.push(sqlite)
     return { sqlite, store: createAppDataStore(sqlite) }
 }
@@ -69,7 +70,7 @@ afterEach(() => {
 
 describe('plugin storage namespaces', () => {
     it('migrates the old table and KV records without changing values or overwriting newer storage', () => {
-        const sqlite = new Database(':memory:')
+        const sqlite = openDatabase(':memory:')
         openDatabases.push(sqlite)
         sqlite.exec(`
           CREATE TABLE app_data_state (id INTEGER PRIMARY KEY, schema_version INTEGER, revision INTEGER,
@@ -89,8 +90,8 @@ describe('plugin storage namespaces', () => {
 
         const store = createAppDataStore(sqlite)
         expect(store.getState()).toMatchObject({ schemaVersion: 2, revision: 8 })
-        expect(sqlite.prepare("SELECT payload FROM app_plugin_storage WHERE namespace = 'includedInSave'").get())
-            .toMatchObject({ payload: saved })
+        expect(Buffer.from(sqlite.prepare("SELECT payload FROM app_plugin_storage WHERE namespace = 'includedInSave'").get().payload))
+            .toEqual(saved)
         expect(store.getPluginStorage('localForage', 'shared')).toEqual(raw)
         expect(store.listPluginStorage('localForage')).toEqual([{ key: 'shared', owner: 'owner' }])
         expect(sqlite.prepare('SELECT key FROM kv').all()).toEqual([{ key: 'cache/unrelated/value' }])
@@ -342,8 +343,8 @@ describe('relational app data projection', () => {
         expect(count('app_plugins').count).toBe(2)
         expect(count('app_personas').count).toBe(1)
         expect(count('app_plugin_storage').count).toBe(3)
-        expect(sqlite.pragma('foreign_key_check')).toEqual([])
-        expect(sqlite.pragma('integrity_check', { simple: true })).toBe('ok')
+        expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+        expect(sqlite.prepare('PRAGMA integrity_check').get().integrity_check).toBe('ok')
     })
 
     it('reports plugin storage size by known V3 owner without decoding all values', () => {
@@ -547,8 +548,8 @@ describe('startup metadata synchronization', () => {
         ])
         expect(exported.characters[1].chats[0].message[0].data).toBe('둘째 본문')
         expect(exported.characters[1].chats[1].message[1].data).toBe('안녕하세요 👋')
-        expect(sqlite.pragma('foreign_key_check')).toEqual([])
-        expect(sqlite.pragma('integrity_check', { simple: true })).toBe('ok')
+        expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+        expect(sqlite.prepare('PRAGMA integrity_check').get().integrity_check).toBe('ok')
     })
 
     it('adds and deletes chat metadata without treating stubs as chat bodies', () => {
@@ -791,7 +792,7 @@ describe('relational chat content CAS', () => {
     })
 
     it('adds the metadata counter to an existing state table', () => {
-        const sqlite = new Database(':memory:')
+        const sqlite = openDatabase(':memory:')
         openDatabases.push(sqlite)
         sqlite.exec(`CREATE TABLE app_data_state (
             id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL,

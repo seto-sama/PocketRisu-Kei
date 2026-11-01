@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../../sqlite.cjs');
 const RESTART_ERROR = 'Server restarted during active work';
 
 /**
@@ -8,7 +9,7 @@ const RESTART_ERROR = 'Server restarted during active work';
  * process-local executors cannot be replayed without risking duplicate work.
  */
 function recoverInterruptedGenerationWork(db, restartAt = Date.now()) {
-    db.transaction(() => {
+    withTransaction(db, () => {
         db.prepare(`
             UPDATE generation_jobs
             SET status = CASE
@@ -74,7 +75,7 @@ function recoverInterruptedGenerationWork(db, restartAt = Date.now()) {
             SET status = 'failed', completed_at = COALESCE(completed_at, ?), updated_at = ?
             WHERE status = 'active'
         `).run(restartAt, restartAt);
-    })();
+    });
 }
 
 module.exports = { recoverInterruptedGenerationWork };

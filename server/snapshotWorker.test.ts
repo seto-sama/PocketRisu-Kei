@@ -1,5 +1,5 @@
 // @vitest-environment node
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -21,8 +21,8 @@ async function createFixture() {
     const directory = await mkdtemp(path.join(tmpdir(), 'snapshot-worker-'))
     directories.push(directory)
     const dbPath = path.join(directory, 'risuai.db')
-    const db = new Database(dbPath)
-    db.pragma('journal_mode = WAL')
+    const db = openDatabase(dbPath)
+    db.exec('PRAGMA journal_mode = WAL')
     db.exec(`
       CREATE TABLE kv (
         key TEXT PRIMARY KEY,
@@ -69,7 +69,7 @@ describe('relational snapshot worker', () => {
         const first = createRelationalSnapshot(options)
         const second = createRelationalSnapshot(options)
 
-        const db = new Database(dbPath)
+        const db = openDatabase(dbPath)
         const chunkStore = createChunkStore(db)
         const rows = db.prepare(`
           SELECT key FROM kv WHERE key LIKE 'database/dbbackup-%'
@@ -87,7 +87,7 @@ describe('relational snapshot worker', () => {
 
     it('counts a chunk repeated within one snapshot once against the byte limit', async () => {
         const dbPath = await createFixture()
-        const db = new Database(dbPath)
+        const db = openDatabase(dbPath)
         const chunkStore = createChunkStore(db, { threshold: 256 })
         createBookmarkStore(db)
         const keys = ['database/dbbackup-2.bin', 'database/dbbackup-1.bin']

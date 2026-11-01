@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('./sqlite.cjs');
 const { randomUUID } = require('crypto');
 const LEGACY_MIGRATION_KEY = 'legacy-chat-bookmarks-v1';
 
@@ -152,7 +153,7 @@ function createBookmarkStore(db) {
         validTagIds(ids).forEach(id =>
             q.bind.run(entry.characterId, entry.chatId, entry.messageId, id));
     }
-    const upsertTx = db.transaction(entry => {
+    const upsertTx = entry => withTransaction(db, () => {
         const current = q.get.get(entry.characterId, entry.chatId, entry.messageId);
         q.put.run(entry.characterId, entry.chatId, entry.messageId,
             current?.sortOrder ?? q.next.get().value, entry.name || null,
@@ -164,7 +165,7 @@ function createBookmarkStore(db) {
         if (!entry?.characterId || !entry.chatId || !entry.messageId) return false;
         upsertTx(entry); return true;
     }
-    const patchTx = db.transaction((target, patch) => {
+    const patchTx = (target, patch) => withTransaction(db, () => {
         const row = q.get.get(target.characterId, target.chatId, target.messageId);
         if (!row) return false;
         q.put.run(row.characterId, row.chatId, row.messageId, row.sortOrder,
@@ -173,7 +174,7 @@ function createBookmarkStore(db) {
         bump(); return true;
     });
     const patchBookmarkEntry = (target, patch) => patchTx(target, patch ?? {});
-    const removeTx = db.transaction(target => {
+    const removeTx = target => withTransaction(db, () => {
         q.delBindings.run(target.characterId, target.chatId, target.messageId);
         const changed = q.del.run(target.characterId, target.chatId, target.messageId).changes > 0;
         if (changed) bump();
@@ -181,7 +182,7 @@ function createBookmarkStore(db) {
     });
     const removeBookmarkEntry = target => Boolean(target?.characterId && target.chatId
         && target.messageId && removeTx(target));
-    const replaceTagsTx = db.transaction(tags => {
+    const replaceTagsTx = tags => withTransaction(db, () => {
         const current = q.tags.all();
         if (JSON.stringify(current) === JSON.stringify(tags)) return false;
         const ids = new Set(tags.map(tag => tag.id));
@@ -196,7 +197,7 @@ function createBookmarkStore(db) {
         replaceTagsTx(normalized);
         return normalized;
     }
-    const mergeTagsTx = db.transaction(incoming => {
+    const mergeTagsTx = incoming => withTransaction(db, () => {
         const existing = q.tags.all();
         const byId = new Map(existing.map(tag => [tag.id, tag]));
         const idMap = {};
@@ -274,7 +275,7 @@ function createBookmarkStore(db) {
         try { projectCatalogCompatibility(database, JSON.parse(value)); return true; }
         catch { return false; }
     }
-    const pruneTx = db.transaction(isValid => {
+    const pruneTx = isValid => withTransaction(db, () => {
         let removed = 0;
         q.all.all().forEach(row => {
             if (isValid(row)) return;
@@ -285,7 +286,7 @@ function createBookmarkStore(db) {
         return removed;
     });
     const pruneInvalid = fn => typeof fn === 'function' ? pruneTx(fn) : 0;
-    const pruneChatTx = db.transaction((characterId, chatId, ids) => {
+    const pruneChatTx = (characterId, chatId, ids) => withTransaction(db, () => {
         let removed = 0;
         chatRows(characterId, chatId).forEach(row => {
             if (ids.has(row.messageId)) return;
@@ -331,7 +332,7 @@ function createBookmarkStore(db) {
             }));
         return importedChats;
     }
-    const migrateTx = db.transaction(database => {
+    const migrateTx = database => withTransaction(db, () => {
         const complete = q.getMeta.get(LEGACY_MIGRATION_KEY)?.value === '1';
         if (!complete) {
             ingest(database);
@@ -342,13 +343,13 @@ function createBookmarkStore(db) {
     });
     const migrateLegacyDatabase = database => migrateTx(database);
     const needsLegacyMigration = () => q.getMeta.get(LEGACY_MIGRATION_KEY)?.value !== '1';
-    const replaceDatabaseTx = db.transaction(database => {
+    const replaceDatabaseTx = database => withTransaction(db, () => {
         const importedChats = ingest(database, { replaceExisting: true, includeTagData: true });
         q.setMeta.run(LEGACY_MIGRATION_KEY, '1'); bump();
         return { changed: stripDatabaseCompatibility(database), migrated: true, importedChats };
     });
     const replaceDatabaseCompatibility = database => replaceDatabaseTx(database);
-    const replaceCatalogTx = db.transaction(value => {
+    const replaceCatalogTx = value => withTransaction(db, () => {
         q.clearBindings.run(); q.clear.run(); q.clearTags.run();
         normalizeTags(value?.tags).forEach((tag, i) => q.insertTag.run(tag.id, tag.name, i));
         (Array.isArray(value?.entries) ? value.entries : []).forEach((row, i) => {

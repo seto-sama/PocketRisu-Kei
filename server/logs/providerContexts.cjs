@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { requestDb: db } = require('./logDatabases.cjs');
 
 const PROVIDER_CONTEXT_LIMIT = 100;
@@ -35,7 +36,7 @@ const stmtQuery = db.prepare(`
         AND adapter_kind = ?
         AND model = ?
 `);
-const writeProviderContext = db.transaction((responseId, jobId, adapterKind, model, context, timestamp) => {
+function writeProviderContext(responseId, jobId, adapterKind, model, context, timestamp) {
     const existing = stmtByResponseId.get(responseId);
     let turns = [];
     if (existing?.adapterKind === adapterKind && existing.model === model) {
@@ -57,7 +58,7 @@ const writeProviderContext = db.transaction((responseId, jobId, adapterKind, mod
         JSON.stringify(turns),
     );
     stmtTrim.run(PROVIDER_CONTEXT_LIMIT);
-});
+}
 
 function requireIdentifier(value, name) {
     if (typeof value !== 'string' || value.length < 1 || value.length > 128) {
@@ -80,14 +81,7 @@ function recordProviderContext({ responseId, jobId, adapterKind, model, context,
     model = requireLabel(model, 'model');
 
     const timestamp = Number.isFinite(createdAt) ? Math.round(createdAt) : Date.now();
-    writeProviderContext.immediate(
-        responseId,
-        jobId,
-        adapterKind,
-        model,
-        context,
-        timestamp,
-    );
+    withTransaction(db, () => writeProviderContext(responseId, jobId, adapterKind, model, context, timestamp), 'IMMEDIATE');
 }
 
 function queryProviderContexts(responseIds, adapterKind, model) {

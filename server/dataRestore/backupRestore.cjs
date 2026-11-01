@@ -1,5 +1,6 @@
 'use strict';
 
+const { openDatabase, withTransaction } = require('../sqlite.cjs');
 const { codes, createApiError } = require('../utils/apiErrors.cjs');
 const { isInlayMediaType } = require('../../shared/inlayTypes.mjs');
 
@@ -9,7 +10,6 @@ const nodeCrypto = require('crypto');
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
-const Database = require('../sqlite.cjs');
 const { decode: decodeMessagePack } = require('msgpackr');
 const { decryptAccountBackup } = require('./accountBackup.cjs');
 
@@ -221,12 +221,11 @@ function createBackupRestoreService({
         }
 
         try {
-            stagingDb = new Database(stagingDatabasePath);
+            stagingDb = openDatabase(stagingDatabasePath);
             // The staging file is disposable and never canonical. Disabling its
             // journal avoids doubling a potentially multi-gigabyte backup while the
             // live database keeps its normal durability settings.
-            stagingDb.pragma('journal_mode = OFF');
-            stagingDb.pragma('synchronous = OFF');
+            stagingDb.exec('PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF');
             stagingDb.exec(`
                 CREATE TABLE entries (
                     key TEXT PRIMARY KEY,
@@ -502,7 +501,7 @@ function createBackupRestoreService({
             stagedInlaysPromoted = true;
             await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 
-            const replaceLiveState = sqliteDb.transaction(() => {
+            const replaceLiveState = () => withTransaction(sqliteDb, () => {
                 kvDelPrefix('assets/');
                 kvDelPrefix('inlay/');
                 kvDelPrefix('inlay_thumb/');
@@ -709,7 +708,7 @@ async function restoreMissingAssetsFromBackupFile({
         const insert = db.prepare(
             'INSERT OR IGNORE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
         );
-        const restore = db.transaction(() => {
+        const restore = () => withTransaction(db, () => {
             let assetsRestored = 0;
             let restoredBytes = 0;
             const now = Date.now();

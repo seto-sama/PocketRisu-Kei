@@ -1,5 +1,6 @@
 // @vitest-environment node
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
@@ -16,10 +17,10 @@ const {
 } = projectionServicePkg as any
 const { calculateHash } = jsonPkg as any
 
-const openDatabases: Database.Database[] = []
+const openDatabases: DatabaseSync[] = []
 
 function createStore() {
-    const sqlite = new Database(':memory:')
+    const sqlite = openDatabase(':memory:')
     openDatabases.push(sqlite)
     const store = createAppDataStore(sqlite)
     return { sqlite, store }

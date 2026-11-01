@@ -1,5 +1,6 @@
 'use strict';
 
+const { isUniqueConstraintError, withTransaction } = require('../../sqlite.cjs');
 const { encodeGenerationRequest, decodeGenerationRequest } = require('../protocol.cjs');
 const { generationJournalStore } = require('../generationJournal.cjs');
 const { db } = require('./connection.cjs');
@@ -84,14 +85,14 @@ const {
 
 // A process may stop after file append but before the terminal metadata update.
 // The append-only file is authoritative, so reconcile its length on boot.
-db.transaction(() => {
+withTransaction(db, () => {
     for (const row of stmtAllJobIds.all()) {
         stmtSetRawBytes.run(
             generationJournalStore.size(row.workflow_id, row.job_id),
             row.job_id,
         );
     }
-})();
+});
 
 function rowToWorkflowStep(row) {
     return {
@@ -197,7 +198,7 @@ function claimGenerationWorkflowClientAction(
     leaseMs = CLIENT_ACTION_LEASE_MS,
     isClientConnected,
 ) {
-    return db.transaction(() => {
+    return withTransaction(db, () => {
         const workflow = stmtGetWorkflow.get(workflowId);
         const row = stmtGetWorkflowStep.get(workflowId, stepKey);
         if (!workflow || workflow.status !== 'active' || row?.status !== 'waiting_client') return null;
@@ -233,7 +234,7 @@ function claimGenerationWorkflowClientAction(
         );
         stmtTouchWorkflow.run(now, workflowId);
         return { busy: false, action: metadata.action, claim };
-    })();
+    });
 }
 
 function hasGenerationWorkflowClientActionClaim(
@@ -257,7 +258,7 @@ function resolveGenerationWorkflowClientAction(
     clientId,
     response,
 ) {
-    return db.transaction(() => {
+    return withTransaction(db, () => {
         const workflow = stmtGetWorkflow.get(workflowId);
         const row = stmtGetWorkflowStep.get(workflowId, stepKey);
         if (!workflow || workflow.status !== 'active' || !row) return null;
@@ -279,7 +280,7 @@ function resolveGenerationWorkflowClientAction(
         );
         stmtTouchWorkflow.run(now, workflowId);
         return { alreadyResolved: false };
-    })();
+    });
 }
 
 function consumeGenerationWorkflowClientActionJobs(workflowId, actionId) {
@@ -306,7 +307,7 @@ function createGenerationWorkflow(input) {
     }
     let activeWorkflowId;
     try {
-        db.transaction(() => {
+        withTransaction(db, () => {
             const activeWorkflow = stmtGetActiveWorkflowForRoom.get(
                 input.characterId,
                 input.roomId,
@@ -341,9 +342,9 @@ function createGenerationWorkflow(input) {
                     now,
                 });
             }
-        })();
+        });
     } catch (error) {
-        if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (isUniqueConstraintError(error)) {
             return {
                 busy: true,
                 workflow: getActiveGenerationWorkflow(input.characterId, input.roomId),
@@ -369,7 +370,7 @@ function updateGenerationWorkflowStep(
     const workflow = stmtGetWorkflow.get(workflowId);
     if (!workflow || workflow.status !== 'active') return false;
     const now = Date.now();
-    db.transaction(() => {
+    withTransaction(db, () => {
         if (!stmtGetWorkflowStep.get(workflowId, stepKey)) {
             if (!dynamic) throw new Error(`Unknown generation workflow step: ${stepKey}`);
             const terminal = ['completed', 'skipped', 'failed'].includes(update.status);
@@ -400,17 +401,17 @@ function updateGenerationWorkflowStep(
             );
         }
         stmtTouchWorkflow.run(now, workflowId);
-    })();
+    });
     return true;
 }
 
 function finishGenerationWorkflow(workflowId, status) {
     const now = Date.now();
     let changed = false;
-    db.transaction(() => {
+    withTransaction(db, () => {
         changed = stmtFinishWorkflow.run(status, now, now, workflowId).changes === 1;
         if (changed) stmtCancelQueuedWorkflowExecutions.run(now, now, workflowId);
-    })();
+    });
     return changed;
 }
 
@@ -430,7 +431,7 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
     const finishReason = terminalStatus === 'cancelled'
         ? 'workflow_cancelled'
         : 'workflow_failed';
-    db.transaction(() => {
+    withTransaction(db, () => {
         stmtFinishWorkflow.run(terminalStatus, now, now, workflowId);
         // Failed workflows discard all child output. A user cancellation keeps
         // the model journal unacknowledged until the server materializer has
@@ -444,7 +445,7 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
         stmtCancelWorkflowExecutions.run(finishReason, now, now, workflowId);
         stmtFailActiveWorkflowSteps.run(now, now, workflowId);
         stmtFailActiveStepExecutions.run(now, now, workflowId);
-    })();
+    });
     return { changed: true, jobs };
 }
 
@@ -465,12 +466,12 @@ function cancelGenerationStepExecution(workflowId, executionId) {
         status: row.status,
     }));
     const now = Date.now();
-    db.transaction(() => {
+    withTransaction(db, () => {
         stmtAcknowledgeStepExecutionJobs.run(now, now, workflowId, executionId);
         stmtCancelStepExecutionJobs.run(now, now, workflowId, executionId);
         stmtUpdateStepExecution.run('failed', 'failed', now, now, executionId);
         updateGenerationWorkflowStep(workflowId, execution.step_key, { status: 'failed' });
-    })();
+    });
     return { changed: true, jobs, stepKey: execution.step_key };
 }
 
@@ -685,7 +686,7 @@ function parseNormalizedProjection(value) {
 }
 
 function createSingleGenerationJob(input) {
-    return db.transaction(() => {
+    return withTransaction(db, () => {
         const workflowId = `request.${input.jobId}`;
         const result = createGenerationWorkflow({
             workflowId, characterId: input.characterId || 'requests', roomId: workflowId,
@@ -698,7 +699,7 @@ function createSingleGenerationJob(input) {
         if (result.busy) throw new Error('Request workflow already exists');
         return createGenerationJob({ ...input, workflowId,
             workflowStepKey: 'request.llm', stepExecutionId: input.jobId });
-    })();
+    });
 }
 
 function createGenerationJob(input) {
@@ -720,7 +721,7 @@ function createGenerationJob(input) {
     }
     generationJournalStore.create(input.workflowId || null, input.jobId);
     try {
-        db.transaction(() => {
+        withTransaction(db, () => {
             const pendingProviderRound =
                 (input.jobType || 'model') === 'model'
                 && input.workflowStepKey === 'model.main'
@@ -778,7 +779,7 @@ function createGenerationJob(input) {
                     input.jobId,
                 );
             }
-        })();
+        });
     } catch (error) {
         generationJournalStore.remove(input.workflowId || null, input.jobId);
         throw error;
@@ -978,7 +979,7 @@ function markGenerationMaterialized(jobId) {
 function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
     const cutoff = Date.now() - Math.max(0, Number(retentionMs) || 0);
     const deletedJobs = [];
-    db.transaction(() => {
+    withTransaction(db, () => {
         // Recoverable output is retained for one day even when a client never
         // returns to materialize/consume it. After that deadline, terminal jobs
         // and their journals are no longer useful and must not accumulate.
@@ -986,7 +987,7 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
             stmtDeleteJob.run(row.job_id);
             deletedJobs.push({ jobId: row.job_id, workflowId: row.workflow_id });
         }
-    })();
+    });
     for (const job of deletedJobs) {
         generationJournalStore.remove(job.workflowId, job.jobId);
     }
@@ -994,14 +995,14 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
         generationJournalStore.journalKey(row.workflow_id, row.job_id)));
     const orphaned = generationJournalStore.removeOrphans(validJournals, cutoff);
     let workflowsDeleted = 0;
-    db.transaction(() => {
+    withTransaction(db, () => {
         stmtDeleteCompletedWorkflowExecutions.run(cutoff);
         stmtDeleteCompletedStepExecutions.run(cutoff);
         stmtDeleteCompletedWorkflowSteps.run(cutoff);
         stmtDeleteCompletedWorkflowChatSnapshots.run(cutoff);
         workflowsDeleted = stmtDeleteCompletedWorkflows.run(cutoff).changes;
-    })();
-    if (deletedJobs.length > 0) db.pragma('wal_checkpoint(PASSIVE)');
+    });
+    if (deletedJobs.length > 0) checkpointGenerationDb();
     return {
         deleted: deletedJobs.length,
         orphaned,
@@ -1011,7 +1012,7 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
 }
 
 function checkpointGenerationDb(mode = 'PASSIVE') {
-    db.pragma(`wal_checkpoint(${mode})`);
+    db.exec(`PRAGMA wal_checkpoint(${mode})`);
 }
 
 module.exports = {

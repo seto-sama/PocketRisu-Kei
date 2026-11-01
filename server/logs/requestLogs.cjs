@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { maskSensitive } = require('./logs.cjs');
 const { requestDb: db, scriptStore } = require('./logDatabases.cjs');
 const { extractRequestModel } = require('./requestMetadata.cjs');
@@ -93,21 +94,17 @@ function normalizeLog(log) {
     };
 }
 
-const writeRequestLog = db.transaction(log => {
-    stmtUpsert.run(log);
-    scriptStore.upsert(log);
-});
-const updateResponse = db.transaction(log => {
-    if (stmtUpdateById.run(log).changes !== 1) return false;
-    scriptStore.updateResponse(log);
-    return true;
-});
-
-function addRequestLog(log) {
-    writeRequestLog.immediate(normalizeLog(log));
+function writeImmediately(fn) {
+    return withTransaction(db, fn, 'IMMEDIATE');
 }
 
-const trimScripts = db.transaction(() => scriptStore.trim());
+function addRequestLog(log) {
+    const entry = normalizeLog(log);
+    writeImmediately(() => {
+        stmtUpsert.run(entry);
+        scriptStore.upsert(entry);
+    });
+}
 
 function getRequestLogStorage() {
     return scriptStore.getStorage();
@@ -115,35 +112,36 @@ function getRequestLogStorage() {
 
 function setRequestLogMaxBytes(maxBytes) {
     saveRequestLogMaxBytes(maxBytes);
-    trimScripts.immediate();
+    writeImmediately(() => scriptStore.trim());
     return getRequestLogStorage();
 }
 
-const clearLogs = db.transaction(scope => {
-    scriptStore.clear();
-    if (scope === 'all') stmtClearAll.run();
-});
-
 function clearRequestLogs(scope) {
-    clearLogs.immediate(scope);
+    writeImmediately(() => {
+        scriptStore.clear();
+        if (scope === 'all') stmtClearAll.run();
+    });
 }
 
-const deleteLog = db.transaction(id => {
-    scriptStore.delete(id);
-    return stmtDeleteById.run(id).changes === 1;
-});
-
 function deleteRequestLog(id) {
-    return deleteLog.immediate(String(id).slice(0, 128));
+    const key = String(id).slice(0, 128);
+    return writeImmediately(() => {
+        scriptStore.delete(key);
+        return stmtDeleteById.run(key).changes === 1;
+    });
 }
 
 function updateRequestLogResponseById(id, response, status, success = true, completedAt = Date.now()) {
     if (!id) return false;
-    const text = sanitize(response);
-    return updateResponse.immediate({
-        id: String(id).slice(0, 128), response: text,
+    const entry = {
+        id: String(id).slice(0, 128), response: sanitize(response),
         success: success ? 1 : 0, status: Number.isInteger(status) ? status : null,
         completedAt: Number.isFinite(completedAt) ? Math.round(completedAt) : Date.now(),
+    };
+    return writeImmediately(() => {
+        if (stmtUpdateById.run(entry).changes !== 1) return false;
+        scriptStore.updateResponse(entry);
+        return true;
     });
 }
 

@@ -8,7 +8,7 @@ const https = require('https');
 const path = require('path');
 const compression = require('compression');
 const { migrateCertificates } = require('./ssl/migrateCertificates.cjs');
-const { codes: API_ERROR_CODES } = require('./utils/apiErrors.cjs');
+const { codes: API_ERROR_CODES, normalizeApiError } = require('./utils/apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 const { createAuthService } = require('./auth.cjs');
 const { createSnapshotService } = require('./snapshots.cjs');
@@ -636,6 +636,7 @@ if (isDevelopment) {
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
+    err = normalizeApiError(err);
     const unsupportedRemote = err?.code === API_ERROR_CODES.UNSUPPORTED_REMOTE_SAVE;
     const requestedStatus = err?.statusCode ?? err?.httpStatus;
     const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus <= 599

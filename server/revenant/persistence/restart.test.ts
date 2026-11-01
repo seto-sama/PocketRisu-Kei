@@ -1,13 +1,14 @@
-import Database from '../../sqlite.cjs'
+import { openDatabase } from '../../sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import restartPkg from './restart.cjs'
 
 const { recoverInterruptedGenerationWork } = restartPkg as {
-    recoverInterruptedGenerationWork: (db: Database.Database, now: number) => void
+    recoverInterruptedGenerationWork: (db: DatabaseSync, now: number) => void
 }
 
 function createRestartDatabase() {
-    const db = new Database(':memory:')
+    const db = openDatabase(':memory:')
     db.exec(`
         CREATE TABLE generation_workflows (
             workflow_id TEXT PRIMARY KEY, status TEXT,

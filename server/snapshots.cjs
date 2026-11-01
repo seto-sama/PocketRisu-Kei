@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('./sqlite.cjs');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
@@ -66,7 +67,7 @@ function createSnapshotService({
         return trimSnapshots(sqliteDb, chunkStore, DB_BACKUP_PREFIX, maxCount, maxBytes);
     }
 
-    const createSnapshotState = sqliteDb.transaction(() => {
+    const createSnapshotState = () => withTransaction(sqliteDb, () => {
         if (!appDataStore.getState().initialized) {
             throw new Error('Cannot create snapshot: relational database is missing');
         }

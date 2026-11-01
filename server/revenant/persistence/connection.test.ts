@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import Database from '../../sqlite.cjs'
+import { openDatabase } from '../../sqlite.cjs'
 
 const persistenceDirectory = dirname(fileURLToPath(import.meta.url))
 
@@ -12,7 +12,7 @@ it('backfills response decoders for journals written before requests carried the
     const directory = mkdtempSync(resolve(tmpdir(), 'pocketrisu-revenant-migration-'))
     try {
         mkdirSync(resolve(directory, 'save/revenant'), { recursive: true })
-        const legacy = new Database(resolve(directory, 'save/revenant/revenant.db'))
+        const legacy = openDatabase(resolve(directory, 'save/revenant/revenant.db'))
         legacy.exec(`
             CREATE TABLE generation_jobs (
                 job_id TEXT PRIMARY KEY, chat_id TEXT, job_type TEXT NOT NULL DEFAULT 'model',

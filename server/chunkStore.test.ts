@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
 import pkg from './chunkStore.cjs'
 
 const { cdcSplit, createChunkStore } = pkg as {
@@ -24,7 +24,7 @@ const { cdcSplit, createChunkStore } = pkg as {
 // Fresh in-memory DB with the same kv schema db.cjs creates (kv is db.cjs's
 // domain; chunkStore creates only its own chunks/manifest tables).
 function freshDb() {
-    const db = new Database(':memory:')
+    const db = openDatabase(':memory:')
     db.exec(
         'CREATE TABLE kv (key TEXT PRIMARY KEY, value BLOB NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0)',
     )

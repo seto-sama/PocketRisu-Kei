@@ -1,148 +1,51 @@
 'use strict';
 
 const { DatabaseSync } = require('node:sqlite');
-const { apiErrorMessage, codes: API_ERROR_CODES } = require('./utils/apiErrors.cjs');
+
+const SQLITE_BUSY = 5;
+const SQLITE_CONSTRAINT_PRIMARYKEY = 1555;
+const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
 let savepointSequence = 0;
 
-function normalizeBlob(value) {
-    if (value instanceof Uint8Array && !Buffer.isBuffer(value)) {
-        return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-    }
-    return value;
+// Every connection waits out short lock contention, and named-parameter
+// statements accept row objects that carry more fields than they bind.
+function openDatabase(location, options) {
+    return new DatabaseSync(location, { timeout: 5000, allowUnknownNamedParameters: true, ...options });
 }
 
-function normalizeRow(row) {
-    if (!row || typeof row !== 'object') return row;
-    for (const key of Object.keys(row)) row[key] = normalizeBlob(row[key]);
-    return row;
-}
-
-function normalizeError(error) {
-    if (
-        error?.code === 'ERR_SQLITE_ERROR'
-        && (error.errcode === 5 || /database is locked/i.test(error.message))
-    ) {
-        error.nodeCode = error.code;
-        error.code = API_ERROR_CODES.DATABASE_LOCKED;
-        error.message = apiErrorMessage(error.code);
-        error.statusCode = 503;
-        return error;
-    }
-    if (
-        error?.code === 'ERR_SQLITE_ERROR'
-        && (error.errcode === 2067 || /^UNIQUE constraint failed:/i.test(error.message))
-    ) {
-        error.nodeCode = error.code;
-        error.code = 'SQLITE_CONSTRAINT_UNIQUE';
-    }
-    return error;
-}
-
-function executeStatement(callback) {
+// Runs fn inside a transaction, or inside a savepoint when one is already open.
+function withTransaction(db, fn, mode = 'DEFERRED') {
+    const savepoint = db.isTransaction ? `tx_${++savepointSequence}` : null;
+    db.exec(savepoint ? `SAVEPOINT ${savepoint}` : `BEGIN ${mode}`);
     try {
-        return callback();
+        const result = fn();
+        if (typeof result?.then === 'function') throw new TypeError('SQLite transactions must be synchronous');
+        db.exec(savepoint ? `RELEASE ${savepoint}` : 'COMMIT');
+        return result;
     } catch (error) {
-        throw normalizeError(error);
-    }
-}
-
-function wrapStatement(statement) {
-    statement.setAllowBareNamedParameters(true);
-    statement.setAllowUnknownNamedParameters(true);
-    return new Proxy(statement, {
-        get(target, property) {
-            if (property === 'get') {
-                return (...args) => executeStatement(() => normalizeRow(target.get(...args)));
-            }
-            if (property === 'all') {
-                return (...args) => executeStatement(() => target.all(...args).map(normalizeRow));
-            }
-            if (property === 'iterate') {
-                return function* (...args) {
-                    try {
-                        for (const row of target.iterate(...args)) yield normalizeRow(row);
-                    } catch (error) {
-                        throw normalizeError(error);
-                    }
-                };
-            }
-            if (property === 'run') {
-                return (...args) => executeStatement(() => target.run(...args));
-            }
-            const value = Reflect.get(target, property, target);
-            return typeof value === 'function' ? value.bind(target) : value;
-        },
-    });
-}
-
-function rollback(db, savepoint) {
-    if (savepoint) {
-        db.exec(`ROLLBACK TO ${savepoint}`);
-        db.exec(`RELEASE ${savepoint}`);
-    } else if (db.isTransaction) {
-        db.exec('ROLLBACK');
-    }
-}
-
-class Database extends DatabaseSync {
-    exec(sql) {
-        return executeStatement(() => super.exec(sql));
-    }
-
-    prepare(sql, options) {
-        return wrapStatement(executeStatement(() => super.prepare(sql, options)));
-    }
-
-    pragma(source, options = {}) {
-        const statement = this.prepare(`PRAGMA ${source}`);
         try {
-            const rows = statement.all();
-            if (!options.simple) return rows;
-            if (rows.length === 0) return undefined;
-            return Object.values(rows[0])[0];
-        } finally {
-            if (typeof statement.close === 'function') statement.close();
-            else statement[Symbol.dispose]?.();
-        }
-    }
-
-    transaction(fn) {
-        if (typeof fn !== 'function') throw new TypeError('Expected transaction callback to be a function');
-
-        const createTransaction = mode => {
-            const db = this;
-            return function transaction(...args) {
-                const savepoint = db.isTransaction
-                    ? `pocketrisu_${++savepointSequence}`
-                    : null;
-
-                if (savepoint) db.exec(`SAVEPOINT ${savepoint}`);
-                else db.exec(`BEGIN ${mode}`);
-
-                try {
-                    const result = Reflect.apply(fn, this, args);
-                    if (result && typeof result.then === 'function') {
-                        throw new TypeError('SQLite transactions must be synchronous');
-                    }
-                    if (savepoint) db.exec(`RELEASE ${savepoint}`);
-                    else db.exec('COMMIT');
-                    return result;
-                } catch (error) {
-                    try {
-                        rollback(db, savepoint);
-                    } catch {}
-                    throw error;
-                }
-            };
-        };
-
-        const deferred = createTransaction('DEFERRED');
-        deferred.deferred = deferred;
-        deferred.immediate = createTransaction('IMMEDIATE');
-        deferred.exclusive = createTransaction('EXCLUSIVE');
-        return deferred;
+            if (savepoint) db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+            else if (db.isTransaction) db.exec('ROLLBACK');
+        } catch {}
+        throw error;
     }
 }
 
-module.exports = Database;
+// node:sqlite returns BLOBs as Uint8Array; wrap without copying where callers need Buffer APIs.
+function toBuffer(value) {
+    return value instanceof Uint8Array && !Buffer.isBuffer(value)
+        ? Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+        : value;
+}
+
+function isBusyError(error) {
+    return error?.code === 'ERR_SQLITE_ERROR' && (error.errcode & 0xff) === SQLITE_BUSY;
+}
+
+function isUniqueConstraintError(error) {
+    return error?.code === 'ERR_SQLITE_ERROR'
+        && (error.errcode === SQLITE_CONSTRAINT_UNIQUE || error.errcode === SQLITE_CONSTRAINT_PRIMARYKEY);
+}
+
+module.exports = { openDatabase, withTransaction, toBuffer, isBusyError, isUniqueConstraintError };

@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../../sqlite.cjs');
 const { installAssetBatchRoutes } = require('./batch.cjs');
 const { binaryBodyParser } = require('../../utils/binaryHttp.cjs');
 
@@ -48,7 +49,7 @@ function installAssetRoutes(app, {
 
     installAssetBatchRoutes(app, {
         checkAuth, requireSyncClientId, readInlayInfoPayload, kvGet, kvSet,
-        transaction: callback => sqliteDb.transaction(callback),
+        transaction: fn => withTransaction(sqliteDb, fn),
     });
 
     const hexRegex = /^[0-9a-fA-F]+$/;
@@ -448,7 +449,7 @@ function installAssetRoutes(app, {
                             chats: withoutBody.slice(0, 5),
                         });
                     }
-                    sqliteDb.transaction(() => {
+                    withTransaction(sqliteDb, () => {
                         if (!isCloudflareTunnelRequest(req)) {
                             bookmarkStore.replaceDatabaseCompatibility(incomingDb);
                         } else {
@@ -458,7 +459,7 @@ function installAssetRoutes(app, {
                         appDataStore.replaceFromProjection(incomingDb, {
                             expectedRevision: appDataStore.getState().revision,
                         });
-                    })();
+                    });
                     databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
                     bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
                 } catch (e) {

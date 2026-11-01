@@ -20,12 +20,14 @@ function createScriptStore(db) {
         SELECT length(CAST(body AS BLOB)) + length(CAST(header AS BLOB)) AS bytes
         FROM request_script.script WHERE id = ?
     `);
+    const pageSize = db.prepare('PRAGMA request_script.page_size');
+    const pageCount = db.prepare('PRAGMA request_script.page_count');
+    const freelistCount = db.prepare('PRAGMA request_script.freelist_count');
 
     function trim(maxBytes = getRequestLogMaxBytes()) {
-        const pageSize = db.pragma('request_script.page_size', { simple: true });
+        const bytesPerPage = pageSize.get().page_size;
         // FULL auto-vacuum removes free pages at commit; WAL is outside this budget.
-        while ((db.pragma('request_script.page_count', { simple: true })
-            - db.pragma('request_script.freelist_count', { simple: true })) * pageSize > maxBytes) {
+        while ((pageCount.get().page_count - freelistCount.get().freelist_count) * bytesPerPage > maxBytes) {
             const row = oldest.get();
             if (!row) break;
             remove.run(row.id);
@@ -36,8 +38,7 @@ function createScriptStore(db) {
         trim,
         getStorage() {
             return {
-                currentBytes: db.pragma('request_script.page_count', { simple: true })
-                    * db.pragma('request_script.page_size', { simple: true }),
+                currentBytes: pageCount.get().page_count * pageSize.get().page_size,
                 maxBytes: getRequestLogMaxBytes(),
                 minBytes: MIN_REQUEST_LOG_BYTES,
             };

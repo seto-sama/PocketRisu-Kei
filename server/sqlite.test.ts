@@ -1,17 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { isBusyError, openDatabase, withTransaction } from './sqlite.cjs'
 
-const Database = createRequire(import.meta.url)('./sqlite.cjs') as new (path: string) => {
-    close(): void
-    exec(sql: string): void
-    prepare(sql: string): { run(...values: unknown[]): unknown }
-}
-
-describe('SQLite error normalization', () => {
-    const databases: Array<InstanceType<typeof Database>> = []
+describe('sqlite helpers', () => {
+    const databases: DatabaseSync[] = []
     const directories: string[] = []
 
     afterEach(() => {
@@ -21,20 +16,42 @@ describe('SQLite error normalization', () => {
         }
     })
 
-    it('exposes a stable, retryable API code for a locked database', () => {
+    it('recognizes a locked database as a busy error', () => {
         const directory = mkdtempSync(join(tmpdir(), 'risu-sqlite-error-'))
         directories.push(directory)
         const path = join(directory, 'locked.db')
-        const writer = new Database(path)
-        const contender = new Database(path)
+        const writer = openDatabase(path)
+        const contender = openDatabase(path, { timeout: 0 })
         databases.push(writer, contender)
         writer.exec('CREATE TABLE values_table (value TEXT)')
-        contender.exec('PRAGMA busy_timeout = 0')
         writer.exec('BEGIN EXCLUSIVE')
 
-        expect(() => contender.prepare('INSERT INTO values_table VALUES (?)').run('value'))
-            .toThrow(expect.objectContaining({ code: 'DATABASE_LOCKED', statusCode: 503 }))
+        let error: unknown
+        try {
+            contender.prepare('INSERT INTO values_table VALUES (?)').run('value')
+        } catch (caught) {
+            error = caught
+        }
+        expect(isBusyError(error)).toBe(true)
 
         writer.exec('ROLLBACK')
+    })
+
+    it('rolls back a nested transaction to its savepoint only', () => {
+        const db = openDatabase(':memory:')
+        databases.push(db)
+        db.exec('CREATE TABLE items (name TEXT)')
+        const insert = db.prepare('INSERT INTO items VALUES (?)')
+
+        withTransaction(db, () => {
+            insert.run('outer')
+            expect(() => withTransaction(db, () => {
+                insert.run('inner')
+                throw new Error('inner failure')
+            })).toThrow('inner failure')
+        })
+
+        expect(db.prepare('SELECT name FROM items').all().map(row => row.name)).toEqual(['outer'])
+        expect(db.isTransaction).toBe(false)
     })
 })

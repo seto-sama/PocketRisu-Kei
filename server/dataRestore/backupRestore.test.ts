@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { gzipSync } from 'node:zlib'
 import { encode as encodeMessagePack } from 'msgpackr'
-import Database from '../sqlite.cjs'
+import { openDatabase } from '../sqlite.cjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import pkg from './index.cjs'
 import { encodeBackupEntry as backupEntry, encodeRisuSaveBlocks } from '../../test/compat/helpers/encode'
@@ -64,7 +64,7 @@ function coldStorageBuffer(value: unknown): Buffer {
 }
 
 function freshDb() {
-    const db = new Database(':memory:')
+    const db = openDatabase(':memory:')
     db.exec(
         'CREATE TABLE kv (key TEXT PRIMARY KEY, value BLOB NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0)',
     )
@@ -104,7 +104,7 @@ async function fullRestoreHarness(
     const logger = { info: () => {}, warn: () => {}, error: () => {} }
     const coldStorage = createLegacyRestoreService({
         sqliteDb: db,
-        kvGet: (key: string) => get.get(key)?.value ?? null,
+        kvGet: (key: string) => { const value = get.get(key)?.value; return value ? Buffer.from(value) : null },
         kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
         kvDel: (key: string) => del.run(key),
         logger,
@@ -115,7 +115,7 @@ async function fullRestoreHarness(
         inlayDir,
         inlayMigrationMarker: join(inlayDir, '.migrated_to_fs'),
         sqliteDb: db,
-        kvGet: (key: string) => get.get(key)?.value ?? null,
+        kvGet: (key: string) => { const value = get.get(key)?.value; return value ? Buffer.from(value) : null },
         kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
         kvDel: (key: string) => del.run(key),
         kvDelPrefix: (prefix: string) =>
@@ -189,9 +189,9 @@ describe('restoreMissingAssetsFromBackupFile', () => {
             restoredBytes: missingValue.length,
             skippedExisting: 1,
         })
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?').get(`assets/${missingName}`).value)
+        expect(Buffer.from(db.prepare('SELECT value FROM kv WHERE key = ?').get(`assets/${missingName}`).value))
             .toEqual(missingValue)
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?').get(`assets/${existingName}`).value)
+        expect(Buffer.from(db.prepare('SELECT value FROM kv WHERE key = ?').get(`assets/${existingName}`).value))
             .toEqual(existingValue)
         expect(db.prepare('SELECT value FROM kv WHERE key = ?').get(`assets/${unrelatedName}`))
             .toBeUndefined()
@@ -314,7 +314,8 @@ describe('createBackupRestoreService', () => {
             stagedAssetSeen = context.getStagedValue('assets/new.png')
             return {
                 install() {
-                    liveAssetSeenDuringInstall = get.get('assets/new.png')?.value ?? null
+                    const live = get.get('assets/new.png')?.value
+                    liveAssetSeenDuringInstall = live ? Buffer.from(live) : null
                     db.prepare('UPDATE canonical_projection SET value = ? WHERE id = 1')
                         .run('new projection')
                 },
@@ -346,7 +347,7 @@ describe('createBackupRestoreService', () => {
         expect(stagedAssetSeen).toEqual(newAsset)
         expect(liveAssetSeenDuringInstall).toEqual(newAsset)
         expect(get.get('assets/old.png')).toBeUndefined()
-        expect(get.get('assets/new.png').value).toEqual(newAsset)
+        expect(Buffer.from(get.get('assets/new.png').value)).toEqual(newAsset)
         expect(get.get('database/database.bin')).toBeUndefined()
         expect(db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value)
             .toBe('new projection')
@@ -561,10 +562,10 @@ describe('createBackupRestoreService', () => {
         }
         try {
             await expect(harness.service.importBackupFromSource(chunks())).rejects.toThrow('projection install failed')
-            expect(harness.get.get('assets/old.png').value).toEqual(Buffer.from('old'))
+            expect(Buffer.from(harness.get.get('assets/old.png').value)).toEqual(Buffer.from('old'))
             expect(harness.get.get('assets/new.png')).toBeUndefined()
-            expect(harness.get.get('database/database.bin').value).toEqual(Buffer.from('old compatibility blob'))
-            expect(harness.get.get('coldstorage/old-cold-id').value).toEqual(oldColdValue)
+            expect(Buffer.from(harness.get.get('database/database.bin').value)).toEqual(Buffer.from('old compatibility blob'))
+            expect(Buffer.from(harness.get.get('coldstorage/old-cold-id').value)).toEqual(oldColdValue)
             expect(harness.get.get(`coldstorage/${coldId}`)).toBeUndefined()
             expect(harness.db.prepare('SELECT value FROM canonical_projection WHERE id = 1').get().value).toBe('old projection')
             expect(await readFile(join(harness.inlayDir, 'old.png'))).toEqual(Buffer.from('old inlay'))
@@ -598,7 +599,8 @@ describe('createBackupRestoreService', () => {
         await expect(harness.service.importBackupFromSource(chunks()))
             .rejects.toThrow(expectedError)
 
-        expect(harness.db.prepare('SELECT key, value FROM kv ORDER BY key').all())
+        expect(harness.db.prepare('SELECT key, value FROM kv ORDER BY key').all()
+            .map(({ key, value }) => ({ key, value: Buffer.from(value) })))
             .toEqual([
                 {
                     key: 'assets/old.png',
@@ -647,7 +649,7 @@ describe('createLegacyRestoreService', () => {
         const get = db.prepare('SELECT value FROM kv WHERE key = ?')
         const service = createLegacyRestoreService({
             sqliteDb: db,
-            kvGet: (key: string) => get.get(key)?.value ?? null,
+            kvGet: (key: string) => { const value = get.get(key)?.value; return value ? Buffer.from(value) : null },
             kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
             kvDel: (key: string) => db.prepare('DELETE FROM kv WHERE key = ?').run(key),
             logger: { info: () => {}, warn: () => {}, error: () => {} },
@@ -711,7 +713,7 @@ describe('encrypted account backup restore', () => {
         try {
             expect(await harness.service.importBackupFromSource(chunks())).toMatchObject({ assetsRestored: 1 })
             expect(harness.get.get('assets/encryption.risudat')).toBeUndefined()
-            expect(harness.get.get('assets/image.png').value).toEqual(Buffer.from('asset'))
+            expect(Buffer.from(harness.get.get('assets/image.png').value)).toEqual(Buffer.from('asset'))
         } finally { harness.db.close() }
     })
 })

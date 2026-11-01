@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('./sqlite.cjs');
 const nodeCrypto = require('crypto');
 const { codes: API_ERROR_CODES, createApiError } = require('./utils/apiErrors.cjs');
 const { removeRuntimeCharacterFields } = require('./persistenceShape.cjs');
@@ -201,7 +202,7 @@ function createCanonicalStorage({
     async function prepareDatabaseExport() {
         await ensureCanonicalStorage();
 
-        const [checkpoint] = checkpointWal('FULL') ?? [];
+        const checkpoint = checkpointWal('FULL');
         if (!checkpoint
             || checkpoint.busy > 0
             || checkpoint.log !== checkpoint.checkpointed) {
@@ -252,7 +253,7 @@ function createCanonicalStorage({
         }
         let committed;
         let metadata;
-        sqliteDb.transaction(() => {
+        withTransaction(sqliteDb, () => {
             committed = appDataStore.commitChat(characterId, chatId, chat, expectedEtag);
             if (!generationInput && !mutationPatch) return;
             const nextDb = appDataStore.exportProjection({ includeMessages: false });
@@ -266,7 +267,7 @@ function createCanonicalStorage({
             }
             if (mutationPatch) applyMutationPatch(nextDb, characterId, mutationPatch);
             appDataStore.syncStartupProjection(nextDb);
-        })();
+        });
         try {
             scheduleBackupAndRotate();
         } catch (error) {

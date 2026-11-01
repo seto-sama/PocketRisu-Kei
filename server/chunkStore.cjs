@@ -1,5 +1,6 @@
 'use strict';
 
+const { toBuffer, withTransaction } = require('./sqlite.cjs');
 // Content-defined chunking for large kv values. Splits an opaque byte buffer
 // into content-addressed chunks so a small logical change rewrites only the
 // chunks that actually changed (dedup), and so no single SQLite value exceeds
@@ -88,7 +89,7 @@ function createChunkStore(db, opts = {}) {
     const insManifest = db.prepare('INSERT INTO manifest_chunks (manifest_key, seq, hash) VALUES (?, ?, ?)');
     const selManifest = db.prepare('SELECT hash FROM manifest_chunks WHERE manifest_key = ? ORDER BY seq');
     const selChunk = db.prepare('SELECT data FROM chunks WHERE hash = ?');
-    const selPhysicalRow = db.prepare('SELECT value, LENGTH(value) AS n FROM kv WHERE key = ?');
+    const selPhysicalRow = db.prepare('SELECT value = ? AS chunked, LENGTH(value) AS n FROM kv WHERE key = ?');
     const selManifestChunkSizes = db.prepare(
         `SELECT m.hash, LENGTH(c.data) AS n
          FROM manifest_chunks m
@@ -164,7 +165,7 @@ function createChunkStore(db, opts = {}) {
           WHERE EXISTS (SELECT 1 FROM kv WHERE kv.key = mc.manifest_key AND kv.value = ?))`,
     );
 
-    const isChunked = (value) => Buffer.isBuffer(value) && value.equals(CHUNK_MARKER);
+    const isChunked = value => value instanceof Uint8Array && CHUNK_MARKER.equals(value);
 
     // Atomic: clearing the old manifest, inserting new chunks, and writing the
     // marker all commit together. Orphaned chunks from a prior version are left
@@ -176,7 +177,7 @@ function createChunkStore(db, opts = {}) {
             : { raw: null, chunks: cdcSplit(buffer), logicalSize: buffer.length };
     }
 
-    const putPreparedValue = db.transaction((key, prepared) => {
+    const putPreparedValue = (key, prepared) => withTransaction(db, () => {
         delManifest.run(key);
         if (prepared.raw) {
             deleteCachedSize.run(key);
@@ -207,10 +208,10 @@ function createChunkStore(db, opts = {}) {
             // happens to equal the marker byte-for-byte (astronomically unlikely),
             // there are none — return it raw instead of an empty buffer. No extra
             // cost for real chunked keys: they need this manifest lookup anyway.
-            if (rows.length === 0) return row.value;
+            if (rows.length === 0) return toBuffer(row.value);
             return Buffer.concat(rows.map((r) => selChunk.get(r.hash).data));
         }
-        return row.value;
+        return toBuffer(row.value);
     }
 
     function sizeValue(key) {
@@ -240,10 +241,10 @@ function createChunkStore(db, opts = {}) {
         let bytes = 0;
         const chunkSizes = new Map();
         for (const key of new Set(keys)) {
-            const row = selPhysicalRow.get(key);
+            const row = selPhysicalRow.get(CHUNK_MARKER, key);
             if (!row) continue;
             bytes += row.n;
-            if (!isChunked(row.value)) continue;
+            if (!row.chunked) continue;
             for (const chunk of selManifestChunkSizes.all(key)) {
                 chunkSizes.set(chunk.hash, chunk.n);
             }
@@ -254,7 +255,7 @@ function createChunkStore(db, opts = {}) {
 
     // Remove a key entirely (its manifest + kv row). Chunks it referenced
     // become orphans, reclaimed by the next gc(). Used for snapshot rotation.
-    const dropValue = db.transaction((key) => {
+    const dropValue = key => withTransaction(db, () => {
         delManifest.run(key);
         deleteCachedSize.run(key);
         kvDel.run(key);

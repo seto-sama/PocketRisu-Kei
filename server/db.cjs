@@ -1,6 +1,6 @@
 'use strict';
 
-const Database = require('./sqlite.cjs');
+const { openDatabase, withTransaction } = require('./sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const { createChunkStore } = require('./chunkStore.cjs');
@@ -16,22 +16,23 @@ const dbPath = path.join(saveDir, 'risuai.db');
 if (!process.env.SQLITE_TMPDIR) {
     process.env.SQLITE_TMPDIR = saveDir;
 }
-const db = new Database(dbPath);
+const db = openDatabase(dbPath);
 
 const VACUUM_DISK_SPACE_MULTIPLIER = 2.2;
 
-// WAL mode: better concurrent read performance, single-writer
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
-db.pragma('cache_size = -64000');       // 64 MB (default 2 MB) — reduce disk I/O for large blobs
-db.pragma('temp_store = MEMORY');       // keep temp tables in RAM
-db.pragma('busy_timeout = 5000');       // wait up to 5 s on lock contention
-db.pragma('mmap_size = 268435456');     // 256 MB memory-mapped I/O for faster reads
-// Cap WAL file size after a reset checkpoint. Without this, a one-time spike
-// (backup import, VACUUM, large asset upload) leaves the -wal file permanently
-// at its peak size since RESTART/TRUNCATE rewind the writer but never shrink
-// the file unless this limit is set.
-db.pragma('journal_size_limit = 268435456');  // 256 MB
+db.exec(`
+  -- WAL mode: better concurrent read performance, single-writer
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA cache_size = -64000;           -- 64 MB (default 2 MB): less disk I/O for large blobs
+  PRAGMA temp_store = MEMORY;           -- keep temp tables in RAM
+  PRAGMA mmap_size = 268435456;         -- 256 MB memory-mapped I/O for faster reads
+  -- Cap WAL file size after a reset checkpoint. Without this, a one-time spike
+  -- (backup import, VACUUM, large asset upload) leaves the -wal file permanently
+  -- at its peak size since RESTART/TRUNCATE rewind the writer but never shrink
+  -- the file unless this limit is set.
+  PRAGMA journal_size_limit = 268435456;
+`);
 
 // ─── KV table (replaces /save/ hex files) ────────────────────────────────────
 db.exec(`
@@ -73,7 +74,7 @@ function migrateFromSaveDir() {
     );
     const now = Date.now();
 
-    const run = db.transaction(() => {
+    withTransaction(db, () => {
         for (let i = 0; i < hexFiles.length; i++) {
             if (i % 100 === 0 || i === hexFiles.length - 1) {
                 console.log(`[DB] Migrating... ${i + 1}/${hexFiles.length}`);
@@ -86,7 +87,6 @@ function migrateFromSaveDir() {
             else insert.run(key, value, now);
         }
     });
-    run();
 
     fs.writeFileSync(migrationMarker, new Date().toISOString(), 'utf-8');
     console.log(`[DB] Migration complete. ${hexFiles.length} files preserved in /save/.`);
@@ -201,7 +201,7 @@ function kvListWithSizes(prefix) {
 }
 
 function checkpointWal(mode = 'TRUNCATE') {
-    return db.pragma(`wal_checkpoint(${mode})`);
+    return db.prepare(`PRAGMA wal_checkpoint(${mode})`).get();
 }
 
 function estimateVacuumRequiredBytes(databaseBytes) {
@@ -209,13 +209,13 @@ function estimateVacuumRequiredBytes(databaseBytes) {
 }
 
 function vacuumDatabase() {
-    const previousTempStore = db.pragma('temp_store', { simple: true });
-    db.pragma('temp_store = FILE');
+    const previousTempStore = db.prepare('PRAGMA temp_store').get().temp_store;
+    db.exec('PRAGMA temp_store = FILE');
     try {
         db.exec('VACUUM');
     } finally {
         // Preserve the connection policy instead of assuming MEMORY forever.
-        db.pragma(`temp_store = ${previousTempStore}`);
+        db.exec(`PRAGMA temp_store = ${previousTempStore}`);
     }
 }
 

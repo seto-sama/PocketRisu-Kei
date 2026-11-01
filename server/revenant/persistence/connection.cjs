@@ -1,6 +1,6 @@
 'use strict';
 
-const Database = require('../../sqlite.cjs');
+const { openDatabase, withTransaction } = require('../../sqlite.cjs');
 const path = require('path');
 const fs = require('fs');
 const { recoverInterruptedGenerationWork } = require('./restart.cjs');
@@ -13,12 +13,9 @@ if (!fs.existsSync(saveDir)) {
 const revenantDir = path.join(saveDir, 'revenant');
 fs.mkdirSync(revenantDir, { recursive: true });
 const dbPath = path.join(revenantDir, 'revenant.db');
-const db = new Database(dbPath);
+const db = openDatabase(dbPath);
 
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = FULL');
-db.pragma('busy_timeout = 5000');
-db.pragma('journal_size_limit = 67108864');
+db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA journal_size_limit = 67108864');
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS generation_jobs (
@@ -145,7 +142,7 @@ if (!generationColumns.has('response_decoder')) {
     // Journals written before requests carried their decoder were replayed
     // with the adapter defaults; keep them rebuildable the same way. One
     // transaction, so an interrupted startup cannot skip the backfill.
-    db.transaction(() => {
+    withTransaction(db, () => {
         db.exec(`ALTER TABLE generation_jobs ADD COLUMN response_decoder TEXT`);
         db.exec(`
             UPDATE generation_jobs
@@ -159,7 +156,7 @@ if (!generationColumns.has('response_decoder')) {
             )
         `);
         db.exec(`ALTER TABLE generation_jobs DROP COLUMN streaming`);
-    })();
+    });
 }
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);

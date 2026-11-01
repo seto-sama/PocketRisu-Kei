@@ -1,7 +1,7 @@
 'use strict';
 
+const { openDatabase, withTransaction } = require('./sqlite.cjs');
 const { isMainThread, parentPort, workerData } = require('worker_threads');
-const Database = require('./sqlite.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const { createChunkStore, CHUNK_MARKER } = require('./chunkStore.cjs');
@@ -21,9 +21,9 @@ function createSnapshotKey(db, prefix) {
 
 function trimSnapshots(db, chunkStore, prefix, maxCount, maxBytes) {
     const rows = db.prepare(`
-      SELECT key, value, LENGTH(value) AS row_bytes
+      SELECT key, value = ? AS chunked, LENGTH(value) AS row_bytes
       FROM kv WHERE key LIKE ? ORDER BY key DESC
-    `).all(`${prefix}%`);
+    `).all(CHUNK_MARKER, `${prefix}%`);
     const selectChunks = db.prepare(`
       SELECT manifest.hash, LENGTH(chunk.data) AS bytes
       FROM manifest_chunks AS manifest
@@ -40,9 +40,7 @@ function trimSnapshots(db, chunkStore, prefix, maxCount, maxBytes) {
 
     for (const row of rows) {
         let addedBytes = Number(row.row_bytes ?? 0);
-        const chunks = Buffer.isBuffer(row.value) && row.value.equals(CHUNK_MARKER)
-            ? selectChunks.all(row.key)
-            : [];
+        const chunks = row.chunked ? selectChunks.all(row.key) : [];
         // A manifest can list the same chunk more than once; it is stored once.
         const addedHashes = new Set();
         for (const chunk of chunks) {
@@ -61,24 +59,25 @@ function trimSnapshots(db, chunkStore, prefix, maxCount, maxBytes) {
         for (const chunk of chunks) keptHashes.add(chunk.hash);
     }
 
-    db.transaction(() => {
+    withTransaction(db, () => {
         for (const key of remove) {
             chunkStore.dropValue(key);
             deleteBookmarkSnapshot.run(key);
         }
-    })();
+    });
     return { kept: keptCount, removed: remove.length, bytes: keptBytes };
 }
 
 function createRelationalSnapshot(options) {
     const startedAt = Date.now();
-    const db = new Database(options.dbPath);
+    const db = openDatabase(options.dbPath);
     try {
-        db.pragma('journal_mode = WAL');
-        db.pragma('synchronous = NORMAL');
-        db.pragma('busy_timeout = 5000');
-        db.pragma('cache_size = -64000');
-        db.pragma('mmap_size = 268435456');
+        db.exec(`
+          PRAGMA journal_mode = WAL;
+          PRAGMA synchronous = NORMAL;
+          PRAGMA cache_size = -64000;
+          PRAGMA mmap_size = 268435456;
+        `);
 
         const appDataStore = createAppDataStore(db);
         if (!appDataStore.getState().initialized) {
@@ -86,7 +85,7 @@ function createRelationalSnapshot(options) {
         }
         const bookmarkStore = createBookmarkStore(db);
         const chunkStore = createChunkStore(db);
-        const readProjection = db.transaction(() => {
+        const snapshot = withTransaction(db, () => {
             const projection = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(projection);
             return {
@@ -96,7 +95,6 @@ function createRelationalSnapshot(options) {
                 bookmarkCatalog: bookmarkStore.catalog(),
             };
         });
-        const snapshot = readProjection();
 
         // Projection assembly, encoding, and content-defined hashing are the
         // expensive CPU work. Finish all of them before taking SQLite's single
@@ -108,11 +106,11 @@ function createRelationalSnapshot(options) {
           ON CONFLICT(snapshot_key) DO UPDATE SET catalog_json = excluded.catalog_json
         `);
         let key;
-        db.transaction(() => {
+        withTransaction(db, () => {
             key = createSnapshotKey(db, options.prefix);
             chunkStore.putPreparedValue(key, prepared);
             insertBookmarkSnapshot.run(key, JSON.stringify(snapshot.bookmarkCatalog));
-        })();
+        });
         const trim = trimSnapshots(
             db,
             chunkStore,
