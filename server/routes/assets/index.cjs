@@ -12,6 +12,7 @@ const { createReadStream } = require('fs');
 const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
+const { getMimeFromExt, resolveAssetPayload } = require('../../utils/mime.cjs');
 
 function installAssetRoutes(app, {
     queueStorageOperation,
@@ -19,8 +20,6 @@ function installAssetRoutes(app, {
     appDataStore,
     inlayService,
     sessionAuthMiddleware,
-    getMimeFromExt,
-    resolveAssetPayload,
     checkAuth,
     ensureCanonicalStorage,
     MISSING_DATABASE_ETAG,

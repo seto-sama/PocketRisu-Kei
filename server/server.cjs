@@ -8,10 +8,13 @@ const https = require('https');
 const path = require('path');
 const compression = require('compression');
 const { migrateCertificates } = require('./ssl/migrateCertificates.cjs');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('./utils/apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError } = require('./utils/apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
+const { createAuthService } = require('./auth.cjs');
+const { createSyncHub, getSyncClientIdFromRequest, requireSyncClientId } = require('./syncHub.cjs');
+const { getMimeFromExt, resolveAssetPayload } = require('./utils/mime.cjs');
 
-const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
+const { existsSync, mkdirSync, writeFileSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
 const imagePromptFormattingPromise = import('./imagePromptFormatting.mjs')
@@ -510,14 +513,13 @@ if (!isDevelopment) {
     app.use(express.static(path.join(process.cwd(), 'dist'), {index: false, maxAge: 0}));
 }
 
-const authState = {
-    password: '',
-};
-
 const savePath = path.join(process.cwd(), "save")
 if(!existsSync(savePath)){
     mkdirSync(savePath)
 }
+
+const auth = createAuthService({ savePath });
+const { checkAuth, checkDownloadAuth, sessionAuthMiddleware } = auth;
 
 // Server-side backup directory (outside save/ to avoid bloating updater copies).
 // Configurable at runtime via the kv key `config/server-backup-path`. When the
@@ -558,23 +560,6 @@ if(!existsSync(backupState.backupsDir)){
 writeBackupPathMarker(backupState.backupsDir);
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
 
-const passwordPath = path.join(process.cwd(), 'save', '__password')
-if(existsSync(passwordPath)){
-    authState.password = readFileSync(passwordPath, 'utf-8')
-}
-
-// Upstream signs ECDSA JWTs in the browser with crypto.subtle, which needs a
-// secure context. Signing with HMAC-SHA256 on the server keeps login working
-// over plain HTTP. Sync manually if upstream changes its auth flow.
-const jwtSecretPath = path.join(savePath, '__jwt_secret')
-let jwtSecret
-if (existsSync(jwtSecretPath)) {
-    jwtSecret = readFileSync(jwtSecretPath, 'utf-8').trim()
-} else {
-    jwtSecret = nodeCrypto.randomBytes(64).toString('hex')
-    writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
-}
-
 // ── Cloudflare Quick Tunnel ─────────────────────────────────────────────────
 
 const tunnelState = {
@@ -595,87 +580,6 @@ function stopTunnel() {
     tunnelState.tunnelUrl = null;
     tunnelState.tunnelStatus = 'off';
     tunnelState.tunnelError = null;
-}
-
-// ── Session store for direct asset URL auth ─────────────────────────────────
-// <img src="/api/asset/..."> cannot send custom headers, so we use a session
-// cookie issued after initial JWT auth. Single-user environment: Map is fine.
-// Sessions are persisted to disk so they survive server restarts.
-const SESSION_FILE = path.join(process.cwd(), 'save', '__sessions')
-const sessions = new Map() // token → expiresAt (ms)
-
-function sessionExpiresAt(session) {
-    return typeof session === 'number' ? session : session?.expiresAt ?? 0
-}
-
-function connectedDevice(userAgent = '') {
-    if (/Windows/i.test(userAgent)) return { name: 'Windows', type: 'desktop' }
-    if (/iPhone|iPad|iPod/i.test(userAgent)) return { name: 'iPhone/iPad', type: 'mobile' }
-    if (/Android/i.test(userAgent)) return { name: 'Android', type: 'mobile' }
-    if (/Macintosh|Mac OS X/i.test(userAgent)) return { name: 'macOS', type: 'desktop' }
-    if (/Linux/i.test(userAgent)) return { name: 'Linux', type: 'desktop' }
-    return { name: 'Unknown device', type: 'desktop' }
-}
-
-function loadSessions() {
-    try {
-        const raw = readFileSync(SESSION_FILE, 'utf-8')
-        const now = Date.now()
-        for (const [token, storedSession] of JSON.parse(raw)) {
-            const expiresAt = sessionExpiresAt(storedSession)
-            if (expiresAt > now) sessions.set(token, expiresAt)
-        }
-    } catch { /* file missing or corrupt – start fresh */ }
-}
-
-loadSessions()
-
-function parseSessionCookie(req) {
-    const cookieHeader = req.headers.cookie || ''
-    for (const part of cookieHeader.split(';')) {
-        const eq = part.indexOf('=')
-        if (eq === -1) continue
-        if (part.slice(0, eq).trim() === 'risu-session') return part.slice(eq + 1).trim()
-    }
-    return null
-}
-
-function hasValidSession(req) {
-    const token = parseSessionCookie(req)
-    return !!token && sessionExpiresAt(sessions.get(token)) > Date.now()
-}
-
-function sessionAuthMiddleware(req, res, next) {
-    if (hasValidSession(req)) return next()
-    res.status(401).end()
-}
-
-async function checkDownloadAuth(req, res) {
-    return hasValidSession(req) || await checkAuth(req, res)
-}
-
-// MIME detection by magic bytes (fallback when key has no extension)
-function detectMime(buf) {
-    if (!buf || buf.length < 12) return 'application/octet-stream'
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
-    if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg'
-    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp'
-    if (buf[0] === 0x1a && buf[1] === 0x45) return 'video/webm'
-    if (buf.length >= 8 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return 'video/mp4'
-    return 'application/octet-stream'
-}
-const ASSET_EXT_MIME = {
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
-    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
-    m4v: 'video/x-m4v', avi: 'video/x-msvideo',
-    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
-}
-
-function getMimeFromExt(ext, buffer) {
-    return ASSET_EXT_MIME[normalizeInlayExt(ext)] || detectMime(buffer);
 }
 
 const inlayService = createInlayService({
@@ -704,74 +608,15 @@ const {
     decodeDataUri,
 } = inlayService;
 
-// Each page has an opaque client id. It is not a write lock: this is a
-// single-user server, so every authenticated page may submit mutations. The id
-// is retained to suppress self-echoes on the sync WebSocket.
-
-function getSyncClientIdFromRequest(req) {
-    return req?.headers?.['x-sync-client-id'] || req?.headers?.['x-session-id'] || ''
-}
-
-function requireSyncClientId(req, res) {
-    if (!getSyncClientIdFromRequest(req)) {
-        sendApiError(res, 400, API_ERROR_CODES.SYNC_CLIENT_ID_REQUIRED)
-        return false
-    }
-    return true
-}
-
-const syncClients = new Map();
-const syncClientDevices = new Map();
-
-function isSyncClientConnected(clientId) {
-    return Boolean(clientId && syncClients.get(clientId)?.size);
-}
-
-function broadcastSync(type, payload = {}, excludeClientId = null) {
-    const message = JSON.stringify({ type, ...payload });
-    for (const [clientId, clients] of syncClients) {
-        if (clientId === excludeClientId) continue;
-        for (const ws of clients) {
-            if (ws.readyState === 1) ws.send(message);
-        }
-    }
-}
-
-function broadcastDatabaseInvalidated(req, payload = {}) {
-    broadcastSync(
-        'database-invalidated',
-        { ...payload, timestamp: Date.now() },
-        String(getSyncClientIdFromRequest(req)),
-    );
-}
-
-function broadcastBookmarksInvalidated(req) {
-    broadcastSync(
-        'bookmarks-invalidated',
-        { timestamp: Date.now() },
-        String(getSyncClientIdFromRequest(req)),
-    );
-}
-
-function publishChatCommitted(event, originClientId) {
-    broadcastSync('database-invalidated', {
-        chats: [{ characterId: event.characterId, chatId: event.chatId }],
-        chatEtag: event.etag,
-        reason: event.reason,
-        timestamp: Date.now(),
-    }, originClientId || null);
-}
-
-function broadcastRevenantWorkflowUpdated(workflow) {
-    if (!workflow?.workflowId || !workflow.characterId || !workflow.roomId) return;
-    broadcastSync('generation-workflow-updated', {
-        workflowId: workflow.workflowId,
-        characterId: workflow.characterId,
-        roomId: workflow.roomId,
-        status: workflow.status,
-        timestamp: Date.now(),
-    });
-}
+const syncHub = createSyncHub();
+const {
+    syncClientDevices,
+    isSyncClientConnected,
+    broadcastDatabaseInvalidated,
+    broadcastBookmarksInvalidated,
+    publishChatCommitted,
+    broadcastRevenantWorkflowUpdated,
+} = syncHub;
 
 // --- Generation Job constants ---
 const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
@@ -790,17 +635,7 @@ function countActiveProviderJobs() {
     return count;
 }
 
-const LOGIN_FAILURE_WINDOW_MS = 5 * 60 * 1000;
 
-const loginBlockedUntil = new Map();
-
-const loginBlockCleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [key, blockedUntil] of loginBlockedUntil) {
-        if (blockedUntil <= now) loginBlockedUntil.delete(key);
-    }
-}, LOGIN_FAILURE_WINDOW_MS);
-loginBlockCleanupTimer.unref?.();
 
 // --- Generation: auth helpers ---
 
@@ -1617,34 +1452,7 @@ function setupGenerationWebSocket(server) {
         }
     });
 
-    syncWsServer.on('connection', (ws, req, clientId) => {
-        const clients = syncClients.get(clientId) ?? new Set();
-        clients.add(ws);
-        syncClients.set(clientId, clients);
-        if (!syncClientDevices.has(clientId)) {
-            syncClientDevices.set(clientId, {
-                connectedAt: Date.now(),
-                device: connectedDevice(req.headers['user-agent'] || ''),
-            });
-        }
-        ws.send(JSON.stringify({ type: 'sync-ready', timestamp: Date.now() }));
-
-        const pingTimer = setInterval(() => {
-            if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
-        }, 30_000);
-
-        ws.on('close', () => {
-            clearInterval(pingTimer);
-            const current = syncClients.get(clientId);
-            if (!current) return;
-            current.delete(ws);
-            if (current.size === 0) {
-                syncClients.delete(clientId);
-                syncClientDevices.delete(clientId);
-            }
-        });
-        ws.on('error', () => clearInterval(pingTimer));
-    });
+    syncWsServer.on('connection', syncHub.handleSyncConnection);
 
     wsServer.on('connection', (ws, req, jobId) => {
         const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
@@ -1758,43 +1566,6 @@ async function ensureCanonicalStorage() {
     return appDataReadyPromise;
 }
 
-async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = false} = {}){
-    const reject = (code) => {
-        if(!returnOnlyStatus){
-            sendApiError(res, 401, code);
-        }
-        return false
-    }
-    try {
-        const authHeader = req.headers['risu-auth'];
-        if(!authHeader){
-            return reject(API_ERROR_CODES.AUTH_REQUIRED)
-        }
-
-        const [jsonHeaderB64, jsonPayloadB64, signatureB64] = authHeader.split('.');
-        const jsonHeader = JSON.parse(Buffer.from(jsonHeaderB64, 'base64url').toString('utf-8'));
-        const jsonPayload = JSON.parse(Buffer.from(jsonPayloadB64, 'base64url').toString('utf-8'));
-
-        if(!allowExpired && jsonPayload.exp < Math.floor(Date.now() / 1000)){
-            return reject(API_ERROR_CODES.AUTH_TOKEN_EXPIRED)
-        }
-        if(jsonHeader.alg !== "HS256"){
-            return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
-        }
-
-        const expectedSig = nodeCrypto.createHmac('sha256', jwtSecret)
-            .update(`${jsonHeaderB64}.${jsonPayloadB64}`)
-            .digest()
-        const actualSig = Buffer.from(signatureB64, 'base64url')
-        if(expectedSig.length !== actualSig.length || !nodeCrypto.timingSafeEqual(expectedSig, actualSig)){
-            return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
-        }
-        return true
-    } catch {
-        return reject(API_ERROR_CODES.AUTH_INVALID_TOKEN)
-    }
-}
-
 // --- Revenant generation jobs -------------------------------------------------
 async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     return canonicalChatService.commitGenerationInput({
@@ -1804,51 +1575,9 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
     });
 }
 
-
-
-/**
- * Extract raw binary and content-type from a KV value.
- * Handles both raw binary (assets/) and JSON+base64 wrapped (inlay/) formats.
- */
-function resolveAssetPayload(key, rawValue) {
-    // inlay/ and inlay_thumb/ keys store JSON with base64 data URI
-    if (key.startsWith('inlay/') || key.startsWith('inlay_thumb/')) {
-        try {
-            const json = JSON.parse(rawValue.toString('utf-8'))
-            const dataUri = json.data
-            if (typeof dataUri === 'string' && dataUri.startsWith('data:')) {
-                const commaIdx = dataUri.indexOf(',')
-                const meta = dataUri.substring(5, commaIdx)
-                const mime = meta.split(';')[0]
-                const binary = Buffer.from(dataUri.substring(commaIdx + 1), 'base64')
-                return { binary, contentType: mime || 'application/octet-stream' }
-            }
-            const ext = (json.ext || '').toLowerCase()
-            const mime = ASSET_EXT_MIME[ext] || 'application/octet-stream'
-            return { binary: rawValue, contentType: mime }
-        } catch {
-            // Not JSON: serve the raw bytes.
-        }
-    }
-
-    const ext = key.split('.').pop()?.toLowerCase()
-    const contentType = ASSET_EXT_MIME[ext] || detectMime(rawValue)
-    return { binary: rawValue, contentType }
-}
-
 require('./routes/auth.cjs').installAuthRoutes(app, {
-    SESSION_FILE,
-    sessions,
-    loginBlockedUntil,
-    LOGIN_FAILURE_WINDOW_MS,
-    jwtSecret,
-    authState,
-    checkAuth,
-    parseSessionCookie,
-    sessionExpiresAt,
-    getSyncClientIdFromRequest,
+    auth,
     syncClientDevices,
-    passwordPath,
 });
 
 require('./requestBody.cjs').installAuthenticatedBodyParsing(app, {
@@ -1906,8 +1635,6 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     appDataStore,
     inlayService,
     sessionAuthMiddleware,
-    getMimeFromExt,
-    resolveAssetPayload,
     checkAuth,
     ensureCanonicalStorage,
     MISSING_DATABASE_ETAG,

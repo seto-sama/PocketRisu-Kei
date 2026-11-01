@@ -39,18 +39,19 @@ async function startFixture(): Promise<Fixture> {
 
     const app = express()
     installAuthRoutes(app, {
-        SESSION_FILE: join(directory, 'sessions.json'),
-        sessions,
-        loginBlockedUntil,
-        LOGIN_FAILURE_WINDOW_MS: 60_000,
-        jwtSecret: 'request-body-test-secret',
-        authState,
-        checkAuth,
-        parseSessionCookie: () => undefined,
-        sessionExpiresAt: (session: number | undefined) => session ?? 0,
-        getSyncClientIdFromRequest: () => undefined,
+        auth: {
+            sessionFile: join(directory, 'sessions.json'),
+            sessions,
+            loginBlockedUntil,
+            LOGIN_FAILURE_WINDOW_MS: 60_000,
+            jwtSecret: 'request-body-test-secret',
+            authState,
+            checkAuth,
+            parseSessionCookie: () => undefined,
+            sessionExpiresAt: (session: number | undefined) => session ?? 0,
+            passwordPath: join(directory, 'password'),
+        },
         syncClientDevices: new Map(),
-        passwordPath: join(directory, 'password'),
     })
     installAuthenticatedBodyParsing(app, { checkAuth })
     app.post('/api/body-check', (req: any, res: any) => res.json({ body: req.body ?? null }))
