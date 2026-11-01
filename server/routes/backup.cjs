@@ -27,15 +27,12 @@ const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, dele
 const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installBackupRoutes(app, {
+    snapshots,
+    backupLocation,
     checkDownloadAuth,
-    deleteSnapshotStateRows,
-    DB_BACKUP_PREFIX,
-    backupState,
-    BACKUP_FILENAME_REGEX,
     normalizeLegacyDatabaseProjection,
     bookmarkStore,
     appDataStore,
-    createBackupAndRotate,
     savePath,
     inlayDir,
     inlayMigrationMarker,
@@ -54,21 +51,30 @@ function installBackupRoutes(app, {
     queueStorageOperation,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
-    getSnapshotLimits,
-    SNAPSHOT_LIMIT_MIN_COUNT,
-    SNAPSHOT_LIMIT_MAX_COUNT,
-    SNAPSHOT_LIMIT_MIN_BYTES,
-    SNAPSHOT_LIMIT_MAX_BYTES,
-    SNAPSHOT_LIMIT_DEFAULT_COUNT,
-    SNAPSHOT_LIMIT_DEFAULT_BYTES,
-    SNAPSHOT_LIMIT_COUNT_KEY,
-    SNAPSHOT_LIMIT_BYTES_KEY,
-    trimSnapshotsToLimits,
     syncTrashRetention,
-    DEFAULT_BACKUPS_DIR,
-    BACKUP_PATH_CONFIG_KEY,
-    writeBackupPathMarker,
 }) {
+    const {
+        deleteSnapshotStateRows,
+        DB_BACKUP_PREFIX,
+        createBackupAndRotate,
+        getSnapshotLimits,
+        SNAPSHOT_LIMIT_MIN_COUNT,
+        SNAPSHOT_LIMIT_MAX_COUNT,
+        SNAPSHOT_LIMIT_MIN_BYTES,
+        SNAPSHOT_LIMIT_MAX_BYTES,
+        SNAPSHOT_LIMIT_DEFAULT_COUNT,
+        SNAPSHOT_LIMIT_DEFAULT_BYTES,
+        SNAPSHOT_LIMIT_COUNT_KEY,
+        SNAPSHOT_LIMIT_BYTES_KEY,
+        trimSnapshotsToLimits,
+    } = snapshots;
+    const {
+        backupState,
+        BACKUP_FILENAME_REGEX,
+        DEFAULT_BACKUPS_DIR,
+        BACKUP_PATH_CONFIG_KEY,
+        writeBackupPathMarker,
+    } = backupLocation;
     const deleteSnapshotState = sqliteDb.transaction(deleteSnapshotStateRows);
 
     // Physical usage matches quota trimming; logicalBytes measures dedup savings.

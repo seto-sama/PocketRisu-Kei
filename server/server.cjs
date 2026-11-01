@@ -11,15 +11,16 @@ const { migrateCertificates } = require('./ssl/migrateCertificates.cjs');
 const { codes: API_ERROR_CODES, createApiError } = require('./utils/apiErrors.cjs');
 const { createInlayService, installInlaysRoutes } = require('./inlay.cjs');
 const { createAuthService } = require('./auth.cjs');
+const { createSnapshotService } = require('./snapshots.cjs');
+const { createBackupLocation } = require('./backupLocation.cjs');
 const { createSyncHub, getSyncClientIdFromRequest, requireSyncClientId } = require('./syncHub.cjs');
 const { getMimeFromExt } = require('./utils/mime.cjs');
 
-const { existsSync, mkdirSync, writeFileSync } = require('fs');
+const { existsSync, mkdirSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
 
 const { WebSocketServer } = require('ws')
-const { Worker } = require('worker_threads')
 const Vips = require('wasm-vips')
 let _vipsPromise = null
 const getVips = () => {
@@ -31,7 +32,7 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvSetChunked, kvDel, kvList, checkpointWal, snapshotSetFootprint, db: sqliteDb } = require('./db.cjs');
+const { kvGet, kvSet, kvSetChunked, kvDel, kvList, checkpointWal, chunkStore, db: sqliteDb } = require('./db.cjs');
 const { createAppDataStore } = require('./appDataStore.cjs');
 const { removeRuntimeCharacterFields } = require('./persistenceShape.cjs');
 const {
@@ -81,10 +82,7 @@ const { normalizeTrashRetentionDays } = require('../shared/trashRetention.mjs');
 
 const { decodeRisuSave, encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 const { normalizeJSON } = require('./utils/json.cjs');
-const {
-    exportPromptPresetSelection,
-    importPromptPresetSelection,
-} = require('../shared/promptPresetSelection.mjs');
+const { importPromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 const { createLegacyRestoreService } = require('./dataRestore/index.cjs');
 
 installProcessHandlers();
@@ -139,167 +137,17 @@ function queueStorageOperation(operation) {
     return operationRun;
 }
 
-// ─── Server-side database backup (DB-only snapshots) ────────────────────────
-//
-// Snapshots live as `database/dbbackup-{ts}.bin` keys inside the kv table.
-// They're created on every successful persist (with a cooldown) and rotated
-// to fit user-configured count/size limits — see SNAPSHOT_LIMIT_* below.
-const DB_BACKUP_PREFIX = 'database/dbbackup-';
-const SNAPSHOT_LIMIT_COUNT_KEY = 'config/snapshot-max-count';
-const SNAPSHOT_LIMIT_BYTES_KEY = 'config/snapshot-max-bytes';
-const SNAPSHOT_LIMIT_DEFAULT_COUNT = 20;
-const SNAPSHOT_LIMIT_DEFAULT_BYTES = 500 * 1024 * 1024;
-// Safety bounds to keep a stray PUT from making the system unusable.
-const SNAPSHOT_LIMIT_MIN_COUNT = 1;
-const SNAPSHOT_LIMIT_MAX_COUNT = 100;
-const SNAPSHOT_LIMIT_MIN_BYTES = 10 * 1024 * 1024;
-const SNAPSHOT_LIMIT_MAX_BYTES = 50 * 1024 * 1024 * 1024;
-const BACKUP_INTERVAL_MS = process.env.POCKETRISU_BACKUP_INTERVAL_MS
-    ? Number(process.env.POCKETRISU_BACKUP_INTERVAL_MS)
-    : 5 * 60 * 1000;
-let lastBackupTime = null;
-let backupRotationScheduled = false;
-
-function readSnapshotConfigInt(key, fallback, min, max) {
-    try {
-        const raw = kvGet(key);
-        if (!raw) return fallback;
-        const n = parseInt(Buffer.from(raw).toString('utf-8').trim(), 10);
-        if (!Number.isFinite(n)) return fallback;
-        return Math.min(max, Math.max(min, n));
-    } catch { return fallback; }
-}
-
-function getSnapshotLimits() {
-    return {
-        maxCount: readSnapshotConfigInt(
-            SNAPSHOT_LIMIT_COUNT_KEY, SNAPSHOT_LIMIT_DEFAULT_COUNT,
-            SNAPSHOT_LIMIT_MIN_COUNT, SNAPSHOT_LIMIT_MAX_COUNT,
-        ),
-        maxBytes: readSnapshotConfigInt(
-            SNAPSHOT_LIMIT_BYTES_KEY, SNAPSHOT_LIMIT_DEFAULT_BYTES,
-            SNAPSHOT_LIMIT_MIN_BYTES, SNAPSHOT_LIMIT_MAX_BYTES,
-        ),
-    };
-}
-
-function deleteSnapshotStateRows(key) {
-    kvDel(key);
-    bookmarkStore.deleteSnapshot(key);
-}
-
-const deleteSnapshotStates = sqliteDb.transaction((keys) => {
-    for (const key of keys) deleteSnapshotStateRows(key);
+const snapshots = createSnapshotService({
+    sqliteDb,
+    chunkStore,
+    kvGet,
+    kvSetChunked,
+    kvDel,
+    appDataStore,
+    bookmarkStore,
+    logger,
 });
-
-// Walk newest → oldest; keep within both limits, delete the rest. The most
-// recent snapshot is always kept (even if it alone exceeds the byte limit) so
-// we never end up with zero backups after a config change.
-function trimSnapshotsToLimits() {
-    const { maxCount, maxBytes } = getSnapshotLimits();
-    const entries = kvList(DB_BACKUP_PREFIX)
-        .map((key) => {
-            const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            return { key, ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
-        })
-        .sort((a, b) => b.ts - a.ts);
-
-    const keptKeys = [];
-    const toDelete = [];
-    for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        const isFirst = i === 0;
-        const fitsByCount = keptKeys.length < maxCount;
-        // Compute the physical union of all kept snapshots. Content-addressed
-        // chunks shared by two snapshots occupy disk once, not once per key.
-        const candidateBytes = snapshotSetFootprint([...keptKeys, e.key]);
-        const fitsByBytes = candidateBytes <= maxBytes;
-        if (isFirst || (fitsByCount && fitsByBytes)) {
-            keptKeys.push(e.key);
-        } else {
-            toDelete.push(e.key);
-        }
-    }
-    deleteSnapshotStates(toDelete);
-    return { kept: entries.length - toDelete.length, removed: toDelete.length };
-}
-
-function makeSnapshotKey(now = Date.now()) {
-    let tick = Math.round(now / 100);
-    let key = `${DB_BACKUP_PREFIX}${tick}.bin`;
-    while (kvGet(key)) {
-        tick += 1;
-        key = `${DB_BACKUP_PREFIX}${tick}.bin`;
-    }
-    return key;
-}
-
-const createSnapshotState = sqliteDb.transaction(() => {
-    if (!appDataStore.getState().initialized) {
-        throw new Error('Cannot create snapshot: relational database is missing');
-    }
-    const backupKey = makeSnapshotKey();
-    const projection = appDataStore.exportProjection({ includeMessages: true });
-    bookmarkStore.projectDatabaseCompatibility(projection);
-    kvSetChunked(backupKey, Buffer.from(encodeRisuSaveLegacy(
-        exportPromptPresetSelection(projection),
-    )));
-    if (!kvGet(backupKey)) throw new Error('Cannot create snapshot: database blob is missing');
-    bookmarkStore.saveSnapshot(backupKey);
-    trimSnapshotsToLimits();
-    return backupKey;
-});
-
-function createBackupAndRotate() {
-    const now = Date.now();
-    if (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS) {
-        return;
-    }
-    lastBackupTime = now;
-
-    createSnapshotState();
-}
-
-function scheduleBackupAndRotate() {
-    const now = Date.now();
-    if (backupRotationScheduled
-        || (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS)) {
-        return;
-    }
-    backupRotationScheduled = true;
-    lastBackupTime = now;
-    setImmediate(() => {
-        const limits = getSnapshotLimits();
-        const worker = new Worker(path.join(__dirname, 'snapshotWorker.cjs'), {
-            workerData: {
-                dbPath: path.join(process.cwd(), 'save', 'risuai.db'),
-                prefix: DB_BACKUP_PREFIX,
-                maxCount: limits.maxCount,
-                maxBytes: limits.maxBytes,
-            },
-        });
-        let reported = false;
-        worker.once('message', message => {
-            reported = true;
-            if (!message?.ok) {
-                lastBackupTime = null;
-                logger.warn('[Snapshot] Worker rotation failed:', message?.error ?? 'unknown error');
-            }
-        });
-        worker.once('error', error => {
-            reported = true;
-            lastBackupTime = null;
-            logger.warn('[Snapshot] Worker failed:', error);
-        });
-        worker.once('exit', code => {
-            if (!reported && code !== 0) {
-                lastBackupTime = null;
-                logger.warn(`[Snapshot] Worker exited with code ${code}`);
-            }
-            backupRotationScheduled = false;
-        });
-    });
-}
+const { DB_BACKUP_PREFIX, createBackupAndRotate, scheduleBackupAndRotate } = snapshots;
 
 async function prepareDatabaseExport() {
     await ensureCanonicalStorage();
@@ -501,44 +349,8 @@ if(!existsSync(savePath)){
 const auth = createAuthService({ savePath });
 const { checkAuth, checkDownloadAuth, sessionAuthMiddleware } = auth;
 
-// Server-side backup directory (outside save/ to avoid bloating updater copies).
-// Configurable at runtime via the kv key `config/server-backup-path`. When the
-// user changes the path the old directory is left in place (existing backups
-// stay where they were); only future backups land at the new path.
-const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
-const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
-
-// Plaintext marker the updater reads to preserve a custom in-tree backup dir
-// during in-place updates. KV lives inside the SQLite DB so the updater (which
-// runs without npm deps) can't read it; this marker bridges that gap.
-const BACKUP_PATH_MARKER = path.join(savePath, '__backup_path');
-
-function readBackupsDirConfig() {
-    try {
-        const raw = kvGet(BACKUP_PATH_CONFIG_KEY);
-        if (!raw) return DEFAULT_BACKUPS_DIR;
-        const text = Buffer.from(raw).toString('utf-8').trim();
-        return text || DEFAULT_BACKUPS_DIR;
-    } catch { return DEFAULT_BACKUPS_DIR; }
-}
-
-function writeBackupPathMarker(absPath) {
-    try {
-        writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
-    } catch {
-        // Best-effort; without the marker the updater keeps only `backups`.
-    }
-}
-
-const backupState = {
-    backupsDir: readBackupsDirConfig(),
-};
-if(!existsSync(backupState.backupsDir)){
-    try { mkdirSync(backupState.backupsDir, { recursive: true }); }
-    catch { backupState.backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupState.backupsDir, { recursive: true }); }
-}
-writeBackupPathMarker(backupState.backupsDir);
-const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
+const backupLocation = createBackupLocation({ savePath, kvGet });
+const { backupState, DEFAULT_BACKUPS_DIR, BACKUP_FILENAME_REGEX } = backupLocation;
 
 // ── Cloudflare Quick Tunnel ─────────────────────────────────────────────────
 
@@ -968,15 +780,12 @@ require('./routes/logs.cjs').installLogsRoutes(app, {
 });
 
 require('./routes/backup.cjs').installBackupRoutes(app, {
+    snapshots,
+    backupLocation,
     checkDownloadAuth,
-    deleteSnapshotStateRows,
-    DB_BACKUP_PREFIX,
-    backupState,
-    BACKUP_FILENAME_REGEX,
     normalizeLegacyDatabaseProjection,
     bookmarkStore,
     appDataStore,
-    createBackupAndRotate,
     savePath,
     inlayDir,
     inlayMigrationMarker,
@@ -995,20 +804,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
     queueStorageOperation,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
-    getSnapshotLimits,
-    SNAPSHOT_LIMIT_MIN_COUNT,
-    SNAPSHOT_LIMIT_MAX_COUNT,
-    SNAPSHOT_LIMIT_MIN_BYTES,
-    SNAPSHOT_LIMIT_MAX_BYTES,
-    SNAPSHOT_LIMIT_DEFAULT_COUNT,
-    SNAPSHOT_LIMIT_DEFAULT_BYTES,
-    SNAPSHOT_LIMIT_COUNT_KEY,
-    SNAPSHOT_LIMIT_BYTES_KEY,
-    trimSnapshotsToLimits,
     syncTrashRetention,
-    DEFAULT_BACKUPS_DIR,
-    BACKUP_PATH_CONFIG_KEY,
-    writeBackupPathMarker,
 });
 
 require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {

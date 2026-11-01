@@ -43,8 +43,12 @@ function trimSnapshots(db, chunkStore, prefix, maxCount, maxBytes) {
         const chunks = Buffer.isBuffer(row.value) && row.value.equals(CHUNK_MARKER)
             ? selectChunks.all(row.key)
             : [];
+        // A manifest can list the same chunk more than once; it is stored once.
+        const addedHashes = new Set();
         for (const chunk of chunks) {
-            if (!keptHashes.has(chunk.hash)) addedBytes += Number(chunk.bytes ?? 0);
+            if (keptHashes.has(chunk.hash) || addedHashes.has(chunk.hash)) continue;
+            addedHashes.add(chunk.hash);
+            addedBytes += Number(chunk.bytes ?? 0);
         }
         const keep = keptCount === 0
             || (keptCount < maxCount && keptBytes + addedBytes <= maxBytes);
@@ -143,4 +147,4 @@ if (!isMainThread) {
     }
 }
 
-module.exports = { createRelationalSnapshot, trimSnapshots };
+module.exports = { createRelationalSnapshot, createSnapshotKey, trimSnapshots };

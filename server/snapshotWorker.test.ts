@@ -5,13 +5,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
+import bookmarkStorePkg from './bookmarkStore.cjs'
 import chunkStorePkg from './chunkStore.cjs'
 import snapshotWorkerPkg from './snapshotWorker.cjs'
 import risuSavePkg from './utils/risuSave.cjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const { createChunkStore } = chunkStorePkg as any
-const { createRelationalSnapshot } = snapshotWorkerPkg as any
+const { createBookmarkStore } = bookmarkStorePkg as any
+const { createRelationalSnapshot, trimSnapshots } = snapshotWorkerPkg as any
 const { decodeRisuSave } = risuSavePkg as any
 const directories: string[] = []
 
@@ -82,6 +84,27 @@ describe('relational snapshot worker', () => {
           SELECT COUNT(*) AS count FROM bookmark_snapshots
         `).get()).toEqual({ count: 1 })
         expect(first.logicalBytes).toBeGreaterThan(0)
+        db.close()
+    })
+
+    it('counts a chunk repeated within one snapshot once against the byte limit', async () => {
+        const dbPath = await createFixture()
+        const db = new Database(dbPath)
+        const chunkStore = createChunkStore(db, { threshold: 256 })
+        createBookmarkStore(db)
+        // Uniform bytes cut into identical chunks, so the manifest repeats a hash.
+        chunkStore.putValue('database/dbbackup-2.bin', Buffer.alloc(4 * 65536, 7))
+        chunkStore.putValue('database/dbbackup-1.bin', Buffer.alloc(5000, 3))
+        const keys = ['database/dbbackup-2.bin', 'database/dbbackup-1.bin']
+        const manifest = db.prepare(`
+          SELECT COUNT(*) AS rows, COUNT(DISTINCT hash) AS hashes
+          FROM manifest_chunks WHERE manifest_key = ?
+        `).get(keys[0]) as { rows: number; hashes: number }
+        expect(manifest.rows).toBeGreaterThan(manifest.hashes)
+
+        const trim = trimSnapshots(db, chunkStore, 'database/dbbackup-', 10, chunkStore.keySetPhysicalCost(keys))
+
+        expect(trim.removed).toBe(0)
         db.close()
     })
 })

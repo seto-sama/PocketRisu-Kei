@@ -271,6 +271,7 @@ function clearEntities() {
 
 module.exports = {
     db,
+    chunkStore,
     // KV
     kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt,
     clearEntities,
