@@ -32,13 +32,9 @@ export function assertUniqueEntityIds(items, key = 'id') {
 }
 
 export function ensureUniqueEntityIds(items, createId = createEntityId, key = 'id') {
-    const ids = collectIds(items, key, true)
+    collectIds(items, key, true)
     for (const item of items) {
-        if (item[key]) continue
-        let id = createId()
-        while (ids.has(id)) id = createId()
-        item[key] = id
-        ids.add(id)
+        if (!item[key]) item[key] = createId()
     }
 }
 

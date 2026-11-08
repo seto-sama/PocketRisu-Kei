@@ -143,8 +143,6 @@ async function projectGenerationJournal(job, rawResponse) {
 
 function isGenerationProjectionCurrent(projection, journalBytes) {
     return ['server', 'provider'].includes(projection?.source)
-        && Number.isSafeInteger(journalBytes)
-        && journalBytes >= 0
         && projection.journalBytes === journalBytes;
 }
 

@@ -156,7 +156,7 @@ async function runRevenantOutputStage(options) {
 async function runRevenantTriggerStage(options) {
     return executeRevenantOutputTriggers({
         recipe: structuredClone(options.recipe),
-        chat: structuredClone(options.chat),
+        chat: options.chat,
         text: options.text,
         responses: options.responses || {},
     });

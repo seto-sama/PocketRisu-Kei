@@ -1916,13 +1916,8 @@ export async function createPersistedChatCopy(
 
 export async function createPersistedChat(
     character: character,
-    input: Chat,
+    chat: Chat,
 ): Promise<Chat> {
-    const chat = normalizeChat(input)
-    if (!chat.id || character.chats.some(existing => existing?.id === chat.id)) {
-        throw new Error('New chat must have a unique id')
-    }
-
     character.chats.unshift(chat)
     // Enter immediately. The per-chat save queue snapshots later edits only
     // after this creation commit has acknowledged its canonical ETag.

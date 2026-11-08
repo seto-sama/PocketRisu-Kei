@@ -71,10 +71,7 @@ function createGenerationJournalStore(options = {}) {
         }
     }
 
-    async function readChunk(workflowId, jobId, requestedOffset, kind = 'journal') {
-        const offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0
-            ? requestedOffset
-            : 0;
+    async function readChunk(workflowId, jobId, offset, kind = 'journal') {
         const length = JOURNAL_READ_CHUNK_BYTES;
         let file;
         try {

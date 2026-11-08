@@ -116,8 +116,7 @@ function persistentEntityId(candidate, used) {
         used.add(candidate);
         return candidate;
     }
-    let generated = crypto.randomUUID();
-    while (used.has(generated)) generated = crypto.randomUUID();
+    const generated = crypto.randomUUID();
     used.add(generated);
     return generated;
 }

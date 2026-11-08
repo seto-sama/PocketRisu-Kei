@@ -69,60 +69,26 @@ export function createRevenantOperation(
     } as RevenantOperationContext
 }
 
+function hasOperationKind(value: unknown, kind: RevenantOperationContext['kind']) {
+    return (value as { kind?: unknown } | null | undefined)?.kind === kind
+}
+
 export function isRevenantTranslationOperation(
     value: unknown,
 ): value is RevenantTranslationOperation {
-    if (!value || typeof value !== 'object') return false
-    const context = value as Partial<RevenantTranslationOperation>
-    return context.kind === 'translation'
-        && typeof context.operationId === 'string'
-        && typeof context.cacheKey === 'string'
-        && Array.isArray(context.styleDecodes)
-        && context.styleDecodes.every(item => typeof item === 'string')
-        && (
-            context.target === null
-            || (
-                context.target
-                && context.target.kind === 'chat-message'
-                && (context.target.messageChatId === null || typeof context.target.messageChatId === 'string')
-                && Number.isInteger(context.target.messageIndex)
-                && Number.isInteger(context.target.swipeId)
-            )
-        )
-        && typeof context.replaceExisting === 'boolean'
+    return hasOperationKind(value, 'translation')
 }
 
 export function isRevenantHypaV3SummaryOperation(
     value: unknown,
 ): value is RevenantHypaV3SummaryOperation {
-    if (!value || typeof value !== 'object') return false
-    const context = value as Partial<RevenantHypaV3SummaryOperation>
-    return context.kind === 'hypav3-summary'
-        && typeof context.operationId === 'string'
-        && typeof context.characterId === 'string'
-        && typeof context.roomId === 'string'
-        && Array.isArray(context.chatMemos)
-        && context.chatMemos.every(memo => memo === null || typeof memo === 'string')
+    return hasOperationKind(value, 'hypav3-summary')
 }
 
 export function isRevenantLuaLlmOperation(
     value: unknown,
 ): value is RevenantLuaLlmOperation {
-    if (!value || typeof value !== 'object') return false
-    const context = value as Partial<RevenantLuaLlmOperation>
-    return context.kind === 'lua-llm'
-        && typeof context.operationId === 'string'
-        && typeof context.executionKey === 'string'
-        && typeof context.replayKey === 'string'
-        && typeof context.characterId === 'string'
-        && typeof context.roomId === 'string'
-        && typeof context.mode === 'string'
-        && typeof context.code === 'string'
-        && typeof context.lowLevelAccess === 'boolean'
-        && (context.data === undefined || typeof context.data === 'string')
-        && (context.meta === undefined || (context.meta !== null && typeof context.meta === 'object'))
-        && typeof context.anchorMessageId === 'string'
-        && Number.isInteger(context.callIndex)
+    return hasOperationKind(value, 'lua-llm')
 }
 
 export function isRevenantOperationContext(

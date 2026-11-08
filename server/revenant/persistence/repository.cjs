@@ -158,20 +158,12 @@ function listReadyChatWorkflowJobs(limit = 20) {
           AND workflow_step_key = 'model.main'
           AND status = 'generated'
           AND normalized_projection IS NOT NULL
-          AND COALESCE(
-            CASE
-                WHEN json_valid(normalized_projection)
-                    THEN json_extract(normalized_projection, '$.awaitingProviderResult')
-                ELSE 0
-            END,
-            0
-          ) <> 1
+          AND COALESCE(json_extract(normalized_projection, '$.awaitingProviderResult'), 0) <> 1
           AND materialized_at IS NULL
         ORDER BY completed_at ASC, created_at ASC
         LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}
     `
-        .map(row => getGenerationJob(row.job_id, false))
-        .filter(Boolean);
+        .map(row => getGenerationJob(row.job_id, false));
 }
 
 function claimGenerationWorkflowStep(workflowId, stepKey, expectedStatus = 'pending') {
@@ -189,15 +181,7 @@ function claimGenerationWorkflowStep(workflowId, stepKey, expectedStatus = 'pend
 }
 
 function parseStepMetadata(row) {
-    if (!row?.metadata) return {};
-    try {
-        const metadata = JSON.parse(row.metadata);
-        return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-            ? metadata
-            : {};
-    } catch {
-        return {};
-    }
+    return row?.metadata ? JSON.parse(row.metadata) : {};
 }
 
 function claimGenerationWorkflowClientAction(
@@ -712,7 +696,7 @@ function rowToJob(row, includeRaw = true) {
         ...(includeRaw
             ? { rawResponse, rawBytes }
             : { rawBytes }),
-        projection: parseNormalizedProjection(row.normalized_projection),
+        projection: row.normalized_projection ? JSON.parse(row.normalized_projection) : undefined,
         projectionError: row.projection_error || undefined,
         projectedAt: row.projected_at || undefined,
         finishReason: row.finish_reason,
@@ -725,23 +709,6 @@ function rowToJob(row, includeRaw = true) {
     };
 }
 
-function parseNormalizedProjection(value) {
-    if (!value) return undefined;
-    try {
-        const projection = JSON.parse(value);
-        if (
-            projection?.schemaVersion !== 1
-            || !['server', 'provider'].includes(projection.source)
-            || typeof projection.adapterKind !== 'string'
-            || typeof projection.content !== 'string'
-            || (projection.awaitingProviderResult !== undefined
-                && typeof projection.awaitingProviderResult !== 'boolean')
-        ) return undefined;
-        return projection;
-    } catch {
-        return undefined;
-    }
-}
 
 function createSingleGenerationJob(input) {
     return withTransaction(db, () => {
@@ -794,14 +761,12 @@ function createGenerationJob(input) {
                       AND job_type = 'model'
                       AND status = 'generated'
                       AND materialized_at IS NULL
-                      AND json_valid(normalized_projection)
                       AND json_extract(normalized_projection, '$.source') = 'server'
                       AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
                       AND EXISTS (
                           SELECT 1 FROM generation_workflows AS workflows
                           WHERE workflows.workflow_id = jobs.workflow_id
                             AND workflows.status = 'active'
-                            AND json_valid(workflows.context)
                             AND json_extract(workflows.context, '$.kind') = 'chat-generation'
                       )
                     ORDER BY rowid DESC
@@ -904,9 +869,7 @@ function getGenerationDispatchState(dispatchGroup) {
         FROM generation_jobs
         WHERE dispatch_group = ${dispatchGroup}
     `;
-    return {
-        active: Math.max(0, Number(row?.active) || 0),
-    };
+    return { active: row.active };
 }
 
 function claimQueuedGenerationDispatch(jobId) {
@@ -1021,11 +984,7 @@ function setGenerationJobProjection(jobId, projection) {
             projected_at = ${now}, updated_at = ${now}
         WHERE job_id = ${jobId}
           AND json_extract(${json}, '$.source') = 'server'
-          AND CASE
-            WHEN json_valid(normalized_projection)
-                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-            ELSE ''
-          END <> 'provider'
+          AND COALESCE(json_extract(normalized_projection, '$.source'), '') <> 'provider'
     `;
     return result.changes === 1;
 }
@@ -1038,7 +997,6 @@ function setGenerationJobProviderResult(jobId, projection) {
         SET normalized_projection = ${json}, projection_error = NULL,
             projected_at = ${now}, updated_at = ${now}
         WHERE job_id = ${jobId}
-          AND json_valid(normalized_projection)
           AND json_extract(normalized_projection, '$.source') = 'server'
           AND json_extract(normalized_projection, '$.awaitingProviderResult') = 1
           AND json_extract(${json}, '$.source') = 'provider'
@@ -1117,22 +1075,10 @@ function listGenerationJobsNeedingProjection(limit = 200, schemaVersion = 1) {
           AND response_status < 300
           AND (
             normalized_projection IS NULL
-            OR CASE
-                WHEN json_valid(normalized_projection)
-                    THEN COALESCE(json_extract(normalized_projection, '$.schemaVersion'), 0)
-                ELSE 0
-            END <> ${Number(schemaVersion) || 1}
-            OR CASE
-                WHEN json_valid(normalized_projection)
-                    THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-                ELSE ''
-            END <> 'server'
+            OR COALESCE(json_extract(normalized_projection, '$.schemaVersion'), 0) <> ${Number(schemaVersion) || 1}
+            OR COALESCE(json_extract(normalized_projection, '$.source'), '') <> 'server'
           )
-          AND CASE
-            WHEN json_valid(normalized_projection)
-                THEN COALESCE(json_extract(normalized_projection, '$.source'), '')
-            ELSE ''
-          END <> 'provider'
+          AND COALESCE(json_extract(normalized_projection, '$.source'), '') <> 'provider'
           AND status IN ('generated', 'interrupted', 'cancelled', 'failed_partial', 'failed')
         ORDER BY updated_at ASC
         LIMIT ${normalized}

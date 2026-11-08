@@ -188,7 +188,7 @@ function createDatabaseProjectionService(options = {}) {
 
     function visibleDatabase(snapshot, remote) {
         if (!remote) return snapshot.database;
-        return normalizeProjection(filterRemoteProjection(snapshot.database));
+        return filterRemoteProjection(snapshot.database);
     }
 
     function projectionVisibleToRequest(snapshot, requestOptions = {}) {

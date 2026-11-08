@@ -294,13 +294,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid workflow client action response' });
             return;
         }
-        let serialized;
-        try { serialized = JSON.stringify(req.body.response); }
-        catch {
-            res.status(400).send({ error: 'Workflow client action response must be JSON serializable' });
-            return;
-        }
-        if (serialized === undefined || Buffer.byteLength(serialized) > 8 * 1024 * 1024) {
+        if (Buffer.byteLength(JSON.stringify(req.body.response)) > 8 * 1024 * 1024) {
             res.status(413).send({ error: 'Workflow client action response is too large' });
             return;
         }

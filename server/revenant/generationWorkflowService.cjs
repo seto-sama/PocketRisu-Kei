@@ -24,10 +24,7 @@ function createGenerationWorkflowService(options) {
             const job = generationRuntimeJobs.get(item.jobId);
             if (!job || job.done) continue;
             job.abortController.abort();
-            const upstreamAbort = job.cancelUpstream?.(job.abortController.signal.reason);
-            if (upstreamAbort && typeof upstreamAbort.then === 'function') {
-                abortWaiters.push(upstreamAbort);
-            }
+            abortWaiters.push(job.cancelUpstream?.(job.abortController.signal.reason));
 
             // A queued job has no provider runner that can publish its terminal
             // state. Running jobs publish after their journal writer closes.
@@ -35,7 +32,7 @@ function createGenerationWorkflowService(options) {
                 job.terminalEvent = terminalEvent;
                 markGenerationJobDone(job);
             }
-            else if (job.runPromise && typeof job.runPromise.then === 'function') {
+            else {
                 abortWaiters.push(job.runPromise);
             }
         }
@@ -58,8 +55,6 @@ function createGenerationWorkflowService(options) {
             return result;
         }
 
-        const hypaAbort = abortHypaWorkflowExecution(workflowId);
-        const workflowAbort = abortWorkflowWork(workflowId);
         await Promise.allSettled([
             abortJobs(result.jobs, status === 'cancelled'
                 ? {
@@ -73,8 +68,8 @@ function createGenerationWorkflowService(options) {
                     status: 502,
                     message: 'Generation workflow failed',
                 }),
-            ...(hypaAbort && typeof hypaAbort.then === 'function' ? [hypaAbort] : []),
-            ...(workflowAbort && typeof workflowAbort.then === 'function' ? [workflowAbort] : []),
+            abortHypaWorkflowExecution(workflowId),
+            abortWorkflowWork(workflowId),
         ]);
         if (status === 'cancelled') {
             await materializeCancelledWorkflow(workflowId);

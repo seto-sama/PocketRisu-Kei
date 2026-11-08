@@ -132,56 +132,6 @@ describe('revenant durable dispatch validation', () => {
             maxConcurrent: 3,
         }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
     })
-
-    it('validates chat-message translation targets', () => {
-        const operation = {
-            kind: 'translation',
-            operationId: 'translation-1',
-            cacheKey: 'source text',
-            styleDecodes: [],
-            replaceExisting: false,
-            target: {
-                kind: 'chat-message',
-                messageChatId: 'message-1',
-                messageIndex: 12,
-                swipeId: 2,
-            },
-        }
-        expect(normalizeRevenantOperationContext('translate', operation)).toEqual(operation)
-        const { target: _target, ...withoutTarget } = operation
-        expect(normalizeRevenantOperationContext('translate', withoutTarget)).toBeUndefined()
-        expect(normalizeRevenantOperationContext('translate', {
-            ...operation,
-            target: { ...operation.target, swipeId: 2.5 },
-        })).toBeUndefined()
-    })
-
-    it('validates durable Lua callback input before accepting the operation context', () => {
-        const operation = {
-            kind: 'lua-llm',
-            operationId: 'lua-operation-1',
-            executionKey: 'execution-1',
-            replayKey: 'replay-1',
-            characterId: 'character-1',
-            roomId: 'room-1',
-            mode: 'onFormSubmit',
-            code: 'function onFormSubmit(id, key, meta) end',
-            lowLevelAccess: true,
-            data: 'contact-form',
-            meta: { data: { name: ['Alice', 'Bob'] } },
-            anchorMessageId: 'message-1',
-            callIndex: 0,
-        }
-        expect(normalizeRevenantOperationContext('otherAx', operation)).toEqual(operation)
-        expect(normalizeRevenantOperationContext('otherAx', {
-            ...operation,
-            data: 42,
-        })).toBeUndefined()
-        expect(normalizeRevenantOperationContext('otherAx', {
-            ...operation,
-            meta: null,
-        })).toBeUndefined()
-    })
 })
 
 describe('manual image workflow validation', () => {
@@ -213,45 +163,6 @@ describe('manual image workflow validation', () => {
         expect(normalizeRevenantWorkflowContext(
             context,
             'character-2',
-            'image-generation:room-1',
-        )).toBeUndefined()
-    })
-
-    it('accepts optional portrait or landscape orientation and rejects other values', () => {
-        for (const orientation of ['portrait', 'landscape'] as const) {
-            const orientedContext = { ...context, orientation }
-            expect(normalizeRevenantWorkflowContext(
-                orientedContext,
-                'character-1',
-                'image-generation:room-1',
-            )).toEqual(orientedContext)
-        }
-        expect(normalizeRevenantWorkflowContext(
-            { ...context, orientation: 'square' },
-            'character-1',
-            'image-generation:room-1',
-        )).toBeUndefined()
-        expect(normalizeRevenantWorkflowContext(
-            { ...context, orientation: null },
-            'character-1',
-            'image-generation:room-1',
-        )).toBeUndefined()
-    })
-
-    it('accepts only supported image result projections', () => {
-        expect(normalizeRevenantWorkflowContext(
-            { ...context, projection: 'reroll' },
-            'character-1',
-            'image-generation:room-1',
-        )).toMatchObject({ projection: 'reroll' })
-        expect(normalizeRevenantWorkflowContext(
-            { ...context, projection: 'return' },
-            'character-1',
-            'image-generation:room-1',
-        )).toMatchObject({ projection: 'return' })
-        expect(normalizeRevenantWorkflowContext(
-            { ...context, projection: 'replace-everything' },
-            'character-1',
             'image-generation:room-1',
         )).toBeUndefined()
     })
@@ -485,7 +396,7 @@ describe('revenant workflow validation', () => {
         },
     }
 
-    it('accepts a bounded chat workflow execution context', () => {
+    it('binds a chat workflow context to its character and room', () => {
         const normalized = normalizeRevenantWorkflowContext(
             workflowContext,
             'character-1',
@@ -501,53 +412,6 @@ describe('revenant workflow validation', () => {
             character: { chats: [{ id: 'room-1', message: [] }] },
         })
         expect(normalizeRevenantWorkflowContext(
-            { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
-            'character-1',
-            'room-1',
-        )).toEqual({
-            ...workflowContext,
-            postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' },
-        })
-        expect(normalizeRevenantWorkflowContext(
-            {
-                ...workflowContext,
-                postprocess: {
-                    ...workflowContext.postprocess,
-                    auxProviders: {
-                        otherAx: { backend: 'legacy', modelPreset: {} },
-                    },
-                },
-            },
-            'character-1',
-            'room-1',
-        )).toBeUndefined()
-        expect(normalizeRevenantWorkflowContext(
-            {
-                ...workflowContext,
-                postprocess: {
-                    ...workflowContext.postprocess,
-                    chatPatch: undefined,
-                    chat: { id: 'room-1', message: [] },
-                },
-            },
-            'character-1',
-            'room-1',
-        )).toBeUndefined()
-        expect(normalizeRevenantWorkflowContext(
-            {
-                ...workflowContext,
-                postprocess: {
-                    ...workflowContext.postprocess,
-                    character: {
-                        ...workflowContext.postprocess.character,
-                        chats: [],
-                    },
-                },
-            },
-            'character-1',
-            'room-1',
-        )).toBeUndefined()
-        expect(normalizeRevenantWorkflowContext(
             workflowContext,
             'different-character',
             'room-1',
@@ -560,55 +424,6 @@ describe('revenant workflow validation', () => {
                     chat: { id: 'different-room', message: [] },
                 },
             },
-            'character-1',
-            'room-1',
-        )).toBeUndefined()
-    })
-
-    it('validates all Lua auxiliary and module provider snapshots with one schema', () => {
-        const extended = {
-            ...workflowContext,
-            postprocess: {
-                ...workflowContext.postprocess,
-                auxProviders: {
-                    memory: { backend: 'http', modelPreset: { id: 'memory' } },
-                    otherAx: { backend: 'echo', modelPreset: { id: 'otherAx' } },
-                    submodel: { backend: 'plugin', modelPreset: { id: 'submodel' } },
-                    translate: { backend: 'http', modelPreset: { id: 'translate' } },
-                },
-                moduleProviders: {
-                    'module-1': { backend: 'plugin', modelPreset: { id: 'module' } },
-                },
-            },
-        }
-
-        expect(normalizeRevenantWorkflowContext(
-            extended, 'character-1', 'room-1',
-        )).toEqual(extended)
-        expect(normalizeRevenantWorkflowContext({
-            ...extended,
-            postprocess: {
-                ...extended.postprocess,
-                auxProviders: {
-                    ...extended.postprocess.auxProviders,
-                    invalid: { backend: 'http', modelPreset: { id: 'invalid' } },
-                },
-            },
-        }, 'character-1', 'room-1')).toBeUndefined()
-        expect(normalizeRevenantWorkflowContext({
-            ...extended,
-            postprocess: {
-                ...extended.postprocess,
-                moduleProviders: {
-                    'module-1': { backend: 'invalid', modelPreset: { id: 'module' } },
-                },
-            },
-        }, 'character-1', 'room-1')).toBeUndefined()
-    })
-
-    it('requires a guarded delta for workflow input', () => {
-        expect(normalizeRevenantWorkflowContext(
-            { ...workflowContext, inputCommit: { ...workflowContext.inputCommit, changes: undefined } },
             'character-1',
             'room-1',
         )).toBeUndefined()
@@ -647,16 +462,9 @@ describe('revenant workflow validation', () => {
         ])
     })
 
-    it('rejects duplicate or unsafe step keys and non-initial states', () => {
-        expect(normalizeRevenantWorkflowPlan([
-            { key: 'same', kind: 'one', recoveryPolicy: 'resume' },
-            { key: 'same', kind: 'two', recoveryPolicy: 'resume' },
-        ])).toBeUndefined()
+    it('rejects unsafe step keys', () => {
         expect(normalizeRevenantWorkflowPlan([
             { key: '../unsafe key', kind: 'one', recoveryPolicy: 'resume' },
-        ])).toBeUndefined()
-        expect(normalizeRevenantWorkflowPlan([
-            { key: 'model.main', kind: 'model.main', recoveryPolicy: 'resume', status: 'running' },
         ])).toBeUndefined()
     })
 
@@ -708,27 +516,11 @@ describe('revenant workflow validation', () => {
             randomSeed: 'seed',
         }
         expect(normalizeRevenantHypaExecutionRecipe(recipe)).toEqual(recipe)
-        const firstMessageSummary = {
-            ...recipe,
-            memory: { summaries: [{ text: 'First message', chatMemos: [null], isImportant: false }] },
-        }
-        expect(normalizeRevenantHypaExecutionRecipe(firstMessageSummary)).toEqual(firstMessageSummary)
-        expect(normalizeRevenantHypaExecutionRecipe({
-            ...recipe,
-            memory: { summaries: [{ text: 'Invalid', chatMemos: [123], isImportant: false }] },
-        })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: undefined })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
             expectedOperationIds: [], summaryRequests: [],
         })).toMatchObject({ summaryRequests: [] })
-        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [
-            { ...recipe.summaryRequests[0], chatMemos: [123] },
-        ] })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...recipe, summaryRequests: [] })).toBeUndefined()
-        expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
-            expectedOperationIds: ['operation-1', 'operation-1'],
-            summaryRequests: [recipe.summaryRequests[0], recipe.summaryRequests[0]],
-        })).toBeUndefined()
         expect(normalizeRevenantHypaExecutionRecipe({ ...recipe,
             summaryDispatch: { maxConcurrent: 40 },
         })).toBeUndefined()

@@ -206,7 +206,7 @@ function createBookmarkStore(db) {
         normalizeTags(incoming).forEach(tag => {
             let id = tag.id;
             if (byId.has(id) && byId.get(id).name !== tag.name) {
-                do { id = randomUUID(); } while (byId.has(id));
+                id = randomUUID();
             }
             if (!byId.has(id)) {
                 insertTag({ id, name: tag.name }, order++);

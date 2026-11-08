@@ -6,7 +6,6 @@ const { binaryBodyParser } = require('../../utils/binaryHttp.cjs');
 
 const { logger } = require('../../logs/logs.cjs');
 const { encodeRisuSaveLegacy, decodeRisuSave } = require('../../utils/risuSave.cjs');
-const { normalizeJSON } = require('../../utils/json.cjs');
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
 const { createReadStream } = require('fs');
@@ -255,7 +254,7 @@ function installAssetRoutes(app, {
             let projection = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(projection);
             if (isCloudflareTunnelRequest(req)) {
-                projection = normalizeJSON(filterRemoteOnlyFolders(projection));
+                projection = filterRemoteOnlyFolders(projection);
             }
             const value = Buffer.from(encodeRisuSaveLegacy(projection));
             const etag = computeBufferEtag(value);
@@ -372,7 +371,7 @@ function installAssetRoutes(app, {
                     let currentDb = appDataStore.exportProjection({ includeMessages: true });
                     bookmarkStore.projectDatabaseCompatibility(currentDb);
                     if (isCloudflareTunnelRequest(req)) {
-                        currentDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
+                        currentDb = filterRemoteOnlyFolders(currentDb);
                     }
                     currentEtag = computeDatabaseEtagFromObject(currentDb);
                 }
@@ -479,7 +478,7 @@ function installAssetRoutes(app, {
             if (key === 'database/database.bin') {
                 syncTrashRetention();
                 const visibleForEtag = isCloudflareTunnelRequest(req)
-                    ? normalizeJSON(filterRemoteOnlyFolders(databaseForEtag))
+                    ? filterRemoteOnlyFolders(databaseForEtag)
                     : databaseForEtag;
                 etag = computeDatabaseEtagFromObject(visibleForEtag);
                 createBackupAndRotate();

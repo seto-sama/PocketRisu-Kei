@@ -28,30 +28,6 @@ function hasOwn(value, key) {
     return Object.prototype.hasOwnProperty.call(value, key)
 }
 
-function assertJsonValue(value, label = 'value', seen = new Set()) {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return
-    if (typeof value === 'number' && Number.isFinite(value)) return
-    if (typeof value !== 'object') throw new DeltaValidationError(`${label} must contain only JSON values`)
-    if (seen.has(value)) throw new DeltaValidationError(`${label} must not contain cycles`)
-    seen.add(value)
-    if (Array.isArray(value)) {
-        for (const key of Object.keys(value)) {
-            const index = Number(key)
-            if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
-                throw new DeltaValidationError(`${label} arrays must not contain named properties`)
-            }
-        }
-        for (let index = 0; index < value.length; index += 1) {
-            if (!hasOwn(value, index)) throw new DeltaValidationError(`${label} must not contain array holes`)
-            assertJsonValue(value[index], label, seen)
-        }
-    } else {
-        if (!isPlainObject(value)) throw new DeltaValidationError(`${label} must contain only plain JSON objects`)
-        for (const key of Object.keys(value)) assertJsonValue(value[key], label, seen)
-    }
-    seen.delete(value)
-}
-
 function cloneJson(value) {
     if (Array.isArray(value)) return value.map(cloneJson)
     if (!isPlainObject(value)) return value
@@ -222,21 +198,13 @@ function diffValue(beforeExists, before, afterExists, after, path, changes, cont
 }
 
 export function createDelta(base, edited, options = {}) {
-    if (base !== undefined) assertJsonValue(base, 'base')
-    if (edited !== undefined) assertJsonValue(edited, 'edited')
-    if (!isPlainObject(options)) throw new DeltaValidationError('options must be a plain object')
-    const ignoredRootKeys = options.ignoredRootKeys ?? []
-    const ignoredMessageIds = options.ignoredMessageIds ?? []
-    if (!Array.isArray(ignoredRootKeys) || ignoredRootKeys.some(key => typeof key !== 'string')) {
-        throw new DeltaValidationError('ignoredRootKeys must be an array of strings')
-    }
-    if (!Array.isArray(ignoredMessageIds) || ignoredMessageIds.some(id => typeof id !== 'string')) {
-        throw new DeltaValidationError('ignoredMessageIds must be an array of strings')
-    }
     const changes = []
     diffValue(
         base !== undefined, base, edited !== undefined, edited, [], changes,
-        { ignoredRootKeys: new Set(ignoredRootKeys), ignoredMessageIds: new Set(ignoredMessageIds) },
+        {
+            ignoredRootKeys: new Set(options.ignoredRootKeys ?? []),
+            ignoredMessageIds: new Set(options.ignoredMessageIds ?? []),
+        },
     )
     return changes
 }
@@ -266,7 +234,6 @@ function validateSnapshot(value, label) {
     const keys = Object.keys(value)
     if (value.exists) {
         if (keys.length !== 2 || !hasOwn(value, 'value')) validation(`${label} with exists true must contain only value`)
-        assertJsonValue(value.value, label)
     } else if (keys.length !== 1 || hasOwn(value, 'value')) {
         validation(`${label} with exists false must not contain value`)
     }
@@ -474,12 +441,8 @@ function applyArrayEdits(array, changes, conflicts) {
 }
 
 export function applyDelta(current, changes) {
-    if (current !== undefined) assertJsonValue(current, 'current')
     if (!Array.isArray(changes)) validation('changes must be an array')
-    for (let index = 0; index < changes.length; index += 1) {
-        if (!hasOwn(changes, index)) validation('changes must not contain array holes')
-        validateChange(changes[index])
-    }
+    for (const change of changes) validateChange(change)
 
     let result = current === undefined ? undefined : cloneJson(current)
     const conflicts = []

@@ -123,11 +123,11 @@ function mergeRemoteCharacterOrder(originalOrder = [], remoteOrder = [], hiddenC
 }
 
 function mergeRemoteChatFolders(originalFolders = [], remoteFolders = []) {
-    const merged = cloneJson(remoteFolders) ?? [];
+    const merged = [...(remoteFolders ?? [])];
     const hasFolder = (folder) => folder?.id && merged.some(item => item?.id === folder.id);
     originalFolders.forEach((folder, index) => {
         if (!isLocalOnlyFolder(folder) || hasFolder(folder)) return;
-        merged.splice(Math.min(index, merged.length), 0, cloneJson(folder));
+        merged.splice(Math.min(index, merged.length), 0, folder);
     });
     return merged;
 }
@@ -142,42 +142,38 @@ function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolder
     const merged = [];
     for (const originalChat of originalChats ?? []) {
         if (originalChat?.folderId && hiddenChatFolderIds.has(originalChat.folderId)) {
-            merged.push(cloneJson(originalChat));
+            merged.push(originalChat);
             continue;
         }
         if (originalChat?.id && remoteById.has(originalChat.id)) {
             const remoteChat = remoteById.get(originalChat.id);
-            merged.push(cloneJson(remoteChat));
+            merged.push(remoteChat);
             usedRemote.add(remoteChat);
         }
     }
     for (const remoteChat of remoteChats ?? []) {
-        if (!usedRemote.has(remoteChat)) merged.push(cloneJson(remoteChat));
+        if (!usedRemote.has(remoteChat)) merged.push(remoteChat);
     }
 
     return merged;
 }
 
 function mergeRemoteCharacter(originalChar, remoteChar) {
-    if (!originalChar) return cloneJson(remoteChar);
-    if (!remoteChar) return cloneJson(originalChar);
-
     const hiddenChatFolderIds = new Set(
         (originalChar.chatFolders ?? [])
             .filter(isLocalOnlyFolder)
             .map(folder => folder?.id)
             .filter(Boolean)
     );
-    if (hiddenChatFolderIds.size === 0) return cloneJson(remoteChar);
+    if (hiddenChatFolderIds.size === 0) return remoteChar;
 
-    const merged = cloneJson(remoteChar);
-    merged.chatFolders = mergeRemoteChatFolders(originalChar.chatFolders, remoteChar.chatFolders);
-    merged.chats = mergeRemoteChats(
+    remoteChar.chatFolders = mergeRemoteChatFolders(originalChar.chatFolders, remoteChar.chatFolders);
+    remoteChar.chats = mergeRemoteChats(
         originalChar.chats ?? [],
         remoteChar.chats ?? [],
         hiddenChatFolderIds
     );
-    return merged;
+    return remoteChar;
 }
 
 function mergeRemoteFilteredDatabase(originalDb, remoteDb) {

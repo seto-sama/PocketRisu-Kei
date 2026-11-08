@@ -155,7 +155,7 @@ function createImageGenerationJobService({
                 logger.warn?.('[ImageGenerationJob] Bridge timeout:', job.jobId);
             }
         }, timeoutMs);
-        job.timeoutTimer.unref?.();
+        job.timeoutTimer.unref();
     }
 
     function createJob({ jobId, provider, spec }) {
@@ -371,7 +371,7 @@ function createImageGenerationJobService({
     const pruneTimer = setInterval(() => {
         pruneTerminalJobs();
     }, 60_000);
-    pruneTimer.unref?.();
+    pruneTimer.unref();
 
     return {
         abortWorkflow: async workflowId => {

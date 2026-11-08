@@ -558,8 +558,8 @@ describe('remote and server-owned projection transforms', () => {
 
 it('limits hash diagnostics to the same remote and plugin-filtered startup projection', () => {
     const { store, service } = createService({
-        filterRemoteProjection: (database: any) => ({
-            ...database, localOnlyRoot: undefined,
+        filterRemoteProjection: ({ localOnlyRoot: _hidden, ...database }: any) => ({
+            ...database,
             characters: database.characters.filter((character: any) => character.chaId !== 'hidden'),
         }),
     })
