@@ -40,6 +40,7 @@
     getFirstMessage,
     processHypaV3Message,
     getCategoryName,
+    translateChatMessage,
   } from "./utils";
   import IconButton from "../../UI/components/IconButton.svelte";
   import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
@@ -123,27 +124,25 @@
 
     isTranslating = true;
     translation = language.loading;
+    await revealField(() => summaryItemState.translationRef);
 
-    // Let Svelte render the translation field before focusing it.
-    await tick();
-
-    if (summaryItemState.translationRef) {
-      summaryItemState.translationRef.focus();
-      summaryItemState.translationRef.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-
-    const result = await translate(summary.text, regenerate);
-
-    translation = result;
+    translation = await translationOrError(
+      translateHTML(summary.text, false, "", -1, regenerate)
+    );
     isTranslating = false;
   }
 
-  async function translate(text: string, regenerate: boolean): Promise<string> {
+  // Waits for Svelte to render the translation field, then brings it into view.
+  async function revealField(getRef: () => HTMLTextAreaElement | null): Promise<void> {
+    await tick();
+    const ref = getRef();
+    ref?.focus();
+    ref?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  async function translationOrError(task: Promise<string>): Promise<string> {
     try {
-      return await translateHTML(text, false, "", -1, regenerate);
+      return await task;
     } catch (error) {
       return `Translation failed: ${error}`;
     }
@@ -154,19 +153,7 @@
   }
 
   function isOrphan(): boolean {
-    const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[getChatPage(DBState.db.characters[$selectedCharID])];
-
-    for (const chatMemo of summary.chatMemos) {
-      if (chatMemo == null) {
-        if (!getFirstMessage()) return true;
-      } else {
-        if (chat.message.findIndex((m) => m.chatId === chatMemo) === -1)
-          return true;
-      }
-    }
-
-    return false;
+    return summary.chatMemos.some((chatMemo) => !findChatMemoMessage(chatMemo));
   }
 
   async function toggleReroll(): Promise<void> {
@@ -205,32 +192,35 @@
     }
   }
 
-  async function getMessageFromChatMemo(
+  function findChatMemoMessage(
     chatMemo: string | null
-  ): Promise<Message | null> {
-    const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[getChatPage(DBState.db.characters[$selectedCharID])];
-    const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
-
-    let msg = null;
-    let msgIndex = -1;
-
+  ): { msg: Message; msgIndex: number } | null {
     if (chatMemo == null) {
       const firstMessage = getFirstMessage();
 
-      if (!firstMessage) return null;
-      msg = { role: "char", data: firstMessage };
-    } else {
-      msgIndex = chat.message.findIndex((m) => m.chatId === chatMemo);
-      if (msgIndex === -1) return null;
-      msg = chat.message[msgIndex];
+      return firstMessage
+        ? { msg: { role: "char", data: firstMessage }, msgIndex: -1 }
+        : null;
     }
 
+    const char = DBState.db.characters[$selectedCharID];
+    const chat = char.chats[getChatPage(char)];
+    const msgIndex = chat.message.findIndex((m) => m.chatId === chatMemo);
+    return msgIndex === -1 ? null : { msg: chat.message[msgIndex], msgIndex };
+  }
+
+  async function getMessageFromChatMemo(
+    chatMemo: string | null
+  ): Promise<Message | null> {
+    const found = findChatMemoMessage(chatMemo);
+    return found ? await processFoundMessage(found) : null;
+  }
+
+  async function processFoundMessage(found: { msg: Message; msgIndex: number }): Promise<Message> {
     return await processHypaV3Message(
-      msg,
-      msgIndex,
-      shouldProcess,
-      chatMemo == null
+      found.msg,
+      found.msgIndex,
+      getCurrentHypaV3Preset().settings.processRegexScript
     );
   }
 
@@ -265,21 +255,11 @@
 
     isTranslatingRerolled = true;
     rerolledTranslation = language.loading;
+    await revealField(() => summaryItemState.rerolledTranslationRef);
 
-    // Let Svelte render the translation field before focusing it.
-    await tick();
-
-    if (summaryItemState.rerolledTranslationRef) {
-      summaryItemState.rerolledTranslationRef.focus();
-      summaryItemState.rerolledTranslationRef.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-
-    const result = await translate(rerolled, regenerate);
-
-    rerolledTranslation = result;
+    rerolledTranslation = await translationOrError(
+      translateHTML(rerolled, false, "", -1, regenerate)
+    );
     isTranslatingRerolled = false;
   }
 
@@ -305,30 +285,19 @@
       return;
     }
 
-    const message = await getMessageFromChatMemo(
-      expandedMessageState.selectedChatMemo
+    const found = findChatMemoMessage(expandedMessageState.selectedChatMemo);
+    if (!found) return;
+    const message = await processFoundMessage(found);
+
+    const state = expandedMessageState;
+    state.isTranslating = true;
+    state.translation = language.loading;
+    await revealField(() => state.translationRef);
+
+    state.translation = await translationOrError(
+      translateChatMessage(found.msg, found.msgIndex, message.data, regenerate)
     );
-
-    if (!message) return;
-
-    expandedMessageState.isTranslating = true;
-    expandedMessageState.translation = language.loading;
-
-    // Let Svelte render the translation field before focusing it.
-    await tick();
-
-    if (expandedMessageState.translationRef) {
-      expandedMessageState.translationRef.focus();
-      expandedMessageState.translationRef.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-
-    const result = await translate(message.data, regenerate);
-
-    expandedMessageState.translation = result;
-    expandedMessageState.isTranslating = false;
+    state.isTranslating = false;
   }
 
   function isMessageExpanded(chatMemo: string | null): boolean {

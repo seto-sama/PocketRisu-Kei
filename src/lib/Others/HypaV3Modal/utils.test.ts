@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
     processScriptFull: vi.fn(async (_char, data: string) => ({
       data: `regex:${data}`,
     })),
+    translateHTML: vi.fn(async (html: string) => html),
+    parseChatDisplayMessage: vi.fn((data: string) => `display:${data}`),
   };
 });
 
@@ -31,6 +33,7 @@ vi.mock("src/ts/stores.svelte", () => ({
 vi.mock("src/ts/process/scripts", () => ({
   risuChatParser: mocks.risuChatParser,
   processScriptFull: mocks.processScriptFull,
+  parseChatDisplayMessage: mocks.parseChatDisplayMessage,
 }));
 
 vi.mock("src/ts/process/memory/hypav3", () => ({
@@ -47,7 +50,15 @@ vi.mock("src/lang", () => ({
   language: {},
 }));
 
-import { processHypaV3Message, processMessageCBS } from "./utils";
+vi.mock("src/ts/translator/translator", () => ({
+  translateHTML: mocks.translateHTML,
+}));
+
+vi.mock("src/ts/util", () => ({
+  getUserName: () => "Persona",
+}));
+
+import { processHypaV3Message, processMessageCBS, translateChatMessage } from "./utils";
 
 describe("HypaV3 modal message processing", () => {
   beforeEach(() => {
@@ -92,7 +103,7 @@ describe("HypaV3 modal message processing", () => {
   });
 
   it("provides the first-message CBS condition for greetings", () => {
-    processMessageCBS({ role: "char", data: "{{isfirstmsg}}" }, -1, true);
+    processMessageCBS({ role: "char", data: "{{isfirstmsg}}" }, -1);
 
     expect(mocks.risuChatParser).toHaveBeenCalledWith(
       "{{isfirstmsg}}",
@@ -103,5 +114,22 @@ describe("HypaV3 modal message processing", () => {
         },
       })
     );
+  });
+
+  it("translates raw text under the chat's masked cache key", async () => {
+    Object.assign(mocks.DBState.db, { translatorType: "llm", translateBeforeHTMLFormatting: true });
+    const tag = '<lb-xnai translate="no" id="scene-1" operation="op-a" scene="1"></lb-xnai>';
+    const message = { role: "user" as const, data: `Hi\n${tag}` };
+    mocks.translateHTML.mockResolvedValueOnce('Hallo\n<x-notrans n="0"></x-notrans>');
+
+    const result = await translateChatMessage(message, 2, "unused", false);
+
+    expect(mocks.parseChatDisplayMessage).toHaveBeenCalledWith(message.data, {
+      name: "Persona",
+      chatID: 2,
+      cbsConditions: { firstmsg: false, chatRole: "user" },
+    });
+    expect(mocks.translateHTML.mock.calls[0][0]).toBe('display:Hi\n<x-notrans n="0"></x-notrans>');
+    expect(result).toBe(`Hallo\n${tag}`);
   });
 });

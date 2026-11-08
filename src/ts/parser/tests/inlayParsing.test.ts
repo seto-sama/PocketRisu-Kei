@@ -103,6 +103,14 @@ describe('inlay parsing', () => {
         }
     })
 
+    it('breaks after an inlay except when a closing tag follows it on the same line', () => {
+        const parsed = parseInlayAssets('Text {{inlay::a}} more\n<button>{{inlay::b}}</button><dialog></dialog>')
+
+        expect(parsed.replace(/<div[^>]*>/g, '<div>')).toBe(
+            'Text <div><div></div></div>\n\n more\n<button><div><div></div></div></button><dialog></dialog>',
+        )
+    })
+
     it('leaves missing or invalid dimensions unset', async () => {
         const sizes = [{ width: 1200 }, { width: Infinity, height: 800 }]
         const ids = sizes.map((_, index) => `invalid-dimensions-${index}`)

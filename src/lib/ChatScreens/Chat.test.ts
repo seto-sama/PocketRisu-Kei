@@ -74,7 +74,10 @@ vi.mock('src/ts/globalApi.svelte', () => ({
 }))
 vi.mock('src/ts/gui/colorscheme', () => ({ ColorSchemeTypeStore: storeMocks.HideIconStore }))
 vi.mock('src/ts/process/scriptings', () => ({ runLuaInteractionTrigger: interactionMocks.runLuaInteractionTrigger }))
-vi.mock('src/ts/process/scripts', () => ({ risuChatParser: (value: string) => value }))
+vi.mock('src/ts/process/scripts', () => ({
+    risuChatParser: (value: string) => value,
+    parseChatDisplayMessage: (value: string) => value,
+}))
 vi.mock('src/ts/process/triggers', () => ({ runTrigger: interactionMocks.runTrigger }))
 vi.mock('src/ts/process/tts', () => ({ sayTTS: vi.fn() }))
 vi.mock('src/ts/util', () => ({
@@ -138,46 +141,22 @@ vi.mock('src/ts/imageGeneration/addInlayToCharacter', () => ({
 }))
 vi.mock('src/ts/characters', () => ({ getCharImage: (value: string) => value }))
 vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => ({ destroy() {} }) }))
-vi.mock('src/ts/process/revenant/recovery', () => ({
+// The real display decision runs; only server-side job recovery is stubbed out.
+vi.mock('src/ts/process/revenant/auxiliary', async importOriginal => ({
+    ...await importOriginal<typeof import('src/ts/process/revenant/auxiliary')>(),
+    acknowledgeRecoverableTranslation: async () => {},
+    getRecoverableTranslationCacheKeyForTarget: () => null,
+    isRecoverableTranslationSnapshotLoaded: () => true,
+    subscribeRecoverableTranslations: () => () => {},
+}))
+vi.mock('src/ts/process/revenant/recovery', async () => ({
     configureRevenantGenerationChatRecovery: () => {},
-    createRevenantChatTranslationRecoveryContext: () => ({ trackSnapshot: () => {} }),
-    createRevenantChatTranslationRecovery: () => ({
-        pending: false,
-        inspectionReady: true,
-        capture: () => ({ pending: false, cacheKey: null }),
-        shouldDisplayTranslation: async (
-            snapshot: { cacheKey: string | null },
-            options: {
-                data: string
-                translated: boolean
-                streaming: boolean
-                autoTranslationSuppressed?: boolean
-                lastOutputAutoTranslationEligible?: boolean
-                parseMarkdown: (data: string, mode: 'pretranslate') => Promise<string>
-            },
-        ) => {
-            if (options.streaming || !options.data.trim()) return false
-            if (!options.translated && options.autoTranslationSuppressed) return false
-            const display = options.translated || Boolean(storeMocks.DBState.db.autoTranslate)
-            if (!display) return false
-            const lastOutputOnly = storeMocks.DBState.db.autoTranslateLastOutputOnly === true
-            const cachedOnly = storeMocks.DBState.db.autoTranslateCachedOnly === true
-                && storeMocks.DBState.db.translatorType === 'llm'
-            if (!options.translated) {
-                if (lastOutputOnly && options.lastOutputAutoTranslationEligible) return true
-                if (lastOutputOnly && !cachedOnly) return false
-            }
-            const cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
-            snapshot.cacheKey = cacheKey
-            if (
-                cachedOnly
-                && !options.translated
-            ) return await translatorMocks.getLLMCache(cacheKey) !== null
-            return true
-        },
-        waitForResult: async () => true,
-        acknowledgeResolved: async () => {},
-    }),
+    ...await vi.importActual<typeof import('src/ts/process/revenant/recovery/chatTranslationRecovery.svelte')>(
+        'src/ts/process/revenant/recovery/chatTranslationRecovery.svelte',
+    ),
+}))
+vi.mock('src/ts/process/revenant/recovery/translationRecovery', () => ({
+    recoverRevenantTranslationJobs: async () => {},
 }))
 
 import { mount, tick, unmount, type ComponentProps } from 'svelte'
@@ -1185,6 +1164,92 @@ describe('Chat editing', () => {
         else {
             await vi.waitFor(() => expect(requestImmediateSave).toHaveBeenCalled())
         }
+    })
+
+    it('keeps a cached translation shown while a Lua button runs', async () => {
+        const buttonMessage = '<button risu-btn="regen">Regen</button>'
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        const character = DBState.db.characters[0]
+        character.chaId = 'character-1'
+        const chat = character.chats[0]
+        chat.id = 'room-1'
+        chat.message[0].data = buttonMessage
+        translatorMocks.translateHTML.mockImplementation(async (value: string) =>
+            `${value}<p>Translated view</p>`
+        )
+        translatorMocks.getLLMCache.mockResolvedValue('cached')
+        let complete!: (result: { chat: typeof chat, chatSaved: boolean }) => void
+        interactionMocks.runLuaInteractionTrigger.mockImplementationOnce(() => new Promise(resolve => {
+            complete = resolve
+            // An intermediate render while the trigger is still running.
+            storeMocks.ReloadGUIPointer.set(1)
+        }))
+
+        const { target } = mountChat({ message: buttonMessage, renderCacheKey: 'room:lua-regen' })
+        await waitForText(target, 'Regen')
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')!.click()
+        await waitForText(target, 'Translated view')
+
+        const settle = () => new Promise(resolve => setTimeout(resolve, 50))
+        target.querySelector<HTMLButtonElement>('[risu-btn="regen"]')!.click()
+        await vi.waitFor(() => expect(complete).toBeTypeOf('function'))
+        await settle()
+        expect(target.textContent).toContain('Translated view')
+
+        complete({ chat, chatSaved: true })
+        await settle()
+        expect(target.textContent).toContain('Translated view')
+    })
+
+    it('keeps the translation link when a Lua button only removes a translate="no" element', async () => {
+        const before = '<p>Hello</p><div translate="no"><button risu-btn="delete-slot">Delete</button></div>'
+        const after = '<p>Hello</p>'
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        const character = DBState.db.characters[0]
+        character.chaId = 'character-1'
+        const chat = character.chats[0]
+        chat.id = 'room-1'
+        chat.message[0].data = before
+        const cache = new Map<string, string>()
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) => cache.get(key) ?? null)
+        translatorMocks.copyLLMCache.mockImplementation(async (sourceKey: string, targetKey: string) => {
+            const cached = cache.get(sourceKey)
+            if (cached === undefined) return false
+            cache.set(targetKey, cached)
+            return true
+        })
+        translatorMocks.translateHTML.mockImplementation(async (value: string) => {
+            const translated = cache.get(value) ?? value.replace('Hello', 'Hallo')
+            cache.set(value, translated)
+            return translated
+        })
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = createClassComponent({
+            component: Chat,
+            target,
+            props: { message: before, name: 'User', role: 'user', idx: 0, totalLength: 2 },
+        })
+        componentCleanups.push(() => component.$destroy())
+        interactionMocks.runLuaInteractionTrigger.mockImplementationOnce(async () => {
+            chat.message[0].data = after
+            component.$set({ message: after })
+            await tick()
+            return { chat, chatSaved: true }
+        })
+
+        await waitForText(target, 'Hello')
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')!.click()
+        await waitForText(target, 'Hallo')
+
+        target.querySelector<HTMLButtonElement>('[risu-btn="delete-slot"]')!.click()
+        await vi.waitFor(() => expect(translatorMocks.copyLLMCache).toHaveBeenCalledWith(
+            '<p>Hello</p><x-notrans n="0"></x-notrans>',
+            '<p>Hello</p>',
+        ))
+        await waitForText(target, 'Hallo', 'Delete')
     })
 
     it('opens blank historical and final editors independently', async () => {

@@ -1,10 +1,13 @@
 import { get } from "svelte/store";
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
 
-import { processScriptFull, risuChatParser } from "src/ts/process/scripts";
+import { parseChatDisplayMessage, processScriptFull, risuChatParser } from "src/ts/process/scripts";
 import { type Message } from "src/ts/storage/database.svelte";
 import { alertConfirm } from "src/ts/alert";
 import { DBState, selectedCharID } from "src/ts/stores.svelte";
+import { translateHTML } from "src/ts/translator/translator";
+import { maskUntranslatable } from "src/ts/translator/translationMask";
+import { getUserName } from "src/ts/util";
 import { language } from "src/lang";
 import type { Category } from "./types";
 import {
@@ -32,55 +35,40 @@ export function handleDualAction(
   params: DualActionParams = {}
 ) {
   const DOUBLE_TAP_DELAY = 300;
-
-  const state = {
-    lastTap: 0,
-    tapTimeout: null,
-  };
+  const isTouch = "ontouchend" in window;
+  let lastTap = 0;
+  let tapTimeout: number | undefined;
 
   const handleTouch = (event: TouchEvent) => {
-    const currentTime = new Date().getTime();
-    const tapLength = currentTime - state.lastTap;
+    const now = Date.now();
+    const sinceLastTap = now - lastTap;
 
-    if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
+    if (sinceLastTap > 0 && sinceLastTap < DOUBLE_TAP_DELAY) {
       event.preventDefault();
-      window.clearTimeout(state.tapTimeout);
+      window.clearTimeout(tapTimeout);
+      lastTap = 0;
       params.onAlternativeAction?.();
-      state.lastTap = 0;
-    } else {
-      state.lastTap = currentTime;
-      // Defer the main action so a second tap can trigger the alternative.
-      state.tapTimeout = window.setTimeout(() => {
-        if (state.lastTap === currentTime) {
-          params.onMainAction?.();
-        }
-      }, DOUBLE_TAP_DELAY);
+      return;
     }
+    lastTap = now;
+    // Defer the main action so a second tap can trigger the alternative.
+    tapTimeout = window.setTimeout(() => {
+      if (lastTap === now) params.onMainAction?.();
+    }, DOUBLE_TAP_DELAY);
   };
 
   const handleClick = (event: MouseEvent) => {
-    if (event.shiftKey) {
-      params.onAlternativeAction?.();
-    } else {
-      params.onMainAction?.();
-    }
+    (event.shiftKey ? params.onAlternativeAction : params.onMainAction)?.();
   };
 
-  if ("ontouchend" in window) {
-    element.addEventListener("touchend", handleTouch);
-  } else {
-    element.addEventListener("click", handleClick);
-  }
+  if (isTouch) element.addEventListener("touchend", handleTouch);
+  else element.addEventListener("click", handleClick);
 
   return {
     destroy() {
-      if ("ontouchend" in window) {
-        element.removeEventListener("touchend", handleTouch);
-      } else {
-        element.removeEventListener("click", handleClick);
-      }
-
-      window.clearTimeout(state.tapTimeout);
+      if (isTouch) element.removeEventListener("touchend", handleTouch);
+      else element.removeEventListener("click", handleClick);
+      window.clearTimeout(tapTimeout);
     },
     update(newParams: DualActionParams) {
       params = newParams;
@@ -90,66 +78,59 @@ export function handleDualAction(
 
 export function getFirstMessage(): string | null {
   const char = DBState.db.characters[get(selectedCharID)];
-  const chat = char.chats[getChatPage(DBState.db.characters[get(selectedCharID)])];
+  const fmIndex = char.chats[getChatPage(char)].fmIndex ?? -1;
 
-  return chat.fmIndex === -1
-    ? char.firstMessage
-    : char.alternateGreetings?.[chat.fmIndex]
-    ? char.alternateGreetings[chat.fmIndex]
-    : null;
+  return (fmIndex === -1 ? char.firstMessage : char.alternateGreetings?.[fmIndex]) || null;
 }
 
-export function processMessageCBS(
-  msg: Message,
-  msgIndex: number = -1,
-  firstMessage: boolean = false
-): Message {
-  const char = DBState.db.characters[get(selectedCharID)];
-
+// Messages are addressed by chat index; -1 is the greeting.
+export function processMessageCBS(msg: Message, msgIndex: number): Message {
   return {
     ...msg,
     data: risuChatParser(msg.data, {
-      chara: char,
+      chara: DBState.db.characters[get(selectedCharID)],
       chatID: msgIndex,
       role: msg.role,
       rmVar: true,
-      cbsConditions: {
-        chatRole: msg.role,
-        firstmsg: firstMessage,
-      },
+      cbsConditions: { chatRole: msg.role, firstmsg: msgIndex === -1 },
     }),
   };
 }
 
+// Raw-text LLM translation keys on the chat's display text with translate="no"
+// masking, so this shares the chat's cache. Otherwise the chat key is rendered
+// HTML, and fallbackText is translated as is.
+export async function translateChatMessage(
+  msg: Message,
+  msgIndex: number,
+  fallbackText: string,
+  regenerate: boolean
+): Promise<string> {
+  if (DBState.db.translatorType !== "llm" || !DBState.db.translateBeforeHTMLFormatting) {
+    return await translateHTML(fallbackText, false, "", -1, regenerate);
+  }
+  const char = DBState.db.characters[get(selectedCharID)];
+  const masked = maskUntranslatable(parseChatDisplayMessage(msg.data, {
+    name: msg.role === "user" ? getUserName() : char.name,
+    chatID: msgIndex,
+    cbsConditions: { firstmsg: msgIndex === -1, chatRole: msg.role },
+  }));
+  return masked.restore(await translateHTML(masked.source, false, "", -1, regenerate));
+}
+
 export async function processHypaV3Message(
   msg: Message,
-  msgIndex: number = -1,
-  applyRegexScript: boolean = false,
-  firstMessage: boolean = false
+  msgIndex: number,
+  applyRegexScript: boolean
 ): Promise<Message> {
+  const processed = processMessageCBS(msg, msgIndex);
+  if (!applyRegexScript) return processed;
+
   const char = DBState.db.characters[get(selectedCharID)];
-  const cbsProcessedMessage = processMessageCBS(msg, msgIndex, firstMessage);
-
-  if (!applyRegexScript) {
-    return cbsProcessedMessage;
-  }
-
-  const newData: string = (
-    await processScriptFull(
-      char,
-      cbsProcessedMessage.data,
-      "editprocess",
-      msgIndex,
-      {
-        chatRole: msg.role,
-      }
-    )
-  ).data;
-
-  return {
-    ...msg,
-    data: newData,
-  };
+  const { data } = await processScriptFull(char, processed.data, "editprocess", msgIndex, {
+    chatRole: msg.role,
+  });
+  return { ...msg, data };
 }
 
 export async function getNextSummarizationTarget(
@@ -159,37 +140,25 @@ export async function getNextSummarizationTarget(
   const chat = char.chats[getChatPage(char)];
   const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
 
-  const lastSummary = hypaV3Data.summaries.at(-1);
-  if (lastSummary) {
-    const lastMessageIndex = chat.message.findIndex(
-      (message) => message.chatId === lastSummary.chatMemos.at(-1)
-    );
-    if (lastMessageIndex !== -1) {
-      const nextMessage = chat.message[lastMessageIndex + 1] ?? null;
-      return nextMessage
-        ? await processHypaV3Message(
-            nextMessage,
-            lastMessageIndex + 1,
-            shouldProcess
-          )
-        : null;
-    }
+  const lastChatMemo = hypaV3Data.summaries.at(-1)?.chatMemos.at(-1);
+  const lastIndex = lastChatMemo == null
+    ? -1
+    : chat.message.findIndex((message) => message.chatId === lastChatMemo);
+  if (lastIndex !== -1) {
+    const next = chat.message[lastIndex + 1];
+    return next ? await processHypaV3Message(next, lastIndex + 1, shouldProcess) : null;
   }
 
   const firstMessage = getFirstMessage();
   if (firstMessage) {
-    const message: Message = {
-      role: "char",
-      chatId: "first",
-      data: firstMessage,
-    };
-    return await processHypaV3Message(message, -1, shouldProcess, true);
+    return await processHypaV3Message(
+      { role: "char", chatId: "first", data: firstMessage },
+      -1,
+      shouldProcess
+    );
   }
 
-  const firstChatMessage = chat.message[0] ?? null;
-  return firstChatMessage
-    ? await processHypaV3Message(firstChatMessage, 0, shouldProcess)
-    : null;
+  return chat.message[0] ? await processHypaV3Message(chat.message[0], 0, shouldProcess) : null;
 }
 
 export function getCategoryName(
@@ -217,26 +186,15 @@ export function createCategoryId(): string {
 
 export function shouldShowSummary(
   summary: SerializableSummary,
-  index: number, 
-  showImportantOnly: boolean, 
+  showImportantOnly: boolean,
   selectedCategoryFilter: string
 ): boolean {
-  if (showImportantOnly && !summary.isImportant) {
-    return false;
-  }
-
-  if (selectedCategoryFilter !== "all") {
-    const summaryCategory = summary.categoryId || "";
-    if (summaryCategory !== selectedCategoryFilter) {
-      return false;
-    }
-  }
-
-  return true;
+  return (
+    (!showImportantOnly || summary.isImportant === true) &&
+    (selectedCategoryFilter === "all" || (summary.categoryId || "") === selectedCategoryFilter)
+  );
 }
 
 export function isGuidLike(str: string): boolean {
-  const strTrimed = str.trim();
-  if (strTrimed.length < 4) return false;
-  return /^[0-9a-f]{4,12}(-[0-9a-f]{4,12}){0,4}-?$/i.test(strTrimed);
+  return /^[0-9a-f]{4,12}(-[0-9a-f]{4,12}){0,4}-?$/i.test(str.trim());
 }

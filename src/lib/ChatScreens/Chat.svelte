@@ -50,7 +50,7 @@
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { runLuaInteractionTrigger } from 'src/ts/process/scriptings'
-    import { risuChatParser } from "src/ts/process/scripts"
+    import { parseChatDisplayMessage, risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
     import { commitTriggerChat } from 'src/ts/process/triggerOrigin'
     import { sayTTS } from "src/ts/process/tts"
@@ -65,6 +65,7 @@
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
+    import { getTranslationSourceKey, stripTranslationPlaceholders } from "../../ts/translator/translationMask"
     import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, type Chat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
@@ -121,6 +122,8 @@
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
     let autoTranslationSuppressed = $state(false)
+    // Set while a button/form trigger runs: an active translation stays only if cached.
+    let translationCacheOnly = $state(false)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
@@ -415,27 +418,18 @@
         })
     }
 
-    function getCbsCondition(){
-        try{
-            const cbsConditions:CbsConditions = {
-                firstmsg: firstMessage ?? false,
-                chatRole: DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])]?.message?.[idx]?.role ?? role ?? null,
-            }
-            return cbsConditions
-        }
-        catch(e){
-            return {
-                firstmsg: firstMessage ?? false,
-                chatRole: null,
-            }
+    function getCbsCondition(): CbsConditions {
+        const char = DBState.db.characters[selIdState.selId]
+        return {
+            firstmsg: firstMessage,
+            chatRole: char?.chats[getChatPage(char)]?.message?.[idx]?.role ?? role ?? null,
         }
     }
 
     async function getTranslationCacheKey(source = msgDisplay): Promise<string> {
-        if(DBState.db.translateBeforeHTMLFormatting){
-            return source
-        }
-        return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
+        return getTranslationSourceKey(DBState.db.translateBeforeHTMLFormatting
+            ? source
+            : await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition()))
     }
 
     function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
@@ -565,6 +559,7 @@
     function resetTranslationState() {
         translated = false
         retranslate = false
+        translationCacheOnly = false
     }
 
     // Reset translation when local edits or canonical sync replace the source,
@@ -587,7 +582,8 @@
         if (!identityChanged && !settledMessageChanged) return
         const preserveTranslation = !identityChanged
             && settledMessageChanged
-            && preservedTranslationMessage === nextSource.message
+            && (preservedTranslationMessage === nextSource.message
+                || translationCacheOnly && translated)
         preservedTranslationMessage = null
         if (preserveTranslation) {
             retranslate = false
@@ -663,7 +659,7 @@
     }
 
     function getDisplayMessage(message: string) {
-        return risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+        return parseChatDisplayMessage(message, {name, chatID: idx, cbsConditions: getCbsCondition()})
     }
 
     function displaya(message:string){
@@ -781,11 +777,39 @@
         chatId: string,
         run: () => Promise<{ chat: Chat, chatSaved?: boolean } | null | undefined>,
     ) {
-        resetTranslationState()
-        const result = await run()
-        if (result && (result.chatSaved || await commitTriggerChat({ characterId, chatId }, result.chat))) {
-            invalidateChatMessageRender(idx)
+        // Upstream keeps translation on across triggers. Keep it too, but only
+        // from cache, so trigger output never starts a new translation request.
+        translationCacheOnly = translated
+        // Read before the trigger can change the message; awaited after it.
+        const sourceKey = translated && DBState.db.translatorType === 'llm'
+            ? getTranslationCacheKey().catch(() => null)
+            : null
+        try {
+            const result = await run()
+            if (result && (result.chatSaved || await commitTriggerChat({ characterId, chatId }, result.chat))) {
+                invalidateChatMessageRender(idx)
+            }
+            // Let the committed message render while still cache-only.
+            await tick()
+            const resolvedSourceKey = await sourceKey
+            if (resolvedSourceKey) await keepTranslationLinkAcrossUntranslatableEdit(resolvedSourceKey)
+        } finally {
+            translationCacheOnly = false
         }
+    }
+
+    // Like the editor's keep-link option, for a trigger that only added or
+    // removed translate="no" elements (e.g. deleting an image slot).
+    async function keepTranslationLinkAcrossUntranslatableEdit(sourceKey: string) {
+        const targetKey = await getTranslationCacheKey()
+        if (
+            targetKey === sourceKey
+            || stripTranslationPlaceholders(targetKey) !== stripTranslationPlaceholders(sourceKey)
+            || !await copyLLMCache(sourceKey, targetKey)
+        ) return
+        translated = true
+        translationRevision += 1
+        await tick()
     }
 
     async function handleFormSubmitWithin(event: SubmitEvent) {
@@ -1086,6 +1110,7 @@
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
                 {autoTranslationSuppressed}
+                {translationCacheOnly}
                 {lastOutputAutoTranslationCandidate}
                 {adjacentSwipeMessages}
                 modelShortName={messageGenerationInfo?.model ?? ''}

@@ -331,3 +331,19 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
 
 const rgx = /(?:{{|<)(.+?)(?:}}|>)/gm
 export const risuChatParser = risuChatParserOrg
+
+// A chat bubble's display text. Raw-text LLM translation keys on it, so the
+// HypaV3 views rebuild it with the same arguments to share that cache.
+export function parseChatDisplayMessage(data: string, arg: {
+    name: string
+    chatID: number
+    cbsConditions: CbsConditions
+}): string {
+    return risuChatParserOrg(data, {
+        chara: arg.name,
+        chatID: arg.chatID,
+        rmVar: true,
+        visualize: true,
+        cbsConditions: arg.cbsConditions,
+    })
+}

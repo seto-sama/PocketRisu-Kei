@@ -1110,44 +1110,40 @@ export function replaceBrokenChatImage(img: HTMLImageElement) {
     img.src = hiddenImageDataUri(DBState.db?.colorScheme)
 }
 
+// An inlay directly before a closing tag is the last child of an element; a
+// blank line there would split that element into a stray Markdown paragraph.
+const closingTagAhead = /[ \t]*<\//y
+
 export function parseInlayAssets(data:string){
-    const inlayMatch = data.match(inlayTokenRegex)
-    if(inlayMatch){
-        for(const inlay of inlayMatch){
-            const id = inlay.substring(inlay.indexOf('::') + 2, inlay.length - 2)
-            const escapedId = md.utils.escapeHtml(id)
-            const prefix = `<div class="risu-inlay-image" ${INLAY_VIEWER_ID_ATTRIBUTE}="${escapedId}">`
-            const postfix = `</div>\n\n`
+    return data.replace(inlayTokenRegex, (inlay:string, _kind:string, id:string, offset:number, source:string) => {
+        const escapedId = md.utils.escapeHtml(id)
+        const prefix = `<div class="risu-inlay-image" ${INLAY_VIEWER_ID_ATTRIBUTE}="${escapedId}">`
+        closingTagAhead.lastIndex = offset + inlay.length
+        const postfix = closingTagAhead.test(source) ? '</div>' : '</div>\n\n'
 
-            let cached = blobUrlCache.get(id)
-            if(!cached){
-                // Keep a minimal box for IntersectionObserver without flashing a loading surface.
-                const placeholder = `${prefix}<div ${INLAY_ID_ATTRIBUTE}="${escapedId}" class="risu-inlay-placeholder"></div>${postfix}`
-                data = data.replace(inlay, placeholder)
-                continue
-            }
-
-            const url = cached.url
-            switch(cached.type){
-                case 'image':
-                    if(shouldHideImages()){
-                        data = data.replace(inlay, `${prefix}${imageNoticeHtml('hidden')}${postfix}`)
-                        break
-                    }
-                    const dimensions = cached.dimensions
-                    const sizeAttributes = dimensions ? ` width="${dimensions.width}" height="${dimensions.height}"` : ''
-                    data = data.replace(inlay, `${prefix}<img src="${url}"${sizeAttributes} role="button" tabindex="0"/>${postfix}`)
-                    break
-                case 'video':
-                    data = data.replace(inlay, `${prefix}<video controls><source src="${url}" type="video/mp4"></video>${postfix}`)
-                    break
-                case 'audio':
-                    data = data.replace(inlay, `${prefix}<audio controls><source src="${url}" type="audio/mpeg"></audio>${postfix}`)
-                    break
-            }
+        const cached = blobUrlCache.get(id)
+        if(!cached){
+            // Keep a minimal box for IntersectionObserver without flashing a loading surface.
+            return `${prefix}<div ${INLAY_ID_ATTRIBUTE}="${escapedId}" class="risu-inlay-placeholder"></div>${postfix}`
         }
-    }
-    return data
+
+        const url = cached.url
+        switch(cached.type){
+            case 'image': {
+                if(shouldHideImages()){
+                    return `${prefix}${imageNoticeHtml('hidden')}${postfix}`
+                }
+                const dimensions = cached.dimensions
+                const sizeAttributes = dimensions ? ` width="${dimensions.width}" height="${dimensions.height}"` : ''
+                return `${prefix}<img src="${url}"${sizeAttributes} role="button" tabindex="0"/>${postfix}`
+            }
+            case 'video':
+                return `${prefix}<video controls><source src="${url}" type="video/mp4"></video>${postfix}`
+            case 'audio':
+                return `${prefix}<audio controls><source src="${url}" type="audio/mpeg"></audio>${postfix}`
+        }
+        return inlay
+    })
 }
 
 const resolveQueue: { el: HTMLElement, id: string }[] = []

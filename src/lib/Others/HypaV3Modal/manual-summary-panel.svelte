@@ -1,11 +1,13 @@
 <script lang="ts">
   import { ChevronDownIcon, ScrollTextIcon } from "@lucide/svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
 
   import { language } from "src/lang";
   import { alertNormalWait } from "src/ts/alert";
   import type { OpenAIChat } from "src/ts/process/index.svelte";
   import {
+    getCurrentHypaV3Preset,
     summarize,
     type SerializableHypaV3Data,
   } from "src/ts/process/memory/hypav3";
@@ -18,6 +20,7 @@
     getFirstMessage,
     processHypaV3Message,
     processMessageCBS,
+    translateChatMessage,
   } from "./utils";
   import Input from "../../UI/components/Input.svelte";
   import Button from "../../UI/components/Button.svelte";
@@ -49,10 +52,10 @@
   }: Props = $props();
 
   let manualSummarySearch = $state("");
-  let manualSelectedMessageIndices = $state(new Set<number>());
+  const manualSelectedMessageIndices = new SvelteSet<number>();
   let manualSummaryState = $state<SummaryResultState | null>(null);
   let manualMessageTranslations = $state<Record<number, string>>({});
-  let manualMessageTranslating = $state(new Set<number>());
+  const manualMessageTranslating = new SvelteSet<number>();
 
   $effect(() => {
     if (!enabled) {
@@ -61,176 +64,133 @@
     }
   });
 
-  function getManualSummaryCutoffIndex(): number {
-    const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[getChatPage(char)];
-    const lastSummary = hypaV3Data?.summaries?.at(-1);
-    const lastChatMemo = lastSummary?.chatMemos?.at(-1);
-
+  // Messages after the last summary: -1 also lists the greeting, -2 lists everything.
+  function getManualSummaryCutoffIndex(messages: Message[]): number {
+    const lastSummary = hypaV3Data.summaries.at(-1);
     if (!lastSummary) return -2;
+
+    const lastChatMemo = lastSummary.chatMemos.at(-1);
     if (lastChatMemo == null) return -1;
 
-    const lastIndex = chat.message.findIndex((message) => message.chatId === lastChatMemo);
+    const lastIndex = messages.findIndex((message) => message.chatId === lastChatMemo);
     return lastIndex === -1 ? -2 : lastIndex;
   }
 
-  function getManualSummaryMessages(): ManualSummaryMessage[] {
+  const manualMessages = $derived.by((): ManualSummaryMessage[] => {
     const char = DBState.db.characters[$selectedCharID];
-    const chat = char.chats[getChatPage(char)];
-    const messages: ManualSummaryMessage[] = [];
+    const chatMessages = char.chats[getChatPage(char)].message;
+    const cutoffIndex = getManualSummaryCutoffIndex(chatMessages);
     const firstMessage = getFirstMessage();
-    const cutoffIndex = getManualSummaryCutoffIndex();
+    const messages: ManualSummaryMessage[] = [];
 
-    if (firstMessage && -1 > cutoffIndex) {
-      const message = processMessageCBS(
-        { role: "char", data: firstMessage },
-        -1,
-        true
-      );
+    if (firstMessage && cutoffIndex < -1) {
       messages.push({
         index: -1,
         role: "char",
         data: firstMessage,
-        displayData: message.data,
+        displayData: processMessageCBS({ role: "char", data: firstMessage }, -1).data,
         disabled: false,
       });
     }
 
-    chat.message.forEach((message, index) => {
+    chatMessages.forEach((message, index) => {
       if (index <= cutoffIndex) return;
-      const cbsProcessedMessage = processMessageCBS(message, index);
-
       messages.push({
         index,
         chatMemo: message.chatId,
         role: message.role,
         data: message.data,
-        displayData: cbsProcessedMessage.data,
+        displayData: processMessageCBS(message, index).data,
         disabled: !message.chatId,
       });
     });
 
     return messages;
-  }
+  });
 
-  function getFilteredManualSummaryMessages(): ManualSummaryMessage[] {
+  const filteredManualMessages = $derived.by(() => {
     const query = manualSummarySearch.trim().toLowerCase();
-    const messages = getManualSummaryMessages();
+    if (!query) return manualMessages;
 
-    if (!query) return messages;
-
-    return messages.filter((message) =>
+    return manualMessages.filter((message) =>
       message.index.toString().includes(query) ||
       message.role.toLowerCase().includes(query) ||
       (message.chatMemo ?? "").toLowerCase().includes(query) ||
       message.displayData.toLowerCase().includes(query)
     );
-  }
-
-  function getSortedSelectedManualSummaryMessages(): ManualSummaryMessage[] {
-    return getManualSummaryMessages()
-      .filter((message) => manualSelectedMessageIndices.has(message.index) && !message.disabled)
-      .sort((a, b) => a.index - b.index);
-  }
+  });
 
   function resetManualSummaryState(clearSelection: boolean = false) {
     manualSummaryState = null;
     manualMessageTranslations = {};
-    manualMessageTranslating = new Set();
-
-    if (clearSelection) {
-      manualSelectedMessageIndices = new Set();
-    }
+    manualMessageTranslating.clear();
+    if (clearSelection) manualSelectedMessageIndices.clear();
   }
 
   function getManualSummarySelectedLabel(): string {
-    const indices = manualSummaryState?.selectedIndices ?? [];
-    const indexText = indices.map((index) => `#${index}`).join(", ");
-
+    const indexText = (manualSummaryState?.selectedIndices ?? []).map((index) => `#${index}`).join(", ");
     return language.hypaV3Modal.manualSummarizeSelectedMessages.replace("{0}", indexText);
   }
 
   function handleToggleManualMessageSelection(message: ManualSummaryMessage) {
     if (message.disabled || manualSummaryState?.isProcessing) return;
 
-    const newSelection = new Set(manualSelectedMessageIndices);
-    if (newSelection.has(message.index)) {
-      newSelection.delete(message.index);
-    } else {
-      newSelection.add(message.index);
+    if (!manualSelectedMessageIndices.delete(message.index)) {
+      manualSelectedMessageIndices.add(message.index);
     }
-    manualSelectedMessageIndices = newSelection;
   }
 
-  async function toggleManualMessageTranslation(message: ManualSummaryMessage, regenerate: boolean = false) {
+  async function toggleManualMessageTranslation(message: ManualSummaryMessage) {
     if (manualMessageTranslating.has(message.index)) return;
 
     if (manualMessageTranslations[message.index]) {
-      const { [message.index]: _, ...rest } = manualMessageTranslations;
-      manualMessageTranslations = rest;
+      delete manualMessageTranslations[message.index];
       return;
     }
 
-    manualMessageTranslating = new Set([...manualMessageTranslating, message.index]);
-    manualMessageTranslations = {
-      ...manualMessageTranslations,
-      [message.index]: "Loading...",
-    };
+    manualMessageTranslating.add(message.index);
+    manualMessageTranslations[message.index] = language.loading;
 
     try {
-      const result = await translateHTML(message.displayData, false, "", -1, regenerate);
-      manualMessageTranslations = {
-        ...manualMessageTranslations,
-        [message.index]: result,
-      };
+      manualMessageTranslations[message.index] = await translateChatMessage(
+        message,
+        message.index,
+        message.displayData,
+        false
+      );
     } catch (error) {
-      manualMessageTranslations = {
-        ...manualMessageTranslations,
-        [message.index]: `Translation failed: ${error}`,
-      };
+      manualMessageTranslations[message.index] = `Translation failed: ${error}`;
     } finally {
-      const newTranslating = new Set(manualMessageTranslating);
-      newTranslating.delete(message.index);
-      manualMessageTranslating = newTranslating;
+      manualMessageTranslating.delete(message.index);
     }
   }
 
-  async function buildManualSummaryInput(): Promise<{ oaiMessages: OpenAIChat[]; chatMemos: (string | null)[]; selectedIndices: number[] }> {
-    const shouldProcess = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.processRegexScript ?? false;
-    const selectedMessages = getSortedSelectedManualSummaryMessages();
-    const processedMessages: Message[] = [];
+  async function buildManualSummaryInput() {
+    const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
+    const selectedMessages = manualMessages
+      .filter((message) => manualSelectedMessageIndices.has(message.index) && !message.disabled);
+    const oaiMessages: OpenAIChat[] = [];
 
     for (const message of selectedMessages) {
-      const rawMessage: Message = {
-        role: message.role,
-        data: message.data,
-        chatId: message.chatMemo ?? undefined,
-      };
-
-      processedMessages.push(await processHypaV3Message(
-        rawMessage,
+      const processed = await processHypaV3Message(
+        { role: message.role, data: message.data, chatId: message.chatMemo },
         message.index,
-        shouldProcess,
-        message.index === -1
-      ));
+        shouldProcess
+      );
+      oaiMessages.push({
+        role: processed.role === "char" ? "assistant" : processed.role,
+        content: processed.data,
+      });
     }
 
     return {
-      oaiMessages: processedMessages.map((message) => ({
-        role: (message.role === "char" ? "assistant" : message.role) as OpenAIChat["role"],
-        content: message.data,
-      })),
+      oaiMessages,
       chatMemos: selectedMessages.map((message) => message.chatMemo ?? null),
       selectedIndices: selectedMessages.map((message) => message.index),
     };
   }
 
-  async function summarizeManualSelected() {
-    if (manualSelectedMessageIndices.size === 0) {
-      await alertNormalWait(language.hypaV3Modal.manualSummarizeSelectAtLeastOne);
-      return;
-    }
-
+  async function runManualSummary(failureLabel: string) {
     try {
       const { oaiMessages, chatMemos, selectedIndices } = await buildManualSummaryInput();
 
@@ -239,9 +199,6 @@
         return;
       }
 
-      manualMessageTranslations = {};
-      manualMessageTranslating = new Set();
-
       manualSummaryState = {
         isProcessing: true,
         result: null,
@@ -257,56 +214,28 @@
         { signal: summarySignal, onRequestStatusActivate },
       );
 
-      manualSummaryState = {
-        ...manualSummaryState,
-        isProcessing: false,
-        result,
-      };
+      manualSummaryState = { ...manualSummaryState, isProcessing: false, result };
     } catch (error) {
       if (summarySignal.aborted) return;
-      console.error("Manual summarize failed:", error);
+      console.error(`${failureLabel}:`, error);
       manualSummaryState = null;
-      await alertNormalWait(`Manual summarize failed: ${error.message || error}`);
+      await alertNormalWait(`${failureLabel}: ${error?.message || error}`);
     }
+  }
+
+  async function summarizeManualSelected() {
+    manualMessageTranslations = {};
+    manualMessageTranslating.clear();
+    await runManualSummary("Manual summarize failed");
   }
 
   async function rerollManualSummary() {
     if (!manualSummaryState) return;
-
-    try {
-      const { oaiMessages, chatMemos, selectedIndices } = await buildManualSummaryInput();
-
-      manualSummaryState = {
-        ...manualSummaryState,
-        isProcessing: true,
-        result: null,
-        selectedIndices,
-        mergedChatMemos: chatMemos,
-        isTranslating: false,
-        translation: null,
-      };
-
-      const result = await summarize(
-        oaiMessages,
-        false,
-        { signal: summarySignal, onRequestStatusActivate },
-      );
-
-      manualSummaryState = {
-        ...manualSummaryState,
-        isProcessing: false,
-        result,
-      };
-    } catch (error) {
-      if (summarySignal.aborted) return;
-      console.error("Manual summarize retry failed:", error);
-      manualSummaryState = null;
-      await alertNormalWait(`Manual summarize retry failed: ${error.message || error}`);
-    }
+    await runManualSummary("Manual summarize retry failed");
   }
 
   function applyManualSummary() {
-    if (!manualSummaryState || !manualSummaryState.result) return;
+    if (!manualSummaryState?.result) return;
 
     hypaV3Data.summaries.push({
       text: manualSummaryState.result,
@@ -324,10 +253,9 @@
     resetManualSummaryState();
   }
 
-  async function toggleManualSummaryTranslation(regenerate: boolean = false) {
-    if (!manualSummaryState || !manualSummaryState.result) return;
+  async function toggleManualSummaryTranslation(regenerate: boolean) {
     const state = manualSummaryState;
-    if (state.isTranslating) return;
+    if (!state?.result || state.isTranslating) return;
 
     if (state.translation) {
       state.translation = null;
@@ -335,7 +263,7 @@
     }
 
     state.isTranslating = true;
-    state.translation = "Loading...";
+    state.translation = language.loading;
 
     try {
       state.translation = await translateHTML(state.result, false, "", -1, regenerate);
@@ -374,63 +302,61 @@
           {language.hypaV3Modal.manualSummarizeSelectedCount.replace("{0}", manualSelectedMessageIndices.size.toString())}
         </div>
 
-        {#each [getFilteredManualSummaryMessages()] as filteredManualMessages}
-          {#if filteredManualMessages.length > 0}
-            <div class="flex min-h-0 flex-1 flex-col divide-y divide-darkborderc/50 overflow-hidden overflow-y-auto rounded-md border border-darkborderc bg-lightbg/50">
-              {#each filteredManualMessages as message (message.index)}
-                <details class="group" class:opacity-50={message.disabled}>
-                  <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 risu-interactive-surface">
-                    <Checkbox
-                      check={manualSelectedMessageIndices.has(message.index)}
-                      hiddenName
-                      margin={false}
-                      name={`#${message.index}`}
-                      onChange={() => {
-                        handleToggleManualMessageSelection(message);
-                      }}
-                    />
-                    <span class="w-10 shrink-0 text-xs text-subtext">#{message.index}</span>
-                    <span class="w-10 shrink-0 text-xs text-subtext">{message.role}</span>
-                    <span class="min-w-0 flex-1 truncate text-sm text-maintext">{message.displayData}</span>
-                    <ChevronDownIcon size={16} class="shrink-0 text-subtext transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div class="bg-darkbg/40 p-3">
-                    {#if message.disabled}
-                      <div class="mb-2 text-xs text-danger">{language.hypaV3Modal.manualSummarizeNoMessageId}</div>
-                    {/if}
-                    <div class="flex flex-wrap gap-2 mb-2">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={message.disabled || manualSummaryState?.isProcessing}
-                        onclick={() => handleToggleManualMessageSelection(message)}
-                      >
-                        {manualSelectedMessageIndices.has(message.index) ? language.cancel : language.select}
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={manualMessageTranslating.has(message.index)}
-                        onclick={() => toggleManualMessageTranslation(message)}
-                      >
-                        {manualMessageTranslations[message.index] ? language.cancel : language.hypaV3Modal.translate}
-                      </Button>
-                    </div>
-                    <pre class="whitespace-pre-wrap break-all rounded-md border border-darkborderc bg-lightbg/50 p-2 text-xs text-maintext">{manualMessageTranslations[message.index] ?? message.displayData}</pre>
-                    {#if manualMessageTranslations[message.index]}
-                      <div class="mt-2 text-xs text-subtext">{language.hypaV3Modal.translationLabel}</div>
-                    {/if}
+        {#if filteredManualMessages.length > 0}
+          <div class="flex min-h-0 flex-1 flex-col divide-y divide-darkborderc/50 overflow-hidden overflow-y-auto rounded-md border border-darkborderc bg-lightbg/50">
+            {#each filteredManualMessages as message (message.index)}
+              <details class="group" class:opacity-50={message.disabled}>
+                <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 risu-interactive-surface">
+                  <Checkbox
+                    check={manualSelectedMessageIndices.has(message.index)}
+                    hiddenName
+                    margin={false}
+                    name={`#${message.index}`}
+                    onChange={() => {
+                      handleToggleManualMessageSelection(message);
+                    }}
+                  />
+                  <span class="w-10 shrink-0 text-xs text-subtext">#{message.index}</span>
+                  <span class="w-10 shrink-0 text-xs text-subtext">{message.role}</span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-maintext">{message.displayData}</span>
+                  <ChevronDownIcon size={16} class="shrink-0 text-subtext transition-transform group-open:rotate-180" />
+                </summary>
+                <div class="bg-darkbg/40 p-3">
+                  {#if message.disabled}
+                    <div class="mb-2 text-xs text-danger">{language.hypaV3Modal.manualSummarizeNoMessageId}</div>
+                  {/if}
+                  <div class="flex flex-wrap gap-2 mb-2">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={message.disabled || manualSummaryState?.isProcessing}
+                      onclick={() => handleToggleManualMessageSelection(message)}
+                    >
+                      {manualSelectedMessageIndices.has(message.index) ? language.cancel : language.select}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={manualMessageTranslating.has(message.index)}
+                      onclick={() => toggleManualMessageTranslation(message)}
+                    >
+                      {manualMessageTranslations[message.index] ? language.cancel : language.hypaV3Modal.translate}
+                    </Button>
                   </div>
-                </details>
-              {/each}
-            </div>
-          {:else}
-            <div class="flex flex-col items-center justify-center rounded-md border border-darkborderc bg-lightbg/50 py-16 text-center">
-              <ScrollTextIcon size={48} class="mb-3 text-subtext opacity-50" />
-              <div class="mb-1 font-medium text-maintext">{language.hypaV3Modal.manualSummarizeNoMessages}</div>
-            </div>
-          {/if}
-        {/each}
+                  <pre class="whitespace-pre-wrap break-all rounded-md border border-darkborderc bg-lightbg/50 p-2 text-xs text-maintext">{manualMessageTranslations[message.index] ?? message.displayData}</pre>
+                  {#if manualMessageTranslations[message.index]}
+                    <div class="mt-2 text-xs text-subtext">{language.hypaV3Modal.translationLabel}</div>
+                  {/if}
+                </div>
+              </details>
+            {/each}
+          </div>
+        {:else}
+          <div class="flex flex-col items-center justify-center rounded-md border border-darkborderc bg-lightbg/50 py-16 text-center">
+            <ScrollTextIcon size={48} class="mb-3 text-subtext opacity-50" />
+            <div class="mb-1 font-medium text-maintext">{language.hypaV3Modal.manualSummarizeNoMessages}</div>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>

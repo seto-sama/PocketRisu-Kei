@@ -518,9 +518,8 @@
     const summary = hypaV3Data.summaries[index];
     
     return shouldShowSummary(
-      summary, 
-      index, 
-      filterState.showImportantOnly, 
+      summary,
+      filterState.showImportantOnly,
       filterState.selectedCategoryFilter
     ) && (
       !filterSelected ||

@@ -15,6 +15,7 @@
     import { createLatestTaskQueue } from "./latestTaskQueue";
     import { StreamingMarkdownBlockRenderer, type StreamingMarkdownRender } from "./streamingMarkdownBlocks";
     import { isRenderedTextLikelyDifferentFromUiLanguage } from "src/ts/translator/textLanguage";
+    import { getTranslationSourceKey } from "src/ts/translator/translationMask";
 
     interface Props {
         character?: simpleCharacterArgument|string|null
@@ -38,6 +39,7 @@
         revenantTranslationRecoverySnapshot: RevenantChatTranslationRecoverySnapshot
         translationPending?: boolean
         autoTranslationSuppressed?: boolean
+        translationCacheOnly?: boolean
         lastOutputAutoTranslationCandidate?: boolean
         adjacentSwipeMessages?: readonly string[]
     }
@@ -63,6 +65,7 @@
         revenantTranslationRecoverySnapshot,
         translationPending = false,
         autoTranslationSuppressed = false,
+        translationCacheOnly = false,
         lastOutputAutoTranslationCandidate = false,
         adjacentSwipeMessages = [],
     }: Props =  $props()
@@ -112,6 +115,7 @@
         firstMessage: boolean
         allowCachedTranslationStateRestore: boolean
         autoTranslationSuppressed: boolean
+        translationCacheOnly: boolean
         lastOutputAutoTranslationCandidate: boolean
         postRenderStateUpdates?: Array<() => void>
         streamingRender?: StreamingMarkdownRender
@@ -214,6 +218,7 @@
         }
         const requestAutoTranslationSuppressed = requestContext?.autoTranslationSuppressed
             ?? autoTranslationSuppressed
+        const requestTranslationCacheOnly = requestContext?.translationCacheOnly ?? translationCacheOnly
         const requestLastOutputAutoTranslationCandidate = requestContext?.lastOutputAutoTranslationCandidate
             ?? lastOutputAutoTranslationCandidate
         const currentTranslationTaskKey = requestContext?.translationTaskKey ?? translationTaskKey
@@ -333,6 +338,7 @@
                                     || (!requestAutoTranslationSuppressed
                                         && activeTranslationCacheKey !== null),
                                 streaming: requestStreaming,
+                                translationCacheOnly: requestTranslationCacheOnly,
                                 autoTranslationSuppressed: requestAutoTranslationSuppressed,
                                 lastOutputAutoTranslationEligible: effectiveLastOutputAutoTranslationEligible,
                                 parseMarkdown: parseMessageMarkdown,
@@ -398,9 +404,9 @@
                     lastCharArg = charArg
 
                     if (!translationCacheKey && DBState.db.translatorType === 'llm') {
-                        translationCacheKey = DBState.db.translateBeforeHTMLFormatting
+                        translationCacheKey = getTranslationSourceKey(DBState.db.translateBeforeHTMLFormatting
                             ? data
-                            : await parseMessageMarkdown(data, 'pretranslate')
+                            : await parseMessageMarkdown(data, 'pretranslate'))
                     }
                     queuePostRenderStateUpdate(() => {
                         if (isCurrentRenderRequest()) retranslate = false
@@ -632,6 +638,7 @@
             firstMessage,
             allowCachedTranslationStateRestore,
             autoTranslationSuppressed,
+            translationCacheOnly,
             lastOutputAutoTranslationCandidate,
         }
         if (
