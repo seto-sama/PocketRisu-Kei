@@ -68,13 +68,21 @@ describe('revenant headless CBS parser', () => {
         expect(result.text).toBe('Bob/Al: Hi score=3 mood=calm')
     })
 
-    it('evaluates nested conditions and reusable functions deterministically', () => {
+    it('evaluates nested conditions and reusable functions like the browser parser', () => {
         const result = renderRevenantTemplate(
-            '{{#func greet who}}Hello {{arg::0}}{{/func}}'
-            + '{{#when::1}} {{call::greet::Alice}} {{#if 0}}bad{{:else}}ok{{/if}}{{/when}}',
+            '{{#func greet who}}Hello {{arg::1}}{{/func}}'
+            + '{{#when::1}}{{call::greet::Alice}} {{#when::0}}bad{{:else}}ok{{/when}}{{/when}}',
             recipe(),
         )
         expect(result.text).toBe('Hello Alice ok')
+    })
+
+    it('evaluates toggle comparisons without hanging', () => {
+        expect(renderRevenantTemplate(
+            '{{#when::detail::tis::1}}on{{/when}}{{#when::detail::tisnot::1}}off{{/when}}'
+            + '{{#when::not::0}}!{{/when}}',
+            recipe(),
+        ).text).toBe('on!')
     })
 
     it('uses the snapshotted model preset name for model metadata', () => {

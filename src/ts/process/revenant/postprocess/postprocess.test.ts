@@ -41,6 +41,10 @@ describe('revenant output transform', () => {
         expect(result.errors).toEqual([])
     })
 
+    it('renders CBS against the target message like browser output processing', () => {
+        expect(runRevenantOutputTransform('{{chatindex}}:{{previoususerchat}}', recipe()).text).toBe('1:Hi')
+    })
+
     it('keeps a matched status line when a nested CBS condition is true', () => {
         const input = recipe()
         input.chat.scriptstate = { $status_type: '1' }

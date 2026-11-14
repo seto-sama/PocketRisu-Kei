@@ -13,7 +13,7 @@ require('sucrase/register/ts');
 const { wrapRevenantLua } = require(path.join(
     __dirname, '../../src/ts/process/revenant/postprocess/luaWrapper.ts',
 ));
-const { renderRevenantTemplate } = require(path.join(
+const { renderRevenantTemplate, revenantChatVariable, revenantGlobalVariable } = require(path.join(
     __dirname, '../../src/ts/process/revenant/postprocess/headlessParser.ts',
 ));
 const { invokeLuaMode, registerLuaCoreApis, registerLuaEffectApis } = require(path.join(
@@ -58,7 +58,6 @@ async function executeRevenantLua(options) {
         meta = {},
         actionNamespace = 'lua',
     } = options;
-    const moduleId = typeof options.moduleId === 'string' ? options.moduleId : undefined;
     let data = options.data;
     let chat = structuredClone(options.chat || recipe.chat);
     const foregroundEffects = [];
@@ -75,7 +74,7 @@ async function executeRevenantLua(options) {
         pendingClientAction ||= result.action;
         throw new Error('Revenant action requires client execution');
     };
-    const chatVar = key => String(chat.scriptstate?.[`$${key}`] ?? 'null');
+    const chatVar = key => revenantChatVariable(recipe, chat, key);
     const setChatVar = (key, value) => {
         chat.scriptstate ||= {};
         chat.scriptstate[`$${key}`] = String(value);
@@ -84,12 +83,7 @@ async function executeRevenantLua(options) {
         backend: recipe.providerBackend,
         modelPreset: recipe.modelPreset,
     };
-    const moduleProviders = recipe.moduleProviders;
-    const moduleProvider = moduleId
-        && moduleProviders
-        && Object.prototype.hasOwnProperty.call(moduleProviders, moduleId)
-        ? moduleProviders[moduleId]
-        : undefined;
+    const moduleProvider = recipe.moduleProviders?.[options.moduleId];
     const providerFor = mode => {
         if (moduleProvider) return moduleProvider;
         return mode === 'model' ? mainProvider : recipe.auxProviders?.[mode];
@@ -107,7 +101,7 @@ async function executeRevenantLua(options) {
         getCharacter: () => recipe.character,
         getVar: chatVar,
         setVar: setChatVar,
-        getGlobalVar: key => String(recipe.database.globalChatVariables?.[key] ?? 'null'),
+        getGlobalVar: key => revenantGlobalVariable(recipe, key),
         stop: () => { stopped = true; },
         render: value => renderRevenantTemplate(value, recipe, chat).text,
         markCharacterMutation: (field, value) => {
@@ -197,32 +191,34 @@ async function executeRevenantLua(options) {
     ).text);
     addEffect('getLoreBooksMain', (_id, search) => {
         const sources = [
-            chat.localLore || [],
-            recipe.character.globalLore || [],
-            ...(recipe.modules || []).map(module => module?.lorebook || []),
+            chat.localLore ?? [],
+            recipe.character.globalLore,
+            ...recipe.modules.map(module => module.lorebook ?? []),
         ];
-        const found = sources.flatMap(source => source)
-            .filter(book => book?.comment === String(search ?? ''))
-            .map(book => ({
-                ...structuredClone(book),
-                content: renderRevenantTemplate(String(book.content ?? ''), recipe, chat).text,
-            }));
+        const found = sources.flat()
+            .filter(book => book.comment === search)
+            .map(book => ({ ...book, content: renderRevenantTemplate(book.content, recipe, chat).text }));
         return JSON.stringify(found);
     });
-    addEffect('upsertLocalLoreBook', (_id, name, content, options = {}) => {
-        chat.localLore ||= [];
-        const normalized = options && typeof options === 'object' ? options : {};
-        chat.localLore = chat.localLore.filter(book => book?.comment !== String(name));
+    addEffect('upsertLocalLoreBook', (_id, name, content, options) => {
+        const {
+            alwaysActive = false,
+            insertOrder = 100,
+            key = '',
+            regex = false,
+            secondKey = '',
+        } = options ?? {};
+        chat.localLore = (chat.localLore ?? []).filter(book => book.comment !== name);
         chat.localLore.push({
-            alwaysActive: normalized.alwaysActive === true,
-            comment: String(name),
-            content: String(content),
-            insertorder: Number(normalized.insertOrder) || 100,
+            alwaysActive,
+            comment: name,
+            content,
+            insertorder: insertOrder,
             mode: 'normal',
-            key: String(normalized.key ?? ''),
-            secondkey: String(normalized.secondKey ?? ''),
-            selective: !!normalized.secondKey,
-            useRegex: normalized.regex === true,
+            key,
+            secondkey: secondKey,
+            selective: !!secondKey,
+            useRegex: regex,
         });
         return true;
     });

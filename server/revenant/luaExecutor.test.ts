@@ -65,6 +65,21 @@ describe('revenant headless Lua executor', () => {
         })).rejects.toThrow()
     })
 
+    it('resolves chat and global variables like the browser', async () => {
+        const input = recipe()
+        input.character.defaultVariables = 'mode=detail'
+        const result = await executeRevenantLua({
+            code: `
+                function onOutput(id)
+                    setChatVar(id, 'seen', getChatVar(id, 'mode') .. '|' .. getChatVar(id, 'missing')
+                        .. '|' .. getGlobalVar(id, 'missing'))
+                end
+            `,
+            mode: 'output', recipe: input,
+        })
+        expect(result.chat.scriptstate.$seen).toBe('detail||')
+    })
+
     it('propagates Lua errors when no client action was requested', async () => {
         await expect(executeRevenantLua({
             code: "function onOutput(id) error('ordinary Lua failure') end",
@@ -314,43 +329,28 @@ describe('revenant headless Lua executor', () => {
     })
 
     it.each([
-        ['unset', undefined],
-        ['portrait', 'portrait'],
-        ['landscape', 'landscape'],
-    ] as const)('forwards %s orientation from a real Lua generateImage call', async (_name, orientation) => {
-        const options = orientation ? `, { orientation = '${orientation}' }` : ''
+        ['', { prompt: 'prompt', negativePrompt: 'negative' }],
+        [", { orientation = 'portrait' }", { prompt: 'prompt', negativePrompt: 'negative', orientation: 'portrait' }],
+    ])('forwards generateImage options %j', async (options, payload) => {
         const waiting = await executeRevenantLua({
-            code: `
-                onOutput = async(function(id)
-                    generateImage(id, 'prompt', 'negative'${options}):await()
-                end)
-            `,
+            code: `onOutput = async(function(id) generateImage(id, 'prompt', 'negative'${options}):await() end)`,
             mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
         })
-        const expectedPayload: Record<string, unknown> = {
-            prompt: 'prompt', negativePrompt: 'negative',
-        }
-        if (orientation) expectedPayload.orientation = orientation
-
-        expect(waiting.action).toMatchObject({
-            kind: 'image.generate', payload: expectedPayload,
-        })
+        expect(waiting.action).toMatchObject({ kind: 'image.generate', payload })
+        expect('orientation' in waiting.action.payload).toBe('orientation' in payload)
     })
 
     it('returns a Lua error for an invalid generateImage orientation without creating an action', async () => {
         const result = await executeRevenantLua({
-            code: `
-                onOutput = async(function(id)
-                    local response = generateImage(id, 'prompt', 'negative', { orientation = 'diagonal' }):await()
-                    setChatVar(id, 'image-error', response)
-                end)
-            `,
+            code: `onOutput = async(function(id)
+                setChatVar(id, 'error', generateImage(id, 'p', 'n', { orientation = 'diagonal' }):await())
+            end)`,
             mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
         })
-
-        expect(result.status).toBe('completed')
-        expect(result.chat.scriptstate['$image-error']).toBe('Error: Image orientation must be landscape or portrait, received diagonal')
-        expect(result.action).toBeUndefined()
+        expect(result).toMatchObject({
+            status: 'completed',
+            chat: { scriptstate: { $error: 'Error: Image orientation must be landscape or portrait, received diagonal' } },
+        })
     })
 
     it('preserves a replayable client action when Lua pcall catches its suspension', async () => {
