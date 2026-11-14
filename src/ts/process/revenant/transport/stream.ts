@@ -26,6 +26,7 @@ import type {
 } from '../types'
 import { observeRevenantWorkflowRequests } from '../workflow/requestStatus'
 import { localizedApiErrorMessage, readApiErrorPayload } from 'src/ts/network/apiError'
+import { paceSnapshotStream } from '../../request/presetStreamPump'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
@@ -33,14 +34,10 @@ const defaultGenerationHeartbeatSec = 15
 
 interface RecoveryProjectionSnapshot {
     content: string
-    progress?: {
-        thinking: string
-        response: string
-        usage?: AdapterUsage
-    }
+    progress?: DecodedChatProgress
 }
 
-export class GenerationJobRegistrationError extends Error {
+class GenerationJobRegistrationError extends Error {
     constructor(
         readonly status: number,
         detail: string,
@@ -55,7 +52,7 @@ export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
     handlers: {
         onContent: (content: string) => void
-        onProgress?: (progress: { thinking: string, response: string, usage?: AdapterUsage }) => void
+        onProgress?: (progress: DecodedChatProgress) => void
         onProviderStarted?: (startedAt: number) => void
         onDone: (terminal?: RevenantGenerationTerminal, usage?: AdapterUsage) => void
         onError?: (error: unknown) => void
@@ -67,49 +64,66 @@ export function subscribeRecoverableGeneration(
     let latestContent = ''
     let latestProgress: RecoveryProjectionSnapshot['progress']
     let catchingUp = true
-    const publishSnapshot = (snapshot: RecoveryProjectionSnapshot) => {
-        if (snapshot.progress) handlers.onProgress?.(snapshot.progress)
-        if (snapshot.content) handlers.onContent(snapshot.content)
-    }
-    const queueContent = (content: string) => {
-        latestContent = content
-        if (catchingUp) return
-        handlers.onContent(content)
+    // Paced like a local stream, so a live tail of one event per token cannot
+    // force one render per token.
+    let snapshots!: ReadableStreamDefaultController<RecoveryProjectionSnapshot>
+    const delivered = (async () => {
+        const reader = paceSnapshotStream(new ReadableStream<RecoveryProjectionSnapshot>({
+            start(sink) { snapshots = sink },
+        })).getReader()
+        controller.signal.addEventListener('abort', () => void reader.cancel(), { once: true })
+        try {
+            while (true) {
+                const next = await reader.read()
+                if (next.done || controller.signal.aborted) return
+                if (next.value.progress) handlers.onProgress?.(next.value.progress)
+                if (next.value.content) handlers.onContent(next.value.content)
+            }
+        } catch (error) {
+            // A failing handler ends the subscription and its journal stream.
+            if (controller.signal.aborted) return
+            controller.abort()
+            handlers.onError?.(error)
+        }
+    })()
+    const publishLatest = () => {
+        if (catchingUp || controller.signal.aborted) return
+        snapshots.enqueue({ content: latestContent, progress: latestProgress })
     }
     const finishCatchUp = () => {
-        if (!catchingUp || controller.signal.aborted) return
+        if (!catchingUp) return
         catchingUp = false
-        publishSnapshot({ content: latestContent, progress: latestProgress })
+        publishLatest()
     }
-    const flushLatest = () => {
-        if (catchingUp) finishCatchUp()
+    // Delivers the newest projection folded before the stream ended or failed,
+    // then reports the outcome.
+    const finish = async (report: () => void) => {
+        if (controller.signal.aborted) return
+        finishCatchUp()
+        snapshots.close()
+        await delivered
+        if (!controller.signal.aborted) report()
     }
     void openRecoverableJournalStream(job, controller.signal, value => {
         terminal = value
-    }, () => finishCatchUp(), handlers.onProviderStarted)
+    }, finishCatchUp, handlers.onProviderStarted)
         .then(stream => foldRecoverableEvents(
             job,
             stream,
-            queueContent,
+            content => {
+                latestContent = content
+                publishLatest()
+            },
             progress => {
                 if (progress.usage) usage = progress.usage
                 latestProgress = progress
-                if (!catchingUp) handlers.onProgress?.(progress)
+                publishLatest()
             },
         ))
-        .then(() => {
-            if (!controller.signal.aborted) {
-                flushLatest()
-                handlers.onDone(terminal, usage)
-            }
-        })
-        .catch(error => {
-            if (!controller.signal.aborted) {
-                // Preserve the newest projection folded before the stream failed.
-                flushLatest()
-                handlers.onError?.(error)
-            }
-        })
+        .then(
+            () => finish(() => handlers.onDone(terminal, usage)),
+            error => finish(() => handlers.onError?.(error)),
+        )
 
     return () => {
         controller.abort()

@@ -118,9 +118,28 @@ describe('subscribeRecoverableGeneration', () => {
         subscribeRecoverableGeneration(job, { onContent, onProgress, onDone })
         await vi.waitFor(() => expect(onDone).toHaveBeenCalledOnce())
 
-        expect(onContent.mock.calls.map(call => call[0])).toEqual(['ab', 'ab가', 'ab가d'])
-        expect(onProgress.mock.calls.map(call => call[0].response)).toEqual([
-            'ab', 'ab가', 'ab가d',
-        ])
+        // The snapshot renders once at its boundary; the live tail may coalesce.
+        const contents = onContent.mock.calls.map(call => call[0])
+        expect(contents[0]).toBe('ab')
+        expect(contents.at(-1)).toBe('ab가d')
+        expect(onProgress.mock.calls.at(-1)?.[0].response).toBe('ab가d')
+    })
+
+    it('reports a throwing handler without waiting for the live stream to end', async () => {
+        snapshotWith(deltas('a'))
+        vi.mocked(openRevenantJournalSocket).mockImplementationOnce(() => new ReadableStream())
+        const failure = new Error('render failed')
+        const onError = vi.fn()
+        const onDone = vi.fn()
+
+        subscribeRecoverableGeneration(job, {
+            onContent: () => { throw failure },
+            onDone,
+            onError,
+        })
+        await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce())
+
+        expect(onError).toHaveBeenCalledWith(failure)
+        expect(onDone).not.toHaveBeenCalled()
     })
 })
