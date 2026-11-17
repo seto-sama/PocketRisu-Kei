@@ -1,16 +1,25 @@
 <script lang="ts">
     import { language } from 'src/lang'
-    import { downloadFile } from 'src/ts/download'
-    import { notifyError } from 'src/ts/alert'
     import { showPopupEditor } from 'src/ts/stores.svelte'
+    import type { DriveEntry } from 'src/ts/storage/nodeStorage'
     import { getFileType } from '../../../shared/fileTypes.mjs'
     import Button from '../UI/components/Button.svelte'
     import Dialog from '../UI/components/Dialog.svelte'
     import EmptyState from '../UI/components/EmptyState.svelte'
 
-    let { file, onClose }: { file: File, onClose: () => void } = $props()
+    let { entry, file, thumbnailUrl = '', busy = false, onImport, onDownload, onClose }: {
+        entry: DriveEntry
+        /** Downloaded contents; null previews the entry through its server thumbnail only. */
+        file: File | null
+        thumbnailUrl?: string
+        busy?: boolean
+        onImport?: () => void
+        onDownload: () => void
+        onClose: () => void
+    } = $props()
     const maxTextBytes = 1024 * 1024
-    const kind = $derived(getFileType(file.name) === 'image' || /\.(svg|ico)$/i.test(file.name) ? 'image'
+    const kind = $derived(!file ? (thumbnailUrl ? 'image' : 'unsupported')
+        : getFileType(file.name) === 'image' || /\.(svg|ico)$/i.test(file.name) ? 'image'
         : /\.(mp4|webm|mov|m4v)$/i.test(file.name) ? 'video'
         : /\.(mp3|wav|ogg|flac|m4a|aac)$/i.test(file.name) ? 'audio'
         : /\.pdf$/i.test(file.name) ? 'unsupported' : 'text')
@@ -24,6 +33,11 @@
         failed = false
         if (kind === 'unsupported') {
             failed = true
+            loading = false
+            return
+        }
+        if (!source) {
+            url = thumbnailUrl
             loading = false
             return
         }
@@ -45,36 +59,38 @@
                 description: source.size > maxTextBytes ? language.serverDrive.previewTruncated : '',
                 mode: 'plain',
                 submitKind: 'download',
-                onSubmit: async () => { await download(source); return false },
+                onSubmit: () => { onDownload(); return false },
             })
             onClose()
         }).catch(() => { if (!cancelled) failed = true })
             .finally(() => { if (!cancelled) loading = false })
         return () => { cancelled = true }
     })
-
-    async function download(source = file) {
-        try { await downloadFile(source.name, source) }
-        catch (error) { notifyError(error) }
-    }
 </script>
 
-<Dialog open={kind !== 'text' || failed} onOpenChange={(open) => { if (!open) onClose() }} size="xl">
-    {#snippet title()}{file.name}{/snippet}
-    {#if loading}
-        <p class="text-sm text-subtext" role="status">{language.loading}…</p>
-    {:else if failed}
-        <EmptyState title={language.serverDrive.previewUnavailable} description="" layout="section" />
-    {:else if kind === 'image'}
-        <img src={url} alt={file.name} class="mx-auto max-h-[65dvh] max-w-full object-contain" onerror={() => { failed = true }} />
-    {:else if kind === 'video'}
-        <!-- svelte-ignore a11y_media_has_caption: user-provided media has no caption source -->
-        <video src={url} controls playsinline class="max-h-[65dvh] w-full" onerror={() => { failed = true }}></video>
-    {:else if kind === 'audio'}
-        <audio src={url} controls class="w-full" onerror={() => { failed = true }}></audio>
-    {/if}
+<!-- Every preview shares one dialog size and stage height so switching file types keeps the same frame. -->
+<Dialog open={kind !== 'text' || failed} onOpenChange={(open) => { if (!open) onClose() }} size="lg">
+    {#snippet title()}<span class="break-all">{entry.name}</span>{/snippet}
+    <div class="flex h-[min(60dvh,32rem)] items-center justify-center overflow-hidden">
+        {#if loading}
+            <p class="text-sm text-subtext" role="status">{language.loading}…</p>
+        {:else if failed}
+            <EmptyState title={language.serverDrive.previewUnavailable} description="" layout="section" />
+        {:else if kind === 'image'}
+            <img src={url} alt={entry.name} class="max-h-full max-w-full object-contain" onerror={() => { failed = true }} />
+        {:else if kind === 'video'}
+            <!-- svelte-ignore a11y_media_has_caption: user-provided media has no caption source -->
+            <video src={url} controls playsinline class="max-h-full max-w-full" onerror={() => { failed = true }}></video>
+        {:else if kind === 'audio'}
+            <audio src={url} controls class="w-full" onerror={() => { failed = true }}></audio>
+        {/if}
+    </div>
     {#snippet footer()}
         <Button size="sm" variant="outline" onclick={onClose}>{language.close}</Button>
-        <Button size="sm" onclick={() => { void download() }}>{language.download}</Button>
+        {#if onImport}
+            <Button size="sm" disabled={busy} onclick={onImport}>{language.serverDrive.import}</Button>
+        {:else if failed}
+            <Button size="sm" onclick={onDownload}>{language.download}</Button>
+        {/if}
     {/snippet}
 </Dialog>

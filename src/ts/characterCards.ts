@@ -47,25 +47,28 @@ function isCharacterImportJSON(value:unknown):boolean{
         || isOffspecCharacterImportJSON(value)
 }
 
+/** Character card format embedded in a PNG/JPEG image, or null for an ordinary image. */
+export async function getCharacterImageFormat(data:Uint8Array):Promise<'png'|'charx'|null>{
+    const chunks = getImageType(data) === 'PNG' ? PngChunk.read(data, ['chara', 'ccv3']) : {}
+    if(chunks.chara || chunks.ccv3) return 'png'
+    const archive = new zip.ZipReader(new zip.Uint8ArrayReader(data))
+    try {
+        const entries = await archive.getEntries()
+        return entries.some(entry => !entry.directory && entry.filename === 'card.json') ? 'charx' : null
+    } catch {
+        return null
+    } finally {
+        await archive.close().catch(() => {})
+    }
+}
+
 export async function importFile(name:string, data:Uint8Array|File):Promise<boolean>{
     let type = getFileType(name)
     if(type === 'image' && /\.(png|jpe?g)$/i.test(name)){
         data = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer())
-        const chunks = getImageType(data) === 'PNG' ? PngChunk.read(data, ['chara', 'ccv3']) : {}
-        if(chunks.chara || chunks.ccv3){
-            name = `${name}.png`
-        } else {
-            const archive = new zip.ZipReader(new zip.Uint8ArrayReader(data))
-            try {
-                const entries = await archive.getEntries()
-                if(!entries.some(entry => !entry.directory && entry.filename === 'card.json')) return false
-            } catch {
-                return false
-            } finally {
-                await archive.close().catch(() => {})
-            }
-            name = `${name}.charx`
-        }
+        const format = await getCharacterImageFormat(data)
+        if(!format) return false
+        name = `${name}.${format}`
         type = 'character'
     }
     if(type === 'json'){

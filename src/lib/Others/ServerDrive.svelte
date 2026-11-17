@@ -34,7 +34,7 @@
 
     let { open = $bindable(true), pick }: { open?: boolean, pick?: ServerDriveFileRequest } = $props()
     let storage = $state.raw<NodeStorage>()
-    let previewFile = $state.raw<File | null>(null)
+    let preview = $state.raw<{ entry: DriveEntry, file: File | null, importable: boolean } | null>(null)
     let currentPath = $state('')
     let entries = $state<DriveEntry[]>([])
     let loading = $state(true)
@@ -439,8 +439,33 @@
     function activate(entry: DriveEntry) {
         if (disabled) return
         if (entry.type === 'directory') void refresh(entry.path).then(() => { if (!disposed) fileArea?.focus({ preventScroll: true }) })
-        else if (pick) void (canPick(entry) ? pickFiles([entry]) : openEntry(entry, 'preview'))
-        else void openEntry(entry)
+        else if (pick && canPick(entry)) void pickFiles([entry])
+        else void openPreview(entry)
+    }
+
+    async function openPreview(entry: DriveEntry) {
+        if (entry.type !== 'file') return
+        // Import formats are binary: preview them through the server thumbnail without downloading.
+        if (['character', 'preset', 'module'].includes(getFileType(entry.name))) {
+            preview = { entry, file: null, importable: !pick }
+            return
+        }
+        await runFileOperation(async signal => {
+            const file = await storage.readDriveFile(entry.path, signal)
+            signal.throwIfAborted()
+            let importable = false
+            if (!pick && /\.(png|jpe?g)$/i.test(entry.name)) {
+                const { getCharacterImageFormat } = await import('src/ts/characterCards')
+                importable = !!await getCharacterImageFormat(new Uint8Array(await file.arrayBuffer()))
+                signal.throwIfAborted()
+            }
+            preview = { entry, file, importable }
+        })
+    }
+
+    function thumbnailUrl(entry: DriveEntry) {
+        const fileType = getFileType(entry.name)
+        return entry.type === 'file' && (fileType === 'image' || fileType === 'character') ? storage.driveThumbnailUrl(entry) : ''
     }
 
     function canPick(entry: DriveEntry) {
@@ -471,27 +496,31 @@
             || /\.(png|jpe?g)$/i.test(entry.name))
     }
 
-    async function openEntry(entry: DriveEntry, action: 'auto' | 'import' | 'preview' = 'auto') {
-        if (disabled || entry.type !== 'file') return
+    async function runFileOperation(run: (signal: AbortSignal) => Promise<void>) {
+        if (disabled) return
         busy = true
         const controller = operationController = new AbortController()
         try {
-            const data = await storage.readDriveFile(entry.path, controller.signal)
-            controller.signal.throwIfAborted()
-            if (action !== 'preview') {
-                const { importFile } = await import('src/ts/characterCards')
-                controller.signal.throwIfAborted()
-                const imported = await importFile(entry.name, data)
-                controller.signal.throwIfAborted()
-                if (imported) { open = false; return }
-                if (action === 'import') { notifyError(language.errors.noData); return }
-            }
-            previewFile = data
+            await run(controller.signal)
         } catch (error) {
             if (!controller.signal.aborted) notifyError(error)
         } finally {
             busy = false
         }
+    }
+
+    function importEntry(entry: DriveEntry, downloaded: File | null = null) {
+        if (entry.type !== 'file') return
+        return runFileOperation(async signal => {
+            const data = downloaded ?? await storage.readDriveFile(entry.path, signal)
+            signal.throwIfAborted()
+            const { importFile } = await import('src/ts/characterCards')
+            signal.throwIfAborted()
+            if (!await importFile(entry.name, data)) { notifyError(language.errors.noData); return }
+            signal.throwIfAborted()
+            preview = null
+            open = false
+        })
     }
 
     function openNameDialog(entry: DriveEntry | null = null) {
@@ -782,7 +811,6 @@
                             {:else}
                                 <div class="grid grid-cols-[repeat(auto-fill,6rem)] gap-1">
                                     {#each sortedEntries.slice(0, visibleLimit) as entry (entry.path)}
-                                        {@const fileType = getFileType(entry.name)}
                                         <ContextMenu.Root onOpenChange={(open) => { if (open) ensureSelected(entry) }}>
                                             <ContextMenu.Trigger disabled={disabled}>
                                                 {#snippet child({ props })}
@@ -791,8 +819,7 @@
                                                         draggable={!disabled && !inTrash} ondragstart={event => startEntryDrag(event, entry)} ondragend={endEntryDrag}
                                                         onclick={(event) => selectEntry(event, entry)} ondblclick={() => activate(entry)}
                                                         onkeydown={(event) => handleEntryKeydown(event, entry)}>
-                                                        <ServerDriveEntryIcon {entry} strokeWidth={fileStrokeWidth}
-                                                            thumbnailUrl={entry.type === 'file' && (fileType === 'image' || fileType === 'character') ? storage.driveThumbnailUrl(entry) : ''} />
+                                                        <ServerDriveEntryIcon {entry} strokeWidth={fileStrokeWidth} thumbnailUrl={thumbnailUrl(entry)} />
                                                         <span class="line-clamp-3 w-full break-all text-center">{entry.name}</span>
                                                     </button>
                                                 {/snippet}
@@ -801,9 +828,9 @@
                                                 {#if pick}
                                                     <ContextMenu.Item disabled={!pickedEntries.length} onSelect={() => { void pickFiles(pickedEntries) }}><FileCheckIcon size={16} />{language.serverDrive.open}</ContextMenu.Item>
                                                 {:else}
-                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1 || !canImport(entry)} onSelect={() => { void openEntry(entry, 'import') }}><ImportIcon size={16} />{language.serverDrive.import}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1 || !canImport(entry)} onSelect={() => { void importEntry(entry) }}><ImportIcon size={16} />{language.serverDrive.import}</ContextMenu.Item>
                                                 {/if}
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openEntry(entry, 'preview') }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openPreview(entry) }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
                                                 <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
                                                 {#if entry.type === 'directory' && !inTrash}
                                                     <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => toggleShortcut(entry.path)}><StarIcon size={16} />{shortcuts.includes(entry.path) ? language.serverDrive.removeShortcut : language.serverDrive.addShortcut}</ContextMenu.Item>
@@ -877,8 +904,13 @@
     {/snippet}
 </Dialog>
 
-{#if previewFile}
-    <ServerDrivePreview file={previewFile} onClose={() => { previewFile = null }} />
+{#if preview}
+    {@const { entry, file, importable } = preview}
+    {#key preview}
+        <ServerDrivePreview {entry} {file} thumbnailUrl={thumbnailUrl(entry)} busy={disabled}
+            onImport={importable ? () => { void importEntry(entry, file) } : undefined}
+            onDownload={() => { void download(entry) }} onClose={() => { preview = null }} />
+    {/key}
 {/if}
 
 <Dialog open={properties !== null} onOpenChange={(open) => { if (!open) closeProperties() }} size="sm">

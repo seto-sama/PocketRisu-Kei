@@ -4,7 +4,15 @@ const db = vi.hoisted(() => ({ useServerDriveForFileImport: false }))
 vi.mock('./platform', () => ({ isNodeServer: true, isCloudflareTunnel: false }))
 vi.mock('./storage/database.svelte', () => ({ getDatabase: () => db }))
 
-const { installFilePickerContextMenu, shouldPickFromServerDrive } = await import('./serverDriveFilePicker.svelte')
+const { installFilePickerContextMenu, pickServerDriveFiles, serverDriveFileRequest, shouldPickFromServerDrive } = await import('./serverDriveFilePicker.svelte')
+
+it('resolves the pick with files finished through the shared request', async () => {
+    const picked = pickServerDriveFiles(['risum'], false)
+    const file = new File(['module'], 'a.risum')
+    serverDriveFileRequest.current.finish([file])
+    expect(await picked).toEqual([file])
+    expect(serverDriveFileRequest.current).toBeNull()
+})
 
 it('opens the other file source once when a file picker trigger is right-clicked', () => {
     const uninstall = installFilePickerContextMenu()

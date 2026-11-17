@@ -8,7 +8,8 @@ export interface ServerDriveFileRequest {
 }
 
 export const serverDriveAvailable = isNodeServer && !isCloudflareTunnel
-export const serverDriveFileRequest = $state<{ current: ServerDriveFileRequest | null }>({ current: null })
+// Raw: a deep $state proxy would break the request identity check in finish().
+export const serverDriveFileRequest = new class { current = $state.raw<ServerDriveFileRequest | null>(null) }()
 
 // Set by a right-click on a [data-file-picker] trigger; the next picker uses the other file source.
 let alternateSource = false
