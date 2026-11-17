@@ -204,6 +204,7 @@ export const helpKo = {
         "sideBarSize": "사이드바 너비 단계입니다.",
         "assetWidth": "채팅 안 에셋 이미지의 최대 너비입니다.",
         "animationSpeed": "UI 애니메이션 속도 배율입니다.",
+        "hideRecentChats": "캐릭터를 선택하지 않았을 때 사이드바에 표시되는 최근 대화 목록을 숨깁니다.",
         "hideRealm": "홈 화면의 RisuRealm 신규 캐릭터 섹션을 접힌 상태로 시작합니다. 접혀있는 동안은 RisuRealm을 불러오지 않아 초기 로딩이 빨라집니다. 홈 화면에서 언제든 펼칠 수 있습니다.",
         "hidePublicStats": "포켓리스 통계 서버 및 OpenRouter 요청에 포켓리스 식별자를 전송하고, 메인 화면에 포켓리스 사용자 통계를 표시합니다.",
         "showRequestStatus": "생성 요청 중 우상단에 진행 상태(요청 중 / 사고 중 / 응답 중 / 멈춤), 사고·응답 토큰 수, 초당 토큰 속도를 알려주는 토스트를 표시합니다.",

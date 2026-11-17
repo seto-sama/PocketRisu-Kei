@@ -320,6 +320,7 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
+        hideRecentChats: "Hide the recent-chats list shown in the sidebar while no character is selected.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         hidePublicStats:

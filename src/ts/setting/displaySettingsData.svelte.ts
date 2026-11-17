@@ -298,6 +298,7 @@ export const displaySizeSettingsItems: SettingItem[] = [
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
+    { id: 'display.hideRecentChats', type: 'check', labelKey: 'hideRecentChats', helpKey: 'hideRecentChats', bindKey: 'hideRecentChats', keywords: ['recent', 'chats', 'conversation', 'list', 'hide'] },
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
     {
         id: 'display.hidePublicStats',

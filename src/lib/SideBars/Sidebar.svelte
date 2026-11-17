@@ -39,6 +39,7 @@
     BookmarkCheckIcon,
     HardDriveIcon,
   } from "@lucide/svelte";
+    import SupportDialog from "../Others/SupportDialog.svelte";
     import {
   addCharacter,
     changeChar,
@@ -48,7 +49,6 @@
     import { language } from "../../lang";
     import isEqual from "fast-deep-equal";
     import SidebarAvatar from "./SidebarAvatar.svelte";
-    import Switch from "../UI/components/Switch.svelte";
     import Button from "../UI/components/Button.svelte";
     import SortableList from "../UI/components/SortableList.svelte";
     import type { SortableEvent } from "sortablejs";
@@ -101,6 +101,7 @@
   let sideBarMode = $state(0);
   let editMode = $state(false);
   let menuMode = $state(0);
+  let supportOpen = $state(false);
   function reseter() {
     onNavigate();
     menuMode = 0;
@@ -770,13 +771,6 @@
   {#if sideBarMode === 0}
     {#if $selectedCharID < 0 || $settingsOpen}
       <span class="block text-base font-semibold text-maintext mt-2">{language.recentChatsTitle}</span>
-      <div class="flex items-center justify-between gap-2 mt-2">
-        <span class="text-sm text-subtext">{language.hideRecentChats}</span>
-        <Switch
-          checked={!!DBState.db.hideRecentChats}
-          onCheckedChange={(v) => (DBState.db.hideRecentChats = v)}
-        />
-      </div>
       {#if DBState.db.hideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
@@ -817,6 +811,15 @@
         {/if}
         {/if}
       {/if}
+      <div class="mt-auto flex justify-center pt-6">
+        <button
+          type="button"
+          class="text-xs text-subtext transition-colors hover:text-maintext"
+          onclick={() => (supportOpen = true)}
+        >
+          {language.support}
+        </button>
+      </div>
     {:else}
       <nav class="sidebar-mode-switch" aria-label={language.sidebarView}>
         <IconButtonGroup size="sm" className="contents">
@@ -884,6 +887,8 @@
   ></div>
 {/if}
 </div>
+
+<SupportDialog bind:open={supportOpen} />
 
 {#if $DynamicGUI}
     <div role="button" tabindex="0" class="risu-modal-backdrop sidebar-dismiss-area"
