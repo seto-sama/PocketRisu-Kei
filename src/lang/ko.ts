@@ -15,6 +15,9 @@ export const languageKorean = {
     import: "Risu에 가져오기",
     moveToTrash: "삭제",
     trashConfirm: "선택한 항목 {count}개를 드라이브 휴지통으로 이동할까요?",
+    restoreFromTrash: "복원",
+    deleteForever: "삭제",
+    deleteForeverConfirm: "선택한 항목 {count}개를 영구 삭제할까요? 삭제하면 복구할 수 없습니다.",
     emptyTrashConfirm: "드라이브 휴지통의 모든 파일과 폴더를 영구 삭제할까요? 비우면 복구할 수 없습니다.",
     refresh: "동기화",
     navigation: "폴더 이동",
@@ -55,6 +58,7 @@ export const languageKorean = {
     notFound: "파일이나 폴더를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.",
     unsupportedEntry: "링크와 특수 파일은 드라이브에서 접근할 수 없습니다.",
     unavailable: "드라이브에 접근할 수 없습니다. 서버의 저장 공간과 접근 권한을 확인해 주세요.",
+    privateFolder: "비밀 폴더 (종원 방지 모드에서 숨김)",
   },
   formating: {
     main: "메인 프롬프트",

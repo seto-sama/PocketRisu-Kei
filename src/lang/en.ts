@@ -12,6 +12,9 @@ export const languageEnglish = {
         import: "Import into Risu",
         moveToTrash: "Move to trash",
         trashConfirm: "Move {count} selected item(s) to the drive trash?",
+        restoreFromTrash: "Restore",
+        deleteForever: "Delete permanently",
+        deleteForeverConfirm: "Permanently delete {count} selected item(s)? This cannot be undone.",
         emptyTrashConfirm: "Permanently delete all files and folders in the drive trash? This cannot be undone.",
         refresh: "Sync",
         navigation: "Folder navigation",
@@ -52,6 +55,7 @@ export const languageEnglish = {
         notFound: apiErrorMessages.DRIVE_NOT_FOUND,
         unsupportedEntry: apiErrorMessages.DRIVE_UNSUPPORTED_ENTRY,
         unavailable: apiErrorMessages.DRIVE_UNAVAILABLE,
+        privateFolder: "Private folder (hidden in Privacy Guard mode)",
     },
     formating: {
         main: "Main Prompt",
@@ -1122,7 +1126,7 @@ export const languageEnglish = {
     privacyGuardIdleLock: "Sign out automatically when idle",
     minutesUnit: "min",
     privacyGuard: {
-        description: "Privacy mode. Hides folders marked to hide and their inlay images, and asks for the password on every visit.",
+        description: "Privacy mode. Hides folders marked to hide, their inlay images and the Server Drive private folder, and asks for the password on every visit.",
         enableConfirm: "Turn on Privacy Guard mode? Every connected device will reload and ask for the password.",
         disablePasswordPrompt: "Enter the password to turn off Privacy Guard mode.",
     },

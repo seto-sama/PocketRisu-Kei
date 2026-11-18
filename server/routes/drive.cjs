@@ -15,9 +15,11 @@ const {
     isTrashExpired,
     normalizeTrashRetentionDays,
 } = require('../../shared/trashRetention.mjs');
+const { DRIVE_PRIVATE_DIRECTORY: PRIVATE_NAME } = require('../../shared/drivePrivate.mjs');
 
 const UPLOAD_PREFIX = '.pocketrisu-upload-';
 const TRASH_NAME_LOWER = TRASH_NAME.toLowerCase();
+const PRIVATE_NAME_LOWER = PRIVATE_NAME.toLowerCase();
 const TRASH_CLEANUP_RETRY_MS = 60 * 60 * 1000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
@@ -45,14 +47,26 @@ function isTrashPath(parts) {
     return parts[0]?.toLowerCase() === TRASH_NAME_LOWER;
 }
 
-function rejectTrashPath(parts) {
-    if (isTrashPath(parts)) throw createApiError(codes.INVALID_FILE_PATH, 400);
+function isPrivatePath(parts) {
+    return parts[0]?.toLowerCase() === PRIVATE_NAME_LOWER;
+}
+
+function isReservedRootName(name) {
+    const lower = name.toLowerCase();
+    return lower === TRASH_NAME_LOWER || lower === PRIVATE_NAME_LOWER;
+}
+
+// Trash contents and the private folder itself cannot be moved, renamed or deleted.
+function rejectReservedEntry(parts) {
+    if (isTrashPath(parts) || (parts.length === 1 && isPrivatePath(parts))) {
+        throw createApiError(codes.INVALID_FILE_PATH, 400);
+    }
 }
 
 function assertWritableDestination(parent, name) {
     validateName(name);
     const parentParts = pathParts(parent);
-    if (isTrashPath(parentParts) || (!parentParts.length && name.toLowerCase() === TRASH_NAME_LOWER)) {
+    if (isTrashPath(parentParts) || (!parentParts.length && isReservedRootName(name))) {
         throw createApiError(codes.INVALID_FILE_PATH, 400);
     }
 }
@@ -63,6 +77,15 @@ function assertEntry(stat) {
         || (stat.isFile() && stat.nlink > 1)) {
         throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
     }
+}
+
+// Trash manifest values are { trashedAt, from }; older entries are a bare timestamp with no origin.
+function trashedAt(value) {
+    return typeof value === 'number' ? value : value?.trashedAt;
+}
+
+function trashOrigin(value) {
+    return typeof value?.from === 'string' ? value.from : null;
 }
 
 function metadata(relativePath, stat) {
@@ -80,6 +103,7 @@ function installDriveRoutes(app, {
     savePath,
     checkAuth,
     checkDownloadAuth,
+    isPrivacyGuardActive = () => false,
     encodeThumbnail,
     getTrashRetentionDays = () => DEFAULT_TRASH_RETENTION_DAYS,
 }) {
@@ -98,8 +122,17 @@ function installDriveRoutes(app, {
         return result;
     }
 
-    async function resolveEntry(relativePath = '', directory = false) {
+    // Privacy guard: the private folder and the trash (which may hold its deleted files) do not exist.
+    function assertVisible(parts) {
+        if (isPrivacyGuardActive() && (isPrivatePath(parts) || isTrashPath(parts))) {
+            throw createApiError(codes.DRIVE_NOT_FOUND, 404);
+        }
+    }
+
+    // Every request path resolves here, so hidden paths cannot leak through a route that forgets them.
+    async function resolveEntry(relativePath = '', directory = false, { internal = false } = {}) {
         const parts = pathParts(relativePath);
+        if (!internal) assertVisible(parts);
         await fs.mkdir(root).catch(error => { if (error.code !== 'EEXIST') throw error; });
         let current = root;
         let stat = await fs.lstat(current);
@@ -119,9 +152,15 @@ function installDriveRoutes(app, {
         const { absolutePath: driveRoot } = await resolveEntry('', true);
         const trashPath = path.join(driveRoot, TRASH_NAME);
         await fs.mkdir(trashPath).catch(error => { if (error.code !== 'EEXIST') throw error; });
-        const trashEntry = await resolveEntry(TRASH_NAME);
+        // Deleting and expiry still use the trash while privacy guard hides it.
+        const trashEntry = await resolveEntry(TRASH_NAME, false, { internal: true });
         if (!trashEntry.stat.isDirectory()) throw createApiError(codes.DRIVE_UNAVAILABLE, 500);
         return trashEntry;
+    }
+
+    async function ensurePrivateDirectory() {
+        const { absolutePath: driveRoot } = await resolveEntry('', true);
+        await fs.mkdir(path.join(driveRoot, PRIVATE_NAME)).catch(error => { if (error.code !== 'EEXIST') throw error; });
     }
 
     async function openFile(relativePath) {
@@ -183,7 +222,7 @@ function installDriveRoutes(app, {
         for (const name of Object.keys(manifest)) {
             let validName = true;
             try { validateName(name); } catch { validName = false; }
-            if (!validName || !isTrashExpired(manifest[name], retentionDays, now)) continue;
+            if (!validName || !isTrashExpired(trashedAt(manifest[name]), retentionDays, now)) continue;
             try {
                 const entryPath = path.join(trashPath, name);
                 const stat = await fs.lstat(entryPath).catch(error => {
@@ -215,8 +254,9 @@ function installDriveRoutes(app, {
             if (retentionDays === 0) return;
             const manifest = await readTrashManifest();
             let nextExpiry = Infinity;
-            for (const [name, value] of Object.entries(manifest)) {
+            for (const [name, entry] of Object.entries(manifest)) {
                 try { validateName(name); } catch { continue; }
+                const value = trashedAt(entry);
                 if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
                 nextExpiry = Math.min(nextExpiry, value + retentionDays * 24 * 60 * 60 * 1000);
             }
@@ -449,8 +489,9 @@ function installDriveRoutes(app, {
         return choices;
     }
 
-    async function moveEntryToTrash(absolutePath, name, stat, { treeValidated = false } = {}) {
+    async function moveEntryToTrash(absolutePath, relativePath, stat, { treeValidated = false } = {}) {
         if (!treeValidated) await assertTree(absolutePath, stat);
+        const name = path.posix.basename(relativePath);
         const { absolutePath: trashPath } = await ensureTrashDirectory();
         const manifest = await readTrashManifest();
         for (let number = 0; ; number++) {
@@ -463,7 +504,7 @@ function installDriveRoutes(app, {
             if (existing) continue;
             const hadManifestEntry = Object.hasOwn(manifest, targetName);
             const previousTimestamp = manifest[targetName];
-            manifest[targetName] = Date.now();
+            manifest[targetName] = { trashedAt: Date.now(), from: relativePath };
             await writeTrashManifest(manifest);
             try {
                 await fs.rename(absolutePath, target);
@@ -678,7 +719,7 @@ function installDriveRoutes(app, {
                     await assertCapturedTree(operation.replace, plan);
                     const trashMove = await moveEntryToTrash(
                         operation.replace.absolutePath,
-                        path.posix.basename(operation.targetRelativePath),
+                        operation.targetRelativePath,
                         operation.replace.stat,
                         { treeValidated: true },
                     );
@@ -809,7 +850,7 @@ function installDriveRoutes(app, {
         const relativePath = body?.path;
         const parts = pathParts(relativePath);
         if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        rejectTrashPath(parts);
+        rejectReservedEntry(parts);
         const name = validateName(body?.name);
         const conflict = conflictPolicy(body?.conflict);
         const source = await resolveEntry(relativePath);
@@ -986,7 +1027,9 @@ function installDriveRoutes(app, {
     route('get', '/api/drive', async (req, res) => {
         const relativePath = req.query.path ?? '';
         const requestedParts = pathParts(relativePath);
+        assertVisible(requestedParts);
         if (isTrashPath(requestedParts)) await ensureTrashDirectory();
+        if (requestedParts.length === 1 && isPrivatePath(requestedParts)) await ensurePrivateDirectory();
         const { absolutePath } = await resolveEntry(relativePath, true);
         const entries = [];
         for (const name of await fs.readdir(absolutePath)) {
@@ -994,7 +1037,8 @@ function installDriveRoutes(app, {
             try {
                 validateName(name);
                 const stat = await fs.lstat(path.join(absolutePath, name));
-                if (!relativePath && name.toLowerCase() === TRASH_NAME_LOWER && stat.isDirectory()) continue;
+                // Reserved folders are reached from the sidebar, not the root listing.
+                if (!relativePath && isReservedRootName(name) && stat.isDirectory()) continue;
                 assertEntry(stat);
                 entries.push(metadata(child, stat));
             } catch (error) {
@@ -1044,16 +1088,17 @@ function installDriveRoutes(app, {
         const relativePath = req.body?.path;
         const parts = pathParts(relativePath);
         if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        rejectTrashPath(parts);
+        rejectReservedEntry(parts);
         await mutate(async () => {
             const { absolutePath, stat } = await resolveEntry(relativePath);
-            await moveEntryToTrash(absolutePath, parts.at(-1), stat);
+            await moveEntryToTrash(absolutePath, relativePath, stat);
         });
         void scheduleTrashCleanup();
         res.json({ ok: true });
     });
 
     route('delete', '/api/drive/trash', async (_req, res) => {
+        assertVisible([TRASH_NAME]);
         await mutate(async () => {
             const { absolutePath } = await ensureTrashDirectory();
             const stat = await fs.lstat(absolutePath);
@@ -1062,6 +1107,73 @@ function installDriveRoutes(app, {
                 await fs.rm(path.join(absolutePath, name), { recursive: true });
             }
             await writeTrashManifest(Object.create(null));
+        });
+        void scheduleTrashCleanup();
+        res.json({ ok: true });
+    });
+
+    function trashEntryParts(relativePath) {
+        const parts = pathParts(relativePath);
+        if (!isTrashPath(parts) || parts.length < 2) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        return parts;
+    }
+
+    async function ensureDirectoryPath(relativePath) {
+        let current = '';
+        for (const part of pathParts(relativePath)) {
+            const next = drivePath(current, part);
+            const existing = await optionalEntry(next);
+            if (!existing) {
+                assertWritableDestination(current, part);
+                await fs.mkdir(path.join((await optionalEntry(current)).absolutePath, part)).catch(error => {
+                    if (error.code !== 'EEXIST') throw error;
+                });
+            } else if (!existing.stat.isDirectory()) {
+                throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+            }
+            current = next;
+        }
+    }
+
+    // Restore to where it was deleted from, recreating missing folders; a taken name gets a number.
+    // Entries trashed before origins were recorded go back to the drive root.
+    route('post', '/api/drive/trash/restore', async (req, res) => {
+        const relativePath = req.body?.path;
+        const parts = trashEntryParts(relativePath);
+        const entry = await mutate(async () => {
+            const source = await resolveEntry(relativePath);
+            await assertTree(source.absolutePath, source.stat);
+            const manifest = await readTrashManifest();
+            const origin = trashOrigin(manifest[parts[1]]) ?? parts[1];
+            const originalParts = pathParts([origin, ...parts.slice(2)].join('/'));
+            const parent = originalParts.slice(0, -1).join('/');
+            await ensureDirectoryPath(parent);
+            const name = originalParts.at(-1);
+            const restored = source.stat.isDirectory()
+                ? await publishEntry(parent, name, 'rename', true, target => fs.rename(source.absolutePath, target))
+                : await publishFile(source.absolutePath, parent, name, 'rename');
+            if (parts.length === 2) {
+                delete manifest[parts[1]];
+                await writeTrashManifest(manifest);
+            }
+            return restored;
+        });
+        void scheduleTrashCleanup();
+        res.json({ entry });
+    });
+
+    route('delete', '/api/drive/trash/entry', async (req, res) => {
+        const relativePath = req.body?.path;
+        const parts = trashEntryParts(relativePath);
+        await mutate(async () => {
+            const { absolutePath, stat } = await resolveEntry(relativePath);
+            await assertTree(absolutePath, stat);
+            await fs.rm(absolutePath, { recursive: true });
+            if (parts.length === 2) {
+                const manifest = await readTrashManifest();
+                delete manifest[parts[1]];
+                await writeTrashManifest(manifest);
+            }
         });
         void scheduleTrashCleanup();
         res.json({ ok: true });

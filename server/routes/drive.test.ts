@@ -8,6 +8,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installDriveRoutes } from './drive.cjs'
 import { DRIVE_TRASH_DIRECTORY } from '../../shared/trashRetention.mjs'
 
+let guardActive = false
+const isPrivacyGuardActive = () => guardActive
+
 let directory: string
 let root: string
 let server: Server
@@ -34,6 +37,7 @@ async function unzip(data: Uint8Array) {
 
 beforeEach(async () => {
     encodeThumbnail.mockReset().mockResolvedValue({ buffer: Buffer.from('thumbnail') })
+    guardActive = false
     directory = await mkdtemp(join(tmpdir(), 'risu-drive-'))
     root = join(directory, 'drive')
     const app = express()
@@ -45,7 +49,7 @@ beforeEach(async () => {
         return false
     }
     const driveRoutes = installDriveRoutes(app, {
-        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, encodeThumbnail,
+        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isPrivacyGuardActive, encodeThumbnail,
     })
     stopTrashCleanup = driveRoutes.stopTrashCleanup
     app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, details: error.details }))
@@ -87,6 +91,51 @@ const requestDrive = (route: string, method: string, extraHeaders: Record<string
         req.end(body)
     })
 )
+
+it('hides the private folder and the trash under privacy guard, before filesystem operations', async () => {
+    await vi.waitFor(async () => expect((await stat(trashPath())).isDirectory()).toBe(true))
+    expect((await requestDrive('?path=private', 'GET')).status).toBe(200)
+    await writeFile(join(root, 'private', 'secret.txt'), 'hidden')
+    await writeFile(join(root, 'existing.txt'), 'visible')
+    await writeFile(join(trashPath(), 'deleted-secret.txt'), 'trash may hold private files')
+    const beforePrivate = await readdir(join(root, 'private'))
+    const beforeTrash = await readdir(trashPath())
+    const json = { 'content-type': 'application/json' }
+    const operations: { route: string, method: string, headers?: Record<string, string>, body?: string }[] = [
+        { route: '?path=private', method: 'GET' },
+        { route: `?path=${DRIVE_TRASH_DIRECTORY}`, method: 'GET' },
+        { route: '/metadata?path=private/secret.txt', method: 'GET' },
+        { route: '/download?path=private/secret.txt', method: 'GET' },
+        { route: '/thumbnail?path=private/secret.txt', method: 'GET' },
+        { route: '/directory', method: 'POST', headers: json, body: JSON.stringify({ path: 'private', name: 'created' }) },
+        { route: '/rename', method: 'PATCH', headers: json, body: JSON.stringify({ path: 'private/secret.txt', name: 'secret.txt', destination: '' }) },
+        { route: '/rename', method: 'PATCH', headers: json, body: JSON.stringify({ path: 'existing.txt', name: 'existing.txt', destination: 'private' }) },
+        { route: '/copy', method: 'POST', headers: json, body: JSON.stringify({ path: 'private/secret.txt', name: 'copied.txt', destination: '' }) },
+        { route: '/entry', method: 'DELETE', headers: json, body: JSON.stringify({ path: 'private/secret.txt' }) },
+        { route: '/trash', method: 'DELETE', headers: json, body: '{}' },
+        { route: '/file?path=private&name=created.txt', method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: 'new contents' },
+    ]
+
+    guardActive = true
+    for (const operation of operations) {
+        const response = await requestDrive(operation.route, operation.method, operation.headers ?? {}, operation.body)
+        expect(response.status, `${operation.method} ${operation.route}`).toBe(404)
+        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_NOT_FOUND' })
+    }
+    expect(await readdir(join(root, 'private'))).toEqual(beforePrivate)
+    expect(await readdir(trashPath())).toEqual(beforeTrash)
+    const rootListing = await requestDrive('', 'GET')
+    expect(JSON.parse(rootListing.body).entries.map((entry: { name: string }) => entry.name)).toEqual(['existing.txt'])
+    expect((await requestDrive('/download?path=existing.txt', 'GET')).body).toBe('visible')
+
+    guardActive = false
+    const privateListing = await requestDrive('?path=private', 'GET')
+    expect(JSON.parse(privateListing.body).entries).toEqual([expect.objectContaining({ name: 'secret.txt' })])
+    for (const reserved of [
+        requestDrive('/entry', 'DELETE', json, JSON.stringify({ path: 'private' })),
+        requestDrive('/directory', 'POST', json, JSON.stringify({ name: 'Private' })),
+    ]) expect((await reserved).status).toBe(400)
+})
 
 it('revalidates thumbnails after file replacement and leaves unavailable previews uncached', async () => {
     await upload('portrait.PNG', 'first image')
@@ -643,7 +692,37 @@ it('replaces merged conflicts into trash and preserves displaced contents', asyn
     expect(await readFile(join(trashPath(), 'same.txt'), 'utf8')).toBe('displaced')
     expect(await readFile(join(trashPath(), 'kind-directory'), 'utf8')).toBe('displaced file')
     expect(await readFile(join(trashPath(), 'kind-file', 'preserved.txt'), 'utf8')).toBe('displaced directory')
-    expect(JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))['same.txt']).toEqual(expect.any(Number))
+    const restored = await requestDrive('/trash/restore', 'POST', { 'content-type': 'application/json' },
+        JSON.stringify({ path: `${DRIVE_TRASH_DIRECTORY}/same.txt` }))
+    expect(JSON.parse(restored.body).entry).toMatchObject({ path: 'destination/same (1).txt' })
+    expect(await readFile(join(root, 'destination', 'same (1).txt'), 'utf8')).toBe('displaced')
+})
+
+it('restores trash to where it was deleted from and deletes single trash entries for good', async () => {
+    const json = { 'content-type': 'application/json' }
+    await mkdir(join(root, 'docs', 'nested'), { recursive: true })
+    await writeFile(join(root, 'docs', 'nested', 'a.txt'), 'first')
+    await writeFile(join(root, 'docs', 'b.txt'), 'second')
+    for (const path of ['docs/nested/a.txt', 'docs/b.txt']) {
+        expect((await requestDrive('/entry', 'DELETE', json, JSON.stringify({ path }))).status).toBe(200)
+    }
+    await rm(join(root, 'docs'), { recursive: true })
+    await writeFile(join(trashPath(), 'legacy.txt'), 'from an older trash')
+    const manifest = JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))
+    await writeFile(join(directory, 'drive-trash.json'), JSON.stringify({ ...manifest, 'legacy.txt': Date.now() }))
+
+    const restore = (path: string) => requestDrive('/trash/restore', 'POST', json, JSON.stringify({ path }))
+    expect(JSON.parse((await restore(`${DRIVE_TRASH_DIRECTORY}/a.txt`)).body).entry).toMatchObject({ path: 'docs/nested/a.txt' })
+    expect(await readFile(join(root, 'docs', 'nested', 'a.txt'), 'utf8')).toBe('first')
+    await writeFile(join(root, 'legacy.txt'), 'taken name')
+    expect(JSON.parse((await restore(`${DRIVE_TRASH_DIRECTORY}/legacy.txt`)).body).entry).toMatchObject({ path: 'legacy (1).txt' })
+
+    expect((await requestDrive('/trash/entry', 'DELETE', json, JSON.stringify({ path: `${DRIVE_TRASH_DIRECTORY}/b.txt` }))).status).toBe(200)
+    expect(await readdir(trashPath())).toEqual([])
+    expect(JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))).toEqual({})
+    for (const path of ['docs/b.txt', DRIVE_TRASH_DIRECTORY]) {
+        expect((await requestDrive('/trash/entry', 'DELETE', json, JSON.stringify({ path }))).status).toBe(400)
+    }
 })
 
 it('rolls back earlier merge moves when a later overwrite cannot enter trash', async () => {

@@ -710,7 +710,7 @@ describe('server route composition', () => {
     })
 
     // Runs last: it moves the route character into a hidden folder.
-    it('privacy guard hides folders, their inlays, and asks for the password per session', async () => {
+    it('privacy guard hides folders, their inlays and the private Drive folder, and asks for the password per session', async () => {
         const password = 'route-test-password'
         const json = { ...headers, 'content-type': 'application/json' }
         const { database } = await (await fetch(base + '/api/database', { headers })).json()
@@ -731,6 +731,7 @@ describe('server route composition', () => {
         const listInlays = async () => (await (await fetch(base + '/api/list', { headers: { ...headers, 'key-prefix': 'inlay/' } })).json()).content
         const visibleCharacters = async () => (await (await fetch(base + '/api/database', { headers })).json()).database.characters.map((char: any) => char.chaId)
         const cookieLogin = async () => (await (await fetch(base + '/api/test_auth', { headers: { cookie } })).json()).status
+        const listPrivateDrive = async () => (await fetch(base + '/api/drive?path=private', { headers })).status
         const withPassword = (path: string, value: string) => fetch(base + path, {
             method: 'POST', headers: { ...json, cookie }, body: JSON.stringify({ password: value }),
         })
@@ -741,11 +742,13 @@ describe('server route composition', () => {
         expect(await visibleCharacters()).toEqual([])
         expect(await listInlays()).not.toContain('inlay/guard-inlay')
         expect(await cookieLogin()).toBe('incorrect')
+        expect(await listPrivateDrive()).toBe(404)
 
         expect((await withPassword('/api/privacy-guard/disable', 'wrong')).status).toBe(401)
         expect((await withPassword('/api/privacy-guard/disable', password)).status).toBe(200)
         expect(await visibleCharacters()).toEqual([characterId])
         expect(await listInlays()).toContain('inlay/guard-inlay')
         expect(await cookieLogin()).toBe('success')
+        expect(await listPrivateDrive()).toBe(200)
     })
 })

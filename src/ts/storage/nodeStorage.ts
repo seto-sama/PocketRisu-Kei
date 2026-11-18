@@ -879,6 +879,21 @@ export class NodeStorage{
         await this.driveRequest('/trash', { method: 'DELETE' })
     }
 
+    async restoreDriveTrashEntry(path: string): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/trash/restore', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
+        return result.entry
+    }
+
+    async deleteDriveTrashEntry(path: string): Promise<void> {
+        await this.driveRequest('/trash/entry', {
+            method: 'DELETE', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
+    }
+
     async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
         const result = await this.driveRequest<{ entry: DriveEntry }>(`/file?${new URLSearchParams({ path, name: file.name, conflict })}`, {
             method: 'PUT', headers: { 'content-type': 'application/octet-stream' },

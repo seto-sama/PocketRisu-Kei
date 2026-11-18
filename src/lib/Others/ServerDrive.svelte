@@ -8,7 +8,7 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte'
     import type { HTMLAttributes } from 'svelte/elements'
-    import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardPasteIcon, CopyIcon, DownloadIcon, EyeIcon, FileCheckIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, ImportIcon, InfoIcon, PencilIcon, RefreshCwIcon, ScissorsIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
+    import { ArchiveRestoreIcon, BriefcaseIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardPasteIcon, CopyIcon, DownloadIcon, EyeIcon, FileCheckIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, ImportIcon, InfoIcon, PencilIcon, RefreshCwIcon, ScissorsIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { forageStorage } from 'src/ts/storage/autoStorage'
     import { notifyError, notifySuccess } from 'src/ts/alert'
@@ -16,6 +16,8 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
     import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
+    import { DRIVE_PRIVATE_DIRECTORY as privatePath, isDrivePrivatePath } from '../../../shared/drivePrivate.mjs'
+    import { isPrivacyGuardActive } from 'src/ts/platform'
     import type { DriveConflict, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
     import { chooseConflictComparison, SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
     import type { ServerDriveFileRequest } from 'src/ts/serverDriveFilePicker.svelte'
@@ -87,6 +89,19 @@
 
     const parts = $derived(currentPath ? currentPath.split('/') : [])
     const inTrash = $derived(currentPath === trashPath || currentPath.startsWith(trashPath + '/'))
+    const inPrivate = $derived(isDrivePrivatePath(currentPath))
+    const deleteActionLabel = $derived(emptyTrashOpen ? language.emptyTrash
+        : inTrash ? language.serverDrive.deleteForever : language.serverDrive.moveToTrash)
+    const addressRoot = $derived(inTrash ? trashPath : inPrivate ? privatePath : '')
+    const addressRootDepth = $derived(addressRoot ? 1 : 0)
+    // Pressing the trash or private icon again returns to where the user came from.
+    let pathBeforeSpecialFolder = ''
+
+    function toggleSpecialFolder(folder: string, inside: boolean) {
+        if (inside) return refresh(pathBeforeSpecialFolder)
+        if (!inTrash && !inPrivate) pathBeforeSpecialFolder = currentPath
+        return refresh(folder)
+    }
     const hasSubfolders = $derived(entries.some(entry => entry.type === 'directory'))
     const sortedEntries = $derived([...entries]
         .sort((a, b) => Number(b.type === 'directory') - Number(a.type === 'directory')
@@ -97,7 +112,9 @@
         left: Math.min(drag.startX, drag.x), top: Math.min(drag.startY, drag.y),
         width: Math.abs(drag.x - drag.startX), height: Math.abs(drag.y - drag.startY),
     } : null)
+    // Edits rewrite every saved shortcut; only the shown list drops private ones, whose names would leak under privacy guard.
     const shortcuts = $derived([...new Set((DBState.db.serverDriveShortcuts ?? []).filter(path => typeof path === 'string' && path !== ''))])
+    const visibleShortcuts = $derived(isPrivacyGuardActive ? shortcuts.filter(path => !isDrivePrivatePath(path)) : shortcuts)
     const disabled = $derived(busy || loading)
     const cutPaths = $derived(new Set(clipboard?.operation === 'move' ? clipboard.entries.map(entry => entry.path) : []))
     const canPaste = $derived(!disabled && !inTrash && !!clipboard?.entries.length
@@ -379,9 +396,22 @@
         if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     }
 
+    // Outside the trash this moves to the trash; inside it, it deletes for good.
     function askDelete() {
-        if (inTrash) return
         deleteTargets = [...selectedEntries]
+    }
+
+    async function restoreSelection() {
+        if (disabled || !inTrash || !selectedEntries.length) return
+        busy = true
+        try {
+            for (const entry of selectedEntries) await storage.restoreDriveTrashEntry(entry.path)
+        } catch (error) {
+            notifyError(error)
+        } finally {
+            busy = false
+            await refresh(currentPath)
+        }
     }
 
     function closeDeleteDialog() {
@@ -398,6 +428,8 @@
         try {
             if (emptyTrash) {
                 await storage.emptyDriveTrash()
+            } else if (inTrash) {
+                for (const entry of targets) await storage.deleteDriveTrashEntry(entry.path)
             } else {
                 for (const entry of targets) {
                     await storage.deleteDriveEntry(entry.path)
@@ -735,7 +767,12 @@
     <section class="grid min-h-0 min-w-0 flex-1 grid-cols-[var(--icon-cell-size)_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]" style:--icon-cell-size="{controlCellSize}px">
         <div class="col-start-1 row-span-2 row-start-2 flex min-h-0 flex-col bg-darkbg" role="navigation" aria-label={language.serverDrive.shortcuts}>
             <IconButtonGroup direction="vertical" className="min-h-0 flex-1 gap-2 overflow-y-auto px-2">
-                {#each shortcuts as path (path)}
+                {#if !isPrivacyGuardActive}
+                    <IconButton {...actionProps()} tooltipSide="right" title={language.serverDrive.privateFolder} active={inPrivate} activeColor="primary" onclick={() => toggleSpecialFolder(privatePath, inPrivate)}>
+                        <BriefcaseIcon />
+                    </IconButton>
+                {/if}
+                {#each visibleShortcuts as path (path)}
                     <ContextMenu.Root>
                         <ContextMenu.Trigger disabled={disabled}>
                             {#snippet child({ props })}
@@ -753,11 +790,14 @@
             <IconButtonGroup direction="vertical" className="gap-2 p-2">
                 <IconButton {...actionProps(busy || !!loadError || inTrash)} tooltipSide="right" title={language.serverDrive.upload} onclick={() => fileInput.click()}><UploadIcon /></IconButton>
                 <IconButton {...actionProps()} tooltipSide="right" title={language.serverDrive.refresh} onclick={() => refresh()}><RefreshCwIcon /></IconButton>
-                <TrashSettingsPopup>
-                    {#snippet trigger()}
-                        <IconButton {...actionProps()} tooltipSide="right" title={language.trash} active={inTrash} activeColor="primary" onclick={() => refresh(trashPath)}><Trash2Icon /></IconButton>
-                    {/snippet}
-                </TrashSettingsPopup>
+                <!-- The trash may hold files deleted from the private folder. -->
+                {#if !isPrivacyGuardActive}
+                    <TrashSettingsPopup>
+                        {#snippet trigger()}
+                            <IconButton {...actionProps()} tooltipSide="right" title={language.trash} active={inTrash} activeColor="primary" onclick={() => toggleSpecialFolder(trashPath, inTrash)}><Trash2Icon /></IconButton>
+                        {/snippet}
+                    </TrashSettingsPopup>
+                {/if}
             </IconButtonGroup>
         </div>
 
@@ -765,10 +805,14 @@
             {#if $mdViewport}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <IconButton {...actionProps()} {...dropProps('')} data-selected={dropPath === ''} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext" title={language.serverDrive.driveRoot} onclick={() => refresh('')}><HardDriveIcon /></IconButton>
-                    {@render folderDropdown('')}
-                    {#each parts as part, index}
-                        {@const path = parts.slice(0, index + 1).join('/')}
+                    <!-- The trash and the private folder start their own address from their icon. -->
+                    <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext"
+                        title={inTrash ? language.trash : inPrivate ? language.serverDrive.privateFolder : language.serverDrive.driveRoot} onclick={() => refresh(addressRoot)}>
+                        {#if inTrash}<Trash2Icon />{:else if inPrivate}<BriefcaseIcon />{:else}<HardDriveIcon />{/if}
+                    </IconButton>
+                    {@render folderDropdown(addressRoot)}
+                    {#each parts.slice(addressRootDepth) as part, index}
+                        {@const path = parts.slice(0, addressRootDepth + index + 1).join('/')}
                         <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
@@ -825,6 +869,13 @@
                                                 {/snippet}
                                             </ContextMenu.Trigger>
                                             <ContextMenu.Content class={menuClass} onCloseAutoFocus={(event) => { if (nameOpen || properties || deleteTargets.length) event.preventDefault() }}>
+                                                {#if inTrash}
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => { void restoreSelection() }}><ArchiveRestoreIcon size={16} />{language.serverDrive.restoreFromTrash}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.deleteForever}</ContextMenu.Item>
+                                                    <ContextMenu.Separator />
+                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
+                                                {:else}
                                                 {#if pick}
                                                     <ContextMenu.Item disabled={!pickedEntries.length} onSelect={() => { void pickFiles(pickedEntries) }}><FileCheckIcon size={16} />{language.serverDrive.open}</ContextMenu.Item>
                                                 {:else}
@@ -832,16 +883,17 @@
                                                 {/if}
                                                 <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openPreview(entry) }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
                                                 <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
-                                                {#if entry.type === 'directory' && !inTrash}
+                                                {#if entry.type === 'directory'}
                                                     <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => toggleShortcut(entry.path)}><StarIcon size={16} />{shortcuts.includes(entry.path) ? language.serverDrive.removeShortcut : language.serverDrive.addShortcut}</ContextMenu.Item>
                                                 {/if}
                                                 <ContextMenu.Separator />
-                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('move')}><ScissorsIcon size={16} />{language.cut}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('copy')}><CopyIcon size={16} />{language.copy}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={inTrash} variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || inTrash} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => stageSelection('move')}><ScissorsIcon size={16} />{language.cut}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => stageSelection('copy')}><CopyIcon size={16} />{language.copy}</ContextMenu.Item>
+                                                <ContextMenu.Item variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
                                                 <ContextMenu.Separator />
                                                 <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
+                                                {/if}
                                             </ContextMenu.Content>
                                         </ContextMenu.Root>
                                     {/each}
@@ -895,12 +947,12 @@
 </Dialog>
 
 <Dialog open={deleteTargets.length > 0 || emptyTrashOpen} onOpenChange={(open) => { if (!open) closeDeleteDialog() }} onConfirm={() => { void deleteSelection() }} closable={false} role="alertdialog" size="sm">
-    {#snippet title()}{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}{/snippet}
-    {#snippet description()}{emptyTrashOpen ? language.serverDrive.emptyTrashConfirm : language.serverDrive.trashConfirm.replace('{count}', String(deleteTargets.length))}{/snippet}
+    {#snippet title()}{deleteActionLabel}{/snippet}
+    {#snippet description()}{emptyTrashOpen ? language.serverDrive.emptyTrashConfirm : (inTrash ? language.serverDrive.deleteForeverConfirm : language.serverDrive.trashConfirm).replace('{count}', String(deleteTargets.length))}{/snippet}
     {#if deleteTargets.length}<ul class="max-h-40 overflow-y-auto text-sm">{#each deleteTargets as entry (entry.path)}<li class="break-all">{entry.name}</li>{/each}</ul>{/if}
     {#snippet footer()}
         <Button variant="outline" onclick={closeDeleteDialog}>{language.cancel}</Button>
-        <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}</Button>
+        <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{deleteActionLabel}</Button>
     {/snippet}
 </Dialog>
 
