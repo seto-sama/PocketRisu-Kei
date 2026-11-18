@@ -1183,6 +1183,8 @@ export const languageKorean = {
   changeFolderImage: "폴더 이미지 변경하기",
   hideFolderInPrivacyGuard: "종원 방지 모드일 때 이 폴더 숨기기",
   privacyGuardMode: "종원 방지 모드",
+  privacyGuardIdleLock: "자리 비움 시 자동으로 로그인 상태 해제",
+  minutesUnit: "분",
   privacyGuard: {
     description: "사생활 보호 모드입니다. 지정한 폴더 내부 데이터를 숨기고, 접속할 때마다 비밀번호를 묻습니다.",
     enableConfirm: "종원 방지 모드를 켤까요? 연결된 모든 기기가 새로고침되고 비밀번호를 다시 입력해야 합니다.",

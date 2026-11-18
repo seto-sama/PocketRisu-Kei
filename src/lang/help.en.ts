@@ -289,6 +289,7 @@ export const helpEn = {
             "Open Server Drive when loading files. When this setting is off, the device's file browser opens; right-click a button that loads files to open Server Drive.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
+        privacyGuardIdleLock: "Returns to the password prompt after the set time passes without any input.",
         pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",
         claude1HourCaching:
             "Use Claude's 1-hour prompt cache TTL instead of the default 5-minute cache. This can save more cost for repeated contexts, but 1-hour cache pricing differs.",

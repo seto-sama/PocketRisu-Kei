@@ -30,7 +30,7 @@
         'adv.allowExt',
         'adv.cssErr',
     ]);
-    const laboratoryPrimaryItemIds = ['adv.privacyGuard', 'adv.newImgBeta'];
+    const laboratoryPrimaryItemIds = ['adv.privacyGuard', 'adv.privacyGuardIdleLock', 'adv.newImgBeta'];
     const laboratoryPrimaryItemIdSet = new Set(laboratoryPrimaryItemIds);
     const laboratoryWarningItemIds = new Set(['adv.warn']);
     const movedItemIds = new Set([...requestItemIds, ...lorebookItemIds, ...dataDisplayItemIds]);

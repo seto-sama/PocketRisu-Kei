@@ -66,7 +66,7 @@
                         debounceMs={item.options?.debounceMs}
                         onCommit={commitValue}
                     />
-                    {#if item.options?.suffix}<span class="text-subtext text-xs shrink-0">{item.options.suffix}</span>{/if}
+                    {#if item.options?.suffix}<span class="text-subtext text-xs shrink-0">{typeof item.options.suffix === 'function' ? item.options.suffix() : item.options.suffix}</span>{/if}
                 </div>
             {:else}
                 <Switch checked={false} onCheckedChange={setNumberEnabled} />

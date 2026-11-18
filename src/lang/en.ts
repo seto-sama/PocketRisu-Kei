@@ -1119,6 +1119,8 @@ export const languageEnglish = {
     changeFolderImage: "Change Folder Image",
     hideFolderInPrivacyGuard: "Hide this folder in Privacy Guard mode",
     privacyGuardMode: "Privacy Guard Mode",
+    privacyGuardIdleLock: "Sign out automatically when idle",
+    minutesUnit: "min",
     privacyGuard: {
         description: "Privacy mode. Hides folders marked to hide and their inlay images, and asks for the password on every visit.",
         enableConfirm: "Turn on Privacy Guard mode? Every connected device will reload and ask for the password.",
