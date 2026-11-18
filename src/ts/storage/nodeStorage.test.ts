@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { encode, decode } from 'msgpackr/index-no-eval'
 
 vi.mock('src/lang', () => ({ language: {} }))
+const alertInput = vi.hoisted(() => vi.fn())
 vi.mock('../alert', () => ({
-    alertInput: vi.fn(),
+    alertInput,
     waitAlert: vi.fn(),
     notifyError: vi.fn(),
 }))
@@ -17,6 +18,35 @@ const { NodeStorage } = await import('./nodeStorage')
 
 afterEach(() => {
     vi.unstubAllGlobals()
+})
+
+// Login state is page-wide, so auth tests start from a fresh module.
+async function unauthenticatedNodeStorage() {
+    vi.resetModules()
+    return (await import('./nodeStorage')).NodeStorage
+}
+
+it('shares one login across storage instances, so a retry after a wrong password is the last prompt', async () => {
+    const logins = ['wrong', 'right']
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+        if (url === '/api/test_auth') return Response.json({ status: 'incorrect' })
+        if (url === '/api/crypto') return new Response(`digest:${JSON.parse(String(init.body)).data}`)
+        if (url === '/api/login') {
+            return JSON.parse(String(init.body)).password === 'digest:right'
+                ? Response.json({ status: 'success', token: 'jwt' })
+                : Response.json({ code: 'AUTH_INVALID_PASSWORD' }, { status: 401 })
+        }
+        return Response.json({ ok: true })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    alertInput.mockImplementation(async () => logins.shift())
+
+    const Storage = await unauthenticatedNodeStorage()
+    const main = new Storage()
+    await expect(main.createAuth()).rejects.toThrow()
+    await expect(main.createAuth()).resolves.toBe('jwt')
+    await expect(new Storage().createAuth()).resolves.toBe('jwt')
+    expect(alertInput).toHaveBeenCalledTimes(2)
 })
 
 describe('NodeStorage patch transport', () => {
@@ -142,9 +172,10 @@ describe('NodeStorage patch transport', () => {
 })
 
 it('retries shared authentication after header and response-body timeouts', async () => {
+    const Storage = await unauthenticatedNodeStorage()
     vi.useFakeTimers()
     try {
-        const storage = new NodeStorage()
+        const storage = new Storage()
         const fetchMock = vi.fn()
             .mockImplementationOnce(() => new Promise(() => {}))
             .mockResolvedValueOnce(new Response(new ReadableStream()))

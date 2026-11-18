@@ -220,12 +220,13 @@ export class NodeStorage{
     _lastDbEtag: string | null = null
     _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
-    authChecked = false
-    private cachedJwt: { token: string; expiresAt: number } | null = null
+    // Login belongs to the page; inlay stores keep their own NodeStorage instance.
+    private static authChecked = false
+    private static cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
-    private refreshPending: Promise<string> | null = null
-    private authPending: Promise<void> | null = null
+    private static refreshPending: Promise<string> | null = null
+    private static authPending: Promise<void> | null = null
     private pluginStorageExclusionHeader = ''
 
     static getSessionId() {
@@ -234,29 +235,29 @@ export class NodeStorage{
 
     async createAuth(): Promise<string> {
         const now = Date.now()
-        if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
-            return this.cachedJwt.token
+        if (NodeStorage.cachedJwt && NodeStorage.cachedJwt.expiresAt - now > 30_000) {
+            return NodeStorage.cachedJwt.token
         }
 
-        if (!this.cachedJwt) {
+        if (!NodeStorage.cachedJwt) {
             await this.checkAuth()
-            if (!this.cachedJwt) {
+            if (!NodeStorage.cachedJwt) {
                 throw new Error('Node auth unavailable')
             }
-            return this.cachedJwt.token
+            return NodeStorage.cachedJwt.token
         }
 
         const token = await this._refreshToken()
         if (token) return token
 
         // Reauthenticate after a rejected refresh to avoid reusing its invalid token.
-        this.cachedJwt = null
-        this.authChecked = false
+        NodeStorage.cachedJwt = null
+        NodeStorage.authChecked = false
         await this.checkAuth()
-        if (!this.cachedJwt) {
+        if (!NodeStorage.cachedJwt) {
             throw new Error('Node auth unavailable')
         }
-        return this.cachedJwt.token
+        return NodeStorage.cachedJwt.token
     }
 
     // Asset elements cannot attach JWT headers, so they need a session cookie.
@@ -288,20 +289,20 @@ export class NodeStorage{
     }
 
     private async _refreshToken(): Promise<string> {
-        if (this.refreshPending) return this.refreshPending
-        this.refreshPending = this._doRefreshToken()
-        try { return await this.refreshPending }
-        finally { this.refreshPending = null }
+        if (NodeStorage.refreshPending) return NodeStorage.refreshPending
+        NodeStorage.refreshPending = this._doRefreshToken()
+        try { return await NodeStorage.refreshPending }
+        finally { NodeStorage.refreshPending = null }
     }
 
     private async _doRefreshToken(): Promise<string> {
         const res = await authRequest('/api/token/refresh', {
             method: 'POST',
-            headers: { 'risu-auth': this.cachedJwt?.token ?? '' }
+            headers: { 'risu-auth': NodeStorage.cachedJwt?.token ?? '' }
         })
         if (res.ok) {
             const data = await res.json()
-            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+            NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
             return data.token
         }
         return ''
@@ -322,9 +323,9 @@ export class NodeStorage{
 
         const data = await response.json()
         if (data.token) {
-            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+            NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
         }
-        this.authChecked = true
+        NodeStorage.authChecked = true
     }
 
     private async shouldRetryAuth(response: Response) {
@@ -354,8 +355,8 @@ export class NodeStorage{
             signal?.throwIfAborted()
             const response = await fetch(input, { ...init, headers, signal })
             if (policy.retryAuth !== false && await this.shouldRetryAuth(response)) {
-                this.authChecked = false
-                this.cachedJwt = null
+                NodeStorage.authChecked = false
+                NodeStorage.cachedJwt = null
                 return this.authFetch(input, { ...init, signal }, { retryAuth: false })
             }
             return response
@@ -495,25 +496,25 @@ export class NodeStorage{
     }
 
     private async checkAuth() {
-        if (this.authChecked && this.cachedJwt) {
-            await this.initSession(this.cachedJwt.token)
+        if (NodeStorage.authChecked && NodeStorage.cachedJwt) {
+            await this.initSession(NodeStorage.cachedJwt.token)
             return
         }
-        if (this.authPending) return this.authPending
+        if (NodeStorage.authPending) return NodeStorage.authPending
 
-        this.authPending = this._doCheckAuth()
+        NodeStorage.authPending = this._doCheckAuth()
         try {
-            await this.authPending
+            await NodeStorage.authPending
         } finally {
-            this.authPending = null
+            NodeStorage.authPending = null
         }
     }
 
     private async _doCheckAuth() {
-        if(!this.authChecked){
+        if(!NodeStorage.authChecked){
             const data = await (await authRequest('/api/test_auth',{
                 headers: {
-                    'risu-auth': this.cachedJwt?.token ?? ''
+                    'risu-auth': NodeStorage.cachedJwt?.token ?? ''
                 }
             })).json()
 
@@ -535,26 +536,26 @@ export class NodeStorage{
 
                 await response.arrayBuffer()
                 await this.loginWithPassword(input)
-                if (!this.cachedJwt) throw new Error('Node auth unavailable')
-                await this.initSession(this.cachedJwt.token)
+                if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(NodeStorage.cachedJwt.token)
                 return
             }
             else if(data.status === 'incorrect'){
                 const input = await digestPassword(await alertInput(language.inputNodePassword))
                 await this.loginWithPassword(input)
-                if (!this.cachedJwt) throw new Error('Node auth unavailable')
-                await this.initSession(this.cachedJwt.token)
+                if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(NodeStorage.cachedJwt.token)
                 return
             }
             else{
                 if (data.token) {
-                    this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+                    NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
                 }
-                this.authChecked = true
+                NodeStorage.authChecked = true
             }
         }
-        if (!this.cachedJwt) throw new Error('Node auth unavailable')
-        await this.initSession(this.cachedJwt.token)
+        if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+        await this.initSession(NodeStorage.cachedJwt.token)
     }
 
     listItem = this.keys
