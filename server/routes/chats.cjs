@@ -1,6 +1,6 @@
 'use strict';
 
-const { isChatHiddenFromRemote } = require('../remoteDatabaseFilter.cjs');
+const { isChatHidden } = require('../privacyGuardFilter.cjs');
 const { encodeRisuSaveLegacy } = require('../utils/risuSave.cjs');
 const { CanonicalChatCommitError } = require('../chatStore.cjs');
 const { codes, sendApiError } = require('../utils/apiErrors.cjs');
@@ -8,7 +8,7 @@ const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 function installChatsRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     appDataStore,
     loadCanonicalChat,
     requireSyncClientId,
@@ -26,9 +26,9 @@ function installChatsRoutes(app, {
         const expectedChatId = req.headers['x-chat-id'];
 
         await ensureCanonicalStorage();
-        if (isCloudflareTunnelRequest(req)) {
+        if (isPrivacyGuardActive()) {
             const dbObj = appDataStore.exportProjection({ includeMessages: false });
-            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+            if (isChatHidden(dbObj, chaId, chatIndex, expectedChatId)) {
                 return sendChatNotFound(res);
             }
         }
@@ -61,9 +61,9 @@ function installChatsRoutes(app, {
                 return res.status(400).json({ error: 'Chat changes and x-chat-id required' });
             }
 
-            if (isCloudflareTunnelRequest(req)) {
+            if (isPrivacyGuardActive()) {
                 const dbObj = appDataStore.exportProjection({ includeMessages: false });
-                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                if (isChatHidden(dbObj, chaId, chatIndex, expectedChatId)) {
                     return sendChatNotFound(res);
                 }
             }

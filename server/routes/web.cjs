@@ -6,7 +6,7 @@ const htmlparser = require('node-html-parser');
 const { logger } = require('../logs/logs.cjs');
 
 function installWebRoutes(app, {
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     getDevServer = () => null,
 }) {
     app.get('/', async (req, res) => {
@@ -22,7 +22,7 @@ function installWebRoutes(app, {
         if (devServer) mainIndex = await devServer.transformIndexHtml(req.originalUrl, mainIndex);
         const root = htmlparser.parse(mainIndex)
         const head = root.querySelector('head')
-        head.innerHTML = `<script>globalThis.__NODE__ = true; globalThis.__CLOUDFLARE_TUNNEL__ = ${isCloudflareTunnelRequest(req)}; globalThis.__POCKETRISU_DEBUG__ = ${logger.debug.enabled};</script>` + head.innerHTML
+        head.innerHTML = `<script>globalThis.__NODE__ = true; globalThis.__PRIVACY_GUARD__ = ${isPrivacyGuardActive()}; globalThis.__POCKETRISU_DEBUG__ = ${logger.debug.enabled};</script>` + head.innerHTML
 
         res.set('Cache-Control', 'no-store');
         res.send(root.toString())

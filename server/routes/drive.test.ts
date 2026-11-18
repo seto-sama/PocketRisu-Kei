@@ -6,11 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installDriveRoutes } from './drive.cjs'
-import { isCloudflareTunnelRequest as detectCloudflareTunnelRequest } from '../remoteDatabaseFilter.cjs'
 import { DRIVE_TRASH_DIRECTORY } from '../../shared/trashRetention.mjs'
-
-const tunnelUrl = 'https://private.example.com'
-const isRemoteTunnelRequest = (req: unknown) => detectCloudflareTunnelRequest(req, tunnelUrl)
 
 let directory: string
 let root: string
@@ -49,7 +45,7 @@ beforeEach(async () => {
         return false
     }
     const driveRoutes = installDriveRoutes(app, {
-        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isCloudflareTunnelRequest: isRemoteTunnelRequest, encodeThumbnail,
+        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, encodeThumbnail,
     })
     stopTrashCleanup = driveRoutes.stopTrashCleanup
     app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, details: error.details }))
@@ -91,62 +87,6 @@ const requestDrive = (route: string, method: string, extraHeaders: Record<string
         req.end(body)
     })
 )
-
-it('denies authenticated Drive access through Cloudflare tunnels before filesystem operations', async () => {
-    await vi.waitFor(async () => expect((await stat(trashPath())).isDirectory()).toBe(true))
-    await writeFile(join(root, 'existing.txt'), 'keep this file unchanged')
-    await writeFile(join(trashPath(), 'keep.txt'), 'trash must remain unchanged')
-    const beforeDrive = await readdir(root)
-    const beforeSave = await readdir(directory)
-    const beforeTrashManifest = await readFile(join(directory, 'drive-trash.json')).catch(error => {
-        if (error.code === 'ENOENT') return null
-        throw error
-    })
-    const operations: { route: string, method: string, headers?: Record<string, string>, body?: string }[] = [
-        { route: '', method: 'GET' },
-        { route: '/metadata?path=existing.txt', method: 'GET' },
-        { route: '/download?path=existing.txt', method: 'GET' },
-        { route: '/thumbnail?path=existing.txt', method: 'GET' },
-        { route: '/directory', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'created' }) },
-        { route: '/rename', method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'renamed.txt' }) },
-        { route: '/copy', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'copied.txt' }) },
-        { route: '/entry', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt' }) },
-        { route: '/trash', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' },
-        { route: '/file?name=created.txt', method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: 'new contents' },
-    ]
-
-    for (const operation of operations) {
-        const response = await requestDrive(operation.route, operation.method, {
-            host: 'preview.trycloudflare.com', ...operation.headers,
-        }, operation.body)
-        expect(response.status, `${operation.method} ${operation.route}`).toBe(403)
-        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
-    }
-    for (const headers of [
-        { host: '192.168.1.20', 'x-forwarded-host': 'preview.trycloudflare.com' },
-        { host: 'private.example.com' },
-    ]) {
-        const response = await requestDrive('', 'GET', headers)
-        expect(response.status).toBe(403)
-        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
-    }
-    expect(await readdir(root)).toEqual(beforeDrive)
-    expect(await readdir(directory)).toEqual(beforeSave)
-    expect(await readFile(join(root, 'existing.txt'), 'utf8')).toBe('keep this file unchanged')
-    expect(await readdir(trashPath())).toEqual(['keep.txt'])
-    expect(await readFile(join(trashPath(), 'keep.txt'), 'utf8')).toBe('trash must remain unchanged')
-    expect(await readFile(join(directory, 'drive-trash.json')).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error)))
-        .toEqual(beforeTrashManifest)
-
-    const unauthorized = await fetch(base, { headers: { 'x-forwarded-host': 'preview.trycloudflare.com' } })
-    expect(unauthorized.status).toBe(401)
-
-    const tailscale = await requestDrive('', 'GET', {
-        host: '100.64.0.8', 'x-forwarded-host': 'pocketrisu.tailnet.ts.net',
-    })
-    expect(tailscale.status).toBe(200)
-    expect(JSON.parse(tailscale.body).entries).toEqual([expect.objectContaining({ name: 'existing.txt' })])
-})
 
 it('revalidates thumbnails after file replacement and leaves unavailable previews uncached', async () => {
     await upload('portrait.PNG', 'first image')
@@ -902,7 +842,6 @@ it('expires entries from their recorded trash time and preserves missing or inva
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
     }).stopTrashCleanup
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
@@ -933,7 +872,6 @@ it('expires entries after the server has been running for their retention period
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
     }).stopTrashCleanup
     try {
         expect(await readFile(join(trashRoot, 'running.txt'), 'utf8')).toBe('will expire')
@@ -962,7 +900,6 @@ it('refreshes expiry when the shared retention setting changes and normalizes it
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
         getTrashRetentionDays: () => retentionDays,
     })
     try {

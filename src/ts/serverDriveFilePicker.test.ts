@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 
 const db = vi.hoisted(() => ({ useServerDriveForFileImport: false }))
-vi.mock('./platform', () => ({ isNodeServer: true, isCloudflareTunnel: false }))
+vi.mock('./platform', () => ({ isNodeServer: true, isPrivacyGuardActive: false }))
 vi.mock('./storage/database.svelte', () => ({ getDatabase: () => db }))
 
 const { installFilePickerContextMenu, pickServerDriveFiles, serverDriveFileRequest, shouldPickFromServerDrive } = await import('./serverDriveFilePicker.svelte')

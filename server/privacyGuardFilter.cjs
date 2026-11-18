@@ -2,46 +2,12 @@ function cloneJson(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
-function hostWithoutPort(rawHost) {
-    const host = String(rawHost).split(',')[0].trim().toLowerCase();
-    if (host.startsWith('[')) {
-        const end = host.indexOf(']');
-        return end === -1 ? host : host.slice(1, end);
-    }
-    return host.split(':')[0];
-}
-
-function requestHostCandidates(req) {
-    const rawHosts = [];
-    const forwardedHost = req.headers['x-forwarded-host'];
-    if (Array.isArray(forwardedHost)) {
-        rawHosts.push(...forwardedHost);
-    } else if (forwardedHost) {
-        rawHosts.push(...String(forwardedHost).split(','));
-    }
-    if (req.headers.host) rawHosts.push(req.headers.host);
-    return rawHosts
-        .map(hostWithoutPort)
-        .filter(Boolean);
-}
-
-function isCloudflareTunnelRequest(req, tunnelUrl) {
-    const hosts = requestHostCandidates(req);
-    if (hosts.some(host => host.endsWith('.trycloudflare.com'))) return true;
-    if (!tunnelUrl) return false;
-    try {
-        const tunnelHost = new URL(tunnelUrl).hostname.toLowerCase();
-        return hosts.some(host => host === tunnelHost);
-    } catch {
-        return false;
-    }
-}
-
+// Folders flagged `localOnly` are the ones privacy guard hides (the key predates the guard).
 function isLocalOnlyFolder(folder) {
     return folder?.localOnly === true;
 }
 
-function collectRemoteHiddenCharacterIds(dbObj) {
+function collectHiddenCharacterIds(dbObj) {
     const hidden = new Set();
     for (const entry of dbObj?.characterOrder ?? []) {
         if (entry && typeof entry !== 'string' && isLocalOnlyFolder(entry)) {
@@ -57,11 +23,20 @@ function collectRemoteHiddenCharacterIds(dbObj) {
     return hidden;
 }
 
-function filterRemoteOnlyFolders(dbObj) {
+function hiddenChatFolderIdsOf(char) {
+    return new Set(
+        (char?.chatFolders ?? [])
+            .filter(isLocalOnlyFolder)
+            .map(folder => folder?.id)
+            .filter(Boolean)
+    );
+}
+
+function filterHiddenFolders(dbObj) {
     const filtered = cloneJson(dbObj);
     if (!filtered || typeof filtered !== 'object') return filtered;
 
-    const hiddenCharacterIds = collectRemoteHiddenCharacterIds(filtered);
+    const hiddenCharacterIds = collectHiddenCharacterIds(filtered);
     if (Array.isArray(filtered.characterOrder)) {
         filtered.characterOrder = filtered.characterOrder
             .map(entry => {
@@ -82,12 +57,7 @@ function filterRemoteOnlyFolders(dbObj) {
         filtered.characters = filtered.characters
             .filter(char => char?.chaId && !hiddenCharacterIds.has(char.chaId))
             .map(char => {
-                const hiddenChatFolderIds = new Set(
-                    (char.chatFolders ?? [])
-                        .filter(isLocalOnlyFolder)
-                        .map(folder => folder?.id)
-                        .filter(Boolean)
-                );
+                const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
                 if (hiddenChatFolderIds.size === 0) return char;
 
                 const nextChats = (char.chats ?? [])
@@ -159,12 +129,7 @@ function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolder
 }
 
 function mergeRemoteCharacter(originalChar, remoteChar) {
-    const hiddenChatFolderIds = new Set(
-        (originalChar.chatFolders ?? [])
-            .filter(isLocalOnlyFolder)
-            .map(folder => folder?.id)
-            .filter(Boolean)
-    );
+    const hiddenChatFolderIds = hiddenChatFolderIdsOf(originalChar);
     if (hiddenChatFolderIds.size === 0) return remoteChar;
 
     remoteChar.chatFolders = mergeRemoteChatFolders(originalChar.chatFolders, remoteChar.chatFolders);
@@ -176,12 +141,12 @@ function mergeRemoteCharacter(originalChar, remoteChar) {
     return remoteChar;
 }
 
-function mergeRemoteFilteredDatabase(originalDb, remoteDb) {
+function mergeHiddenFolders(originalDb, remoteDb) {
     const original = cloneJson(originalDb);
     const remote = cloneJson(remoteDb);
     if (!original?.characters || !remote?.characters) return remote;
 
-    const hiddenCharacterIds = collectRemoteHiddenCharacterIds(original);
+    const hiddenCharacterIds = collectHiddenCharacterIds(original);
     const remoteById = new Map();
     const usedRemote = new Set();
     for (const char of remote.characters ?? []) {
@@ -215,20 +180,11 @@ function mergeRemoteFilteredDatabase(originalDb, remoteDb) {
     return remote;
 }
 
-function isCharacterHiddenFromRemote(dbObj, chaId) {
-    return collectRemoteHiddenCharacterIds(dbObj).has(chaId);
-}
-
-function isChatHiddenFromRemote(dbObj, chaId, chatIndex, chatId) {
-    if (isCharacterHiddenFromRemote(dbObj, chaId)) return true;
+function isChatHidden(dbObj, chaId, chatIndex, chatId) {
+    if (collectHiddenCharacterIds(dbObj).has(chaId)) return true;
     const char = dbObj?.characters?.find(c => c?.chaId === chaId);
     if (!char) return false;
-    const hiddenChatFolderIds = new Set(
-        (char.chatFolders ?? [])
-            .filter(isLocalOnlyFolder)
-            .map(folder => folder?.id)
-            .filter(Boolean)
-    );
+    const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
     if (hiddenChatFolderIds.size === 0) return false;
     const chat = chatId
         ? (char.chats ?? []).find(c => c?.id === chatId)
@@ -236,9 +192,24 @@ function isChatHiddenFromRemote(dbObj, chaId, chatIndex, chatId) {
     return !!(chat?.folderId && hiddenChatFolderIds.has(chat.folderId));
 }
 
+/** Predicate over inlay metadata: true when the inlay belongs to a hidden character or chat. */
+function createHiddenInlayFilter(dbObj) {
+    const hiddenCharacterIds = collectHiddenCharacterIds(dbObj);
+    const hiddenChatIds = new Set();
+    for (const char of dbObj?.characters ?? []) {
+        const hideAll = hiddenCharacterIds.has(char?.chaId);
+        const hiddenChatFolderIds = hideAll ? null : hiddenChatFolderIdsOf(char);
+        for (const chat of char?.chats ?? []) {
+            if (!chat?.id) continue;
+            if (hideAll || (chat.folderId && hiddenChatFolderIds.has(chat.folderId))) hiddenChatIds.add(chat.id);
+        }
+    }
+    return meta => hiddenCharacterIds.has(meta?.charId) || hiddenChatIds.has(meta?.chatId);
+}
+
 module.exports = {
-    filterRemoteOnlyFolders,
-    isChatHiddenFromRemote,
-    isCloudflareTunnelRequest,
-    mergeRemoteFilteredDatabase,
+    createHiddenInlayFilter,
+    filterHiddenFolders,
+    isChatHidden,
+    mergeHiddenFolders,
 };

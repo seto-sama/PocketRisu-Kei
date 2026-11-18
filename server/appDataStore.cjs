@@ -633,6 +633,11 @@ function createAppDataStore(db) {
         return result;
     }
 
+    // Only what folder visibility depends on, without plugin storage, presets or modules.
+    function exportFolderProjection() {
+        return { characterOrder: getRootValue('characterOrder') ?? [], characters: readCharacters(false) };
+    }
+
     // A consistent server snapshot, decoding one chat at a time. Only the
     // caller-owned candidates receive usage flags; no text or ids leave the server.
     const scanContentReferences = (kind, candidates) => withTransaction(db, () => {
@@ -1287,6 +1292,7 @@ function createAppDataStore(db) {
         commitChat,
         estimateProjectionBytes,
         exportProjection,
+        exportFolderProjection,
         getChatState,
         getChatStubAt,
         getRootValue,

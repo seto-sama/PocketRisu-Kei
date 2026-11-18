@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { encode, decode } from 'msgpackr/index-no-eval'
 
 vi.mock('src/lang', () => ({ language: {} }))
-const alertInput = vi.hoisted(() => vi.fn())
+const alertPassword = vi.hoisted(() => vi.fn())
 vi.mock('../alert', () => ({
-    alertInput,
+    alertInput: vi.fn(),
+    alertPassword,
     waitAlert: vi.fn(),
     notifyError: vi.fn(),
 }))
@@ -27,6 +28,7 @@ async function unauthenticatedNodeStorage() {
 }
 
 it('shares one login across storage instances, so a retry after a wrong password is the last prompt', async () => {
+    // Privacy guard: the session cookie never stands in for a login.
     const logins = ['wrong', 'right']
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
         if (url === '/api/test_auth') return Response.json({ status: 'incorrect' })
@@ -39,14 +41,14 @@ it('shares one login across storage instances, so a retry after a wrong password
         return Response.json({ ok: true })
     })
     vi.stubGlobal('fetch', fetchMock)
-    alertInput.mockImplementation(async () => logins.shift())
+    alertPassword.mockImplementation(async () => logins.shift())
 
     const Storage = await unauthenticatedNodeStorage()
     const main = new Storage()
     await expect(main.createAuth()).rejects.toThrow()
     await expect(main.createAuth()).resolves.toBe('jwt')
     await expect(new Storage().createAuth()).resolves.toBe('jwt')
-    expect(alertInput).toHaveBeenCalledTimes(2)
+    expect(alertPassword).toHaveBeenCalledTimes(2)
 })
 
 describe('NodeStorage patch transport', () => {

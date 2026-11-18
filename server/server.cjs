@@ -70,7 +70,7 @@ const {
 } = require('./revenant/providerJobRunner.cjs');
 const { createServerImageActions } = require('./revenant/serverImageAction.cjs');
 const { createCanonicalChatService } = require('./chatStore.cjs');
-const { isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl } = require('./remoteDatabaseFilter.cjs');
+const { createPrivacyGuard } = require('./privacyGuard.cjs');
 
 const { encodeRisuSaveLegacy } = require('./utils/risuSave.cjs');
 
@@ -133,10 +133,6 @@ const {
     persistCanonicalChat,
 } = canonicalStorage;
 
-function isCloudflareTunnelRequest(req) {
-    return isCloudflareTunnelRequestForUrl(req, tunnelState.tunnelUrl);
-}
-
 function shouldCompress(req, res) {
     const url = req.originalUrl || req.url;
     if (res.locals.skipCompression || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
@@ -181,6 +177,8 @@ if(!existsSync(savePath)){
 
 const auth = createAuthService({ savePath });
 const { checkAuth, checkDownloadAuth, sessionAuthMiddleware } = auth;
+const privacyGuard = createPrivacyGuard({ savePath });
+const isPrivacyGuardActive = () => privacyGuard.isEnabled();
 
 const backupLocation = createBackupLocation({ kvGet });
 const { backupState, DEFAULT_BACKUPS_DIR, BACKUP_FILENAME_REGEX } = backupLocation;
@@ -235,6 +233,7 @@ const {
     isSyncClientConnected,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
+    broadcastPrivacyGuardChanged,
     publishChatCommitted,
     broadcastRevenantWorkflowUpdated,
 } = syncHub;
@@ -441,6 +440,8 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
 require('./routes/auth.cjs').installAuthRoutes(app, {
     auth,
     syncClientDevices,
+    privacyGuard,
+    broadcastPrivacyGuardChanged,
 });
 
 require('./requestBody.cjs').installAuthenticatedBodyParsing(app, {
@@ -479,7 +480,7 @@ installRevenantGenerationRoutes(app, {
 });
 
 require('./routes/web.cjs').installWebRoutes(app, {
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     getDevServer: () => viteDevServer,
 });
 
@@ -501,7 +502,7 @@ require('./routes/assets/index.cjs').installAssetRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
     MISSING_DATABASE_ETAG,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     computeBufferEtag,
     requireSyncClientId,
     computeDatabaseEtagFromObject,
@@ -520,7 +521,7 @@ require('./routes/database.cjs').installDatabaseRoutes(app, {
     checkAuth,
     queueStorageOperation,
     ensureCanonicalStorage,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     requireSyncClientId,
     syncTrashRetention,
     scheduleBackupAndRotate,
@@ -562,7 +563,7 @@ require('./routes/backup.cjs').installBackupRoutes(app, {
 });
 
 require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     ensureCanonicalStorage,
     appDataStore,
     checkAuth,
@@ -575,7 +576,7 @@ require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {
 require('./routes/chats.cjs').installChatsRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     appDataStore,
     loadCanonicalChat,
     requireSyncClientId,
@@ -617,7 +618,7 @@ driveRoutes = require('./routes/drive.cjs').installDriveRoutes(app, {
     savePath,
     checkAuth,
     checkDownloadAuth,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     encodeThumbnail: inlayService.encodeThumbnail,
     getTrashRetentionDays: async () => {
         await ensureCanonicalStorage();

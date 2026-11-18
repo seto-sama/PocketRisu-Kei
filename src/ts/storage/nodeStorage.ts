@@ -6,7 +6,7 @@ import { Buffer } from 'buffer'
 import { encode, decode } from 'msgpackr/index-no-eval'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 import { language } from "src/lang"
-import { alertInput } from "../alert"
+import { alertInput, alertPassword } from "../alert"
 import { decodeRisuSave } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
 import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../network/apiError'
@@ -220,7 +220,8 @@ export class NodeStorage{
     _lastDbEtag: string | null = null
     _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
-    // Login belongs to the page; inlay stores keep their own NodeStorage instance.
+    // Login belongs to the page, not the instance: inlay stores keep their own NodeStorage,
+    // and under privacy guard an instance without a JWT would ask for the password again.
     private static authChecked = false
     private static cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
@@ -541,7 +542,7 @@ export class NodeStorage{
                 return
             }
             else if(data.status === 'incorrect'){
-                const input = await digestPassword(await alertInput(language.inputNodePassword))
+                const input = await digestPassword(await alertPassword(language.inputNodePassword))
                 await this.loginWithPassword(input)
                 if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
                 await this.initSession(NodeStorage.cachedJwt.token)
@@ -810,6 +811,24 @@ export class NodeStorage{
         const params = new URLSearchParams({ download: '1' })
         if (filename) params.set('filename', filename)
         await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
+    }
+
+    private async privacyGuardRequest(url: string, password?: string): Promise<void> {
+        const response = await this.authFetch(`/api/privacy-guard${url}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(password === undefined ? {} : { password: await digestPassword(password) }),
+        })
+        if (!response.ok) throw await apiRequestError(response)
+        await response.arrayBuffer()
+    }
+
+    enablePrivacyGuard() {
+        return this.privacyGuardRequest('/enable')
+    }
+
+    disablePrivacyGuard(password: string) {
+        return this.privacyGuardRequest('/disable', password)
     }
 
     private async driveRequest<T>(url: string, init?: RequestInit): Promise<T> {

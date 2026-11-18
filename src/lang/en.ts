@@ -52,7 +52,6 @@ export const languageEnglish = {
         notFound: apiErrorMessages.DRIVE_NOT_FOUND,
         unsupportedEntry: apiErrorMessages.DRIVE_UNSUPPORTED_ENTRY,
         unavailable: apiErrorMessages.DRIVE_UNAVAILABLE,
-        remoteAccessDenied: apiErrorMessages.DRIVE_REMOTE_ACCESS_DENIED,
     },
     formating: {
         main: "Main Prompt",
@@ -1118,8 +1117,13 @@ export const languageEnglish = {
     renameFolder: "Rename Folder",
     changeFolderColor: "Change Folder Color",
     changeFolderImage: "Change Folder Image",
-    hideFolderOnRemoteAccess: "Hide this folder during remote access",
-    showFolderOnRemoteAccess: "Show this folder during remote access",
+    hideFolderInPrivacyGuard: "Hide this folder in Privacy Guard mode",
+    privacyGuardMode: "Privacy Guard Mode",
+    privacyGuard: {
+        description: "Privacy mode. Hides folders marked to hide and their inlay images, and asks for the password on every visit.",
+        enableConfirm: "Turn on Privacy Guard mode? Every connected device will reload and ask for the password.",
+        disablePasswordPrompt: "Enter the password to turn off Privacy Guard mode.",
+    },
     fullWordMatching: "Full Word Matching",
     botSettingAtStart: "Bot Menu when Launch",
     triggerStart: "On chat Send",

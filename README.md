@@ -39,7 +39,7 @@ Project links: [Repository](https://github.com/seto-sama/PocketRisu-Kei) · [Rel
 - Reorganized image, TTS, and inlay settings.
 - Reworked the character list and sidebar UI.
 - Improved regex and lorebook editing.
-- Added chat and folder filtering for remote access and multi-device synchronization.
+- Added Privacy Guard mode, which hides chosen folders and their inlays and asks for the password per session, plus multi-device synchronization.
 - Added snapshots, automatic backups, and asset recovery.
 - Added persistent request logs.
 - Added usage tracking and cost estimation.

@@ -144,6 +144,11 @@ function handleSyncMessage(message: SyncMessage) {
         handleWorkflowUpdate(message)
         return
     }
+    if (message.type === 'privacy-guard-changed') {
+        // The visible database differs per guard state, so start over from the new projection.
+        location.reload()
+        return
+    }
     if (message.type === 'bookmarks-invalidated') {
         void refreshBookmarkCatalog({ queueIfBusy: true }).catch(error => {
             console.error('[Sync] Failed to refresh bookmarks:', error)

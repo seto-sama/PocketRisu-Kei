@@ -1,7 +1,7 @@
 'use strict';
 
 const { createDatabaseProjectionService, DatabaseProjectionServiceError } = require('../databaseProjectionService.cjs');
-const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../remoteDatabaseFilter.cjs');
+const { filterHiddenFolders, mergeHiddenFolders } = require('../privacyGuardFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
 const { findChatInternalFieldOps } = require('../../shared/chatShape.mjs');
@@ -15,7 +15,7 @@ function installDatabaseRoutes(app, {
     checkAuth,
     queueStorageOperation,
     ensureCanonicalStorage,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     requireSyncClientId,
     syncTrashRetention,
     scheduleBackupAndRotate,
@@ -24,8 +24,8 @@ function installDatabaseRoutes(app, {
 }) {
     const databaseProjectionService = createDatabaseProjectionService({
         appDataStore,
-        filterRemoteProjection: filterRemoteOnlyFolders,
-        mergeRemoteProjection: mergeRemoteFilteredDatabase,
+        filterRemoteProjection: filterHiddenFolders,
+        mergeRemoteProjection: mergeHiddenFolders,
         restoreServerOwnedMetadata: restoreGenerationOwnedMetadata,
     });
 
@@ -103,7 +103,7 @@ function installDatabaseRoutes(app, {
         try {
             await ensureCanonicalStorage();
             const projection = databaseProjectionService.getStartupProjection({
-                remote: isCloudflareTunnelRequest(req),
+                remote: isPrivacyGuardActive(),
                 ...pluginStorageProjectionOptions(req),
             });
             res.vary('Accept');
@@ -126,7 +126,7 @@ function installDatabaseRoutes(app, {
                     req.body?.database,
                     {
                         expectedRevision: req.body?.expectedRevision,
-                        remote: isCloudflareTunnelRequest(req),
+                        remote: isPrivacyGuardActive(),
                     },
                 );
                 syncTrashRetention();
@@ -144,7 +144,7 @@ function installDatabaseRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         try {
             const projectionOptions = {
-                remote: isCloudflareTunnelRequest(req),
+                remote: isPrivacyGuardActive(),
                 ...pluginStorageProjectionOptions(req),
             };
             const result = await queueStorageOperation(async () => {

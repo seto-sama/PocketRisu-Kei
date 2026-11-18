@@ -475,6 +475,7 @@
         <Input
             bind:value={input}
             id="alert-input"
+            hideText={$alertStore.hideText}
             autocomplete="off"
             list="alert-input-list"
             fullwidth

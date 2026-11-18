@@ -55,7 +55,6 @@ export const languageKorean = {
     notFound: "파일이나 폴더를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.",
     unsupportedEntry: "링크와 특수 파일은 드라이브에서 접근할 수 없습니다.",
     unavailable: "드라이브에 접근할 수 없습니다. 서버의 저장 공간과 접근 권한을 확인해 주세요.",
-    remoteAccessDenied: "Cloudflare 원격 접속 중에는 서버 드라이브를 사용할 수 없습니다.",
   },
   formating: {
     main: "메인 프롬프트",
@@ -1182,8 +1181,13 @@ export const languageKorean = {
   renameFolder: "폴더 이름 변경하기",
   changeFolderColor: "폴더 색상 변경하기",
   changeFolderImage: "폴더 이미지 변경하기",
-  hideFolderOnRemoteAccess: "원격 접속 시 이 폴더 숨기기",
-  showFolderOnRemoteAccess: "원격 접속 시 이 폴더 보이기",
+  hideFolderInPrivacyGuard: "종원 방지 모드일 때 이 폴더 숨기기",
+  privacyGuardMode: "종원 방지 모드",
+  privacyGuard: {
+    description: "사생활 보호 모드입니다. 지정한 폴더 내부 데이터를 숨기고, 접속할 때마다 비밀번호를 묻습니다.",
+    enableConfirm: "종원 방지 모드를 켤까요? 연결된 모든 기기가 새로고침되고 비밀번호를 다시 입력해야 합니다.",
+    disablePasswordPrompt: "종원 방지 모드를 끄려면 비밀번호를 입력하세요.",
+  },
   fullWordMatching: "단어 단위 매칭",
   botSettingAtStart: "실행 시 봇 설정으로 시작하기",
   triggerStart: "채팅 보낼 시",

@@ -9,7 +9,7 @@ const { encodeRisuSaveLegacy, decodeRisuSave } = require('../../utils/risuSave.c
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
 const { createReadStream } = require('fs');
-const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
+const { createHiddenInlayFilter, filterHiddenFolders, mergeHiddenFolders } = require('../../privacyGuardFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 const { getMimeFromExt, resolveAssetPayload } = require('../../utils/mime.cjs');
@@ -23,7 +23,7 @@ function installAssetRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
     MISSING_DATABASE_ETAG,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     computeBufferEtag,
     requireSyncClientId,
     computeDatabaseEtagFromObject,
@@ -253,8 +253,8 @@ function installAssetRoutes(app, {
             }
             let projection = appDataStore.exportProjection({ includeMessages: true });
             bookmarkStore.projectDatabaseCompatibility(projection);
-            if (isCloudflareTunnelRequest(req)) {
-                projection = filterRemoteOnlyFolders(projection);
+            if (isPrivacyGuardActive()) {
+                projection = filterHiddenFolders(projection);
             }
             const value = Buffer.from(encodeRisuSaveLegacy(projection));
             const etag = computeBufferEtag(value);
@@ -313,6 +313,22 @@ function installAssetRoutes(app, {
         res.send({ success: true });
     });
 
+    // Inlays owned by a hidden character or chat stay out of the gallery listing.
+    async function withoutHiddenInlays(ids) {
+        await ensureCanonicalStorage();
+        if (!appDataStore.getState().initialized) return ids;
+        const isHidden = createHiddenInlayFilter(appDataStore.exportFolderProjection());
+        return ids.filter((id) => {
+            const raw = kvGet(`inlay_meta/${id}`);
+            if (!raw) return true;
+            try {
+                return !isHidden(JSON.parse(Buffer.from(raw).toString('utf-8')));
+            } catch {
+                return true;
+            }
+        });
+    }
+
     app.get('/api/list', async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
@@ -333,7 +349,9 @@ function installAssetRoutes(app, {
             : undefined;
         let data;
         if (keyPrefix === 'inlay/') {
-            data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
+            let ids = [...new Set((await listInlayFiles()).map((entry) => entry.id))];
+            if (isPrivacyGuardActive()) ids = await withoutHiddenInlays(ids);
+            data = ids.map((id) => `inlay/${id}`);
         } else {
             data = kvList(keyPrefix || undefined, listOptions);
         }
@@ -370,8 +388,8 @@ function installAssetRoutes(app, {
                 if (appDataStore.getState().initialized) {
                     let currentDb = appDataStore.exportProjection({ includeMessages: true });
                     bookmarkStore.projectDatabaseCompatibility(currentDb);
-                    if (isCloudflareTunnelRequest(req)) {
-                        currentDb = filterRemoteOnlyFolders(currentDb);
+                    if (isPrivacyGuardActive()) {
+                        currentDb = filterHiddenFolders(currentDb);
                     }
                     currentEtag = computeDatabaseEtagFromObject(currentDb);
                 }
@@ -427,8 +445,8 @@ function installAssetRoutes(app, {
                     const currentDb = appDataStore.getState().initialized
                         ? appDataStore.exportProjection({ includeMessages: true })
                         : { characters: [] };
-                    if (isCloudflareTunnelRequest(req)) {
-                        incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
+                    if (isPrivacyGuardActive()) {
+                        incomingDb = mergeHiddenFolders(currentDb, incomingDb);
                         restoreGenerationOwnedMetadata(incomingDb, currentDb);
                     }
                     // A chat without a message list is not full content, whatever
@@ -449,7 +467,7 @@ function installAssetRoutes(app, {
                         });
                     }
                     withTransaction(sqliteDb, () => {
-                        if (!isCloudflareTunnelRequest(req)) {
+                        if (!isPrivacyGuardActive()) {
                             bookmarkStore.replaceDatabaseCompatibility(incomingDb);
                         } else {
                             // Remote imports cannot replace server-owned bookmarks.
@@ -477,8 +495,8 @@ function installAssetRoutes(app, {
             let etag;
             if (key === 'database/database.bin') {
                 syncTrashRetention();
-                const visibleForEtag = isCloudflareTunnelRequest(req)
-                    ? filterRemoteOnlyFolders(databaseForEtag)
+                const visibleForEtag = isPrivacyGuardActive()
+                    ? filterHiddenFolders(databaseForEtag)
                     : databaseForEtag;
                 etag = computeDatabaseEtagFromObject(visibleForEtag);
                 createBackupAndRotate();

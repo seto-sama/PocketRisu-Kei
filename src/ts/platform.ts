@@ -14,7 +14,8 @@ export type RisuEnvironmentLabel = "node" | "node(dev)"
 const browserNavigator = navigator as BrowserNavigator
 
 export const isNodeServer: boolean = !!(globalThis as typeof globalThis & { __NODE__?: boolean }).__NODE__
-export const isCloudflareTunnel: boolean = !!(globalThis as typeof globalThis & { __CLOUDFLARE_TUNNEL__?: boolean }).__CLOUDFLARE_TUNNEL__
+// Fixed per page load: toggling the guard reloads every connected client.
+export const isPrivacyGuardActive: boolean = !!(globalThis as typeof globalThis & { __PRIVACY_GUARD__?: boolean }).__PRIVACY_GUARD__
 export const isMobile: boolean = /Android|iPhone|iPad|iPod|webOS/i.test(browserNavigator.userAgent);
 
 function normalizeOSVersion(version?: string | null): string | null {

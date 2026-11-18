@@ -139,11 +139,8 @@ describe('server route composition', () => {
         const page = await fetch(base)
         const pageHtml = await page.text()
         expect(pageHtml).toContain('globalThis.__NODE__ = true')
-        expect(pageHtml).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = false')
+        expect(pageHtml).toContain('globalThis.__PRIVACY_GUARD__ = false')
         expect(page.headers.get('cache-control')).toContain('no-store')
-        const remotePage = await fetch(base, { headers: { 'x-forwarded-host': 'preview.trycloudflare.com' } })
-        expect(await remotePage.text()).toContain('globalThis.__CLOUDFLARE_TUNNEL__ = true')
-        expect(remotePage.headers.get('cache-control')).toContain('no-store')
         for (const path of ['/api/active-devices', '/api/logs', '/api/request-logs', '/api/usage', '/api/backup/schedule', '/api/bookmarks', '/api/db/snapshots/limits', '/api/tunnel/status', '/api/update-check']) {
             const response = await fetch(base + path, { headers })
             expect(response.status, path + ': ' + await response.text()).toBe(200)
@@ -208,16 +205,6 @@ describe('server route composition', () => {
         const download = await fetch(base + '/api/drive/download?path=shared.bin', { headers: { cookie } })
         expect(download.status).toBe(200)
         expect(new Uint8Array(await download.arrayBuffer())).toEqual(Uint8Array.of(0, 128, 255))
-        const remoteCookieDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
-            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
-        })
-        expect(remoteCookieDownload.status).toBe(403)
-        expect(await remoteCookieDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
-        const remoteJwtDownload = await fetch(base + '/api/drive/download?path=shared.bin', {
-            headers: { 'risu-auth': headers['risu-auth'], 'x-forwarded-host': 'preview.trycloudflare.com' },
-        })
-        expect(remoteJwtDownload.status).toBe(403)
-        expect(await remoteJwtDownload.json()).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
         expect((await fetch(base + '/api/drive/download?path=shared.bin')).status).toBe(401)
         const cookieMutation = await fetch(base + '/api/drive/rename', {
             method: 'PATCH', headers: { cookie, 'content-type': 'application/json' },
@@ -233,9 +220,6 @@ describe('server route composition', () => {
         expect(thumbnail.status).toBe(200)
         expect(thumbnail.headers.get('content-type')).toContain('image/webp')
         expect(Buffer.from(await thumbnail.arrayBuffer()).subarray(8, 12).toString()).toBe('WEBP')
-        expect((await fetch(base + '/api/drive/thumbnail?path=portrait.png', {
-            headers: { cookie, 'x-forwarded-host': 'preview.trycloudflare.com' },
-        })).status).toBe(403)
         // Character JPEGs append a charx archive after the image data.
         const characterJpeg = Buffer.concat([
             Buffer.from('/9j/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APP6/9k=', 'base64'),
@@ -723,5 +707,45 @@ describe('server route composition', () => {
         const after = await (await fetch(base + '/api/database', { headers })).json()
         expect(after.revision).toBe(before.revision)
         expect(after.database).toEqual(before.database)
+    })
+
+    // Runs last: it moves the route character into a hidden folder.
+    it('privacy guard hides folders, their inlays, and asks for the password per session', async () => {
+        const password = 'route-test-password'
+        const json = { ...headers, 'content-type': 'application/json' }
+        const { database } = await (await fetch(base + '/api/database', { headers })).json()
+        const hiddenOrder = { ...database, characterOrder: [{ id: 'guard-folder', name: 'Guard', color: '', localOnly: true, data: [characterId] }] }
+        expect((await fetch(base + '/api/database', {
+            method: 'PATCH', headers: json, body: JSON.stringify({ changes: createDelta(database, hiddenOrder) }),
+        })).status).toBe(200)
+        await writeInlay('guard-inlay')
+        expect((await fetch(base + '/api/write', {
+            method: 'POST', headers: {
+                ...headers, 'file-path': Buffer.from('inlay_meta/guard-inlay').toString('hex'),
+                'content-type': 'application/octet-stream',
+            },
+            body: JSON.stringify({ createdAt: 1, updatedAt: 1, charId: characterId }),
+        })).status).toBe(200)
+        const session = await fetch(base + '/api/session', { method: 'POST', headers })
+        const cookie = session.headers.get('set-cookie')!.split(';')[0]
+        const listInlays = async () => (await (await fetch(base + '/api/list', { headers: { ...headers, 'key-prefix': 'inlay/' } })).json()).content
+        const visibleCharacters = async () => (await (await fetch(base + '/api/database', { headers })).json()).database.characters.map((char: any) => char.chaId)
+        const cookieLogin = async () => (await (await fetch(base + '/api/test_auth', { headers: { cookie } })).json()).status
+        const withPassword = (path: string, value: string) => fetch(base + path, {
+            method: 'POST', headers: { ...json, cookie }, body: JSON.stringify({ password: value }),
+        })
+        expect(await listInlays()).toContain('inlay/guard-inlay')
+
+        expect((await fetch(base + '/api/privacy-guard/enable', { method: 'POST', headers })).status).toBe(200)
+        expect(await (await fetch(base)).text()).toContain('globalThis.__PRIVACY_GUARD__ = true')
+        expect(await visibleCharacters()).toEqual([])
+        expect(await listInlays()).not.toContain('inlay/guard-inlay')
+        expect(await cookieLogin()).toBe('incorrect')
+
+        expect((await withPassword('/api/privacy-guard/disable', 'wrong')).status).toBe(401)
+        expect((await withPassword('/api/privacy-guard/disable', password)).status).toBe(200)
+        expect(await visibleCharacters()).toEqual([characterId])
+        expect(await listInlays()).toContain('inlay/guard-inlay')
+        expect(await cookieLogin()).toBe('success')
     })
 })

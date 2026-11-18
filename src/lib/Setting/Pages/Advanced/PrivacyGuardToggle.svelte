@@ -1,0 +1,41 @@
+<script lang="ts">
+    import { language } from 'src/lang';
+    import { alertConfirm, alertError, alertPassword } from 'src/ts/alert';
+    import { requestImmediateSave } from 'src/ts/globalApi.svelte';
+    import { isPrivacyGuardActive } from 'src/ts/platform';
+    import { forageStorage } from 'src/ts/storage/autoStorage';
+    import Switch from '../../../UI/components/Switch.svelte';
+    import SettingRow from '../../Wrappers/SettingRow.svelte';
+
+    let checked = $state(isPrivacyGuardActive);
+    let busy = $state(false);
+
+    async function onToggle(enable: boolean) {
+        if (busy || enable === isPrivacyGuardActive) return;
+        busy = true;
+        let switched = false;
+        try {
+            if (enable && !(await alertConfirm(language.privacyGuard.enableConfirm))) return;
+            const password = enable ? '' : await alertPassword(language.privacyGuard.disablePasswordPrompt);
+            if (!enable && !password) return;
+            // Save under the current projection before the server switches what this client may see.
+            await requestImmediateSave({ requireSuccess: true });
+            await forageStorage.Init();
+            if (enable) await forageStorage.realStorage.enablePrivacyGuard();
+            else await forageStorage.realStorage.disablePrivacyGuard(password);
+            switched = true;
+            location.reload();
+        } catch (error) {
+            alertError(error);
+        } finally {
+            busy = false;
+            if (!switched) checked = isPrivacyGuardActive;
+        }
+    }
+</script>
+
+<SettingRow title={language.privacyGuardMode} description={language.privacyGuard.description}>
+    {#snippet control()}
+        <Switch bind:checked disabled={busy} onCheckedChange={onToggle} ariaLabel={language.privacyGuardMode} />
+    {/snippet}
+</SettingRow>
