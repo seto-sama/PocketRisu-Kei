@@ -449,6 +449,9 @@ export function setDatabase(data:Database){
     if(checkNullish(data.outputRepetitionLimit)){
         data.outputRepetitionLimit = OUTPUT_REPETITION_DISABLED
     }
+    if(checkNullish(data.privacyGuardIdleLockMinutes)){
+        data.privacyGuardIdleLockMinutes = 10
+    }
     if(checkNullish(data.useSayNothing)){
         data.useSayNothing = true
     }
@@ -1392,6 +1395,8 @@ export interface Database{
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
     newImageHandlingBeta?: boolean
+    /** Idle minutes before privacy guard returns to the password prompt; -1000 turns it off. */
+    privacyGuardIdleLockMinutes:number
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean
     verbosity:number

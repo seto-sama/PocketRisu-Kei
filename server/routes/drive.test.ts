@@ -6,11 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installDriveRoutes } from './drive.cjs'
-import { isCloudflareTunnelRequest as detectCloudflareTunnelRequest } from '../remoteDatabaseFilter.cjs'
 import { DRIVE_TRASH_DIRECTORY } from '../../shared/trashRetention.mjs'
 
-const tunnelUrl = 'https://private.example.com'
-const isRemoteTunnelRequest = (req: unknown) => detectCloudflareTunnelRequest(req, tunnelUrl)
+let guardActive = false
+const isPrivacyGuardActive = () => guardActive
 
 let directory: string
 let root: string
@@ -38,6 +37,7 @@ async function unzip(data: Uint8Array) {
 
 beforeEach(async () => {
     encodeThumbnail.mockReset().mockResolvedValue({ buffer: Buffer.from('thumbnail') })
+    guardActive = false
     directory = await mkdtemp(join(tmpdir(), 'risu-drive-'))
     root = join(directory, 'drive')
     const app = express()
@@ -49,7 +49,7 @@ beforeEach(async () => {
         return false
     }
     const driveRoutes = installDriveRoutes(app, {
-        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isCloudflareTunnelRequest: isRemoteTunnelRequest, encodeThumbnail,
+        savePath: directory, checkAuth, checkDownloadAuth: checkAuth, isPrivacyGuardActive, encodeThumbnail,
     })
     stopTrashCleanup = driveRoutes.stopTrashCleanup
     app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, details: error.details }))
@@ -92,60 +92,49 @@ const requestDrive = (route: string, method: string, extraHeaders: Record<string
     })
 )
 
-it('denies authenticated Drive access through Cloudflare tunnels before filesystem operations', async () => {
+it('hides the private folder and the trash under privacy guard, before filesystem operations', async () => {
     await vi.waitFor(async () => expect((await stat(trashPath())).isDirectory()).toBe(true))
-    await writeFile(join(root, 'existing.txt'), 'keep this file unchanged')
-    await writeFile(join(trashPath(), 'keep.txt'), 'trash must remain unchanged')
-    const beforeDrive = await readdir(root)
-    const beforeSave = await readdir(directory)
-    const beforeTrashManifest = await readFile(join(directory, 'drive-trash.json')).catch(error => {
-        if (error.code === 'ENOENT') return null
-        throw error
-    })
+    expect((await requestDrive('?path=private', 'GET')).status).toBe(200)
+    await writeFile(join(root, 'private', 'secret.txt'), 'hidden')
+    await writeFile(join(root, 'existing.txt'), 'visible')
+    await writeFile(join(trashPath(), 'deleted-secret.txt'), 'trash may hold private files')
+    const beforePrivate = await readdir(join(root, 'private'))
+    const beforeTrash = await readdir(trashPath())
+    const json = { 'content-type': 'application/json' }
     const operations: { route: string, method: string, headers?: Record<string, string>, body?: string }[] = [
-        { route: '', method: 'GET' },
-        { route: '/metadata?path=existing.txt', method: 'GET' },
-        { route: '/download?path=existing.txt', method: 'GET' },
-        { route: '/thumbnail?path=existing.txt', method: 'GET' },
-        { route: '/directory', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'created' }) },
-        { route: '/rename', method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'renamed.txt' }) },
-        { route: '/copy', method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt', name: 'copied.txt' }) },
-        { route: '/entry', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'existing.txt' }) },
-        { route: '/trash', method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' },
-        { route: '/file?name=created.txt', method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: 'new contents' },
+        { route: '?path=private', method: 'GET' },
+        { route: `?path=${DRIVE_TRASH_DIRECTORY}`, method: 'GET' },
+        { route: '/metadata?path=private/secret.txt', method: 'GET' },
+        { route: '/download?path=private/secret.txt', method: 'GET' },
+        { route: '/thumbnail?path=private/secret.txt', method: 'GET' },
+        { route: '/directory', method: 'POST', headers: json, body: JSON.stringify({ path: 'private', name: 'created' }) },
+        { route: '/rename', method: 'PATCH', headers: json, body: JSON.stringify({ path: 'private/secret.txt', name: 'secret.txt', destination: '' }) },
+        { route: '/rename', method: 'PATCH', headers: json, body: JSON.stringify({ path: 'existing.txt', name: 'existing.txt', destination: 'private' }) },
+        { route: '/copy', method: 'POST', headers: json, body: JSON.stringify({ path: 'private/secret.txt', name: 'copied.txt', destination: '' }) },
+        { route: '/entry', method: 'DELETE', headers: json, body: JSON.stringify({ path: 'private/secret.txt' }) },
+        { route: '/trash', method: 'DELETE', headers: json, body: '{}' },
+        { route: '/file?path=private&name=created.txt', method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: 'new contents' },
     ]
 
+    guardActive = true
     for (const operation of operations) {
-        const response = await requestDrive(operation.route, operation.method, {
-            host: 'preview.trycloudflare.com', ...operation.headers,
-        }, operation.body)
-        expect(response.status, `${operation.method} ${operation.route}`).toBe(403)
-        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
+        const response = await requestDrive(operation.route, operation.method, operation.headers ?? {}, operation.body)
+        expect(response.status, `${operation.method} ${operation.route}`).toBe(404)
+        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_NOT_FOUND' })
     }
-    for (const headers of [
-        { host: '192.168.1.20', 'x-forwarded-host': 'preview.trycloudflare.com' },
-        { host: 'private.example.com' },
-    ]) {
-        const response = await requestDrive('', 'GET', headers)
-        expect(response.status).toBe(403)
-        expect(JSON.parse(response.body)).toMatchObject({ code: 'DRIVE_REMOTE_ACCESS_DENIED' })
-    }
-    expect(await readdir(root)).toEqual(beforeDrive)
-    expect(await readdir(directory)).toEqual(beforeSave)
-    expect(await readFile(join(root, 'existing.txt'), 'utf8')).toBe('keep this file unchanged')
-    expect(await readdir(trashPath())).toEqual(['keep.txt'])
-    expect(await readFile(join(trashPath(), 'keep.txt'), 'utf8')).toBe('trash must remain unchanged')
-    expect(await readFile(join(directory, 'drive-trash.json')).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error)))
-        .toEqual(beforeTrashManifest)
+    expect(await readdir(join(root, 'private'))).toEqual(beforePrivate)
+    expect(await readdir(trashPath())).toEqual(beforeTrash)
+    const rootListing = await requestDrive('', 'GET')
+    expect(JSON.parse(rootListing.body).entries.map((entry: { name: string }) => entry.name)).toEqual(['existing.txt'])
+    expect((await requestDrive('/download?path=existing.txt', 'GET')).body).toBe('visible')
 
-    const unauthorized = await fetch(base, { headers: { 'x-forwarded-host': 'preview.trycloudflare.com' } })
-    expect(unauthorized.status).toBe(401)
-
-    const tailscale = await requestDrive('', 'GET', {
-        host: '100.64.0.8', 'x-forwarded-host': 'pocketrisu.tailnet.ts.net',
-    })
-    expect(tailscale.status).toBe(200)
-    expect(JSON.parse(tailscale.body).entries).toEqual([expect.objectContaining({ name: 'existing.txt' })])
+    guardActive = false
+    const privateListing = await requestDrive('?path=private', 'GET')
+    expect(JSON.parse(privateListing.body).entries).toEqual([expect.objectContaining({ name: 'secret.txt' })])
+    for (const reserved of [
+        requestDrive('/entry', 'DELETE', json, JSON.stringify({ path: 'private' })),
+        requestDrive('/directory', 'POST', json, JSON.stringify({ name: 'Private' })),
+    ]) expect((await reserved).status).toBe(400)
 })
 
 it('revalidates thumbnails after file replacement and leaves unavailable previews uncached', async () => {
@@ -703,7 +692,37 @@ it('replaces merged conflicts into trash and preserves displaced contents', asyn
     expect(await readFile(join(trashPath(), 'same.txt'), 'utf8')).toBe('displaced')
     expect(await readFile(join(trashPath(), 'kind-directory'), 'utf8')).toBe('displaced file')
     expect(await readFile(join(trashPath(), 'kind-file', 'preserved.txt'), 'utf8')).toBe('displaced directory')
-    expect(JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))['same.txt']).toEqual(expect.any(Number))
+    const restored = await requestDrive('/trash/restore', 'POST', { 'content-type': 'application/json' },
+        JSON.stringify({ path: `${DRIVE_TRASH_DIRECTORY}/same.txt` }))
+    expect(JSON.parse(restored.body).entry).toMatchObject({ path: 'destination/same (1).txt' })
+    expect(await readFile(join(root, 'destination', 'same (1).txt'), 'utf8')).toBe('displaced')
+})
+
+it('restores trash to where it was deleted from and deletes single trash entries for good', async () => {
+    const json = { 'content-type': 'application/json' }
+    await mkdir(join(root, 'docs', 'nested'), { recursive: true })
+    await writeFile(join(root, 'docs', 'nested', 'a.txt'), 'first')
+    await writeFile(join(root, 'docs', 'b.txt'), 'second')
+    for (const path of ['docs/nested/a.txt', 'docs/b.txt']) {
+        expect((await requestDrive('/entry', 'DELETE', json, JSON.stringify({ path }))).status).toBe(200)
+    }
+    await rm(join(root, 'docs'), { recursive: true })
+    await writeFile(join(trashPath(), 'legacy.txt'), 'from an older trash')
+    const manifest = JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))
+    await writeFile(join(directory, 'drive-trash.json'), JSON.stringify({ ...manifest, 'legacy.txt': Date.now() }))
+
+    const restore = (path: string) => requestDrive('/trash/restore', 'POST', json, JSON.stringify({ path }))
+    expect(JSON.parse((await restore(`${DRIVE_TRASH_DIRECTORY}/a.txt`)).body).entry).toMatchObject({ path: 'docs/nested/a.txt' })
+    expect(await readFile(join(root, 'docs', 'nested', 'a.txt'), 'utf8')).toBe('first')
+    await writeFile(join(root, 'legacy.txt'), 'taken name')
+    expect(JSON.parse((await restore(`${DRIVE_TRASH_DIRECTORY}/legacy.txt`)).body).entry).toMatchObject({ path: 'legacy (1).txt' })
+
+    expect((await requestDrive('/trash/entry', 'DELETE', json, JSON.stringify({ path: `${DRIVE_TRASH_DIRECTORY}/b.txt` }))).status).toBe(200)
+    expect(await readdir(trashPath())).toEqual([])
+    expect(JSON.parse(await readFile(join(directory, 'drive-trash.json'), 'utf8'))).toEqual({})
+    for (const path of ['docs/b.txt', DRIVE_TRASH_DIRECTORY]) {
+        expect((await requestDrive('/trash/entry', 'DELETE', json, JSON.stringify({ path }))).status).toBe(400)
+    }
 })
 
 it('rolls back earlier merge moves when a later overwrite cannot enter trash', async () => {
@@ -902,7 +921,6 @@ it('expires entries from their recorded trash time and preserves missing or inva
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
     }).stopTrashCleanup
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
@@ -933,7 +951,6 @@ it('expires entries after the server has been running for their retention period
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
     }).stopTrashCleanup
     try {
         expect(await readFile(join(trashRoot, 'running.txt'), 'utf8')).toBe('will expire')
@@ -962,7 +979,6 @@ it('refreshes expiry when the shared retention setting changes and normalizes it
         savePath,
         checkAuth: async () => true,
         checkDownloadAuth: async () => true,
-        isCloudflareTunnelRequest: isRemoteTunnelRequest,
         getTrashRetentionDays: () => retentionDays,
     })
     try {

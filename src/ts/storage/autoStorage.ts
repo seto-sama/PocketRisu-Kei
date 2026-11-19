@@ -45,9 +45,7 @@ export class AutoStorage{
     }
 
     async createAuth(): Promise<string> {
-        if (!this.realStorage) {
-            this.realStorage = new NodeStorage()
-        }
+        await this.Init()
         return this.realStorage.createAuth()
     }
 
@@ -107,17 +105,15 @@ export class AutoStorage{
         return this.realStorage.initializeDatabase(database, expectedRevision)
     }
 
-    async patchDatabase(patchData: DeltaPatch | { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+    async patchDatabase(patchData: DeltaPatch): Promise<PatchItemResult> {
         await this.Init()
         return this.realStorage.patchDatabase(patchData)
     }
 
-    /** Get the last known ETag for database.bin */
     getDbEtag(): string | null {
         return this.realStorage._lastDbEtag
     }
 
-    /** Update cached ETag for database.bin */
     setDbEtag(etag: string | null) {
         this.realStorage.setDbEtag(etag)
     }
@@ -126,17 +122,9 @@ export class AutoStorage{
         return this.realStorage._lastDbRevision
     }
 
-    setDbRevision(revision: number | null) {
-        this.realStorage.setDbRevision(revision)
-    }
-
-    listItem = this.keys
-
-    // ── Bulk asset operations ──────────────────────────────────────────────────
     async getItems(keys: string[]) { return this.realStorage.getItems(keys) }
     async setItems(entries: {key: string, value: Uint8Array}[]) { return this.realStorage.setItems(entries) }
 
-    // ── Server-side backup ─────────────────────────────────────────────────────
     async saveServerBackup(note = '', onProgress?: (progress: BackupProgress) => void) {
         await this.Init()
         return this.realStorage.saveServerBackup(note, onProgress)

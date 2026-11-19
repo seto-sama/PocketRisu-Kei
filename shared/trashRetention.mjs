@@ -1,6 +1,6 @@
 export const DEFAULT_TRASH_RETENTION_DAYS = 3;
 export const DRIVE_TRASH_DIRECTORY = 'trash';
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** @param {unknown} value */
 export function normalizeTrashRetentionDays(value) {

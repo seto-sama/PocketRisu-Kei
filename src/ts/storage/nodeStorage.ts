@@ -6,14 +6,15 @@ import { Buffer } from 'buffer'
 import { encode, decode } from 'msgpackr/index-no-eval'
 import { validateContentReferences, type ContentReferenceKind } from '../../../shared/contentReferences.mjs'
 import { language } from "src/lang"
-import { alertInput } from "../alert"
+import { alertInput, alertPassword } from "../alert"
 import { decodeRisuSave } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
 import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../network/apiError'
 import { CHAT_CONTENT_READ_POLICY, ConflictError, storageRequestError, StorageRequestError } from './storageRequest'
 export { ConflictError } from './storageRequest'
 import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
-import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
+import { AUTH_TOKEN_LIFETIME_SECONDS } from '../../../shared/authToken.mjs'
+import { PLUGIN_STORAGE_EXCLUSION_HEADER } from '../../../shared/pluginStorageExclusion.mjs'
 import { type createDelta } from '../../../shared/guardedDelta.mjs'
 import type {
     BookmarkCatalog,
@@ -107,9 +108,6 @@ export interface BackupRestoreResult {
 
 export interface PatchItemResult {
     conflictCode?: string
-    currentHash?: string
-    hashDiagnostics?: PatchHashDiagnostics
-    conflicts?: unknown[]
     success: boolean
     etag?: string
     revision?: number
@@ -118,7 +116,6 @@ export interface PatchItemResult {
 }
 
 export type DeltaPatch = { changes: ReturnType<typeof createDelta> }
-type ProjectionPatch = DeltaPatch | { patch: any[], expectedHash: string }
 
 export interface DatabaseProjection<T = unknown> {
     database: T | null
@@ -220,12 +217,14 @@ export class NodeStorage{
     _lastDbEtag: string | null = null
     _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
-    authChecked = false
-    private cachedJwt: { token: string; expiresAt: number } | null = null
+    // Login belongs to the page, not the instance: inlay stores keep their own NodeStorage,
+    // and under privacy guard an instance without a JWT would ask for the password again.
+    private static authChecked = false
+    private static cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
-    private refreshPending: Promise<string> | null = null
-    private authPending: Promise<void> | null = null
+    private static refreshPending: Promise<string> | null = null
+    private static authPending: Promise<void> | null = null
     private pluginStorageExclusionHeader = ''
 
     static getSessionId() {
@@ -234,29 +233,29 @@ export class NodeStorage{
 
     async createAuth(): Promise<string> {
         const now = Date.now()
-        if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
-            return this.cachedJwt.token
+        if (NodeStorage.cachedJwt && NodeStorage.cachedJwt.expiresAt - now > 30_000) {
+            return NodeStorage.cachedJwt.token
         }
 
-        if (!this.cachedJwt) {
+        if (!NodeStorage.cachedJwt) {
             await this.checkAuth()
-            if (!this.cachedJwt) {
+            if (!NodeStorage.cachedJwt) {
                 throw new Error('Node auth unavailable')
             }
-            return this.cachedJwt.token
+            return NodeStorage.cachedJwt.token
         }
 
         const token = await this._refreshToken()
         if (token) return token
 
         // Reauthenticate after a rejected refresh to avoid reusing its invalid token.
-        this.cachedJwt = null
-        this.authChecked = false
+        NodeStorage.cachedJwt = null
+        NodeStorage.authChecked = false
         await this.checkAuth()
-        if (!this.cachedJwt) {
+        if (!NodeStorage.cachedJwt) {
             throw new Error('Node auth unavailable')
         }
-        return this.cachedJwt.token
+        return NodeStorage.cachedJwt.token
     }
 
     // Asset elements cannot attach JWT headers, so they need a session cookie.
@@ -288,20 +287,24 @@ export class NodeStorage{
     }
 
     private async _refreshToken(): Promise<string> {
-        if (this.refreshPending) return this.refreshPending
-        this.refreshPending = this._doRefreshToken()
-        try { return await this.refreshPending }
-        finally { this.refreshPending = null }
+        if (NodeStorage.refreshPending) return NodeStorage.refreshPending
+        NodeStorage.refreshPending = this._doRefreshToken()
+        try { return await NodeStorage.refreshPending }
+        finally { NodeStorage.refreshPending = null }
+    }
+
+    private static cacheJwt(token: string) {
+        NodeStorage.cachedJwt = { token, expiresAt: Date.now() + AUTH_TOKEN_LIFETIME_SECONDS * 1000 }
     }
 
     private async _doRefreshToken(): Promise<string> {
         const res = await authRequest('/api/token/refresh', {
             method: 'POST',
-            headers: { 'risu-auth': this.cachedJwt?.token ?? '' }
+            headers: { 'risu-auth': NodeStorage.cachedJwt?.token ?? '' }
         })
         if (res.ok) {
             const data = await res.json()
-            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+            NodeStorage.cacheJwt(data.token)
             return data.token
         }
         return ''
@@ -321,10 +324,8 @@ export class NodeStorage{
         }
 
         const data = await response.json()
-        if (data.token) {
-            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
-        }
-        this.authChecked = true
+        if (data.token) NodeStorage.cacheJwt(data.token)
+        NodeStorage.authChecked = true
     }
 
     private async shouldRetryAuth(response: Response) {
@@ -354,8 +355,8 @@ export class NodeStorage{
             signal?.throwIfAborted()
             const response = await fetch(input, { ...init, headers, signal })
             if (policy.retryAuth !== false && await this.shouldRetryAuth(response)) {
-                this.authChecked = false
-                this.cachedJwt = null
+                NodeStorage.authChecked = false
+                NodeStorage.cachedJwt = null
                 return this.authFetch(input, { ...init, signal }, { retryAuth: false })
             }
             return response
@@ -495,25 +496,25 @@ export class NodeStorage{
     }
 
     private async checkAuth() {
-        if (this.authChecked && this.cachedJwt) {
-            await this.initSession(this.cachedJwt.token)
+        if (NodeStorage.authChecked && NodeStorage.cachedJwt) {
+            await this.initSession(NodeStorage.cachedJwt.token)
             return
         }
-        if (this.authPending) return this.authPending
+        if (NodeStorage.authPending) return NodeStorage.authPending
 
-        this.authPending = this._doCheckAuth()
+        NodeStorage.authPending = this._doCheckAuth()
         try {
-            await this.authPending
+            await NodeStorage.authPending
         } finally {
-            this.authPending = null
+            NodeStorage.authPending = null
         }
     }
 
     private async _doCheckAuth() {
-        if(!this.authChecked){
+        if(!NodeStorage.authChecked){
             const data = await (await authRequest('/api/test_auth',{
                 headers: {
-                    'risu-auth': this.cachedJwt?.token ?? ''
+                    'risu-auth': NodeStorage.cachedJwt?.token ?? ''
                 }
             })).json()
 
@@ -535,29 +536,25 @@ export class NodeStorage{
 
                 await response.arrayBuffer()
                 await this.loginWithPassword(input)
-                if (!this.cachedJwt) throw new Error('Node auth unavailable')
-                await this.initSession(this.cachedJwt.token)
+                if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(NodeStorage.cachedJwt.token)
                 return
             }
             else if(data.status === 'incorrect'){
-                const input = await digestPassword(await alertInput(language.inputNodePassword))
+                const input = await digestPassword(await alertPassword(language.inputNodePassword))
                 await this.loginWithPassword(input)
-                if (!this.cachedJwt) throw new Error('Node auth unavailable')
-                await this.initSession(this.cachedJwt.token)
+                if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(NodeStorage.cachedJwt.token)
                 return
             }
             else{
-                if (data.token) {
-                    this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
-                }
-                this.authChecked = true
+                if (data.token) NodeStorage.cacheJwt(data.token)
+                NodeStorage.authChecked = true
             }
         }
-        if (!this.cachedJwt) throw new Error('Node auth unavailable')
-        await this.initSession(this.cachedJwt.token)
+        if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
+        await this.initSession(NodeStorage.cachedJwt.token)
     }
-
-    listItem = this.keys
 
     setDbEtag(etag: string | null) {
         this._lastDbEtag = etag
@@ -621,14 +618,20 @@ export class NodeStorage{
         return validateContentReferences(await response.json(), kind, candidates)
     }
 
+    private withPluginStorageExclusion(headers: Record<string, string>) {
+        if (this.pluginStorageExclusionHeader) headers[PLUGIN_STORAGE_EXCLUSION_HEADER] = this.pluginStorageExclusionHeader
+        return headers
+    }
+
+    private rememberDbVersion(etag: string | undefined, revision: number | undefined) {
+        if (etag) this._lastDbEtag = etag
+        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+    }
+
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const headers:Record<string, string> = { accept: BINARY_MESSAGE_CONTENT_TYPE }
-        if (this.pluginStorageExclusionHeader) {
-            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
-        }
         const response = await this.authFetch('/api/database', {
             method: 'GET',
-            headers,
+            headers: this.withPluginStorageExclusion({ accept: BINARY_MESSAGE_CONTENT_TYPE }),
         })
         if (!response.ok) {
             throw await storageRequestError('getDatabaseProjection', response)
@@ -658,8 +661,7 @@ export class NodeStorage{
         }
         const etag = data.etag ?? data.currentEtag
         const revision = data.revision ?? data.currentRevision
-        if (etag) this._lastDbEtag = etag
-        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+        this.rememberDbVersion(etag, revision)
 
         if (response.status === 409) {
             return { success: false, conflict: true, etag, revision }
@@ -670,28 +672,19 @@ export class NodeStorage{
         return { success: true, etag, revision }
     }
 
-    async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
-        if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
-        const headers: Record<string, string> = { 'content-type': BINARY_MESSAGE_CONTENT_TYPE }
-        if (this.pluginStorageExclusionHeader) {
-            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
-        }
+    async patchDatabase(patchData: DeltaPatch): Promise<PatchItemResult> {
+        if (patchData.changes.length === 0) return { success: true }
         const da = await this.authFetch('/api/database', {
             method: 'PATCH',
             body: encode(patchData),
-            headers,
+            headers: this.withPluginStorageExclusion({ 'content-type': BINARY_MESSAGE_CONTENT_TYPE }),
         })
 
         if (da.status === 409) {
             const data = await da.json()
             const currentEtag = data.currentEtag as string | undefined
             const currentRevision = data.currentRevision as number | undefined
-            if (currentEtag) {
-                this._lastDbEtag = currentEtag
-            }
-            if (Number.isSafeInteger(currentRevision)) {
-                this._lastDbRevision = currentRevision as number
-            }
+            this.rememberDbVersion(currentEtag, currentRevision)
             const rejectedByChatGuard = data.code === apiErrorCodes.CHAT_GUARD_REJECTED
             return {
                 success: false,
@@ -699,10 +692,7 @@ export class NodeStorage{
                 revision: currentRevision,
                 conflict: !rejectedByChatGuard,
                 conflictCode: typeof data.code === 'string' ? data.code : undefined,
-                currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
-                hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
-                conflicts: Array.isArray(data.conflicts) ? data.conflicts : undefined,
             }
         }
         if (da.status < 200 || da.status >= 300) {
@@ -714,12 +704,7 @@ export class NodeStorage{
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
-        if (nextEtag) {
-            this._lastDbEtag = nextEtag
-        }
-        if (Number.isSafeInteger(nextRevision)) {
-            this._lastDbRevision = nextRevision as number
-        }
+        this.rememberDbVersion(nextEtag, nextRevision)
         return { success: true, etag: nextEtag, revision: nextRevision }
     }
 
@@ -811,6 +796,24 @@ export class NodeStorage{
         await this.startCookieDownload(`${getAssetUrl(key)}?${params}`)
     }
 
+    private async privacyGuardRequest(url: string, password?: string): Promise<void> {
+        const response = await this.authFetch(`/api/privacy-guard${url}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(password === undefined ? {} : { password: await digestPassword(password) }),
+        })
+        if (!response.ok) throw await apiRequestError(response)
+        await response.arrayBuffer()
+    }
+
+    enablePrivacyGuard() {
+        return this.privacyGuardRequest('/enable')
+    }
+
+    disablePrivacyGuard(password: string) {
+        return this.privacyGuardRequest('/disable', password)
+    }
+
     private async driveRequest<T>(url: string, init?: RequestInit): Promise<T> {
         const response = await this.authFetch(`/api/drive${url}`, init)
         if (!response.ok) throw await apiRequestError(response)
@@ -857,6 +860,21 @@ export class NodeStorage{
 
     async emptyDriveTrash(): Promise<void> {
         await this.driveRequest('/trash', { method: 'DELETE' })
+    }
+
+    async restoreDriveTrashEntry(path: string): Promise<DriveEntry> {
+        const result = await this.driveRequest<{ entry: DriveEntry }>('/trash/restore', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
+        return result.entry
+    }
+
+    async deleteDriveTrashEntry(path: string): Promise<void> {
+        await this.driveRequest('/trash/entry', {
+            method: 'DELETE', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+        })
     }
 
     async uploadDriveFile(path: string, file: File, signal?: AbortSignal, conflict: DriveConflict = 'error'): Promise<DriveEntry> {
@@ -940,7 +958,6 @@ export class NodeStorage{
                     let msg: any
                     try { msg = JSON.parse(line) } catch { continue }
                     if (msg.type === 'progress' && uploadComplete) {
-                        // Reuse the upload progress UI for server-side restoration.
                         onProgress?.(msg.bytes, msg.totalBytes)
                     } else if (msg.type === 'done') {
                         result = msg

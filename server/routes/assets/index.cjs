@@ -9,7 +9,7 @@ const { encodeRisuSaveLegacy, decodeRisuSave } = require('../../utils/risuSave.c
 const { kvSet, kvGetUpdatedAt, kvGet, kvDel, kvList, kvCount, db: sqliteDb } = require('../../db.cjs');
 const fs = require('fs/promises');
 const { createReadStream } = require('fs');
-const { filterRemoteOnlyFolders, mergeRemoteFilteredDatabase } = require('../../remoteDatabaseFilter.cjs');
+const { createHiddenInlayFilter, filterHiddenFolders, mergeHiddenFolders } = require('../../privacyGuardFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../../revenant/generationInputMetadata.cjs');
 const { codes, sendApiError } = require('../../utils/apiErrors.cjs');
 const { getMimeFromExt, resolveAssetPayload } = require('../../utils/mime.cjs');
@@ -23,7 +23,7 @@ function installAssetRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
     MISSING_DATABASE_ETAG,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     computeBufferEtag,
     requireSyncClientId,
     computeDatabaseEtagFromObject,
@@ -223,6 +223,25 @@ function installAssetRoutes(app, {
         }
     })
 
+    function headerAssetKey(req, res) {
+        const filePath = req.headers['file-path'];
+        if (!filePath || !isHex(filePath)) {
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
+            return null;
+        }
+        return Buffer.from(filePath, 'hex').toString('utf-8');
+    }
+
+    function exportCompatibilityDatabase() {
+        const database = appDataStore.exportProjection({ includeMessages: true });
+        bookmarkStore.projectDatabaseCompatibility(database);
+        return database;
+    }
+
+    function visibleDatabase(database) {
+        return isPrivacyGuardActive() ? filterHiddenFolders(database) : database;
+    }
+
     app.get('/api/plugin-storage/startup-stats', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         await ensureCanonicalStorage();
@@ -233,17 +252,8 @@ function installAssetRoutes(app, {
         if(!await checkAuth(req, res)){
             return;
         }
-        const filePath = req.headers['file-path'];
-        if (!filePath) {
-            console.log('no path')
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         // database.bin is a compatibility projection of canonical storage.
         if (key === 'database/database.bin') {
             await ensureCanonicalStorage();
@@ -251,12 +261,7 @@ function installAssetRoutes(app, {
                 res.setHeader('x-db-etag', MISSING_DATABASE_ETAG);
                 return res.send();
             }
-            let projection = appDataStore.exportProjection({ includeMessages: true });
-            bookmarkStore.projectDatabaseCompatibility(projection);
-            if (isCloudflareTunnelRequest(req)) {
-                projection = filterRemoteOnlyFolders(projection);
-            }
-            const value = Buffer.from(encodeRisuSaveLegacy(projection));
+            const value = Buffer.from(encodeRisuSaveLegacy(visibleDatabase(exportCompatibilityDatabase())));
             const etag = computeBufferEtag(value);
             if (req.headers['if-none-match'] === etag) {
                 return res.status(304).end();
@@ -282,16 +287,8 @@ function installAssetRoutes(app, {
         if(!await checkAuth(req, res)){
             return;
         }
-        const filePath = req.headers['file-path'];
-        if (!filePath) {
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         if (key === 'database/database.bin') {
             return res.status(410).json({
                 error: 'database.bin is a virtual import/export projection and cannot be removed',
@@ -313,6 +310,21 @@ function installAssetRoutes(app, {
         res.send({ success: true });
     });
 
+    async function withoutHiddenInlays(ids) {
+        await ensureCanonicalStorage();
+        if (!appDataStore.getState().initialized) return ids;
+        const isHidden = createHiddenInlayFilter(appDataStore.exportFolderProjection());
+        return ids.filter((id) => {
+            const raw = kvGet(`inlay_meta/${id}`);
+            if (!raw) return true;
+            try {
+                return !isHidden(JSON.parse(Buffer.from(raw).toString('utf-8')));
+            } catch {
+                return true;
+            }
+        });
+    }
+
     app.get('/api/list', async (req, res) => {
         if(!await checkAuth(req, res)){
             return;
@@ -333,7 +345,9 @@ function installAssetRoutes(app, {
             : undefined;
         let data;
         if (keyPrefix === 'inlay/') {
-            data = [...new Set((await listInlayFiles()).map((entry) => `inlay/${entry.id}`))];
+            let ids = [...new Set((await listInlayFiles()).map((entry) => entry.id))];
+            if (isPrivacyGuardActive()) ids = await withoutHiddenInlays(ids);
+            data = ids.map((id) => `inlay/${id}`);
         } else {
             data = kvList(keyPrefix || undefined, listOptions);
         }
@@ -349,18 +363,14 @@ function installAssetRoutes(app, {
             return;
         }
         if (!requireSyncClientId(req, res)) return;
-        const filePath = req.headers['file-path'];
         const fileContent = req.body;
-        if (!filePath || !fileContent) {
+        if (!fileContent) {
             sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         await queueStorageOperation(async () => {
-            const key = Buffer.from(filePath, 'hex').toString('utf-8');
             let databaseForEtag = null;
 
             if (key === 'database/database.bin') {
@@ -368,12 +378,7 @@ function installAssetRoutes(app, {
                 await ensureCanonicalStorage();
                 let currentEtag = MISSING_DATABASE_ETAG;
                 if (appDataStore.getState().initialized) {
-                    let currentDb = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(currentDb);
-                    if (isCloudflareTunnelRequest(req)) {
-                        currentDb = filterRemoteOnlyFolders(currentDb);
-                    }
-                    currentEtag = computeDatabaseEtagFromObject(currentDb);
+                    currentEtag = computeDatabaseEtagFromObject(visibleDatabase(exportCompatibilityDatabase()));
                 }
                 if (appDataStore.getState().initialized && !ifMatch) {
                     res.status(428).send({
@@ -427,8 +432,8 @@ function installAssetRoutes(app, {
                     const currentDb = appDataStore.getState().initialized
                         ? appDataStore.exportProjection({ includeMessages: true })
                         : { characters: [] };
-                    if (isCloudflareTunnelRequest(req)) {
-                        incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
+                    if (isPrivacyGuardActive()) {
+                        incomingDb = mergeHiddenFolders(currentDb, incomingDb);
                         restoreGenerationOwnedMetadata(incomingDb, currentDb);
                     }
                     // A chat without a message list is not full content, whatever
@@ -449,18 +454,17 @@ function installAssetRoutes(app, {
                         });
                     }
                     withTransaction(sqliteDb, () => {
-                        if (!isCloudflareTunnelRequest(req)) {
-                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
-                        } else {
-                            // Remote imports cannot replace server-owned bookmarks.
+                        if (isPrivacyGuardActive()) {
+                            // The import cannot see bookmarks on hidden chats, so it must not replace them.
                             bookmarkStore.stripDatabaseCompatibility(incomingDb);
+                        } else {
+                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
                         }
                         appDataStore.replaceFromProjection(incomingDb, {
                             expectedRevision: appDataStore.getState().revision,
                         });
                     });
-                    databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
+                    databaseForEtag = exportCompatibilityDatabase();
                 } catch (e) {
                     logger.error('[Write] Compatibility database import failed:', e);
                     if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
@@ -477,10 +481,7 @@ function installAssetRoutes(app, {
             let etag;
             if (key === 'database/database.bin') {
                 syncTrashRetention();
-                const visibleForEtag = isCloudflareTunnelRequest(req)
-                    ? filterRemoteOnlyFolders(databaseForEtag)
-                    : databaseForEtag;
-                etag = computeDatabaseEtagFromObject(visibleForEtag);
+                etag = computeDatabaseEtagFromObject(visibleDatabase(databaseForEtag));
                 createBackupAndRotate();
                 broadcastDatabaseInvalidated(req);
             }

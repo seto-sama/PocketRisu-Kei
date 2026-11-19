@@ -58,6 +58,14 @@ function createSyncHub() {
         );
     }
 
+    function broadcastPrivacyGuardChanged(req) {
+        broadcastSync(
+            'privacy-guard-changed',
+            { timestamp: Date.now() },
+            String(getSyncClientIdFromRequest(req)),
+        );
+    }
+
     function publishChatCommitted(event, originClientId) {
         broadcastSync('database-invalidated', {
             chats: [{ characterId: event.characterId, chatId: event.chatId }],
@@ -112,6 +120,7 @@ function createSyncHub() {
         isSyncClientConnected,
         broadcastDatabaseInvalidated,
         broadcastBookmarksInvalidated,
+        broadcastPrivacyGuardChanged,
         publishChatCommitted,
         broadcastRevenantWorkflowUpdated,
         handleSyncConnection,

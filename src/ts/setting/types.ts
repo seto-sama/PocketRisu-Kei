@@ -114,7 +114,7 @@ export interface SettingOptions {
     // number
     inputClassName?: string;
     marginBottom?: boolean;
-    suffix?: string;
+    suffix?: string | (() => string); // A function for translated units
     disabled?: boolean | ((ctx: SettingContext) => boolean);
     onCommit?: (value: number, ctx: SettingContext) => void | Promise<void>;
 

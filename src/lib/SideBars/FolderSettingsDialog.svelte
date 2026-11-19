@@ -133,9 +133,9 @@
                         </div>
                     {/snippet}
                 </SettingRow>
-                <SettingRow title={language.hideFolderOnRemoteAccess} className="border-0 py-0">
+                <SettingRow title={language.hideFolderInPrivacyGuard} className="border-0 py-0">
                     {#snippet control()}
-                        <Switch checked={!!target.localOnly} onCheckedChange={(localOnly) => updateTarget({ localOnly })} ariaLabel={language.hideFolderOnRemoteAccess} />
+                        <Switch checked={!!target.localOnly} onCheckedChange={(localOnly) => updateTarget({ localOnly })} ariaLabel={language.hideFolderInPrivacyGuard} />
                     {/snippet}
                 </SettingRow>
             </div>

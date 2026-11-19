@@ -1,5 +1,5 @@
 import { language } from 'src/lang'
-import { valuesEqual } from '../../../shared/guardedDelta.mjs'
+import { identityFor, valuesEqual } from '../../../shared/guardedDelta.mjs'
 import type { MergeConflict, MergePath } from '../storage/patchRebase'
 
 type Preview = { name: string, type: string, text: string }
@@ -62,7 +62,7 @@ function conflictPathLabel(path: MergePath, source: unknown, index: number): str
             }
             current = current?.[part]
         } else {
-            const itemIndex = Array.isArray(current) ? current.findIndex(item => item?.[part.key] === part.value) : -1
+            const itemIndex = Array.isArray(current) ? current.findIndex(item => identityFor(item, part.key) === part.value) : -1
             current = itemIndex >= 0 ? current[itemIndex] : undefined
             labels.push(current?.name || (part.key === 'chatId'
                 ? format(language.saveConflict.message, itemIndex >= 0 ? itemIndex : index)

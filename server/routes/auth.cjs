@@ -5,9 +5,10 @@ const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
 const { codes: API_ERROR_CODES, sendApiError } = require('../utils/apiErrors.cjs');
 const express = require('express');
+const { AUTH_TOKEN_LIFETIME_SECONDS } = require('../../shared/authToken.mjs');
 const { getSyncClientIdFromRequest } = require('../syncHub.cjs');
 
-function installAuthRoutes(app, { auth, syncClientDevices }) {
+function installAuthRoutes(app, { auth, syncClientDevices, privacyGuard, broadcastPrivacyGuardChanged }) {
     const {
         sessionFile: SESSION_FILE,
         sessions,
@@ -76,7 +77,7 @@ function installAuthRoutes(app, { auth, syncClientDevices }) {
     function createServerJwt() {
         const now = Math.floor(Date.now() / 1000)
         const header = { alg: 'HS256', typ: 'JWT' }
-        const payload = { iat: now, exp: now + 5 * 60 }
+        const payload = { iat: now, exp: now + AUTH_TOKEN_LIFETIME_SECONDS }
         const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url')
         const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
         const sig = nodeCrypto.createHmac('sha256', jwtSecret)
@@ -91,9 +92,10 @@ function installAuthRoutes(app, { auth, syncClientDevices }) {
             res.send({status: 'unset'})
         }
         else if(!await checkAuth(req, res, true)){
-            // JWT missing/invalid – fall back to session cookie (survives page refresh)
+            // JWT missing/invalid – fall back to session cookie (survives page refresh).
+            // Privacy guard asks for the password on every page session instead.
             const sessionToken = parseSessionCookie(req)
-            if (sessionToken && sessionExpiresAt(sessions.get(sessionToken)) > Date.now()) {
+            if (!privacyGuard.isEnabled() && sessionToken && sessionExpiresAt(sessions.get(sessionToken)) > Date.now()) {
                 res.send({status: 'success', token: createServerJwt()})
             } else {
                 res.send({status: 'incorrect'})
@@ -104,22 +106,57 @@ function installAuthRoutes(app, { auth, syncClientDevices }) {
         }
     })
 
+    function passwordMatches(password) {
+        return authState.password !== ''
+            && typeof password === 'string'
+            && password.trim() === authState.password.trim()
+    }
+
+    function rejectInvalidPassword(req, res) {
+        if ((req.rateLimit?.used ?? 0) >= LOGIN_FAILURE_LIMIT) {
+            startLoginBlock(req, res)
+            return
+        }
+        sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_PASSWORD)
+    }
+
     app.post('/api/login', rejectBlockedLogin, loginRouteLimiter, parseAuthBody, async (req, res) => {
         if(authState.password === ''){
             sendApiError(res, 400, API_ERROR_CODES.AUTH_PASSWORD_NOT_SET)
             return;
         }
-        if(typeof req.body?.password === 'string' && req.body.password.trim() === authState.password.trim()){
+        if(passwordMatches(req.body?.password)){
             res.send({status:'success', token: createServerJwt()})
         }
         else{
-            if ((req.rateLimit?.used ?? 0) >= LOGIN_FAILURE_LIMIT) {
-                startLoginBlock(req, res)
-                return
-            }
-            sendApiError(res, 401, API_ERROR_CODES.AUTH_INVALID_PASSWORD)
+            rejectInvalidPassword(req, res)
         }
     })
+
+    // Re-entering the password shares the login rate limit, so it is no brute-force side door.
+    const requirePassword = [
+        async (req, res, next) => {
+            if (await checkAuth(req, res)) next()
+        },
+        rejectBlockedLogin,
+        loginRouteLimiter,
+        parseAuthBody,
+        (req, res, next) => {
+            if (passwordMatches(req.body?.password)) next()
+            else rejectInvalidPassword(req, res)
+        },
+    ]
+
+    function switchPrivacyGuard(req, res, enabled) {
+        if (privacyGuard.setEnabled(enabled)) broadcastPrivacyGuardChanged(req)
+        res.json({ enabled })
+    }
+
+    app.post('/api/privacy-guard/enable', async (req, res) => {
+        if (await checkAuth(req, res)) switchPrivacyGuard(req, res, true)
+    })
+
+    app.post('/api/privacy-guard/disable', requirePassword, (req, res) => switchPrivacyGuard(req, res, false))
 
     app.post('/api/token/refresh', async (req, res) => {
         if (!await checkAuth(req, res, false, {allowExpired: true})) return

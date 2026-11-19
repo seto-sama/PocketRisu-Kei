@@ -1,6 +1,6 @@
 'use strict';
 
-const { isChatHiddenFromRemote } = require('../remoteDatabaseFilter.cjs');
+const { isChatHidden } = require('../privacyGuardFilter.cjs');
 const { encodeRisuSaveLegacy } = require('../utils/risuSave.cjs');
 const { CanonicalChatCommitError } = require('../chatStore.cjs');
 const { codes, sendApiError } = require('../utils/apiErrors.cjs');
@@ -8,7 +8,7 @@ const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 function installChatsRoutes(app, {
     checkAuth,
     ensureCanonicalStorage,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     appDataStore,
     loadCanonicalChat,
     requireSyncClientId,
@@ -18,6 +18,8 @@ function installChatsRoutes(app, {
     broadcastBookmarksInvalidated,
 }) {
     const sendChatNotFound = res => sendApiError(res, 404, codes.CHAT_NOT_FOUND);
+    const isGuardedChat = (chaId, chatIndex, chatId) => isPrivacyGuardActive()
+        && isChatHidden(appDataStore.exportFolderProjection(), chaId, chatIndex, chatId);
 
     app.get('/api/chat-content/:chaId/:chatIndex', async (req, res) => {
         if (!await checkAuth(req, res)) { return; }
@@ -26,12 +28,7 @@ function installChatsRoutes(app, {
         const expectedChatId = req.headers['x-chat-id'];
 
         await ensureCanonicalStorage();
-        if (isCloudflareTunnelRequest(req)) {
-            const dbObj = appDataStore.exportProjection({ includeMessages: false });
-            if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                return sendChatNotFound(res);
-            }
-        }
+        if (isGuardedChat(chaId, chatIndex, expectedChatId)) return sendChatNotFound(res);
         const indexedStub = appDataStore.getChatStubAt(chaId, chatIndex);
         const resolvedChatId = expectedChatId || indexedStub?.id;
         if (!resolvedChatId || !appDataStore.hasChat(chaId, resolvedChatId)) {
@@ -61,12 +58,7 @@ function installChatsRoutes(app, {
                 return res.status(400).json({ error: 'Chat changes and x-chat-id required' });
             }
 
-            if (isCloudflareTunnelRequest(req)) {
-                const dbObj = appDataStore.exportProjection({ includeMessages: false });
-                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                    return sendChatNotFound(res);
-                }
-            }
+            if (isGuardedChat(chaId, chatIndex, expectedChatId)) return sendChatNotFound(res);
 
             const commit = await canonicalChatService.commitUserDelta({
                 characterId: chaId,

@@ -35,7 +35,7 @@ it.each([
         logger.debug('debug-probe');
         let handler;
         installWebRoutes({ get(path, callback) { handler = callback; } }, {
-            isCloudflareTunnelRequest: () => false,
+            isPrivacyGuardActive: () => false,
         });
         handler({ ip: 'test' }, {
             set(name, value) { if (name === 'Cache-Control' && value !== 'no-store') throw new Error('Runtime config must not be cached'); },

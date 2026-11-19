@@ -1,12 +1,12 @@
 'use strict';
 
-const { applyPatch: applyJsonPatch, compare } = require('fast-json-patch');
+const { compare } = require('fast-json-patch');
 const { applyDelta, DeltaConflictError, DeltaValidationError } = require('../shared/guardedDelta.mjs');
-const { calculateHash, normalizeJSON } = require('./utils/json.cjs');
+const { normalizeJSON } = require('./utils/json.cjs');
 const { AppDataConflictError } = require('./appDataStore.cjs');
 const { EntityIdValidationError } = require('../shared/entityIds.mjs');
 const { findChatInternalFieldOps } = require('../shared/chatShape.mjs');
-const { createPatchHashDiagnostics } = require('../shared/patchHashDiagnostics.mjs');
+const { apiErrorMessage, codes } = require('./utils/apiErrors.cjs');
 const {
     classifiedPluginOwner,
     installedV3Plugins,
@@ -46,8 +46,6 @@ class DatabaseProjectionConflictError extends DatabaseProjectionServiceError {
         this.name = 'DatabaseProjectionConflictError';
         this.currentEtag = options.currentEtag;
         this.currentRevision = options.currentRevision;
-        this.currentHash = options.currentHash;
-        this.hashDiagnostics = options.hashDiagnostics;
         this.conflicts = options.conflicts;
     }
 }
@@ -67,10 +65,6 @@ function identity(value) {
     return value;
 }
 
-function replaceVisibleProjection(_current, incoming) {
-    return incoming;
-}
-
 function isObjectProjection(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -83,10 +77,6 @@ function normalizeProjection(value) {
         );
     }
     return normalized;
-}
-
-function compositionalHash(value) {
-    return calculateHash(value).toString(16);
 }
 
 function pluginStorageExclusion(database, requestOptions = {}) {
@@ -110,42 +100,31 @@ function pluginStorageKeyIsExcluded(database, key, exclusion) {
     return exclusion.names.has(owner);
 }
 
+const PLUGIN_STORAGE_FIELDS = ['pluginCustomStorage', 'pluginStorageMeta'];
+
 function filterPluginStorage(database, requestOptions = {}) {
     const exclusion = pluginStorageExclusion(database, requestOptions);
-    if (!exclusion) {
-        return database;
+    if (!exclusion) return database;
+    const filtered = { ...database };
+    for (const field of PLUGIN_STORAGE_FIELDS) {
+        filtered[field] = Object.fromEntries(Object.entries(database?.[field] ?? {})
+            .filter(([key]) => !pluginStorageKeyIsExcluded(database, key, exclusion)));
     }
-    const filteredStorage = {};
-    for (const [key, value] of Object.entries(database?.pluginCustomStorage ?? {})) {
-        if (!pluginStorageKeyIsExcluded(database, key, exclusion)) {
-            filteredStorage[key] = value;
-        }
-    }
-    const filteredMeta = {};
-    for (const [key, value] of Object.entries(database?.pluginStorageMeta ?? {})) {
-        if (!pluginStorageKeyIsExcluded(database, key, exclusion)) filteredMeta[key] = value;
-    }
-    return {
-        ...database,
-        pluginCustomStorage: filteredStorage,
-        pluginStorageMeta: filteredMeta,
-    };
+    return filtered;
 }
 
 function restoreExcludedPluginStorage(incoming, canonical, requestOptions = {}) {
     const exclusion = pluginStorageExclusion(canonical, requestOptions);
-    if (!exclusion) {
-        return incoming;
+    if (!exclusion) return incoming;
+    const restored = { ...incoming };
+    for (const field of PLUGIN_STORAGE_FIELDS) {
+        restored[field] = {
+            ...(incoming?.[field] ?? {}),
+            ...Object.fromEntries(Object.entries(canonical?.[field] ?? {})
+                .filter(([key]) => pluginStorageKeyIsExcluded(canonical, key, exclusion))),
+        };
     }
-    const storage = { ...(incoming?.pluginCustomStorage ?? {}) };
-    for (const [key, value] of Object.entries(canonical?.pluginCustomStorage ?? {})) {
-        if (pluginStorageKeyIsExcluded(canonical, key, exclusion)) storage[key] = value;
-    }
-    const meta = { ...(incoming?.pluginStorageMeta ?? {}) };
-    for (const [key, value] of Object.entries(canonical?.pluginStorageMeta ?? {})) {
-        if (pluginStorageKeyIsExcluded(canonical, key, exclusion)) meta[key] = value;
-    }
-    return { ...incoming, pluginCustomStorage: storage, pluginStorageMeta: meta };
+    return restored;
 }
 
 function createDatabaseProjectionService(options = {}) {
@@ -158,12 +137,12 @@ function createDatabaseProjectionService(options = {}) {
         throw new TypeError('createDatabaseProjectionService requires an appDataStore');
     }
 
-    const filterRemoteProjection = options.filterRemoteProjection ?? identity;
-    const mergeRemoteProjection = options.mergeRemoteProjection ?? replaceVisibleProjection;
+    const filterHiddenFolders = options.filterHiddenFolders ?? identity;
+    const guardHiddenDelta = options.guardHiddenDelta ?? ((_database, changes) => changes);
     const restoreServerOwnedMetadata = options.restoreServerOwnedMetadata ?? identity;
     for (const [name, callback] of [
-        ['filterRemoteProjection', filterRemoteProjection],
-        ['mergeRemoteProjection', mergeRemoteProjection],
+        ['filterHiddenFolders', filterHiddenFolders],
+        ['guardHiddenDelta', guardHiddenDelta],
         ['restoreServerOwnedMetadata', restoreServerOwnedMetadata],
     ]) {
         if (typeof callback !== 'function') {
@@ -186,29 +165,19 @@ function createDatabaseProjectionService(options = {}) {
         };
     }
 
-    function visibleDatabase(snapshot, remote) {
-        if (!remote) return snapshot.database;
-        return filterRemoteProjection(snapshot.database);
+    function visibleDatabase(snapshot, hideFolders) {
+        if (!hideFolders) return snapshot.database;
+        return filterHiddenFolders(snapshot.database);
     }
 
     function projectionVisibleToRequest(snapshot, requestOptions = {}) {
         return filterPluginStorage(
-            visibleDatabase(snapshot, requestOptions.remote === true),
+            visibleDatabase(snapshot, requestOptions.hideFolders === true),
             requestOptions,
         );
     }
 
-    function currentConflictDetails(requestOptions = {}) {
-        const snapshot = canonicalSnapshot();
-        const visible = projectionVisibleToRequest(snapshot, requestOptions);
-        return {
-            currentEtag: snapshot.etag,
-            currentRevision: snapshot.revision,
-            currentHash: compositionalHash(visible),
-        };
-    }
-
-    function wrapStoreConflict(error, requestOptions, message = 'Database projection changed') {
+    function wrapStoreConflict(error, message = 'Database projection changed') {
         if (error instanceof EntityIdValidationError) {
             throw new DatabaseProjectionValidationError(error.message, { cause: error });
         }
@@ -216,14 +185,15 @@ function createDatabaseProjectionService(options = {}) {
             && error?.name !== 'AppDataConflictError') {
             throw error;
         }
+        const state = appDataStore.getState();
         throw new DatabaseProjectionConflictError(message, {
             code: 'DATABASE_PROJECTION_CHANGED',
-            ...currentConflictDetails(requestOptions),
+            currentEtag: state.projectionEtag,
+            currentRevision: state.revision,
             cause: error,
         });
     }
 
-    /** Return the lightweight, chat-stub-only browser startup projection. */
     function getStartupProjection(requestOptions = {}) {
         const snapshot = canonicalSnapshot();
         return {
@@ -237,12 +207,8 @@ function createDatabaseProjectionService(options = {}) {
         };
     }
 
-    /**
-     * Initialize only a pristine relational store. A second PUT is a conflict,
-     * even when its body happens to match the first initialization.
-     */
+    // A second PUT is a conflict even when its body matches the first initialization.
     function initializeDatabase(database, requestOptions = {}) {
-        const remote = requestOptions.remote === true;
         const expectedRevision = requestOptions.expectedRevision ?? 0;
         if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
             throw new DatabaseProjectionValidationError(
@@ -260,7 +226,6 @@ function createDatabaseProjectionService(options = {}) {
                         : 'DATABASE_PROJECTION_CHANGED',
                     currentEtag: snapshot.etag,
                     currentRevision: snapshot.revision,
-                    currentHash: compositionalHash(visibleDatabase(snapshot, remote)),
                 },
             );
         }
@@ -283,7 +248,7 @@ function createDatabaseProjectionService(options = {}) {
                 etag: state.projectionEtag,
             };
         } catch (error) {
-            wrapStoreConflict(error, { remote }, 'Database changed during initialization');
+            wrapStoreConflict(error, 'Database changed during initialization');
         }
 
         return {
@@ -295,27 +260,19 @@ function createDatabaseProjectionService(options = {}) {
         };
     }
 
-    /** Apply a guarded delta or legacy JSON Patch to the startup projection. */
     function patchDatabase(request, requestOptions = {}) {
         if (!request || typeof request !== 'object' || Array.isArray(request)) {
             throw new DatabaseProjectionValidationError('Patch request must be an object');
         }
-        const { patch, expectedHash } = request;
-        const usesDelta = Object.hasOwn(request, 'changes');
-        if (usesDelta ? !Array.isArray(request.changes) : !Array.isArray(patch)) {
-            throw new DatabaseProjectionValidationError(usesDelta ? 'changes must be an array' : 'patch must be an array');
-        }
-        if (!usesDelta && (typeof expectedHash !== 'string' || expectedHash.length === 0)) {
-            throw new DatabaseProjectionValidationError('expectedHash is required');
+        const { changes } = request;
+        if (!Array.isArray(changes)) {
+            throw new DatabaseProjectionValidationError('changes must be an array');
         }
 
-        const remote = requestOptions.remote === true;
+        const hideFolders = requestOptions.hideFolders === true;
         const snapshot = canonicalSnapshot();
-        const visible = projectionVisibleToRequest(snapshot, requestOptions);
-        const currentHash = compositionalHash(visible);
 
-        // Empty changes have no write intent, even when a legacy hash is stale.
-        if ((usesDelta ? request.changes : patch).length === 0) {
+        if (changes.length === 0) {
             return {
                 success: true,
                 changed: false,
@@ -326,39 +283,19 @@ function createDatabaseProjectionService(options = {}) {
             };
         }
 
-        if (!usesDelta && expectedHash !== currentHash) {
-            throw new DatabaseProjectionConflictError(
-                'Hash mismatch - data out of sync',
-                {
-                    code: 'DATABASE_HASH_MISMATCH',
-                    currentEtag: snapshot.etag,
-                    currentRevision: snapshot.revision,
-                    currentHash,
-                    hashDiagnostics: createPatchHashDiagnostics(visible, calculateHash),
-                },
-            );
-        }
-
+        // A delta addresses array items by ID, so it applies to the unfiltered projection and
+        // leaves hidden entries in place.
+        const base = filterPluginStorage(snapshot.database, requestOptions);
         let incoming;
-        let appliedOperations;
         try {
-            const patchTarget = structuredClone(visible);
-            const result = usesDelta
-                ? applyDelta(patchTarget, request.changes)
-                : applyJsonPatch(patchTarget, patch, true).newDocument;
-            appliedOperations = usesDelta ? request.changes.length : patch.length;
-            if (findChatInternalFieldOps(compare(visible, result)).length > 0) {
-                throw new DatabaseProjectionConflictError('Chat body changes require the chat endpoint', {
-                    code: 'CHAT_GUARD_REJECTED', currentEtag: snapshot.etag,
+            const result = applyDelta(base, hideFolders ? guardHiddenDelta(snapshot.database, changes) : changes);
+            if (findChatInternalFieldOps(compare(base, result)).length > 0) {
+                throw new DatabaseProjectionConflictError(apiErrorMessage(codes.CHAT_GUARD_REJECTED), {
+                    code: codes.CHAT_GUARD_REJECTED, currentEtag: snapshot.etag,
                     currentRevision: snapshot.revision,
                 });
             }
             incoming = normalizeProjection(result);
-            if (remote) {
-                incoming = normalizeProjection(
-                    mergeRemoteProjection(snapshot.database, incoming),
-                );
-            }
             incoming = restoreExcludedPluginStorage(incoming, snapshot.database, requestOptions);
             incoming = normalizeProjection(
                 restoreServerOwnedMetadata(incoming, snapshot.database),
@@ -386,13 +323,13 @@ function createDatabaseProjectionService(options = {}) {
                 expectedEtag: snapshot.etag,
             });
         } catch (error) {
-            wrapStoreConflict(error, requestOptions);
+            wrapStoreConflict(error);
         }
 
         return {
             success: true,
             changed: result.changed,
-            appliedOperations,
+            appliedOperations: changes.length,
             etag: result.etag,
             revision: result.revision,
             updatedAt: result.updatedAt,
@@ -407,7 +344,6 @@ function createDatabaseProjectionService(options = {}) {
 }
 
 module.exports = {
-    DatabaseProjectionApplyError,
     DatabaseProjectionConflictError,
     DatabaseProjectionServiceError,
     DatabaseProjectionValidationError,

@@ -14,6 +14,7 @@ const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, 
             listDrive: vi.fn(), driveMetadata: vi.fn(), renameDriveEntry: vi.fn(), copyDriveEntry: vi.fn(),
             createDriveDirectory: vi.fn(), uploadDriveFile: vi.fn(), downloadDriveFile: vi.fn(),
             deleteDriveEntry: vi.fn(), emptyDriveTrash: vi.fn(), driveThumbnailUrl: vi.fn(), readDriveFile: vi.fn(),
+            restoreDriveTrashEntry: vi.fn(), deleteDriveTrashEntry: vi.fn(),
         },
         notifyError: vi.fn(),
         mdViewport: writable(true),
@@ -1095,15 +1096,46 @@ it('confirms moving to trash and removes shortcuts only after deletion succeeds'
     await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual(['Photos']))
 })
 
+it('restores, downloads and permanently deletes trash entries, and leaves the trash from its icon', async () => {
+    const trashed = (name: string) => ({ ...file, name, path: `${trashPath}/${name}` })
+    trashEntries = [trashed('report.txt'), trashed('old.txt')]
+    storage.restoreDriveTrashEntry.mockImplementation(async (path: string) => { trashEntries = trashEntries.filter(entry => entry.path !== path) })
+    storage.deleteDriveTrashEntry.mockImplementation(async (path: string) => { trashEntries = trashEntries.filter(entry => entry.path !== path) })
+    await openDocuments()
+    button(language.trash).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('old.txt'))
+    await vi.waitFor(() => expect(entry('old.txt').disabled).toBe(false))
+    const address = document.querySelector(`nav[aria-label="${language.serverDrive.path}"]`)!
+    expect(address.textContent).not.toContain(trashPath)
+    await contextMenu('report.txt')
+    menuItem(language.download).click()
+    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledWith(`${trashPath}/report.txt`))
+    await tick()
+    await contextMenu('report.txt')
+    menuItem(language.serverDrive.restoreFromTrash).click()
+    await vi.waitFor(() => expect(storage.restoreDriveTrashEntry).toHaveBeenCalledWith(`${trashPath}/report.txt`))
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).not.toContain('report.txt'))
+
+    await tick()
+    await contextMenu('old.txt')
+    menuItem(language.serverDrive.deleteForever).click()
+    await tick()
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(language.serverDrive.deleteForeverConfirm.replace('{count}', '1'))
+    button(language.serverDrive.deleteForever, document.querySelector('[role="alertdialog"]')!).click()
+    await vi.waitFor(() => expect(storage.deleteDriveTrashEntry).toHaveBeenCalledWith(`${trashPath}/old.txt`))
+    expect(storage.deleteDriveEntry).not.toHaveBeenCalled()
+
+    const railTrash = button(language.trash, document.querySelector(`[role="navigation"][aria-label="${language.serverDrive.shortcuts}"]`)!)
+    await vi.waitFor(() => expect(railTrash.disabled).toBe(false))
+    railTrash.click()
+    await vi.waitFor(() => expect(storage.listDrive).toHaveBeenLastCalledWith('Documents', expect.anything()))
+})
+
 it('browses the drive trash and only empties it after confirmation', async () => {
     trashEntries = [{ ...file, path: `${trashPath}/report.txt` }]
     button(language.trash).click()
     await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('report.txt'))
     expect(button(language.serverDrive.upload).disabled).toBe(true)
-    await contextMenu('report.txt')
-    expect(menuItem(language.serverDrive.rename).getAttribute('aria-disabled')).toBe('true')
-    menuItem(language.download).click()
-    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledWith(`${trashPath}/report.txt`))
     button(language.emptyTrash).click()
     await tick()
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(language.serverDrive.emptyTrashConfirm)
@@ -1139,6 +1171,7 @@ it('uses the mobile navigation toolbar and refreshes the current folder from the
     const railButtons = [...shortcuts.querySelectorAll<HTMLButtonElement>('button')]
         .map(element => element.getAttribute('aria-label'))
     expect(railButtons).toEqual([
+        language.serverDrive.privateFolder,
         language.serverDrive.upload,
         language.serverDrive.refresh,
         language.trash,

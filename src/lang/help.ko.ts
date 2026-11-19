@@ -180,6 +180,7 @@ export const helpKo = {
         "newImageHandlingBeta": "캐릭터의 이미지 에셋을 응답에 삽입하도록 지시하는 에셋 프롬프트 항목을 캐릭터 설정에 추가합니다.",
         "useServerDriveForFileImport": "파일을 불러올 때 서버 드라이브 창을 띄웁니다. 설정이 꺼져 있으면 파일 탐색기를 열고, 우클릭으로 서버 드라이브를 열 수 있습니다.",
         "returnCSSError": "커스텀 CSS에 오류가 있으면 해당 스타일 위치에 오류 내용을 표시합니다.",
+        "privacyGuardIdleLock": "아무런 조작 없이 지정한 시간이 지나면 비밀번호 입력 창으로 돌아갑니다.",
         "pluginStorageWarningThreshold": "전체 플러그인 저장 데이터가 이 용량 이상이면 클라이언트가 접속할 때 경고를 띄워줍니다. 0으로 해두면 항상 경고를 표시하고, 값을 비워두면 비활성화됩니다.",
         "claude1HourCaching": "Claude 프롬프트 캐시 TTL을 기본 5분 대신 1시간으로 설정합니다. 같은 컨텍스트로 자주 보낼 때 비용 절감 폭이 커지지만 1시간 캐시는 캐시 쓰기 비용이 다릅니다.",
         "claudeBatching": "Claude의 배치(Batch) API를 사용해 여러 요청을 묶어 처리합니다. 비용이 더 저렴하지만 몇 분~수 시간 지연이 발생합니다.",

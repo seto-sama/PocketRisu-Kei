@@ -14,6 +14,7 @@ const { installAuthenticatedBodyParsing } = require('./requestBody.cjs') as {
 const { installProxyRoutes } = require('./routes/proxy.cjs')
 const { installAuthRoutes } = require('./routes/auth.cjs') as { installAuthRoutes(app: any, options: any): void }
 const { createAuthService } = require('./auth.cjs')
+const { createPrivacyGuard } = require('./privacyGuard.cjs')
 
 type Fixture = {
     base: string
@@ -30,6 +31,8 @@ async function startFixture(): Promise<Fixture> {
     installAuthRoutes(app, {
         auth,
         syncClientDevices: new Map(),
+        privacyGuard: createPrivacyGuard({ savePath: directory }),
+        broadcastPrivacyGuardChanged: () => {},
     })
     installAuthenticatedBodyParsing(app, { checkAuth: auth.checkDownloadAuth })
     app.post('/api/body-check', (req: any, res: any) => res.json({ body: req.body ?? null }))

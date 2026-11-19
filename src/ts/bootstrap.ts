@@ -35,7 +35,9 @@ import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelt
 import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
-import { isNodeServer } from './platform';
+import { isNodeServer, isPrivacyGuardActive } from './platform';
+import { startIdleLock } from './privacyGuardIdleLock';
+import { doingChat } from './process/index.svelte';
 import { migrateRealmMutes } from './realmMute';
 import {
     applyPluginMemoryDecision,
@@ -217,6 +219,14 @@ export async function loadData() {
                 characterURLImport()
             })
             startSyncReceiver()
+            if (isPrivacyGuardActive) {
+                // Reloading drops the page session, and privacy guard asks for the password on every session.
+                startIdleLock({
+                    getMinutes: () => getDatabase().privacyGuardIdleLockMinutes,
+                    isBusy: () => get(doingChat),
+                    lock: () => location.reload(),
+                })
+            }
             moduleUpdate()
             // Defer asset cleanup until after the UI loads.
             setTimeout(() => {

@@ -73,7 +73,7 @@ vi.mock('./storage/risuSave', () => ({
         async set(database: unknown) {
             this.baseline = structuredClone(database)
             if (mocks.projectionChanges) this.version += 1
-            return { patch: [], expectedHash: 'hash' }
+            return { patch: [] }
         }
     },
     calculateHash: () => 0,

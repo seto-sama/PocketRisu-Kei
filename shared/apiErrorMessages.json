@@ -25,7 +25,7 @@
   "INVALID_BACKUP_FILENAME": "A valid backup filename is required.",
   "INVALID_SNAPSHOT_KEY": "A valid snapshot key is required.",
   "DATABASE_NOT_FOUND": "The database could not be found.",
-  "BOOKMARK_TAGS_LOCAL_ONLY": "Bookmark tags are available only on the local server.",
+  "BOOKMARK_TAGS_LOCAL_ONLY": "Bookmark tags cannot be edited while Privacy Guard mode is on.",
   "REVENANT_JOB_NOT_FOUND": "The generation job could not be found.",
   "REVENANT_WORKFLOW_NOT_FOUND": "The generation workflow could not be found.",
   "REVENANT_CLIENT_ACTION_NOT_FOUND": "The pending workflow client action could not be found.",
@@ -38,6 +38,5 @@
   "DRIVE_ALREADY_EXISTS": "An item with that name already exists.",
   "DRIVE_MERGE_CONFLICT": "Choose which items to keep before merging these folders.",
   "DRIVE_UNSUPPORTED_ENTRY": "Links and special files cannot be accessed through the drive.",
-  "DRIVE_UNAVAILABLE": "The drive could not be accessed. Check the server's storage and permissions.",
-  "DRIVE_REMOTE_ACCESS_DENIED": "Server Drive is unavailable through Cloudflare remote access."
+  "DRIVE_UNAVAILABLE": "The drive could not be accessed. Check the server's storage and permissions."
 }
