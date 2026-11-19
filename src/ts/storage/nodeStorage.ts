@@ -13,7 +13,8 @@ import { apiErrorCodes, apiRequestError, localizedApiErrorMessage } from '../net
 import { CHAT_CONTENT_READ_POLICY, ConflictError, storageRequestError, StorageRequestError } from './storageRequest'
 export { ConflictError } from './storageRequest'
 import { fetchWithRequestTimeout } from '../../../shared/requestTimeout.mjs'
-import { isPatchHashDiagnostics, type PatchHashDiagnostics } from '../../../shared/patchHashDiagnostics.mjs'
+import { AUTH_TOKEN_LIFETIME_SECONDS } from '../../../shared/authToken.mjs'
+import { PLUGIN_STORAGE_EXCLUSION_HEADER } from '../../../shared/pluginStorageExclusion.mjs'
 import { type createDelta } from '../../../shared/guardedDelta.mjs'
 import type {
     BookmarkCatalog,
@@ -107,9 +108,6 @@ export interface BackupRestoreResult {
 
 export interface PatchItemResult {
     conflictCode?: string
-    currentHash?: string
-    hashDiagnostics?: PatchHashDiagnostics
-    conflicts?: unknown[]
     success: boolean
     etag?: string
     revision?: number
@@ -118,7 +116,6 @@ export interface PatchItemResult {
 }
 
 export type DeltaPatch = { changes: ReturnType<typeof createDelta> }
-type ProjectionPatch = DeltaPatch | { patch: any[], expectedHash: string }
 
 export interface DatabaseProjection<T = unknown> {
     database: T | null
@@ -296,6 +293,10 @@ export class NodeStorage{
         finally { NodeStorage.refreshPending = null }
     }
 
+    private static cacheJwt(token: string) {
+        NodeStorage.cachedJwt = { token, expiresAt: Date.now() + AUTH_TOKEN_LIFETIME_SECONDS * 1000 }
+    }
+
     private async _doRefreshToken(): Promise<string> {
         const res = await authRequest('/api/token/refresh', {
             method: 'POST',
@@ -303,7 +304,7 @@ export class NodeStorage{
         })
         if (res.ok) {
             const data = await res.json()
-            NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+            NodeStorage.cacheJwt(data.token)
             return data.token
         }
         return ''
@@ -323,9 +324,7 @@ export class NodeStorage{
         }
 
         const data = await response.json()
-        if (data.token) {
-            NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
-        }
+        if (data.token) NodeStorage.cacheJwt(data.token)
         NodeStorage.authChecked = true
     }
 
@@ -549,17 +548,13 @@ export class NodeStorage{
                 return
             }
             else{
-                if (data.token) {
-                    NodeStorage.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
-                }
+                if (data.token) NodeStorage.cacheJwt(data.token)
                 NodeStorage.authChecked = true
             }
         }
         if (!NodeStorage.cachedJwt) throw new Error('Node auth unavailable')
         await this.initSession(NodeStorage.cachedJwt.token)
     }
-
-    listItem = this.keys
 
     setDbEtag(etag: string | null) {
         this._lastDbEtag = etag
@@ -623,14 +618,20 @@ export class NodeStorage{
         return validateContentReferences(await response.json(), kind, candidates)
     }
 
+    private withPluginStorageExclusion(headers: Record<string, string>) {
+        if (this.pluginStorageExclusionHeader) headers[PLUGIN_STORAGE_EXCLUSION_HEADER] = this.pluginStorageExclusionHeader
+        return headers
+    }
+
+    private rememberDbVersion(etag: string | undefined, revision: number | undefined) {
+        if (etag) this._lastDbEtag = etag
+        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+    }
+
     async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const headers:Record<string, string> = { accept: BINARY_MESSAGE_CONTENT_TYPE }
-        if (this.pluginStorageExclusionHeader) {
-            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
-        }
         const response = await this.authFetch('/api/database', {
             method: 'GET',
-            headers,
+            headers: this.withPluginStorageExclusion({ accept: BINARY_MESSAGE_CONTENT_TYPE }),
         })
         if (!response.ok) {
             throw await storageRequestError('getDatabaseProjection', response)
@@ -660,8 +661,7 @@ export class NodeStorage{
         }
         const etag = data.etag ?? data.currentEtag
         const revision = data.revision ?? data.currentRevision
-        if (etag) this._lastDbEtag = etag
-        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+        this.rememberDbVersion(etag, revision)
 
         if (response.status === 409) {
             return { success: false, conflict: true, etag, revision }
@@ -672,28 +672,19 @@ export class NodeStorage{
         return { success: true, etag, revision }
     }
 
-    async patchDatabase(patchData: ProjectionPatch): Promise<PatchItemResult> {
-        if (('changes' in patchData ? patchData.changes : patchData.patch).length === 0) return { success: true }
-        const headers: Record<string, string> = { 'content-type': BINARY_MESSAGE_CONTENT_TYPE }
-        if (this.pluginStorageExclusionHeader) {
-            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
-        }
+    async patchDatabase(patchData: DeltaPatch): Promise<PatchItemResult> {
+        if (patchData.changes.length === 0) return { success: true }
         const da = await this.authFetch('/api/database', {
             method: 'PATCH',
             body: encode(patchData),
-            headers,
+            headers: this.withPluginStorageExclusion({ 'content-type': BINARY_MESSAGE_CONTENT_TYPE }),
         })
 
         if (da.status === 409) {
             const data = await da.json()
             const currentEtag = data.currentEtag as string | undefined
             const currentRevision = data.currentRevision as number | undefined
-            if (currentEtag) {
-                this._lastDbEtag = currentEtag
-            }
-            if (Number.isSafeInteger(currentRevision)) {
-                this._lastDbRevision = currentRevision as number
-            }
+            this.rememberDbVersion(currentEtag, currentRevision)
             const rejectedByChatGuard = data.code === apiErrorCodes.CHAT_GUARD_REJECTED
             return {
                 success: false,
@@ -701,10 +692,7 @@ export class NodeStorage{
                 revision: currentRevision,
                 conflict: !rejectedByChatGuard,
                 conflictCode: typeof data.code === 'string' ? data.code : undefined,
-                currentHash: typeof data.currentHash === 'string' ? data.currentHash : undefined,
-                hashDiagnostics: isPatchHashDiagnostics(data.hashDiagnostics) ? data.hashDiagnostics : undefined,
                 chatGuardRejected: rejectedByChatGuard,
-                conflicts: Array.isArray(data.conflicts) ? data.conflicts : undefined,
             }
         }
         if (da.status < 200 || da.status >= 300) {
@@ -716,12 +704,7 @@ export class NodeStorage{
         }
         const nextEtag = data.etag as string | undefined
         const nextRevision = data.revision as number | undefined
-        if (nextEtag) {
-            this._lastDbEtag = nextEtag
-        }
-        if (Number.isSafeInteger(nextRevision)) {
-            this._lastDbRevision = nextRevision as number
-        }
+        this.rememberDbVersion(nextEtag, nextRevision)
         return { success: true, etag: nextEtag, revision: nextRevision }
     }
 
@@ -975,7 +958,6 @@ export class NodeStorage{
                     let msg: any
                     try { msg = JSON.parse(line) } catch { continue }
                     if (msg.type === 'progress' && uploadComplete) {
-                        // Reuse the upload progress UI for server-side restoration.
                         onProgress?.(msg.bytes, msg.totalBytes)
                     } else if (msg.type === 'done') {
                         result = msg

@@ -223,6 +223,25 @@ function installAssetRoutes(app, {
         }
     })
 
+    function headerAssetKey(req, res) {
+        const filePath = req.headers['file-path'];
+        if (!filePath || !isHex(filePath)) {
+            sendApiError(res, 400, codes.INVALID_FILE_PATH);
+            return null;
+        }
+        return Buffer.from(filePath, 'hex').toString('utf-8');
+    }
+
+    function exportCompatibilityDatabase() {
+        const database = appDataStore.exportProjection({ includeMessages: true });
+        bookmarkStore.projectDatabaseCompatibility(database);
+        return database;
+    }
+
+    function visibleDatabase(database) {
+        return isPrivacyGuardActive() ? filterHiddenFolders(database) : database;
+    }
+
     app.get('/api/plugin-storage/startup-stats', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         await ensureCanonicalStorage();
@@ -233,17 +252,8 @@ function installAssetRoutes(app, {
         if(!await checkAuth(req, res)){
             return;
         }
-        const filePath = req.headers['file-path'];
-        if (!filePath) {
-            console.log('no path')
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         // database.bin is a compatibility projection of canonical storage.
         if (key === 'database/database.bin') {
             await ensureCanonicalStorage();
@@ -251,12 +261,7 @@ function installAssetRoutes(app, {
                 res.setHeader('x-db-etag', MISSING_DATABASE_ETAG);
                 return res.send();
             }
-            let projection = appDataStore.exportProjection({ includeMessages: true });
-            bookmarkStore.projectDatabaseCompatibility(projection);
-            if (isPrivacyGuardActive()) {
-                projection = filterHiddenFolders(projection);
-            }
-            const value = Buffer.from(encodeRisuSaveLegacy(projection));
+            const value = Buffer.from(encodeRisuSaveLegacy(visibleDatabase(exportCompatibilityDatabase())));
             const etag = computeBufferEtag(value);
             if (req.headers['if-none-match'] === etag) {
                 return res.status(304).end();
@@ -282,16 +287,8 @@ function installAssetRoutes(app, {
         if(!await checkAuth(req, res)){
             return;
         }
-        const filePath = req.headers['file-path'];
-        if (!filePath) {
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
-        const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         if (key === 'database/database.bin') {
             return res.status(410).json({
                 error: 'database.bin is a virtual import/export projection and cannot be removed',
@@ -313,7 +310,6 @@ function installAssetRoutes(app, {
         res.send({ success: true });
     });
 
-    // Inlays owned by a hidden character or chat stay out of the gallery listing.
     async function withoutHiddenInlays(ids) {
         await ensureCanonicalStorage();
         if (!appDataStore.getState().initialized) return ids;
@@ -367,18 +363,14 @@ function installAssetRoutes(app, {
             return;
         }
         if (!requireSyncClientId(req, res)) return;
-        const filePath = req.headers['file-path'];
         const fileContent = req.body;
-        if (!filePath || !fileContent) {
+        if (!fileContent) {
             sendApiError(res, 400, codes.INVALID_FILE_PATH);
             return;
         }
-        if(!isHex(filePath)){
-            sendApiError(res, 400, codes.INVALID_FILE_PATH);
-            return;
-        }
+        const key = headerAssetKey(req, res);
+        if (key === null) return;
         await queueStorageOperation(async () => {
-            const key = Buffer.from(filePath, 'hex').toString('utf-8');
             let databaseForEtag = null;
 
             if (key === 'database/database.bin') {
@@ -386,12 +378,7 @@ function installAssetRoutes(app, {
                 await ensureCanonicalStorage();
                 let currentEtag = MISSING_DATABASE_ETAG;
                 if (appDataStore.getState().initialized) {
-                    let currentDb = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(currentDb);
-                    if (isPrivacyGuardActive()) {
-                        currentDb = filterHiddenFolders(currentDb);
-                    }
-                    currentEtag = computeDatabaseEtagFromObject(currentDb);
+                    currentEtag = computeDatabaseEtagFromObject(visibleDatabase(exportCompatibilityDatabase()));
                 }
                 if (appDataStore.getState().initialized && !ifMatch) {
                     res.status(428).send({
@@ -467,18 +454,17 @@ function installAssetRoutes(app, {
                         });
                     }
                     withTransaction(sqliteDb, () => {
-                        if (!isPrivacyGuardActive()) {
-                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
-                        } else {
-                            // Remote imports cannot replace server-owned bookmarks.
+                        if (isPrivacyGuardActive()) {
+                            // The import cannot see bookmarks on hidden chats, so it must not replace them.
                             bookmarkStore.stripDatabaseCompatibility(incomingDb);
+                        } else {
+                            bookmarkStore.replaceDatabaseCompatibility(incomingDb);
                         }
                         appDataStore.replaceFromProjection(incomingDb, {
                             expectedRevision: appDataStore.getState().revision,
                         });
                     });
-                    databaseForEtag = appDataStore.exportProjection({ includeMessages: true });
-                    bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
+                    databaseForEtag = exportCompatibilityDatabase();
                 } catch (e) {
                     logger.error('[Write] Compatibility database import failed:', e);
                     if (e?.code === codes.UNSUPPORTED_REMOTE_SAVE) {
@@ -495,10 +481,7 @@ function installAssetRoutes(app, {
             let etag;
             if (key === 'database/database.bin') {
                 syncTrashRetention();
-                const visibleForEtag = isPrivacyGuardActive()
-                    ? filterHiddenFolders(databaseForEtag)
-                    : databaseForEtag;
-                etag = computeDatabaseEtagFromObject(visibleForEtag);
+                etag = computeDatabaseEtagFromObject(visibleDatabase(databaseForEtag));
                 createBackupAndRotate();
                 broadcastDatabaseInvalidated(req);
             }

@@ -2,18 +2,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { startIdleLock } from './privacyGuardIdleLock'
 
 const minute = 60_000
-let stop = () => {}
 
 beforeEach(() => { vi.useFakeTimers() })
-afterEach(() => {
-    stop()
-    vi.useRealTimers()
-})
+afterEach(() => { vi.useRealTimers() })
 
 it('locks once after the idle period, counting input and busy work as activity', () => {
     let busy = false
     const lock = vi.fn()
-    stop = startIdleLock({ getMinutes: () => 10, isBusy: () => busy, lock })
+    startIdleLock({ getMinutes: () => 10, isBusy: () => busy, lock })
 
     vi.advanceTimersByTime(9 * minute)
     window.dispatchEvent(new KeyboardEvent('keydown'))
@@ -32,7 +28,7 @@ it('locks once after the idle period, counting input and busy work as activity',
 
 it('never locks while the idle lock is turned off', () => {
     const lock = vi.fn()
-    stop = startIdleLock({ getMinutes: () => -1000, isBusy: () => false, lock })
+    startIdleLock({ getMinutes: () => -1000, isBusy: () => false, lock })
     vi.advanceTimersByTime(24 * 60 * minute)
     expect(lock).not.toHaveBeenCalled()
 })

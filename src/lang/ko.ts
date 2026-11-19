@@ -101,7 +101,7 @@ export const languageKorean = {
     invalidBackupFilename: "올바른 백업 파일명이 필요합니다.",
     invalidSnapshotKey: "올바른 스냅샷 키가 필요합니다.",
     databaseNotFound: "데이터베이스를 찾을 수 없습니다.",
-    bookmarkTagsLocalOnly: "북마크 태그는 로컬 서버에서만 사용할 수 있습니다.",
+    bookmarkTagsLocalOnly: "종원 방지 모드에서는 북마크 태그를 편집할 수 없습니다.",
     revenantJobNotFound: "생성 작업을 찾을 수 없습니다.",
     revenantWorkflowNotFound: "생성 워크플로를 찾을 수 없습니다.",
     revenantClientActionNotFound: "대기 중인 워크플로 클라이언트 작업을 찾을 수 없습니다.",

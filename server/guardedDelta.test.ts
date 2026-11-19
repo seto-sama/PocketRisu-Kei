@@ -124,6 +124,19 @@ describe('guarded JSON deltas', () => {
         expect(() => applyDelta({ items: [] }, createDelta(base, modified))).toThrow(DeltaConflictError)
     })
 
+    it('addresses characterOrder entries by character ID or folder ID, keeping unseen entries in place', () => {
+        const folder = { id: 'f1', name: 'Folder', data: ['b'] }
+        const base = { characterOrder: ['a', folder, 'c'] }
+        const edited = { characterOrder: ['c', 'new', 'a', { ...folder, data: ['b', 'd'] }] }
+        const changes = createDelta(base, edited)
+        expect(changes.every((change: any) => change.path.length > 1 || change.kind === 'order')).toBe(true)
+
+        const unseen = { id: 'f2', name: 'Unseen', data: ['z'] }
+        expect(applyDelta({ characterOrder: ['a', folder, 'c', unseen] }, changes)).toEqual({
+            characterOrder: ['c', 'new', 'a', { ...folder, data: ['b', 'd'] }, unseen],
+        })
+    })
+
     it('rejects malformed selectors, identity mismatches, and prototype paths', () => {
         expect(() => applyDelta({}, [{
             kind: 'value', path: [{ key: 'id', value: 3 }],

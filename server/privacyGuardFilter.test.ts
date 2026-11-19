@@ -21,7 +21,24 @@ describe('privacy guard filter', () => {
         expect(merged.characters.map((char: any) => char.chaId)).toEqual(['shown', 'secret'])
     })
 
-    it('hides inlays owned by a hidden character or a chat in a hidden chat folder', () => {
+    it('restores every hidden entry in place when an import is the filtered view', () => {
+        const stored = {
+            characterOrder: ['shown', { id: 'F', name: 'Private', localOnly: true, data: ['secret'] }, 'other'],
+            characters: [
+                {
+                    chaId: 'shown',
+                    chatFolders: [{ id: 'CF', localOnly: true }, { id: 'open-folder' }],
+                    chats: [{ id: 'a' }, { id: 'hidden', folderId: 'CF' }, { id: 'b', folderId: 'open-folder' }],
+                },
+                { chaId: 'secret', chats: [{ id: 'secret-chat' }] },
+                { chaId: 'other', chats: [] },
+            ],
+        }
+
+        expect(mergeHiddenFolders(stored, filterHiddenFolders(stored))).toEqual(stored)
+    })
+
+    it('hides inlays owned by a hidden or no longer existing character or chat', () => {
         const isHidden = createHiddenInlayFilter({
             characterOrder: [{ id: 'F', name: 'Private', localOnly: true, data: ['secret'] }, 'shown'],
             characters: [
@@ -38,6 +55,10 @@ describe('privacy guard filter', () => {
         expect(isHidden({ chatId: 'secret-chat' })).toBe(true)
         expect(isHidden({ charId: 'shown', chatId: 'private-chat' })).toBe(true)
         expect(isHidden({ charId: 'shown', chatId: 'open-chat' })).toBe(false)
+        expect(isHidden({ charId: 'deleted' })).toBe(true)
+        expect(isHidden({ charId: 'shown', chatId: 'deleted-chat' })).toBe(true)
+        expect(isHidden({ chatId: 'deleted-chat' })).toBe(true)
+        expect(isHidden({ chatId: 'open-chat' })).toBe(false)
         expect(isHidden({})).toBe(false)
     })
 })

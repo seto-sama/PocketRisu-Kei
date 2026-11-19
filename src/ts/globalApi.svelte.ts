@@ -14,7 +14,7 @@ import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, no
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
+import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { findChatInternalFieldOps } from '../../shared/chatShape.mjs';
 import { discardPendingChatSaves, fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
@@ -49,7 +49,6 @@ import {
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId } from "./storage/nodeStorage";
 import { ChatSaveError, SaveConflictError, SaveRetryPolicy, isCancelledSaveConflict, type SaveAttemptResult } from './storage/storageRequest';
-import { createPatchHashDiagnostics, comparePatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs';
 import { isNodeServer } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -121,7 +120,6 @@ let fileCache: {
     res: []
 }
 
-/** Resolve an asset path to a browser-usable source. */
 export async function getFileSrc(loc: string) {
     // A direct server URL lets the browser cache the response using HTTP headers,
     // so repeated renders (sidebar, chat) cost zero network after first load.
@@ -154,7 +152,6 @@ export async function readImage(data: string) {
     return (await forageStorage.getItem(data) as unknown as Uint8Array)
 }
 
-/** Save asset bytes under their content hash or a supplied ID. */
 export async function saveAsset(data: Uint8Array, customId: string = '', fileName: string = '') {
     let id = ''
     if (customId !== '') {
@@ -430,7 +427,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
             }
         }
 
-        // Start a best-effort save immediately when the page is hidden/unloaded.
         function flushImmediate() {
             if (syncApplying) return
             if (saveTimeout) {
@@ -813,8 +809,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 mergedDb.characters = mergedCharacters
             }
 
-            // Keep a stub-only baseline for the patch protocol, but preserve
-            // already hydrated local chat bodies in the live runtime DB.
+            // The save baseline stays stub-only, but already hydrated local chat
+            // bodies must survive in the live runtime DB.
             const localCharacters = new Map(
                 (localDb.characters ?? []).map(character => [character.chaId, character] as const),
             )
@@ -828,7 +824,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
                         : remoteChat
                 })
             }
-            // Hash conflict rebase is a server-state installation too. Running
+            // A conflict rebase is a server-state installation too. Running
             // this replacement outside the sync guard used to classify the
             // preserved hydrated body as a fresh client edit.
             syncApplying = true
@@ -845,8 +841,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
             if (isNodeServer) {
                 patcher = new RisuSavePatcher()
                 // The merged value contains changes that the server rejected.
-                // Keep them live and dirty, but hash from the exact server
-                // pre-image so the retry can submit them again successfully.
+                // Keep them live and dirty, but diff from the exact server
+                // pre-image so the retry sends them again.
                 await patcher.init(serverBaseline)
                 acceptPatcherBaseline()
             }
@@ -885,7 +881,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
             ? trackedChats.filter(([chaId]) => !newCharacterIds.has(chaId))
             : trackedChats
 
-        // ── Save changed chat content to server ─────────────────────────
         const failedChats: [string, string][] = []
         const chatErrors: unknown[] = []
         const persistChat = async (
@@ -948,9 +943,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
             throw new ChatSaveError(failedChats, false, chatErrors)
         }
 
-        // Non-Node stores retain their existing database.bin persistence path.
-        // The Node server receives the same stub-only logical diff directly as
-        // JSON, leaving database.bin to explicit import/export compatibility.
+        // Non-Node stores keep database.bin. The Node server takes the stub-only
+        // delta instead, leaving database.bin to explicit import/export.
         let dbData: Uint8Array | null = null
         if (!isNodeServer) {
             await encoder!.set(db, structuredClone(toSave))
@@ -988,7 +982,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 showChatGuardToastThrottled('client')
 
                 if (isDebugEnabled()) {
-                // Compare baseline/current shapes and replay chatToStub to locate leaked fields.
                 const affectedChats: Record<string, any> = {}
                 const seen = new Set<string>()
                 const baselineCharsLen = (patcher as any).lastSyncedDb?.characters?.length ?? -1
@@ -1066,7 +1059,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     }
                 }
 
-                // Compare stub/placeholder states across affected chat arrays.
                 const charsDistribution: Record<string, any> = {}
                 for (const k of Array.from(seen).slice(0, 3)) {
                     const ci = +k.split('/')[0]
@@ -1149,26 +1141,10 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     showChatGuardToastThrottled('server')
                 }
                 if (patchResult.conflict) {
-                    // set() already advanced the patcher; compare the rejected
-                    // request's accepted pre-image, not that speculative state.
-                    try {
-                        const mismatch = patchResult.hashDiagnostics && acceptedPatchBaseline
-                            ? comparePatchHashDiagnostics(
-                                createPatchHashDiagnostics(acceptedPatchBaseline, calculateHash),
-                                patchResult.hashDiagnostics,
-                            ) : undefined
-                        console.warn('[Save] Patch conflict; rebasing pending changes', {
-                            code: patchResult.conflictCode,
-                            revision: patchResult.revision,
-                            expectedHash: patchData.expectedHash,
-                            currentHash: patchResult.currentHash,
-                            ...mismatch,
-                        })
-                    } catch (error) {
-                        // Diagnostics must not turn a recoverable 409 into a
-                        // failed save, even with an older/malformed response.
-                        console.warn('[Save] Conflict diagnostics unavailable', error)
-                    }
+                    console.warn('[Save] Patch conflict; rebasing pending changes', {
+                        code: patchResult.conflictCode,
+                        revision: patchResult.revision,
+                    })
                     await rebaseTrackedLocalChangesOnLatestServerDb(
                         patchResult.etag ?? null,
                         db,
@@ -1354,7 +1330,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
     }
 }
 
-/** Prune old local backups and return the remaining timestamps. */
 export async function getDbBackups(currentDbSize?: number) {
     const keys = await forageStorage.keys()
 
@@ -1363,7 +1338,7 @@ export async function getDbBackups(currentDbSize?: number) {
         .map(key => parseInt(key.slice(18, -4)))
         .sort((a, b) => b - a);
 
-    const BACKUP_BUDGET = 500 * 1024 * 1024 // 500MB
+    const BACKUP_BUDGET = 500 * 1024 * 1024
     const maxBackups = currentDbSize
         ? Math.min(20, Math.max(3, Math.floor(BACKUP_BUDGET / currentDbSize)))
         : 20
@@ -1375,7 +1350,6 @@ export async function getDbBackups(currentDbSize?: number) {
     return backups
 }
 
-/** Look up a fetch log by chat ID, falling back to persistent storage. */
 export async function getFetchData(id: string): Promise<FetchLog | null> {
     for (const log of fetchLog) {
         if (log.chatId === id) {
@@ -1398,7 +1372,6 @@ export function getBasename(data: string) {
 }
 
 
-/** Normalize character order against the current character list. */
 export function checkCharOrder() {
     const db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
@@ -1515,7 +1488,6 @@ export function openURL(url: string) {
     window.open(url, "_blank")
 }
 
-/** Write backup data to a browser-managed file stream. */
 export class LocalWriter {
     writer: WritableStreamDefaultWriter
 
@@ -1525,7 +1497,6 @@ export class LocalWriter {
         return true
     }
 
-    /** Append one named backup entry to the archive. */
     async writeBackup(name: string, data: Uint8Array): Promise<void> {
         const encodedName = new TextEncoder().encode(getBasename(name))
         const nameLength = new Uint32Array([encodedName.byteLength])
@@ -1545,7 +1516,6 @@ export class LocalWriter {
     }
 }
 
-/** Collect backup output in memory instead of opening a file. */
 export class VirtualWriter {
     buf = new AppendableBuffer()
 

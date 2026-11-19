@@ -17,6 +17,7 @@
     import { mdViewport } from 'src/ts/gui/breakpoints'
     import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
     import { DRIVE_PRIVATE_DIRECTORY as privatePath, isDrivePrivatePath } from '../../../shared/drivePrivate.mjs'
+    import { compareDriveEntries } from '../../../shared/driveEntryOrder.mjs'
     import { isPrivacyGuardActive } from 'src/ts/platform'
     import type { DriveConflict, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
     import { chooseConflictComparison, SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
@@ -94,7 +95,6 @@
         : inTrash ? language.serverDrive.deleteForever : language.serverDrive.moveToTrash)
     const addressRoot = $derived(inTrash ? trashPath : inPrivate ? privatePath : '')
     const addressRootDepth = $derived(addressRoot ? 1 : 0)
-    // Pressing the trash or private icon again returns to where the user came from.
     let pathBeforeSpecialFolder = ''
 
     function toggleSpecialFolder(folder: string, inside: boolean) {
@@ -103,9 +103,7 @@
         return refresh(folder)
     }
     const hasSubfolders = $derived(entries.some(entry => entry.type === 'directory'))
-    const sortedEntries = $derived([...entries]
-        .sort((a, b) => Number(b.type === 'directory') - Number(a.type === 'directory')
-            || a.name.localeCompare(b.name, undefined, { numeric: true })))
+    const sortedEntries = $derived([...entries].sort(compareDriveEntries))
     const selectedPathSet = $derived(new Set(selectedPaths))
     const selectedEntries = $derived(sortedEntries.filter(entry => selectedPathSet.has(entry.path)))
     const selectionBox = $derived(drag?.active ? {
@@ -396,13 +394,12 @@
         if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     }
 
-    // Outside the trash this moves to the trash; inside it, it deletes for good.
     function askDelete() {
         deleteTargets = [...selectedEntries]
     }
 
     async function restoreSelection() {
-        if (disabled || !inTrash || !selectedEntries.length) return
+        if (disabled) return
         busy = true
         try {
             for (const entry of selectedEntries) await storage.restoreDriveTrashEntry(entry.path)
@@ -507,20 +504,14 @@
     }
 
     async function pickFiles(targets: DriveEntry[]) {
-        if (disabled || !targets.length) return
-        busy = true
-        const controller = operationController = new AbortController()
-        try {
+        if (!targets.length) return
+        return runFileOperation(async signal => {
             const files: File[] = []
-            for (const entry of targets) files.push(await storage.readDriveFile(entry.path, controller.signal))
-            controller.signal.throwIfAborted()
+            for (const entry of targets) files.push(await storage.readDriveFile(entry.path, signal))
+            signal.throwIfAborted()
             pick.finish(files)
             open = false
-        } catch (error) {
-            if (!controller.signal.aborted) notifyError(error)
-        } finally {
-            busy = false
-        }
+        })
     }
 
     function canImport(entry: DriveEntry) {
@@ -805,7 +796,6 @@
             {#if $mdViewport}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <!-- The trash and the private folder start their own address from their icon. -->
                     <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext"
                         title={inTrash ? language.trash : inPrivate ? language.serverDrive.privateFolder : language.serverDrive.driveRoot} onclick={() => refresh(addressRoot)}>
                         {#if inTrash}<Trash2Icon />{:else if inPrivate}<BriefcaseIcon />{:else}<HardDriveIcon />{/if}

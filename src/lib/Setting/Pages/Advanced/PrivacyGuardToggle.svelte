@@ -10,8 +10,8 @@
     let checked = $state(isPrivacyGuardActive);
     let busy = $state(false);
 
+    // The switch stays disabled while busy, so each change is the opposite of the current mode.
     async function onToggle(enable: boolean) {
-        if (busy || enable === isPrivacyGuardActive) return;
         busy = true;
         let switched = false;
         try {

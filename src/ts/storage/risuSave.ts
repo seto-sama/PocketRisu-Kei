@@ -341,8 +341,6 @@ function checkHeader(data: Uint8Array) {
     return header;
 }
 
-// --- Hash & normalization utilities for patch-based sync ---
-
 const PRIME_MULTIPLIER = 31;
 
 const SEED_OBJECT = 17;
@@ -481,20 +479,12 @@ export class RisuSavePatcher {
         return structuredClone(this.lastSyncedDb)
     }
     private hashBlocks: { [key: string]: number } = {};
-    // Cheap change pre-check baselines. calculateHash over normalizeJSON'd data
-    // is the client↔server patch protocol (the server recomputes the same hash,
-    // see server.cjs expectedHash verification) and MUST NOT change — but when
-    // an entry's JSON is byte-identical to the baseline, the stored hash and
-    // baseline are still valid, so the expensive normalize+hash+diff can be
-    // skipped wholesale. String comparison is a native memcmp (~3x cheaper).
-    // Granularity matters: while typing into a root field (personaPrompt) or a
-    // module lorebook, that whole block changes on EVERY save — so baselines
-    // are kept per ROOT KEY and per MODULE, and only the changed entry pays
-    // normalize + protocol hash + diff.
-    // Maps (not plain objects): ids come from user-importable data, so a key
-    // like "__proto__" on a plain object would silently hit the prototype
-    // setter instead of storing — corrupting the skip checks and, worse, the
-    // modules hash fold. Map keys are also type-strict (1 !== "1").
+    // An entry whose raw JSON equals its baseline skips normalize, hash and diff; a string
+    // compare is far cheaper. Typing changes one root key or module lorebook on every save,
+    // so baselines are kept per root key, character and module.
+    // Maps, because ids come from importable data: "__proto__" on a plain object would hit
+    // the prototype setter and corrupt the skip checks and the modules hash fold, and
+    // Map keys keep 1 and "1" apart.
     private lastRootKeyJsons = new Map<string, string>();
     private lastCharJsons = new Map<string, string>();
     private lastModuleJsons = new Map<string, string>();
@@ -540,14 +530,11 @@ export class RisuSavePatcher {
             this.lastSyncedDb.characters[i] = withStubs;
         }
 
-        // Seed the cheap pre-check baselines from the NORMALIZED data, not the
-        // raw input. The protocol baseline (what the server holds) is always the
-        // normalizeJSON form, so a raw baseline could match a future raw string
-        // whose normalized form differs from the server's (e.g. a shared
-        // reference that normalize replaced with null then later un-shares),
-        // causing the fast path to skip a change the server still needs. Seeding
-        // from the normalized form means any normalize-affecting value (shared
-        // ref, Date, non-finite) makes raw≠baseline and falls safely to full path.
+        // Baselines hold the normalized form, which is what gets diffed and saved. A raw
+        // baseline could equal a later raw value whose normalized form differs (a shared
+        // reference normalized to null, then un-shared), and the fast path would skip a real
+        // change; with a normalized baseline any such value (shared ref, Date, non-finite)
+        // takes the full path.
         const { characters: _c, botPresets: _b, modules: _m, ...normRootOnly } = this.lastSyncedDb
         this.lastRootKeyJsons = new Map();
         for (const key of Object.keys(normRootOnly)) {
@@ -568,9 +555,8 @@ export class RisuSavePatcher {
         }
     }
 
-    async set(data: any, toSave: toSaveType): Promise<{ patch: any[]; expectedHash: string }> {
+    async set(data: any, toSave: toSaveType): Promise<{ patch: any[] }> {
         const { compare } = await import('fast-json-patch')
-        const expectedHash: string = this.hash();
         const patch: any[] = []
 
         const {
@@ -590,56 +576,30 @@ export class RisuSavePatcher {
             curRoot[key] = rootValueWithServerBaseline(key, curRoot[key], lastRoot[key])
         }
 
-        // Per-KEY cheap pre-check over the root. While typing into a root field
-        // (e.g. personaPrompt) the root changes on every save, so a whole-root
-        // pre-check would never match and every save would pay a full-root
-        // normalize + deep diff + rehash of ~all root keys. Per key, only the
-        // edited key takes that path; every other key is a string compare.
-        // Per-key diff/remove ops are equivalent to compare(lastRoot, normRoot):
-        // an object diff recurses per key independently, and wrapping the value
-        // as {key: value} yields the identical /key-rooted ops with escaping
-        // handled by the library. Baselines are built from the NORMALIZED value
-        // (see init()) so normalize-affected data always falls to the full path.
+        // Checked per root key: typing into one field (personaPrompt) changes the root on every
+        // save, and a whole-root check would re-normalize and re-diff every key each time.
+        // Per-key ops equal compare(lastRoot, normRoot), since an object diff recurses per key.
         const nextRoot: any = {}
         const removedRootKeys = new Set(Object.keys(lastRoot))
         for (const key of Object.keys(curRoot)) {
-            // An own '__proto__' key can't round-trip through JSON Patch — the
-            // server's applyPatch rejects any op touching it (prototype-pollution
-            // guard), failing every save. The old whole-root normalizeJSON
-            // silently dropped it (its `out[key] =` assignment hits the prototype
-            // setter), so match that and drop it. (Other inherited-name keys like
-            // 'constructor' are kept here exactly as the old whole-root compare
-            // produced them.)
+            // The delta rejects prototype paths, so an own '__proto__' key would fail every save;
+            // normalizeJSON drops it too, since its assignment hits the prototype setter.
             if (key === '__proto__') continue
             // hasOwn, not `in`: membership must match the baseline's OWN keys
             // (`in` would treat inherited names like 'toString' as present).
             const hadKey = Object.hasOwn(lastRoot, key)
             let curKeyJson: string | undefined
             try { curKeyJson = JSON.stringify(curRoot[key]) } catch { curKeyJson = undefined }
-            // Fast skip: raw JSON equals the normalized baseline ⇒ present and
-            // unchanged. curKeyJson can be undefined for non-serializable values
-            // (toJSON()→undefined, bigint throw, function) — those never equal a
-            // stored baseline string, so the explicit guard just makes the skip
-            // not fire for them.
             if (curKeyJson !== undefined && hadKey && curKeyJson === this.lastRootKeyJsons.get(key)) {
                 removedRootKeys.delete(key)
                 nextRoot[key] = lastRoot[key]
                 continue
             }
-            // Decide presence by the NORMALIZED result, NOT by JSON.stringify of
-            // the raw value. normalizeJSON ignores toJSON and maps
-            // bigint/function/symbol to undefined; its PARENT then drops keys
-            // whose normalized value is undefined. Mirror that here — only a
-            // normalized-undefined value means the key is absent. (A raw
-            // JSON.stringify of undefined does NOT imply that: e.g.
-            // {x:1, toJSON:()=>undefined} normalizes to {x:1}.)
+            // Presence follows normalizeJSON, not JSON.stringify: normalizeJSON ignores toJSON,
+            // so {x:1, toJSON:()=>undefined} is present as {x:1}, while bigint, function and
+            // symbol values normalize to undefined and their parent drops the key.
             const normVal = normalizeJSON(curRoot[key])
-            if (normVal === undefined) {
-                // Absent in the normalized form. If it was present (hadKey) the
-                // key stays in removedRootKeys → the removal loop emits a remove;
-                // if it was never present, nothing to do.
-                continue
-            }
+            if (normVal === undefined) continue
             removedRootKeys.delete(key)
             const before = hadKey ? { [key]: lastRoot[key] } : {}
             for (const p of compare(before, { [key]: normVal })) patch.push(p)
@@ -648,8 +608,6 @@ export class RisuSavePatcher {
             nextRoot[key] = normVal
         }
         for (const key of removedRootKeys) {
-            // Key deleted from the live db (or its value normalized to undefined)
-            // → emit the remove op (escaping via compare) and drop its caches.
             for (const p of compare({ [key]: lastRoot[key] }, {})) patch.push(p)
             delete this.hashBlocks[key]
             this.lastRootKeyJsons.delete(key)
@@ -664,10 +622,8 @@ export class RisuSavePatcher {
         }
 
         if (toSave.modules) {
-            // Per-MODULE cheap pre-check, mirroring diffArrayWithIdGuard's
-            // structural-vs-elementwise pivot: editing one module's lorebook
-            // changes the modules block on every save, so only the edited
-            // module should pay normalize + protocol hash + diff.
+            // Checked per module, mirroring diffArrayWithIdGuard: editing one module's lorebook
+            // changes the modules block on every save, and only that module should be re-diffed.
             const lastModulesArr: any[] = Array.isArray(lastModules) ? lastModules : []
             const curModulesArr: any[] = Array.isArray(curModules) ? curModules : []
             let structural = lastModulesArr.length !== curModulesArr.length
@@ -683,8 +639,6 @@ export class RisuSavePatcher {
             }
 
             if (structural) {
-                // Structural change → single whole-array replace, exactly like
-                // diffArrayWithIdGuard, and rebuild the per-module baselines.
                 const normModules = normalizeJSON(curModulesArr) ?? []
                 patch.push({ op: 'replace', path: '/modules', value: normModules })
                 this.hashBlocks['modules'] = calculateHash(normModules);
@@ -698,13 +652,12 @@ export class RisuSavePatcher {
                     }
                 }
             } else {
-                // Same structure (all ids valid, string-typed, aligned) → element-wise.
                 for (let i = 0; i < curModulesArr.length; i++) {
                     const id = curModulesArr[i].id
                     let curModJson: string | null = null
                     try { curModJson = JSON.stringify(curModulesArr[i]) } catch { curModJson = null }
                     if (curModJson !== null && curModJson === this.lastModuleJsons.get(id) && this.moduleItemHashes.has(id)) {
-                        continue // unchanged: baseline slot + item hash stay valid
+                        continue
                     }
                     const normModule = normalizeJSON(curModulesArr[i])
                     for (const p of compare(lastModulesArr[i], normModule)) {
@@ -714,10 +667,8 @@ export class RisuSavePatcher {
                     this.lastModuleJsons.set(id, JSON.stringify(normModule))
                     this.lastSyncedDb.modules[i] = normModule
                 }
-                // The protocol hash of the whole array is the documented fold of
-                // calculateHash over items (see calculateHash's array branch) —
-                // recompose it from the cached per-item hashes so the value is
-                // bit-identical to calculateHash(normalizeJSON(modules)).
+                // Folded from the cached item hashes the way calculateHash folds an array, so it
+                // stays identical to calculateHash(normalizeJSON(modules)).
                 let modulesHash = SEED_ARRAY
                 for (const m of (Array.isArray(this.lastSyncedDb.modules) ? this.lastSyncedDb.modules : [])) {
                     const cached = (typeof m?.id === 'string') ? this.moduleItemHashes.get(m.id) : undefined
@@ -728,7 +679,6 @@ export class RisuSavePatcher {
             }
         }
 
-        // Detect structural changes (additions, deletions, reordering)
         const lastIds = lastCharacters.map((c: any) => c?.chaId)
         const curIds = curCharacters.map((c: any) => c?.chaId)
         const structuralChange = lastIds.length !== curIds.length ||
@@ -744,7 +694,6 @@ export class RisuSavePatcher {
         }
 
         if (structuralChange) {
-            // Structural change → replace entire characters array (safe for deletions/additions)
             const lastById = new Map(lastCharacters.map((character: any) =>
                 [character?.chaId, character]))
             const normChars = normalizeJSON(curCharacters.map((character: any) =>
@@ -759,23 +708,18 @@ export class RisuSavePatcher {
                 }
             }
             this.lastSyncedDb.characters = normChars;
-            // Rebuild the cheap baselines from the NORMALIZED chars (the server's
-            // state), not the raw input — see init().
+            // Normalized baselines, for the reason in init().
             this.lastCharJsons = new Map();
             for (const char of normChars) {
                 if (char?.chaId) this.lastCharJsons.set(char.chaId, JSON.stringify(char))
             }
         } else {
-            // Same structure → per-character field-level diff (efficient)
             for (let i = 0; i < curCharacters.length; i++) {
                 const lastChar = lastCharacters[i]
                 const curChar = curCharacters[i]
                 const curCharId = curChar?.chaId
                 const trackedBySave = toSave.character.includes(curCharId ?? '')
 
-                // Cheap pre-check: identical JSON ⇒ identical data ⇒ stored
-                // hash, baseline and (empty) diff are all still valid — skip
-                // the normalize + protocol hash + compare entirely.
                 let curJson: string | null = null
                 try { curJson = JSON.stringify(withStubs(curChar, lastChar)) } catch { curJson = null }
                 if (!trackedBySave && curCharId && curJson !== null && curJson === this.lastCharJsons.get(curCharId)) {
@@ -795,12 +739,7 @@ export class RisuSavePatcher {
                     this.hashBlocks[normChar.chaId] = curCharHash ?? calculateHash(normChar);
                     this.lastSyncedDb.characters[i] = normChar;
                 }
-                // Refresh the cheap baseline from the NORMALIZED form (the
-                // server's actual state), not curJson — a raw baseline could
-                // later match a string whose normalized form differs from the
-                // server's (shared ref → null → un-share), silently skipping a
-                // real change. Normalized baseline keeps such chars on the safe
-                // full path. normChar is cycle-free, so stringify won't throw.
+                // Normalized, for the reason in init(); normChar is cycle-free, so stringify can't throw.
                 if (curCharId) {
                     this.lastCharJsons.set(curCharId, JSON.stringify(normChar))
                 }
@@ -814,9 +753,6 @@ export class RisuSavePatcher {
             ...nextRoot
         }
 
-        return {
-            patch,
-            expectedHash
-        }
+        return { patch }
     }
 }

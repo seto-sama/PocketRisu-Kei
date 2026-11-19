@@ -1,6 +1,7 @@
-function cloneJson(value) {
-    return value == null ? value : JSON.parse(JSON.stringify(value));
-}
+const { DeltaConflictError, valuesEqual } = require('../shared/guardedDelta.mjs');
+
+// These helpers never mutate their inputs: changed levels are rebuilt and the rest is shared,
+// since every caller works on a freshly exported projection.
 
 // Folders flagged `localOnly` are the ones privacy guard hides (the key predates the guard).
 function isLocalOnlyFolder(folder) {
@@ -32,10 +33,18 @@ function hiddenChatFolderIdsOf(char) {
     );
 }
 
-function filterHiddenFolders(dbObj) {
-    const filtered = cloneJson(dbObj);
-    if (!filtered || typeof filtered !== 'object') return filtered;
+function visibleCharacter(char) {
+    const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
+    if (hiddenChatFolderIds.size === 0) return char;
+    return {
+        ...char,
+        chatFolders: (char.chatFolders ?? []).filter(folder => !isLocalOnlyFolder(folder)),
+        chats: (char.chats ?? []).filter(chat => !chat?.folderId || !hiddenChatFolderIds.has(chat.folderId)),
+    };
+}
 
+function filterHiddenFolders(dbObj) {
+    const filtered = { ...dbObj };
     const hiddenCharacterIds = collectHiddenCharacterIds(filtered);
     if (Array.isArray(filtered.characterOrder)) {
         filtered.characterOrder = filtered.characterOrder
@@ -56,160 +65,142 @@ function filterHiddenFolders(dbObj) {
     if (Array.isArray(filtered.characters)) {
         filtered.characters = filtered.characters
             .filter(char => char?.chaId && !hiddenCharacterIds.has(char.chaId))
-            .map(char => {
-                const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
-                if (hiddenChatFolderIds.size === 0) return char;
-
-                const nextChats = (char.chats ?? [])
-                    .filter(chat => !chat?.folderId || !hiddenChatFolderIds.has(chat.folderId));
-                return {
-                    ...char,
-                    chatFolders: (char.chatFolders ?? []).filter(folder => !isLocalOnlyFolder(folder)),
-                    chats: nextChats,
-                };
-            });
+            .map(visibleCharacter);
     }
 
     return filtered;
 }
 
-function mergeRemoteCharacterOrder(originalOrder = [], remoteOrder = [], hiddenCharacterIds = new Set()) {
-    const merged = cloneJson(remoteOrder) ?? [];
-    const hasEntry = (entry) => {
-        if (typeof entry === 'string') return merged.includes(entry);
-        if (!entry?.id) return false;
-        return merged.some(item => item && typeof item !== 'string' && item.id === entry.id);
-    };
-
-    originalOrder.forEach((entry, index) => {
-        const shouldPreserve = typeof entry === 'string'
-            ? hiddenCharacterIds.has(entry)
-            : entry && typeof entry === 'object' && isLocalOnlyFolder(entry);
-        if (!shouldPreserve || hasEntry(entry)) return;
-        merged.splice(Math.min(index, merged.length), 0, cloneJson(entry));
-    });
-
-    return merged;
-}
-
-function mergeRemoteChatFolders(originalFolders = [], remoteFolders = []) {
-    const merged = [...(remoteFolders ?? [])];
-    const hasFolder = (folder) => folder?.id && merged.some(item => item?.id === folder.id);
-    originalFolders.forEach((folder, index) => {
-        if (!isLocalOnlyFolder(folder) || hasFolder(folder)) return;
-        merged.splice(Math.min(index, merged.length), 0, folder);
+function insertHiddenEntries(original = [], visible = [], isHidden, idOf) {
+    const merged = [...visible];
+    const present = new Set(visible.map(idOf).filter(Boolean));
+    original.forEach((entry, index) => {
+        if (!isHidden(entry) || present.has(idOf(entry))) return;
+        merged.splice(Math.min(index, merged.length), 0, entry);
+        present.add(idOf(entry));
     });
     return merged;
 }
 
-function mergeRemoteChats(originalChats = [], remoteChats = [], hiddenChatFolderIds = new Set()) {
-    const remoteById = new Map();
-    const usedRemote = new Set();
-    for (const chat of remoteChats ?? []) {
-        if (chat?.id) remoteById.set(chat.id, chat);
-    }
-
+function mergeById(original = [], visible = [], idOf, isHidden, combine = (_stored, item) => item) {
+    const visibleById = new Map(visible.filter(idOf).map(item => [idOf(item), item]));
+    const used = new Set();
     const merged = [];
-    for (const originalChat of originalChats ?? []) {
-        if (originalChat?.folderId && hiddenChatFolderIds.has(originalChat.folderId)) {
-            merged.push(originalChat);
+    for (const stored of original) {
+        if (isHidden(stored)) {
+            merged.push(stored);
             continue;
         }
-        if (originalChat?.id && remoteById.has(originalChat.id)) {
-            const remoteChat = remoteById.get(originalChat.id);
-            merged.push(remoteChat);
-            usedRemote.add(remoteChat);
+        const item = idOf(stored) && visibleById.get(idOf(stored));
+        if (item) {
+            merged.push(combine(stored, item));
+            used.add(item);
         }
     }
-    for (const remoteChat of remoteChats ?? []) {
-        if (!usedRemote.has(remoteChat)) merged.push(remoteChat);
+    for (const item of visible) {
+        if (!used.has(item)) merged.push(item);
     }
-
     return merged;
 }
 
-function mergeRemoteCharacter(originalChar, remoteChar) {
+function mergeVisibleCharacter(originalChar, visibleChar) {
     const hiddenChatFolderIds = hiddenChatFolderIdsOf(originalChar);
-    if (hiddenChatFolderIds.size === 0) return remoteChar;
-
-    remoteChar.chatFolders = mergeRemoteChatFolders(originalChar.chatFolders, remoteChar.chatFolders);
-    remoteChar.chats = mergeRemoteChats(
-        originalChar.chats ?? [],
-        remoteChar.chats ?? [],
-        hiddenChatFolderIds
-    );
-    return remoteChar;
+    if (hiddenChatFolderIds.size === 0) return visibleChar;
+    return {
+        ...visibleChar,
+        chatFolders: insertHiddenEntries(originalChar.chatFolders, visibleChar.chatFolders, isLocalOnlyFolder, folder => folder?.id),
+        chats: mergeById(originalChar.chats, visibleChar.chats, chat => chat?.id,
+            chat => !!chat?.folderId && hiddenChatFolderIds.has(chat.folderId)),
+    };
 }
 
-function mergeHiddenFolders(originalDb, remoteDb) {
-    const original = cloneJson(originalDb);
-    const remote = cloneJson(remoteDb);
-    if (!original?.characters || !remote?.characters) return remote;
-
+// The full-database import replaces everything, so hidden entries the guarded client never had come back from the original.
+function mergeHiddenFolders(original, visible) {
+    if (!original?.characters || !visible?.characters) return visible;
     const hiddenCharacterIds = collectHiddenCharacterIds(original);
-    const remoteById = new Map();
-    const usedRemote = new Set();
-    for (const char of remote.characters ?? []) {
-        if (char?.chaId) remoteById.set(char.chaId, char);
-    }
+    return {
+        ...visible,
+        characters: mergeById(original.characters, visible.characters, char => char?.chaId,
+            char => hiddenCharacterIds.has(char?.chaId), mergeVisibleCharacter),
+        characterOrder: insertHiddenEntries(original.characterOrder, visible.characterOrder,
+            entry => (typeof entry === 'string' ? hiddenCharacterIds.has(entry) : isLocalOnlyFolder(entry)),
+            entry => (typeof entry === 'string' ? entry : entry?.id)),
+    };
+}
 
-    const mergedCharacters = [];
-    for (const originalChar of original.characters ?? []) {
-        const chaId = originalChar?.chaId;
-        if (!chaId) continue;
-        if (hiddenCharacterIds.has(chaId)) {
-            mergedCharacters.push(originalChar);
-            continue;
-        }
-        const remoteChar = remoteById.get(chaId);
-        if (remoteChar) {
-            mergedCharacters.push(mergeRemoteCharacter(originalChar, remoteChar));
-            usedRemote.add(remoteChar);
+function collectHiddenIds(dbObj) {
+    const hiddenIds = collectHiddenCharacterIds(dbObj);
+    for (const entry of dbObj?.characterOrder ?? []) {
+        if (isLocalOnlyFolder(entry) && typeof entry.id === 'string') hiddenIds.add(entry.id);
+    }
+    for (const char of dbObj?.characters ?? []) {
+        const hideAll = hiddenIds.has(char?.chaId);
+        const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
+        for (const id of hiddenChatFolderIds) hiddenIds.add(id);
+        for (const chat of char?.chats ?? []) {
+            if (chat?.id && (hideAll || hiddenChatFolderIds.has(chat.folderId))) hiddenIds.add(chat.id);
         }
     }
-    for (const remoteChar of remote.characters ?? []) {
-        if (!usedRemote.has(remoteChar)) mergedCharacters.push(remoteChar);
-    }
+    return hiddenIds;
+}
 
-    remote.characters = mergedCharacters;
-    remote.characterOrder = mergeRemoteCharacterOrder(
-        original.characterOrder ?? [],
-        remote.characterOrder ?? [],
-        hiddenCharacterIds
-    );
-    return remote;
+// A delta is ID-addressed, so applying it to the unfiltered projection already leaves hidden
+// entries in place. A guarded client never saw a hidden ID, so a change naming one is a missing
+// target to it; and it deleted a character it saw filtered, which would never match the stored one.
+function guardHiddenDelta(dbObj, changes) {
+    const hiddenIds = collectHiddenIds(dbObj);
+    const charactersById = new Map((dbObj?.characters ?? []).map(char => [char?.chaId, char]));
+    const conflicts = [];
+    const guarded = changes.map(change => {
+        const path = Array.isArray(change?.path) ? change.path : [];
+        const named = [
+            ...path.map(part => part?.value),
+            ...(change?.kind === 'order' && Array.isArray(change.before) ? change.before : []),
+            ...(change?.kind === 'order' && Array.isArray(change.after) ? change.after : []),
+        ];
+        if (named.some(id => hiddenIds.has(id))) {
+            conflicts.push({ change, current: { exists: false } });
+            return change;
+        }
+        const stored = path.length === 2 && path[0] === 'characters'
+            && change.before?.exists && !change.after?.exists
+            && charactersById.get(path[1]?.value);
+        if (stored && valuesEqual(change.before.value, visibleCharacter(stored))) {
+            return { ...change, before: { exists: true, value: stored } };
+        }
+        return change;
+    });
+    if (conflicts.length > 0) throw new DeltaConflictError(conflicts);
+    return guarded;
 }
 
 function isChatHidden(dbObj, chaId, chatIndex, chatId) {
-    if (collectHiddenCharacterIds(dbObj).has(chaId)) return true;
-    const char = dbObj?.characters?.find(c => c?.chaId === chaId);
-    if (!char) return false;
-    const hiddenChatFolderIds = hiddenChatFolderIdsOf(char);
-    if (hiddenChatFolderIds.size === 0) return false;
-    const chat = chatId
-        ? (char.chats ?? []).find(c => c?.id === chatId)
-        : char.chats?.[chatIndex];
-    return !!(chat?.folderId && hiddenChatFolderIds.has(chat.folderId));
+    const hiddenIds = collectHiddenIds(dbObj);
+    if (hiddenIds.has(chaId)) return true;
+    const chats = dbObj?.characters?.find(char => char?.chaId === chaId)?.chats ?? [];
+    return hiddenIds.has(chatId || chats[chatIndex]?.id);
 }
 
-/** Predicate over inlay metadata: true when the inlay belongs to a hidden character or chat. */
+// An orphan's character or chat is gone, so nothing shows it was not hidden; privacy guard
+// hides it rather than guess. Orphans are defined as in the inlay gallery's filters.
 function createHiddenInlayFilter(dbObj) {
-    const hiddenCharacterIds = collectHiddenCharacterIds(dbObj);
-    const hiddenChatIds = new Set();
-    for (const char of dbObj?.characters ?? []) {
-        const hideAll = hiddenCharacterIds.has(char?.chaId);
-        const hiddenChatFolderIds = hideAll ? null : hiddenChatFolderIdsOf(char);
-        for (const chat of char?.chats ?? []) {
-            if (!chat?.id) continue;
-            if (hideAll || (chat.folderId && hiddenChatFolderIds.has(chat.folderId))) hiddenChatIds.add(chat.id);
-        }
-    }
-    return meta => hiddenCharacterIds.has(meta?.charId) || hiddenChatIds.has(meta?.chatId);
+    const hiddenIds = collectHiddenIds(dbObj);
+    const chatIdsByCharacter = new Map((dbObj?.characters ?? [])
+        .map(char => [char?.chaId, new Set((char?.chats ?? []).map(chat => chat?.id))]));
+    const allChatIds = new Set([...chatIdsByCharacter.values()].flatMap(ids => [...ids]));
+    return meta => {
+        const charId = meta?.charId;
+        const chatId = meta?.chatId;
+        if (hiddenIds.has(charId) || hiddenIds.has(chatId)) return true;
+        if (charId && !chatIdsByCharacter.has(charId)) return true;
+        return !!chatId && !(charId ? chatIdsByCharacter.get(charId) : allChatIds).has(chatId);
+    };
 }
 
 module.exports = {
     createHiddenInlayFilter,
     filterHiddenFolders,
+    guardHiddenDelta,
     isChatHidden,
     mergeHiddenFolders,
 };

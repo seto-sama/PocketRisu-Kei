@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const nodeCrypto = require('crypto');
 const { codes: API_ERROR_CODES, sendApiError } = require('../utils/apiErrors.cjs');
 const express = require('express');
+const { AUTH_TOKEN_LIFETIME_SECONDS } = require('../../shared/authToken.mjs');
 const { getSyncClientIdFromRequest } = require('../syncHub.cjs');
 
 function installAuthRoutes(app, { auth, syncClientDevices, privacyGuard, broadcastPrivacyGuardChanged }) {
@@ -76,7 +77,7 @@ function installAuthRoutes(app, { auth, syncClientDevices, privacyGuard, broadca
     function createServerJwt() {
         const now = Math.floor(Date.now() / 1000)
         const header = { alg: 'HS256', typ: 'JWT' }
-        const payload = { iat: now, exp: now + 5 * 60 }
+        const payload = { iat: now, exp: now + AUTH_TOKEN_LIFETIME_SECONDS }
         const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url')
         const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
         const sig = nodeCrypto.createHmac('sha256', jwtSecret)

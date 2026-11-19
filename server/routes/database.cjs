@@ -1,14 +1,13 @@
 'use strict';
 
 const { createDatabaseProjectionService, DatabaseProjectionServiceError } = require('../databaseProjectionService.cjs');
-const { filterHiddenFolders, mergeHiddenFolders } = require('../privacyGuardFilter.cjs');
+const { filterHiddenFolders, guardHiddenDelta } = require('../privacyGuardFilter.cjs');
 const { restoreGenerationOwnedMetadata } = require('../revenant/generationInputMetadata.cjs');
 const { validateReferenceCandidates } = require('../../shared/contentReferences.mjs');
-const { findChatInternalFieldOps } = require('../../shared/chatShape.mjs');
-const { apiErrorMessage, codes } = require('../utils/apiErrors.cjs');
 const { encode, decode } = require('msgpackr');
 const { binaryBodyParser } = require('../utils/binaryHttp.cjs');
 const { BINARY_MESSAGE_CONTENT_TYPE } = require('../../src/ts/network/binaryMessage.ts');
+const { PLUGIN_STORAGE_EXCLUSION_HEADER } = require('../../shared/pluginStorageExclusion.mjs');
 
 function installDatabaseRoutes(app, {
     appDataStore,
@@ -24,8 +23,8 @@ function installDatabaseRoutes(app, {
 }) {
     const databaseProjectionService = createDatabaseProjectionService({
         appDataStore,
-        filterRemoteProjection: filterHiddenFolders,
-        mergeRemoteProjection: mergeHiddenFolders,
+        filterHiddenFolders,
+        guardHiddenDelta,
         restoreServerOwnedMetadata: restoreGenerationOwnedMetadata,
     });
 
@@ -55,14 +54,10 @@ function installDatabaseRoutes(app, {
             ...(Number.isSafeInteger(error.currentRevision)
                 ? { currentRevision: error.currentRevision }
                 : {}),
-            ...(error.currentHash ? { currentHash: error.currentHash } : {}),
-            ...(error.hashDiagnostics ? { hashDiagnostics: error.hashDiagnostics } : {}),
             ...(error.conflicts ? { conflicts: error.conflicts } : {}),
         });
         return true;
     }
-
-    const PLUGIN_STORAGE_EXCLUSION_HEADER = 'x-risu-plugin-storage-exclusion';
 
     function pluginStorageProjectionOptions(req) {
         const raw = req.get(PLUGIN_STORAGE_EXCLUSION_HEADER);
@@ -103,7 +98,7 @@ function installDatabaseRoutes(app, {
         try {
             await ensureCanonicalStorage();
             const projection = databaseProjectionService.getStartupProjection({
-                remote: isPrivacyGuardActive(),
+                hideFolders: isPrivacyGuardActive(),
                 ...pluginStorageProjectionOptions(req),
             });
             res.vary('Accept');
@@ -124,10 +119,7 @@ function installDatabaseRoutes(app, {
                 await ensureCanonicalStorage();
                 const initialized = databaseProjectionService.initializeDatabase(
                     req.body?.database,
-                    {
-                        expectedRevision: req.body?.expectedRevision,
-                        remote: isPrivacyGuardActive(),
-                    },
+                    { expectedRevision: req.body?.expectedRevision },
                 );
                 syncTrashRetention();
                 scheduleBackupAndRotate();
@@ -144,25 +136,12 @@ function installDatabaseRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         try {
             const projectionOptions = {
-                remote: isPrivacyGuardActive(),
+                hideFolders: isPrivacyGuardActive(),
                 ...pluginStorageProjectionOptions(req),
             };
             const result = await queueStorageOperation(async () => {
                 await ensureCanonicalStorage();
-                const chatInternalOps = findChatInternalFieldOps(req.body?.patch);
-                if (chatInternalOps.length > 0) {
-                    const current = appDataStore.getState();
-                    const error = new DatabaseProjectionServiceError(
-                        apiErrorMessage(codes.CHAT_GUARD_REJECTED),
-                        { code: codes.CHAT_GUARD_REJECTED, statusCode: 409 },
-                    );
-                    error.currentEtag = current.projectionEtag;
-                    error.currentRevision = current.revision;
-                    throw error;
-                }
-                const patched = databaseProjectionService.patchDatabase(req.body, {
-                    ...projectionOptions,
-                });
+                const patched = databaseProjectionService.patchDatabase(req.body, projectionOptions);
                 syncTrashRetention();
                 if (patched.changed) {
                     scheduleBackupAndRotate();

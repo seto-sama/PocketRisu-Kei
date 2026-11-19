@@ -1,6 +1,6 @@
-import { Buffer } from 'buffer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { encode, decode } from 'msgpackr/index-no-eval'
+import { createDelta } from '../../../shared/guardedDelta.mjs'
 
 vi.mock('src/lang', () => ({ language: {} }))
 const alertPassword = vi.hoisted(() => vi.fn())
@@ -97,10 +97,7 @@ describe('NodeStorage patch transport', () => {
             headers: { 'content-type': 'application/json' },
         }))
         ;(storage as any).authFetch = authFetch
-        const payload = {
-            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
-            expectedHash: 'hash-4',
-        }
+        const payload = { changes: createDelta({ language: 'en' }, { language: 'ko' }) }
 
         await expect(storage.patchDatabase(payload)).resolves.toEqual({
             success: true,
@@ -133,10 +130,7 @@ describe('NodeStorage patch transport', () => {
         })
 
         await storage.getDatabaseProjection()
-        await storage.patchDatabase({
-            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
-            expectedHash: 'masked-hash',
-        })
+        await storage.patchDatabase({ changes: createDelta({ language: 'en' }, { language: 'ko' }) })
 
         const readHeader = authFetch.mock.calls[0][1].headers['x-risu-plugin-storage-exclusion']
         const patchHeader = authFetch.mock.calls[1][1].headers['x-risu-plugin-storage-exclusion']
