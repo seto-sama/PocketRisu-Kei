@@ -12,7 +12,8 @@
     import { onDestroy, onMount } from "svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
-    import ListActionBar from "../../UI/components/ListActionBar.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import ActionBar from "../../UI/components/ActionBar.svelte";
     import Alert from "../../UI/components/Alert.svelte";
     import SettingLayout from "../Wrappers/SettingLayout.svelte";
 
@@ -169,24 +170,26 @@
         {/each}
     </SortableList>
 
-    <ListActionBar mode="footer">
-        <IconButton size="lg" onclick={() => {
-            let value = DBState.db.promptTemplate
-            value.push({
-                type: "plain",
-                text: "",
-                role: "system",
-                type2: 'normal'
-            })
-            DBState.db.promptTemplate = value
-        }}><PlusIcon /></IconButton>
+    <ActionBar mode="footer" className="justify-between">
+        <IconButtonGroup>
+            <IconButton size="lg" onclick={() => {
+                let value = DBState.db.promptTemplate
+                value.push({
+                    type: "plain",
+                    text: "",
+                    role: "system",
+                    type2: 'normal'
+                })
+                DBState.db.promptTemplate = value
+            }}><PlusIcon /></IconButton>
+        </IconButtonGroup>
 
         <div class="ml-auto flex items-center gap-2 text-subtext text-sm">
             <span>{tokens} {language.fixedTokens}</span>
             <span aria-hidden="true">|</span>
             <span>{extokens} {language.exactTokens}</span>
         </div>
-    </ListActionBar>
+    </ActionBar>
 {:else}
     <SettingRenderer items={promptProcessingItems} layout="row" />
 

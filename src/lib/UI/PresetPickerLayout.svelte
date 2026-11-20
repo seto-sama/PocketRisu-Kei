@@ -10,7 +10,7 @@
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
     import IconButton from "./components/IconButton.svelte";
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
-    import ListActionBar from "./components/ListActionBar.svelte";
+    import ActionBar from "./components/ActionBar.svelte";
     import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
     import OverlayBackdrop from "./components/overlay/OverlayBackdrop.svelte";
     import InlineRenameAction from "./components/InlineRenameAction.svelte";
@@ -427,20 +427,22 @@
                 </SortableList>
             </div>
             {#if showCreateFolder || sidebarFooterActions}
-                <ListActionBar mode="inline" className="shrink-0 gap-1">
-                    {#if showCreateFolder}
-                        <IconButton
-                            expanded
-                            className="min-w-0 grow justify-start"
-                            disabled={createFolderDisabled}
-                            onclick={createFolder}
-                            aria-label={newFolderLabel}
-                        >
-                            {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
-                        </IconButton>
-                    {/if}
-                    {@render sidebarFooterActions?.()}
-                </ListActionBar>
+                <ActionBar mode="inline" className="shrink-0">
+                    <IconButtonGroup className="min-w-0 grow gap-1">
+                        {#if showCreateFolder}
+                            <IconButton
+                                expanded
+                                className="min-w-0 grow justify-start"
+                                disabled={createFolderDisabled}
+                                onclick={createFolder}
+                                aria-label={newFolderLabel}
+                            >
+                                {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
+                            </IconButton>
+                        {/if}
+                        {@render sidebarFooterActions?.()}
+                    </IconButtonGroup>
+                </ActionBar>
             {/if}
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col px-2 py-3">

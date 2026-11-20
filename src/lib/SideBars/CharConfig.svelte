@@ -32,7 +32,7 @@
     import Switch from "../UI/components/Switch.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
-    import ListActionBar from "../UI/components/ListActionBar.svelte";
+    import ActionBar from "../UI/components/ActionBar.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
     import { renderPrebuiltAssetCommand } from "src/ts/assetPromptList";
     import TokenCount from "../UI/components/TokenCount.svelte";
@@ -331,26 +331,28 @@
         <div class="mt-2 text-maintext">
             <span>{language.regexScript}<Help key="regexScript"/></span>
             <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
-            <ListActionBar mode="footer">
-                <IconButton onclick={() => {
-                    if(DBState.db.characters[$selectedCharID].type === 'character'){
-                        let script = DBState.db.characters[$selectedCharID].customscript
-                        script.push({
-                        comment: "",
-                        in: "",
-                        out: "",
-                        type: "editinput"
-                        })
-                        DBState.db.characters[$selectedCharID].customscript = script
-                    }
-                }}><PlusIcon /></IconButton>
-                <IconButton onclick={() => {
-                    exportRegex(DBState.db.characters[$selectedCharID].customscript)
-                }}><DownloadIcon /></IconButton>
-                <IconButton data-file-picker onclick={async () => {
-                    DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
-                }}><UploadIcon /></IconButton>
-            </ListActionBar>
+            <ActionBar mode="footer">
+                <IconButtonGroup>
+                    <IconButton onclick={() => {
+                        if(DBState.db.characters[$selectedCharID].type === 'character'){
+                            let script = DBState.db.characters[$selectedCharID].customscript
+                            script.push({
+                            comment: "",
+                            in: "",
+                            out: "",
+                            type: "editinput"
+                            })
+                            DBState.db.characters[$selectedCharID].customscript = script
+                        }
+                    }}><PlusIcon /></IconButton>
+                    <IconButton onclick={() => {
+                        exportRegex(DBState.db.characters[$selectedCharID].customscript)
+                    }}><DownloadIcon /></IconButton>
+                    <IconButton data-file-picker onclick={async () => {
+                        DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
+                    }}><UploadIcon /></IconButton>
+                </IconButtonGroup>
+            </ActionBar>
         </div>
 
         <TriggerList bind:value={(DBState.db.characters[$selectedCharID] as character).triggerscript} lowLevelAble={DBState.db.characters[$selectedCharID].lowLevelAccess}>

@@ -10,7 +10,7 @@
     import { onDestroy, onMount } from "svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
-    import ListActionBar from "../../UI/components/ListActionBar.svelte";
+    import ActionBar from "../../UI/components/ActionBar.svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import Sortable, { type Options, type SortableEvent } from "sortablejs";
     import { selectFileByDom, sleep, sortableOptions } from "src/ts/util";
@@ -548,18 +548,20 @@
     </DisclosureList>
 {/key}
 
-<ListActionBar mode="footer">
-    <IconButton aria-label={language.add} onclick={addTrigger}>
-        <PlusIcon />
-    </IconButton>
-    <IconButton aria-label={language.export} title={language.export} onclick={() => {
-        const jsonData = JSON.stringify(value.slice(1), null, 2)
-        downloadFile(`triggers-${Date.now()}.json`, jsonData)
-    }}>
-        <DownloadIcon />
-    </IconButton>
-    <IconButton aria-label={language.import} title={language.import} onclick={importTriggers} data-file-picker>
-        <UploadIcon />
-    </IconButton>
-</ListActionBar>
+<ActionBar mode="footer">
+    <IconButtonGroup>
+        <IconButton aria-label={language.add} onclick={addTrigger}>
+            <PlusIcon />
+        </IconButton>
+        <IconButton aria-label={language.export} title={language.export} onclick={() => {
+            const jsonData = JSON.stringify(value.slice(1), null, 2)
+            downloadFile(`triggers-${Date.now()}.json`, jsonData)
+        }}>
+            <DownloadIcon />
+        </IconButton>
+        <IconButton aria-label={language.import} title={language.import} onclick={importTriggers} data-file-picker>
+            <UploadIcon />
+        </IconButton>
+    </IconButtonGroup>
+</ActionBar>
 </div>

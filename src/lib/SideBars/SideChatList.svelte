@@ -16,7 +16,7 @@
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import IconButton, { iconButtonEdgeInset, iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
-    import ListActionBar from "../UI/components/ListActionBar.svelte";
+    import ActionBar from "../UI/components/ActionBar.svelte";
     import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
     import { InlineEditableNameController } from "../UI/components/InlineEditableNameController.svelte";
     import PopupButton from "../UI/PopupButton.svelte";
@@ -351,18 +351,20 @@
     </div>
 
     <div>
-        <ListActionBar mode="inline">
-            <IconButton onclick={() => {
-                exportAllChats()
-            }}>
-                <DownloadIcon />
-            </IconButton>
-            <IconButton data-file-picker onclick={() => {
-                importChat()
-            }}>
-                <UploadIcon />
-            </IconButton>
-        </ListActionBar>
+        <ActionBar mode="inline">
+            <IconButtonGroup>
+                <IconButton onclick={() => {
+                    exportAllChats()
+                }}>
+                    <DownloadIcon />
+                </IconButton>
+                <IconButton data-file-picker onclick={() => {
+                    importChat()
+                }}>
+                    <UploadIcon />
+                </IconButton>
+            </IconButtonGroup>
+        </ActionBar>
 
         {#if !$chatDeselected}
             {#if DBState.db.showModelInSidebar}

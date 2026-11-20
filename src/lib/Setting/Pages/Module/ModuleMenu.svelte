@@ -17,7 +17,8 @@
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import { selectMultipleImportFiles } from "src/ts/util";
     import IconButton from "../../../UI/components/IconButton.svelte";
-    import ListActionBar from "../../../UI/components/ListActionBar.svelte";
+    import ActionBar from "../../../UI/components/ActionBar.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
     import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
     import { createEntityId } from 'src/ts/id';
@@ -191,22 +192,24 @@
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
     <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
-    <ListActionBar mode="footer">
-        <IconButton onclick={() => {addLorebook()}}>
-            <PlusIcon />
-        </IconButton>
-        <IconButton onclick={() => {exportLoreBook()}}>
-            <DownloadIcon />
-        </IconButton>
-        <IconButton onclick={() => {importLoreBook()}} data-file-picker>
-            <UploadIcon />
-        </IconButton>
+    <ActionBar mode="footer">
+        <IconButtonGroup>
+            <IconButton onclick={() => {addLorebook()}}>
+                <PlusIcon />
+            </IconButton>
+            <IconButton onclick={() => {exportLoreBook()}}>
+                <DownloadIcon />
+            </IconButton>
+            <IconButton onclick={() => {importLoreBook()}} data-file-picker>
+                <UploadIcon />
+            </IconButton>
+        </IconButtonGroup>
         <IconButton className="ml-auto" onclick={() => {
             addLorebookFolder()
         }}>
             <FolderPlusIcon />
         </IconButton>
-    </ListActionBar>
+    </ActionBar>
 {/if}
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
@@ -214,17 +217,19 @@
     <Textarea commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
-    <ListActionBar mode="footer">
-        <IconButton onclick={() => {
-            addRegex()
-        }}><PlusIcon /></IconButton>
-        <IconButton onclick={() => {
-            exportRegex(currentModule.regex)
-        }}><DownloadIcon /></IconButton>
-        <IconButton data-file-picker onclick={async () => {
-            currentModule.regex = await importRegex(currentModule.regex)
-        }}><UploadIcon /></IconButton>
-    </ListActionBar>
+    <ActionBar mode="footer">
+        <IconButtonGroup>
+            <IconButton onclick={() => {
+                addRegex()
+            }}><PlusIcon /></IconButton>
+            <IconButton onclick={() => {
+                exportRegex(currentModule.regex)
+            }}><DownloadIcon /></IconButton>
+            <IconButton data-file-picker onclick={async () => {
+                currentModule.regex = await importRegex(currentModule.regex)
+            }}><UploadIcon /></IconButton>
+        </IconButtonGroup>
+    </ActionBar>
 {/if}
 
 {#if submenu === 'assets' && (Array.isArray(currentModule.assets))}

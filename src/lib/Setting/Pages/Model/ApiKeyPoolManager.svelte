@@ -20,6 +20,9 @@
     } from "src/ts/preset/registry";
     import { alertConfirm } from "src/ts/alert";
     import Button from "../../../UI/components/Button.svelte";
+    import ActionBar from "../../../UI/components/ActionBar.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
     import Input from "../../../UI/components/Input.svelte";
     import SecretInput from "../../../UI/components/SecretInput.svelte";
     import Select from "../../../UI/components/Select.svelte";
@@ -94,6 +97,10 @@
         formOpen = false;
     }
 
+    function revealForm(node: HTMLElement) {
+        node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
     function closeForm() {
         formOpen = false;
         editId = null;
@@ -109,7 +116,7 @@
 
 <div class="flex flex-col gap-4">
     {#snippet apiKeyForm()}
-        <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
+        <div {@attach revealForm} class="flex flex-col gap-3 border border-darkborderc rounded-md p-3 scroll-mb-16">
             <div class="flex flex-col gap-1">
                 <span class="text-sm text-maintext">{language.apiKeyName}</span>
                 <Input bind:value={fName} placeholder={language.apiKeyName} fullwidth />
@@ -136,15 +143,6 @@
             </div>
         </div>
     {/snippet}
-
-    {#if formOpen && editId === null}
-        {@render apiKeyForm()}
-    {:else}
-        <Button variant="outline" size="default" className="w-full" onclick={openAdd}>
-            <PlusIcon />
-            <span class="ml-1">{language.apiKeyAdd}</span>
-        </Button>
-    {/if}
 
     {#if entries.length === 0}
         <EmptyState title={language.apiKeyPoolEmpty} description="" layout="section" density="compact" />
@@ -182,4 +180,16 @@
             {/each}
         </SortableList>
     {/if}
+
+    {#if formOpen && editId === null}
+        {@render apiKeyForm()}
+    {/if}
 </div>
+
+<ActionBar mode="footer">
+    <IconButtonGroup>
+        <IconButton size="lg" onclick={openAdd} disabled={formOpen && editId === null} title={language.apiKeyAdd} aria-label={language.apiKeyAdd}>
+            <PlusIcon />
+        </IconButton>
+    </IconButtonGroup>
+</ActionBar>

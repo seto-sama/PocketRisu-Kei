@@ -11,7 +11,7 @@
     import AssetViewerActions from './components/AssetViewerActions.svelte';
     import IconButton from './components/IconButton.svelte';
     import IconButtonGroup from './components/IconButtonGroup.svelte';
-    import ListActionBar from './components/ListActionBar.svelte';
+    import ActionBar from './components/ActionBar.svelte';
     import Input from './components/Input.svelte';
     import { createIncrementalList } from './incrementalList.svelte';
 
@@ -333,11 +333,13 @@
         {/if}
     {/if}
 </div>
-<ListActionBar mode="footer">
-    <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
-        <PlusIcon />
-    </IconButton>
-</ListActionBar>
+<ActionBar mode="footer">
+    <IconButtonGroup>
+        <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
+            <PlusIcon />
+        </IconButton>
+    </IconButtonGroup>
+</ActionBar>
 
 <FullscreenImageViewer
     open={previewIndex >= 0 && !!previewAsset}

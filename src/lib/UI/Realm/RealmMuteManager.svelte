@@ -12,7 +12,8 @@
     } from 'src/ts/realmMute';
     import PresetPickerLayout from '../PresetPickerLayout.svelte';
     import IconButton from '../components/IconButton.svelte';
-    import ListActionBar from '../components/ListActionBar.svelte';
+    import ActionBar from '../components/ActionBar.svelte';
+    import IconButtonGroup from '../components/IconButtonGroup.svelte';
 
     interface Props {
         open?: boolean;
@@ -90,15 +91,17 @@
             <PencilIcon />
         </IconButton>
     {/snippet}
-    <ListActionBar mode="inline" className="shrink-0">
-        <IconButton
-            tone="destructive"
-            disabled={entries.length === 0}
-            title={language.realmMuteClearAll}
-            aria-label={language.realmMuteClearAll}
-            onclick={clearAll}
-        >
-            <TrashIcon />
-        </IconButton>
-    </ListActionBar>
+    <ActionBar mode="inline" className="shrink-0">
+        <IconButtonGroup>
+            <IconButton
+                tone="destructive"
+                disabled={entries.length === 0}
+                title={language.realmMuteClearAll}
+                aria-label={language.realmMuteClearAll}
+                onclick={clearAll}
+            >
+                <TrashIcon />
+            </IconButton>
+        </IconButtonGroup>
+    </ActionBar>
 </PresetPickerLayout>
