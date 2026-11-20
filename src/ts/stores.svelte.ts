@@ -11,24 +11,11 @@ import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEdit
 import { lgViewport } from './gui/breakpoints'
 import type { language } from 'src/lang'
 
-function updateSize(){
-    SizeStore.set({
-        w: window.innerWidth,
-        h: window.innerHeight
-    })
-    DynamicGUI.set(!lgViewport.matches())
-}
-
-export const SizeStore = writable({
-    w: 0,
-    h: 0
-})
-
 export const loadedStore = writable(false)
-export const isTouchDevice = writable(typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches)
-export const DynamicGUI = writable(false)
+// Below Tailwind's lg breakpoint the sidebar overlays the chat instead of docking.
+export const DynamicGUI = { get current() { return !lgViewport.current } }
 export const sideBarClosing = writable(false)
-export const sideBarStore = writable(lgViewport.matches())
+export const sideBarStore = writable(lgViewport.current)
 export const leftBarCollapsed = writable(false)
 export const selectedCharID = writable(-1)
 export const chatDeselected = writable(false)
@@ -183,8 +170,6 @@ export function createSimpleCharacter(char:character){
 
 }
 
-updateSize()
-window.addEventListener("resize", updateSize);
 export const DBState = $state({
     db: {} as any as Database
 });

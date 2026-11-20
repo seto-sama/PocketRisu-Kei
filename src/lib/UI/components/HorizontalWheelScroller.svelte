@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
     import type { Attachment } from 'svelte/attachments';
+    import { prefersReducedMotion } from 'svelte/motion';
     import type { HTMLAttributes } from 'svelte/elements';
 
     const DEFAULT_SMOOTHING_MS = 70;
@@ -35,7 +36,6 @@
         let targetScrollLeft = node.scrollLeft;
         let previousTimestamp: number | null = null;
         let lastAnimatedScrollLeft: number | null = null;
-        const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
         function stopAnimation() {
             if (animationFrame !== null) cancelAnimationFrame(animationFrame);
@@ -115,7 +115,7 @@
 
             event.preventDefault();
             targetScrollLeft = Math.max(0, Math.min(maxScrollLeft, baseTarget + delta));
-            if (reducedMotionQuery.matches) {
+            if (prefersReducedMotion.current) {
                 node.scrollLeft = targetScrollLeft;
                 return;
             }

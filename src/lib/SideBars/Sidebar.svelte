@@ -69,7 +69,7 @@
     } from "./sidebarDrag";
 
   import { sideBarSize } from "src/ts/gui/guisize";
-  import { mdViewport } from "src/ts/gui/breakpoints";
+  import { isTouchDevice, mdViewport } from "src/ts/gui/breakpoints";
   import DevTool from "./DevTool.svelte";
   import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
@@ -96,7 +96,6 @@
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
     import { serverDriveAvailable } from 'src/ts/serverDriveFilePicker.svelte';
-  const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -416,7 +415,7 @@
   class:overflow-hidden={!editMode}
   class:overflow-visible={editMode}
   class:sidebar-menu-edit-active={editMode}
-  class:dynamic-sidebar-slot={$DynamicGUI}
+  class:dynamic-sidebar-slot={DynamicGUI.current}
   class:risu-sidebar-slot={!$sideBarClosing}
   class:risu-sidebar-slot-close={$sideBarClosing}
   class:hidden={hidden}
@@ -430,7 +429,7 @@
 >
 <div
   class="sidebar-motion-panel h-full flex shrink-0"
-  class:dynamic-sidebar-panel={$DynamicGUI}
+  class:dynamic-sidebar-panel={DynamicGUI.current}
   class:sidebar-menu-editing={editMode}
 >
 <div
@@ -641,7 +640,7 @@
             <FolderAvatar folder={char.settings} expanded={openFolders.includes(char.id)} size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.chaId === selectedCharacterId)}
               mergeTarget={folderDropTargetId === char.id}
-              oncontextmenu={isTouchDevice ? undefined : (e) => {
+              oncontextmenu={isTouchDevice.current ? undefined : (e) => {
                 e.preventDefault()
                 void openSidebarFolderMenu(char.id)
               }}
@@ -739,12 +738,12 @@
   class:w-110={$sideBarSize === 1}
   class:w-124={$sideBarSize === 2}
   class:w-138={$sideBarSize === 3}
-  class:min-w-96={!$DynamicGUI && $sideBarSize === 0}
-  class:min-w-110={!$DynamicGUI && $sideBarSize === 1}
-  class:min-w-124={!$DynamicGUI && $sideBarSize === 2}
-  class:min-w-138={!$DynamicGUI && $sideBarSize === 3}
-  class:px-2={$DynamicGUI}
-  class:px-4={!$DynamicGUI}
+  class:min-w-96={!DynamicGUI.current && $sideBarSize === 0}
+  class:min-w-110={!DynamicGUI.current && $sideBarSize === 1}
+  class:min-w-124={!DynamicGUI.current && $sideBarSize === 2}
+  class:min-w-138={!DynamicGUI.current && $sideBarSize === 3}
+  class:px-2={DynamicGUI.current}
+  class:px-4={!DynamicGUI.current}
   class:hidden={hidden}
   class:flex={!hidden}
 >
@@ -868,7 +867,7 @@
           <CharConfig />
         {/if}
       {:else}
-        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!$mdViewport} />
+        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!mdViewport.current} />
       {/if}
     {/if}
   {/if}
@@ -890,7 +889,7 @@
 
 <SupportDialog bind:open={supportOpen} />
 
-{#if $DynamicGUI}
+{#if DynamicGUI.current}
     <div role="button" tabindex="0" class="risu-modal-backdrop sidebar-dismiss-area"
       class:hidden={hidden} onclick={() => {
       if($sideBarClosing){

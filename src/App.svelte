@@ -69,7 +69,7 @@
 
     function openCharacterGrid() {
         gridOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function closeCharacterGrid() {
@@ -79,7 +79,7 @@
     function openServerDrive() {
         if (!serverDriveAvailable) return
         driveOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function handleDialogKeydown(event: KeyboardEvent) {
@@ -108,7 +108,7 @@
     })
 
     $effect(() => {
-        if (!$DynamicGUI || !$settingsOpen) return
+        if (!DynamicGUI.current || !$settingsOpen) return
         sideBarClosing.set(false)
         sideBarStore.set(false)
     })
@@ -170,10 +170,10 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen || ($DynamicGUI && gridOpen)}
-            aria-hidden={$settingsOpen || ($DynamicGUI && gridOpen)}
+            inert={$settingsOpen || (DynamicGUI.current && gridOpen)}
+            aria-hidden={$settingsOpen || (DynamicGUI.current && gridOpen)}
         >
-            {#if !$DynamicGUI}
+            {#if !DynamicGUI.current}
                 <Sidebar
                     openGrid={openCharacterGrid}
                     openDrive={openServerDrive}
@@ -185,7 +185,7 @@
         </div>
 
         {#if gridOpen && !$settingsOpen}
-            {#if !$mdViewport}
+            {#if !mdViewport.current}
                 <div
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
@@ -225,7 +225,7 @@
             </div>
         {/if}
 
-        {#if $DynamicGUI}
+        {#if DynamicGUI.current}
             <div
                 class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
                 class:fixed={$sideBarStore}

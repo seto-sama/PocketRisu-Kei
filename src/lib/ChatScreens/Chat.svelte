@@ -1154,7 +1154,7 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {#if $mdViewport}
+                {#if mdViewport.current}
                     {@render ttsButton(false)}
                     {@render translationButton()}
                     {@render copyButton(false)}
