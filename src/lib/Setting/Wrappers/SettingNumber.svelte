@@ -14,14 +14,9 @@
 
     let { item, ctx }: Props = $props();
 
-    let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let localValue: any = $derived(getSettingValue(item, ctx));
     let disabled = $derived(typeof item.options?.disabled === 'function' ? item.options.disabled(ctx) : !!item.options?.disabled);
     let numberEnabled = $derived(typeof localValue === 'number' && localValue !== -1000);
-
-    // Sync: DB → local (one-way read)
-    $effect(() => {
-        localValue = getSettingValue(item, ctx);
-    });
 
     function commitValue(val: number | undefined) {
         const nextValue = val === undefined && item.options?.disableable ? -1000 : val;

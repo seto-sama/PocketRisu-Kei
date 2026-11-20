@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { SvelteSet } from "svelte/reactivity";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
 
@@ -76,7 +77,7 @@
     selectedCategoryFilter: "all",
   });
 
-  let collapsedSummaries = $state(new Set<number>());
+  const collapsedSummaries = new SvelteSet<number>();
   const summaryAbortController = new AbortController();
 
   onDestroy(() => {
@@ -85,9 +86,8 @@
   });
 
   function collapseAllSummaries() {
-    collapsedSummaries = new Set(
-      hypaV3Data.summaries.map((_, index) => index)
-    );
+    collapsedSummaries.clear();
+    hypaV3Data.summaries.forEach((_, index) => collapsedSummaries.add(index));
   }
 
   $effect.pre(() => {
@@ -391,13 +391,7 @@
   }
 
   function handleToggleCollapse(summaryIndex: number) {
-    const newCollapsed = new Set(collapsedSummaries);
-    if (newCollapsed.has(summaryIndex)) {
-      newCollapsed.delete(summaryIndex);
-    } else {
-      newCollapsed.add(summaryIndex);
-    }
-    collapsedSummaries = newCollapsed;
+    if (!collapsedSummaries.delete(summaryIndex)) collapsedSummaries.add(summaryIndex);
   }
 
   function getNextSearchResult(backward: boolean): SearchResult | null {

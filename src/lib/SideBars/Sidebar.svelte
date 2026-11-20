@@ -113,7 +113,6 @@
 
   type sortTypeNormal = { type:'normal',img: string, chaId: string, name:string }
   type sortType =  sortTypeNormal|{type:'folder',settings:CharacterFolder,folder:sortTypeNormal[],id:string, name:string, color:string}
-  let charImages: sortType[] = $state([]);
   const selectedCharacterId = $derived(DBState.db.characters[$selectedCharID]?.chaId);
   // Recently interacted characters for the home sidebar. Character-level
   // `lastInteraction` is already in memory (no chat hydration needed), so this
@@ -200,7 +199,10 @@
 
   sideBarClosing.set(false)
 
-  $effect(() => {
+  // Keeps the previous array while the content is unchanged, so unrelated DB
+  // writes do not hand every sidebar item a fresh object.
+  let previousCharImages: sortType[] = []
+  const charImages: sortType[] = $derived.by(() => {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
     const hiddenIds = new Set(DBState.db.hiddenCharacterIds ?? [])
@@ -244,9 +246,10 @@
         });
       }
     }
-    if (!isEqual(charImages, newCharImages)) {
-      charImages = newCharImages;
+    if (!isEqual(previousCharImages, newCharImages)) {
+      previousCharImages = newCharImages;
     }
+    return previousCharImages
   })
 
   $effect(() => {
@@ -374,7 +377,6 @@
     
     if (targetFolderId && !openFolders.includes(targetFolderId)) {
       openFolders.push(targetFolderId)
-      openFolders = openFolders
     }
     
     setTimeout(() => {
@@ -655,7 +657,6 @@
                 else{
                   openFolders.push(char.id)
                 }
-                openFolders = openFolders
               }} />
 
             {/key}

@@ -157,7 +157,6 @@
                             }
                             
                             removeFromLoreBooks(externalLoreBooks, book)
-                            externalLoreBooks = externalLoreBooks
                         }} 
                         onOpen={(isDetail = true) => onOpen(isDetail, book)}
                         onClose={(isDetail = true) => onClose(isDetail, book)}

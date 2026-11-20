@@ -47,12 +47,7 @@
     let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state('icon')
 
-    let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
-
-
-    $effect.pre(() => {
-        licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
-    });
+    const licensed = $derived((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
     function moveAlternateGreetingUp(index: number) {
         if(index === 0) return

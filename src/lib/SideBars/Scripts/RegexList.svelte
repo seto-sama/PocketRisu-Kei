@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { SvelteSet } from "svelte/reactivity";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "src/lang";
     import type { customscript } from "src/ts/storage/database.svelte";
@@ -32,7 +33,7 @@
     let stb: Sortable = null
     let ele: HTMLDivElement = $state()
     let sorted = $state(0)
-    let openedScripts = $state(new Set<customscript>())
+    const openedScripts = new SvelteSet<customscript>()
     let scriptGroups = $derived(groupRegexScripts(value))
     const createStb = () => {
         if (!ele || stb || search.trim()) return
@@ -118,15 +119,12 @@
                     }}
                     onOpen={() => {
                         openedScripts.add(customscript)
-                        openedScripts = new Set(openedScripts)
                     }}
                     onClose={() => {
                         openedScripts.delete(customscript)
-                        openedScripts = new Set(openedScripts)
                     }}
                     onRemove={() => {
                         openedScripts.delete(customscript)
-                        openedScripts = new Set(openedScripts)
                         value = removeRegexScriptGroup(value, group)
                     }} />
             {/if}

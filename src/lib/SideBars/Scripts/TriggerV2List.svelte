@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { SvelteSet } from "svelte/reactivity";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
@@ -37,8 +38,8 @@
     let triggerListElement = $state<HTMLDivElement | null>(null)
     let triggerListSortable: Sortable | null = null
     let triggerListKey = $state(0)
-    let openedTriggers = $state(new Set<triggerscript>())
-    let openedEffects = $state(new Set<triggerEffect>())
+    const openedTriggers = new SvelteSet<triggerscript>()
+    const openedEffects = new SvelteSet<triggerEffect>()
     let addingEffectForIndex = $state(-1)
     let selectedEffectType = $state('')
     let triggerNames = $derived(value.slice(1).map((candidate) => candidate.comment))
@@ -106,7 +107,6 @@
             openedTriggers.add(trigger)
             selectedIndex = index
         }
-        openedTriggers = new Set(openedTriggers)
     }
 
     const addTrigger = () => {
@@ -119,7 +119,6 @@
         const trigger = value.at(-1)
         if (trigger) {
             openedTriggers.add(trigger)
-            openedTriggers = new Set(openedTriggers)
             selectedIndex = value.length - 1
         }
     }
@@ -131,8 +130,6 @@
         if (!confirmed) return
         openedTriggers.delete(trigger)
         for (const effect of trigger.effect) openedEffects.delete(effect)
-        openedTriggers = new Set(openedTriggers)
-        openedEffects = new Set(openedEffects)
         value = value.filter((_, triggerIndex) => triggerIndex !== index)
         addingEffectForIndex = -1
         if (selectedIndex === index) selectedIndex = 0
@@ -199,7 +196,6 @@
             }
             openedEffects.add(effect)
         }
-        openedEffects = new Set(openedEffects)
     }
 
     const removeEffectAt = (triggerIndex: number, effectIndex: number) => {
@@ -213,7 +209,9 @@
 
     const pruneOpenedEffects = () => {
         const liveEffects = new Set(value.flatMap((trigger) => trigger.effect))
-        openedEffects = new Set([...openedEffects].filter((effect) => liveEffects.has(effect)))
+        for (const effect of openedEffects) {
+            if (!liveEffects.has(effect)) openedEffects.delete(effect)
+        }
     }
 
     const reorderEffect = (triggerIndex: number, event: SortableEvent) => {
@@ -251,7 +249,6 @@
             : (lastEffect?.indent ?? 0)
         trigger.effect = appendTriggerV2Effect(trigger.effect, newEffect)
         openedEffects.add(newEffect)
-        openedEffects = new Set(openedEffects)
         addingEffectForIndex = -1
         value = [...value]
     }

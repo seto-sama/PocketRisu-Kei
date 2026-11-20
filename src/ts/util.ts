@@ -1,7 +1,7 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
-import { get, writable, type Writable } from "svelte/store"
+import { get } from "svelte/store"
 import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
@@ -260,10 +260,6 @@ export async function decryptBuffer(data:Uint8Array, keys:string){
     )
 
     return result
-}
-
-export function toState<T>(t:T):Writable<T>{
-    return writable(t)
 }
 
 export function BufferToText(data:Uint8Array){

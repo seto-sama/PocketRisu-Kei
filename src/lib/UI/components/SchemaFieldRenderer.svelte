@@ -123,11 +123,10 @@
     // The dropdown mirrors the text value only when it matches a suggestion;
     // otherwise it rests on the placeholder. userValues stays the single source
     // of truth — the dropdown never carries independent state that could desync.
-    let comboPick = $state('');
-    $effect(() => {
-        if (uiField.widget !== 'combobox') return;
+    let comboPick = $derived.by(() => {
+        if (uiField.widget !== 'combobox') return '';
         const current = String(userValues[fieldKey] ?? '');
-        comboPick = comboOptions.includes(current) ? current : '';
+        return comboOptions.includes(current) ? current : '';
     });
     function comboSelect(picked: string) {
         // Ignore the placeholder ("") — clearing is done via the text field /
