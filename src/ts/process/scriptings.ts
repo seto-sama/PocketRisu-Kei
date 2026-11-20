@@ -49,6 +49,7 @@ import {
 import {
     extractLuaLlmInlays,
     luaLlmResult,
+    luaLlmRequestIdentity,
     normalizeLuaLlmPrompt,
     parseLuaLlmOptions,
     resolveLuaAxLlmMode,
@@ -486,6 +487,8 @@ export async function runScripted(code:string, arg:{
                 options = parseLuaLlmOptions(optionsStr),
             ): Promise<string> => {
                 const promptbody: OpenAIChat[] = normalizeLuaLlmPrompt(promptStr)
+                // Built before multimodal handling rewrites the message content.
+                const requestIdentity = luaLlmRequestIdentity(promptbody, useMultimodal, options)
                 if(useMultimodal){
                     for(const message of promptbody){
                         const normalized = extractLuaLlmInlays({
@@ -508,10 +511,7 @@ export async function runScripted(code:string, arg:{
                     }
                 }
 
-                const revenantCall = await prepareRevenantLuaCall(
-                    modelMode,
-                    `${promptStr}\n${useMultimodal}\n${optionsStr ?? ''}`,
-                )
+                const revenantCall = await prepareRevenantLuaCall(modelMode, requestIdentity)
                 if(revenantCall.replay !== undefined){
                     return JSON.stringify(luaLlmResult(true, revenantCall.replay))
                 }

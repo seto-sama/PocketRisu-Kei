@@ -39,6 +39,25 @@ export function normalizeLuaLlmPrompt(value: unknown): LuaLlmMessage[] {
     })
 }
 
+function stableJson(value: unknown): string {
+    return JSON.stringify(value, (_key, item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+            ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+            : item
+    )
+}
+
+// Lua's json.encode emits object fields in `pairs` order, which follows the
+// engine's time-seeded string hashes, so the same request can serialize
+// differently after a restart. Identities are built from the parsed values.
+export function luaLlmRequestIdentity(
+    prompt: readonly object[],
+    useMultimodal: boolean,
+    options: Record<string, unknown>,
+): string {
+    return `${JSON.stringify(prompt)}\n${useMultimodal}\n${stableJson(options)}`
+}
+
 export function parseLuaLlmOptions(value: unknown): Record<string, unknown> {
     if (!value) return {}
     try {

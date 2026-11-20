@@ -262,7 +262,15 @@ it('keeps form submissions separate and recovers their original input and model 
     const chat = { id: 'recover-origin', message: [{ role: 'user', data: 'form', chatId: 'anchor' }] }
     const code = `onFormSubmit = async(function(id, key, encoded)
         local meta = json.decode(encoded)
-        local response = axLLM(id, {{role = 'user', content = meta.data.value}}, false, {mode = 'memory'})
+        local value = json.encode(meta.data.value)
+        local prompt = '[{"role":"user","content":' .. value .. '}]'
+        local options = '{"mode":"memory","streaming":false}'
+        if getChatVar(id, 'reverseFields') == 'yes' then
+            -- A restarted Lua engine may serialize the same tables in another field order.
+            prompt = '[{"content":' .. value .. ',"role":"user"}]'
+            options = '{"streaming":false,"mode":"memory"}'
+        end
+        local response = json.decode(axLLMMain(id, prompt, false, options):await())
         assert(response.success)
         setChatVar(id, 'submitted', key .. ':' .. meta.data.value .. ':' .. response.result)
     end)`
@@ -294,9 +302,10 @@ it('keeps form submissions separate and recovers their original input and model 
         state.save.mockClear()
         state.consume.mockClear()
         state.save.mockImplementationOnce(async () => { expect(state.consume).not.toHaveBeenCalled() })
+        ;(character.chats[0] as any).scriptstate.$reverseFields = 'yes'
         await expect(recoverRevenantLuaJobsForChat(character as never, character.chats[0] as never)).resolves.toBe(1)
-        expect((character.chats[0] as any).scriptstate.$submitted).toBe('settings:first:saved answer')
         expect(state.request).not.toHaveBeenCalled()
+        expect((character.chats[0] as any).scriptstate.$submitted).toBe('settings:first:saved answer')
         expect(state.save).toHaveBeenCalledTimes(1)
         expect(state.consume).toHaveBeenCalledWith('finished-model')
     }
