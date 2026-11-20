@@ -3,6 +3,7 @@
     import { alertConfirm, alertError, alertPassword } from 'src/ts/alert';
     import { requestImmediateSave } from 'src/ts/globalApi.svelte';
     import { isPrivacyGuardActive } from 'src/ts/platform';
+    import { enableKeiClipboardForPrivacyGuard, restoreKeiClipboardAfterPrivacyGuard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { forageStorage } from 'src/ts/storage/autoStorage';
     import Switch from '../../../UI/components/Switch.svelte';
     import SettingRow from '../../Wrappers/SettingRow.svelte';
@@ -18,6 +19,7 @@
             if (enable && !(await alertConfirm(language.privacyGuard.enableConfirm))) return;
             const password = enable ? '' : await alertPassword(language.privacyGuard.disablePasswordPrompt);
             if (!enable && !password) return;
+            if (enable) enableKeiClipboardForPrivacyGuard();
             // Save under the current projection before the server switches what this client may see.
             await requestImmediateSave({ requireSuccess: true });
             await forageStorage.Init();
@@ -26,6 +28,7 @@
             switched = true;
             location.reload();
         } catch (error) {
+            if (enable) restoreKeiClipboardAfterPrivacyGuard();
             alertError(error);
         } finally {
             busy = false;

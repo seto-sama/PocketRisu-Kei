@@ -5,7 +5,8 @@
     import { setMessageContent } from 'src/ts/storage/messageContent';
     import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
 
-    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon } from "@lucide/svelte";
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon, ClipboardListIcon } from "@lucide/svelte";
+    import { openKeiClipboardPicker, keiClipboardEnabled } from 'src/ts/clipboard/keiClipboard.svelte';
     import { onPopupEditorRequest } from 'src/ts/gui/editableField';
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
@@ -1580,6 +1581,11 @@ import { isMobile } from 'src/ts/platform'
                                 {#if activeOnboarding}
                                     <DropdownMenu.Item onSelect={() => { onboardingOpen = true }}>
                                         <CompassIcon /><span>{language.onboarding}</span>
+                                    </DropdownMenu.Item>
+                                {/if}
+                                {#if keiClipboardEnabled()}
+                                    <DropdownMenu.Item onSelect={() => { openKeiClipboardPicker(inputEle) }}>
+                                        <ClipboardListIcon /><span>{language.keiClipboardHistory}</span>
                                     </DropdownMenu.Item>
                                 {/if}
                                 <DropdownMenu.Item onSelect={openMessageInputPopupEditor}>

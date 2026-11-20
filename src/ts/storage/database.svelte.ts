@@ -860,6 +860,7 @@ export function setDatabase(data:Database){
         || legacyKeepSessionAlive === 'sound'
         || legacyKeepSessionAlive === 'pip'
     data.pluginCustomStorage ??= {}
+    data.keiClipboard ??= true
     data.showInputActionBar ??= true
     data.chatLoadInitialPages = normalizeChatLoadPages(data.chatLoadInitialPages, DEFAULT_CHAT_LOAD_INITIAL_PAGES)
     data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
@@ -1438,6 +1439,10 @@ export interface Database{
     autoCleanAssets?:boolean
     seperateParametersByModel?:boolean
     keepSessionAlive: boolean
+    /** Route in-app copy/paste through the server-side clipboard instead of the OS one. */
+    keiClipboard?: boolean
+    /** The user's keiClipboard value while the privacy guard forces it on; restored after. */
+    keiClipboardBeforePrivacyGuard?: boolean
 }
 
 export interface SeparateParameters{

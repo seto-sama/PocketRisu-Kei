@@ -31,6 +31,7 @@
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
     import { forageStorage, getServerFetchLogs, setServerFetchLogLimit, type RequestLogStorage } from 'src/ts/globalApi.svelte'
     import { language, getCurrentLocale } from 'src/lang'
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte'
 
     type LogLevel = 'error' | 'warning' | 'info'
     type LogOrigin = 'client' | 'server'
@@ -379,7 +380,7 @@
 
     async function copyEntry(e: LogEntry) {
         try {
-            await navigator.clipboard.writeText(formatEntry(e))
+            await writeSystemClipboard(formatEntry(e))
             notifySuccess(language.systemLogsCopied)
         } catch (err) {
             notifyError(String(err))
@@ -389,7 +390,7 @@
     async function copyAllFiltered() {
         try {
             const text = displayed.map(formatEntry).join('\n\n---\n\n')
-            await navigator.clipboard.writeText(text)
+            await writeSystemClipboard(text)
             notifySuccess(language.systemLogsCopied)
         } catch (err) {
             notifyError(String(err))

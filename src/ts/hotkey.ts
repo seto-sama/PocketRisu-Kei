@@ -25,6 +25,7 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
 import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
 import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
+import { copySelectionToSystemClipboard, openKeiClipboardPicker } from './clipboard/keiClipboard.svelte'
 import { editableFieldFor, requestPopupEditor } from './gui/editableField'
 import { installMultiFingerTap } from './gui/multiFingerTap'
 import { handleTextEntryEscape, isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
@@ -165,6 +166,12 @@ export function initHotkey() {
                     window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
                     handled = true
                     break
+                case 'keiClipboard':
+                    handled = openKeiClipboardPicker()
+                    break
+                case 'systemCopy':
+                    handled = copySelectionToSystemClipboard()
+                    break
                 case 'popupEditor':
                     // The shared textarea owns this action so it can bind the edited
                     // value back to the field that opened the popup.
@@ -195,6 +202,8 @@ export function initHotkey() {
     // matching keyboard hotkey is disabled.
     installMultiFingerTap((fingers, target) => {
         switch (fingers) {
+            case 2:
+                return openKeiClipboardPicker(editableFieldFor(target))
             case 3:
                 if (!doingAlert()) void quickMenu()
                 return true

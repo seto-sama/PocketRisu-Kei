@@ -58,6 +58,14 @@ function createSyncHub() {
         );
     }
 
+    function broadcastClipboardInvalidated(req) {
+        broadcastSync(
+            'clipboard-invalidated',
+            { timestamp: Date.now() },
+            String(getSyncClientIdFromRequest(req)),
+        );
+    }
+
     function broadcastPrivacyGuardChanged(req) {
         broadcastSync(
             'privacy-guard-changed',
@@ -120,6 +128,7 @@ function createSyncHub() {
         isSyncClientConnected,
         broadcastDatabaseInvalidated,
         broadcastBookmarksInvalidated,
+        broadcastClipboardInvalidated,
         broadcastPrivacyGuardChanged,
         publishChatCommitted,
         broadcastRevenantWorkflowUpdated,

@@ -43,6 +43,8 @@ const outboundPolicy = require('./outboundPolicy.cjs').createOutboundPolicy({
 
 const { createBookmarkStore } = require('./bookmarkStore.cjs');
 const bookmarkStore = createBookmarkStore(sqliteDb);
+const { createClipboardStore } = require('./clipboardStore.cjs');
+const clipboardStore = createClipboardStore(sqliteDb);
 
 const { logger, installProcessHandlers, expressErrorMiddleware } = require('./logs/logs.cjs');
 const { REVENANT_CAPACITY } = require('./revenant/capacity.cjs');
@@ -233,6 +235,7 @@ const {
     isSyncClientConnected,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
+    broadcastClipboardInvalidated,
     broadcastPrivacyGuardChanged,
     publishChatCommitted,
     broadcastRevenantWorkflowUpdated,
@@ -571,6 +574,14 @@ require('./routes/bookmarks.cjs').installBookmarksRoutes(app, {
     requireSyncClientId,
     loadCanonicalChat,
     broadcastBookmarksInvalidated,
+});
+
+require('./routes/clipboard.cjs').installClipboardRoutes(app, {
+    checkAuth,
+    clipboardStore,
+    isPrivacyGuardActive,
+    requireSyncClientId,
+    broadcastClipboardInvalidated,
 });
 
 require('./routes/chats.cjs').installChatsRoutes(app, {

@@ -62,7 +62,7 @@
     import type { Attachment } from "svelte/attachments"
     import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
-    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
+    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyError, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
     import { getTranslationSourceKey, stripTranslationPlaceholders } from "../../ts/translator/translationMask"
@@ -80,6 +80,7 @@
     import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
+    import { copyText, keiClipboardEnabled, writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
@@ -1194,7 +1195,12 @@
 {#snippet copyButton(showNames:boolean)}
     {#if !blankMessage}
     <ChatAdaptiveAction menu={showNames} className="button-icon-copy" onclick={async ()=>{
-        if(window.navigator.clipboard.write){
+        if(keiClipboardEnabled()){
+            await copyText(msgDisplay)
+            notifyInfo(language.copied)
+            return
+        }
+        if(navigator.clipboard?.write){
             try {
                 alertWait(language.loading)
                 const root = document.querySelector(':root') as HTMLElement;
@@ -1405,16 +1411,16 @@
                 notifyInfo(language.copied)
                 return
             }
-            catch (e) {
+            catch {
                 alertClear()
-                window.navigator.clipboard.writeText(msgDisplay).then(() => {
-                    setStatusMessage(language.copied)
-                })
             }
         }
-        window.navigator.clipboard.writeText(msgDisplay).then(() => {
+        try {
+            await writeSystemClipboard(msgDisplay)
             setStatusMessage(language.copied)
-        })
+        } catch (error) {
+            notifyError(error)
+        }
     }}>
         <CopyIcon />
         {#if showNames}

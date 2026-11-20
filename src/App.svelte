@@ -13,6 +13,7 @@
     import ServerDrive from './lib/Others/ServerDrive.svelte';
     import Dialog from './lib/UI/components/Dialog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
+    import KeiClipboardPicker from './lib/Others/KeiClipboardPicker.svelte';
     import Settings from './lib/Setting/Settings.svelte';
     import { showRealmInfoStore, importCharacterProcess } from './ts/characterCards';
     import { importPreset, getDatabase, setDatabase } from './ts/storage/database.svelte';
@@ -45,6 +46,7 @@
     import { createKeepAliveAudio } from './ts/keepAliveAudio'
     import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
+    import { installKeiClipboard, refreshKeiClipboard } from './ts/clipboard/keiClipboard.svelte'
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
@@ -66,6 +68,7 @@
 
     $effect(() => initializePwaInstall())
     $effect(() => installFilePickerContextMenu())
+    $effect(() => installKeiClipboard())
 
     function openCharacterGrid() {
         gridOpen = true
@@ -103,6 +106,9 @@
         if ($loadedStore) {
             void ensureBookmarkCatalog().catch(error => {
                 console.error('[bookmarks] Initial catalog load failed', error)
+            })
+            void refreshKeiClipboard().catch(error => {
+                console.error('[kei-clipboard] Initial load failed', error)
             })
         }
     })
@@ -271,6 +277,9 @@
     {/if}
     {#if $openHypaV3PresetList}
         <ListedHypaV3Preset bind:open={$openHypaV3PresetList} />
+    {/if}
+    {#if $loadedStore}
+        <KeiClipboardPicker />
     {/if}
     {#if $bookmarkListOpen}
         <BookmarkList />

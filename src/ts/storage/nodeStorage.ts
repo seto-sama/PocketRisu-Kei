@@ -21,9 +21,11 @@ import type {
     BookmarkCompatibilityResult,
     BookmarkTarget,
 } from '../bookmarks/bookmarkTypes'
+import type { KeiClipboardCatalog } from '../clipboard/keiClipboardTypes'
 
 const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
+const CLIPBOARD_API_PATH = '/api/clipboard'
 
 function authRequest(input: string, init: RequestInit): Promise<Response> {
     return fetchWithRequestTimeout(signal => fetch(input, { ...init, signal }), {
@@ -1146,6 +1148,37 @@ export class NodeStorage{
             throw new Error(`bookmarkCompatibility error: ${da.status}`)
         }
         return await da.json() as BookmarkCompatibilityResult
+    }
+
+    async fetchKeiClipboard(): Promise<KeiClipboardCatalog> {
+        return this.keiClipboardRequest(CLIPBOARD_API_PATH, { method: 'GET' })
+    }
+
+    async addKeiClipboardEntry(text: string, copiedUnderGuard: boolean): Promise<KeiClipboardCatalog> {
+        return this.keiClipboardRequest(CLIPBOARD_API_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text, copiedUnderGuard }),
+        })
+    }
+
+    async pinKeiClipboardEntry(id: string, pinned: boolean): Promise<KeiClipboardCatalog> {
+        return this.keiClipboardRequest(`${CLIPBOARD_API_PATH}/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pinned }),
+        })
+    }
+
+    async deleteKeiClipboardEntry(id?: string): Promise<KeiClipboardCatalog> {
+        const path = id ? `${CLIPBOARD_API_PATH}/${encodeURIComponent(id)}` : CLIPBOARD_API_PATH
+        return this.keiClipboardRequest(path, { method: 'DELETE' })
+    }
+
+    private async keiClipboardRequest(path: string, init: RequestInit): Promise<KeiClipboardCatalog> {
+        const da = await this.authFetch(path, init)
+        if (!da.ok) throw await storageRequestError('keiClipboard', da)
+        return await da.json() as KeiClipboardCatalog
     }
 
     async fetchChatState(chaId: string, chatIndex: number, chatId: string): Promise<{ chat: any, baseline: any, etag?: string } | null> {

@@ -36,6 +36,7 @@ import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
 import { isNodeServer, isPrivacyGuardActive } from './platform';
+import { restoreKeiClipboardAfterPrivacyGuard } from './clipboard/keiClipboard.svelte';
 import { startIdleLock } from './privacyGuardIdleLock';
 import { doingChat } from './process/index.svelte';
 import { migrateRealmMutes } from './realmMute';
@@ -213,6 +214,9 @@ export async function loadData() {
             saveDb(async () => {
                 try {
                     await migrateRealmMutes(() => requestImmediateSave({ requireSuccess: true }))
+                    if (!isPrivacyGuardActive && restoreKeiClipboardAfterPrivacyGuard()) {
+                        await requestImmediateSave({ requireSuccess: true })
+                    }
                 } catch (error) {
                     alertError(error)
                 }

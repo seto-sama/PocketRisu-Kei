@@ -3,6 +3,7 @@
     import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
+    import { copyText } from 'src/ts/clipboard/keiClipboard.svelte';
     import { forageStorage, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
@@ -163,7 +164,7 @@
 
     async function copyRawReference(name: string) {
         try {
-            await navigator.clipboard.writeText(`{{raw::${name}}}`);
+            await copyText(`{{raw::${name}}}`);
             notifySuccess(language.copied);
         }
         catch(error){

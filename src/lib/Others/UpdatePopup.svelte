@@ -1,6 +1,7 @@
 <script lang="ts">
     import { updatePopupStore, dismissUpdatePopup, type UpdateInfo } from "src/ts/update";
     import { language } from "src/lang";
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { ArrowUpCircleIcon, CopyIcon, CheckIcon } from "@lucide/svelte";
     import ProgressDialog from "../UI/components/ProgressDialog.svelte";
     import Button from "../UI/components/Button.svelte";
@@ -18,7 +19,7 @@
 
     async function copyCommand(command: string) {
         try {
-            await navigator.clipboard.writeText(command);
+            await writeSystemClipboard(command);
             copiedCommand = command;
             setTimeout(() => { if (copiedCommand === command) copiedCommand = null; }, 2000);
         } catch {}

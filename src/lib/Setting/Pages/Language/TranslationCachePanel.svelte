@@ -9,6 +9,7 @@
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
     import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess } from "src/ts/alert";
+    import { copyText } from 'src/ts/clipboard/keiClipboard.svelte';
     import { clearLLMCache, deleteLLMCache, exportLLMCacheAsJSON, importLLMCacheFromJSON, setLLMCache } from "src/ts/translator/translator";
     import { listLLMCacheEntries, loadLLMCacheEntriesInBackground } from "./translationCacheEntries";
     import { downloadFile } from "src/ts/globalApi.svelte";
@@ -108,7 +109,7 @@
 
     async function copyTranslationCacheEntry(entry: TranslationCacheEntry) {
         try {
-            await navigator.clipboard.writeText(`${entry.key}\n\n---\n\n${entry.value}`);
+            await copyText(`${entry.key}\n\n---\n\n${entry.value}`);
             notifySuccess(language.copied);
         } catch (error) {
             notifyError(error);

@@ -27,7 +27,8 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getActiveBotPreset, getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
-    import { alertInput, alertConfirm, alertError, notifySuccess } from "src/ts/alert";
+    import { alertInput, alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
@@ -116,15 +117,12 @@
     }
 
     async function copyToClipboard(text: string, key: string) {
+        // Stack traces are copied for bug reports outside the app.
         try {
-            await navigator.clipboard.writeText(text)
-        } catch {
-            const textarea = document.createElement('textarea')
-            textarea.value = text
-            document.body.appendChild(textarea)
-            textarea.select()
-            document.execCommand('copy')
-            document.body.removeChild(textarea)
+            await writeSystemClipboard(text)
+        } catch (error) {
+            notifyError(error)
+            return
         }
         copiedKey = key
         setTimeout(() => {

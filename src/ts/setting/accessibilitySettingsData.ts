@@ -231,6 +231,14 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['sidebar', 'module', 'show', 'select'],
     },
     {
+        id: 'acc.keiClipboard',
+        type: 'check',
+        labelKey: 'keiClipboard',
+        bindKey: 'keiClipboard',
+        helpKey: 'keiClipboard',
+        keywords: ['clipboard', 'copy', 'paste', 'history', 'privacy', 'leak'],
+    },
+    {
         id: 'acc.keepSessionAlive',
         type: 'check',
         labelKey: 'keepSessionAlive',
@@ -312,6 +320,7 @@ export const accessibilityOtherItems = pick([
     'acc.botSettingAtStart',
     'acc.goCharacterOnImport',
     'acc.createFolderOnBranch',
+    'acc.keiClipboard',
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
 ]);

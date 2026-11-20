@@ -198,6 +198,8 @@ export const helpEn = {
             "- **Additional Text**: Matching character additional info based on context\n" +
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
+        keiClipboard:
+            "Ctrl+C / Ctrl+X copy into a dedicated clipboard stored on the server instead of the OS clipboard.\nOn mobile, tap with two fingers to open the Keiboard.\nTurning on Privacy Guard Mode turns it on as well, and turning the mode off restores your setting.",
         keepSessionAlive:
             "Plays audio inaudible to humans to keep the tab active in the background.",
         disableMobileBackNavigation:

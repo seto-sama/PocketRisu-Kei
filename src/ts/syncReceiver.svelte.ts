@@ -12,6 +12,7 @@ import {
     type SyncChatTarget,
 } from './sync/databaseSync'
 import { refreshBookmarkCatalog } from './bookmarks/bookmarkService'
+import { refreshKeiClipboard } from './clipboard/keiClipboard.svelte'
 
 type SyncMessage = {
     type: string
@@ -138,6 +139,10 @@ function handleWorkflowUpdate(message: SyncMessage) {
 function handleSyncMessage(message: SyncMessage) {
     if (message.type === 'sync-ready') {
         emitRevenantWorkflowSyncReady()
+        // Copies made on other devices while this socket was down sent no invalidation.
+        void refreshKeiClipboard().catch(error => {
+            console.error('[Sync] Failed to refresh the Kei clipboard:', error)
+        })
         return
     }
     if (message.type === 'generation-workflow-updated') {
@@ -152,6 +157,12 @@ function handleSyncMessage(message: SyncMessage) {
     if (message.type === 'bookmarks-invalidated') {
         void refreshBookmarkCatalog({ queueIfBusy: true }).catch(error => {
             console.error('[Sync] Failed to refresh bookmarks:', error)
+        })
+        return
+    }
+    if (message.type === 'clipboard-invalidated') {
+        void refreshKeiClipboard().catch(error => {
+            console.error('[Sync] Failed to refresh the Kei clipboard:', error)
         })
         return
     }

@@ -20,6 +20,7 @@ vi.mock('src/ts/globalApi.svelte', () => ({
     deleteFetchLog: vi.fn(),
     deleteServerFetchLog: vi.fn(),
 }));
+vi.mock('src/ts/clipboard/keiClipboard.svelte', () => ({ writeSystemClipboard: vi.fn() }));
 vi.mock('src/ts/alert', () => ({
     alertConfirm: vi.fn(),
     alertConfirmMulti: vi.fn(),

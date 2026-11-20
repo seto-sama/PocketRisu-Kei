@@ -13,7 +13,7 @@ export const hotkeyActionGroups = {
     chatInput: ['focusInput'],
     toolbar: ['translate', 'edit', 'remove', 'reroll', 'unreroll'],
     menu: ['home', 'settings', 'quickMenu', 'previewRequest', 'toggleLog'],
-    features: ['popupEditor', 'toggleCSS'],
+    features: ['popupEditor', 'toggleCSS', 'keiClipboard', 'systemCopy'],
     sidebar: [
         'quickSettings',
         'toggleSidebarView',
@@ -64,6 +64,8 @@ export const defaultHotkeys: Hotkey[] = [
     { key: ' ', action: 'focusInput' },
     { key: 'g', ctrl: true, action: 'scrollToActiveChar' },
     { key: 'x', ctrl: true, action: 'popupEditor' },
+    { key: 'v', ctrl: true, alt: true, action: 'keiClipboard' },
+    { key: 'c', ctrl: true, shift: true, action: 'systemCopy' },
 ]
 
 const supportedHotkeyActions: ReadonlySet<string> = new Set(
