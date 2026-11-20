@@ -27,7 +27,10 @@ it('completes the typed prefix with a separator while preserving following text 
 })
 
 it('keeps Korean search results visible and exposes their descriptions and category', async () => {
-    const search = vi.fn(async () => [{ name: 'hatsune miku', category: 4, count: 100, description: '하츠네 미쿠' }])
+    const search = vi.fn(async () => [
+        { name: 'hatsune miku', category: 4, count: 100, description: '하츠네 미쿠' },
+        { name: 'meta:novel era', category: 5, count: 0, description: '시대' },
+    ])
     const status = vi.fn()
     const state = EditorState.create({ doc: '1girl, 미쿠' })
     const source = createImageTagCompletionSource({ search, onStatus: status })
@@ -37,6 +40,7 @@ it('keeps Korean search results visible and exposes their descriptions and categ
     expect(result!.options[0]).toMatchObject({
         label: 'hatsune miku', apply: 'hatsune miku, ', detail: 'Character · 100', description: '하츠네 미쿠',
     })
+    expect(result!.options[1].detail).toBe('Meta')
     expect(status).toHaveBeenLastCalledWith('idle')
     expect(status).not.toHaveBeenCalledWith('loading')
 })
