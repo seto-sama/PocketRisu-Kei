@@ -41,7 +41,6 @@ const migratedLegacyTextItems = [
 ]
 
 beforeEach(() => {
-    decodeFile.mockClear()
     DBState.db = { botPresets: [] }
 })
 
@@ -107,6 +106,21 @@ describe('legacy prompt template migration', () => {
             { type: 'jailbreak', type2: 'normal', text: 'System jailbreak', role: 'system' },
             { type: 'postEverything' },
         ])
+    })
+
+    test('turns upstream CoT blocks into plain prompts', () => {
+        const cotBlock = () => ({ type: 'cot', type2: 'normal', text: 'Think first', role: 'assistant' })
+        const database = {
+            ...makeLegacyDatabase(undefined),
+            promptTemplate: [cotBlock(), { ...cotBlock(), name: 'Named' }],
+            botPresets: [{ id: 'saved', promptTemplate: [cotBlock()] }],
+        } as any
+
+        setDatabase(database)
+
+        const plain = { type: 'plain', type2: 'normal', text: 'Think first', role: 'bot', name: 'CoT' }
+        expect(database.promptTemplate).toEqual([plain, { ...plain, name: 'Named' }])
+        expect(database.botPresets[0].promptTemplate).toEqual([plain])
     })
 
     test('migrates an imported legacy JSON preset that omitted promptTemplate', async () => {

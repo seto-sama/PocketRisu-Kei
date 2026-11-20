@@ -1,6 +1,7 @@
 <script lang="ts">
     import { CheckIcon, SaveIcon, Trash2Icon } from '@lucide/svelte';
     import { onDestroy, tick, untrack } from 'svelte';
+    import type { Attachment } from 'svelte/attachments';
     import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
     import { setMessageContent } from 'src/ts/storage/messageContent';
@@ -525,14 +526,12 @@
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSave();
     }
 
-    function attachPartialEditTextarea(node: HTMLDivElement) {
+    const attachPartialEditTextarea: Attachment<HTMLDivElement> = (node) => {
         textareaWrapperRef = node;
         node.addEventListener('keydown', handleKeydown);
-        return {
-            destroy() {
-                node.removeEventListener('keydown', handleKeydown);
-                if (textareaWrapperRef === node) textareaWrapperRef = null;
-            },
+        return () => {
+            node.removeEventListener('keydown', handleKeydown);
+            if (textareaWrapperRef === node) textareaWrapperRef = null;
         };
     }
 
@@ -694,7 +693,7 @@
 
         <div class="match-list">
             {#each matches as match, i}
-                {@const matchedText = matchingState.sourceData.slice(match.start, match.end)}
+                {const matchedText = $derived(matchingState.sourceData.slice(match.start, match.end))}
                 <button type="button" class="match-item" onclick={() => selectMatchAtIndex(i)}>
                     <div class="match-meta">
                         <span class="text-sm text-subtext">
@@ -736,7 +735,7 @@
             {@render MatchConfidenceBadge(matchingState.selectedRange)}
         {/snippet}
         {#if matchingState.selectedRange}
-            {@const matchedText = matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end)}
+            {const matchedText = $derived(matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end))}
             <div class="partial-delete-preview">
                 {matchedText.slice(0, 200)}{matchedText.length > 200 ? '...' : ''}
             </div>
@@ -769,7 +768,7 @@
         {#snippet headerActions()}
             {@render MatchConfidenceBadge(matchingState.selectedRange)}
         {/snippet}
-        <div use:attachPartialEditTextarea>
+        <div {@attach attachPartialEditTextarea}>
             <Textarea
                 bind:value={editText}
                 fullwidth

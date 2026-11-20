@@ -3,7 +3,7 @@
     import type { ComponentProps } from 'svelte';
     import Chat from './Chat.svelte';
     import { getCharImage } from 'src/ts/characters';
-    import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
+    import { createSimpleCharacter, DBState, renderRevision } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
     import { didNewResponseComplete, getCompletedResponseAction, isChatNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
@@ -104,7 +104,7 @@
         const showPreviousChatSwipeButtons = DBState.db.showPreviousChatSwipeButtons;
         // This is the explicit invalidation boundary for changes originating
         // outside the deeply reactive database proxy.
-        void $ReloadChatPointer
+        void renderRevision.messages
 
         for(let i=loadStart ; i <= loadEnd; i++){
             if(i >= messages.length) break;

@@ -102,7 +102,7 @@
                 'data-[state=on]:bg-primary data-[state=on]:text-themewhite',
             ],
             variant !== 'segment' && activeColor === 'selected' && [
-                'data-[state=unchecked]:risu-interactive-surface-strong data-[state=off]:risu-interactive-surface-strong',
+                'data-[state=unchecked]:risu-interactive-surface data-[state=off]:risu-interactive-surface',
                 'data-[state=checked]:bg-selected data-[state=checked]:text-maintext',
                 'data-[state=on]:bg-selected data-[state=on]:text-maintext',
             ],

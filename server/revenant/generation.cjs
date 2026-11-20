@@ -1,24 +1,13 @@
 'use strict';
 
-const path = require('path');
 const HYPA_CONCURRENT_REQUEST_MIN = 1;
 const HYPA_CONCURRENT_REQUEST_MAX = 12;
-const HYPA_QUERY_CHAT_COUNT_MIN = 1;
-const HYPA_QUERY_CHAT_COUNT_MAX = 12;
 
 const { applyPatch } = require('fast-json-patch');
-require('sucrase/register/ts');
-const { LUA_AX_LLM_MODES } = require(path.join(
-    __dirname, '../../src/ts/process/luaLlmCore.ts',
-));
-const { isRevenantLuaLlmOperation } = require(path.join(
-    __dirname, '../../src/ts/process/revenant/operations.ts',
-));
-const { isImageOrientation } = require('../../src/ts/imageGeneration/orientation.ts');
 const { REMOTE_HYPA_MODELS, SERVER_HYPA_TOKENIZERS } = require('./hypaExecutor.cjs');
 
 const JOB_TYPES = new Set([
-    'model', 'submodel', 'memory', 'emotion', 'otherAx', 'translate',
+    'model', 'submodel', 'memory', 'otherAx', 'translate',
 ]);
 
 const OPERATION_JOB_TYPES = Object.freeze({
@@ -31,38 +20,12 @@ const WORKFLOW_STEP_STATUSES = new Set([
     'pending', 'running', 'waiting_client', 'waiting_job', 'output_ready',
     'completed', 'skipped', 'failed',
 ]);
-const WORKFLOW_RECOVERY_POLICIES = new Set([
-    'resume', 'replay_output', 'at_least_once', 'foreground_restart', 'skip',
-]);
 const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
 const WORKFLOW_KEY_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,127}$/;
-const CHAT_PATCH_OPERATIONS = new Set(['add', 'remove', 'replace']);
 
 function isObjectRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-
-function isProviderSnapshot(value) {
-    return isObjectRecord(value)
-        && ['http', 'plugin', 'echo'].includes(value.backend)
-        && value.modelPreset
-        && typeof value.modelPreset === 'object';
-}
-
-function isProviderSnapshotMap(value, isValidKey) {
-    return value == null || (
-        isObjectRecord(value)
-        && Object.entries(value).every(([key, provider]) => (
-            isValidKey(key) && isProviderSnapshot(provider)
-        ))
-    );
-}
-
-function isHypaChatMemo(value) {
-    return value === null || typeof value === 'string';
-}
-
-const MAX_WORKFLOW_CONTEXT_BYTES = 32 * 1024 * 1024;
 
 function resolveRevenantPostprocessChat(context, inputChat) {
     const recipe = context?.postprocess;
@@ -104,136 +67,40 @@ function isRevenantJobActive(status) {
 }
 
 function normalizeRevenantWorkflowPlan(value) {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 64) return undefined;
-    const keys = new Set();
-    const normalized = [];
-    for (let index = 0; index < value.length; index++) {
-        const step = value[index];
-        if (!step || typeof step !== 'object' || Array.isArray(step)) return undefined;
-        const key = typeof step.key === 'string' ? step.key : '';
-        const kind = typeof step.kind === 'string' ? step.kind : '';
-        const recoveryPolicy = typeof step.recoveryPolicy === 'string'
-            ? step.recoveryPolicy
-            : 'resume';
-        const status = typeof step.status === 'string' ? step.status : 'pending';
-        const metadata = step.metadata == null ? null
-            : step.metadata && typeof step.metadata === 'object' && !Array.isArray(step.metadata)
-                ? structuredClone(step.metadata)
-                : undefined;
-        if (
-            !WORKFLOW_KEY_PATTERN.test(key)
-            || !WORKFLOW_KEY_PATTERN.test(kind)
-            || keys.has(key)
-            || !WORKFLOW_RECOVERY_POLICIES.has(recoveryPolicy)
-            || !['pending', 'completed', 'skipped'].includes(status)
-            || metadata === undefined
-        ) return undefined;
-        keys.add(key);
-        normalized.push({
-            key,
-            kind,
-            recoveryPolicy,
-            status,
-            ...(metadata ? { metadata } : {}),
-            order: index,
-        });
-    }
-    return normalized;
+    if (
+        !Array.isArray(value) || value.length === 0
+        || !value.every(step => isValidRevenantWorkflowKey(step?.key))
+    ) return undefined;
+    return value.map((step, order) => ({
+        key: step.key,
+        kind: step.kind,
+        recoveryPolicy: step.recoveryPolicy,
+        status: step.status ?? 'pending',
+        ...(step.metadata ? { metadata: step.metadata } : {}),
+        order,
+    }));
 }
 
 function normalizeRevenantWorkflowContext(value, characterId, roomId) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    let serialized;
-    try { serialized = JSON.stringify(value); }
-    catch { return undefined; }
-    if (Buffer.byteLength(serialized) > MAX_WORKFLOW_CONTEXT_BYTES) return undefined;
-    if (value.schemaVersion === 1 && value.kind === 'image-generation') {
-        if (
-            typeof value.operationId !== 'string'
-            || !WORKFLOW_KEY_PATTERN.test(value.operationId)
-            || typeof value.messageId !== 'string'
-            || !WORKFLOW_KEY_PATTERN.test(value.messageId)
-            || value.target?.characterId !== characterId
-            || typeof value.target?.roomId !== 'string'
-            || !value.target.roomId
-            || roomId !== `image-generation:${value.target.roomId}`
-            || typeof value.prompt !== 'string'
-            || !value.prompt.trim()
-            || typeof value.negativePrompt !== 'string'
-            || (value.orientation !== undefined && !isImageOrientation(value.orientation))
-            || (value.seed !== undefined && (!Number.isFinite(value.seed) || value.seed < 0))
-            || typeof value.label !== 'string'
-            || typeof value.comfyBridgeId !== 'string'
-            || !WORKFLOW_KEY_PATTERN.test(value.comfyBridgeId)
-            || (value.projection !== undefined && !['append', 'reroll', 'return'].includes(value.projection))
-        ) return undefined;
-        return JSON.parse(serialized);
+    if (!isObjectRecord(value)) return undefined;
+    if (value.kind === 'image-generation') {
+        return value.target?.characterId === characterId
+            && roomId === `image-generation:${value.target.roomId}`
+            ? value
+            : undefined;
     }
     if (
-        value.schemaVersion !== 1
-        || value.kind !== 'chat-generation'
-        || (value.comfyBridgeId !== undefined && (
-            typeof value.comfyBridgeId !== 'string'
-            || !WORKFLOW_KEY_PATTERN.test(value.comfyBridgeId)
-        ))
-        || value.resume?.schemaVersion !== 1
-        || !Number.isInteger(value.resume.chatProcessIndex)
-        || typeof value.resume.messageChatId !== 'string'
-        || !value.resume.messageChatId
-        || value.postprocess?.schemaVersion !== 1
-        || value.postprocess.messageChatId !== value.resume.messageChatId
-        || !['http', 'plugin', 'echo'].includes(value.postprocess.providerBackend)
-        || !value.postprocess.modelPreset
-        || typeof value.postprocess.modelPreset !== 'object'
-        || !isProviderSnapshotMap(value.postprocess.auxProviders, mode => (
-            LUA_AX_LLM_MODES.includes(mode)
-        ))
-        || !isProviderSnapshotMap(value.postprocess.moduleProviders, moduleId => !!moduleId)
-        || value.postprocess.character?.chaId !== characterId
-        || value.postprocess.character.chats !== undefined
-        || value.postprocess.character.chatPage !== undefined
-        || value.postprocess.chat !== undefined
-        || !Array.isArray(value.postprocess.chatPatch)
-        || value.postprocess.chatPatch.some(operation => (
-            !operation
-            || typeof operation !== 'object'
-            || !CHAT_PATCH_OPERATIONS.has(operation.op)
-            || typeof operation.path !== 'string'
-            || !operation.path.startsWith('/')
-        ))
-        || !value.postprocess.database
-        || typeof value.postprocess.database !== 'object'
-        || !Array.isArray(value.postprocess.modules)
-        || !Array.isArray(value.postprocess.moduleRegexScripts)
-        || !Array.isArray(value.postprocess.moduleTriggers)
-        || !value.inputCommit
-        || (
-            typeof value.inputCommit !== 'object'
-            || Array.isArray(value.inputCommit)
-            || value.inputCommit.schemaVersion !== 1
-            || value.inputCommit.chat?.id !== roomId
-            || !Array.isArray(value.inputCommit.chat?.message)
-            || !Array.isArray(value.inputCommit.changes)
-        )
+        value.kind !== 'chat-generation'
+        || value.postprocess?.character?.chaId !== characterId
+        || value.inputCommit?.chat?.id !== roomId
+        || resolveRevenantPostprocessChat(value, value.inputCommit.chat)?.id !== roomId
     ) return undefined;
-    const postprocessChat = resolveRevenantPostprocessChat(value, value.inputCommit.chat);
-    if (
-        postprocessChat?.id !== roomId
-        || !Array.isArray(postprocessChat?.message)
-    ) return undefined;
-    return JSON.parse(serialized);
+    return value;
 }
 
 function normalizeRevenantWorkflowStepUpdate(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    const status = typeof value.status === 'string' ? value.status : '';
-    if (!WORKFLOW_STEP_STATUSES.has(status)) return undefined;
-    return {
-        status,
-        metadata: value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
-            ? structuredClone(value.metadata)
-            : null,
-    };
+    if (!WORKFLOW_STEP_STATUSES.has(value?.status)) return undefined;
+    return { status: value.status, metadata: value.metadata ?? null };
 }
 
 function normalizeRevenantWorkflowTerminalStatus(value) {
@@ -262,48 +129,10 @@ function isRevenantWorkflowClientActionJobAllowed(input) {
 }
 
 function normalizeRevenantOperationContext(jobType, value) {
-    if (value === undefined || value === null) return null;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    if (typeof value.kind !== 'string' || typeof value.operationId !== 'string') return undefined;
+    if (value == null) return null;
     if (OPERATION_JOB_TYPES[value.kind] !== jobType) return undefined;
-
-    switch (value.kind) {
-        case 'translation':
-            if (
-                typeof value.cacheKey !== 'string'
-                || !Array.isArray(value.styleDecodes)
-                || !value.styleDecodes.every(item => typeof item === 'string')
-                || typeof value.replaceExisting !== 'boolean'
-                || !(
-                    value.target === null
-                    || (
-                        value.target
-                        && value.target.kind === 'chat-message'
-                        && (value.target.messageChatId === null || typeof value.target.messageChatId === 'string')
-                        && Number.isInteger(value.target.messageIndex)
-                        && Number.isInteger(value.target.swipeId)
-                    )
-                )
-            ) return undefined;
-            break;
-        case 'hypav3-summary':
-            if (
-                typeof value.characterId !== 'string'
-                || typeof value.roomId !== 'string'
-                || typeof value.batchId !== 'string'
-                || !WORKFLOW_KEY_PATTERN.test(value.batchId)
-                || !Array.isArray(value.chatMemos)
-                || !value.chatMemos.every(isHypaChatMemo)
-            ) return undefined;
-            break;
-        case 'lua-llm':
-            if (!isRevenantLuaLlmOperation(value)) return undefined;
-            break;
-        default:
-            return undefined;
-    }
-
-    return structuredClone(value);
+    if (value.kind === 'hypav3-summary' && !isValidRevenantWorkflowKey(value.batchId)) return undefined;
+    return value;
 }
 
 function normalizeRevenantDispatchPolicy(value, operationContext, workflowId) {
@@ -384,74 +213,22 @@ function resolveRevenantWorkflowRequestBody(body, dependency, execution) {
 }
 
 function normalizeRevenantHypaExecutionRecipe(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    let serialized;
-    try { serialized = JSON.stringify(value); }
-    catch { return undefined; }
-    if (Buffer.byteLength(serialized) > 4 * 1024 * 1024) return undefined;
-    const embedding = value.embedding;
-    const tokenizer = value.tokenizer;
-    const settings = value.settings;
-    const summaries = value.memory?.summaries;
+    const operationIds = value?.expectedOperationIds;
+    const requests = value?.summaryRequests;
     if (
-        value.schemaVersion !== 1
-        || typeof value.batchId !== 'string'
-        || !WORKFLOW_KEY_PATTERN.test(value.batchId)
-        || !Array.isArray(value.expectedOperationIds)
-        || value.expectedOperationIds.length > 1000
-        || new Set(value.expectedOperationIds).size !== value.expectedOperationIds.length
-        || !value.expectedOperationIds.every(id => typeof id === 'string' && WORKFLOW_KEY_PATTERN.test(id))
-        || !embedding || !REMOTE_HYPA_MODELS.has(embedding.model)
-        || typeof embedding.apiKey !== 'string'
-        || !tokenizer || !SERVER_HYPA_TOKENIZERS.has(tokenizer.tokenizer)
-        || !Number.isInteger(tokenizer.chatAdditionalTokens)
-        || tokenizer.chatAdditionalTokens < 0 || tokenizer.chatAdditionalTokens > 1000
-        || !settings
-        || ![settings.recentMemoryRatio, settings.similarMemoryRatio]
-            .every(number => Number.isFinite(number) && number >= 0 && number <= 1)
-        || settings.recentMemoryRatio + settings.similarMemoryRatio > 1
-        || !Number.isInteger(settings.queryChatCount)
-        || settings.queryChatCount < HYPA_QUERY_CHAT_COUNT_MIN
-        || settings.queryChatCount > HYPA_QUERY_CHAT_COUNT_MAX
-        || typeof settings.summaryChunkSeparator !== 'string'
-        || settings.summaryChunkSeparator.length > 1000
-        || !Array.isArray(value.chats) || value.chats.length > 10000
-        || !value.chats.every(chat => chat && typeof chat === 'object'
-            && typeof chat.role === 'string' && typeof chat.content === 'string')
-        || !Array.isArray(summaries) || summaries.length > 10000
-        || !summaries.every(summary => summary && typeof summary.text === 'string'
-            && Array.isArray(summary.chatMemos)
-            && summary.chatMemos.every(isHypaChatMemo)
-            && typeof summary.isImportant === 'boolean')
-        || ![value.currentTokens, value.maxContextTokens, value.availableMemoryTokens, value.memoryTokens]
-            .every(Number.isFinite)
-        || !Number.isInteger(value.startIdx)
-        || value.startIdx < 0 || value.startIdx > value.chats.length
-        || typeof value.shouldReserveMemoryTokens !== 'boolean'
-        || typeof value.randomSeed !== 'string'
-    ) return undefined;
-    if (settings.queryMode !== undefined && !['chat', 'paragraph'].includes(settings.queryMode)) return undefined;
-    if (settings.embeddingMaxConcurrent !== undefined
-        && (!Number.isInteger(settings.embeddingMaxConcurrent)
-            || settings.embeddingMaxConcurrent < HYPA_CONCURRENT_REQUEST_MIN
-            || settings.embeddingMaxConcurrent > HYPA_CONCURRENT_REQUEST_MAX)) return undefined;
-    const requests = value.summaryRequests;
-    if (!Array.isArray(requests) || requests.length !== value.expectedOperationIds.length
-        || new Set(requests.map(request => request?.operationId)).size !== requests.length
-        || !requests.every(request => request
-            && value.expectedOperationIds.includes(request.operationId)
-            && ['memory', 'query'].includes(request.purpose)
-            && Array.isArray(request.chatMemos)
-            && request.chatMemos.every(isHypaChatMemo)
-            && Array.isArray(request.prompt) && request.prompt.length > 0
-            && request.prompt.every(message => message
-                && ['system', 'user', 'assistant'].includes(message.role)
-                && typeof message.content === 'string'))
-        || requests.filter(request => request.purpose === 'query').length > 1
+        value?.schemaVersion !== 1
+        || !isValidRevenantWorkflowKey(value.batchId)
+        || !Array.isArray(operationIds)
+        || !operationIds.every(isValidRevenantWorkflowKey)
+        || !REMOTE_HYPA_MODELS.has(value.embedding?.model)
+        || !SERVER_HYPA_TOKENIZERS.has(value.tokenizer?.tokenizer)
+        || !Array.isArray(requests)
+        || requests.length !== operationIds.length
+        || !requests.every(request => operationIds.includes(request?.operationId))
         || !value.summaryProvider?.profileSnapshot
-        || !normalizeRevenantDispatchPolicy(value.summaryDispatch, { kind: 'hypav3-summary' })) return undefined;
-    if (embedding.model === 'custom' && typeof embedding.customUrl !== 'string') return undefined;
-    return JSON.parse(serialized);
+        || !normalizeRevenantDispatchPolicy(value.summaryDispatch, { kind: 'hypav3-summary' })
+    ) return undefined;
+    return value;
 }
 
 module.exports = {

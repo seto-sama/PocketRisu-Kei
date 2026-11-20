@@ -1,18 +1,17 @@
 'use strict';
 
-const { filterRemoteOnlyFolders } = require('../remoteDatabaseFilter.cjs');
+const { filterHiddenFolders } = require('../privacyGuardFilter.cjs');
 const { normalizePreview } = require('../bookmarkStore.cjs');
 const { codes, sendApiError } = require('../utils/apiErrors.cjs');
 
 function installBookmarksRoutes(app, {
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive,
     ensureCanonicalStorage,
     appDataStore,
     checkAuth,
     bookmarkStore,
     requireSyncClientId,
-    ensureChatStore,
-    storageState,
+    loadCanonicalChat,
     broadcastBookmarksInvalidated,
 }) {
     const BOOKMARKS_API_PATH = '/api/bookmarks';
@@ -20,12 +19,11 @@ function installBookmarksRoutes(app, {
     const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags';
     const sendBookmarkNotFound = res => sendApiError(res, 404, codes.BOOKMARK_NOT_FOUND);
 
-    async function visibleBookmarkChatKeys(req) {
-        if (!isCloudflareTunnelRequest(req)) return null;
+    async function visibleBookmarkChatKeys() {
+        if (!isPrivacyGuardActive()) return null;
         await ensureCanonicalStorage();
         if (!appDataStore.getState().initialized) return new Set();
-        const database = appDataStore.exportProjection({ includeMessages: false });
-        const visibleDatabase = filterRemoteOnlyFolders(database);
+        const visibleDatabase = filterHiddenFolders(appDataStore.exportFolderProjection());
         const visible = new Set();
         for (const character of visibleDatabase?.characters ?? []) {
             for (const chat of character?.chats ?? []) {
@@ -56,7 +54,7 @@ function installBookmarksRoutes(app, {
         await ensureCanonicalStorage();
         bookmarkStore.pruneInvalid((entry) =>
             appDataStore.hasChat(entry.characterId, entry.chatId));
-        const visible = await visibleBookmarkChatKeys(req);
+        const visible = await visibleBookmarkChatKeys();
         res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
     });
 
@@ -64,12 +62,11 @@ function installBookmarksRoutes(app, {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const { characterId, chatId, messageId } = req.body ?? {};
-        await ensureChatStore(characterId, chatId);
-        const visible = await visibleBookmarkChatKeys(req);
+        const visible = await visibleBookmarkChatKeys();
         if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
             return sendBookmarkNotFound(res);
         }
-        const chat = storageState.fullChatStore.get(characterId)?.get(chatId);
+        const chat = (await loadCanonicalChat(characterId, chatId))?.chat;
         const message = chat?.message?.find(value => value?.chatId === messageId);
         if (!chat || !message) return sendBookmarkNotFound(res);
         bookmarkStore.upsertBookmarkEntry({
@@ -89,7 +86,7 @@ function installBookmarksRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         await ensureCanonicalStorage();
         const { characterId, chatId, messageId } = req.body ?? {};
-        const visible = await visibleBookmarkChatKeys(req);
+        const visible = await visibleBookmarkChatKeys();
         if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
             return sendBookmarkNotFound(res);
         }
@@ -112,7 +109,7 @@ function installBookmarksRoutes(app, {
         if (!requireSyncClientId(req, res)) return;
         await ensureCanonicalStorage();
         const { characterId, chatId, messageId } = req.body ?? {};
-        const visible = await visibleBookmarkChatKeys(req);
+        const visible = await visibleBookmarkChatKeys();
         if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
             return sendBookmarkNotFound(res);
         }
@@ -126,7 +123,7 @@ function installBookmarksRoutes(app, {
     app.put(BOOKMARK_TAGS_API_PATH, async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        if (isCloudflareTunnelRequest(req)) {
+        if (isPrivacyGuardActive()) {
             return sendApiError(res, 403, codes.BOOKMARK_TAGS_LOCAL_ONLY);
         }
         await ensureCanonicalStorage();
@@ -138,7 +135,7 @@ function installBookmarksRoutes(app, {
     app.post(`${BOOKMARK_TAGS_API_PATH}/merge`, async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        if (isCloudflareTunnelRequest(req)) {
+        if (isPrivacyGuardActive()) {
             return sendApiError(res, 403, codes.BOOKMARK_TAGS_LOCAL_ONLY);
         }
         await ensureCanonicalStorage();
@@ -152,7 +149,7 @@ function installBookmarksRoutes(app, {
         await ensureCanonicalStorage();
         const targets = Array.isArray(req.body?.targets) ? req.body.targets : null;
         if (!targets) return res.status(400).json({ error: 'Invalid bookmark targets' });
-        const visible = await visibleBookmarkChatKeys(req);
+        const visible = await visibleBookmarkChatKeys();
         res.json(bookmarkStore.compatibilityForTargets(targets.filter(target =>
             isVisibleBookmarkTarget(visible, target?.characterId, target?.chatId))));
     });

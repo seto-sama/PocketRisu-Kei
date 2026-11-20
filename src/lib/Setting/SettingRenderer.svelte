@@ -30,7 +30,7 @@
 {#snippet itemList()}
     {#each items as item (item.id)}
         {#if checkCondition(item, ctx)}
-            {@const Component = settingRegistry[item.type]}
+            {const Component = $derived(settingRegistry[item.type])}
             {#if Component}
                 <Component {item} {ctx} />
             {:else}

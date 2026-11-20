@@ -8,7 +8,7 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte'
     import type { HTMLAttributes } from 'svelte/elements'
-    import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardPasteIcon, CopyIcon, DownloadIcon, EyeIcon, FileCheckIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, ImportIcon, InfoIcon, PencilIcon, RefreshCwIcon, ScissorsIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
+    import { ArchiveRestoreIcon, BriefcaseIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardPasteIcon, CopyIcon, DownloadIcon, EyeIcon, FileCheckIcon, FolderIcon, FolderPlusIcon, HardDriveIcon, ImportIcon, InfoIcon, PencilIcon, RefreshCwIcon, ScissorsIcon, StarIcon, Trash2Icon, UploadIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { forageStorage } from 'src/ts/storage/autoStorage'
     import { notifyError, notifySuccess } from 'src/ts/alert'
@@ -16,6 +16,9 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
     import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
+    import { DRIVE_PRIVATE_DIRECTORY as privatePath, isDrivePrivatePath } from '../../../shared/drivePrivate.mjs'
+    import { compareDriveEntries } from '../../../shared/driveEntryOrder.mjs'
+    import { isPrivacyGuardActive } from 'src/ts/platform'
     import type { DriveConflict, DriveMergePlan, DriveMergeResolution, DriveRenameResult, NodeStorage } from 'src/ts/storage/nodeStorage'
     import { chooseConflictComparison, SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
     import type { ServerDriveFileRequest } from 'src/ts/serverDriveFilePicker.svelte'
@@ -34,7 +37,7 @@
 
     let { open = $bindable(true), pick }: { open?: boolean, pick?: ServerDriveFileRequest } = $props()
     let storage = $state.raw<NodeStorage>()
-    let previewFile = $state.raw<File | null>(null)
+    let preview = $state.raw<{ entry: DriveEntry, file: File | null, importable: boolean } | null>(null)
     let currentPath = $state('')
     let entries = $state<DriveEntry[]>([])
     let loading = $state(true)
@@ -87,17 +90,29 @@
 
     const parts = $derived(currentPath ? currentPath.split('/') : [])
     const inTrash = $derived(currentPath === trashPath || currentPath.startsWith(trashPath + '/'))
+    const inPrivate = $derived(isDrivePrivatePath(currentPath))
+    const deleteActionLabel = $derived(emptyTrashOpen ? language.emptyTrash
+        : inTrash ? language.serverDrive.deleteForever : language.serverDrive.moveToTrash)
+    const addressRoot = $derived(inTrash ? trashPath : inPrivate ? privatePath : '')
+    const addressRootDepth = $derived(addressRoot ? 1 : 0)
+    let pathBeforeSpecialFolder = ''
+
+    function toggleSpecialFolder(folder: string, inside: boolean) {
+        if (inside) return refresh(pathBeforeSpecialFolder)
+        if (!inTrash && !inPrivate) pathBeforeSpecialFolder = currentPath
+        return refresh(folder)
+    }
     const hasSubfolders = $derived(entries.some(entry => entry.type === 'directory'))
-    const sortedEntries = $derived([...entries]
-        .sort((a, b) => Number(b.type === 'directory') - Number(a.type === 'directory')
-            || a.name.localeCompare(b.name, undefined, { numeric: true })))
+    const sortedEntries = $derived([...entries].sort(compareDriveEntries))
     const selectedPathSet = $derived(new Set(selectedPaths))
     const selectedEntries = $derived(sortedEntries.filter(entry => selectedPathSet.has(entry.path)))
     const selectionBox = $derived(drag?.active ? {
         left: Math.min(drag.startX, drag.x), top: Math.min(drag.startY, drag.y),
         width: Math.abs(drag.x - drag.startX), height: Math.abs(drag.y - drag.startY),
     } : null)
+    // Edits rewrite every saved shortcut; only the shown list drops private ones, whose names would leak under privacy guard.
     const shortcuts = $derived([...new Set((DBState.db.serverDriveShortcuts ?? []).filter(path => typeof path === 'string' && path !== ''))])
+    const visibleShortcuts = $derived(isPrivacyGuardActive ? shortcuts.filter(path => !isDrivePrivatePath(path)) : shortcuts)
     const disabled = $derived(busy || loading)
     const cutPaths = $derived(new Set(clipboard?.operation === 'move' ? clipboard.entries.map(entry => entry.path) : []))
     const canPaste = $derived(!disabled && !inTrash && !!clipboard?.entries.length
@@ -380,8 +395,20 @@
     }
 
     function askDelete() {
-        if (inTrash) return
         deleteTargets = [...selectedEntries]
+    }
+
+    async function restoreSelection() {
+        if (disabled) return
+        busy = true
+        try {
+            for (const entry of selectedEntries) await storage.restoreDriveTrashEntry(entry.path)
+        } catch (error) {
+            notifyError(error)
+        } finally {
+            busy = false
+            await refresh(currentPath)
+        }
     }
 
     function closeDeleteDialog() {
@@ -398,6 +425,8 @@
         try {
             if (emptyTrash) {
                 await storage.emptyDriveTrash()
+            } else if (inTrash) {
+                for (const entry of targets) await storage.deleteDriveTrashEntry(entry.path)
             } else {
                 for (const entry of targets) {
                     await storage.deleteDriveEntry(entry.path)
@@ -439,8 +468,33 @@
     function activate(entry: DriveEntry) {
         if (disabled) return
         if (entry.type === 'directory') void refresh(entry.path).then(() => { if (!disposed) fileArea?.focus({ preventScroll: true }) })
-        else if (pick) void (canPick(entry) ? pickFiles([entry]) : openEntry(entry, 'preview'))
-        else void openEntry(entry)
+        else if (pick && canPick(entry)) void pickFiles([entry])
+        else void openPreview(entry)
+    }
+
+    async function openPreview(entry: DriveEntry) {
+        if (entry.type !== 'file') return
+        // Import formats are binary: preview them through the server thumbnail without downloading.
+        if (['character', 'preset', 'module'].includes(getFileType(entry.name))) {
+            preview = { entry, file: null, importable: !pick }
+            return
+        }
+        await runFileOperation(async signal => {
+            const file = await storage.readDriveFile(entry.path, signal)
+            signal.throwIfAborted()
+            let importable = false
+            if (!pick && /\.(png|jpe?g)$/i.test(entry.name)) {
+                const { getCharacterImageFormat } = await import('src/ts/characterCards')
+                importable = !!await getCharacterImageFormat(new Uint8Array(await file.arrayBuffer()))
+                signal.throwIfAborted()
+            }
+            preview = { entry, file, importable }
+        })
+    }
+
+    function thumbnailUrl(entry: DriveEntry) {
+        const fileType = getFileType(entry.name)
+        return entry.type === 'file' && (fileType === 'image' || fileType === 'character') ? storage.driveThumbnailUrl(entry) : ''
     }
 
     function canPick(entry: DriveEntry) {
@@ -450,20 +504,14 @@
     }
 
     async function pickFiles(targets: DriveEntry[]) {
-        if (disabled || !targets.length) return
-        busy = true
-        const controller = operationController = new AbortController()
-        try {
+        if (!targets.length) return
+        return runFileOperation(async signal => {
             const files: File[] = []
-            for (const entry of targets) files.push(await storage.readDriveFile(entry.path, controller.signal))
-            controller.signal.throwIfAborted()
+            for (const entry of targets) files.push(await storage.readDriveFile(entry.path, signal))
+            signal.throwIfAborted()
             pick.finish(files)
             open = false
-        } catch (error) {
-            if (!controller.signal.aborted) notifyError(error)
-        } finally {
-            busy = false
-        }
+        })
     }
 
     function canImport(entry: DriveEntry) {
@@ -471,27 +519,31 @@
             || /\.(png|jpe?g)$/i.test(entry.name))
     }
 
-    async function openEntry(entry: DriveEntry, action: 'auto' | 'import' | 'preview' = 'auto') {
-        if (disabled || entry.type !== 'file') return
+    async function runFileOperation(run: (signal: AbortSignal) => Promise<void>) {
+        if (disabled) return
         busy = true
         const controller = operationController = new AbortController()
         try {
-            const data = await storage.readDriveFile(entry.path, controller.signal)
-            controller.signal.throwIfAborted()
-            if (action !== 'preview') {
-                const { importFile } = await import('src/ts/characterCards')
-                controller.signal.throwIfAborted()
-                const imported = await importFile(entry.name, data)
-                controller.signal.throwIfAborted()
-                if (imported) { open = false; return }
-                if (action === 'import') { notifyError(language.errors.noData); return }
-            }
-            previewFile = data
+            await run(controller.signal)
         } catch (error) {
             if (!controller.signal.aborted) notifyError(error)
         } finally {
             busy = false
         }
+    }
+
+    function importEntry(entry: DriveEntry, downloaded: File | null = null) {
+        if (entry.type !== 'file') return
+        return runFileOperation(async signal => {
+            const data = downloaded ?? await storage.readDriveFile(entry.path, signal)
+            signal.throwIfAborted()
+            const { importFile } = await import('src/ts/characterCards')
+            signal.throwIfAborted()
+            if (!await importFile(entry.name, data)) { notifyError(language.errors.noData); return }
+            signal.throwIfAborted()
+            preview = null
+            open = false
+        })
     }
 
     function openNameDialog(entry: DriveEntry | null = null) {
@@ -663,7 +715,7 @@
         <DropdownMenu.Root onOpenChange={(open) => { void loadFolderMenu(path, open) }}>
             <DropdownMenu.Trigger disabled={disabled}>
                 {#snippet child({ props })}
-                    <IconButton {...props} {...actionProps()} size="default" className="risu-selectable-row hover:text-subtext" tooltipSide="bottom" title={language.serverDrive.childFolders}><ChevronRightIcon /></IconButton>
+                    <IconButton {...props} {...actionProps()} size="default" className="risu-interactive-surface hover:text-subtext" tooltipSide="bottom" title={language.serverDrive.childFolders}><ChevronRightIcon /></IconButton>
                 {/snippet}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content class={menuClass}>
@@ -700,13 +752,18 @@
     </IconButtonGroup>
 {/snippet}
 
-<Dialog bind:open size="xl" fullscreen={!$mdViewport} closable={false} ariaLabel={pick ? language.serverDrive.pickTitle : language.serverDrive.title}
+<Dialog bind:open size="xl" fullscreen={!mdViewport.current} closable={false} ariaLabel={pick ? language.serverDrive.pickTitle : language.serverDrive.title}
     contentClass="md:h-[90dvh] overflow-hidden p-0 gap-0"
     bodyClass="flex min-h-0 grow overflow-hidden">
     <section class="grid min-h-0 min-w-0 flex-1 grid-cols-[var(--icon-cell-size)_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]" style:--icon-cell-size="{controlCellSize}px">
         <div class="col-start-1 row-span-2 row-start-2 flex min-h-0 flex-col bg-darkbg" role="navigation" aria-label={language.serverDrive.shortcuts}>
             <IconButtonGroup direction="vertical" className="min-h-0 flex-1 gap-2 overflow-y-auto px-2">
-                {#each shortcuts as path (path)}
+                {#if !isPrivacyGuardActive}
+                    <IconButton {...actionProps()} tooltipSide="right" title={language.serverDrive.privateFolder} active={inPrivate} activeColor="primary" onclick={() => toggleSpecialFolder(privatePath, inPrivate)}>
+                        <BriefcaseIcon />
+                    </IconButton>
+                {/if}
+                {#each visibleShortcuts as path (path)}
                     <ContextMenu.Root>
                         <ContextMenu.Trigger disabled={disabled}>
                             {#snippet child({ props })}
@@ -724,28 +781,34 @@
             <IconButtonGroup direction="vertical" className="gap-2 p-2">
                 <IconButton {...actionProps(busy || !!loadError || inTrash)} tooltipSide="right" title={language.serverDrive.upload} onclick={() => fileInput.click()}><UploadIcon /></IconButton>
                 <IconButton {...actionProps()} tooltipSide="right" title={language.serverDrive.refresh} onclick={() => refresh()}><RefreshCwIcon /></IconButton>
-                <TrashSettingsPopup>
-                    {#snippet trigger()}
-                        <IconButton {...actionProps()} tooltipSide="right" title={language.trash} active={inTrash} activeColor="primary" onclick={() => refresh(trashPath)}><Trash2Icon /></IconButton>
-                    {/snippet}
-                </TrashSettingsPopup>
+                <!-- The trash may hold files deleted from the private folder. -->
+                {#if !isPrivacyGuardActive}
+                    <TrashSettingsPopup>
+                        {#snippet trigger()}
+                            <IconButton {...actionProps()} tooltipSide="right" title={language.trash} active={inTrash} activeColor="primary" onclick={() => toggleSpecialFolder(trashPath, inTrash)}><Trash2Icon /></IconButton>
+                        {/snippet}
+                    </TrashSettingsPopup>
+                {/if}
             </IconButtonGroup>
         </div>
 
         <div class="col-start-2 row-start-1 flex h-[var(--icon-cell-size)] min-w-0 items-center">
-            {#if $mdViewport}{@render navigationButtons()}{/if}
+            {#if mdViewport.current}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <IconButton {...actionProps()} {...dropProps('')} data-selected={dropPath === ''} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext" title={language.serverDrive.driveRoot} onclick={() => refresh('')}><HardDriveIcon /></IconButton>
-                    {@render folderDropdown('')}
-                    {#each parts as part, index}
-                        {@const path = parts.slice(0, index + 1).join('/')}
-                        <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
+                    <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-interactive-surface text-maintext hover:text-maintext"
+                        title={inTrash ? language.trash : inPrivate ? language.serverDrive.privateFolder : language.serverDrive.driveRoot} onclick={() => refresh(addressRoot)}>
+                        {#if inTrash}<Trash2Icon />{:else if inPrivate}<BriefcaseIcon />{:else}<HardDriveIcon />{/if}
+                    </IconButton>
+                    {@render folderDropdown(addressRoot)}
+                    {#each parts.slice(addressRootDepth) as part, index}
+                        {const path = $derived(parts.slice(0, addressRootDepth + index + 1).join('/'))}
+                        <button {...dropProps(path)} data-selected={dropPath === path} class="risu-interactive-surface h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
                 </div>
             </nav>
-            {#if $mdViewport}{@render windowButtons()}{/if}
+            {#if mdViewport.current}{@render windowButtons()}{/if}
         </div>
 
         <div class="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-tl-xl bg-lightbg">
@@ -759,7 +822,7 @@
             <ContextMenu.Root onOpenChange={(open) => { if (open) { selectedPaths = []; selectionAnchor = null } }}>
                 <ContextMenu.Trigger disabled={disabled || !!loadError}>
                     {#snippet child({ props })}
-                        {@const areaProps = props as HTMLAttributes<HTMLElement>}
+                        {const areaProps = $derived(props as HTMLAttributes<HTMLElement>)}
                         <main {...areaProps} {...dropProps(currentPath)} bind:this={fileArea} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading} data-drive-files tabindex="-1"
                             onpointerdown={(event) => {
                                 if ((event.target as Element).closest('[data-drive-entry]')) return
@@ -782,39 +845,45 @@
                             {:else}
                                 <div class="grid grid-cols-[repeat(auto-fill,6rem)] gap-1">
                                     {#each sortedEntries.slice(0, visibleLimit) as entry (entry.path)}
-                                        {@const fileType = getFileType(entry.name)}
                                         <ContextMenu.Root onOpenChange={(open) => { if (open) ensureSelected(entry) }}>
                                             <ContextMenu.Trigger disabled={disabled}>
                                                 {#snippet child({ props })}
-                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" class:opacity-50={cutPaths.has(entry.path) || (pick && entry.type === 'file' && !canPick(entry))} data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
+                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-interactive-surface drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" class:opacity-50={cutPaths.has(entry.path) || (pick && entry.type === 'file' && !canPick(entry))} data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
                                                         aria-label={entry.name} aria-pressed={selectedPathSet.has(entry.path)} disabled={disabled}
                                                         draggable={!disabled && !inTrash} ondragstart={event => startEntryDrag(event, entry)} ondragend={endEntryDrag}
                                                         onclick={(event) => selectEntry(event, entry)} ondblclick={() => activate(entry)}
                                                         onkeydown={(event) => handleEntryKeydown(event, entry)}>
-                                                        <ServerDriveEntryIcon {entry} strokeWidth={fileStrokeWidth}
-                                                            thumbnailUrl={entry.type === 'file' && (fileType === 'image' || fileType === 'character') ? storage.driveThumbnailUrl(entry) : ''} />
+                                                        <ServerDriveEntryIcon {entry} strokeWidth={fileStrokeWidth} thumbnailUrl={thumbnailUrl(entry)} />
                                                         <span class="line-clamp-3 w-full break-all text-center">{entry.name}</span>
                                                     </button>
                                                 {/snippet}
                                             </ContextMenu.Trigger>
                                             <ContextMenu.Content class={menuClass} onCloseAutoFocus={(event) => { if (nameOpen || properties || deleteTargets.length) event.preventDefault() }}>
+                                                {#if inTrash}
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => { void restoreSelection() }}><ArchiveRestoreIcon size={16} />{language.serverDrive.restoreFromTrash}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={!selectedEntries.length} variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.deleteForever}</ContextMenu.Item>
+                                                    <ContextMenu.Separator />
+                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
+                                                {:else}
                                                 {#if pick}
                                                     <ContextMenu.Item disabled={!pickedEntries.length} onSelect={() => { void pickFiles(pickedEntries) }}><FileCheckIcon size={16} />{language.serverDrive.open}</ContextMenu.Item>
                                                 {:else}
-                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1 || !canImport(entry)} onSelect={() => { void openEntry(entry, 'import') }}><ImportIcon size={16} />{language.serverDrive.import}</ContextMenu.Item>
+                                                    <ContextMenu.Item disabled={selectedEntries.length !== 1 || !canImport(entry)} onSelect={() => { void importEntry(entry) }}><ImportIcon size={16} />{language.serverDrive.import}</ContextMenu.Item>
                                                 {/if}
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openEntry(entry, 'preview') }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || entry.type !== 'file'} onSelect={() => { void openPreview(entry) }}><EyeIcon size={16} />{language.preview}</ContextMenu.Item>
                                                 <ContextMenu.Item disabled={!selectedEntries.length} onSelect={async () => { for (const selected of selectedEntries) await download(selected) }}><DownloadIcon size={16} />{language.download}</ContextMenu.Item>
-                                                {#if entry.type === 'directory' && !inTrash}
+                                                {#if entry.type === 'directory'}
                                                     <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => toggleShortcut(entry.path)}><StarIcon size={16} />{shortcuts.includes(entry.path) ? language.serverDrive.removeShortcut : language.serverDrive.addShortcut}</ContextMenu.Item>
                                                 {/if}
                                                 <ContextMenu.Separator />
-                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('move')}><ScissorsIcon size={16} />{language.cut}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={inTrash || !selectedEntries.length} onSelect={() => stageSelection('copy')}><CopyIcon size={16} />{language.copy}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={inTrash} variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
-                                                <ContextMenu.Item disabled={selectedEntries.length !== 1 || inTrash} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => stageSelection('move')}><ScissorsIcon size={16} />{language.cut}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={!selectedEntries.length} onSelect={() => stageSelection('copy')}><CopyIcon size={16} />{language.copy}</ContextMenu.Item>
+                                                <ContextMenu.Item variant="destructive" onSelect={askDelete}><Trash2Icon size={16} />{language.serverDrive.moveToTrash}</ContextMenu.Item>
+                                                <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => openNameDialog(entry)}><PencilIcon size={16} />{language.serverDrive.rename}</ContextMenu.Item>
                                                 <ContextMenu.Separator />
                                                 <ContextMenu.Item disabled={selectedEntries.length !== 1} onSelect={() => showProperties(entry)}><InfoIcon size={16} />{language.serverDrive.metadata}</ContextMenu.Item>
+                                                {/if}
                                             </ContextMenu.Content>
                                         </ContextMenu.Root>
                                     {/each}
@@ -852,7 +921,7 @@
                 </div>
             {/if}
         </div>
-        {#if !$mdViewport}
+        {#if !mdViewport.current}
             <div class="col-start-2 row-start-3 flex h-[var(--icon-cell-size)] min-w-0 items-center" role="toolbar" aria-label={language.serverDrive.navigation}>
                 {@render navigationButtons()}
                 <div class="flex-1"></div>
@@ -868,17 +937,22 @@
 </Dialog>
 
 <Dialog open={deleteTargets.length > 0 || emptyTrashOpen} onOpenChange={(open) => { if (!open) closeDeleteDialog() }} onConfirm={() => { void deleteSelection() }} closable={false} role="alertdialog" size="sm">
-    {#snippet title()}{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}{/snippet}
-    {#snippet description()}{emptyTrashOpen ? language.serverDrive.emptyTrashConfirm : language.serverDrive.trashConfirm.replace('{count}', String(deleteTargets.length))}{/snippet}
+    {#snippet title()}{deleteActionLabel}{/snippet}
+    {#snippet description()}{emptyTrashOpen ? language.serverDrive.emptyTrashConfirm : (inTrash ? language.serverDrive.deleteForeverConfirm : language.serverDrive.trashConfirm).replace('{count}', String(deleteTargets.length))}{/snippet}
     {#if deleteTargets.length}<ul class="max-h-40 overflow-y-auto text-sm">{#each deleteTargets as entry (entry.path)}<li class="break-all">{entry.name}</li>{/each}</ul>{/if}
     {#snippet footer()}
         <Button variant="outline" onclick={closeDeleteDialog}>{language.cancel}</Button>
-        <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{emptyTrashOpen ? language.emptyTrash : language.serverDrive.moveToTrash}</Button>
+        <Button variant="destructive" disabled={disabled} onclick={() => { void deleteSelection() }}>{deleteActionLabel}</Button>
     {/snippet}
 </Dialog>
 
-{#if previewFile}
-    <ServerDrivePreview file={previewFile} onClose={() => { previewFile = null }} />
+{#if preview}
+    {const { entry, file, importable } = $derived(preview)}
+    {#key preview}
+        <ServerDrivePreview {entry} {file} thumbnailUrl={thumbnailUrl(entry)} busy={disabled}
+            onImport={importable ? () => { void importEntry(entry, file) } : undefined}
+            onDownload={() => { void download(entry) }} onClose={() => { preview = null }} />
+    {/key}
 {/if}
 
 <Dialog open={properties !== null} onOpenChange={(open) => { if (!open) closeProperties() }} size="sm">

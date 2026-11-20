@@ -8,6 +8,7 @@ import {
     subscribeRecoverableTranslations,
 } from '../auxiliary'
 import type { RevenantChatMessageTranslationTarget } from '../types'
+import { getTranslationSourceKey } from '../../../translator/translationMask'
 import {
     recoverRevenantTranslationJobs,
     type RevenantTranslationCache,
@@ -37,6 +38,7 @@ export interface RevenantChatTranslationRecovery {
         options: {
             data: string
             translated: boolean
+            translationCacheOnly?: boolean
             streaming: boolean
             autoTranslationSuppressed?: boolean
             lastOutputAutoTranslationEligible?: boolean
@@ -124,6 +126,8 @@ export function createRevenantChatTranslationRecovery(options: {
         renderOptions: {
             data: string
             translated: boolean
+            // Keep an active translation only while its source is still cached.
+            translationCacheOnly?: boolean
             streaming: boolean
             autoTranslationSuppressed?: boolean
             lastOutputAutoTranslationEligible?: boolean
@@ -132,7 +136,13 @@ export function createRevenantChatTranslationRecovery(options: {
     ): Promise<boolean> {
         if (!DBState.db.translator || renderOptions.streaming) return false
         if (!renderOptions.data.trim()) return false
-        if (renderOptions.translated) return true
+        if (renderOptions.translated) {
+            // A recoverable translation is already cache-backed.
+            return !renderOptions.translationCacheOnly
+                || DBState.db.translatorType !== 'llm'
+                || snapshot.pending
+                || await hasCachedTranslation(snapshot, renderOptions)
+        }
         if (renderOptions.autoTranslationSuppressed) return false
         if (!DBState.db.autoTranslate) return false
 
@@ -152,14 +162,17 @@ export function createRevenantChatTranslationRecovery(options: {
         if (!lastOutputOnly && !cachedOnly) return true
         if (lastOutputEligible) return true
         if (!cachedOnly) return false
+        return await hasCachedTranslation(snapshot, renderOptions)
+    }
 
-        const translationCacheKey = snapshot.cacheKey
-            ?? (DBState.db.translateBeforeHTMLFormatting
-                ? renderOptions.data
-                : await renderOptions.parseMarkdown(renderOptions.data, 'pretranslate'))
-        snapshot.cacheKey = translationCacheKey
-        const cached = await options.translationCache.get(translationCacheKey) !== null
-        return cached
+    async function hasCachedTranslation(
+        snapshot: RevenantChatTranslationRecoverySnapshot,
+        renderOptions: { data: string, parseMarkdown: ParseMessageMarkdown },
+    ): Promise<boolean> {
+        snapshot.cacheKey ??= getTranslationSourceKey(DBState.db.translateBeforeHTMLFormatting
+            ? renderOptions.data
+            : await renderOptions.parseMarkdown(renderOptions.data, 'pretranslate'))
+        return await options.translationCache.get(snapshot.cacheKey) !== null
     }
 
     async function waitForResult(

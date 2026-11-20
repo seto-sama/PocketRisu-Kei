@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { kvList, db: sqliteDb, kvSize, chunkStorageStats, reclaimableChunkBytes, isDbBlobChunked, kvListWithSizes, kvDel, checkpointWal, estimateVacuumRequiredBytes, gcChunks, vacuumDatabase } = require('../db.cjs');
 const { STORED_ASSET_PREFIX, findOrphanAssets, collectProtectedAssetBasenames, assetBasename: statsBasename, collectDatabaseAssetBasenames, collectPersistentPluginAssetBasenames } = require('../assetReferences.cjs');
 const fs = require('fs/promises');
@@ -13,16 +14,24 @@ function installMaintenanceRoutes(app, {
     backupState,
     DEFAULT_BACKUPS_DIR,
     sumInlayFsBytes,
-    estimateServerBackupSize,
+    listColdStorageBackupEntries,
     appDataStore,
-    storageState,
     DB_BACKUP_PREFIX,
     BACKUP_FILENAME_REGEX,
-    DB_HEX_KEY,
     requireSyncClientId,
     queueStorageOperation,
-    flushPendingDb,
 }) {
+    // Mirrors the enumeration in /api/backup/server/save without writing anything.
+    function estimateServerBackupSize(inlayFsBytes) {
+        let total = appDataStore.getState().initialized
+            ? appDataStore.estimateProjectionBytes()
+            : 0;
+        for (const it of kvListWithSizes('assets/')) total += it.size;
+        for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
+        for (const e of listColdStorageBackupEntries()) total += e.size;
+        return total + inlayFsBytes;
+    }
+
     const DB_BLOB_KEY = 'database/database.bin';
 
     const ASSET_PREFIXES = [
@@ -88,27 +97,27 @@ function installMaintenanceRoutes(app, {
         // storage dashboard.
         if (req.query?.scope === 'backup') {
             const inlayFsBytes = await sumInlayFsBytes();
-            const estimatedBackupSize = await estimateServerBackupSize(
-                appDataStore.getState().initialized
-                    ? appDataStore.estimateProjectionBytes()
-                    : 0,
-                inlayFsBytes,
-            );
+            const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
             return res.json({
                 files,
                 disk,
                 backupDisk,
                 estimatedBackupSize,
                 inlayFsBytes,
-                etag: storageState.dbEtag,
+                etag: appDataStore.getState().projectionEtag,
             });
         }
 
-        const pageSize = sqliteDb.pragma('page_size', { simple: true });
-        const pageCount = sqliteDb.pragma('page_count', { simple: true });
-        const freelistCount = sqliteDb.pragma('freelist_count', { simple: true });
-        const journalMode = sqliteDb.pragma('journal_mode', { simple: true });
-        const autoVacuum = sqliteDb.pragma('auto_vacuum', { simple: true });
+        const {
+            page_size: pageSize,
+            page_count: pageCount,
+            freelist_count: freelistCount,
+            journal_mode: journalMode,
+            auto_vacuum: autoVacuum,
+        } = sqliteDb.prepare(`
+            SELECT * FROM pragma_page_size, pragma_page_count, pragma_freelist_count,
+                pragma_journal_mode, pragma_auto_vacuum
+        `).get();
         const reclaimable = freelistCount * pageSize;
 
         const dbBlobSize = kvSize(DB_BLOB_KEY) || 0;
@@ -148,8 +157,9 @@ function installMaintenanceRoutes(app, {
             prefixes[p] = { totalSize: total, count: items.length };
         }
 
-        const kvRows = sqliteDb.prepare('SELECT COUNT(*) AS c FROM kv').get().c;
-        const kvTotalBytes = sqliteDb.prepare('SELECT COALESCE(SUM(LENGTH(value)), 0) AS s FROM kv').get().s;
+        const { kvRows, kvTotalBytes } = sqliteDb.prepare(
+            'SELECT COUNT(*) AS kvRows, COALESCE(SUM(LENGTH(value)), 0) AS kvTotalBytes FROM kv',
+        ).get();
 
         let fileBackups = { count: 0, totalSize: 0, oldest: null, newest: null };
         try {
@@ -165,9 +175,11 @@ function installMaintenanceRoutes(app, {
             }
         } catch { /* backups dir may not exist */ }
 
-        // Use the cached projection, then scan plugin values for asset references.
+        // Scan the startup projection, then plugin values, for asset references.
         let orphan = { count: 0, totalSize: 0, available: false };
-        const stripped = storageState.dbCache[DB_HEX_KEY];
+        const stripped = appDataStore.getState().initialized
+            ? appDataStore.exportProjection({ includeMessages: false })
+            : null;
         if (stripped && Array.isArray(stripped.characters)) {
             const victims = findOrphanAssets(
                 storedAssets,
@@ -182,12 +194,7 @@ function installMaintenanceRoutes(app, {
         // than in kv `inlay/*` prefixes. Surface explicitly so the dashboard
         // chart can include it in the inlay slice instead of underreporting.
         const inlayFsBytes = await sumInlayFsBytes();
-        const estimatedBackupSize = await estimateServerBackupSize(
-            appDataStore.getState().initialized
-                ? appDataStore.estimateProjectionBytes()
-                : 0,
-            inlayFsBytes,
-        );
+        const estimatedBackupSize = estimateServerBackupSize(inlayFsBytes);
 
         res.json({
             files,
@@ -205,7 +212,7 @@ function installMaintenanceRoutes(app, {
                 file: fileBackups,
             },
             orphan,
-            etag: storageState.dbEtag,
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -216,7 +223,7 @@ function installMaintenanceRoutes(app, {
             res.json({ characters: [], orphan: { count: 0, totalSize: 0 }, chatBytesNote: 'estimate' });
             return;
         }
-        const dbObj = storageState.dbCache[DB_HEX_KEY] ?? { characters: [] };
+        const dbObj = appDataStore.exportProjection({ includeMessages: false });
 
         const assetSize = new Map();
         for (const it of kvListWithSizes('assets/')) {
@@ -274,7 +281,7 @@ function installMaintenanceRoutes(app, {
                 totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
             },
             chatBytesNote: 'relational msgpack payload bytes',
-            etag: storageState.dbEtag,
+            etag: appDataStore.getState().projectionEtag,
         });
     });
 
@@ -320,16 +327,15 @@ function installMaintenanceRoutes(app, {
         }
 
         modules.sort((a, b) => b.totalBytes - a.totalBytes);
-        res.json({ modules, etag: storageState.dbEtag });
+        res.json({ modules, etag: appDataStore.getState().projectionEtag });
     });
 
     app.post('/api/db/assets/purge-orphans', async (req, res) => {
         if (!await checkAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         const result = await queueStorageOperation(async () => {
-            // Decide from persisted bytes after pending client writes land; the
+            // Decide from persisted bytes after queued writes land; the
             // dashboard's in-memory estimate is informational only.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 return { error: 'No relational database' };
             }
@@ -351,9 +357,9 @@ function installMaintenanceRoutes(app, {
             }
 
             const victims = findOrphanAssets(storedAssets, databaseReferences);
-            sqliteDb.transaction(() => {
+            withTransaction(sqliteDb, () => {
                 for (const asset of victims) kvDel(asset.key);
-            })();
+            });
 
             const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
             if (victims.length > 0) {
@@ -385,7 +391,6 @@ function installMaintenanceRoutes(app, {
         }
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             // Reclaim chunks orphaned by edits/snapshot rotation before VACUUM, so
             // their pages get compacted in the same pass. Serialized with saves by
@@ -419,7 +424,6 @@ function installMaintenanceRoutes(app, {
         const preWalSize = statSafe(walFilePath)?.size ?? 0;
 
         const result = await queueStorageOperation(async () => {
-            await flushPendingDb();
             const t0 = Date.now();
             checkpointWal('TRUNCATE');
             const elapsed = Date.now() - t0;

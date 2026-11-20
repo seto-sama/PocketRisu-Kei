@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { prefersReducedMotion } from 'svelte/motion';
+
     interface Props {
         rise?: string;
     }
@@ -22,7 +24,7 @@
     $effect(() => {
         particleMap.clear();
         particles = [];
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if (prefersReducedMotion.current) return;
 
         let spawnTimer: ReturnType<typeof setTimeout> | undefined;
         const removalTimers = new Set<ReturnType<typeof setTimeout>>();

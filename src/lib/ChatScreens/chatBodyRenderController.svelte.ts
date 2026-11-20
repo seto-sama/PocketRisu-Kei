@@ -11,6 +11,10 @@ import {
     subscribeLLMTranslationCache,
     translateHTML,
 } from '../../ts/translator/translator'
+import {
+    hasTranslationPlaceholders,
+    maskUntranslatable,
+} from '../../ts/translator/translationMask'
 
 type ParseMode = 'normal' | 'back' | 'pretranslate' | 'notrim'
 type ParseMessageMarkdown = (data: string, mode: ParseMode) => Promise<string>
@@ -261,10 +265,11 @@ export function createChatBodyRenderController(
             DBState.db.translatorType === 'llm'
             && DBState.db.translateBeforeHTMLFormatting
         ) {
-            const cacheKey = options.translationCacheKey ?? options.data
+            const masked = maskUntranslatable(options.data)
+            const cacheKey = options.translationCacheKey ?? masked.source
             const translatedData = await runTranslationTask(
                 (signal) => translateHTML(
-                    options.data,
+                    masked.source,
                     false,
                     options.charArg,
                     options.chatId,
@@ -275,25 +280,38 @@ export function createChatBodyRenderController(
                 options.retranslate,
                 options.translationTaskKey,
             )
-            html = await options.parseMarkdown(translatedData, 'notrim')
+            // Outside the shared task, so a rejoining body restores its own elements.
+            html = await options.parseMarkdown(masked.restore(translatedData), 'notrim')
         }
         else {
-            const marked = options.translationCacheKey
-                ?? await options.parseMarkdown(options.data, 'pretranslate')
-            const cacheKey = DBState.db.translatorType === 'llm' ? marked : null
-            html = await runTranslationTask(
-                async (signal) => postTranslationParse(await translateHTML(
-                    marked,
+            const llm = DBState.db.translatorType === 'llm'
+            let marked = options.translationCacheKey
+            let restore = (translated: string) => translated
+            // A masked known key needs the current render to restore from.
+            if (marked == null || (llm && hasTranslationPlaceholders(marked))) {
+                const rendered = await options.parseMarkdown(options.data, 'pretranslate')
+                const masked = llm
+                    ? maskUntranslatable(rendered)
+                    : { source: rendered, restore }
+                marked ??= masked.source
+                restore = masked.restore
+            }
+            const source = marked
+            const cacheKey = llm ? source : null
+            const translated = await runTranslationTask(
+                (signal) => translateHTML(
+                    source,
                     false,
                     options.charArg,
                     options.chatId,
                     options.retranslate,
                     signal,
-                )),
+                ),
                 cacheKey,
                 options.retranslate,
                 options.translationTaskKey,
             )
+            html = await postTranslationParse(restore(translated))
         }
         return html
     }

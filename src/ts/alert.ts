@@ -32,6 +32,7 @@ export interface alertData{
     datalist?: [string, string][],
     stackTrace?: string;
     defaultValue?: string
+    hideText?: boolean
     hideConfirm?: boolean
     closeOnOutsideClick?: boolean
 }
@@ -327,18 +328,19 @@ export async function alertTOS(): Promise<boolean> {
     return accepted
 }
 
-export async function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
-
-    alertStoreImported.set({
-        'type': 'input',
-        'msg': msg,
-        'datalist': datalist ?? [],
-        'defaultValue': defaultValue ?? ''
-    })
-
+async function promptInput(fields: Omit<alertData, 'type'>) {
+    alertStoreImported.set({ type: 'input', ...fields })
     await waitAlert()
-
     return get(alertStoreImported).msg
+}
+
+export function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
+    return promptInput({ msg, datalist: datalist ?? [], defaultValue: defaultValue ?? '' })
+}
+
+/** Masked text prompt; resolves to '' when cancelled. */
+export function alertPassword(msg:string) {
+    return promptInput({ msg, datalist: [], hideText: true })
 }
 
 export async function alertModuleSelect(){

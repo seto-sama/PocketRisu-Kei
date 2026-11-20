@@ -1,10 +1,15 @@
 import type { ModelModeExtended } from './revenant/types'
 
-export const LUA_AX_LLM_MODES = ['emotion', 'memory', 'otherAx', 'submodel', 'translate'] as const satisfies readonly ModelModeExtended[]
+export const LUA_AX_LLM_MODES = ['memory', 'otherAx', 'submodel', 'translate'] as const satisfies readonly ModelModeExtended[]
 export type LuaAxLlmMode = typeof LUA_AX_LLM_MODES[number]
 
+/** The emotion auxiliary slot was retired; callers that still ask for it get otherAx. */
+export function retireEmotionMode<T>(mode: T): T | 'otherAx' {
+    return mode === 'emotion' ? 'otherAx' : mode
+}
+
 export function resolveLuaAxLlmMode(options: Record<string, unknown>): LuaAxLlmMode {
-    const mode = options.mode ?? 'otherAx'
+    const mode = retireEmotionMode(options.mode ?? 'otherAx')
     if (!LUA_AX_LLM_MODES.includes(mode as LuaAxLlmMode)) {
         throw new Error(`Invalid axLLM mode: ${String(mode)}`)
     }
@@ -32,6 +37,25 @@ export function normalizeLuaLlmPrompt(value: unknown): LuaLlmMessage[] {
                 : 'assistant'
         return { role, content: String(source.content ?? source.data ?? '') }
     })
+}
+
+function stableJson(value: unknown): string {
+    return JSON.stringify(value, (_key, item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+            ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+            : item
+    )
+}
+
+// Lua's json.encode emits object fields in `pairs` order, which follows the
+// engine's time-seeded string hashes, so the same request can serialize
+// differently after a restart. Identities are built from the parsed values.
+export function luaLlmRequestIdentity(
+    prompt: readonly object[],
+    useMultimodal: boolean,
+    options: Record<string, unknown>,
+): string {
+    return `${JSON.stringify(prompt)}\n${useMultimodal}\n${stableJson(options)}`
 }
 
 export function parseLuaLlmOptions(value: unknown): Record<string, unknown> {

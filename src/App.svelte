@@ -13,6 +13,7 @@
     import ServerDrive from './lib/Others/ServerDrive.svelte';
     import Dialog from './lib/UI/components/Dialog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
+    import KeiClipboardPicker from './lib/Others/KeiClipboardPicker.svelte';
     import Settings from './lib/Setting/Settings.svelte';
     import { showRealmInfoStore, importCharacterProcess } from './ts/characterCards';
     import { importPreset, getDatabase, setDatabase } from './ts/storage/database.svelte';
@@ -41,9 +42,11 @@
     import Toaster from './lib/UI/components/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
     import { onDestroy } from 'svelte'
+    import type { Attachment } from 'svelte/attachments'
     import { createKeepAliveAudio } from './ts/keepAliveAudio'
     import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
+    import { installKeiClipboard, refreshKeiClipboard } from './ts/clipboard/keiClipboard.svelte'
     import { mdViewport } from './ts/gui/breakpoints'
     import { requestDialogCloseAction } from './ts/gui/escapeKey'
     import { initializePwaInstall } from './ts/pwaInstall.svelte'
@@ -65,10 +68,11 @@
 
     $effect(() => initializePwaInstall())
     $effect(() => installFilePickerContextMenu())
+    $effect(() => installKeiClipboard())
 
     function openCharacterGrid() {
         gridOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function closeCharacterGrid() {
@@ -78,7 +82,7 @@
     function openServerDrive() {
         if (!serverDriveAvailable) return
         driveOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function handleDialogKeydown(event: KeyboardEvent) {
@@ -88,15 +92,13 @@
         event.stopPropagation()
     }
 
-    function focusOverlay(node: HTMLElement) {
+    const focusOverlay: Attachment<HTMLElement> = (node) => {
         let active = true
         queueMicrotask(() => {
             if (active) node.focus({ preventScroll: true })
         })
-        return {
-            destroy() {
-                active = false
-            },
+        return () => {
+            active = false
         }
     }
 
@@ -105,11 +107,14 @@
             void ensureBookmarkCatalog().catch(error => {
                 console.error('[bookmarks] Initial catalog load failed', error)
             })
+            void refreshKeiClipboard().catch(error => {
+                console.error('[kei-clipboard] Initial load failed', error)
+            })
         }
     })
 
     $effect(() => {
-        if (!$DynamicGUI || !$settingsOpen) return
+        if (!DynamicGUI.current || !$settingsOpen) return
         sideBarClosing.set(false)
         sideBarStore.set(false)
     })
@@ -171,10 +176,10 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen || ($DynamicGUI && gridOpen)}
-            aria-hidden={$settingsOpen || ($DynamicGUI && gridOpen)}
+            inert={$settingsOpen || (DynamicGUI.current && gridOpen)}
+            aria-hidden={$settingsOpen || (DynamicGUI.current && gridOpen)}
         >
-            {#if !$DynamicGUI}
+            {#if !DynamicGUI.current}
                 <Sidebar
                     openGrid={openCharacterGrid}
                     openDrive={openServerDrive}
@@ -186,11 +191,11 @@
         </div>
 
         {#if gridOpen && !$settingsOpen}
-            {#if !$mdViewport}
+            {#if !mdViewport.current}
                 <div
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
-                    use:focusOverlay
+                    {@attach focusOverlay}
                     onkeydown={handleDialogKeydown}
                     role="dialog"
                     aria-modal="true"
@@ -216,7 +221,7 @@
             <div
                 class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
-                use:focusOverlay
+                {@attach focusOverlay}
                 onkeydown={handleDialogKeydown}
                 role="dialog"
                 aria-modal="true"
@@ -226,7 +231,7 @@
             </div>
         {/if}
 
-        {#if $DynamicGUI}
+        {#if DynamicGUI.current}
             <div
                 class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
                 class:fixed={$sideBarStore}
@@ -272,6 +277,9 @@
     {/if}
     {#if $openHypaV3PresetList}
         <ListedHypaV3Preset bind:open={$openHypaV3PresetList} />
+    {/if}
+    {#if $loadedStore}
+        <KeiClipboardPicker />
     {/if}
     {#if $bookmarkListOpen}
         <BookmarkList />

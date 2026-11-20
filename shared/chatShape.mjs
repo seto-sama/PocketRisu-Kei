@@ -12,6 +12,29 @@ export function assertChatIdentity(chat, chatId) {
     assertUniqueEntityIds(chat.message, 'chatId')
 }
 
+const CHAT_FIELD_PATH_RE = /^\/characters\/\d+\/chats\/\d+\/([^/]+)/
+
+/**
+ * A database patch may touch only list metadata on a `chats[i]` field; chat
+ * bodies are written through the chat endpoint. Whole-slot ops carry no field
+ * and pass. `from` is checked too, so move/copy cannot alias a body field.
+ */
+export function findChatInternalFieldOps(patch) {
+    if (!Array.isArray(patch)) return []
+    const violations = []
+    for (const op of patch) {
+        if (!op || typeof op !== 'object') continue
+        for (const pointer of [op.path, op.from]) {
+            const field = typeof pointer === 'string' ? pointer.match(CHAT_FIELD_PATH_RE)?.[1] : undefined
+            if (field !== undefined && !chatMetadataFields.includes(field)) {
+                violations.push({ op: op.op, path: op.path, field })
+                break
+            }
+        }
+    }
+    return violations
+}
+
 /** Preserve key presence so explicit clears survive the metadata round trip. */
 export function chatToStub(chat) {
     if (!chat) return chat

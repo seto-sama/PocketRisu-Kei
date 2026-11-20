@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultCBSRegisterArg, getCBSCompletionEntries, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
+import { defaultCBSRegisterArg, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
     it('reads chat macros from the room selected by the calling runtime', () => {
@@ -22,16 +22,6 @@ describe('metadata CBS', () => {
         expect(lastMessage!('', {} as any, [], null)).toBe('Selected room')
     })
 
-    it('keeps built-in primary names unique', () => {
-        const names:string[] = []
-        registerCBS({
-            ...defaultCBSRegisterArg,
-            registerFunction: definition => { names.push(definition.name) },
-        })
-
-        expect(new Set(names).size).toBe(names.length)
-    })
-
     it('keeps exact callable names and aliases unique', () => {
         const owners = new Map<string, string>()
         const duplicates:string[] = []
@@ -45,19 +35,6 @@ describe('metadata CBS', () => {
         }
 
         expect(duplicates).toEqual([])
-    })
-
-    it('provides public completion metadata with concise hints and alias details', () => {
-        const entries = getCBSCompletionEntries()
-        const entry = (name: string) => entries.find(item => item.name === name)!
-
-        expect(entries.filter(item => !item.hint.trim()).map(item => item.name)).toEqual([])
-        expect(entries.filter(item => /\n|Usage::/.test(item.hint)).map(item => item.name)).toEqual([])
-        expect(entries.map(item => item.name)).toEqual(expect.arrayContaining(['#when', '/when']))
-        expect(entries.some(item => item.name === '__')).toBe(false)
-        expect(entry('char').detail).toBe('bot')
-        expect(entry('bot')).toMatchObject({ detail: 'alias of char', hint: entry('char').hint })
-        expect(entry('/when').hint).toBe('Closes the #when block.')
     })
 
     it('uses the effective generation model label for modelname', () => {
@@ -82,22 +59,4 @@ describe('metadata CBS', () => {
         expect(metadata!('', {} as any, ['modelname'], null)).toBe('Bound Preset')
     })
 
-    it.each(['personality', 'scenario', 'exampledialogue'])(
-        'keeps the legacy %s macro inert',
-        name => {
-            let callback: RegisterCallback | undefined
-
-            registerCBS({
-                ...defaultCBSRegisterArg,
-                registerFunction: definition => {
-                    if (definition.name === name && definition.callback !== 'doc_only') {
-                        callback = definition.callback
-                    }
-                },
-            })
-
-            expect(callback).toBeDefined()
-            expect(callback!('', {} as any, [], null)).toBe('')
-        },
-    )
 })

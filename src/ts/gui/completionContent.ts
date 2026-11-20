@@ -1,3 +1,5 @@
+import type { Attachment } from 'svelte/attachments'
+
 export interface CompletionContent {
     label: string
     detail?: string
@@ -5,9 +7,9 @@ export interface CompletionContent {
 }
 
 // Native fields and CodeMirror use the same markup for completion rows.
-export function completionContent(node: HTMLElement, content: CompletionContent) {
-    node.classList.add('risu-completion-content')
-    function update(content: CompletionContent) {
+export function completionContent(content: CompletionContent): Attachment<HTMLElement> {
+    return (node) => {
+        node.classList.add('risu-completion-content')
         const children = (['label', 'detail', 'description'] as const).flatMap(key => {
             if (!content[key]) return []
             const span = document.createElement('span')
@@ -17,12 +19,10 @@ export function completionContent(node: HTMLElement, content: CompletionContent)
         })
         node.replaceChildren(...children)
     }
-    update(content)
-    return { update }
 }
 
 export function renderCompletionContent(content: CompletionContent) {
     const node = document.createElement('span')
-    completionContent(node, content)
+    completionContent(content)(node)
     return node
 }

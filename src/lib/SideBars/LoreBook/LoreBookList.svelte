@@ -137,8 +137,8 @@
         data-show-folder={showFolder || ''}
     >
         {#if externalLoreBooks}
-            {@const visibleItems = externalLoreBooks.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
-            {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
+            {const visibleItems = $derived(externalLoreBooks.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder)))}
+            {const lastVisibleItem = $derived(visibleItems[visibleItems.length - 1])}
             {#if visibleItems.length === 0}
                 <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
@@ -157,7 +157,6 @@
                             }
                             
                             removeFromLoreBooks(externalLoreBooks, book)
-                            externalLoreBooks = externalLoreBooks
                         }} 
                         onOpen={(isDetail = true) => onOpen(isDetail, book)}
                         onClose={(isDetail = true) => onClose(isDetail, book)}
@@ -168,8 +167,8 @@
                 {/each}
             {/if}
         {:else if submenu === 0}
-            {@const visibleItems = DBState.db.characters[$selectedCharID].globalLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
-            {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
+            {const visibleItems = $derived(DBState.db.characters[$selectedCharID].globalLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder)))}
+            {const lastVisibleItem = $derived(visibleItems[visibleItems.length - 1])}
             {#if visibleItems.length === 0}
                 <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}
@@ -200,8 +199,8 @@
                 {/each}
             {/if}
         {:else if submenu === 1}
-            {@const visibleItems = DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
-            {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
+            {const visibleItems = $derived(DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].localLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder)))}
+            {const lastVisibleItem = $derived(visibleItems[visibleItems.length - 1])}
             {#if visibleItems.length === 0}
                 <EmptyState title={showFolder ? language.lorebookFolderEmpty : language.noLorebook} description="" layout="inline" />
             {/if}

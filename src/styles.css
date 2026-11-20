@@ -210,16 +210,27 @@
   @apply hover:text-danger;
 }
 
+/*
+  The one hover/selection surface. The tint is a flat gradient overlay, so it layers
+  over the element's own background (including component CSS that a Tailwind hover
+  background could not override) without the positioning a ::before overlay forces,
+  and Tailwind's transition utilities already animate the gradient stop colors.
+*/
 @utility risu-interactive-surface {
-  @apply hover:bg-selected/30;
-}
+  @apply bg-linear-to-b from-transparent to-transparent transition-colors;
 
-@utility risu-interactive-surface-strong {
-  @apply hover:bg-selected/50;
-}
+  @variant hover {
+    @apply from-selected/30 to-selected/30;
+  }
 
-@utility risu-interactive-surface-solid {
-  @apply hover:bg-selected;
+  /* An inline action taking keyboard focus must still show which row it acts on. */
+  &:has(:focus-visible) {
+    @apply from-selected/30 to-selected/30;
+  }
+
+  &[data-selected="true"] {
+    @apply from-selected to-selected;
+  }
 }
 
 @utility risu-folder-header {
@@ -288,30 +299,6 @@
 .risu-tree-list.risu-tree-list-centered > :nth-last-child(1 of [data-tree-item]:not(.sortable-fallback))::after {
   height: auto;
   bottom: 50%;
-}
-
-/* Highlight the entire row; list containers own the spacing between rows. */
-.risu-selectable-row {
-  position: relative;
-  z-index: 0;
-}
-
-.risu-selectable-row::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  transition: background-color 200ms ease;
-}
-
-.risu-selectable-row:not([data-selected="true"]):is(:hover, :focus-visible, :has(:focus-visible))::before {
-  background-color: color-mix(in srgb, var(--risu-theme-selected) 50%, transparent);
-}
-
-.risu-selectable-row[data-selected="true"]::before {
-  background-color: var(--risu-theme-selected);
 }
 
 .risu-completion-list,
@@ -859,7 +846,7 @@ html {
   margin-block: 0;
 }
 
-:is(.x-risu-risu-inlay-image img, .root-loaded-image) {
+:is(.x-risu-risu-inlay-image img, .root-loaded-image, .x-risu-asset-prompt-image) {
   filter: drop-shadow(0 0 0.5rem var(--risu-black-50));
   border-radius: 0.5rem;
 }
@@ -990,9 +977,8 @@ html {
   @apply border border-darkborderc bg-darkbg text-maintext rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
-.root-loaded-image {
-  /* This class is used to indicate that the image has been with root-loaded method */
-  /* We need to style it to centered and pretty */
+.root-loaded-image, .x-risu-asset-prompt-image {
+  /* Asset-prompt images resolved by ChatBody (bare src) or the parser (<assets src="...">). */
   display: block;
   margin-left: auto;
   margin-right: auto;
@@ -1001,14 +987,14 @@ html {
   height: auto;
 }
 
-.root-loaded-image-dynamic {
+.root-loaded-image-dynamic, .x-risu-asset-prompt-image-dynamic {
   max-height: 14rem;
   transition: max-height 0.5s ease;
   object-fit: cover;
   object-position: top;
 }
 
-.root-loaded-image-dynamic:hover {
+.root-loaded-image-dynamic:hover, .x-risu-asset-prompt-image-dynamic:hover {
   max-height: 30rem;
 }
 

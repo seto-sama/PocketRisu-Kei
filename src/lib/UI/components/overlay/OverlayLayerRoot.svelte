@@ -1,10 +1,6 @@
 <script lang="ts">
-    import { getContext, type Snippet } from 'svelte'
-    import {
-        overlayLayerContext,
-        overlayLayerMinimum,
-        type OverlayLayerGetter,
-    } from 'src/ts/gui/overlayStack'
+    import type { Snippet } from 'svelte'
+    import { getOverlayLayer, hasOverlayLayer, overlayLayerMinimum } from 'src/ts/gui/overlayStack'
 
     interface Props {
         interactive?: boolean
@@ -12,7 +8,7 @@
     }
 
     const { interactive = false, children }: Props = $props()
-    const overlayLayer = getContext<OverlayLayerGetter | undefined>(overlayLayerContext)
+    const overlayLayer = hasOverlayLayer() ? getOverlayLayer() : undefined
     const zIndex = $derived(overlayLayer?.() ?? overlayLayerMinimum)
 </script>
 

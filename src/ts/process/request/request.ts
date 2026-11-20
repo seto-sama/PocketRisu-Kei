@@ -34,8 +34,13 @@ import {
     type CompiledModelPreset,
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
-import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
-import { parseChatEventStream } from 'src/ts/preset/adapter/openaiCompatible';
+import { createRetryingSnapshotStream, paceSnapshotStream, presetSnapshotStream } from "./presetStreamPump";
+import { openAiChatResponseDecoder } from 'src/ts/preset/adapter/openaiCompatible';
+import {
+    formatAdapterReasoning,
+    readDecodedChatResponse,
+    readDecodedChatStream,
+} from 'src/ts/preset/adapter/decodedEvents';
 import { buildEchoRequest } from 'src/ts/preset/runtime/echo';
 import {
     cancelOnOutputRepetition,
@@ -51,6 +56,7 @@ import {
     SINGLE_LLM_EXECUTION,
     WORKFLOW_LLM_EXECUTION,
     type LLMExecutionPolicy,
+    type LLMRequestInit,
 } from "src/ts/network/transportTypes";
 import {
     startStatus, appendText, endStatus, hasRequestStatus, markPhase, setStatusTokenCounter, addBadge,
@@ -77,12 +83,7 @@ import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
 import { restoreThoughtSignatures, supportsThoughtSignatures, type ProviderContextRecord } from '../../preset/adapter/thoughtSignatures';
 import { resolveWireModelId } from '../../preset/adapter/wireInvariants';
-import { checkpointRevenantGeneration, queryRevenantProviderContexts } from '../revenant/transport/client';
-
-export type ToolCall = {
-    name: string;
-    arguments: string;
-}
+import { queryRevenantProviderContexts, submitRevenantProviderResult } from '../revenant/transport/client';
 
 export interface requestDataArgument{
     formated: OpenAIChat[]
@@ -97,7 +98,6 @@ export interface requestDataArgument{
     frequencyPenalty?: number,
     useStreaming?:boolean
     isGroupChat?:boolean
-    useEmotion?:boolean
     chatId?:string
     noMultiGen?:boolean
     schema?:string
@@ -109,7 +109,6 @@ export interface requestDataArgument{
     rememberToolUsage?: boolean
     forceStreaming?: boolean
     revenantAdapterKind?: string
-    revenantStreaming?: boolean
     blockPlugins?: boolean
     /** Module that owns this auxiliary LLM request, when applicable. */
     moduleId?: string
@@ -161,25 +160,16 @@ export type requestDataResponse = {
     // requestChatData loop must not re-run such a response (banned-charset /
     // blank-response retries), or side-effecting tools would fire twice.
     toolExecuted?: boolean,
-    special?: {
-        emotion?: string
-    },
     failByServerError?: boolean
     retryAfterMs?: number
     model?: string
 }|{
     type: "streaming",
     result: ReadableStream<StreamResponseChunk>,
-    special?: {
-        emotion?: string
-    }
     model?: string
 }|{
     type: "multiline",
     result: ['user'|'char',string][],
-    special?: {
-        emotion?: string
-    }
     model?: string
 }
 
@@ -253,7 +243,12 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
         }, model, abortSignal)
 
         if (da.type === 'streaming') {
-            da.result = applyOutputRepetitionDetection(da.result, arg.onOutputRepetitionDetected)
+            // Repetition detection must see every snapshot, before pacing
+            // coalesces them.
+            da.result = paceSnapshotStream(applyOutputRepetitionDetection(
+                da.result,
+                arg.onOutputRepetitionDetected,
+            ))
         }
 
         // A ModelPreset response that already executed tools must be returned
@@ -385,9 +380,7 @@ async function executeModelPresetRequest(
     const response = await requestModelPreset(targ, preset, abortSignal, model)
     const completesMainResult = !targ.previewBody && model === 'model' && targ.chatId
         && (targ.revenantWorkflowId || targ.revenantClientAction?.workflowId)
-    const completeMainResult = (content: string) => checkpointRevenantGeneration(
-        targ.chatId, content, true, { providerResult: true },
-    )
+    const completeMainResult = (content: string) => submitRevenantProviderResult(targ.chatId, content)
     if (response.type === 'streaming' && (resultPolicy === 'automatic' || completesMainResult)) {
         return {
             ...response,
@@ -437,46 +430,36 @@ async function requestEchoPreset(
     const request = buildEchoRequest(preset, resolvePresetStreaming(preset, arg, supportsStreaming), arg.formated)
 
     arg.revenantAdapterKind = 'echo'
-    arg.revenantStreaming = request.stream
+    const init: LLMRequestInit = {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: abortSignal ?? undefined,
+        responseDecoder: openAiChatResponseDecoder(preset, request.stream),
+    }
     try {
-        const response = await makeModelTransportFetch(arg, preset)(
-            'https://echo.invalid/v1/chat/completions',
-            {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(request),
-                signal: abortSignal ?? undefined,
-            },
-        )
-        if (response.ok && request.stream) {
-            if (!response.body) throw new Error('Echo stream response has no body')
-            const body = response.body
-            const stream = applyOutputRepetitionDetection(new ReadableStream<StreamResponseChunk>({
-                start(controller) {
-                    return pumpPresetStream(parseChatEventStream(body, preset), controller, {
-                        intervalMs: STREAM_FLUSH_INTERVAL_MS,
-                        formatReasoning: text => formatPresetReasoning([{ text }]),
-                    })
-                },
-            }), arg.onOutputRepetitionDetected)
-            return preset.decoupledStreaming
-                ? { type: 'success', result: await collectStreamingText(stream), model: preset.name }
-                : { type: 'streaming', result: stream, model: preset.name }
-        }
-        const body = await response.json() as {
-            choices?: Array<{ message?: { content?: unknown } }>
-            error?: { message?: unknown }
-        }
+        const response = await makeModelTransportFetch(arg, preset)('https://echo.invalid/v1/chat/completions', init)
         if (!response.ok) {
+            const body = await response.json() as { error?: { message?: unknown } }
             return {
                 type: 'fail',
                 result: String(body.error?.message ?? `Echo request failed (${response.status})`),
                 model: preset.name,
             }
         }
+        if (request.stream) {
+            if (!response.body) throw new Error('Echo stream response has no body')
+            const stream = applyOutputRepetitionDetection(
+                presetSnapshotStream(readDecodedChatStream(response.body)),
+                arg.onOutputRepetitionDetected,
+            )
+            return preset.decoupledStreaming
+                ? { type: 'success', result: await collectStreamingText(stream), model: preset.name }
+                : { type: 'streaming', result: stream, model: preset.name }
+        }
         return {
             type: 'success',
-            result: String(body.choices?.[0]?.message?.content ?? ''),
+            result: (await readDecodedChatResponse(response)).text,
             model: preset.name,
         }
     }
@@ -816,7 +799,6 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
     switch (mode) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'
-        case 'emotion': return 'emotion'
         case 'submodel':
         case 'otherAx': return 'sub'
         default: return 'main'
@@ -844,14 +826,6 @@ export function resolvePresetStreaming(
 // follow-up re-run already-executed (possibly write-side) tools.
 const MODEL_PRESET_MAX_TOOL_STEPS = 8
 
-// How often (ms) a streaming response flushes accumulated text to the chat
-// renderer. Adapters yield one delta per token; each emitted chunk forces a full
-// re-parse of the whole message (markdown + sanitize) downstream, so emitting
-// every token makes the re-parse count scale with token count and stalls slow
-// (mobile) devices. Coalescing to ~20fps keeps streaming visibly live while
-// bounding re-parse cost. The final chunk is always flushed regardless.
-const STREAM_FLUSH_INTERVAL_MS = 50
-
 function toAdapterToolDef(tool: MCPTool): AdapterToolDef {
     return {
         name: tool.name,
@@ -859,17 +833,6 @@ function toAdapterToolDef(tool: MCPTool): AdapterToolDef {
         // simplifySchema mutates its input.
         parameters: simplifySchema(structuredClone(tool.inputSchema)),
     }
-}
-
-function formatPresetReasoning(reasoning?: AdapterReasoningPart[]): string {
-    if (!reasoning || reasoning.length === 0) return ''
-    let body = ''
-    for (const part of reasoning) {
-        if (part.redactedData !== undefined) body += '\n{{redacted_thinking}}\n'
-        else if (part.text) body += part.text
-    }
-    if (body.trim().length === 0) return ''
-    return `<Thoughts>\n${body}\n</Thoughts>\n\n`
 }
 
 async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<string> {
@@ -1080,7 +1043,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         // Tool calls need complete structured responses for each round, so this
         // path does not stream or publish status.
         if (tools) {
-            arg.revenantStreaming = false
             const { result, toolsExecuted } = await runModelPresetToolLoop(
                 arg,
                 preset,
@@ -1104,7 +1066,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             && !(kind === 'anthropic-messages'
                 && preset.profileSnapshot.providerBaseId === 'anthropic'
                 && preset.claudeBatching)
-        arg.revenantStreaming = useStreaming
         const options: AdapterChatOptions = {
             messages,
             promptCacheKey: arg.promptCacheKey,
@@ -1144,84 +1105,66 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         }
         if(useStreaming){
             let presetStreamResponseStarted = false
-            const createPresetStream = (finalizeFailure: boolean) => new ReadableStream<StreamResponseChunk>({
-                start(controller) {
-                    return pumpPresetStream(adapter.stream(preset, options, credential), controller, {
-                        intervalMs: STREAM_FLUSH_INTERVAL_MS,
-                        formatReasoning: (text) => formatPresetReasoning([{ text }]),
-                        // A user cancellation terminates the stream with an
-                        // AbortError. It is reflected as an aborted request
-                        // status, not persisted as an application error.
-                        onError: (err) => {
-                            releasePendingRegistration(err)
-                            if (abortSignal?.aborted) return
-                            console.error('[ModelPreset] stream error', describeModelPresetError(err))
-                        },
-                        // appendText owns the phase transition (thinking/responding)
-                        // from which kind of text arrives, and recovers from 'stalled'
-                        // when chunks resume — no local phase tracking needed here.
-                        onDelta: (delta) => {
-                            if (delta.textDelta || delta.reasoningDelta) {
-                                presetStreamResponseStarted = true
+            const createPresetStream = (finalizeFailure: boolean) =>
+                presetSnapshotStream(adapter.stream(preset, options, credential), {
+                    // A user cancellation is reported as an aborted status,
+                    // not logged as an error.
+                    onError: (err) => {
+                        releasePendingRegistration(err)
+                        if (abortSignal?.aborted) return
+                        console.error('[ModelPreset] stream error', describeModelPresetError(err))
+                    },
+                    onDelta: (delta) => {
+                        if (delta.textDelta || delta.reasoningDelta) {
+                            presetStreamResponseStarted = true
+                        }
+                        if (!reportStatus) return
+                        safeStatus(() => {
+                            const now = Date.now()
+                            if (delta.reasoningDelta && !(statusJobId
+                                && appendRevenantJobRequestText(
+                                    statusJobId,
+                                    { thinking: delta.reasoningDelta },
+                                    now,
+                                ))) {
+                                appendText(genId, { thinking: delta.reasoningDelta }, now)
                             }
-                            if (!reportStatus) return
-                            safeStatus(() => {
-                                const now = Date.now()
-                                if (delta.reasoningDelta && !(statusJobId
-                                    && appendRevenantJobRequestText(
-                                        statusJobId,
-                                        { thinking: delta.reasoningDelta },
-                                        now,
-                                    ))) {
-                                    appendText(genId, { thinking: delta.reasoningDelta }, now)
-                                }
-                                if (delta.textDelta && !(statusJobId
-                                    && appendRevenantJobRequestText(
-                                        statusJobId,
-                                        { response: delta.textDelta },
-                                        now,
-                                    ))) {
-                                    appendText(genId, { response: delta.textDelta }, now)
-                                }
-                            })
-                        },
-                        onFinish: (outcome, lastUsage) => {
-                            if (outcome === 'done') {
-                                releasePendingRegistration(new Error(
-                                    'The model stream completed before durable job registration.',
-                                ))
+                            if (delta.textDelta && !(statusJobId
+                                && appendRevenantJobRequestText(
+                                    statusJobId,
+                                    { response: delta.textDelta },
+                                    now,
+                                ))) {
+                                appendText(genId, { response: delta.textDelta }, now)
                             }
-                            if (!reportStatus || (outcome === 'failed' && !finalizeFailure)) return
-                            safeStatus(() => {
-                                // A stream that ends via abort throws inside the
-                                // generator → 'failed'; reclassify as 'aborted' so the
-                                // toast shows "Cancelled" rather than an error.
-                                const localOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
-                                const finalOutcome = terminalOutcome.resolve(localOutcome)
-                                // Confirmed cache hit (usageMetadata.cachedContentTokenCount
-                                // > 0) → savings badge on the status toast. Gated on the
-                                // cache context so behavior is unchanged with caching off.
-                                const cachedTokens = lastUsage?.cachedTokens ?? 0
-                                if (cache && cachedTokens > 0) {
-                                    addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
-                                }
-                                endStatus(genId, finalOutcome, {
-                                    now: Date.now(),
-                                    usage: lastUsage?.completionTokens !== undefined
-                                        ? { responseTokens: lastUsage.completionTokens }
-                                        : undefined,
-                                })
+                        })
+                    },
+                    onFinish: (outcome, lastUsage) => {
+                        if (outcome === 'done') {
+                            releasePendingRegistration(new Error(
+                                'The model stream completed before durable job registration.',
+                            ))
+                        }
+                        if (!reportStatus || (outcome === 'failed' && !finalizeFailure)) return
+                        safeStatus(() => {
+                            // An aborted stream throws, so it ends as 'failed'.
+                            const localOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
+                            const finalOutcome = terminalOutcome.resolve(localOutcome)
+                            const cachedTokens = lastUsage?.cachedTokens ?? 0
+                            if (cache && cachedTokens > 0) {
+                                addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
+                            }
+                            endStatus(genId, finalOutcome, {
+                                now: Date.now(),
+                                usage: lastUsage?.completionTokens !== undefined
+                                    ? { responseTokens: lastUsage.completionTokens }
+                                    : undefined,
                             })
-                        },
-                    })
-                }
-            })
-            // Decoupled streaming: the wire request still streams (keeping the
-            // provider's lenient streaming limits), but we drain the stream here
-            // and return a single text result. The final chunk already holds the
-            // full reasoning-prefixed text, so this matches the non-streaming
-            // adapter.send return byte-for-byte — the chat renderer paints it
-            // once instead of token-by-token.
+                        })
+                    },
+                })
+            // Decoupled streaming keeps the provider's streaming limits on the
+            // wire but returns the final snapshot as one non-streaming result.
             if(preset.decoupledStreaming){
                 const stream = applyOutputRepetitionDetection(
                     createPresetStream(true),
@@ -1248,9 +1191,6 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 retryDelayMs: (error) => {
                     if (abortSignal?.aborted) return null
                     const policy = modelPresetRequestFailurePolicy(error)
-                    // Match the non-streaming retry policy exactly, with one
-                    // extra safety boundary supplied by the stream wrapper:
-                    // response content must not have started yet.
                     if (policy.noRetry) return null
                     const db = getDatabase()
                     streamTrys += 1
@@ -1270,14 +1210,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                     }))
                 },
             })
-            // endStatus fires from the pump's onFinish once the consumer drains
-            // the stream — NOT here, because the stream outlives this return.
+            // The status ends in onFinish, after the stream outlives this return.
             return { type: 'streaming', result: stream, model: preset.name }
         }
         const response = await adapter.send(preset, options, credential)
         if (response.deferredUsageJobId && response.usage) {
             try {
-                const raw = response.raw as { usage?: unknown } | undefined
                 await reportRevenantGenerationUsage({
                     jobId: response.deferredUsageJobId,
                     timestamp: Date.now(),
@@ -1285,7 +1223,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                     provider: usageIdentity?.usageProviderId,
                     model: usageIdentity?.usageModelId,
                     serviceTier: 'batch',
-                    usage: raw?.usage ?? response.usage,
+                    usage: response.providerUsage ?? response.usage,
                 })
             } catch (usageError) {
                 // Usage accounting must never turn a successful generation into
@@ -1312,7 +1250,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         const separator = response.text && media ? '\n' : ''
         return {
             type: 'success',
-            result: formatPresetReasoning(response.reasoning) + response.text + separator + media,
+            result: formatAdapterReasoning(response.reasoning) + response.text + separator + media,
             model: preset.name,
         }
     } catch (err) {
@@ -1331,11 +1269,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     }
 }
 
-// One-shot test request for the preset editor's "Test" tab. Sends a single
-// user-supplied message through requestModelPreset so the credential resolution,
-// adapter dispatch and error handling are byte-identical to a real chat request —
-// only the prompt is caller-supplied and streaming/tools are forced off so the
-// result is a single text reply. Not part of the chat flow; nothing is persisted.
+// One-shot request for the preset editor's "Test" tab, through the same path
+// as a chat request with streaming off. Nothing is persisted.
 export interface ModelPresetTestResult {
     ok: boolean
     message: string   // reply text on success, error message on failure
@@ -1351,8 +1286,6 @@ export async function testModelPreset(preset: ModelPreset, message: string, abor
     const start = performance.now()
     const res = await executeModelPresetRequest(arg, preset, abortSignal, 'otherAx')
     const latencyMs = Math.round(performance.now() - start)
-    // useStreaming:false + no tools guarantees a success/fail (never streaming/multiline),
-    // but fall through defensively rather than asserting the union.
     if (res.type === 'success') {
         return { ok: true, message: res.result, latencyMs }
     }
@@ -1382,7 +1315,7 @@ async function runModelPresetToolLoop(
     let toolsExecuted = false
     const result = await runToolLoop(messages, {
         maxSteps: MODEL_PRESET_MAX_TOOL_STEPS,
-        formatReasoning: formatPresetReasoning,
+        formatReasoning: formatAdapterReasoning,
         abortSignal: abortSignal ?? undefined,
         send: (convo) => adapter.send(
             preset,

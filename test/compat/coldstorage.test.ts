@@ -144,7 +144,6 @@ describe('character cold storage migration', () => {
     // Should have valid structure (not crash-prone stub)
     expect(Array.isArray(brokenChar.globalLore)).toBe(true)
     expect(Array.isArray(brokenChar.bias)).toBe(true)
-    expect(Array.isArray(brokenChar.emotionImages)).toBe(true)
   })
 
 })

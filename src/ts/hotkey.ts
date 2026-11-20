@@ -25,6 +25,9 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
 import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
 import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
+import { copySelectionToSystemClipboard, openKeiClipboardPicker } from './clipboard/keiClipboard.svelte'
+import { editableFieldFor, requestPopupEditor } from './gui/editableField'
+import { installMultiFingerTap } from './gui/multiFingerTap'
 import { handleTextEntryEscape, isTextEntryElement, requestDialogCloseAction } from './gui/escapeKey'
 
 let hotkeyInitialized = false
@@ -50,10 +53,11 @@ export function initHotkey() {
         const activeElement = document.activeElement as HTMLElement | null
         const focusedTextEntry = isTextEntryElement(activeElement)
         if (event.defaultPrevented) return
+        // Shift alone only types capitals, so it never turns text entry into a hotkey.
         if (
             !event.ctrlKey &&
             !event.altKey &&
-            !event.shiftKey &&
+            !event.metaKey &&
             focusedTextEntry
         ) {
             return
@@ -85,9 +89,6 @@ export function initHotkey() {
                     if (handled) {
                         setTimeout(() => focusQuery('.message-edit-area'), 100)
                     }
-                    break
-                case 'copy':
-                    handled = clickVisibleMessageAction('.button-icon-copy')
                     break
                 case 'focusInput':
                     handled = focusQuery('.text-input-area')
@@ -165,6 +166,12 @@ export function initHotkey() {
                     window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
                     handled = true
                     break
+                case 'keiClipboard':
+                    handled = openKeiClipboardPicker()
+                    break
+                case 'systemCopy':
+                    handled = copySelectionToSystemClipboard()
+                    break
                 case 'popupEditor':
                     // The shared textarea owns this action so it can bind the edited
                     // value back to the field that opened the popup.
@@ -191,21 +198,20 @@ export function initHotkey() {
         }
     })
 
-    let touchCount = 0
-    let touchStartTime = 0
-    document.addEventListener('touchstart', () => {
-        const quickMenuHotkey = getDatabase().hotkeys?.find((hotkey) => hotkey.action === 'quickMenu')
-        if (quickMenuHotkey?.disabled) return
-        touchCount++
-        if (touchCount > 2) {
-            if (Date.now() - touchStartTime > 300) return
-            touchCount = 0
-            if (!doingAlert()) void quickMenu()
+    // Touch gestures are the mobile entry points, so they stay on even when the
+    // matching keyboard hotkey is disabled.
+    installMultiFingerTap((fingers, target) => {
+        switch (fingers) {
+            case 2:
+                return openKeiClipboardPicker(editableFieldFor(target))
+            case 3:
+                if (!doingAlert()) void quickMenu()
+                return true
+            case 4:
+                return requestPopupEditor(editableFieldFor(target))
+            default:
+                return false
         }
-        if (touchCount === 1) touchStartTime = Date.now()
-    })
-    document.addEventListener('touchend', () => {
-        touchCount = 0
     })
 
 }

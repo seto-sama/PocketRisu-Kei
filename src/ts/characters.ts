@@ -12,7 +12,6 @@ import { createEntityId } from 'src/ts/id';
 import { getImageType } from "./media";
 import { OpenRealmStore, selectedCharID } from "./stores.svelte";
 import { AppendableBuffer, changeChatTo, checkCharOrder, hydrateSelectedChat, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
-import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
 import { importCharacterProcess } from "./characterCards";
@@ -27,7 +26,7 @@ import {
     mergeBookmarkTagsForImport,
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
-import { archiveCurrentCharacterIcon } from './characterAssets'
+import { archiveCurrentCharacterIcon, emotionImageToAsset } from './characterAssets'
 import { moveToTrash, restoreFromTrash } from './characterTrash'
 import { importRisuChats } from './chatImport'
 
@@ -594,8 +593,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     cha.backgroundCSS ??= ''
     cha.creation_date ??= Date.now()
     cha.globalLore = updateLorebooks(cha.globalLore)
-    if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
-    cha = updateInlayScreen(cha)
+    migrateEmotionImagesToAssets(cha)
     if(checkNullish(cha.customscript)){
         cha.customscript = []
     }
@@ -613,6 +611,31 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
         }
     }
     return cha
+}
+
+type LegacyEmotionCharacter = character & {
+    viewScreen?: string
+    inlayViewScreen?: boolean
+    newGenData?: unknown
+}
+
+/** Moves legacy emotion images into additional assets so the asset prompt can show them. */
+export function migrateEmotionImagesToAssets(cha:character): void {
+    const legacy = cha as LegacyEmotionCharacter
+    const emotions = (cha.emotionImages ?? []).filter((emotion) => emotion?.[0] && emotion?.[1])
+    if(emotions.length > 0){
+        cha.additionalAssets ??= []
+        for(const [name, path] of emotions){
+            // Same-name images stay as separate entries so the parser picks between them randomly.
+            if(cha.additionalAssets.some(([assetName, assetPath]) => assetName === name && assetPath === path)) continue
+            cha.additionalAssets.push(emotionImageToAsset([name, path]))
+        }
+        cha.prebuiltAssetCommand = true
+    }
+    if(legacy.emotionImages !== undefined) delete legacy.emotionImages
+    if(legacy.viewScreen !== undefined) delete legacy.viewScreen
+    if(legacy.inlayViewScreen !== undefined) delete legacy.inlayViewScreen
+    if(legacy.newGenData !== undefined) delete legacy.newGenData
 }
 
 export function updateLorebooks(book:loreBook[]){
@@ -649,9 +672,7 @@ export function createBlankChar():character{
             ...newChatModelDefaults()
         }],
         chatFolders: [],
-        emotionImages: [],
         bias: [],
-        viewScreen: 'none',
         globalLore: [],
         chaId: createEntityId(),
         type: 'character',

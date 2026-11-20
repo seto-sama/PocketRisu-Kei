@@ -1,4 +1,4 @@
-import type { character, Chat, Message } from '../../storage/database.svelte'
+import type { Chat, Message } from '../../storage/database.svelte'
 import { createChatCommitSnapshot } from '../../storage/chatStorage'
 import {
     awaitChatGenerationCanonical,
@@ -173,7 +173,6 @@ export function prepareChatReroll(
 
 /** Promote a cancelled partial reroll into the swipe history. */
 export function applyCancelledRerollSession(
-    character: character,
     chat: Chat,
     session?: ActiveRerollSession,
 ) {
@@ -197,6 +196,5 @@ export function applyCancelledRerollSession(
         chat.message.push(...structuredClone(session.trailingMessages))
     }
     chat.isStreaming = false
-    character.reloadKeys += 1
     return true
 }

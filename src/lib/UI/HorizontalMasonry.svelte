@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
+    import type { Attachment } from "svelte/attachments";
 
     interface Props {
         itemCount: number;
@@ -19,7 +20,7 @@
 
     let containerWidth = $state(0);
 
-    function measureWidth(node: HTMLElement) {
+    const measureWidth: Attachment<HTMLElement> = (node) => {
         let animationFrame = 0;
         const updateWidth = () => {
             animationFrame = 0;
@@ -34,11 +35,9 @@
         resizeObserver.observe(node);
         scheduleUpdate();
 
-        return {
-            destroy() {
-                resizeObserver.disconnect();
-                if (animationFrame) cancelAnimationFrame(animationFrame);
-            },
+        return () => {
+            resizeObserver.disconnect();
+            if (animationFrame) cancelAnimationFrame(animationFrame);
         };
     }
 
@@ -58,7 +57,7 @@
 <div
     class="flex w-full items-start {className}"
     style:gap={`${gap}px`}
-    use:measureWidth
+    {@attach measureWidth}
 >
     {#if containerWidth > 0}
         {#each columns as column}

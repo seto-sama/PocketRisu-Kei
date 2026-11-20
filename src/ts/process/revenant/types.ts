@@ -9,6 +9,7 @@ import type {
 } from '../../storage/database.svelte'
 
 import type { RevenantOperationContext } from './operations'
+import type { AdapterResponseDecoder } from '../../preset/adapter/types'
 import type { DeltaPatch } from '../../storage/nodeStorage'
 import type { ImagePresetMetadata } from '../files/inlayMeta'
 import type { LuaAxLlmMode } from '../luaLlmCore'
@@ -33,7 +34,6 @@ export type ModelModeExtended =
     | 'model'
     | 'submodel'
     | 'memory'
-    | 'emotion'
     | 'otherAx'
     | 'translate'
 
@@ -143,12 +143,9 @@ export interface RevenantPostprocessDatabaseSnapshot {
     selectedPersona: number
     personas: unknown[]
     showPersonaInSidebar?: boolean
-    igpPrompt: string
     notification: boolean
     ttsEnabled: boolean
     ttsAutoSpeech: boolean
-    emotionProcesser: 'submodel' | 'embedding'
-    emotionPrompt2: string
 }
 
 export interface RevenantProviderSnapshot {
@@ -257,10 +254,13 @@ export function isRevenantJobActive(status: string): boolean {
 export interface RevenantProviderJobSpec {
     chatId: string
     jobType: ModelModeExtended
-    /** Concrete client adapter that owns parsing the provider wire response. */
+    /** Concrete backend that executes the request (`echo` runs in-process). */
     adapterKind?: string
-    /** Whether the provider response uses its streaming wire format. */
-    streaming?: boolean
+    /**
+     * Decoder for server projection when the caller reads the raw provider
+     * response itself (plugin providers).
+     */
+    responseDecoder?: AdapterResponseDecoder
     characterId?: string
     roomId?: string
     operationContext?: RevenantOperationContext
@@ -340,10 +340,8 @@ export interface RecoverableGenerationJob {
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
     adapterKind?: string
-    streaming?: boolean
     status: RevenantJobStatus
     responseStatus?: number
-    responseHeaders?: Record<string, string>
     rawBytes?: number
     projection?: RevenantNormalizedProjection
     projectionError?: string
@@ -367,10 +365,8 @@ export interface RecoverableAuxiliaryJob {
     workflowStepExecutionId?: string
     operationContext?: RevenantOperationContext
     adapterKind?: string
-    streaming?: boolean
     status: RevenantJobStatus
     responseStatus?: number
-    responseHeaders?: Record<string, string>
     rawBytes?: number
     projection?: RevenantNormalizedProjection
     projectionError?: string
@@ -387,7 +383,7 @@ export interface RevenantNormalizedProjection {
     // Tool output is finalized at the shared request boundary; other projections are
     // rebuildable views of the append-only provider journal.
     schemaVersion: 1
-    source: 'server' | 'client' | 'provider'
+    source: 'server' | 'provider'
     adapterKind: string
     content: string
     awaitingProviderResult?: boolean

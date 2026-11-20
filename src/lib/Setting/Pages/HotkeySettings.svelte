@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { CommandIcon, Grid2x2Icon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { DBState, HotkeySubmenuIndex } from "src/ts/stores.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -24,6 +25,11 @@
     let sidebarHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.sidebar));
     let chatInputHotkeys = $derived(orderedHotkeys(hotkeyActionGroups.chatInput));
 
+    // Lucide has no Windows logo, so the four-pane grid stands in for the Win key.
+    const metaKey = /Mac|iPhone|iPad/i.test(navigator.userAgent)
+        ? { icon: CommandIcon, label: 'Command' }
+        : { icon: Grid2x2Icon, label: 'Win' };
+
     function formatHotkeyKey(key: string) {
         return key === ' ' ? 'SPACE' : (key?.toLocaleUpperCase() ?? '');
     }
@@ -47,6 +53,15 @@
                         </div>
                     {:else}
                         <div class="flex items-center gap-2">
+                            <Button
+                                variant={hotkey.meta ? 'default' : 'outline'}
+                                size="icon-sm"
+                                title={metaKey.label}
+                                aria-pressed={hotkey.meta ?? false}
+                                onclick={() => hotkey.meta = !hotkey.meta}
+                            >
+                                <metaKey.icon />
+                            </Button>
                             <Button
                                 variant={hotkey.ctrl ? 'default' : 'outline'}
                                 size="sm"

@@ -5,8 +5,9 @@ import {
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from './error'
-import type { AdapterPreparedRequest } from './types'
-import type { ServerAuthenticatedRequestInit } from '../../network/transportTypes'
+import { readDecodedChatResponse } from './decodedEvents'
+import type { AdapterChatResponse, AdapterPreparedRequest, AdapterResponseDecoder } from './types'
+import type { LLMRequestInit } from '../../network/transportTypes'
 
 export interface AdapterHttpTransportOptions {
     fetchImpl?: typeof fetch
@@ -15,6 +16,7 @@ export interface AdapterHttpTransportOptions {
 
 interface SendPreparedRequestOptions {
     accept?: string
+    responseDecoder?: AdapterResponseDecoder
 }
 
 export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: AdapterHttpTransportOptions): typeof fetch {
@@ -23,14 +25,14 @@ export function preparedRequestFetch(prepared: AdapterPreparedRequest, options: 
     if (!options.fetchImpl) throw new ModelPresetAdapterError('auth', 'Service account requests require server transport')
     return (input, init) => fetchImpl(input, {
         ...init, serverProviderAuth: prepared.serverProviderAuth,
-    } satisfies ServerAuthenticatedRequestInit)
+    } satisfies LLMRequestInit)
 }
 
 /**
  * Sends the common JSON-body request shape produced by preset adapters.
  *
- * This deliberately stops at the HTTP boundary: provider response parsing and
- * stream event semantics remain in each adapter.
+ * This deliberately stops at the HTTP boundary: a request carrying a
+ * `responseDecoder` is answered with the server's decoded events.
  */
 export async function sendPreparedRequest(
     prepared: AdapterPreparedRequest,
@@ -38,16 +40,18 @@ export async function sendPreparedRequest(
     requestOptions: SendPreparedRequestOptions = {},
 ): Promise<Response> {
     const fetchImpl = preparedRequestFetch(prepared, options)
+    const init: LLMRequestInit = {
+        method: prepared.method,
+        headers: requestOptions.accept
+            ? { ...prepared.headers, Accept: requestOptions.accept }
+            : prepared.headers,
+        body: JSON.stringify(prepared.body),
+        signal: options.abortSignal,
+        responseDecoder: requestOptions.responseDecoder,
+    }
     let response: Response
     try {
-        response = await fetchImpl(prepared.url, {
-            method: prepared.method,
-            headers: requestOptions.accept
-                ? { ...prepared.headers, Accept: requestOptions.accept }
-                : prepared.headers,
-            body: JSON.stringify(prepared.body),
-            signal: options.abortSignal,
-        })
+        response = await fetchImpl(prepared.url, init)
     } catch (err) {
         throw normalizeFetchError(err)
     }
@@ -56,26 +60,33 @@ export async function sendPreparedRequest(
     return response
 }
 
-export async function sendPreparedJsonRequest(
-    prepared: AdapterPreparedRequest,
-    options: AdapterHttpTransportOptions,
-    parseErrorMessage: string,
-): Promise<unknown> {
-    const response = await sendPreparedRequest(prepared, options)
+/** Parses a complete JSON body, labelling malformed provider output. */
+export function parseResponseJson(text: string, parseErrorMessage: string): unknown {
     try {
-        return await response.json()
+        return JSON.parse(text)
     } catch (err) {
         throw new ModelPresetAdapterError('parse', parseErrorMessage, { cause: err })
     }
 }
 
-export async function openPreparedEventStream(
+/** Sends a chat request and reads the response the server decoded with `responseDecoder`. */
+export async function sendPreparedChatRequest(
     prepared: AdapterPreparedRequest,
     options: AdapterHttpTransportOptions,
+    responseDecoder: AdapterResponseDecoder,
+): Promise<AdapterChatResponse> {
+    return readDecodedChatResponse(await sendPreparedRequest(prepared, options, { responseDecoder }))
+}
+
+export async function openPreparedChatStream(
+    prepared: AdapterPreparedRequest,
+    options: AdapterHttpTransportOptions,
+    responseDecoder: AdapterResponseDecoder,
     missingBodyMessage: string,
 ): Promise<ReadableStream<Uint8Array>> {
     const response = await sendPreparedRequest(prepared, options, {
         accept: 'text/event-stream',
+        responseDecoder,
     })
     if (!response.body) {
         throw new ModelPresetAdapterError('parse', missingBodyMessage)

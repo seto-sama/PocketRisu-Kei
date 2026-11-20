@@ -8,14 +8,14 @@ import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
-import { checkRisuUpdate } from "./update";
-import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, invalidateChatRoom, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { calculateHash, decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
+import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
+import { findChatInternalFieldOps } from '../../shared/chatShape.mjs';
 import { discardPendingChatSaves, fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag, mergeHydratedChatWithMetadata } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
@@ -47,10 +47,9 @@ import {
     reconcileHydratedChats,
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
-import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
+import { ConflictError, getSyncClientId } from "./storage/nodeStorage";
 import { ChatSaveError, SaveConflictError, SaveRetryPolicy, isCancelledSaveConflict, type SaveAttemptResult } from './storage/storageRequest';
-import { createPatchHashDiagnostics, comparePatchHashDiagnostics } from '../../shared/patchHashDiagnostics.mjs';
-import { isNodeServer, supportsPatchSync } from "./platform";
+import { isNodeServer } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { language } from "src/lang";
@@ -121,7 +120,6 @@ let fileCache: {
     res: []
 }
 
-/** Resolve an asset path to a browser-usable source. */
 export async function getFileSrc(loc: string) {
     // A direct server URL lets the browser cache the response using HTTP headers,
     // so repeated renders (sidebar, chat) cost zero network after first load.
@@ -154,7 +152,6 @@ export async function readImage(data: string) {
     return (await forageStorage.getItem(data) as unknown as Uint8Array)
 }
 
-/** Save asset bytes under their content hash or a supplied ID. */
 export async function saveAsset(data: Uint8Array, customId: string = '', fileName: string = '') {
     let id = ''
     if (customId !== '') {
@@ -201,38 +198,11 @@ interface ImmediateSaveOptions {
 let requestImmediateSaveImpl: ((options?: ImmediateSaveOptions) => Promise<void> | void) = () => {}
 let patchSyncBaseline: Database | null = null
 
-// Surfaces server-side persist failures (Stage 1 visibility — see issues.md).
-// The same failure is re-attached on every patch response until cleared, so we
-// dedupe by timestamp to fire one toast per distinct failure event.
-let lastShownPersistWarningTs = 0
-
-function showPersistWarningOnce(warning: PersistWarning) {
-    if (warning.timestamp <= lastShownPersistWarningTs) return
-    lastShownPersistWarningTs = warning.timestamp
-
-    // Stub-flag-loss is the chat-data corruption guard firing at the disk
-    // boundary — this means the persist was REFUSED, not that the save was
-    // safely re-routed. Show the dedicated "save aborted" toast so the user
-    // knows their latest changes may not be on disk yet.
-    if (warning.source && warning.source.includes('stub-flag-loss')) {
-        showChatGuardPersistAbortToast()
-        return
-    }
-
-    const sizeStr = warning.attemptedSize != null
-        ? ` (${language.errors.persistFailureAttemptedSize} ${(warning.attemptedSize / 1024 / 1024 / 1024).toFixed(2)}GB)`
-        : ''
-    notifyError(`${language.errors.persistFailureTitle}${sizeStr}`, {
-        description: warning.message,
-        source: 'persist-failure',
-    })
-}
-
 // Throttle the client/server-PATCH chat-guard toast — the underlying root
 // cause may keep firing every 5s save cycle, and we don't want to spam the
 // user. One toast per 5-minute window is enough to surface the situation.
-// Guards 2/3 fall through to a safe full-write so the data IS persisted —
-// the toast is informational, not actionable.
+// Both guards rebase on the server projection and retry, so the toast is
+// informational, not actionable.
 const CHAT_GUARD_TOAST_INTERVAL_MS = 5 * 60 * 1000
 let lastChatGuardToastTs = 0
 
@@ -243,49 +213,6 @@ function showChatGuardToastThrottled(source: 'client' | 'server') {
     notifyError(language.errors.chatGuardTitle, {
         description: `${language.errors.chatGuardDesc} [${source}]`,
         source: 'chat-guard',
-    })
-}
-
-// Persist-side guard (guard 1) refuses the disk write outright — there is no
-// fallback path that recovers this cycle's changes automatically. Use a
-// shorter throttle (30s) since this is more severe and actionable: the user
-// should be aware before refreshing that their latest changes might not be
-// persisted. Each separate persist-failure timestamp on the server gates this
-// path via showPersistWarningOnce, so a single corruption won't repeat-toast.
-const CHAT_GUARD_PERSIST_TOAST_INTERVAL_MS = 30 * 1000
-let lastChatGuardPersistToastTs = 0
-
-function showChatGuardPersistAbortToast() {
-    const now = Date.now()
-    if (now - lastChatGuardPersistToastTs < CHAT_GUARD_PERSIST_TOAST_INTERVAL_MS) return
-    lastChatGuardPersistToastTs = now
-    notifyError(language.errors.chatGuardPersistTitle, {
-        description: language.errors.chatGuardPersistDesc,
-        source: 'chat-guard-persist',
-    })
-}
-
-// Dev-only preview helpers — bypass throttling so the dev panel always shows
-// the toast immediately. Mirror the production helpers above so any wording
-// or source-tag tweak shows up in the preview without extra synchronization.
-export function previewChatGuardToast(variant: 'client' | 'server' | 'server-persist') {
-    if (variant === 'server-persist') {
-        notifyError(language.errors.chatGuardPersistTitle, {
-            description: language.errors.chatGuardPersistDesc,
-            source: 'chat-guard-persist',
-        })
-        return
-    }
-    notifyError(language.errors.chatGuardTitle, {
-        description: `${language.errors.chatGuardDesc} [${variant}]`,
-        source: 'chat-guard',
-    })
-}
-
-export function previewPersistFailureToast() {
-    notifyError(`${language.errors.persistFailureTitle} (${language.errors.persistFailureAttemptedSize} 2.10GB)`, {
-        description: 'preview: simulated kvSet failure (BLOB size > INT_MAX)',
-        source: 'persist-failure',
     })
 }
 
@@ -378,7 +305,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             if (result.revision !== undefined) acceptedProjectionRevision = result.revision
         },
     )
-    if (isNodeServer || supportsPatchSync) {
+    if (isNodeServer) {
         await patcher.init(patchSyncBaseline ?? getDatabase())
         acceptPatcherBaseline()
         patchSyncBaseline = null
@@ -467,7 +394,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
     $effect.root(() => {
 
-        let selIdState = $state(0)
         let knownCharacterIds = new Set<string>((getDatabase()?.characters ?? []).map((character) => character?.chaId).filter(Boolean))
         let didInitRootEffect = false
         let didInitBotPresetEffect = false
@@ -479,10 +405,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
         const debounceTime = 500;
         let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-
-        selectedCharID.subscribe((v) => {
-            selIdState = v
-        })
 
         function saveTimeoutExecute() {
             if (syncApplying) return
@@ -500,7 +422,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
             }
         }
 
-        // Start a best-effort save immediately when the page is hidden/unloaded.
         function flushImmediate() {
             if (syncApplying) return
             if (saveTimeout) {
@@ -589,23 +510,23 @@ export async function saveDb(onReady?: () => Promise<void>) {
             }
             knownCharacterIds = currentCharacterIdSet
 
-            if (DBState?.db?.characters?.[selIdState]) {
-                const activeCharacter = DBState.db.characters[selIdState]
-                for (const key in DBState.db.characters[selIdState]) {
+            if (DBState?.db?.characters?.[selIdState.selId]) {
+                const activeCharacter = DBState.db.characters[selIdState.selId]
+                for (const key in DBState.db.characters[selIdState.selId]) {
                     // Exclude chats — chat changes are tracked via chat-specific server save, not database.bin
                     if (key !== 'chats' && isClientWritableCharacterField(key)) {
-                        deepTouch(DBState.db.characters[selIdState][key])
+                        deepTouch(DBState.db.characters[selIdState.selId][key])
                     }
                 }
                 // Track stub metadata and chat ordering for database.bin persistence.
-                deepTouch(DBState.db.characters[selIdState].chats.map(c => ({
+                deepTouch(DBState.db.characters[selIdState.selId].chats.map(c => ({
                     id: c.id,
                     name: c.name,
                     lastDate: c.lastDate,
                     folderId: c.folderId,
                 })))
-                if (changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
-                    changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                if (changeTracker.character[0] !== DBState.db.characters[selIdState.selId]?.chaId) {
+                    changeTracker.character.unshift(DBState.db.characters[selIdState.selId]?.chaId)
                 }
                 if (!syncApplying) {
                     const knownChatIds = knownChatIdsByCharacter.get(activeCharacter.chaId) ?? new Set<string>()
@@ -629,7 +550,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             saveTimeoutExecute()
         })
         $effect(() => {
-            const activeChar = DBState?.db?.characters?.[selIdState]
+            const activeChar = DBState?.db?.characters?.[selIdState.selId]
             const activeChat = activeChar?.chats?.[getChatPage(activeChar)]
             if (activeChat) {
                 deepTouch(activeChat)
@@ -715,7 +636,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 encoder = new RisuSaveEncoder()
                 await encoder.init(data)
             }
-            if (isNodeServer || supportsPatchSync) {
+            if (isNodeServer) {
                 patcher = new RisuSavePatcher()
                 await patcher.init(nextBaseline)
                 acceptPatcherBaseline()
@@ -883,8 +804,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 mergedDb.characters = mergedCharacters
             }
 
-            // Keep a stub-only baseline for the patch protocol, but preserve
-            // already hydrated local chat bodies in the live runtime DB.
+            // The save baseline stays stub-only, but already hydrated local chat
+            // bodies must survive in the live runtime DB.
             const localCharacters = new Map(
                 (localDb.characters ?? []).map(character => [character.chaId, character] as const),
             )
@@ -898,7 +819,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
                         : remoteChat
                 })
             }
-            // Hash conflict rebase is a server-state installation too. Running
+            // A conflict rebase is a server-state installation too. Running
             // this replacement outside the sync guard used to classify the
             // preserved hydrated body as a fresh client edit.
             syncApplying = true
@@ -912,11 +833,11 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 encoder = new RisuSaveEncoder()
                 await encoder.init(getDatabase())
             }
-            if (isNodeServer || supportsPatchSync) {
+            if (isNodeServer) {
                 patcher = new RisuSavePatcher()
                 // The merged value contains changes that the server rejected.
-                // Keep them live and dirty, but hash from the exact server
-                // pre-image so the retry can submit them again successfully.
+                // Keep them live and dirty, but diff from the exact server
+                // pre-image so the retry sends them again.
                 await patcher.init(serverBaseline)
                 acceptPatcherBaseline()
             }
@@ -955,7 +876,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
             ? trackedChats.filter(([chaId]) => !newCharacterIds.has(chaId))
             : trackedChats
 
-        // ── Save changed chat content to server ─────────────────────────
         const failedChats: [string, string][] = []
         const chatErrors: unknown[] = []
         const persistChat = async (
@@ -1018,9 +938,8 @@ export async function saveDb(onReady?: () => Promise<void>) {
             throw new ChatSaveError(failedChats, false, chatErrors)
         }
 
-        // Non-Node stores retain their existing database.bin persistence path.
-        // The Node server receives the same stub-only logical diff directly as
-        // JSON, leaving database.bin to explicit import/export compatibility.
+        // Non-Node stores keep database.bin. The Node server takes the stub-only
+        // delta instead, leaving database.bin to explicit import/export.
         let dbData: Uint8Array | null = null
         if (!isNodeServer) {
             await encoder!.set(db, structuredClone(toSave))
@@ -1036,17 +955,15 @@ export async function saveDb(onReady?: () => Promise<void>) {
         let projectionUnchanged = false
         let newEtag: string | undefined
 
-        const useProjectionPatch = isNodeServer || (supportsPatchSync && !options?.forceFullWrite)
-        if (useProjectionPatch) {
-            if (isNodeServer) await projectionDeltaSave.flush()
+        if (isNodeServer) {
+            await projectionDeltaSave.flush()
             const patchData = await patcher.set(db, structuredClone(toSave))
-            // Refuse to send patches that would corrupt server-side lazy chats.
-            // chatToStub strips chats to metadata before diffing, so the only
-            // way these ops appear is a baseline desync. Node mode refreshes
-            // the projection and retries; non-Node stores retain their legacy
-            // full-write recovery. The console.error is the primary breadcrumb
-            // for tracking down the unknown root cause.
-            const dangerous = findDangerousChatOps(patchData.patch)
+            // Refuse to send patches the server would reject: chat bodies go
+            // through the chat endpoint. chatToStub strips chats to metadata
+            // before diffing, so the only way these ops appear is a baseline
+            // desync; refresh the projection and retry. The console.error is
+            // the primary breadcrumb for tracking down the unknown root cause.
+            const dangerous = findChatInternalFieldOps(patchData.patch)
             if (dangerous.length > 0) {
                 // Always log a one-line summary so production environments
                 // see enough to file a bug report. The rich dump below is
@@ -1054,13 +971,12 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 const sampleOps = dangerous.slice(0, 3).map(d => `${d.op} ${d.path}`).join(', ')
                 console.error(
                     `[Save] Patcher emitted ${dangerous.length} chat-internal field op(s) — `
-                    + `${isNodeServer ? 'refreshing projection baseline' : 'falling back to full write'}. sample: ${sampleOps}`
+                    + `refreshing projection baseline. sample: ${sampleOps}`
                     + ' (verbose dump: restart with pnpm debug and reload the page)'
                 )
                 showChatGuardToastThrottled('client')
 
                 if (isDebugEnabled()) {
-                // Compare baseline/current shapes and replay chatToStub to locate leaked fields.
                 const affectedChats: Record<string, any> = {}
                 const seen = new Set<string>()
                 const baselineCharsLen = (patcher as any).lastSyncedDb?.characters?.length ?? -1
@@ -1138,7 +1054,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     }
                 }
 
-                // Compare stub/placeholder states across affected chat arrays.
                 const charsDistribution: Record<string, any> = {}
                 for (const k of Array.from(seen).slice(0, 3)) {
                     const ci = +k.split('/')[0]
@@ -1165,12 +1080,10 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     }
                 }
 
-                let activeCharID = -1
-                try { selectedCharID.subscribe(v => { activeCharID = v })() } catch {}
                 console.debug('[Save:guard-debug] context:', {
                     baselineCharsLen,
                     currentCharsLen,
-                    selectedCharID: activeCharID,
+                    selectedCharID: selIdState.selId,
                     totalDangerousOps: dangerous.length,
                     uniqueAffectedChats: seen.size,
                 })
@@ -1178,14 +1091,10 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 console.debug('[Save:guard-debug] affected chats (baseline / current / stubReplay):', affectedChats)
                 console.debug('[Save:guard-debug] chats[] distribution per affected character:', charsDistribution)
                 }
-                if (isNodeServer) {
-                    await rebaseTrackedLocalChangesOnLatestServerDb(null, db, toSave)
-                    return 'retry'
-                }
-                // Leave saved=false so the non-Node full-write path below kicks in.
+                await rebaseTrackedLocalChangesOnLatestServerDb(null, db, toSave)
+                return 'retry'
             } else if (
-                isNodeServer
-                && patchData.patch.length === 0
+                patchData.patch.length === 0
                 && patcher.hash() === acceptedPatchHash
             ) {
                 // The patcher starts every save at the accepted projection
@@ -1198,22 +1107,18 @@ export async function saveDb(onReady?: () => Promise<void>) {
             } else {
                 let patchResult
                 try {
-                    if (isNodeServer) {
-                        const baseline = patcher.getBaselineSnapshot()
-                        patchResult = await projectionDeltaSave.save({ changes: createDelta(acceptedPatchBaseline, baseline) }, {
-                            base: acceptedPatchBaseline,
-                            local: baseline,
-                            tracked: structuredClone(toSave),
-                        })
-                    } else {
-                        patchResult = await forageStorage.patchItem('database/database.bin', patchData)
-                    }
+                    const baseline = patcher.getBaselineSnapshot()
+                    patchResult = await projectionDeltaSave.save({ changes: createDelta(acceptedPatchBaseline, baseline) }, {
+                        base: acceptedPatchBaseline,
+                        local: baseline,
+                        tracked: structuredClone(toSave),
+                    })
                 } catch (error) {
                     // RisuSavePatcher advances its in-memory baseline while it
                     // builds a patch. Until the response is acknowledged, retain
                     // the last accepted projection; DeltaSave replays an uncertain
                     // request before creating the next delta.
-                    if (isNodeServer) await resetPatcherToAcceptedBaseline()
+                    await resetPatcherToAcceptedBaseline()
                     throw error
                 }
                 saved = patchResult.success
@@ -1221,37 +1126,18 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     newEtag = patchResult.etag
                     forageStorage.setDbEtag(patchResult.etag)
                 }
-                if (patchResult.persistWarning) {
-                    showPersistWarningOnce(patchResult.persistWarning)
-                }
                 // Server's chat-internal-field guard rejected the patch — the
-                // client-side guard above missed this case. Surface to user
-                // and continue to the full-write fallback below.
+                // client-side guard above missed this case. Surface to user;
+                // the failed save below resets the baseline.
                 if (patchResult.chatGuardRejected) {
                     console.error('[Save] Server rejected patch — chat-internal field ops detected server-side')
                     showChatGuardToastThrottled('server')
                 }
                 if (patchResult.conflict) {
-                    // set() already advanced the patcher; compare the rejected
-                    // request's accepted pre-image, not that speculative state.
-                    try {
-                        const mismatch = patchResult.hashDiagnostics && acceptedPatchBaseline
-                            ? comparePatchHashDiagnostics(
-                                createPatchHashDiagnostics(acceptedPatchBaseline, calculateHash),
-                                patchResult.hashDiagnostics,
-                            ) : undefined
-                        console.warn('[Save] Patch conflict; rebasing pending changes', {
-                            code: patchResult.conflictCode,
-                            revision: patchResult.revision,
-                            expectedHash: patchData.expectedHash,
-                            currentHash: patchResult.currentHash,
-                            ...mismatch,
-                        })
-                    } catch (error) {
-                        // Diagnostics must not turn a recoverable 409 into a
-                        // failed save, even with an older/malformed response.
-                        console.warn('[Save] Conflict diagnostics unavailable', error)
-                    }
+                    console.warn('[Save] Patch conflict; rebasing pending changes', {
+                        code: patchResult.conflictCode,
+                        revision: patchResult.revision,
+                    })
                     await rebaseTrackedLocalChangesOnLatestServerDb(
                         patchResult.etag ?? null,
                         db,
@@ -1267,9 +1153,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 await resetPatcherToAcceptedBaseline()
                 throw new Error('Database projection patch failed')
             }
-            if (supportsPatchSync && !options?.forceFullWrite) {
-                console.warn('[Save] Patch conflict, falling through to full write...')
-            }
             try {
                 const currentEtag = forageStorage.getDbEtag()
                 await forageStorage.setItem('database/database.bin', dbData!, currentEtag ?? undefined)
@@ -1281,16 +1164,9 @@ export async function saveDb(onReady?: () => Promise<void>) {
                 }
                 throw conflictErr
             }
-
-            // The wire payload omits server-owned metadata, while the server
-            // reattaches its canonical values. Those values are already in
-            // the accepted runtime image, so keep them in the hash baseline.
-            if (supportsPatchSync) {
-                await patcher.init(db)
-            }
         }
 
-        if (isNodeServer || supportsPatchSync) {
+        if (isNodeServer) {
             // The projection is now acknowledged even if a deferred chat body
             // later fails in transport. Imported chats already own stable ids,
             // so the patcher's normalized local projection is the server shape.
@@ -1447,7 +1323,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
     }
 }
 
-/** Prune old local backups and return the remaining timestamps. */
 export async function getDbBackups(currentDbSize?: number) {
     const keys = await forageStorage.keys()
 
@@ -1456,7 +1331,7 @@ export async function getDbBackups(currentDbSize?: number) {
         .map(key => parseInt(key.slice(18, -4)))
         .sort((a, b) => b - a);
 
-    const BACKUP_BUDGET = 500 * 1024 * 1024 // 500MB
+    const BACKUP_BUDGET = 500 * 1024 * 1024
     const maxBackups = currentDbSize
         ? Math.min(20, Math.max(3, Math.floor(BACKUP_BUDGET / currentDbSize)))
         : 20
@@ -1468,7 +1343,6 @@ export async function getDbBackups(currentDbSize?: number) {
     return backups
 }
 
-/** Look up a fetch log by chat ID, falling back to persistent storage. */
 export async function getFetchData(id: string): Promise<FetchLog | null> {
     for (const log of fetchLog) {
         if (log.chatId === id) {
@@ -1491,7 +1365,6 @@ export function getBasename(data: string) {
 }
 
 
-/** Normalize character order against the current character list. */
 export function checkCharOrder() {
     const db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
@@ -1608,7 +1481,6 @@ export function openURL(url: string) {
     window.open(url, "_blank")
 }
 
-/** Write backup data to a browser-managed file stream. */
 export class LocalWriter {
     writer: WritableStreamDefaultWriter
 
@@ -1618,7 +1490,6 @@ export class LocalWriter {
         return true
     }
 
-    /** Append one named backup entry to the archive. */
     async writeBackup(name: string, data: Uint8Array): Promise<void> {
         const encodedName = new TextEncoder().encode(getBasename(name))
         const nameLength = new Uint32Array([encodedName.byteLength])
@@ -1638,7 +1509,6 @@ export class LocalWriter {
     }
 }
 
-/** Collect backup output in memory instead of opening a file. */
 export class VirtualWriter {
     buf = new AppendableBuffer()
 
@@ -1973,7 +1843,7 @@ export function changeChatTo(IdOrIndex: string | number) {
             loadTogglesFromChat(newChat)
         }
     }
-    ChatRoomReloadPointer.set(Math.random())
+    invalidateChatRoom()
 }
 
 export function createChatCopyName(
@@ -2009,13 +1879,8 @@ export async function createPersistedChatCopy(
 
 export async function createPersistedChat(
     character: character,
-    input: Chat,
+    chat: Chat,
 ): Promise<Chat> {
-    const chat = normalizeChat(input)
-    if (!chat.id || character.chats.some(existing => existing?.id === chat.id)) {
-        throw new Error('New chat must have a unique id')
-    }
-
     character.chats.unshift(chat)
     // Enter immediately. The per-chat save queue snapshots later edits only
     // after this creation commit has acknowledged its canonical ETag.

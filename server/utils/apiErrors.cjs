@@ -2,6 +2,7 @@
 
 const codes = require('../../shared/apiErrorCodes.json');
 const defaultMessages = require('../../shared/apiErrorMessages.json');
+const { isBusyError } = require('../sqlite.cjs');
 
 for (const code of Object.values(codes)) {
     if (typeof defaultMessages[code] !== 'string' || !defaultMessages[code]) {
@@ -22,6 +23,11 @@ function createApiError(code, statusCode, details) {
     return error;
 }
 
+// SQLite lock contention reaches clients as a stable, retryable API error.
+function normalizeApiError(error) {
+    return isBusyError(error) ? createApiError(codes.DATABASE_LOCKED, 503) : error;
+}
+
 function sendApiError(res, status, code, details) {
     return res.status(status).json({
         error: apiErrorMessage(code),
@@ -30,4 +36,4 @@ function sendApiError(res, status, code, details) {
     });
 }
 
-module.exports = { apiErrorMessage, codes, createApiError, sendApiError };
+module.exports = { apiErrorMessage, codes, createApiError, normalizeApiError, sendApiError };

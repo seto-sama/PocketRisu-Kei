@@ -13,7 +13,8 @@
     import Help from "src/lib/Others/Help.svelte";
     import { selectedCharID } from "src/ts/stores.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
-    import ListActionBar from "../../UI/components/ListActionBar.svelte";
+    import ActionBar from "../../UI/components/ActionBar.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
     import ChoiceGroup from "../../UI/components/ChoiceGroup.svelte";
 
     let submenu = $state('character')
@@ -109,20 +110,22 @@
 {/if}
 {#if submenu !== 'settings'}
 
-<ListActionBar mode="footer">
-    <IconButton onclick={() => {addLorebook(loreSubmenu)}}>
-        <PlusIcon />
-    </IconButton>
-    <IconButton onclick={() => {
-        exportLoreBook(submenu === 'character' ? 'global' : 'local')
-    }}>
-        <DownloadIcon />
-    </IconButton>
-    <IconButton data-file-picker onclick={() => {
-        importLoreBook(submenu === 'character' ? 'global' : 'local')
-    }}>
-        <UploadIcon />
-    </IconButton>
+<ActionBar mode="footer">
+    <IconButtonGroup>
+        <IconButton onclick={() => {addLorebook(loreSubmenu)}}>
+            <PlusIcon />
+        </IconButton>
+        <IconButton onclick={() => {
+            exportLoreBook(submenu === 'character' ? 'global' : 'local')
+        }}>
+            <DownloadIcon />
+        </IconButton>
+        <IconButton data-file-picker onclick={() => {
+            importLoreBook(submenu === 'character' ? 'global' : 'local')
+        }}>
+            <UploadIcon />
+        </IconButton>
+    </IconButtonGroup>
     {#if DBState.db.bulkEnabling}
         <IconButton
             className="ml-auto"
@@ -144,6 +147,6 @@
     }}>
         <FolderPlusIcon />
     </IconButton>
-</ListActionBar>
+</ActionBar>
 {/if}
 </div>

@@ -1,25 +1,24 @@
 // @vitest-environment node
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import appDataStorePkg from './appDataStore.cjs'
 import projectionServicePkg from './databaseProjectionService.cjs'
-import jsonPkg from './utils/json.cjs'
-import { createPatchHashDiagnostics } from '../shared/patchHashDiagnostics.mjs'
 import { createDelta } from '../shared/guardedDelta.mjs'
+import privacyGuardFilterPkg from './privacyGuardFilter.cjs'
 
 const { createAppDataStore } = appDataStorePkg as any
 const {
-    DatabaseProjectionApplyError,
     DatabaseProjectionConflictError,
     DatabaseProjectionValidationError,
     createDatabaseProjectionService,
 } = projectionServicePkg as any
-const { calculateHash } = jsonPkg as any
+const { filterHiddenFolders, guardHiddenDelta } = privacyGuardFilterPkg as any
 
-const openDatabases: Database.Database[] = []
+const openDatabases: DatabaseSync[] = []
 
 function createStore() {
-    const sqlite = new Database(':memory:')
+    const sqlite = openDatabase(':memory:')
     openDatabases.push(sqlite)
     const store = createAppDataStore(sqlite)
     return { sqlite, store }
@@ -52,8 +51,8 @@ function sampleDatabase() {
     }
 }
 
-function expectedHash(value: unknown) {
-    return calculateHash(value).toString(16)
+function languageDelta(database: any, language: string) {
+    return { changes: createDelta(database, { ...database, language }) }
 }
 
 function thrownBy(callback: () => unknown) {
@@ -87,7 +86,7 @@ describe('database projection reads and initialization', () => {
         const result = service.getStartupProjection()
 
         expect(result).toMatchObject({
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
             revision: 1,
             initialized: true,
         })
@@ -118,10 +117,7 @@ describe('database projection reads and initialization', () => {
         expect(startup.database.pluginCustomStorage).toEqual({ shared: 'kept' })
         expect(startup.database.pluginStorageMeta).toEqual({})
 
-        service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{ op: 'replace', path: '/language', value: 'en' }],
-        }, options)
+        service.patchDatabase(languageDelta(startup.database, 'en'), options)
 
         expect(store.exportProjection({ includeMessages: false })).toMatchObject({
             language: 'en',
@@ -145,10 +141,7 @@ describe('database projection reads and initialization', () => {
         const startup = service.getStartupProjection(options)
 
         expect(startup.database.pluginCustomStorage).toEqual({})
-        service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{ op: 'replace', path: '/language', value: 'en' }],
-        }, options)
+        service.patchDatabase(languageDelta(startup.database, 'en'), options)
 
         expect(store.exportProjection({ includeMessages: false }).pluginCustomStorage).toEqual({ large: 'data' })
     })
@@ -195,7 +188,7 @@ describe('database projection reads and initialization', () => {
             statusCode: 409,
             code: 'DATABASE_ALREADY_INITIALIZED',
             currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ko')
     })
@@ -209,7 +202,7 @@ describe('database projection reads and initialization', () => {
         })
 
         expect(initialized).toMatchObject({ success: true, revision: 1 })
-        expect(store.getChat('character-1', 'chat-1').message).toEqual([
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual([
             { chatId: 'message-1', role: 'user', data: '본문' },
         ])
         expect(store.exportProjection()).toEqual(database)
@@ -228,7 +221,7 @@ describe('database projection reads and initialization', () => {
     })
 })
 
-describe('database projection JSON Patch commits', () => {
+describe('database projection delta commits', () => {
     it.each(['personas', 'modelPresets'])('rejects duplicate %s IDs without applying any fields', field => {
         const { store, service } = createService()
         store.replaceFromProjection(sampleDatabase())
@@ -262,7 +255,6 @@ describe('database projection JSON Patch commits', () => {
     it.each([
         {
             change: 'root settings',
-            conflicts: true,
             commit: (store: any) => {
                 const database = store.exportProjection({ includeMessages: false })
                 database.localOnlyRoot = { secret: false }
@@ -271,18 +263,16 @@ describe('database projection JSON Patch commits', () => {
         },
         {
             change: 'chat creation',
-            conflicts: true,
             commit: (store: any) => {
                 const committed = store.commitChat('character-1', 'chat-2', {
                     id: 'chat-2', name: '새 채팅',
                     message: [{ chatId: 'new-message', role: 'user', data: '새 본문' }],
-                }, undefined, { requireExpected: false })
+                }, undefined)
                 expect(committed.projectionChanged).toBe(true)
             },
         },
         {
             change: 'chat metadata',
-            conflicts: true,
             commit: (store: any) => {
                 const database = store.exportProjection({ includeMessages: false })
                 database.characters[0].chats[0].name = 'Renamed on server'
@@ -291,7 +281,6 @@ describe('database projection JSON Patch commits', () => {
         },
         {
             change: 'character creation',
-            conflicts: true,
             commit: (store: any) => {
                 const database = store.exportProjection({ includeMessages: false })
                 database.characters.push({
@@ -303,93 +292,51 @@ describe('database projection JSON Patch commits', () => {
         },
         {
             change: 'new message',
-            conflicts: false,
             commit: (store: any) => {
-                const chat = store.getChat('character-1', 'chat-1')
+                const { chat, etag } = store.getChatState('character-1', 'chat-1')
                 chat.message.push({ chatId: 'message-2', role: 'user', data: 'New message' })
-                store.commitChat('character-1', chat.id, chat, undefined, { requireExpected: false })
+                store.commitChat('character-1', chat.id, chat, etag)
             },
         },
-    ])('continues saves after an independent $change commit with a stale cache', ({ commit, conflicts }) => {
+    ])('continues saves after an independent $change commit with a stale cache', ({ commit }) => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())
         const staleCache = store.exportProjection({ includeMessages: false })
         const service = createDatabaseProjectionService({ appDataStore: store })
         commit(store)
         const durableDatabase = store.exportProjection()
-        const patch = [{ op: 'replace', path: '/language', value: 'en' }]
 
-        let baseline = staleCache
-        if (conflicts) {
-            const conflict = thrownBy(() => service.patchDatabase({
-                expectedHash: expectedHash(staleCache), patch,
-            }))
-            expect(conflict).toMatchObject({
-                code: 'DATABASE_HASH_MISMATCH',
-                currentEtag: store.projectionEtag({ includeMessages: false }),
-                currentRevision: store.getState().revision,
-            })
-
-            const latest = service.getStartupProjection()
-            expect(latest.database).toEqual(store.exportProjection({ includeMessages: false }))
-            expect(conflict.currentHash).toBe(expectedHash(latest.database))
-            expect(latest.etag).toBe(conflict.currentEtag)
-            baseline = latest.database
-        }
-        expect(service.patchDatabase({ expectedHash: expectedHash(baseline), patch }))
+        expect(service.patchDatabase(languageDelta(staleCache, 'en')))
             .toMatchObject({ success: true, changed: true })
         expect(store.exportProjection()).toEqual({ ...durableDatabase, language: 'en' })
 
-        // Subsequent saves also succeed without restarting or repairing a cache.
         const accepted = service.getStartupProjection()
-        expect(service.patchDatabase({
-            expectedHash: expectedHash(accepted.database),
-            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
-        })).toMatchObject({ success: true, changed: true })
+        expect(service.patchDatabase(languageDelta(accepted.database, 'ko')))
+            .toMatchObject({ success: true, changed: true })
         expect(store.exportProjection()).toEqual(durableDatabase)
     })
 
-    it('commits against the visible hash without replacing chat bodies', () => {
+    it('commits without replacing chat bodies', () => {
         const { store, service } = createService()
         store.replaceFromProjection(sampleDatabase())
         const startup = service.getStartupProjection()
 
-        const result = service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{ op: 'replace', path: '/language', value: 'en' }],
-        })
+        const result = service.patchDatabase(languageDelta(startup.database, 'en'))
 
         expect(result).toMatchObject({
             success: true,
             changed: true,
             appliedOperations: 1,
             revision: 2,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('en')
-        expect(store.getChat('character-1', 'chat-1').message).toEqual([
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message).toEqual([
             { chatId: 'message-1', role: 'user', data: '본문' },
         ])
     })
 
-    it('uses the patch result document for root replacement operations', () => {
-        const { store, service } = createService()
-        store.replaceFromProjection(sampleDatabase())
-        const startup = service.getStartupProjection()
-
-        service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{
-                op: 'replace',
-                path: '',
-                value: { characters: [], language: 'en' },
-            }],
-        })
-
-        expect(store.exportProjection()).toEqual({ characters: [], language: 'en' })
-    })
-
-    it('treats an empty patch as a no-op even when its hash is stale', () => {
+    it('treats empty changes as a no-op', () => {
         const { sqlite, store, service } = createService()
         store.replaceFromProjection(sampleDatabase())
         const before = store.getState()
@@ -397,72 +344,27 @@ describe('database projection JSON Patch commits', () => {
             'SELECT total_changes() AS count',
         ).get() as any).count
 
-        const result = service.patchDatabase({
-            expectedHash: 'definitely-stale',
-            patch: [],
-        })
+        const result = service.patchDatabase({ changes: [] })
 
         expect(result).toMatchObject({
             success: true,
             changed: false,
             appliedOperations: 0,
             revision: before.revision,
-            etag: store.projectionEtag({ includeMessages: false }),
+            etag: store.getState().projectionEtag,
         })
         expect(store.getState()).toEqual(before)
         expect((sqlite.prepare('SELECT total_changes() AS count').get() as any).count)
             .toBe(beforeChanges)
     })
 
-    it('reports the current revision, etag, and hash on stale input', () => {
-        const { store, service } = createService()
-        store.replaceFromProjection(sampleDatabase())
-
-        const error = thrownBy(() => service.patchDatabase({
-            expectedHash: 'stale',
-            patch: [{ op: 'replace', path: '/language', value: 'en' }],
-        }))
-
-        expect(error).toBeInstanceOf(DatabaseProjectionConflictError)
-        expect(error).toMatchObject({
-            statusCode: 409,
-            code: 'DATABASE_HASH_MISMATCH',
-            currentRevision: 1,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
-            currentHash: expectedHash(service.getStartupProjection().database),
-        })
-        expect(store.exportProjection().language).toBe('ko')
-    })
-
-    it('wraps invalid JSON Patch operations without modifying storage', () => {
-        const { store, service } = createService()
-        store.replaceFromProjection(sampleDatabase())
-        const startup = service.getStartupProjection()
-
-        const error = thrownBy(() => service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{ op: 'replace', path: '/missing', value: true }],
-        }))
-
-        expect(error).toBeInstanceOf(DatabaseProjectionApplyError)
-        expect(error).toMatchObject({
-            statusCode: 400,
-            code: 'DATABASE_PATCH_APPLY_FAILED',
-        })
-        expect(error.cause).toBeTruthy()
-        expect(store.exportProjection()).toEqual(sampleDatabase())
-    })
-
     it('rejects malformed requests with typed validation errors', () => {
         const { service } = createService()
 
-        expect(thrownBy(() => service.patchDatabase({
-            patch: {},
-            expectedHash: 'abc',
-        }))).toBeInstanceOf(DatabaseProjectionValidationError)
-        expect(thrownBy(() => service.patchDatabase({
-            patch: [],
-        }))).toBeInstanceOf(DatabaseProjectionValidationError)
+        expect(thrownBy(() => service.patchDatabase({ changes: {} })))
+            .toBeInstanceOf(DatabaseProjectionValidationError)
+        expect(thrownBy(() => service.patchDatabase({ patch: [] })))
+            .toBeInstanceOf(DatabaseProjectionValidationError)
     })
 
     it('turns a storage CAS race into a projection conflict with fresh metadata', () => {
@@ -486,33 +388,26 @@ describe('database projection JSON Patch commits', () => {
         const service = createDatabaseProjectionService({ appDataStore: racingStore })
         const startup = service.getStartupProjection()
 
-        const error = thrownBy(() => service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [{ op: 'replace', path: '/language', value: 'en' }],
-        }))
+        const error = thrownBy(() => service.patchDatabase(languageDelta(startup.database, 'en')))
 
         expect(error).toBeInstanceOf(DatabaseProjectionConflictError)
         expect(error).toMatchObject({
             statusCode: 409,
             code: 'DATABASE_PROJECTION_CHANGED',
             currentRevision: 2,
-            currentEtag: store.projectionEtag({ includeMessages: false }),
+            currentEtag: store.getState().projectionEtag,
         })
         expect(store.exportProjection().language).toBe('ja')
     })
 })
 
-describe('remote and server-owned projection transforms', () => {
-    it('hashes the filtered view, merges hidden data, and restores server metadata', () => {
-        const filterRemoteProjection = vi.fn((database: any) => {
+describe('hidden-folder and server-owned projection transforms', () => {
+    it('keeps data hidden from the view and restores server metadata', () => {
+        const filterHiddenFolders = vi.fn((database: any) => {
             const visible = structuredClone(database)
             delete visible.localOnlyRoot
             return visible
         })
-        const mergeRemoteProjection = vi.fn((canonical: any, incoming: any) => ({
-            ...incoming,
-            localOnlyRoot: canonical.localOnlyRoot,
-        }))
         const restoreServerOwnedMetadata = vi.fn((incoming: any, canonical: any) => {
             const restored = structuredClone(incoming)
             restored.statics.messages = canonical.statics.messages
@@ -520,26 +415,18 @@ describe('remote and server-owned projection transforms', () => {
             return restored
         })
         const { store, service } = createService({
-            filterRemoteProjection,
-            mergeRemoteProjection,
+            filterHiddenFolders,
             restoreServerOwnedMetadata,
         })
         store.replaceFromProjection(sampleDatabase())
-        const startup = service.getStartupProjection({ remote: true })
+        const startup = service.getStartupProjection({ hideFolders: true })
 
         expect(startup.database).not.toHaveProperty('localOnlyRoot')
-        const result = service.patchDatabase({
-            expectedHash: expectedHash(startup.database),
-            patch: [
-                { op: 'replace', path: '/language', value: 'en' },
-                { op: 'replace', path: '/statics/messages', value: 999 },
-                {
-                    op: 'replace',
-                    path: '/characters/0/lastInteraction',
-                    value: 999,
-                },
-            ],
-        }, { remote: true })
+        const edited = structuredClone(startup.database)
+        edited.language = 'en'
+        edited.statics.messages = 999
+        edited.characters[0].lastInteraction = 999
+        const result = service.patchDatabase({ changes: createDelta(startup.database, edited) }, { hideFolders: true })
 
         expect(result).toMatchObject({ success: true, appliedOperations: 3, revision: 2 })
         expect(store.exportProjection()).toMatchObject({
@@ -548,35 +435,58 @@ describe('remote and server-owned projection transforms', () => {
             localOnlyRoot: { secret: true },
         })
         expect(store.exportProjection().characters[0].lastInteraction).toBe(123)
-        expect(store.getChat('character-1', 'chat-1').message[0].data).toBe('본문')
-        expect(filterRemoteProjection).toHaveBeenCalled()
-        expect(mergeRemoteProjection).toHaveBeenCalledOnce()
+        expect(store.getChatState('character-1', 'chat-1')?.chat.message[0].data).toBe('본문')
         expect(restoreServerOwnedMetadata).toHaveBeenCalledOnce()
     })
 })
 
-it('limits hash diagnostics to the same remote and plugin-filtered startup projection', () => {
-    const { store, service } = createService({
-        filterRemoteProjection: (database: any) => ({
-            ...database, localOnlyRoot: undefined,
-            characters: database.characters.filter((character: any) => character.chaId !== 'hidden'),
-        }),
+describe('privacy guard deltas', () => {
+    function guardedService() {
+        const { store, service } = createService({ filterHiddenFolders, guardHiddenDelta })
+        store.replaceFromProjection({
+            characterOrder: ['shown', { id: 'F', name: 'Private', color: '', localOnly: true, data: ['secret'] }, 'other'],
+            characters: [
+                {
+                    chaId: 'shown', name: 'Shown',
+                    chatFolders: [{ id: 'CF', name: 'Hidden chats', localOnly: true }],
+                    chats: [{ id: 'open', name: 'Open', message: [] }, { id: 'private', name: 'Private', folderId: 'CF', message: [] }],
+                },
+                { chaId: 'secret', name: 'Secret', chats: [] },
+                { chaId: 'other', name: 'Other', chats: [] },
+            ],
+        })
+        const visible = service.getStartupProjection({ hideFolders: true }).database
+        return { store, service, visible }
+    }
+
+    it('applies a delta made on the filtered view without dropping hidden entries', () => {
+        const { store, service, visible } = guardedService()
+        const edited = structuredClone(visible)
+        edited.characterOrder.reverse()
+        edited.characters[0].name = 'Renamed'
+
+        service.patchDatabase({ changes: createDelta(visible, edited) }, { hideFolders: true })
+
+        const stored = store.exportProjection({ includeMessages: false })
+        expect(stored.characterOrder.map((entry: any) => entry.id ?? entry)).toEqual(['other', 'F', 'shown'])
+        expect(stored.characters.map((char: any) => char.chaId)).toEqual(['shown', 'secret', 'other'])
+        expect(stored.characters[0].name).toBe('Renamed')
+        expect(stored.characters[0].chats.map((chat: any) => chat.id)).toEqual(['open', 'private'])
     })
-    const database = sampleDatabase()
-    store.replaceFromProjection({
-        ...database,
-        characters: [...database.characters, { chaId: 'hidden', name: 'secret', chats: [] }],
-        pluginCustomStorage: { private: 'plugin-secret' },
+
+    it('deletes a character holding hidden chats and rejects a change naming a hidden ID', () => {
+        const { store, service, visible } = guardedService()
+        const edited = structuredClone(visible)
+        edited.characters.shift()
+        edited.characterOrder.shift()
+        service.patchDatabase({ changes: createDelta(visible, edited) }, { hideFolders: true })
+        expect(store.exportProjection().characters.map((char: any) => char.chaId)).toEqual(['secret', 'other'])
+
+        const error = thrownBy(() => service.patchDatabase({ changes: [{
+            kind: 'value', path: ['characters', { key: 'chaId', value: 'secret' }, 'name'],
+            before: { exists: true, value: 'Secret' }, after: { exists: true, value: 'Leaked' },
+        }] }, { hideFolders: true }))
+        expect(error).toBeInstanceOf(DatabaseProjectionConflictError)
+        expect(store.exportProjection().characters[0].name).toBe('Secret')
     })
-    const options = { remote: true, excludeAllPluginStorage: true }
-    const before = store.getState()
-    const visible = service.getStartupProjection(options).database
-    const error = thrownBy(() => service.patchDatabase({
-        expectedHash: 'stale', patch: [{ op: 'replace', path: '/language', value: 'en' }],
-    }, options))
-    expect(error.hashDiagnostics).toEqual(createPatchHashDiagnostics(visible, calculateHash))
-    expect(error.hashDiagnostics.keys).not.toHaveProperty('localOnlyRoot')
-    expect(error.hashDiagnostics.characters.map((row: any) => row.id)).toEqual(['character-1'])
-    expect(JSON.stringify(error.hashDiagnostics)).not.toMatch(/secret|본문|해적/)
-    expect(store.getState()).toEqual(before)
 })

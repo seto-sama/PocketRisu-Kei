@@ -18,6 +18,68 @@ function recipe(backend = 'http') {
 }
 
 describe('revenant headless Lua executor', () => {
+    it.each([
+        { name: 'missing states', scriptstate: {} },
+        { name: 'empty stack', scriptstate: { '$__stack': '' } },
+        { name: 'empty hidden entries', scriptstate: { '$__stack': '[]', '$__hidden': '' } },
+    ])('initializes and saves $name during output processing', async ({ scriptstate }) => {
+        const input = recipe()
+        const code = `
+            function onOutput(id)
+                local stack = getState(id, 'stack') or {}
+                local hidden = getState(id, 'hidden') or {}
+                table.insert(stack, { chatIndex = getChatLength(id) - 1 })
+                setState(id, 'stack', stack)
+                setState(id, 'hidden', hidden)
+            end
+        `
+        const first = await executeRevenantLua({
+            code, mode: 'output', recipe: input, chat: { ...input.chat, scriptstate },
+        })
+        expect(first.status).toBe('completed')
+        expect(JSON.parse(first.chat.scriptstate.$__stack)).toEqual([{ chatIndex: 0 }])
+
+        const second = await executeRevenantLua({ code, mode: 'output', recipe: input, chat: first.chat })
+        expect(JSON.parse(second.chat.scriptstate.$__stack)).toEqual([{ chatIndex: 0 }, { chatIndex: 0 }])
+        expect(second.chat.scriptstate.$__hidden).toBe(first.chat.scriptstate.$__hidden)
+    })
+
+    it('preserves JSON state values and reports malformed stored JSON', async () => {
+        const result = await executeRevenantLua({
+            code: `
+                function onOutput(id)
+                    setState(id, 'text', '')
+                    setState(id, 'enabled', false)
+                    setState(id, 'count', 0)
+                    assert(getState(id, 'text') == '')
+                    assert(getState(id, 'enabled') == false)
+                    assert(getState(id, 'count') == 0)
+                    setChatVar(id, '__broken', '{')
+                end
+            `,
+            mode: 'output', recipe: recipe(),
+        })
+        await expect(executeRevenantLua({
+            code: "function onOutput(id) getState(id, 'broken') end",
+            mode: 'output', recipe: recipe(), chat: result.chat,
+        })).rejects.toThrow()
+    })
+
+    it('resolves chat and global variables like the browser', async () => {
+        const input = recipe()
+        input.character.defaultVariables = 'mode=detail'
+        const result = await executeRevenantLua({
+            code: `
+                function onOutput(id)
+                    setChatVar(id, 'seen', getChatVar(id, 'mode') .. '|' .. getChatVar(id, 'missing')
+                        .. '|' .. getGlobalVar(id, 'missing'))
+                end
+            `,
+            mode: 'output', recipe: input,
+        })
+        expect(result.chat.scriptstate.$seen).toBe('detail||')
+    })
+
     it('propagates Lua errors when no client action was requested', async () => {
         await expect(executeRevenantLua({
             code: "function onOutput(id) error('ordinary Lua failure') end",
@@ -133,7 +195,7 @@ describe('revenant headless Lua executor', () => {
     })
 
     it('selects each snapshotted auxiliary provider mode from a real Lua axLLM call', async () => {
-        const modes = ['emotion', 'memory', 'submodel', 'translate'] as const
+        const modes = ['memory', 'submodel', 'translate'] as const
         const input = recipe('plugin') as any
         input.auxProviders = Object.fromEntries(modes.map(mode => [mode, {
             backend: 'plugin', modelPreset: { id: `${mode}-preset` },
@@ -267,43 +329,28 @@ describe('revenant headless Lua executor', () => {
     })
 
     it.each([
-        ['unset', undefined],
-        ['portrait', 'portrait'],
-        ['landscape', 'landscape'],
-    ] as const)('forwards %s orientation from a real Lua generateImage call', async (_name, orientation) => {
-        const options = orientation ? `, { orientation = '${orientation}' }` : ''
+        ['', { prompt: 'prompt', negativePrompt: 'negative' }],
+        [", { orientation = 'portrait' }", { prompt: 'prompt', negativePrompt: 'negative', orientation: 'portrait' }],
+    ])('forwards generateImage options %j', async (options, payload) => {
         const waiting = await executeRevenantLua({
-            code: `
-                onOutput = async(function(id)
-                    generateImage(id, 'prompt', 'negative'${options}):await()
-                end)
-            `,
+            code: `onOutput = async(function(id) generateImage(id, 'prompt', 'negative'${options}):await() end)`,
             mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
         })
-        const expectedPayload: Record<string, unknown> = {
-            prompt: 'prompt', negativePrompt: 'negative',
-        }
-        if (orientation) expectedPayload.orientation = orientation
-
-        expect(waiting.action).toMatchObject({
-            kind: 'image.generate', payload: expectedPayload,
-        })
+        expect(waiting.action).toMatchObject({ kind: 'image.generate', payload })
+        expect('orientation' in waiting.action.payload).toBe('orientation' in payload)
     })
 
     it('returns a Lua error for an invalid generateImage orientation without creating an action', async () => {
         const result = await executeRevenantLua({
-            code: `
-                onOutput = async(function(id)
-                    local response = generateImage(id, 'prompt', 'negative', { orientation = 'diagonal' }):await()
-                    setChatVar(id, 'image-error', response)
-                end)
-            `,
+            code: `onOutput = async(function(id)
+                setChatVar(id, 'error', generateImage(id, 'p', 'n', { orientation = 'diagonal' }):await())
+            end)`,
             mode: 'output', data: '', recipe: recipe(), chat: recipe().chat,
         })
-
-        expect(result.status).toBe('completed')
-        expect(result.chat.scriptstate['$image-error']).toBe('Error: Image orientation must be landscape or portrait, received diagonal')
-        expect(result.action).toBeUndefined()
+        expect(result).toMatchObject({
+            status: 'completed',
+            chat: { scriptstate: { $error: 'Error: Image orientation must be landscape or portrait, received diagonal' } },
+        })
     })
 
     it('preserves a replayable client action when Lua pcall catches its suspension', async () => {

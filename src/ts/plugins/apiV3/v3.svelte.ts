@@ -29,6 +29,7 @@ import { sendChat as processSendChat, doingChat } from "src/ts/process/index.sve
 import { processScriptFull } from "src/ts/process/scripts";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
 import { requestChatDataMain } from "src/ts/process/request/request";
+import { retireEmotionMode } from "src/ts/process/luaLlmCore";
 import { resolveChatModelBinding } from "src/ts/process/request/modelPresetBinding";
 import type { OpenAIChat } from "src/ts/process/index.svelte";
 import { getModuleLorebooks } from "src/ts/process/modules";
@@ -713,9 +714,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 job: {
                     ...requestContext.generationRequest.job,
                     adapterKind: requestContext.generationRequest.job.adapterKind
-                        ?? classification.adapterKind,
-                    streaming: requestContext.generationRequest.job.streaming
-                        ?? classification.streaming,
+                        ?? classification.responseDecoder?.adapterKind,
+                    // The plugin parses the raw response; the server decodes
+                    // a copy for recovery.
+                    responseDecoder: classification.responseDecoder,
                 },
             } : undefined,
         }
@@ -1428,7 +1430,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
                 // Require explicit opt-in to avoid recursive calls between provider plugins.
                 blockPlugins: !options.allowPlugins,
-            }, options.mode)
+            }, retireEmotionMode(options.mode))
         },
         sendChat: async (message: string) => {
             const conf = await getPermission('sendChat');

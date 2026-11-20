@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createHash, createHmac } from 'node:crypto'
 import { describe, expect, test, vi } from 'vitest'
+import { decodingFetch } from './__testDecodingFetch'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import {
     parseAmazonBedrockResponse,
@@ -204,7 +205,7 @@ describe('Amazon Bedrock request wire', () => {
 
         const result = await sendAmazonBedrockChatRequest(
             input.preset,
-            { messages: [{ role: 'user', content: 'Hello' }], fetchImpl },
+            { messages: [{ role: 'user', content: 'Hello' }], fetchImpl: decodingFetch(fetchImpl) },
             input.credential,
         )
 
@@ -287,7 +288,7 @@ describe('Amazon Bedrock response and event stream parsing', () => {
         const deltas = []
         for await (const delta of streamAmazonBedrockChatRequest(
             input.preset,
-            { messages: [{ role: 'user', content: 'Hi' }], fetchImpl: fetchImpl as typeof fetch },
+            { messages: [{ role: 'user', content: 'Hi' }], fetchImpl: decodingFetch(fetchImpl as typeof fetch) },
             input.credential,
         )) {
             deltas.push(delta)

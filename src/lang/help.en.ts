@@ -38,8 +38,6 @@ export const helpEn = {
         loreActivationKey: "If one of the activation key exists in context, the lore will be activated and prompt will go in. seperated by commas.",
         loreorder: "If insert Order is higher, it will effect the model more, and it will more lessly cuted when activated lore are many.",
         bias: "bias is a key-value data which modifies the likelihood of string appearing.\nit can be -100 to 100, higher values will be more likely to appear, and lower values will be more unlikely to appear. \nAdditionaly, if its set to -101, it would work as 'strong ban word' for some models. \nWarning: if the tokenizer is wrong, it not work properly.",
-        emotion:
-            "Emotion Images option shows image depending at character's emotion which is analized by character's response. you must input emotion name as words *(like joy, happy, fear and etc.)* .emotion named **neutral** will be default emotion if it exists. must be more then 3 images to work properly.",
         regexScript:
             "Regex Script is a custom regex that replaces string that matches IN to OUT.\n\nThere four type options." +
             "\n\n- **Modify Input** modifies user's input" +
@@ -69,6 +67,7 @@ export const helpEn = {
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
         systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
         legacySettings: "These prompts are no longer used and are not included in requests.",
+        promptTemplateTokens: "Shown as `parsed(raw)`.\n\n- **parsed**: tokens after CBS is processed. `{{char}}` and `{{user}}` are replaced with fixed placeholder names.\n- **raw**: tokens of the text before CBS is processed.\n\nOnly text written in the prompt template is counted. Content filled in at request time is excluded, such as the character description, lorebook, author's note text, global note replacement, and chat history.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -77,8 +76,9 @@ export const helpEn = {
         additionalAssets:
             "Additional assets to display in your chat. \n\n - use `{{raw::<asset name>}}` to use as path.\n - use `{{image::<asset name>}}` to use as image\n - use `{{video::<asset name>}}` to use as video\n - use `{{audio::<asset name>}}` to use as audio\n    - recommended to put in Background HTML",
         replaceGlobalNote: "If its not blank, it replaces current global note to this.",
-        insertAssetPrompt: "Appends the built-in asset instruction, including registered character and module asset names, to the end of the prompt preset's Global Note block. It is not inserted when the preset has no Global Note block.",
-        assetStyle: "Static displays the image while preserving its full aspect ratio. Dynamic limits and crops its height from the top, then expands it vertically when you hover over it.",
+        insertAssetPrompt: "Adds asset output instructions and an image list to the end of the preset's Global Note. Requires a Global Note block.",
+        assetPrompt: "This prompt is inserted only while Insert Asset Prompt is on.",
+        assetStyle: "Sets how assets inserted through the asset prompt are displayed. Static keeps the image's full aspect ratio. Dynamic keeps the image collapsed and expands it when you hover over it.",
         backgroundHTML:
             "A Markdown/HTML Data that would be injected to the background of chat screen.\n\n you can also use additional assets. for example, you can use `{{audio::<asset name}}` for background music." +
             "\n\n Additionaly, you can use these with additional assets:" +
@@ -101,7 +101,6 @@ export const helpEn = {
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
         disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
-        chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
             "Total number of main response generations. After the first response, the normal reroll action runs automatically and sequentially. Automatic rerolls stop when a generation calls a tool, and TTS is not played for automatic rerolls. Higher values increase requests and cost.",
@@ -109,7 +108,6 @@ export const helpEn = {
         outputRepetitionDetection: "Automatically cancels the request when the same output is repeated at least the specified number of times.",
         chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
         chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
-        emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
         additionalParams:
             'Additional parameters that would be added to the request body. if you want to exclude some parameters, you can put `{{none}}` to the value. if you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. if you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
         additionalParamsHelp: "One per line. Supports `key=value`, `key=json::{...}`, `header::Name=value`, `key={{none}}`.",
@@ -120,7 +118,6 @@ export const helpEn = {
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
-        customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
         onboarding:
             "Onboarding lets users pick options before a chat starts, like a short form. Each answer is saved to a chat variable, usable with `{{getvar::name}}` or triggers.\n\nUntil the user finishes or skips it, the chat shows a banner that opens the onboarding. It can be reopened from the chat menu.\n\n**Form** mode builds choices and text questions. Multiple-choice answers are saved as a JSON array.\n\n**HTML** mode lets you write your own layout. CBS and additional assets work, and it is sanitized like chat messages with `<style>` support. Add `risu-change-var-name=\"varname\"` and `risu-change-var-value=\"value\"` to any element to set the variable when it is clicked; the clicked element gets the `selected` class. On `<input>`, `<select>` and `<textarea>`, the variable follows the input's value. Choices are saved when the user presses Done, so CBS such as `{{getvar::name}}` inside the onboarding shows the value from before it was opened.",
         customPromptTemplateToggle:
@@ -201,6 +198,8 @@ export const helpEn = {
             "- **Additional Text**: Matching character additional info based on context\n" +
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
+        keiClipboard:
+            "Ctrl+C / Ctrl+X copy into a dedicated clipboard stored on the server instead of the OS clipboard.\nOn mobile, tap with two fingers to open the Keiboard.\nTurning on Privacy Guard Mode turns it on as well, and turning the mode off restores your setting.",
         keepSessionAlive:
             "Plays audio inaudible to humans to keep the tab active in the background.",
         disableMobileBackNavigation:
@@ -285,12 +284,11 @@ export const helpEn = {
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
-        newImageHandlingBeta:
-            "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
         useServerDriveForFileImport:
             "Open Server Drive when loading files. When this setting is off, the device's file browser opens; right-click a button that loads files to open Server Drive.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
+        privacyGuardIdleLock: "Returns to the password prompt after the set time passes without any input.",
         pluginStorageWarningThreshold: "Warn at startup when total plugin storage reaches this size (1 MB = 1,000,000 bytes). Saved only in this browser, applied on next page load. Default: 256 MB. Clear the input to disable; set 0 to always show. This is not a measured memory limit.",
         claude1HourCaching:
             "Use Claude's 1-hour prompt cache TTL instead of the default 5-minute cache. This can save more cost for repeated contexts, but 1-hour cache pricing differs.",
@@ -308,7 +306,6 @@ export const helpEn = {
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
         waifuWidth: "Width of the chat area in the Waifulike theme.",
-        waifuWidth2: "Size of the character illustration in the Waifulike theme.",
         standardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
@@ -323,6 +320,7 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
+        hideRecentChats: "Hide the recent-chats list shown in the sidebar while no character is selected.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         hidePublicStats:
@@ -529,10 +527,6 @@ export const helpEn = {
         ttsFishSpeechKey:
             "Fish Audio (`https://fish.audio/`) API key. Provides natural-sounding multi-speaker voices.",
 
-        emotionMethod:
-            "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **Embedding model**: classify using the configured remote embedding service\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
-
-
         naiModel:
             "NovelAI image model to use. Newer models look better and cost slightly more (Anlas drawn from your subscription plan).",
         naiResolution:
@@ -596,4 +590,6 @@ export const helpEn = {
         migrationDatasetExportDesc: "Export save data as a dataset file.",
         backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
         backupLocalRestoreDesc: "Restore from a backup file on your device.",
+        updatePopupGit: "Run in the PocketRisu Kei folder, then restart the server.",
+        updatePopupDocker: "Run in the folder that contains docker-compose.yml.",
 }

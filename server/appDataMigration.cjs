@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('./sqlite.cjs');
 const crypto = require('crypto');
 const { importPromptPresetSelection } = require('../shared/promptPresetSelection.mjs');
 
@@ -116,7 +117,7 @@ function createAppDataMigration(options) {
         now = () => Date.now(),
     } = options ?? {};
 
-    if (!db || typeof db.prepare !== 'function' || typeof db.transaction !== 'function') {
+    if (typeof db?.prepare !== 'function') {
         throw new TypeError('createAppDataMigration requires a SQLite database');
     }
     if (!appDataStore
@@ -209,7 +210,7 @@ function createAppDataMigration(options) {
     // Adopt an already-initialized relational store. A leftover blob is stale
     // by definition here: overwriting canonical rows would discard writes made
     // after the cutover.
-    const adoptCanonicalTransaction = db.transaction(() => {
+    const adoptCanonicalTransaction = () => withTransaction(db, () => {
         const existingMarker = getMarker();
         if (!hasCanonicalRows()) return undefined;
 
@@ -234,7 +235,7 @@ function createAppDataMigration(options) {
         };
     });
 
-    const installTransaction = db.transaction((projection, expectedProjectionHash, expectedSourceHash) => {
+    const installTransaction = (projection, expectedProjectionHash, expectedSourceHash) => withTransaction(db, () => {
         // Another initializer may have won while the legacy blob was decoded.
         // Never replace rows once they are canonical; adopt them instead.
         const adopted = adoptCanonicalTransaction();
@@ -349,7 +350,7 @@ function createAppDataMigration(options) {
 }
 
 function migratePromptPresetSelection({ db, appDataStore }) {
-    db.transaction(() => {
+    withTransaction(db, () => {
         const state = appDataStore.getState();
         if (!state.initialized) return;
 
@@ -361,15 +362,13 @@ function migratePromptPresetSelection({ db, appDataStore }) {
         appDataStore.syncStartupProjection(projection, {
             expectedRevision: state.revision,
         });
-    })();
+    });
 }
 
 module.exports = {
     AppDataMigrationCleanupError,
-    AppDataMigrationError,
     AppDataMigrationVerificationError,
     LEGACY_DATABASE_KEY,
-    LEGACY_DATABASE_MIGRATION_KEY,
     createAppDataMigration,
     migratePromptPresetSelection,
     semanticProjectionHash,

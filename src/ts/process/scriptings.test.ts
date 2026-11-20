@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     alertInput: vi.fn(),
     request: vi.fn(async (_options?: any, _mode?: string) => ({ type: 'success', result: 'client result' })),
     image: vi.fn(async () => '{{inlayed::image}}'),
+    moduleLorebooks: [] as any[],
     jobs: [] as any[],
     save: vi.fn(async () => {}),
     consume: vi.fn(async (_id: string) => {}),
@@ -17,14 +18,14 @@ const state = vi.hoisted(() => ({
 vi.mock('../storage/database.svelte', () => ({ getDatabase: () => state.db, getCurrentChat: () => state.db.characters[0].chats[0], normalizeChat: (chat: unknown) => chat }))
 vi.mock('../stores.svelte', () => ({
     DBState: { get db() { return state.db } },
-    selectedCharID: writable(0), ReloadGUIPointer: writable(0),
+    selectedCharID: writable(0), invalidateDisplay: vi.fn(), invalidateChatMessageRender: vi.fn(),
     CurrentTriggerIdStore: writable(null),
 }))
 vi.mock('../alert', () => ({ alertInput: state.alertInput }))
 vi.mock('../util', () => ({ parseKeyValue: (text = '') => text.split('\n').filter(Boolean).map(line => line.split('=')) }))
 vi.mock('../globalApi.svelte', () => ({ requestImmediateSave: state.save }))
 vi.mock('../tokenizer', () => ({}))
-vi.mock('./modules', () => ({ getModuleTriggers: () => [] }))
+vi.mock('./modules', () => ({ getModuleTriggers: () => [], getModuleLorebooks: () => state.moduleLorebooks }))
 vi.mock('./files/inlays', () => ({}))
 vi.mock('./lorebook.svelte', () => ({}))
 vi.mock('./command', () => ({ processMultiCommand: vi.fn() }))
@@ -33,7 +34,6 @@ vi.mock('./revenant/auxiliary', () => ({
     findRecoverableAuxiliaryGeneration: async (predicate: (job: any) => boolean) => state.jobs.find(predicate),
     listRecoverableAuxiliaryGenerations: async () => state.jobs,
     resolveRecoverableAuxiliaryGenerations: async (options: any) => state.jobs.filter(job => options.isContext(job.operationContext) && options.matchesContext(job.operationContext)),
-    updateRecoverableAuxiliaryGenerationProjection: async (jobId: string, content: string) => { state.jobs.find(job => job.jobId === jobId).projection = { content } },
     consumeRecoverableAuxiliaryGeneration: state.consume,
 }))
 vi.mock('./revenant/workflow/imageWorkflow', () => ({ generateImageThroughWorkflow: state.image }))
@@ -58,9 +58,61 @@ afterAll(() => vi.unstubAllGlobals())
 beforeEach(() => {
     state.db = { characters: [], templateDefaultVariables: '', globalChatVariables: {} }
     state.jobs = []
+    state.moduleLorebooks = []
     vi.clearAllMocks()
     state.request.mockResolvedValue({ type: 'success', result: 'client result' })
     state.consume.mockImplementation(async id => { state.jobs = state.jobs.filter(job => job.jobId !== id) })
+})
+
+it('uses the originating character lore and defaults when rendering a simple projection', async () => {
+    const { runScripted } = await import('./scriptings')
+    const chat = { id: 'origin-chat', message: [], localLore: [{ comment: 'local', content: 'local lore' }] }
+    const character = {
+        type: 'character', chaId: 'origin', name: 'Origin', chats: [chat],
+        defaultVariables: '__settings={"enabled":true}',
+        globalLore: [{ comment: 'character', content: 'origin lore' }],
+    }
+    state.db.characters = [
+        { type: 'character', chaId: 'other', globalLore: [{ comment: 'character', content: 'wrong lore' }] },
+        character,
+    ]
+    state.moduleLorebooks = [{ comment: 'lightboard-prelude', content: 'module prelude' }]
+
+    const result = await runScripted(`
+        listenEdit('editDisplay', function(id, data)
+            local prelude = getLoreBooks(id, 'lightboard-prelude')[1]
+            local localLore = getLoreBooks(id, 'local')[1]
+            local characterLore = getLoreBooks(id, 'character')[1]
+            assert(getState(id, 'settings').enabled)
+            return data .. ':' .. prelude.content .. ':' .. localLore.content .. ':' .. characterLore.content
+        end)
+    `, {
+        char: { type: 'simple', chaId: 'origin', customscript: [] } as never,
+        chat: chat as never,
+        mode: 'editDisplay',
+        data: 'display',
+    })
+
+    expect(result.res).toBe('display:module prelude:local lore:origin lore')
+})
+
+it('returns nil for missing and empty states through the browser variable adapter', async () => {
+    const { runScripted } = await import('./scriptings')
+    const chat = { message: [], scriptstate: { '$__empty': '' } }
+    const result = await runScripted(`
+        function onStart(id)
+            assert(getState(id, 'missing') == nil)
+            assert(getState(id, 'empty') == nil)
+            return 'completed'
+        end
+    `, {
+        char: { type: 'character', defaultVariables: '' } as never,
+        chat: chat as never,
+        mode: 'start',
+    })
+
+    expect(result.res).toBe('completed')
+    expect(chat.scriptstate).toEqual({ '$__empty': '' })
 })
 
 it('returns plain Lua tables from client APIs without exposing JS constructors', async () => {
@@ -145,10 +197,12 @@ it('uses the selected auxiliary mode with the originating chat and module', asyn
     const chat = { id: 'origin', message: [] }
     const result = await runScripted(`
         onStart = async(function(id)
-            for _, mode in ipairs({'emotion', 'memory', 'otherAx', 'submodel', 'translate'}) do
+            for _, mode in ipairs({'memory', 'otherAx', 'submodel', 'translate'}) do
                 local response = axLLM(id, {{role = 'user', content = 'prompt'}}, false, {mode = mode})
                 assert(response.success and response.result == mode)
             end
+            local retired = axLLM(id, {{role = 'user', content = 'retired'}}, false, {mode = 'emotion'})
+            assert(retired.success and retired.result == 'otherAx')
             local response = axLLM(id, {{role = 'user', content = 'default'}})
             local invalid = axLLM(id, {{role = 'user', content = 'invalid'}}, false, {mode = 'model'})
             assert(not invalid.success and invalid.result == 'Error: Invalid axLLM mode: model')
@@ -208,7 +262,15 @@ it('keeps form submissions separate and recovers their original input and model 
     const chat = { id: 'recover-origin', message: [{ role: 'user', data: 'form', chatId: 'anchor' }] }
     const code = `onFormSubmit = async(function(id, key, encoded)
         local meta = json.decode(encoded)
-        local response = axLLM(id, {{role = 'user', content = meta.data.value}}, false, {mode = 'memory'})
+        local value = json.encode(meta.data.value)
+        local prompt = '[{"role":"user","content":' .. value .. '}]'
+        local options = '{"mode":"memory","streaming":false}'
+        if getChatVar(id, 'reverseFields') == 'yes' then
+            -- A restarted Lua engine may serialize the same tables in another field order.
+            prompt = '[{"content":' .. value .. ',"role":"user"}]'
+            options = '{"streaming":false,"mode":"memory"}'
+        end
+        local response = json.decode(axLLMMain(id, prompt, false, options):await())
         assert(response.success)
         setChatVar(id, 'submitted', key .. ':' .. meta.data.value .. ':' .. response.result)
     end)`
@@ -240,9 +302,10 @@ it('keeps form submissions separate and recovers their original input and model 
         state.save.mockClear()
         state.consume.mockClear()
         state.save.mockImplementationOnce(async () => { expect(state.consume).not.toHaveBeenCalled() })
+        ;(character.chats[0] as any).scriptstate.$reverseFields = 'yes'
         await expect(recoverRevenantLuaJobsForChat(character as never, character.chats[0] as never)).resolves.toBe(1)
-        expect((character.chats[0] as any).scriptstate.$submitted).toBe('settings:first:saved answer')
         expect(state.request).not.toHaveBeenCalled()
+        expect((character.chats[0] as any).scriptstate.$submitted).toBe('settings:first:saved answer')
         expect(state.save).toHaveBeenCalledTimes(1)
         expect(state.consume).toHaveBeenCalledWith('finished-model')
     }

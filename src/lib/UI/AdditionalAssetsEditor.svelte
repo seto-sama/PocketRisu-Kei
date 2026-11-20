@@ -3,15 +3,17 @@
     import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
+    import { copyText } from 'src/ts/clipboard/keiClipboard.svelte';
     import { forageStorage, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
+    import type { Attachment } from 'svelte/attachments';
     import FullscreenImageViewer from './components/FullscreenImageViewer.svelte';
     import AssetViewerActions from './components/AssetViewerActions.svelte';
     import IconButton from './components/IconButton.svelte';
     import IconButtonGroup from './components/IconButtonGroup.svelte';
-    import ListActionBar from './components/ListActionBar.svelte';
+    import ActionBar from './components/ActionBar.svelte';
     import Input from './components/Input.svelte';
     import { createIncrementalList } from './incrementalList.svelte';
 
@@ -24,8 +26,6 @@
         showExclusionToggle?: boolean;
         excludedPaths?: string[];
         onExcludedPathsChange?: (paths: string[]) => void;
-        acceptedExtensions?: string[];
-        previewAllAsImages?: boolean;
     }
 
     let {
@@ -35,9 +35,9 @@
         showExclusionToggle = false,
         excludedPaths = [],
         onExcludedPathsChange,
-        acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'],
-        previewAllAsImages = false,
     }: Props = $props();
+
+    const acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'];
 
     const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif'];
     const loadingAssetPaths = new Set<string>();
@@ -54,7 +54,7 @@
     const extensionOf = (asset: AdditionalAsset) => (asset[2] || asset[1].split('.').pop() || '').toLowerCase();
     let previewIndexes = $derived.by(() => assets
         .map((asset, index) => ({ asset, index }))
-        .filter(({ asset }) => previewAllAsImages || previewableImageExtensions.includes(extensionOf(asset)))
+        .filter(({ asset }) => previewableImageExtensions.includes(extensionOf(asset)))
         .map(({ index }) => index));
     let previewPosition = $derived(previewIndexes.indexOf(previewIndex));
     let previewAsset = $derived(previewIndex >= 0 ? assets[previewIndex] ?? null : null);
@@ -99,30 +99,18 @@
         return assetObserver;
     }
 
-    function lazyLoadAssetPreview(
-        node: HTMLElement,
-        options: { path: string, enabled: boolean },
-    ) {
-        function observe({ path, enabled }: typeof options) {
-            assetObserver?.unobserve(node);
-            observedAssetPaths.set(node, path);
-            if(!enabled || assetFilePaths[path]){
-                return;
-            }
-            const observer = getAssetObserver();
-            if(observer){
-                observer.observe(node);
-            }
-            else {
-                loadAssetPreview(path);
-            }
+    const lazyLoadAssetPreview = (path: string, enabled: boolean): Attachment<HTMLElement> => (node) => {
+        observedAssetPaths.set(node, path);
+        if(!enabled || assetFilePaths[path]){
+            return;
         }
-
-        observe(options);
-        return {
-            update: observe,
-            destroy: () => assetObserver?.unobserve(node),
-        };
+        const observer = getAssetObserver();
+        if(!observer){
+            loadAssetPreview(path);
+            return;
+        }
+        observer.observe(node);
+        return () => observer.unobserve(node);
     }
 
     onDestroy(() => {
@@ -176,7 +164,7 @@
 
     async function copyRawReference(name: string) {
         try {
-            await navigator.clipboard.writeText(`{{raw::${name}}}`);
+            await copyText(`{{raw::${name}}}`);
             notifySuccess(language.copied);
         }
         catch(error){
@@ -262,14 +250,14 @@
         <EmptyState title={language.noAssets} description="" layout="inline" />
     {:else}
         {#each displayedAssets as asset, i}
-            {@const extension = extensionOf(asset)}
+            {const extension = $derived(extensionOf(asset))}
             <div class="flex min-w-0 items-start gap-2 py-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
                     class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
-                    use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
+                    {@attach lazyLoadAssetPreview(asset[1], DBState.db.useAdditionalAssetsPreview)}
                 >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
-                        {#if previewAllAsImages || previewableImageExtensions.includes(extension)}
+                        {#if previewableImageExtensions.includes(extension)}
                             <button
                                 class="w-full h-full cursor-zoom-in"
                                 onclick={() => openPreview(i)}
@@ -315,7 +303,8 @@
 
                 <IconButtonGroup direction="vertical" size="sm" className="self-center">
                     {#if showExclusionToggle}
-                        <IconButton onclick={() => toggleExcluded(asset[1])}>
+                        {const exclusionLabel = $derived(excludedPaths.includes(asset[1]) ? language.assetPromptExcluded : language.assetPromptIncluded)}
+                        <IconButton onclick={() => toggleExcluded(asset[1])} title={exclusionLabel} aria-label={exclusionLabel}>
                             {#if excludedPaths.includes(asset[1])}
                                 <ImageOffIcon />
                             {:else}
@@ -330,15 +319,17 @@
             </div>
         {/each}
         {#if hasMoreAssets}
-            <div use:observePagingSentinel={assets.length} class="h-px w-full" aria-hidden="true"></div>
+            <div {@attach observePagingSentinel(assets.length)} class="h-px w-full" aria-hidden="true"></div>
         {/if}
     {/if}
 </div>
-<ListActionBar mode="footer">
-    <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
-        <PlusIcon />
-    </IconButton>
-</ListActionBar>
+<ActionBar mode="footer">
+    <IconButtonGroup>
+        <IconButton onclick={addAssets} data-file-picker title={language.selectFile} aria-label={language.selectFile}>
+            <PlusIcon />
+        </IconButton>
+    </IconButtonGroup>
+</ActionBar>
 
 <FullscreenImageViewer
     open={previewIndex >= 0 && !!previewAsset}

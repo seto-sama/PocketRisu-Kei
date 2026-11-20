@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { SvelteSet } from "svelte/reactivity";
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { FolderIcon, FolderOpenIcon, SearchIcon } from "@lucide/svelte";
     import Dialog from "../UI/components/Dialog.svelte";
@@ -148,18 +149,13 @@
 
     // Providers default collapsed; an active search force-expands everything so
     // matches are always visible.
-    let expandedProviders = $state(new Set<string>());
+    const expandedProviders = new SvelteSet<string>();
     const searching = $derived(query.trim() !== '');
     function isProviderExpanded(id: string): boolean {
         return searching || expandedProviders.has(id);
     }
     function toggleProvider(id: string) {
-        // Reassign a new Set — Svelte 5 $state does not proxy Set mutations
-        // (.add/.delete), so an in-place change wouldn't trigger reactivity.
-        const next = new Set(expandedProviders);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        expandedProviders = next;
+        if (!expandedProviders.delete(id)) expandedProviders.add(id);
     }
 
     function createPresetFrom(entry: Entry) {
@@ -260,8 +256,8 @@
         {:else}
             <DisclosureList appearance="folder" className="gap-2">
                 {#each groupedByProvider as group (group.id)}
-                    {@const expanded = isProviderExpanded(group.id)}
-                    {@const FolderGlyph = expanded ? FolderOpenIcon : FolderIcon}
+                    {const expanded = $derived(isProviderExpanded(group.id))}
+                    {const FolderGlyph = $derived(expanded ? FolderOpenIcon : FolderIcon)}
                     <DisclosureList
                         variant="item"
                         appearance="folder"
@@ -277,8 +273,8 @@
                             <span class="ml-2 text-xs text-subtext">{group.entries.length}</span>
                         {/snippet}
                         {#each group.entries as entry (entry.profile.id)}
-                            {@const { profile, baseProvider } = entry}
-                            {@const localizedDesc = localizeDescription(profile)}
+                            {const { profile, baseProvider } = $derived(entry)}
+                            {const localizedDesc = $derived(localizeDescription(profile))}
                             <Button
                                 variant="outline"
                                 data-tree-item

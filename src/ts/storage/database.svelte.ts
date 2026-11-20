@@ -7,7 +7,6 @@ import { get } from 'svelte/store';
 import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
-import { initializeCharacterRuntimeState } from './persistenceShape';
 import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
@@ -227,9 +226,16 @@ function normalizePromptTemplate(
             continue
         }
         switch(item.type){
-            case 'plain':
-            case 'jailbreak':
             case 'cot':{
+                // Kei has no CoT toggle, so upstream CoT blocks become plain prompts.
+                item.type = 'plain'
+                item.type2 ??= 'normal'
+                item.name ||= 'CoT'
+                item.role = normalizePromptRole(item.role) ?? 'system'
+                break
+            }
+            case 'plain':
+            case 'jailbreak':{
                 item.role = normalizePromptRole(item.role) ?? 'system'
                 break
             }
@@ -406,12 +412,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.waifuWidth)){
         data.waifuWidth = 100
     }
-    if(checkNullish(data.waifuWidth2)){
-        data.waifuWidth2 = 100
-    }
-    if(checkNullish(data.emotionPrompt)){
-        data.emotionPrompt = ""
-    }
     if(checkNullish(data.proxyKey)){
         data.proxyKey = ""
     }
@@ -449,14 +449,14 @@ export function setDatabase(data:Database){
         data.NAIREF = false
     }
     data.textTheme = normalizeTextTheme(data.textTheme)
-    if(checkNullish(data.emotionPrompt2)){
-        data.emotionPrompt2 = ""
-    }
     if(checkNullish(data.requestRetrys)){
         data.requestRetrys = 2
     }
     if(checkNullish(data.outputRepetitionLimit)){
         data.outputRepetitionLimit = OUTPUT_REPETITION_DISABLED
+    }
+    if(checkNullish(data.privacyGuardIdleLockMinutes)){
+        data.privacyGuardIdleLockMinutes = 10
     }
     if(checkNullish(data.useSayNothing)){
         data.useSayNothing = true
@@ -629,7 +629,6 @@ export function setDatabase(data:Database){
         data.hypaModel = data.voyageApiKey ? 'voyageContext3' : DEFAULT_HYPA_MODEL
     }
     data.mancerHeader ??= ''
-    data.emotionProcesser ??= 'submodel'
     data.translatorType ??= 'bergamot'
     if (!isSupportedTranslatorType(data.translatorType)) {
         data.translatorType = 'bergamot'
@@ -663,7 +662,6 @@ export function setDatabase(data:Database){
         sendChatAsSystem: false,
         sendName: false,
         utilOverride: false,
-        customChainOfThought: false,
         maxThoughtTagDepth: -1
     }
     if (data.sdProvider === 'kei') data.sdProvider = ''
@@ -823,21 +821,6 @@ export function setDatabase(data:Database){
             data.hotkeys.push(...structuredClone(missingHotkeys))
         }
     }
-    
-    data.fallbackModels ??= {
-        memory: [],
-        emotion: [],
-        translate: [],
-        otherAx: [],
-        model: []
-    }
-    data.fallbackModels = {
-        model: data.fallbackModels.model.filter((v) => v !== ''),
-        memory: data.fallbackModels.memory.filter((v) => v !== ''),
-        emotion: data.fallbackModels.emotion.filter((v) => v !== ''),
-        translate: data.fallbackModels.translate.filter((v) => v !== ''),
-        otherAx: data.fallbackModels.otherAx.filter((v) => v !== '')
-    }
     data.authRefreshes ??= []
     data.rememberToolUsage ??= true
     data.simplifiedToolUse ??= false
@@ -876,6 +859,7 @@ export function setDatabase(data:Database){
         || legacyKeepSessionAlive === 'sound'
         || legacyKeepSessionAlive === 'pip'
     data.pluginCustomStorage ??= {}
+    data.keiClipboard ??= true
     data.showInputActionBar ??= true
     data.chatLoadInitialPages = normalizeChatLoadPages(data.chatLoadInitialPages, DEFAULT_CHAT_LOAD_INITIAL_PAGES)
     data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
@@ -891,7 +875,6 @@ export function setDatabase(data:Database){
 function installDatabase(data: Database) {
     normalizePromptPresetSelection(data)
     for (const character of data.characters ?? []) {
-        initializeCharacterRuntimeState(character)
         initializeChatSelection(character)
         for (const chat of character.chats ?? []) {
             if (!isChatStub(chat)) normalizeChat(chat)
@@ -1099,10 +1082,8 @@ export interface Database{
     iconsize:number
     theme: string
     standardChatWidth: 'standard' | 'wide' | 'full'
-    emotionPrompt: string,
     formatversion:number
     waifuWidth:number
-    waifuWidth2:number
     botPresets:botPreset[]
     /** User-defined tags for organizing prompt presets. */
     promptPresetTags?:PresetTag[]
@@ -1147,7 +1128,6 @@ export interface Database{
     }
     requestRetrys:number
     outputRepetitionLimit:number
-    emotionPrompt2:string
     useSayNothing:boolean
     useStreaming:boolean
     voyageApiKey:string
@@ -1166,10 +1146,7 @@ export interface Database{
      * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
      * 'button': only the send button (Enter newline). Replaces sendWithEnter. */
     sendKeyPC: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
-    /** Mobile send-key mode. Same options as sendKeyPC for users with a
-     * Bluetooth/external keyboard. 'enter': Enter sends (Shift+Enter newline);
-     * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
-     * 'button': only the send button (Enter newline). */
+    /** Mobile send-key mode, for Bluetooth/external keyboards. Same options as sendKeyPC. */
     sendKeyMobile: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
     fixedChatTextarea:boolean
     clickToEdit: boolean
@@ -1186,7 +1163,7 @@ export interface Database{
     inlayImageQuality:number
     classicMaxWidth: boolean,
     useAdditionalAssetsPreview:boolean,
-    memoryAlgorithmType:string // To enable new memory module/algorithms
+    memoryAlgorithmType:string
     ooba:OobaSettings
     ainconfig: AINsettings
     personaPrompt:string
@@ -1218,7 +1195,6 @@ export interface Database{
     hypaModel:HypaModel
     saveTime?:number
     mancerHeader:string
-    emotionProcesser:'submodel'|'embedding',
     showMenuChatList?:boolean,
     translatorType:TranslatorType,
     translatorInputLanguage?:string
@@ -1245,7 +1221,6 @@ export interface Database{
         projectId: string
     }
     mistralKey?:string
-    chainOfThought?:boolean
     genTime:number
     promptSettings: PromptSettings
     top_k:number
@@ -1372,15 +1347,6 @@ export interface Database{
         otherAx: string
     }
     hotkeys: Hotkey[]
-    fallbackModels: {
-        memory: string[],
-        emotion: string[],
-        translate: string[],
-        otherAx: string[]
-        model: string[]
-    }
-    doNotChangeFallbackModels: boolean
-    fallbackWhenBlankResponse: boolean
     modelPresets: ModelPreset[]
     /** User-defined tags for organizing model presets. */
     modelPresetTags?: PresetTag[]
@@ -1416,7 +1382,6 @@ export interface Database{
     modelPresetDefaultMaxResponse?: number
     modelPresetPromptPresetFirst?: boolean
     modelPresetPromptParamsFirst?: boolean
-    igpPrompt:string
     authRefreshes:{
         url:string
         tokenUrl:string
@@ -1430,7 +1395,8 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
-    newImageHandlingBeta?: boolean
+    /** Idle minutes before privacy guard returns to the password prompt; -1000 turns it off. */
+    privacyGuardIdleLockMinutes:number
     showFirstMessagePages:boolean
     streamGeminiThoughts:boolean
     verbosity:number
@@ -1467,6 +1433,10 @@ export interface Database{
     autoCleanAssets?:boolean
     seperateParametersByModel?:boolean
     keepSessionAlive: boolean
+    /** Route in-app copy/paste through the server-side clipboard instead of the OS one. */
+    keiClipboard?: boolean
+    /** The user's keiClipboard value while the privacy guard forces it on; restored after. */
+    keiClipboardBeforePrivacyGuard?: boolean
 }
 
 export interface SeparateParameters{
@@ -1534,14 +1504,11 @@ export interface character{
     notes:string
     chats:Chat[]
     chatFolders: ChatFolder[]
-    viewScreen: 'emotion'|'none',
     bias: [string, number][]
-    emotionImages: [string, string][]
+    /** Legacy emotion images; migrated into additionalAssets when the character is opened. */
+    emotionImages?: [string, string][]
     globalLore: loreBook[]
     chaId: string
-    newGenData?: {
-        emotionInstructions: string,
-    }
     customscript: customscript[]
     triggerscript: triggerscript[]
     utilityBot: boolean
@@ -1569,7 +1536,6 @@ export interface character{
     additionalAssets?:[string, string, string][]
     replaceGlobalNote:string
     backgroundHTML?:string
-    reloadKeys?:number
     backgroundCSS?:string
     license?:string
     private?:boolean
@@ -1579,7 +1545,6 @@ export interface character{
     depth_prompt?: { depth: number, prompt: string }
     extentions?:{[key:string]:any}
     largePortrait?:boolean
-    inlayViewScreen?:boolean
     realmId?:string
     imported?:boolean
     trashTime?:number
@@ -1722,14 +1687,6 @@ export interface botPreset extends PresetTagFields {
         translate: string
         otherAx: string
     }
-    fallbackModels?: {
-        memory: string[],
-        emotion: string[],
-        translate: string[],
-        otherAx: string[]
-        model: string[]
-    }
-    fallbackWhenBlankResponse?: boolean
     verbosity?:number
     modelBinding?: ModelBindingFields['modelBinding']
     subModelBinding?: ModelBindingFields['subModelBinding']
@@ -1754,7 +1711,6 @@ export interface themePreset extends PresetTagFields {
     guiHTML: string
     customCSS: string
     waifuWidth: number
-    waifuWidth2: number
     colorSchemeName: string
     colorScheme: ColorScheme
     textTheme: string
@@ -2198,7 +2154,6 @@ export const themePresetTemplate: themePreset = {
     guiHTML: '',
     customCSS: '',
     waifuWidth: 100,
-    waifuWidth2: 100,
     colorSchemeName: 'default',
     colorScheme: structuredClone(defaultColorScheme),
     textTheme: 'standard',
@@ -2325,8 +2280,6 @@ export function saveCurrentPreset(){
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
-        fallbackModels: structuredClone(db.fallbackModels),
-        fallbackWhenBlankResponse: db.fallbackWhenBlankResponse ?? false,
         verbosity: db.verbosity ?? 1
     }
     db.botPresets = db.botPresets.map(preset => preset.id === currentPreset.id ? savedPreset : preset)
@@ -2437,16 +2390,6 @@ export function setPreset(db:Database, newPres: botPreset){
     // newPres.seperateParametersEnabled, or newPres.seperateParameters. The global
     // database values remain the single source of truth; preset copies are retained
     // only so older exports and clients can still round-trip them.
-    if(!db.doNotChangeFallbackModels){
-        db.fallbackModels = structuredClone(newPres.fallbackModels) ?? {
-            memory: [],
-            emotion: [],
-            translate: [],
-            otherAx: [],
-            model: []
-        }
-        db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
-    }
     db.verbosity = newPres.verbosity ?? 1
 
     return db
@@ -2465,7 +2408,6 @@ export function saveCurrentThemePreset(db: Database = getDatabase()){
         guiHTML: db.guiHTML,
         customCSS: db.customCSS,
         waifuWidth: db.waifuWidth,
-        waifuWidth2: db.waifuWidth2,
         colorSchemeName: db.colorSchemeName,
         colorScheme: structuredClone(db.colorScheme),
         textTheme: normalizeTextTheme(db.textTheme),
@@ -2523,7 +2465,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.guiHTML = p.guiHTML ?? db.guiHTML
     db.customCSS = p.customCSS ?? db.customCSS
     db.waifuWidth = p.waifuWidth ?? db.waifuWidth
-    db.waifuWidth2 = p.waifuWidth2 ?? db.waifuWidth2
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
     db.colorScheme = normalizeColorScheme(p.colorScheme ?? db.colorScheme) ?? db.colorScheme
     db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)

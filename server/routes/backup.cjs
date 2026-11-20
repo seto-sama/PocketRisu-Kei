@@ -1,5 +1,6 @@
 'use strict';
 
+const { withTransaction } = require('../sqlite.cjs');
 const { db: sqliteDb, kvList, snapshotSetFootprint, kvSize, kvGet, kvSet, kvDel, kvDelPrefix, clearEntities, checkpointWal, kvListWithSizes } = require('../db.cjs');
 const path = require('path');
 const fs = require('fs/promises');
@@ -24,25 +25,31 @@ const {
     assetBasename: statsBasename,
 } = require('../assetReferences.cjs');
 const { normalizeBackupNote, setBackupNote, readBackupNotes, getBackupNote, deleteBackupNote } = require('../backupNotes.cjs');
-const { codes: API_ERROR_CODES, createApiError, sendApiError } = require('../utils/apiErrors.cjs');
+const { codes: API_ERROR_CODES, createApiError, normalizeApiError, sendApiError } = require('../utils/apiErrors.cjs');
+
+// Once an NDJSON response has started, a failure can only travel as its final record.
+function endStreamWithError(res, caught, fallbackMessage) {
+    const error = normalizeApiError(caught);
+    try {
+        res.end(JSON.stringify({
+            type: 'error',
+            message: error?.message || fallbackMessage,
+            ...(error?.code ? { code: error.code } : {}),
+            ...(error?.details ? { details: error.details } : {}),
+        }) + '\n');
+    } catch {}
+}
 
 function installBackupRoutes(app, {
+    snapshots,
+    backupLocation,
     checkDownloadAuth,
-    deleteSnapshotStateRows,
-    DB_BACKUP_PREFIX,
-    storageState,
-    DB_HEX_KEY,
-    saveTimers,
-    backupState,
-    BACKUP_FILENAME_REGEX,
     normalizeLegacyDatabaseProjection,
     bookmarkStore,
     appDataStore,
-    createBackupAndRotate,
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    flushPendingDb,
     prepareDatabaseExport,
     normalizeInlayExt,
     isSafeInlayId,
@@ -50,7 +57,6 @@ function installBackupRoutes(app, {
     ensureInlayDir,
     normalizeColdStorageStorageKey,
     normalizeColdStorageBackupBuffer,
-    ensureCanonicalStorage,
     checkAuth,
     listInlayFiles,
     getInlaySidecarPath,
@@ -59,23 +65,32 @@ function installBackupRoutes(app, {
     queueStorageOperation,
     broadcastDatabaseInvalidated,
     broadcastBookmarksInvalidated,
-    getSnapshotLimits,
-    SNAPSHOT_LIMIT_MIN_COUNT,
-    SNAPSHOT_LIMIT_MAX_COUNT,
-    SNAPSHOT_LIMIT_MIN_BYTES,
-    SNAPSHOT_LIMIT_MAX_BYTES,
-    SNAPSHOT_LIMIT_DEFAULT_COUNT,
-    SNAPSHOT_LIMIT_DEFAULT_BYTES,
-    SNAPSHOT_LIMIT_COUNT_KEY,
-    SNAPSHOT_LIMIT_BYTES_KEY,
-    trimSnapshotsToLimits,
-    refreshCanonicalDatabaseCache,
-    DEFAULT_BACKUPS_DIR,
-    BACKUP_PATH_CONFIG_KEY,
-    writeBackupPathMarker,
+    syncTrashRetention,
 }) {
-    const deleteSnapshotState = sqliteDb.transaction(deleteSnapshotStateRows);
+    const {
+        deleteSnapshotStateRows,
+        DB_BACKUP_PREFIX,
+        createBackupAndRotate,
+        getSnapshotLimits,
+        SNAPSHOT_LIMIT_MIN_COUNT,
+        SNAPSHOT_LIMIT_MAX_COUNT,
+        SNAPSHOT_LIMIT_MIN_BYTES,
+        SNAPSHOT_LIMIT_MAX_BYTES,
+        SNAPSHOT_LIMIT_DEFAULT_COUNT,
+        SNAPSHOT_LIMIT_DEFAULT_BYTES,
+        SNAPSHOT_LIMIT_COUNT_KEY,
+        SNAPSHOT_LIMIT_BYTES_KEY,
+        trimSnapshotsToLimits,
+    } = snapshots;
+    const {
+        backupState,
+        BACKUP_FILENAME_REGEX,
+        DEFAULT_BACKUPS_DIR,
+        BACKUP_PATH_CONFIG_KEY,
+    } = backupLocation;
+    const deleteSnapshotState = key => withTransaction(sqliteDb, () => deleteSnapshotStateRows(key));
 
+    // Physical usage matches quota trimming; logicalBytes measures dedup savings.
     function snapshotUsage() {
         const keys = kvList(DB_BACKUP_PREFIX);
         const bytes = snapshotSetFootprint(keys);
@@ -86,17 +101,7 @@ function installBackupRoutes(app, {
         return { count: keys.length, bytes, logicalBytes };
     }
 
-    function invalidateDbCache() {
-        delete storageState.dbCache[DB_HEX_KEY];
-        storageState.fullChatStore = null;
-        if (saveTimers[DB_HEX_KEY]) {
-            clearTimeout(saveTimers[DB_HEX_KEY]);
-            delete saveTimers[DB_HEX_KEY];
-        }
-        storageState.dbEtag = null;
-    }
-
-    const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
+    const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules']);
 
     function isManagedBackupPath(absPath) {
         const rel = path.relative(process.cwd(), absPath);
@@ -298,9 +303,8 @@ function installBackupRoutes(app, {
         kvDelPrefix,
         clearEntities,
         checkpointWal,
-        flushPendingDb,
         createBackupAndRotate: createPreReplacementSnapshot,
-        invalidateDbCache,
+        syncTrashRetention,
         prepareDatabaseProjection: prepareImportedDatabaseProjection,
         replacePluginStorage: (entries) => appDataStore.replacePluginStorage(entries),
         normalizeInlayExt,
@@ -584,13 +588,8 @@ function installBackupRoutes(app, {
         } catch (error) {
             clearTimeout(entry.timer);
             preparedExports.delete(id);
-            if (res.headersSent) {
-                if (!res.destroyed) res.end(JSON.stringify({
-                    type: 'error', message: error.message, code: error.code, details: error.details,
-                }) + '\n');
-            } else {
-                next(error);
-            }
+            if (!res.headersSent) next(error);
+            else if (!res.destroyed) endStreamWithError(res, error);
         }
     });
 
@@ -719,19 +718,8 @@ function installBackupRoutes(app, {
                 res.json(restoreResultBody(result));
             }
         } catch (error) {
-            if (wantsNdjson && res.headersSent) {
-                try {
-                    res.write(JSON.stringify({
-                        type: 'error',
-                        message: error?.message || 'backup import failed',
-                        ...(error?.code ? { code: error.code } : {}),
-                        ...(error?.details ? { details: error.details } : {}),
-                    }) + '\n');
-                    res.end();
-                } catch (_) {}
-            } else {
-                next(error);
-            }
+            if (wantsNdjson && res.headersSent) endStreamWithError(res, error, 'backup import failed');
+            else next(error);
         } finally {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
             importInProgress = false;
@@ -819,15 +807,7 @@ function installBackupRoutes(app, {
             if (!res.headersSent) {
                 next(error);
             } else if (!closed && !res.destroyed && !res.writableEnded) {
-                try {
-                    res.write(JSON.stringify({
-                        type: 'error',
-                        message: error.message,
-                        ...(error?.code ? { code: error.code } : {}),
-                        ...(error?.details ? { details: error.details } : {}),
-                    }) + '\n');
-                    res.end();
-                } catch {}
+                endStreamWithError(res, error);
             }
         } finally {
             res.removeListener('close', onResponseClose);
@@ -926,15 +906,8 @@ function installBackupRoutes(app, {
             res.write(JSON.stringify({ type: 'done', ...restoreResultBody(result) }) + '\n');
             res.end();
         } catch (error) {
-            if (!res.headersSent) {
-                next(error);
-            } else {
-                res.write(JSON.stringify({
-                    type: 'error', message: error.message,
-                    ...(error?.code ? { code: error.code } : {}),
-                }) + '\n');
-                res.end();
-            }
+            if (!res.headersSent) next(error);
+            else endStreamWithError(res, error);
         } finally {
             importInProgress = false;
         }
@@ -962,9 +935,6 @@ function installBackupRoutes(app, {
                 return sendApiError(res, 404, API_ERROR_CODES.BACKUP_NOT_FOUND);
             }
 
-            // Include any debounced DB changes before deciding which assets the
-            // current save references. Asset restoration itself is additive.
-            await flushPendingDb();
             if (!appDataStore.getState().initialized) {
                 sendApiError(res, 409, API_ERROR_CODES.DATABASE_NOT_FOUND);
                 return;
@@ -1018,17 +988,8 @@ function installBackupRoutes(app, {
             }) + '\n');
             res.end();
         } catch (error) {
-            if (!res.headersSent) {
-                next(error);
-            } else {
-                res.write(JSON.stringify({
-                    type: 'error',
-                    message: error.message,
-                    ...(error?.code ? { code: error.code } : {}),
-                    ...(error?.details ? { details: error.details } : {}),
-                }) + '\n');
-                res.end();
-            }
+            if (!res.headersSent) next(error);
+            else endStreamWithError(res, error);
         } finally {
             importInProgress = false;
         }
@@ -1140,12 +1101,7 @@ function installBackupRoutes(app, {
         const out = kvList(DB_BACKUP_PREFIX).map((key) => {
             const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
             const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
-            // Logical size — the full data this snapshot represents (the whole DB),
-            // not its marginal on-disk cost. Users expect "this backup = my 53 MB
-            // DB"; the dedup win is shown once, as the section's savings figure.
-            // (kvSize reassembles via the manifest; the marker's 13 bytes are not
-            // what a user wants to see for a full backup.) Trimming still sizes by
-            // snapshotFootprint in db.cjs, so this display change can't over-trim.
+            // Display full backup size; quota trimming counts shared chunks once.
             return { key, size: kvSize(key) || 0, timestamp: ts };
         }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
         res.json({ snapshots: out });
@@ -1228,13 +1184,9 @@ function installBackupRoutes(app, {
 
     async function restoreDatabaseBlob(blob, options = {}) {
         await queueStorageOperation(async () => {
-            // Drain any pending debounced persist first — same pattern as
-            // /api/db/optimize. Without this, an in-flight save could land
-            // after the restore and overwrite the restored snapshot.
-            await flushPendingDb();
             const decoded = await decodeRisuSave(Buffer.from(blob));
             const { database } = normalizeLegacyDatabaseProjection(decoded);
-            sqliteDb.transaction(() => {
+            withTransaction(sqliteDb, () => {
                 const restoredBookmarkSnapshot = options.bookmarkSnapshotKey
                     ? bookmarkStore.restoreSnapshot(options.bookmarkSnapshotKey)
                     : false;
@@ -1251,8 +1203,8 @@ function installBackupRoutes(app, {
                 appDataStore.replaceFromProjection(database, {
                     expectedRevision: appDataStore.getState().revision,
                 });
-            })();
-            refreshCanonicalDatabaseCache({ invalidateChats: true });
+            });
+            syncTrashRetention();
         });
     }
 
@@ -1460,7 +1412,6 @@ function installBackupRoutes(app, {
         const previous = backupState.backupsDir;
         backupState.backupsDir = resolved;
         kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
-        writeBackupPathMarker(resolved);
         res.json({
             path: backupState.backupsDir,
             previous,

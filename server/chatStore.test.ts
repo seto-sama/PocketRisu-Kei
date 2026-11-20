@@ -1,133 +1,58 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import chatStorePkg from './chatStore.cjs'
 import appDataStorePkg from './appDataStore.cjs'
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { createDelta } from '../shared/guardedDelta.mjs'
 
 const {
     computeChatEtag,
-    commitChatContent,
-    reassembleFullDb,
     createCanonicalChatService,
     CanonicalChatCommitError,
 } = chatStorePkg as any
 const { createAppDataStore } = appDataStorePkg as any
 
+const openDatabases: DatabaseSync[] = []
+afterEach(() => {
+    while (openDatabases.length > 0) openDatabases.pop()?.close()
+})
+
+const room = (fields: Record<string, any> = {}) => ({ id: 'room-1', name: 'Room', message: [] as any[], ...fields })
+
+// The service runs against the real relational store, so CAS and metadata
+// reconciliation are the production ones rather than a test double.
 function createServiceHarness(initialChat: any, overrides: Record<string, any> = {}) {
-    const chats = new Map([[initialChat.id, structuredClone(initialChat)]])
+    const sqlite = openDatabase(':memory:')
+    openDatabases.push(sqlite)
+    const store = createAppDataStore(sqlite)
+    store.replaceFromProjection({ characters: [{ chaId: 'character-1', chats: [initialChat] }] })
+    const commit = async ({ characterId, chatId, chat, expectedEtag }: any) =>
+        store.commitChat(characterId, chatId, chat, expectedEtag)
+    const persistChat = vi.fn(commit)
     const publishChatCommitted = vi.fn()
-    const persistNow = vi.fn(async () => {})
-    const schedulePersist = vi.fn()
-    const ensureChatStore = vi.fn()
     const service = createCanonicalChatService({
         queueStorageOperation: (operation: () => Promise<any>) => operation(),
-        ensureChatStore,
-        getChat: (_characterId: string, chatId: string) => chats.get(chatId),
-        replaceChat: (_characterId: string, chatId: string, chat: any) => {
-            if (chat) chats.set(chatId, chat)
-            else chats.delete(chatId)
-        },
-        commitChatContent: (
-            characterId: string,
-            chatId: string,
-            chat: any,
-            expectedEtag: string,
-            options: any,
-        ) => commitChatContent(
-            new Map([[characterId, chats]]),
-            characterId,
-            chatId,
-            chat,
-            expectedEtag,
-            options,
-        ),
-        computeChatEtag,
+        loadChat: async (characterId: string, chatId: string) => store.getChatState(characterId, chatId),
         getGenerationWorkflowInputChat: () => undefined,
-        persistNow,
-        schedulePersist,
+        persistChat,
         publishChatCommitted,
         ...overrides,
     })
+    const stored = () => store.getChatState('character-1', initialChat.id)
     return {
-        chats,
-        ensureChatStore,
-        persistNow,
+        store,
+        stored: () => stored()?.chat,
+        replaceStored: (chat: any) => store.commitChat('character-1', chat.id, chat, stored()?.etag),
+        persistChat,
         publishChatCommitted,
-        schedulePersist,
         service,
     }
 }
 
-describe('full chat export', () => {
-    it('reassembles full chat bodies under the current startup stubs', () => {
-        const chat = {
-            id: 'room', name: 'Room', folderId: null,
-            message: [{ chatId: 'm1', role: 'char', data: 'hello' }],
-        }
-        const startupProjection = {
-            characters: [{
-                chaId: 'character',
-                chats: [{ id: 'room', name: 'Room', folderId: null, _stub: true }],
-            }],
-        }
-        const store = new Map([['character', new Map([['room', chat]])]])
-
-        expect(reassembleFullDb(startupProjection, store)).toEqual({
-            characters: [{ chaId: 'character', chats: [chat] }],
-        })
-    })
-})
-
-describe('chat content compare-and-swap', () => {
-    it('accepts the current version and advances the chat etag', () => {
-        const current = { id: 'room', message: [{ chatId: 'm1', role: 'char', data: 'old' }] }
-        const incoming = { id: 'room', message: [{ chatId: 'm1', role: 'char', data: 'new' }] }
-        const store = new Map([['character', new Map([['room', current]])]])
-
-        const result = commitChatContent(
-            store, 'character', 'room', incoming, computeChatEtag(current),
-        )
-
-        expect(result.success).toBe(true)
-        expect(result.etag).toBe(computeChatEtag(incoming))
-        expect(store.get('character')?.get('room')).toEqual(incoming)
-    })
-
-    it('rejects a stale writer without changing canonical chat content', () => {
-        const stale = { id: 'room', message: [{ chatId: 'm1', role: 'char', data: 'stale' }] }
-        const current = { id: 'room', message: [{ chatId: 'm1', role: 'char', data: 'canonical' }] }
-        const store = new Map([['character', new Map([['room', current]])]])
-
-        const result = commitChatContent(
-            store, 'character', 'room', stale, computeChatEtag(stale),
-        )
-
-        expect(result).toMatchObject({
-            success: false,
-            conflict: true,
-            currentEtag: computeChatEtag(current),
-        })
-        expect(store.get('character')?.get('room')).toEqual(current)
-    })
-
-    it('requires a version for an existing chat when the public boundary requests it', () => {
-        const current = { id: 'room', message: [] }
-        const store = new Map([['character', new Map([['room', current]])]])
-
-        const result = commitChatContent(
-            store, 'character', 'room', { id: 'room', message: [] }, undefined,
-            { requireExpected: true },
-        )
-
-        expect(result).toMatchObject({ success: false, conflict: true })
-        expect(store.get('character')?.get('room')).toEqual(current)
-    })
-})
-
 describe('canonical chat service', () => {
     it('rejects duplicate message IDs before a server mutation commit', async () => {
-        const initial = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] }
+        const initial = room({ message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] })
         const next = { ...initial, message: [...initial.message, { ...initial.message[0], data: 'duplicate' }] }
         const harness = createServiceHarness(initial)
         const request = harness.service.commitServerMutation({
@@ -135,13 +60,13 @@ describe('canonical chat service', () => {
         })
 
         await expect(request).rejects.toMatchObject({ httpStatus: 400 })
-        expect(harness.chats.get(initial.id)).toEqual(initial)
-        expect(harness.persistNow).not.toHaveBeenCalled()
+        expect(harness.stored()).toEqual(initial)
+        expect(harness.persistChat).not.toHaveBeenCalled()
         expect(harness.publishChatCommitted).not.toHaveBeenCalled()
     })
 
     it.each(['user', 'server'])('keeps runtime and legacy bookmark fields out of %s commits', async kind => {
-        const base = { id: 'room-1', message: [{ chatId: 'message', role: 'user', data: 'text' }] }
+        const base = room({ message: [{ chatId: 'message', role: 'user', data: 'text' }] })
         const edited = { ...base, note: 'edited', isStreaming: true, _stub: true, _placeholder: true, bookmarks: ['message'], bookmarkNames: { message: 'name' }, bookmarkTagIds: { message: ['tag'] } }
         const harness = createServiceHarness(base)
         const input = { characterId: 'character-1', chatId: 'room-1', changes: createDelta(base, edited) }
@@ -154,9 +79,7 @@ describe('canonical chat service', () => {
     })
 
     it('applies a deletion over a concurrently committed image without a historical version', async () => {
-        const base = { id: 'room-1', message: [
-            { chatId: 'old', role: 'user', data: 'old' },
-        ] }
+        const base = room({ message: [{ chatId: 'old', role: 'user', data: 'old' }] })
         const current = { ...base, message: [...base.message, { chatId: 'image', role: 'char', data: 'image' }] }
         const harness = createServiceHarness(current)
         const result = await harness.service.commitUserDelta({
@@ -164,24 +87,23 @@ describe('canonical chat service', () => {
             changes: createDelta(base, { ...base, message: [] }),
         })
         expect(result.chat.message).toEqual([current.message[1]])
-        expect(harness.chats.get('room-1')).toEqual(result.chat)
-        expect(harness.schedulePersist).toHaveBeenCalledOnce()
+        expect(harness.stored()).toEqual(result.chat)
     })
 
     it('rejects edits to the same message and keeps the failed batch out of persistence', async () => {
-        const base = { id: 'room-1', note: 'before', message: [{ chatId: 'same', role: 'user', data: 'old' }] }
+        const base = room({ note: 'before', message: [{ chatId: 'same', role: 'user', data: 'old' }] })
         const current = { ...base, message: [{ ...base.message[0], data: 'remote' }] }
         const harness = createServiceHarness(current)
         await expect(harness.service.commitUserDelta({
             characterId: 'character-1', chatId: 'room-1',
             changes: createDelta(base, { ...base, note: 'local', message: [{ ...base.message[0], data: 'local' }] }),
         })).rejects.toMatchObject({ httpStatus: 409, code: 'CHAT_CONTENT_CHANGED' })
-        expect(harness.chats.get('room-1')).toEqual(current)
-        expect(harness.schedulePersist).not.toHaveBeenCalled()
+        expect(harness.stored()).toEqual(current)
+        expect(harness.persistChat).not.toHaveBeenCalled()
     })
 
-    it('uses the same guarded delta for generation input and preserves independent server additions', async () => {
-        const base = { id: 'room-1', message: [{ chatId: 'old', role: 'user', data: 'old' }] }
+    it('commits generation input immediately over independent server additions', async () => {
+        const base = room({ message: [{ chatId: 'old', role: 'user', data: 'old' }] })
         const current = { ...base, message: [...base.message, { chatId: 'image', role: 'char', data: 'image' }] }
         const input = { ...base, message: [...base.message, { chatId: 'new', role: 'user', data: 'new prompt' }] }
         const harness = createServiceHarness(current)
@@ -190,11 +112,15 @@ describe('canonical chat service', () => {
             changes: createDelta(base, input),
         })
         expect(result.chat.message.map(message => message.chatId)).toEqual(['old', 'new', 'image'])
-        expect(harness.persistNow).toHaveBeenCalledWith(expect.objectContaining({ generationInput: true }))
+        expect(harness.persistChat).toHaveBeenCalledWith(expect.objectContaining({ generationInput: true }))
+        expect(harness.publishChatCommitted).toHaveBeenCalledWith(
+            expect.objectContaining({ reason: 'generation-input', chatId: 'room-1' }),
+            undefined,
+        )
     })
+
     it('commits a server-owned image projection and publishes the canonical chat', async () => {
-        const initial = { id: 'room-1', message: [{ chatId: 'image-1', data: 'old' }] }
-        const harness = createServiceHarness(initial)
+        const harness = createServiceHarness(room({ message: [{ chatId: 'image-1', data: 'old' }] }))
 
         const result = await harness.service.commitServerMutation({
             characterId: 'character-1',
@@ -206,47 +132,18 @@ describe('canonical chat service', () => {
         })
 
         expect(result.chat.message[0].data).toBe('{{inlayed::generated-1}}')
-        expect(harness.persistNow).toHaveBeenCalledWith(expect.objectContaining({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            chat: expect.objectContaining({
-                message: [expect.objectContaining({ data: '{{inlayed::generated-1}}' })],
-            }),
-        }))
+        expect(harness.stored()).toEqual(result.chat)
         expect(harness.publishChatCommitted).toHaveBeenCalledWith(
             expect.objectContaining({ reason: 'image-generation-result' }),
             undefined,
         )
     })
 
-    it('commits generation input through the immediate durable boundary', async () => {
-        const initial = { id: 'room-1', message: [] }
-        const next = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] }
-        const harness = createServiceHarness(initial)
-
-        const result = await harness.service.commitGenerationInput({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            changes: createDelta(initial, next),
-        })
-
-        expect(result.chat).toEqual(next)
-        expect(harness.persistNow).toHaveBeenCalledWith({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            chat: next,
-            generationInput: true,
-        })
-        expect(harness.publishChatCommitted).toHaveBeenCalledWith(
-            expect.objectContaining({ reason: 'generation-input', chatId: 'room-1' }),
-            undefined,
-        )
-    })
-
     it("accepts generation input already committed by this client's autosave", async () => {
-        const beforeEdit = { id: 'room-1', message: [] }
-        const submitted = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] }
+        const beforeEdit = room()
+        const submitted = room({ message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] })
         const harness = createServiceHarness(submitted)
+        const etag = harness.store.getChatState('character-1', 'room-1').etag
 
         const result = await harness.service.commitGenerationInput({
             characterId: 'character-1',
@@ -255,19 +152,13 @@ describe('canonical chat service', () => {
         })
 
         expect(result.chat).toEqual(submitted)
-        expect(result.etag).toBe(computeChatEtag(submitted))
-        expect(harness.persistNow).toHaveBeenCalledWith({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            chat: submitted,
-            generationInput: true,
-        })
+        expect(result.etag).toBe(etag)
     })
 
     it('still rejects stale generation input when canonical content differs', async () => {
-        const beforeEdit = { id: 'room-1', message: [] }
-        const canonical = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'other edit' }] }
-        const submitted = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'my edit' }] }
+        const beforeEdit = room()
+        const canonical = room({ message: [{ chatId: 'message-1', role: 'user', data: 'other edit' }] })
+        const submitted = room({ message: [{ chatId: 'message-1', role: 'user', data: 'my edit' }] })
         const harness = createServiceHarness(canonical)
 
         await expect(harness.service.commitGenerationInput({
@@ -275,15 +166,15 @@ describe('canonical chat service', () => {
             chatId: 'room-1',
             changes: createDelta(beforeEdit, submitted),
         })).rejects.toBeInstanceOf(CanonicalChatCommitError)
-        expect(harness.persistNow).not.toHaveBeenCalled()
+        expect(harness.persistChat).not.toHaveBeenCalled()
     })
 
-    it('rolls memory back when immediate persistence fails', async () => {
-        const initial = { id: 'room-1', message: [] }
-        const next = { id: 'room-1', message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] }
+    it('does not publish when immediate persistence fails', async () => {
+        const initial = room()
+        const next = room({ message: [{ chatId: 'message-1', role: 'user', data: 'hello' }] })
         const failure = new Error('disk full')
         const harness = createServiceHarness(initial, {
-            persistNow: vi.fn(async () => { throw failure }),
+            persistChat: vi.fn(async () => { throw failure }),
         })
 
         await expect(harness.service.commitGenerationInput({
@@ -291,49 +182,17 @@ describe('canonical chat service', () => {
             chatId: 'room-1',
             changes: createDelta(initial, next),
         })).rejects.toBe(failure)
-        expect(harness.chats.get('room-1')).toEqual(initial)
+        expect(harness.stored()).toEqual(initial)
         expect(harness.publishChatCommitted).not.toHaveBeenCalled()
     })
 
-    it('passes the committed chat identity to the durable user-edit boundary', async () => {
-        const initial = { id: 'room-1', message: [] }
-        const next = { id: 'room-1', message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }] }
-        const harness = createServiceHarness(initial)
-
-        await harness.service.commitUserDelta({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            changes: createDelta(initial, next),
-        })
-
-        expect(harness.schedulePersist).toHaveBeenCalledWith({
-            characterId: 'character-1',
-            chatId: 'room-1',
-            chat: next,
-        })
-        expect(harness.ensureChatStore).toHaveBeenCalledWith('character-1', 'room-1')
-    })
-
-    it('adopts metadata and etag reconciled by the durable chat store', async () => {
-        const initial = {
-            id: 'room-1', name: 'canonical name', folderId: null, message: [],
-        }
-        const submitted = {
-            id: 'room-1', name: 'stale name', folderId: 'stale-folder',
+    it('keeps list metadata from the durable store over a stale submitted body', async () => {
+        const initial = room({ name: 'canonical name', folderId: null })
+        const submitted = room({
+            name: 'stale name', folderId: 'stale-folder',
             message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }],
-        }
-        const durableChat = {
-            ...submitted,
-            name: 'canonical name',
-            folderId: null,
-        }
-        const durableEtag = computeChatEtag(durableChat)
-        const schedulePersist = vi.fn(async () => ({
-            chat: durableChat,
-            etag: durableEtag,
-            revision: 7,
-        }))
-        const harness = createServiceHarness(initial, { schedulePersist })
+        })
+        const harness = createServiceHarness(initial)
 
         const result = await harness.service.commitUserDelta({
             characterId: 'character-1',
@@ -342,28 +201,20 @@ describe('canonical chat service', () => {
             originClientId: 'client-a',
         })
 
-        expect(result).toMatchObject({
-            success: true,
-            chat: durableChat,
-            etag: durableEtag,
-            revision: 7,
-        })
-        expect(harness.chats.get('room-1')).toEqual(durableChat)
+        expect(result.chat).toEqual({ ...submitted, name: 'canonical name', folderId: null })
         expect(harness.publishChatCommitted).toHaveBeenCalledWith({
             characterId: 'character-1',
             chatId: 'room-1',
-            etag: durableEtag,
+            etag: computeChatEtag(result.chat),
             reason: 'user-edit',
         }, 'client-a')
     })
 
     it('treats an identical user-edit retry after a lost response as idempotent', async () => {
-        const before = { id: 'room-1', message: [] }
-        const alreadyCommitted = {
-            id: 'room-1',
-            message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }],
-        }
+        const before = room()
+        const alreadyCommitted = room({ message: [{ chatId: 'saved-1', role: 'user', data: 'saved' }] })
         const harness = createServiceHarness(alreadyCommitted)
+        const etag = harness.store.getChatState('character-1', 'room-1').etag
 
         const result = await harness.service.commitUserDelta({
             characterId: 'character-1',
@@ -371,63 +222,68 @@ describe('canonical chat service', () => {
             changes: createDelta(before, alreadyCommitted),
         })
 
-        expect(result.etag).toBe(computeChatEtag(alreadyCommitted))
-        expect(harness.schedulePersist).toHaveBeenCalledOnce()
+        expect(result.etag).toBe(etag)
+        expect(harness.persistChat).toHaveBeenCalledOnce()
     })
 
     it('persists and finalizes a generation result before publishing it', async () => {
-        const input = {
-            id: 'room-1',
-            name: 'Room',
-            message: [{ role: 'user', data: 'hello', chatId: 'user-1' }],
-        }
+        const input = room({ message: [{ role: 'user', data: 'hello', chatId: 'user-1' }] })
         const generated = {
             ...input,
-            message: [
-                ...input.message,
-                { role: 'char', data: 'result', chatId: 'generated-1' },
-            ],
+            message: [...input.message, { role: 'char', data: 'result', chatId: 'generated-1' }],
         }
-        const sqlite = new Database(':memory:')
-        try {
-            const store = createAppDataStore(sqlite)
-            store.replaceFromProjection({ characters: [{ chaId: 'character-1', chats: [input] }] })
-            const calls: string[] = []
-            const persistNow = vi.fn(async ({ characterId, chatId, chat }: any) => {
-                calls.push('persist')
-                return store.commitChat(characterId, chatId, chat, undefined, { requireExpected: false })
-            })
-            const harness = createServiceHarness(input, {
-                persistNow,
-                publishChatCommitted: vi.fn(() => { calls.push('publish') }),
-                getGenerationWorkflowInputChat: () => input,
-            })
+        const calls: string[] = []
+        const harness = createServiceHarness(input, {
+            getGenerationWorkflowInputChat: () => input,
+            publishChatCommitted: vi.fn(() => { calls.push('publish') }),
+        })
+        harness.persistChat.mockImplementationOnce(async ({ chat, expectedEtag }: any) => {
+            calls.push('persist')
+            return harness.store.commitChat('character-1', 'room-1', chat, expectedEtag)
+        })
 
-            const result = await harness.service.commitGenerationResult({
-                job: { characterId: 'character-1', roomId: 'room-1' },
-                workflow: {
-                    workflowId: 'workflow-1',
-                    context: {
-                        postprocess: {
-                            chatPatch: [], character: {}, messageChatId: 'generated-1',
-                        },
+        const result = await harness.service.commitGenerationResult({
+            job: { characterId: 'character-1', roomId: 'room-1' },
+            workflow: {
+                workflowId: 'workflow-1',
+                context: {
+                    postprocess: {
+                        chatPatch: [], character: {}, messageChatId: 'generated-1',
                     },
                 },
-                chat: generated,
-                finalize: () => { calls.push('finalize') },
-            })
+            },
+            chat: generated,
+            finalize: () => { calls.push('finalize') },
+        })
 
-            expect(persistNow).toHaveBeenCalledWith(expect.objectContaining({ chat: generated }))
-            expect(result.chat).toEqual(generated)
-            expect(store.getChat('character-1', 'room-1')).toEqual(result.chat)
-            expect(calls).toEqual(['persist', 'finalize', 'publish'])
-        } finally {
-            sqlite.close()
-        }
+        expect(result.chat).toEqual(generated)
+        expect(harness.stored()).toEqual(generated)
+        expect(calls).toEqual(['persist', 'finalize', 'publish'])
+    })
+
+    it('rejects a commit when the durable row changed after it was read', async () => {
+        const base = room({ note: 'before' })
+        let store: any
+        const harness = createServiceHarness(base, {
+            loadChat: async (characterId: string, chatId: string) => {
+                const state = store.getChatState(characterId, chatId)
+                store.commitChat(characterId, chatId, { ...state.chat, note: 'other device' }, state.etag)
+                return state
+            },
+        })
+        store = harness.store
+
+        await expect(harness.service.commitUserDelta({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            changes: createDelta(base, { ...base, note: 'mine' }),
+        })).rejects.toMatchObject({ httpStatus: 409, code: 'CHAT_CONTENT_CHANGED' })
+        expect(harness.stored().note).toBe('other device')
+        expect(harness.publishChatCommitted).not.toHaveBeenCalled()
     })
 
     it('keeps a conflicting generation uncommitted until the exact compared values are resolved', async () => {
-        const input = { id: 'room-1', message: [], scriptstate: { $score: '10', $mood: 'neutral' } }
+        const input = room({ scriptstate: { $score: '10', $mood: 'neutral' } })
         const current = { ...input, scriptstate: { $score: '20', $mood: 'angry', $display: 'light' } }
         const generated = { ...input, scriptstate: { $score: '13', $mood: 'happy' }, message: [
             { role: 'char', data: 'answer', chatId: 'generated-1' },
@@ -444,14 +300,14 @@ describe('canonical chat service', () => {
         })
         const conflict = await commit().catch((error: any) => error)
         expect(conflict).toMatchObject({ httpStatus: 409, conflicts: ['/scriptstate/$score', '/scriptstate/$mood'], action: { kind: 'ui.resolve-conflict' } })
-        expect(harness.persistNow).not.toHaveBeenCalled()
+        expect(harness.persistChat).not.toHaveBeenCalled()
         expect(finalize).not.toHaveBeenCalled()
 
         workflow.steps[0].metadata.responses = { [conflict.action.actionId]: ['local', 'server'] }
-        harness.chats.set('room-1', { ...current, scriptstate: { ...current.scriptstate, $score: '30' } })
+        harness.replaceStored({ ...current, scriptstate: { ...current.scriptstate, $score: '30' } })
         const changed = await commit().catch((error: any) => error)
         expect(changed).toMatchObject({ httpStatus: 409, action: { kind: 'ui.resolve-conflict' } })
-        expect(harness.persistNow).not.toHaveBeenCalled()
+        expect(harness.persistChat).not.toHaveBeenCalled()
 
         workflow.steps[0].metadata.responses[changed.action.actionId] = ['local', 'server']
         const resolved = await commit()

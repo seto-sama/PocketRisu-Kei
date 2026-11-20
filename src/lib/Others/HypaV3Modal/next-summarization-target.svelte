@@ -16,12 +16,12 @@
 <div class="mt-2 sm:mt-4">
   {#await nextTarget then nextMessage}
     {#if nextMessage}
-      {@const chatId =
-        nextMessage.chatId === "first"
+      {const chatId =
+        $derived(nextMessage.chatId === "first"
           ? language.hypaV3Modal.nextSummarizationFirstMessageLabel
           : nextMessage.chatId == null
             ? language.hypaV3Modal.nextSummarizationNoMessageIdLabel
-            : nextMessage.chatId}
+            : nextMessage.chatId)}
       <div class="mb-2 text-sm text-subtext sm:mb-4">
         {language.hypaV3Modal.nextSummarizationLabel.replace("{0}", chatId)}
       </div>

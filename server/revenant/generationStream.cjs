@@ -34,6 +34,18 @@ function waitForRevenantJournalEvent(job, timeoutMs = JOURNAL_TAIL_FALLBACK_MS) 
     });
 }
 
+/**
+ * Decoded events exist only for a successful chat response. For an HTTP error
+ * the provider's error body is the response, so it is read from the raw
+ * journal for either kind.
+ */
+function revenantJournalKind(job, requestedKind) {
+    const status = job.responseStatus;
+    return requestedKind === 'events' && status != null && (status < 200 || status >= 300)
+        ? 'journal'
+        : requestedKind;
+}
+
 function recoveryTerminalEvent(job, event) {
     if (
         event?.type === 'error'
@@ -59,11 +71,13 @@ function sendRevenantJournalEvent(client, job, event) {
 // Replay and live delivery deliberately use the same file reader. A socket
 // reads to the journal's current EOF, waits for the writer, then continues at
 // the next byte offset. There is no replay-to-live handoff where bytes can be
-// missed or reordered.
+// missed or reordered. `kind` selects the provider's raw bytes or the
+// server's decoded events.
 async function streamRevenantJournal(
     ws,
     job,
     requestedOffset,
+    kind = 'journal',
     journalStore = generationJournalStore,
 ) {
     let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0
@@ -89,7 +103,15 @@ async function streamRevenantJournal(
             headersSent = true;
         }
 
-        const replay = await journalStore.readChunk(job.workflowId, job.id, offset);
+        // Only an EOF read that started after completion proves nothing was
+        // appended between the read and the terminal event.
+        const doneBeforeRead = job.done;
+        const replay = await journalStore.readChunk(
+            job.workflowId,
+            job.id,
+            offset,
+            revenantJournalKind(job, kind),
+        );
         if (replay.bytes.length > 0) {
             await new Promise((resolve, reject) => {
                 ws.send(encodeJournalChunk(replay.offset, replay.bytes), error => {
@@ -101,17 +123,17 @@ async function streamRevenantJournal(
             continue;
         }
 
-        if (job.done) {
+        if (doneBeforeRead) {
             if (job.terminalEvent) sendRevenantJournalEvent(ws, job, job.terminalEvent);
             return;
         }
-        await waitForRevenantJournalEvent(job);
+        if (!job.done) await waitForRevenantJournalEvent(job);
     }
 }
 
 module.exports = {
     notifyRevenantJournalWaiters,
+    revenantJournalKind,
     sendRevenantJournalEvent,
     streamRevenantJournal,
-    waitForRevenantJournalEvent,
 };

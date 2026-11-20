@@ -23,6 +23,22 @@ export interface AdapterRequestContext {
     serviceAccountJson?: string
 }
 
+/**
+ * Everything needed to turn one provider chat response into adapter results.
+ * It travels with the request so the server decodes with the exact options
+ * the adapter would apply; requests without it are not chat responses.
+ */
+export interface AdapterResponseDecoder {
+    adapterKind: 'openai-compatible' | 'openai-responses' | 'anthropic-messages' | 'google-gemini' | 'amazon-bedrock'
+    stream: boolean
+    /** openai-compatible: native reasoning fields and `<think>` tag fallback. */
+    reasoning?: { includeNative: boolean, thinkTagFallback: boolean }
+    /** openai-compatible: an Images API response instead of a chat completion. */
+    imageGeneration?: boolean
+    /** anthropic-messages: select this request from a Message Batches JSONL result. */
+    batchCustomId?: string
+}
+
 export interface AdapterPreparedRequest {
     serverProviderAuth?: ServerProviderAuth
     method: 'POST'
@@ -151,7 +167,8 @@ export interface AdapterChatResponse {
      * reported back into the same usage row.
      */
     deferredUsageJobId?: string
-    raw: unknown
+    /** Anthropic Message Batches: the result's provider usage, reported against deferredUsageJobId. */
+    providerUsage?: unknown
 }
 
 export interface AdapterChatStreamDelta {
@@ -161,7 +178,6 @@ export interface AdapterChatStreamDelta {
     reasoningDelta?: string
     finishReason?: string
     usage?: AdapterUsage
-    raw: unknown
 }
 
 // Context for Gemini explicit context caching. Supplied by request.ts only when

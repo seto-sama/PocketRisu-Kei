@@ -8,6 +8,7 @@ const { binaryBodyParser } = require('./utils/binaryHttp.cjs');
 const { encodeInlayAsset, decodeInlayAsset } = require('../src/ts/storage/inlayTransport.ts');
 const { isInlayMediaType, getInlayThumbnailScale } = require('../shared/inlayTypes.mjs');
 const { getImageType } = require('../src/ts/media/imageType.ts');
+const { normalizeInlayExt } = require('./utils/mime.cjs');
 
 function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, kvList, logger }) {
     const migrationMarker = path.join(inlayDir, '.migrated_to_fs');
@@ -20,12 +21,6 @@ function createInlayService({ inlayDir, getVips, getMimeFromExt, kvGet, kvDel, k
     function isSafeInlayId(id) {
         return typeof id === 'string' && id.length > 0 && !id.includes('\0')
             && !id.includes('/') && !id.includes('\\') && id !== '.' && id !== '..';
-    }
-
-    function normalizeInlayExt(ext) {
-        if (typeof ext !== 'string') return 'bin';
-        const normalized = ext.trim().toLowerCase().replace(/^\.+/, '').replace(/[\/\\\0]/g, '');
-        return normalized || 'bin';
     }
 
     const resolvedInlayDir = path.resolve(inlayDir) + path.sep;

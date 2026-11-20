@@ -1,6 +1,8 @@
 
 import type { SettingItem } from './types';
 import { serverDriveAvailable } from '../serverDriveFilePicker.svelte';
+import { isPrivacyGuardActive } from '../platform';
+import { language } from 'src/lang';
 import { DEFAULT_PLUGIN_STORAGE_WARNING_MB, getPluginStorageWarningMB, setPluginStorageWarningMB } from '../plugins/pluginMemorySafety';
 import { GENERATION_COUNT_MAX, GENERATION_COUNT_MIN } from '../process/automaticReroll';
 import {
@@ -10,7 +12,6 @@ import {
 export const advancedSettingsItems: SettingItem[] = [
     { type: 'header', id: 'adv.warn', labelKey: 'advancedSettingsWarn', options: { level: 'warning' } },
 
-    // LoreBook Settings
     {
         id: 'adv.lbDepth', type: 'number', labelKey: 'loreBookDepth', bindKey: 'loreBookDepth',
         helpKey: 'loreBookDepth',
@@ -34,7 +35,6 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.bulkEnabling', type: 'check', labelKey: 'bulkEnabling',
         bindKey: 'bulkEnabling', helpKey: 'bulkEnabling'
     },
-    // Request Settings
     {
         id: 'adv.genTime', type: 'number', labelKey: 'genTimes', bindKey: 'genTime',
         helpKey: 'genTimes', options: { min: GENERATION_COUNT_MIN, max: GENERATION_COUNT_MAX }
@@ -53,10 +53,7 @@ export const advancedSettingsItems: SettingItem[] = [
             defaultValue: 8,
         }
     },
-    // Toggles
     { id: 'adv.sayNothing', type: 'check', labelKey: 'sayNothing', bindKey: 'useSayNothing', helpKey: 'sayNothing' },
-    { id: 'adv.newImgBeta', type: 'check', labelKey: 'newImageHandlingBeta', bindKey: 'newImageHandlingBeta', helpKey: 'newImageHandlingBeta' },
-    // Experimental Section
     {
         id: 'adv.pluginStorageWarning', type: 'number', labelKey: 'pluginMemoryWarningTitle',
         helpKey: 'pluginStorageWarningThreshold',
@@ -73,7 +70,6 @@ export const advancedSettingsItems: SettingItem[] = [
         bindKey: 'useServerDriveForFileImport', helpKey: 'useServerDriveForFileImport',
         condition: () => serverDriveAvailable
     },
-    // Prompt Information
     {
         id: 'adv.requestInfo', type: 'check', labelKey: 'requestInfoInsideChat', bindKey: 'requestInfoInsideChat',
         helpKey: 'requestInfoInsideChat'
@@ -86,6 +82,12 @@ export const advancedSettingsItems: SettingItem[] = [
     { id: 'adv.toolUsage', type: 'check', labelKey: 'rememberToolUsage', bindKey: 'rememberToolUsage', helpKey: 'rememberToolUsage' },
     { id: 'adv.simpleTool', type: 'check', labelKey: 'simplifiedToolUse', bindKey: 'simplifiedToolUse', helpKey: 'simplifiedToolUse' },
 
-    // Custom Components
     { type: 'custom', id: 'adv.banChar', componentId: 'BanCharacterSetSettings' },
+    { type: 'custom', id: 'adv.privacyGuard', componentId: 'PrivacyGuardToggle', labelKey: 'privacyGuardMode' },
+    {
+        id: 'adv.privacyGuardIdleLock', type: 'number', labelKey: 'privacyGuardIdleLock',
+        bindKey: 'privacyGuardIdleLockMinutes', helpKey: 'privacyGuardIdleLock',
+        options: { min: 1, max: 1440, suffix: () => language.minutesUnit, disableable: true, defaultValue: 10 },
+        condition: () => isPrivacyGuardActive,
+    },
 ];

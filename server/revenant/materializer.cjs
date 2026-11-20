@@ -21,7 +21,7 @@ class RevenantMaterializationError extends Error {
 }
 
 function completedServerChat(steps) {
-    for (const key of ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']) {
+    for (const key of ['message.materialize', 'postprocess', 'trigger.output', 'output.transform']) {
         const step = steps.get(key);
         if (step?.status === 'completed' && step.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
             return step.metadata.chat;
@@ -32,7 +32,7 @@ function completedServerChat(steps) {
 
 function completedServerMutationPatch(steps) {
     const patch = {};
-    for (const key of ['output.transform', 'trigger.output', 'igp', 'postprocess']) {
+    for (const key of ['output.transform', 'trigger.output', 'postprocess']) {
         const step = steps.get(key);
         if (step?.status !== 'completed') continue;
         for (const scope of ['character', 'database']) {
@@ -81,6 +81,7 @@ function createRevenantMaterializer(options) {
         getEarlierRecoverableGenerationWorkflowJob,
         markGenerationMaterialized,
         readGenerationJobRaw = () => Buffer.alloc(0),
+        replaceGenerationJobEvents = () => false,
         setGenerationJobProjection = () => false,
         setGenerationJobProjectionError = () => false,
         updateGenerationWorkflowStep,
@@ -231,10 +232,13 @@ function createRevenantMaterializer(options) {
         const rawResponse = readGenerationJobRaw(job.jobId);
         if (
             rawResponse.length > 0
+            && job.responseDecoder
             && !isGenerationProjectionCurrent(projection, rawResponse.length)
         ) {
             try {
-                projection = await projectGenerationJournal(job, rawResponse);
+                const rebuilt = await projectGenerationJournal(job, rawResponse);
+                projection = rebuilt.projection;
+                replaceGenerationJobEvents(job.jobId, rebuilt.events);
                 setGenerationJobProjection(job.jobId, projection);
             } catch (error) {
                 setGenerationJobProjectionError(job.jobId, String(error));
@@ -320,6 +324,5 @@ function createRevenantMaterializer(options) {
 
 module.exports = {
     createRevenantMaterializer,
-    RevenantMaterializationError,
     applyMutationPatch,
 };

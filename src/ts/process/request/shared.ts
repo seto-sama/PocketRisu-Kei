@@ -84,7 +84,6 @@ export function buildGenerationRequest(
             chatId,
             jobType,
             adapterKind: arg.revenantAdapterKind,
-            streaming: arg.revenantStreaming,
             characterId,
             roomId,
             operationContext: arg.revenantOperationContext,

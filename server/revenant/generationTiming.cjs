@@ -3,7 +3,6 @@
 const OTHER_STEP_KEYS = [
     'output.transform',
     'trigger.output',
-    'igp',
     'postprocess',
 ];
 
@@ -58,5 +57,4 @@ function applyRevenantStageTimingToMessage(message, workflow, modelCompletedAt) 
 
 module.exports = {
     applyRevenantStageTimingToMessage,
-    resolveRevenantStageTiming,
 };

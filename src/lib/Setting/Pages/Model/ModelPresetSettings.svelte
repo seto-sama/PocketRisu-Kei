@@ -6,6 +6,9 @@
     import Alert from "../../../UI/components/Alert.svelte";
     import SettingTabs from "../../../UI/components/SettingTabs.svelte";
     import Button from "../../../UI/components/Button.svelte";
+    import ActionBar from "../../../UI/components/ActionBar.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
     import SortableList from "../../../UI/components/SortableList.svelte";
     import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
     import Textarea from "../../../UI/components/Textarea.svelte";
@@ -597,23 +600,6 @@
         {:else if $ModelPresetListTabIndex === 2}
             <ModelPresetOptions />
         {:else}
-            <div class="flex gap-2 mb-4">
-                <Button variant="default" size="default" className="flex-1" onclick={createNew}>
-                    <PlusIcon/>
-                    <span class="ml-1">{language.modelPresetCreate}</span>
-                </Button>
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onclick={refreshAllPresetProfiles}
-                    disabled={refreshingAllPresets}
-                    aria-label={language.modelPresetRefreshAll}
-                    title={language.modelPresetRefreshAll}
-                >
-                    <RefreshCwIcon class={refreshingAllPresets ? "animate-spin" : ""} />
-                </Button>
-            </div>
-
             {#if DBState.db.modelPresets.length === 0}
                 <EmptyState title={language.modelPresetEmpty} description="" layout="section" />
             {:else}
@@ -676,6 +662,23 @@
                     {/each}
                 </SortableList>
             {/if}
+
+            <ActionBar mode="footer">
+                <IconButtonGroup>
+                    <IconButton size="lg" onclick={createNew} title={language.modelPresetCreate} aria-label={language.modelPresetCreate}>
+                        <PlusIcon />
+                    </IconButton>
+                    <IconButton
+                        size="lg"
+                        onclick={refreshAllPresetProfiles}
+                        disabled={refreshingAllPresets}
+                        title={language.modelPresetRefreshAll}
+                        aria-label={language.modelPresetRefreshAll}
+                    >
+                        <RefreshCwIcon class={refreshingAllPresets ? "animate-spin" : ""} />
+                    </IconButton>
+                </IconButtonGroup>
+            </ActionBar>
         {/if}
     {/if}
 </SettingPage>

@@ -71,9 +71,17 @@ describe('hotkeyMatches', () => {
             hotkey,
             new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, altKey: true, shiftKey: true }),
         )).toBe(false)
+        expect(hotkeyMatches(
+            { key: 'v', shift: true, meta: true, action: 'keiClipboard' },
+            new KeyboardEvent('keydown', { key: 'V', shiftKey: true }),
+        )).toBe(false)
+        expect(hotkeyMatches(
+            { key: 'v', shift: true, meta: true, action: 'keiClipboard' },
+            new KeyboardEvent('keydown', { key: 'V', shiftKey: true, metaKey: true }),
+        )).toBe(true)
     })
 
-    it('does not capture unmodified keys while typing in an input', () => {
+    it('does not capture unmodified or Shift-only keys while typing in an input', () => {
         const input = document.createElement('textarea')
         document.body.appendChild(input)
         input.focus()
@@ -81,6 +89,10 @@ describe('hotkeyMatches', () => {
         expect(hotkeyMatches(
             { key: ' ', action: 'focusInput' },
             new KeyboardEvent('keydown', { key: ' ' }),
+        )).toBe(false)
+        expect(hotkeyMatches(
+            { key: 'v', shift: true, action: 'keiClipboard' },
+            new KeyboardEvent('keydown', { key: 'V', shiftKey: true }),
         )).toBe(false)
     })
 

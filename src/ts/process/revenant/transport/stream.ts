@@ -8,8 +8,12 @@ import {
     trackRevenantGenerationJob,
     trackRevenantGenerationWorkflow,
 } from './client'
-import { decodeRevenantGenerationJournal } from './journalDecoder'
 import { openRevenantJournalSocket } from './journalSocket'
+import {
+    createDecodedChatProjection,
+    readDecodedChatEvents,
+    type DecodedChatProgress,
+} from '../../../preset/adapter/decodedEvents'
 import type {
     AdapterUsage,
 } from '../../../preset/adapter/types'
@@ -22,6 +26,7 @@ import type {
 } from '../types'
 import { observeRevenantWorkflowRequests } from '../workflow/requestStatus'
 import { localizedApiErrorMessage, readApiErrorPayload } from 'src/ts/network/apiError'
+import { paceSnapshotStream } from '../../request/presetStreamPump'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
@@ -29,14 +34,10 @@ const defaultGenerationHeartbeatSec = 15
 
 interface RecoveryProjectionSnapshot {
     content: string
-    progress?: {
-        thinking: string
-        response: string
-        usage?: AdapterUsage
-    }
+    progress?: DecodedChatProgress
 }
 
-export class GenerationJobRegistrationError extends Error {
+class GenerationJobRegistrationError extends Error {
     constructor(
         readonly status: number,
         detail: string,
@@ -51,7 +52,7 @@ export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
     handlers: {
         onContent: (content: string) => void
-        onProgress?: (progress: { thinking: string, response: string, usage?: AdapterUsage }) => void
+        onProgress?: (progress: DecodedChatProgress) => void
         onProviderStarted?: (startedAt: number) => void
         onDone: (terminal?: RevenantGenerationTerminal, usage?: AdapterUsage) => void
         onError?: (error: unknown) => void
@@ -63,50 +64,66 @@ export function subscribeRecoverableGeneration(
     let latestContent = ''
     let latestProgress: RecoveryProjectionSnapshot['progress']
     let catchingUp = true
-    const publishSnapshot = (snapshot: RecoveryProjectionSnapshot) => {
-        if (snapshot.progress) handlers.onProgress?.(snapshot.progress)
-        if (snapshot.content) handlers.onContent(snapshot.content)
-    }
-    const queueContent = (content: string) => {
-        latestContent = content
-        if (catchingUp) return
-        handlers.onContent(content)
+    // Paced like a local stream, so a live tail of one event per token cannot
+    // force one render per token.
+    let snapshots!: ReadableStreamDefaultController<RecoveryProjectionSnapshot>
+    const delivered = (async () => {
+        const reader = paceSnapshotStream(new ReadableStream<RecoveryProjectionSnapshot>({
+            start(sink) { snapshots = sink },
+        })).getReader()
+        controller.signal.addEventListener('abort', () => void reader.cancel(), { once: true })
+        try {
+            while (true) {
+                const next = await reader.read()
+                if (next.done || controller.signal.aborted) return
+                if (next.value.progress) handlers.onProgress?.(next.value.progress)
+                if (next.value.content) handlers.onContent(next.value.content)
+            }
+        } catch (error) {
+            // A failing handler ends the subscription and its journal stream.
+            if (controller.signal.aborted) return
+            controller.abort()
+            handlers.onError?.(error)
+        }
+    })()
+    const publishLatest = () => {
+        if (catchingUp || controller.signal.aborted) return
+        snapshots.enqueue({ content: latestContent, progress: latestProgress })
     }
     const finishCatchUp = () => {
-        if (!catchingUp || controller.signal.aborted) return
+        if (!catchingUp) return
         catchingUp = false
-        publishSnapshot({ content: latestContent, progress: latestProgress })
+        publishLatest()
     }
-    const flushLatest = () => {
-        if (catchingUp) finishCatchUp()
+    // Delivers the newest projection folded before the stream ended or failed,
+    // then reports the outcome.
+    const finish = async (report: () => void) => {
+        if (controller.signal.aborted) return
+        finishCatchUp()
+        snapshots.close()
+        await delivered
+        if (!controller.signal.aborted) report()
     }
     void openRecoverableJournalStream(job, controller.signal, value => {
         terminal = value
-    }, () => finishCatchUp(), handlers.onProviderStarted)
-        .then(stream => decodeRevenantGenerationJournal(
+    }, finishCatchUp, handlers.onProviderStarted)
+        .then(stream => foldRecoverableEvents(
             job,
             stream,
-            queueContent,
+            content => {
+                latestContent = content
+                publishLatest()
+            },
             progress => {
                 if (progress.usage) usage = progress.usage
                 latestProgress = progress
-                if (!catchingUp) handlers.onProgress?.(progress)
+                publishLatest()
             },
         ))
-        .then(() => {
-            if (!controller.signal.aborted) {
-                flushLatest()
-                handlers.onDone(terminal, usage)
-            }
-        })
-        .catch(error => {
-            if (!controller.signal.aborted) {
-                // Preserve the newest complete projection decoded before a
-                // truncated/interrupted journal tail failed.
-                flushLatest()
-                handlers.onError?.(error)
-            }
-        })
+        .then(
+            () => finish(() => handlers.onDone(terminal, usage)),
+            error => finish(() => handlers.onError?.(error)),
+        )
 
     return () => {
         controller.abort()
@@ -117,16 +134,37 @@ export async function readRecoverableGenerationContent(
     job: RecoverableJournalJob,
 ): Promise<string> {
     if (job.projection?.content) return job.projection.content
-    const stream = await openRecoverableJournalStream(job)
-    try {
-        return await decodeRevenantGenerationJournal(job, stream)
+    return foldRecoverableEvents(job, await openRecoverableJournalStream(job))
+}
+
+/** Folds a job's server-decoded events into the message text. */
+async function foldRecoverableEvents(
+    job: RecoverableJournalJob,
+    stream: ReadableStream<Uint8Array>,
+    onContent?: (content: string) => void,
+    onProgress?: (progress: DecodedChatProgress) => void,
+): Promise<string> {
+    if (job.responseStatus !== undefined
+        && (job.responseStatus < 200 || job.responseStatus >= 300)) {
+        await stream.cancel()
+        throw new Error(`Provider request failed with HTTP ${job.responseStatus}`)
     }
-    catch (error) {
-        // Interrupted journals can end inside an SSE/JSON frame. The last
-        // normalized client projection is still a valid partial recovery.
-        if (job.projection?.content) return job.projection.content
-        throw error
+    // A provider round completed by the client (tool loop) replaces the raw turn.
+    if (job.projection?.source === 'provider') {
+        await stream.cancel()
+        const content = job.projection.content
+        onContent?.(content)
+        onProgress?.({ thinking: '', response: content })
+        return content
     }
+    const projection = createDecodedChatProjection()
+    for await (const event of readDecodedChatEvents(stream)) {
+        projection.apply(event)
+        onProgress?.(projection.progress())
+        const content = projection.content()
+        if (content) onContent?.(content)
+    }
+    return projection.content() || (job.projection?.content ?? '')
 }
 
 async function openRecoverableJournalStream(
@@ -138,7 +176,7 @@ async function openRecoverableJournalStream(
 ): Promise<ReadableStream<Uint8Array>> {
     const auth = await createRevenantGenerationAuth()
     const snapshotResponse = await fetch(
-        `/api/generation/jobs/${encodeURIComponent(job.jobId)}/journal/snapshot`,
+        `/api/generation/jobs/${encodeURIComponent(job.jobId)}/journal/snapshot?format=events`,
         { headers: { 'risu-auth': auth }, signal },
     )
     if (!snapshotResponse.ok) {
@@ -155,20 +193,20 @@ async function openRecoverableJournalStream(
         auth,
         signal,
         recovery: true,
+        format: 'events',
         initialOffset: snapshotOffset,
         onDone: onTerminal,
         onProviderStarted,
-        onHeaders(status, headers) {
+        onHeaders(status) {
             job.responseStatus = status
-            job.responseHeaders = headers
         },
     })
     const liveReader = liveStream.getReader()
     let snapshotConsumed = false
-    // With no prefetch, the second pull cannot run until the decoder has fully
-    // processed the snapshot chunk (including every SSE/AWS event it contains).
+    // With no prefetch, the second pull cannot run until the reader has fully
+    // processed the snapshot chunk (including every event line it contains).
     // That gives us an exact one-render snapshot boundary while the same
-    // decoder retains any incomplete trailing frame for the live bytes.
+    // reader retains any incomplete trailing line for the live bytes.
     return new ReadableStream<Uint8Array>({
         async pull(controller) {
             if (snapshot) {
@@ -195,6 +233,7 @@ async function openRecoverableJournalStream(
 
 export async function fetchViaGenerationJob(url: string, arg: {
     serverProviderAuth?: import('../../../network/transportTypes').ServerProviderAuth
+    responseDecoder?: import('../../../preset/adapter/types').AdapterResponseDecoder
     method: string
     headers: Record<string, string>
     body?: Uint8Array
@@ -228,6 +267,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
             workflowStepExecutionId: arg.generationRequest.workflow?.executionId,
             workflowDependency: arg.generationRequest.workflow?.dependency,
             workflowClientAction: arg.generationRequest.workflow?.clientAction,
+            responseDecoder: arg.responseDecoder ?? arg.generationRequest.job.responseDecoder,
             ...(arg.generationRequest.job.chatId
                 ? getRevenantGenerationMetadata(arg.generationRequest.job.chatId)
                 : undefined),
@@ -276,6 +316,8 @@ export async function fetchViaGenerationJob(url: string, arg: {
         arg.onProviderStarted,
         arg.onTerminal,
         !arg.generationRequest.workflow?.workflowId,
+        // A caller that attached a decoder reads the server's decoded events.
+        arg.responseDecoder ? 'events' : undefined,
     )
 }
 
@@ -293,6 +335,7 @@ function openGenerationJobResponse(
     onProviderStarted?: (startedAt: number) => void,
     onTerminal?: (terminal: RevenantGenerationTerminal) => void,
     cancelJobOnAbort = true,
+    format?: 'events',
 ): Promise<Response> {
     return new Promise((resolve, reject) => {
         let settled = false
@@ -300,14 +343,24 @@ function openGenerationJobResponse(
             jobId,
             auth,
             signal,
+            format,
             onProviderStarted,
             onHeaders(status, headers) {
                 if (settled) return
                 settled = true
+                // Decoded events replace the provider body and its encoding.
+                const decoded = format === 'events' && status >= 200 && status < 300
+                const bodyHeaders = decoded
+                    ? {
+                        ...Object.fromEntries(Object.entries(headers)
+                            .filter(([key]) => !/^content-(type|length|encoding)$/i.test(key))),
+                        'content-type': 'application/x-ndjson',
+                    }
+                    : headers
                 resolve(new Response(stream, {
                     status,
                     headers: {
-                        ...headers,
+                        ...bodyHeaders,
                         'x-risu-revenant-generation': '1',
                         'x-risu-generation-job-id': jobId,
                     },

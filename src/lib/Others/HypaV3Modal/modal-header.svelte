@@ -116,10 +116,10 @@
     <!-- Left click: manual summary. Right click / alternate action: re-summary. -->
     <span
       class="inline-flex"
-      use:handleDualAction={{
+      {@attach handleDualAction({
         onMainAction: onToggleManualSummaryMode,
         onAlternativeAction: onToggleResummaryMode,
-      }}
+      })}
     >
       <IconButton
         active={manualSummaryMode || resummaryMode}

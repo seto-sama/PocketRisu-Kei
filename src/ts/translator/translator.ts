@@ -175,18 +175,20 @@ async function storeLLMTranslation(
     key: string,
     value: string,
     notify = true,
-) {
+): Promise<boolean> {
     // Preserve an older successful retranslation when a provider completes
-    // without usable content.
-    if (!isUsableTranslationResult(value)) return
+    // without usable content. A blank source has nothing to translate, and an
+    // entry under it would attach to every empty message.
+    if (!key.trim() || !isUsableTranslationResult(value)) return false
     llmTranslateCache.set(key, value)
     await setPersistentLLMCache(key, value)
     if (notify) notifyLLMTranslationCacheChanged(key)
+    return true
 }
 
 const revenantTranslationCache = {
     get: getLLMCache,
-    store: storeLLMTranslation,
+    store: async (key: string, value: string) => { await storeLLMTranslation(key, value) },
 }
 
 export async function recoverAuxiliaryTranslationJobs(
@@ -435,7 +437,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         alwaysExistChar = {
             type: 'simple',
             customscript: [],
-            emotionImages: [],
             chaId: 'simple'
         }
     }
@@ -706,6 +707,7 @@ export async function clearLLMCache(): Promise<void> {
 }
 
 export async function getLLMCache(text:string):Promise<string | null>{
+    if (!text.trim()) return null
     const memoryMatch = llmTranslateCache.get(text)
     if (isUsableTranslationResult(memoryMatch)) return memoryMatch
     const persistentMatch = await getPersistentLLMCache(text)
@@ -715,8 +717,7 @@ export async function getLLMCache(text:string):Promise<string | null>{
 export async function copyLLMCache(sourceKey: string, targetKey: string): Promise<boolean> {
     const cached = await getLLMCache(sourceKey)
     if (cached === null) return false
-    if (sourceKey !== targetKey) await storeLLMTranslation(targetKey, cached)
-    return true
+    return sourceKey === targetKey || await storeLLMTranslation(targetKey, cached)
 }
 
 export async function searchLLMCache(partialKey:string):Promise<{key: string, value: string}[]>{
@@ -791,13 +792,9 @@ export async function importLLMCacheFromJSON(data:Record<string, string>):Promis
     let count = 0
     let failed = 0
     for(const [key, value] of Object.entries(data)){
-        if (!isUsableTranslationResult(value)) {
-            failed++
-            continue
-        }
         try {
-            await storeLLMTranslation(key, value, false)
-            count++
+            if (await storeLLMTranslation(key, value, false)) count++
+            else failed++
         } catch {
             failed++
         }

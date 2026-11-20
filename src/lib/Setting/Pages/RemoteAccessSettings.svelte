@@ -1,6 +1,7 @@
 <script lang="ts">
     import EmptyState from "src/lib/UI/components/EmptyState.svelte";
     import { language } from "src/lang";
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import SettingPage from "../../UI/components/SettingPage.svelte";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { getSyncClientId } from "src/ts/storage/nodeStorage";
@@ -125,7 +126,7 @@
     async function copyUrl() {
         if (!tunnelUrl) return;
         try {
-            await navigator.clipboard.writeText(tunnelUrl);
+            await writeSystemClipboard(tunnelUrl);
             copied = true;
             setTimeout(() => { copied = false; }, 2000);
         } catch {}

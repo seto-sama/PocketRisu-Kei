@@ -35,8 +35,7 @@ vi.mock('./stores.svelte', () => ({
     loadedStore: { set() {}, subscribe() { return () => {} } },
     LoadingStatusState: { text: '' },
     selIdState: { selId: 0 },
-    ReloadGUIPointer: { update() {} },
-    ChatRoomReloadPointer: { update() {} },
+    invalidateChatRoom() {},
     bodyIntercepterStore: { set() {} },
     claimLoadingOverlay: () => '',
     dismissClaimedLoadingOverlay() {},
@@ -73,16 +72,15 @@ vi.mock('./storage/risuSave', () => ({
         async set(database: unknown) {
             this.baseline = structuredClone(database)
             if (mocks.projectionChanges) this.version += 1
-            return { patch: [], expectedHash: 'hash' }
+            return { patch: [] }
         }
     },
     calculateHash: () => 0,
     decodeRisuSave: async () => ({}),
     encodeRisuSaveLegacy: () => new Uint8Array(),
-    findDangerousChatOps: () => [],
 }))
 
-vi.mock('./platform', () => ({ isNodeServer: true, supportsPatchSync: false }))
+vi.mock('./platform', () => ({ isNodeServer: true }))
 vi.mock('./storage/chatSelection.svelte', () => ({ getChatPage: () => 0, setChatPage() {} }))
 vi.mock('./storage/chatStorage', () => ({
     saveChatToServer: mocks.saveChatToServer,

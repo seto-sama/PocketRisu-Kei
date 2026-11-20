@@ -1,4 +1,8 @@
 const IDENTITY_KEYS = ['chaId', 'chatId', 'id']
+// characterOrder lists a character as its bare id string and a folder as an object; an entry
+// there, or in a folder's own id list, is identified by the string itself or the folder's id.
+const ENTRY_IDENTITY = '$entry'
+const SELECTOR_KEYS = [...IDENTITY_KEYS, ENTRY_IDENTITY]
 const UNSAFE_PATH_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 
 export class DeltaConflictError extends Error {
@@ -28,30 +32,6 @@ function hasOwn(value, key) {
     return Object.prototype.hasOwnProperty.call(value, key)
 }
 
-function assertJsonValue(value, label = 'value', seen = new Set()) {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return
-    if (typeof value === 'number' && Number.isFinite(value)) return
-    if (typeof value !== 'object') throw new DeltaValidationError(`${label} must contain only JSON values`)
-    if (seen.has(value)) throw new DeltaValidationError(`${label} must not contain cycles`)
-    seen.add(value)
-    if (Array.isArray(value)) {
-        for (const key of Object.keys(value)) {
-            const index = Number(key)
-            if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
-                throw new DeltaValidationError(`${label} arrays must not contain named properties`)
-            }
-        }
-        for (let index = 0; index < value.length; index += 1) {
-            if (!hasOwn(value, index)) throw new DeltaValidationError(`${label} must not contain array holes`)
-            assertJsonValue(value[index], label, seen)
-        }
-    } else {
-        if (!isPlainObject(value)) throw new DeltaValidationError(`${label} must contain only plain JSON objects`)
-        for (const key of Object.keys(value)) assertJsonValue(value[key], label, seen)
-    }
-    seen.delete(value)
-}
-
 function cloneJson(value) {
     if (Array.isArray(value)) return value.map(cloneJson)
     if (!isPlainObject(value)) return value
@@ -78,7 +58,11 @@ export function valuesEqual(left, right) {
     return true
 }
 
-function identityFor(item, key) {
+export function identityFor(item, key) {
+    if (key === ENTRY_IDENTITY) {
+        if (typeof item === 'string') return item.length > 0 ? item : undefined
+        key = 'id'
+    }
     if (!isPlainObject(item) || !hasOwn(item, key)) return undefined
     const id = item[key]
     return typeof id === 'string' && id.length > 0 ? id : undefined
@@ -95,8 +79,13 @@ function hasUniqueIdentity(items, key) {
     return true
 }
 
-function detectIdentity(before, after) {
-    for (const key of IDENTITY_KEYS) {
+function usesEntryIdentity(path) {
+    return path[0] === 'characterOrder' && (path.length === 1
+        || (path.length === 3 && typeof path[1] === 'object' && path[2] === 'data'))
+}
+
+function detectIdentity(before, after, path = []) {
+    for (const key of usesEntryIdentity(path) ? [ENTRY_IDENTITY] : IDENTITY_KEYS) {
         if (hasUniqueIdentity(before, key) && hasUniqueIdentity(after, key)
             && (before.length > 0 || after.length > 0)) return key
     }
@@ -152,7 +141,7 @@ function diffValue(beforeExists, before, afterExists, after, path, changes, cont
     }
 
     if (Array.isArray(before) && Array.isArray(after)) {
-        const identity = detectIdentity(before, after)
+        const identity = detectIdentity(before, after, path)
         if (!identity) {
             addValueChange(changes, path, true, before, true, after)
             return
@@ -163,7 +152,7 @@ function diffValue(beforeExists, before, afterExists, after, path, changes, cont
         const editedItems = after.filter(item => !ignored.has(identityFor(item, identity)))
         const afterIds = editedItems.map(item => identityFor(item, identity))
         const beforeById = new Map(before.filter(item => !ignored.has(identityFor(item, identity))).map(item => [identityFor(item, identity), item]))
-        const afterById = new Map(after.filter(item => !ignored.has(identityFor(item, identity))).map(item => [identityFor(item, identity), item]))
+        const afterById = new Map(editedItems.map(item => [identityFor(item, identity), item]))
 
         for (const id of beforeIds) {
             const itemPath = pathWith(path, selector(identity, id))
@@ -222,21 +211,17 @@ function diffValue(beforeExists, before, afterExists, after, path, changes, cont
 }
 
 export function createDelta(base, edited, options = {}) {
-    if (base !== undefined) assertJsonValue(base, 'base')
-    if (edited !== undefined) assertJsonValue(edited, 'edited')
-    if (!isPlainObject(options)) throw new DeltaValidationError('options must be a plain object')
-    const ignoredRootKeys = options.ignoredRootKeys ?? []
-    const ignoredMessageIds = options.ignoredMessageIds ?? []
-    if (!Array.isArray(ignoredRootKeys) || ignoredRootKeys.some(key => typeof key !== 'string')) {
-        throw new DeltaValidationError('ignoredRootKeys must be an array of strings')
-    }
-    if (!Array.isArray(ignoredMessageIds) || ignoredMessageIds.some(id => typeof id !== 'string')) {
-        throw new DeltaValidationError('ignoredMessageIds must be an array of strings')
-    }
+    return diffAt([], base, edited, options)
+}
+
+function diffAt(path, base, edited, options = {}) {
     const changes = []
     diffValue(
-        base !== undefined, base, edited !== undefined, edited, [], changes,
-        { ignoredRootKeys: new Set(ignoredRootKeys), ignoredMessageIds: new Set(ignoredMessageIds) },
+        base !== undefined, base, edited !== undefined, edited, path, changes,
+        {
+            ignoredRootKeys: new Set(options.ignoredRootKeys ?? []),
+            ignoredMessageIds: new Set(options.ignoredMessageIds ?? []),
+        },
     )
     return changes
 }
@@ -254,7 +239,7 @@ function validatePath(path) {
         }
         if (!isPlainObject(part) || Object.keys(part).length !== 2
             || !hasOwn(part, 'key') || !hasOwn(part, 'value')
-            || !IDENTITY_KEYS.includes(part.key)
+            || !SELECTOR_KEYS.includes(part.key)
             || typeof part.value !== 'string' || part.value.length === 0) {
             validation('path selectors must contain a valid identity key and string value')
         }
@@ -266,7 +251,6 @@ function validateSnapshot(value, label) {
     const keys = Object.keys(value)
     if (value.exists) {
         if (keys.length !== 2 || !hasOwn(value, 'value')) validation(`${label} with exists true must contain only value`)
-        assertJsonValue(value.value, label)
     } else if (keys.length !== 1 || hasOwn(value, 'value')) {
         validation(`${label} with exists false must not contain value`)
     }
@@ -310,7 +294,7 @@ function validateChange(change) {
         }
         const target = change.path.at(-1)
         if (target && typeof target === 'object' && change.after.exists) {
-            if (!isPlainObject(change.after.value) || identityFor(change.after.value, target.key) !== target.value) {
+            if (identityFor(change.after.value, target.key) !== target.value) {
                 validation('added or replaced item identity must match its path selector')
             }
         }
@@ -319,7 +303,7 @@ function validateChange(change) {
 
     const allowed = new Set(['kind', 'path', 'identity', 'before', 'after'])
     if (Object.keys(change).some(key => !allowed.has(key))) validation('order change has unknown fields')
-    if (!IDENTITY_KEYS.includes(change.identity) || change.path.length === 0) validation('order change identity or path is invalid')
+    if (!SELECTOR_KEYS.includes(change.identity) || change.path.length === 0) validation('order change identity or path is invalid')
     for (const [label, ids] of [['before', change.before], ['after', change.after]]) {
         if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || id.length === 0)
             || new Set(ids).size !== ids.length) validation(`order ${label} must be unique nonempty IDs`)
@@ -446,7 +430,7 @@ function applyOrder(root, change) {
     return root
 }
 
-/** Index a contiguous batch of item edits once and compact deletions once. */
+// Clearing a long history must stay linear, so a batch is indexed once and compacted once.
 function applyArrayEdits(array, changes, conflicts) {
     const identity = changes[0].path.at(-1).key
     const indices = indexIdentities(array, identity)
@@ -474,12 +458,8 @@ function applyArrayEdits(array, changes, conflicts) {
 }
 
 export function applyDelta(current, changes) {
-    if (current !== undefined) assertJsonValue(current, 'current')
     if (!Array.isArray(changes)) validation('changes must be an array')
-    for (let index = 0; index < changes.length; index += 1) {
-        if (!hasOwn(changes, index)) validation('changes must not contain array holes')
-        validateChange(changes[index])
-    }
+    for (const change of changes) validateChange(change)
 
     let result = current === undefined ? undefined : cloneJson(current)
     const conflicts = []
@@ -516,10 +496,9 @@ export function applyDelta(current, changes) {
             if (!change.before.exists && actual.exists && change.after.exists && !atomicMessage) {
                 const objectCreation = isPlainObject(actual.value) && isPlainObject(change.after.value)
                 const listCreation = Array.isArray(actual.value) && Array.isArray(change.after.value)
-                    && detectIdentity([], change.after.value)
+                    && detectIdentity([], change.after.value, change.path)
                 if (objectCreation || listCreation) {
-                    const children = createDelta(objectCreation ? {} : [], change.after.value)
-                        .map(child => ({ ...child, path: [...change.path, ...child.path] }))
+                    const children = diffAt(change.path, objectCreation ? {} : [], change.after.value)
                     try { result = applyDelta(result, children) }
                     catch (error) {
                         if (!(error instanceof DeltaConflictError)) throw error

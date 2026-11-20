@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import ChoiceGroup from '../../UI/components/ChoiceGroup.svelte';
     import Help from 'src/lib/Others/Help.svelte';
@@ -13,21 +13,16 @@
 
     let { item, ctx }: Props = $props();
 
-    let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let localValue: any = $derived(getSettingValue(item, ctx));
 
-    $effect(() => {
-        localValue = getSettingValue(item, ctx);
-    });
-
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: any) {
+        localValue = val;
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 
     // Resolve labelKey → localized label (like SettingSelect).
     let processedOptions = $derived(
@@ -52,12 +47,12 @@
             <span class="text-sm text-maintext">{getLabel(item)}</span>
             {#if helpText}<p class="text-xs text-subtext mt-0.5 risu-plain-text">{helpText}</p>{/if}
         </div>
-        <ChoiceGroup className="mt-2" bind:value={localValue} options={processedOptions} />
+        <ChoiceGroup className="mt-2" bind:value={() => localValue, commitValue} options={processedOptions} />
     </div>
 {:else}
     <span class="text-maintext {item.classes ?? 'mt-4'}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <ChoiceGroup className="mt-2" bind:value={localValue} options={processedOptions} />
+    <ChoiceGroup className="mt-2" bind:value={() => localValue, commitValue} options={processedOptions} />
 {/if}

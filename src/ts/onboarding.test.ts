@@ -11,7 +11,7 @@ vi.mock('./stores.svelte', () => ({
     DBState: { db: { templateDefaultVariables: '' } },
     selectedCharID: writable(0),
     selIdState: { selId: 0 },
-    ReloadGUIPointer: writable(0),
+    invalidateDisplay: vi.fn(),
 }))
 vi.mock('./process/triggerOrigin', () => ({
     resolveTriggerOrigin: ({ characterId, chatId }: { characterId: string, chatId: string }) => {

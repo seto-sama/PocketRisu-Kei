@@ -37,18 +37,12 @@
     <h3 class="text-subtext mt-1">v{getVersionString()}</h3>
     {#if $updateInfoStore?.hasUpdate}
         <Button
-          variant={$updateInfoStore.severity === 'optional' ? 'success' : 'destructive'}
+          variant="success"
           size="sm"
           className="mt-1.5 rounded-full"
           onclick={() => updatePopupStore.set($updateInfoStore)}
         >
-          {#if $updateInfoStore.severity === 'outdated'}
-            ⚠ {language.updateOutdated.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {:else if $updateInfoStore.severity === 'required'}
-            ⚠ {language.updateRequired.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {:else}
-            {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
-          {/if}
+          {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
         </Button>
     {/if}
     {#if !DBState.db.hidePublicStats && $publicStatsStore}
@@ -124,7 +118,7 @@
                 sort: 'recommended'
             }) then charas}
             {#if charas.length > 0}
-              {@const visibleCharas = filterMutedRealmCharacters(charas, $realmMuteStore)}
+              {const visibleCharas = $derived(filterMutedRealmCharacters(charas, $realmMuteStore))}
               {@html hubAdditionalHTML}
               {#if realmViewMode === 'icons'}
                 <HorizontalMasonry itemCount={visibleCharas.length} className="py-2">
@@ -154,7 +148,7 @@
         {language.relatedLinks}
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 py-2 md:grid-cols-2">
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/PocketRisu/PocketRisu")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -167,7 +161,7 @@
               <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama/PocketRisu-Kei/issues/new")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -180,7 +174,7 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://discord.gg/Exy3NrqkGm")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -193,7 +187,7 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://arca.live/b/characterai")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">

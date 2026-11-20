@@ -10,7 +10,7 @@
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
     import IconButton from "./components/IconButton.svelte";
     import IconButtonGroup from "./components/IconButtonGroup.svelte";
-    import ListActionBar from "./components/ListActionBar.svelte";
+    import ActionBar from "./components/ActionBar.svelte";
     import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
     import OverlayBackdrop from "./components/overlay/OverlayBackdrop.svelte";
     import InlineRenameAction from "./components/InlineRenameAction.svelte";
@@ -344,7 +344,7 @@
                             name: organizationKind === 'tag' ? language.presetUntagged : language.presetUncategorized,
                         }] : []),
                     ] as folder}
-                        <button class="risu-selectable-row w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                        <button class="risu-interactive-surface w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                             data-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -379,7 +379,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="risu-selectable-row group w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                    <div class="risu-interactive-surface group w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                         data-sortable-key={folder.sortable === false ? undefined : folder.id}
                         data-sortable-no-scale
                         data-selected={selectedFolder === folder.id}
@@ -427,20 +427,22 @@
                 </SortableList>
             </div>
             {#if showCreateFolder || sidebarFooterActions}
-                <ListActionBar mode="inline" className="shrink-0 gap-1">
-                    {#if showCreateFolder}
-                        <IconButton
-                            expanded
-                            className="min-w-0 grow justify-start"
-                            disabled={createFolderDisabled}
-                            onclick={createFolder}
-                            aria-label={newFolderLabel}
-                        >
-                            {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
-                        </IconButton>
-                    {/if}
-                    {@render sidebarFooterActions?.()}
-                </ListActionBar>
+                <ActionBar mode="inline" className="shrink-0">
+                    <IconButtonGroup className="min-w-0 grow gap-1">
+                        {#if showCreateFolder}
+                            <IconButton
+                                expanded
+                                className="min-w-0 grow justify-start"
+                                disabled={createFolderDisabled}
+                                onclick={createFolder}
+                                aria-label={newFolderLabel}
+                            >
+                                {#if organizationKind === 'tag'}<TagIcon size={18}/>{:else}<FolderPlusIcon size={18}/>{/if}<span class="truncate text-sm">{newFolderLabel}</span>
+                            </IconButton>
+                        {/if}
+                        {@render sidebarFooterActions?.()}
+                    </IconButtonGroup>
+                </ActionBar>
             {/if}
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col px-2 py-3">
@@ -475,12 +477,12 @@
                     }}
                 >
                     {#each visibleItemIndexes as index (index)}
-                        {@const renameController = new InlineEditableNameController()}
+                        {const renameController = $derived(new InlineEditableNameController())}
                         <div role="button" tabindex="0"
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
                             data-inline-rename-row={itemRenameable ? '' : undefined}
-                            class="risu-selectable-row preset-picker-item w-full h-9 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
+                            class="risu-interactive-surface preset-picker-item w-full h-9 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
                             data-selected={index === selectedItemIndex}
                             class:cursor-grab={!!onMoveItem || allowFolderAssignmentDrag}
                             onclick={() => onSelectItem(index)}
@@ -513,7 +515,7 @@
                     {#if showNoneOption}
                         <button
                             type="button"
-                            class="risu-selectable-row w-full h-9 flex items-center rounded-md text-left px-2 text-sm text-subtext"
+                            class="risu-interactive-surface w-full h-9 flex items-center rounded-md text-left px-2 text-sm text-subtext"
                             data-selected={noneSelected}
                             data-preset-select-none
                             onclick={onSelectNone}

@@ -77,7 +77,6 @@ export function localizedApiErrorMessage(payload: {
         case apiErrorCodes.DRIVE_MERGE_CONFLICT: return language.serverDrive.conflictTitle
         case apiErrorCodes.DRIVE_UNSUPPORTED_ENTRY: return language.serverDrive.unsupportedEntry
         case apiErrorCodes.DRIVE_UNAVAILABLE: return language.serverDrive.unavailable
-        case apiErrorCodes.DRIVE_REMOTE_ACCESS_DENIED: return language.serverDrive.remoteAccessDenied
         case apiErrorCodes.DATABASE_LOCKED: return language.errors.databaseLocked
         case apiErrorCodes.CHAT_CONTENT_CHANGED: return language.errors.chatContentChangedOnAnotherClient
         case apiErrorCodes.BACKUP_ENCRYPTION_METADATA_INVALID: return language.errors.backupEncryptionMetadataInvalid

@@ -10,14 +10,18 @@ const { codes, createApiError } = require('../utils/apiErrors.cjs');
 const { readDrivePreview } = require('../drivePreview.cjs');
 const { getZip } = require('../utils/zip.cjs');
 const {
+    DAY_MS,
     DEFAULT_TRASH_RETENTION_DAYS,
     DRIVE_TRASH_DIRECTORY: TRASH_NAME,
     isTrashExpired,
     normalizeTrashRetentionDays,
 } = require('../../shared/trashRetention.mjs');
+const { DRIVE_PRIVATE_DIRECTORY: PRIVATE_NAME } = require('../../shared/drivePrivate.mjs');
+const { compareDriveEntries } = require('../../shared/driveEntryOrder.mjs');
 
 const UPLOAD_PREFIX = '.pocketrisu-upload-';
 const TRASH_NAME_LOWER = TRASH_NAME.toLowerCase();
+const PRIVATE_NAME_LOWER = PRIVATE_NAME.toLowerCase();
 const TRASH_CLEANUP_RETRY_MS = 60 * 60 * 1000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
@@ -41,18 +45,37 @@ function conflictPolicy(value = 'error') {
     return value;
 }
 
+async function lstatOrNull(target) {
+    return fs.lstat(target).catch(error => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+    });
+}
+
 function isTrashPath(parts) {
     return parts[0]?.toLowerCase() === TRASH_NAME_LOWER;
 }
 
-function rejectTrashPath(parts) {
-    if (isTrashPath(parts)) throw createApiError(codes.INVALID_FILE_PATH, 400);
+function isPrivatePath(parts) {
+    return parts[0]?.toLowerCase() === PRIVATE_NAME_LOWER;
+}
+
+function isReservedRootName(name) {
+    const lower = name.toLowerCase();
+    return lower === TRASH_NAME_LOWER || lower === PRIVATE_NAME_LOWER;
+}
+
+// Trash contents and the private folder itself cannot be moved, renamed or deleted.
+function rejectReservedEntry(parts) {
+    if (isTrashPath(parts) || (parts.length === 1 && isPrivatePath(parts))) {
+        throw createApiError(codes.INVALID_FILE_PATH, 400);
+    }
 }
 
 function assertWritableDestination(parent, name) {
     validateName(name);
     const parentParts = pathParts(parent);
-    if (isTrashPath(parentParts) || (!parentParts.length && name.toLowerCase() === TRASH_NAME_LOWER)) {
+    if (isTrashPath(parentParts) || (!parentParts.length && isReservedRootName(name))) {
         throw createApiError(codes.INVALID_FILE_PATH, 400);
     }
 }
@@ -63,6 +86,15 @@ function assertEntry(stat) {
         || (stat.isFile() && stat.nlink > 1)) {
         throw createApiError(codes.DRIVE_UNSUPPORTED_ENTRY, 403);
     }
+}
+
+// Trash manifest values are { trashedAt, from }; older entries are a bare timestamp with no origin.
+function trashedAt(value) {
+    return typeof value === 'number' ? value : value?.trashedAt;
+}
+
+function trashOrigin(value) {
+    return typeof value?.from === 'string' ? value.from : null;
 }
 
 function metadata(relativePath, stat) {
@@ -80,7 +112,7 @@ function installDriveRoutes(app, {
     savePath,
     checkAuth,
     checkDownloadAuth,
-    isCloudflareTunnelRequest,
+    isPrivacyGuardActive = () => false,
     encodeThumbnail,
     getTrashRetentionDays = () => DEFAULT_TRASH_RETENTION_DAYS,
 }) {
@@ -99,8 +131,17 @@ function installDriveRoutes(app, {
         return result;
     }
 
-    async function resolveEntry(relativePath = '', directory = false) {
+    // Privacy guard: the private folder and the trash (which may hold its deleted files) do not exist.
+    function assertVisible(parts) {
+        if (isPrivacyGuardActive() && (isPrivatePath(parts) || isTrashPath(parts))) {
+            throw createApiError(codes.DRIVE_NOT_FOUND, 404);
+        }
+    }
+
+    // Every request path resolves here, so hidden paths cannot leak through a route that forgets them.
+    async function resolveEntry(relativePath = '', directory = false, { internal = false } = {}) {
         const parts = pathParts(relativePath);
+        if (!internal) assertVisible(parts);
         await fs.mkdir(root).catch(error => { if (error.code !== 'EEXIST') throw error; });
         let current = root;
         let stat = await fs.lstat(current);
@@ -120,9 +161,15 @@ function installDriveRoutes(app, {
         const { absolutePath: driveRoot } = await resolveEntry('', true);
         const trashPath = path.join(driveRoot, TRASH_NAME);
         await fs.mkdir(trashPath).catch(error => { if (error.code !== 'EEXIST') throw error; });
-        const trashEntry = await resolveEntry(TRASH_NAME);
+        // Deleting and expiry still use the trash while privacy guard hides it.
+        const trashEntry = await resolveEntry(TRASH_NAME, false, { internal: true });
         if (!trashEntry.stat.isDirectory()) throw createApiError(codes.DRIVE_UNAVAILABLE, 500);
         return trashEntry;
+    }
+
+    async function ensurePrivateDirectory() {
+        const { absolutePath: driveRoot } = await resolveEntry('', true);
+        await fs.mkdir(path.join(driveRoot, PRIVATE_NAME)).catch(error => { if (error.code !== 'EEXIST') throw error; });
     }
 
     async function openFile(relativePath) {
@@ -142,10 +189,7 @@ function installDriveRoutes(app, {
     }
 
     async function readTrashManifest() {
-        const stat = await fs.lstat(trashManifestPath).catch(error => {
-            if (error.code === 'ENOENT') return null;
-            throw error;
-        });
+        const stat = await lstatOrNull(trashManifestPath);
         if (!stat) return Object.create(null);
         assertEntry(stat);
         if (!stat.isFile()) throw createApiError(codes.DRIVE_UNAVAILABLE, 500);
@@ -184,13 +228,10 @@ function installDriveRoutes(app, {
         for (const name of Object.keys(manifest)) {
             let validName = true;
             try { validateName(name); } catch { validName = false; }
-            if (!validName || !isTrashExpired(manifest[name], retentionDays, now)) continue;
+            if (!validName || !isTrashExpired(trashedAt(manifest[name]), retentionDays, now)) continue;
             try {
                 const entryPath = path.join(trashPath, name);
-                const stat = await fs.lstat(entryPath).catch(error => {
-                    if (error.code === 'ENOENT') return null;
-                    throw error;
-                });
+                const stat = await lstatOrNull(entryPath);
                 if (stat) {
                     await assertTree(entryPath, stat);
                     await fs.rm(entryPath, { recursive: true });
@@ -216,10 +257,11 @@ function installDriveRoutes(app, {
             if (retentionDays === 0) return;
             const manifest = await readTrashManifest();
             let nextExpiry = Infinity;
-            for (const [name, value] of Object.entries(manifest)) {
+            for (const [name, entry] of Object.entries(manifest)) {
                 try { validateName(name); } catch { continue; }
+                const value = trashedAt(entry);
                 if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
-                nextExpiry = Math.min(nextExpiry, value + retentionDays * 24 * 60 * 60 * 1000);
+                nextExpiry = Math.min(nextExpiry, value + retentionDays * DAY_MS);
             }
             if (nextExpiry === Infinity && retryDelay === 0) return;
             const now = Date.now();
@@ -295,10 +337,7 @@ function installDriveRoutes(app, {
         const parent = parts.slice(0, -1).join('/');
         const parentPath = resolvedParentPath ?? (await resolveEntry(parent, true)).absolutePath;
         const absolutePath = path.join(parentPath, parts.at(-1));
-        const stat = await fs.lstat(absolutePath).catch(error => {
-            if (error.code === 'ENOENT') return null;
-            throw error;
-        });
+        const stat = await lstatOrNull(absolutePath);
         if (stat) assertEntry(stat);
         return stat ? { absolutePath, stat } : null;
     }
@@ -320,6 +359,14 @@ function installDriveRoutes(app, {
             dev: String(stat.dev),
             ino: String(stat.ino),
         };
+    }
+
+    function sameStat(left, right) {
+        return JSON.stringify(statFingerprint(left)) === JSON.stringify(statFingerprint(right));
+    }
+
+    function sameIdentity(stat, expectedIdentity) {
+        return JSON.stringify(identityFingerprint(stat)) === JSON.stringify(expectedIdentity);
     }
 
     async function captureTree(absolutePath, relativePath, role, observations) {
@@ -345,7 +392,7 @@ function installDriveRoutes(app, {
             throw error;
         });
         assertEntry(current);
-        if (JSON.stringify(statFingerprint(current)) !== JSON.stringify(statFingerprint(node.stat))) {
+        if (!sameStat(current, node.stat)) {
             throw changed();
         }
         return current;
@@ -371,10 +418,7 @@ function installDriveRoutes(app, {
         const source = await captureTree(sourcePath.absolutePath, sourcePath.relativePath, 'source', observations);
 
         async function compare(sourceNode, targetAbsolutePath, targetRelativePath) {
-            const targetStat = await fs.lstat(targetAbsolutePath).catch(error => {
-                if (error.code === 'ENOENT') return null;
-                throw error;
-            });
+            const targetStat = await lstatOrNull(targetAbsolutePath);
             observations.set(`destination:${targetRelativePath}`, statFingerprint(targetStat));
             if (!targetStat) {
                 return { kind: 'move', source: sourceNode, targetAbsolutePath, targetRelativePath };
@@ -450,21 +494,19 @@ function installDriveRoutes(app, {
         return choices;
     }
 
-    async function moveEntryToTrash(absolutePath, name, stat, { treeValidated = false } = {}) {
+    async function moveEntryToTrash(absolutePath, relativePath, stat, { treeValidated = false } = {}) {
         if (!treeValidated) await assertTree(absolutePath, stat);
+        const name = path.posix.basename(relativePath);
         const { absolutePath: trashPath } = await ensureTrashDirectory();
         const manifest = await readTrashManifest();
         for (let number = 0; ; number++) {
             const targetName = number ? numberedName(name, number, stat.isDirectory()) : name;
             const target = path.join(trashPath, targetName);
-            const existing = await fs.lstat(target).catch(error => {
-                if (error.code !== 'ENOENT') throw error;
-                return null;
-            });
+            const existing = await lstatOrNull(target);
             if (existing) continue;
             const hadManifestEntry = Object.hasOwn(manifest, targetName);
             const previousTimestamp = manifest[targetName];
-            manifest[targetName] = Date.now();
+            manifest[targetName] = { trashedAt: Date.now(), from: relativePath };
             await writeTrashManifest(manifest);
             try {
                 await fs.rename(absolutePath, target);
@@ -486,13 +528,10 @@ function installDriveRoutes(app, {
     }
 
     async function restoreTrashMove(move) {
-        const existing = await fs.lstat(move.absolutePath).catch(error => {
-            if (error.code === 'ENOENT') return null;
-            throw error;
-        });
+        const existing = await lstatOrNull(move.absolutePath);
         if (existing) throw new Error(`Cannot restore Drive trash entry over ${move.absolutePath}`);
         const trashed = await fs.lstat(move.target);
-        if (JSON.stringify(identityFingerprint(trashed)) !== JSON.stringify(move.expectedIdentity)) {
+        if (!sameIdentity(trashed, move.expectedIdentity)) {
             throw new Error(`Cannot restore changed Drive trash entry from ${move.target}`);
         }
         await fs.rename(move.target, move.absolutePath);
@@ -507,36 +546,24 @@ function installDriveRoutes(app, {
         for (const item of journal.reverse()) {
             try {
                 if (item.kind === 'removed-directory') {
-                    const existing = await fs.lstat(item.path).catch(error => {
-                        if (error.code === 'ENOENT') return null;
-                        throw error;
-                    });
+                    const existing = await lstatOrNull(item.path);
                     if (existing) throw new Error(`Cannot recreate Drive merge directory over ${item.path}`);
                     await fs.mkdir(item.path);
                 } else if (item.kind === 'trash') {
                     await restoreTrashMove(item.move);
                 } else if (item.kind === 'copy') {
-                    const existing = await fs.lstat(item.path).catch(error => {
-                        if (error.code === 'ENOENT') return null;
-                        throw error;
-                    });
+                    const existing = await lstatOrNull(item.path);
                     if (!existing) continue;
-                    if (JSON.stringify(identityFingerprint(existing)) !== JSON.stringify(item.expectedIdentity)) {
+                    if (!sameIdentity(existing, item.expectedIdentity)) {
                         throw new Error(`Cannot roll back changed Drive copy at ${item.path}`);
                     }
                     await fs.rm(item.path, { recursive: true });
                 } else {
-                    const existingSource = await fs.lstat(item.from).catch(error => {
-                        if (error.code === 'ENOENT') return null;
-                        throw error;
-                    });
+                    const existingSource = await lstatOrNull(item.from);
                     if (existingSource) throw new Error(`Cannot roll back Drive merge over ${item.from}`);
-                    const existingTarget = await fs.lstat(item.to).catch(error => {
-                        if (error.code === 'ENOENT') return null;
-                        throw error;
-                    });
+                    const existingTarget = await lstatOrNull(item.to);
                     if (!existingTarget) throw new Error(`Cannot find Drive merge item to roll back at ${item.to}`);
-                    if (JSON.stringify(identityFingerprint(existingTarget)) !== JSON.stringify(item.expectedIdentity)) {
+                    if (!sameIdentity(existingTarget, item.expectedIdentity)) {
                         throw new Error(`Cannot roll back changed Drive merge item at ${item.to}`);
                     }
                     await fs.rename(item.to, item.from);
@@ -570,14 +597,14 @@ function installDriveRoutes(app, {
         try {
             const current = await source.stat();
             assertEntry(current);
-            if (JSON.stringify(statFingerprint(current)) !== JSON.stringify(statFingerprint(node.stat))) {
+            if (!sameStat(current, node.stat)) {
                 throw mergeConflict(plan);
             }
             target = await fs.open(targetPath, 'wx', node.stat.mode & 0o666);
             try {
                 await pipeline(source.createReadStream({ autoClose: false }), target.createWriteStream());
                 const after = await source.stat();
-                if (JSON.stringify(statFingerprint(after)) !== JSON.stringify(statFingerprint(node.stat))) {
+                if (!sameStat(after, node.stat)) {
                     throw mergeConflict(plan);
                 }
                 await fs.utimes(targetPath, node.stat.atime, node.stat.mtime);
@@ -608,11 +635,8 @@ function installDriveRoutes(app, {
             await assertCapturedTree(source, plan);
         } catch (error) {
             if (copiedIdentity) {
-                const existing = await fs.lstat(targetPath).catch(caught => {
-                    if (caught.code === 'ENOENT') return null;
-                    throw caught;
-                });
-                if (existing && JSON.stringify(identityFingerprint(existing)) === JSON.stringify(copiedIdentity)) {
+                const existing = await lstatOrNull(targetPath);
+                if (existing && sameIdentity(existing, copiedIdentity)) {
                     await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
                 }
             }
@@ -646,10 +670,7 @@ function installDriveRoutes(app, {
                         const candidate = numberedName(name, number, node.source.stat.isDirectory());
                         if (reserved.has(candidate)) continue;
                         const candidatePath = path.join(parentAbsolutePath, candidate);
-                        const existing = await fs.lstat(candidatePath).catch(error => {
-                            if (error.code !== 'ENOENT') throw error;
-                            return null;
-                        });
+                        const existing = await lstatOrNull(candidatePath);
                         if (existing) continue;
                         reserved.add(candidate);
                         targetAbsolutePath = candidatePath;
@@ -679,17 +700,14 @@ function installDriveRoutes(app, {
                     await assertCapturedTree(operation.replace, plan);
                     const trashMove = await moveEntryToTrash(
                         operation.replace.absolutePath,
-                        path.posix.basename(operation.targetRelativePath),
+                        operation.targetRelativePath,
                         operation.replace.stat,
                         { treeValidated: true },
                     );
                     trashChanged = true;
                     journal.push({ kind: 'trash', move: trashMove });
                 }
-                const targetExists = await fs.lstat(operation.targetAbsolutePath).catch(error => {
-                    if (error.code === 'ENOENT') return null;
-                    throw error;
-                });
+                const targetExists = await lstatOrNull(operation.targetAbsolutePath);
                 if (targetExists) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
                 await assertCapturedTree(operation.source, plan);
                 if (copy) {
@@ -716,7 +734,7 @@ function installDriveRoutes(app, {
                 });
                 assertEntry(current);
                 if (!current.isDirectory()
-                    || JSON.stringify(identityFingerprint(current)) !== JSON.stringify(identityFingerprint(node.source.stat))) {
+                    || !sameIdentity(current, identityFingerprint(node.source.stat))) {
                     throw mergeConflict(plan);
                 }
                 const remaining = await fs.readdir(node.source.absolutePath);
@@ -746,10 +764,7 @@ function installDriveRoutes(app, {
         assertWritableDestination(parent, name);
         const { absolutePath } = await resolveEntry(parent, true);
         const target = path.join(absolutePath, name);
-        const existing = await fs.lstat(target).catch(error => {
-            if (error.code !== 'ENOENT') throw error;
-            return null;
-        });
+        const existing = await lstatOrNull(target);
         if (existing) {
             if (!overwrite) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
             assertEntry(existing);
@@ -810,7 +825,7 @@ function installDriveRoutes(app, {
         const relativePath = body?.path;
         const parts = pathParts(relativePath);
         if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        rejectTrashPath(parts);
+        rejectReservedEntry(parts);
         const name = validateName(body?.name);
         const conflict = conflictPolicy(body?.conflict);
         const source = await resolveEntry(relativePath);
@@ -901,7 +916,7 @@ function installDriveRoutes(app, {
             const { file, stat } = await openFile(node.relativePath);
             let input;
             try {
-                if (JSON.stringify(statFingerprint(stat)) !== JSON.stringify(statFingerprint(node.stat))) {
+                if (!sameStat(stat, node.stat)) {
                     throw archiveChanged();
                 }
                 input = file.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 });
@@ -920,7 +935,7 @@ function installDriveRoutes(app, {
                 });
                 if (streamed !== node.stat.size) throw archiveChanged();
                 const after = await file.stat();
-                if (JSON.stringify(statFingerprint(node.stat)) !== JSON.stringify(statFingerprint(after))) {
+                if (!sameStat(node.stat, after)) {
                     throw archiveChanged();
                 }
             } finally {
@@ -959,9 +974,6 @@ function installDriveRoutes(app, {
             if (!await (download ? checkDownloadAuth : checkAuth)(req, res)) return;
             res.set('Cache-Control', 'no-store, no-transform');
             try {
-                if (isCloudflareTunnelRequest(req)) {
-                    throw createApiError(codes.DRIVE_REMOTE_ACCESS_DENIED, 403);
-                }
                 await handler(req, res);
             } catch (error) {
                 if (res.destroyed) return;
@@ -990,7 +1002,9 @@ function installDriveRoutes(app, {
     route('get', '/api/drive', async (req, res) => {
         const relativePath = req.query.path ?? '';
         const requestedParts = pathParts(relativePath);
+        assertVisible(requestedParts);
         if (isTrashPath(requestedParts)) await ensureTrashDirectory();
+        if (requestedParts.length === 1 && isPrivatePath(requestedParts)) await ensurePrivateDirectory();
         const { absolutePath } = await resolveEntry(relativePath, true);
         const entries = [];
         for (const name of await fs.readdir(absolutePath)) {
@@ -998,15 +1012,15 @@ function installDriveRoutes(app, {
             try {
                 validateName(name);
                 const stat = await fs.lstat(path.join(absolutePath, name));
-                if (!relativePath && name.toLowerCase() === TRASH_NAME_LOWER && stat.isDirectory()) continue;
+                // Reserved folders are reached from the sidebar, not the root listing.
+                if (!relativePath && isReservedRootName(name) && stat.isDirectory()) continue;
                 assertEntry(stat);
                 entries.push(metadata(child, stat));
             } catch (error) {
                 if (error.code !== 'ENOENT' && ![codes.INVALID_FILE_PATH, codes.DRIVE_UNSUPPORTED_ENTRY].includes(error.code)) throw error;
             }
         }
-        entries.sort((a, b) => Number(b.type === 'directory') - Number(a.type === 'directory')
-            || a.name.localeCompare(b.name, undefined, { numeric: true }));
+        entries.sort(compareDriveEntries);
         res.json({ path: relativePath, entries });
     });
 
@@ -1048,16 +1062,17 @@ function installDriveRoutes(app, {
         const relativePath = req.body?.path;
         const parts = pathParts(relativePath);
         if (!parts.length) throw createApiError(codes.INVALID_FILE_PATH, 400);
-        rejectTrashPath(parts);
+        rejectReservedEntry(parts);
         await mutate(async () => {
             const { absolutePath, stat } = await resolveEntry(relativePath);
-            await moveEntryToTrash(absolutePath, parts.at(-1), stat);
+            await moveEntryToTrash(absolutePath, relativePath, stat);
         });
         void scheduleTrashCleanup();
         res.json({ ok: true });
     });
 
     route('delete', '/api/drive/trash', async (_req, res) => {
+        assertVisible([TRASH_NAME]);
         await mutate(async () => {
             const { absolutePath } = await ensureTrashDirectory();
             const stat = await fs.lstat(absolutePath);
@@ -1066,6 +1081,66 @@ function installDriveRoutes(app, {
                 await fs.rm(path.join(absolutePath, name), { recursive: true });
             }
             await writeTrashManifest(Object.create(null));
+        });
+        void scheduleTrashCleanup();
+        res.json({ ok: true });
+    });
+
+    function trashEntryParts(relativePath) {
+        const parts = pathParts(relativePath);
+        if (!isTrashPath(parts) || parts.length < 2) throw createApiError(codes.INVALID_FILE_PATH, 400);
+        return parts;
+    }
+
+    async function ensureDirectoryPath(relativePath) {
+        let current = '';
+        for (const part of pathParts(relativePath)) {
+            const existing = await optionalEntry(drivePath(current, part));
+            if (!existing) await publishEntry(current, part, 'error', true, target => fs.mkdir(target));
+            else if (!existing.stat.isDirectory()) throw createApiError(codes.DRIVE_ALREADY_EXISTS, 409);
+            current = drivePath(current, part);
+        }
+    }
+
+    // Only top-level trash entries have a manifest record; nested ones leave with their parent.
+    async function forgetTrashEntry(parts, manifest) {
+        if (parts.length !== 2) return;
+        manifest ??= await readTrashManifest();
+        delete manifest[parts[1]];
+        await writeTrashManifest(manifest);
+    }
+
+    // Entries trashed before origins were recorded go back to the drive root.
+    route('post', '/api/drive/trash/restore', async (req, res) => {
+        const relativePath = req.body?.path;
+        const parts = trashEntryParts(relativePath);
+        const entry = await mutate(async () => {
+            const source = await resolveEntry(relativePath);
+            await assertTree(source.absolutePath, source.stat);
+            const manifest = await readTrashManifest();
+            const origin = trashOrigin(manifest[parts[1]]) ?? parts[1];
+            const originalParts = pathParts([origin, ...parts.slice(2)].join('/'));
+            const parent = originalParts.slice(0, -1).join('/');
+            await ensureDirectoryPath(parent);
+            const name = originalParts.at(-1);
+            const restored = source.stat.isDirectory()
+                ? await publishEntry(parent, name, 'rename', true, target => fs.rename(source.absolutePath, target))
+                : await publishFile(source.absolutePath, parent, name, 'rename');
+            await forgetTrashEntry(parts, manifest);
+            return restored;
+        });
+        void scheduleTrashCleanup();
+        res.json({ entry });
+    });
+
+    route('delete', '/api/drive/trash/entry', async (req, res) => {
+        const relativePath = req.body?.path;
+        const parts = trashEntryParts(relativePath);
+        await mutate(async () => {
+            const { absolutePath, stat } = await resolveEntry(relativePath);
+            await assertTree(absolutePath, stat);
+            await fs.rm(absolutePath, { recursive: true });
+            await forgetTrashEntry(parts);
         });
         void scheduleTrashCleanup();
         res.json({ ok: true });
@@ -1125,7 +1200,7 @@ function installDriveRoutes(app, {
             if (res.destroyed) return null;
             const { file, stat: openedStat } = await openFile(relativePath);
             try {
-                if (JSON.stringify(statFingerprint(openedStat)) !== fingerprint) return null;
+                if (!sameStat(openedStat, stat)) return null;
                 try {
                     const input = await readDrivePreview(file, relativePath, openedStat);
                     return input && !res.destroyed ? await encodeThumbnail(input) : null;

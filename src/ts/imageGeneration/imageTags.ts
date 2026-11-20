@@ -75,7 +75,9 @@ export function getImageTagRange(text: string, cursor: number) {
 
 function getImageTagDetail(tag: ImageTag): string {
     const category = imageTagCategories.find(([id]) => id === tag.category)?.[1] ?? 'general'
-    return `${language.imageTagAutocomplete.categories[category]} · ${tag.count.toLocaleString()}`
+    const label = language.imageTagAutocomplete.categories[category]
+    // NovelAI-only tags have no Danbooru post count; dataset tags always have one.
+    return tag.count ? `${label} · ${tag.count.toLocaleString()}` : label
 }
 
 async function fetchImageTags(query: string, signal: AbortSignal): Promise<ImageTag[]> {

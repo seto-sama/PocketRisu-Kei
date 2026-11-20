@@ -1,6 +1,6 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte"
 import { defineConfig } from 'vitest/config'
-import { localFontsPlugin } from './vite.localFonts'
+import { localFontsPlugin } from './vite.localFonts.ts'
 
 export default defineConfig({
   plugins: [
@@ -31,7 +31,7 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           include: ['server/**/*.test.ts', 'test/*.test.ts'],
-          setupFiles: [],
+          setupFiles: ['vitest.setup.server.ts'],
           testTimeout: 30_000,
         },
       },

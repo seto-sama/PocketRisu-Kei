@@ -124,7 +124,7 @@ describe('save conflict choices', () => {
         const controller = new AbortController()
         const shown = waitForDialog('Abortable comparison')
         const pending = chooseConflictComparison(comparison('Abortable comparison'), controller.signal)
-        const state = await shown
+        await shown
         controller.abort()
         await expect(pending).rejects.toBeInstanceOf(SaveConflictCancelledError)
         expect(get(saveConflictDialog)).toBeNull()

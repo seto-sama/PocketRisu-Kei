@@ -59,7 +59,7 @@
 </script>
 
 <div class={cn(wrapperClass, className)}>
-    <div class="flex items-stretch transition-colors risu-interactive-surface has-[:focus-visible]:bg-selected/30">
+    <div class="flex items-stretch transition-colors risu-interactive-surface">
         {#if extras}
             <button
                 id={triggerId}

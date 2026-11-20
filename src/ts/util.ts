@@ -1,8 +1,7 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
 import { Buffer } from 'buffer'
 import { getChatBoundPersona } from './chatBindingState'
-import { get, writable, type Writable } from "svelte/store"
-import type { Database } from "./storage/database.svelte"
+import { get } from "svelte/store"
 import { getDatabase } from "./storage/database.svelte"
 import { selectedCharID } from "./stores.svelte"
 import { createBlankChar, getCharImage } from "./characters"
@@ -203,48 +202,6 @@ export function getCharacterIndexObject() {
     return result
 }
 
-export function defaultEmotion(em:[string,string][]){
-    if(!em){
-        return ''
-    }
-    for(const v of em){
-        if(v[0] === 'neutral'){
-            return v[1]
-        }
-    }
-    return ''
-}
-
-export async function getEmotion(db:Database,chaEmotion:{[key:string]: [string, string, number][]}, type:'contain'|'plain'|'css'){
-    const selectedChar = get(selectedCharID)
-    const currentDat = db.characters[selectedChar]
-    if(!currentDat){
-        return []
-    }
-    let charIdList:string[] = []
-
-    charIdList = [currentDat.chaId]
-
-    let datas: string[] = ['normal']
-    for(const chaid of charIdList){
-        const currentChar = findCharacterbyId(chaid)
-        if(currentChar.viewScreen === 'emotion'){
-            const currEmotion = chaEmotion[currentChar.chaId]
-            let im = ''
-            if(!currEmotion || currEmotion.length === 0){
-                im = (await getCharImage(defaultEmotion(currentChar?.emotionImages),type))
-            }
-            else{
-                im = (await getCharImage(currEmotion[currEmotion.length - 1][1], type))
-            }
-            if(im && im.length > 2){
-                datas.push(im)
-            }
-        }
-    }
-    return datas
-}
-
 export function getAuthorNoteDefaultText(){
     const db = getDatabase()
     const template = db.promptTemplate
@@ -303,10 +260,6 @@ export async function decryptBuffer(data:Uint8Array, keys:string){
     )
 
     return result
-}
-
-export function toState<T>(t:T):Writable<T>{
-    return writable(t)
 }
 
 export function BufferToText(data:Uint8Array){
@@ -379,19 +332,6 @@ export function blobToUint8Array(data:Blob){
 }
 
 export const languageCodes = ["af","ak","am","an","ar","as","ay","az","be","bg","bh","bm","bn","br","bs","ca","co","cs","cy","da","de","dv","ee","el","en","eo","es","et","eu","fa","fi","fo","fr","fy","ga","gd","gl","gn","gu","ha","he","hi","hr","ht","hu","hy","ia","id","ig","is","it","iu","ja","jv","ka","kk","km","kn","ko","ku","ky","la","lb","lg","ln","lo","lt","lv","mg","mi","mk","ml","mn","mr","ms","mt","my","nb","ne","nl","nn","no","ny","oc","om","or","pa","pl","ps","pt","qu","rm","ro","ru","rw","sa","sd","si","sk","sl","sm","sn","so","sq","sr","st","su","sv","sw","ta","te","tg","th","ti","tk","tl","tn","to","tr","ts","tt","tw","ug","uk","ur","uz","vi","wa","wo","xh","yi","yo","zh","zu"]
-
-export function sfc32(a:number, b:number, c:number, d:number) {
-    return function() {
-      a |= 0; b |= 0; c |= 0; d |= 0;
-      let t = (a + b | 0) + d | 0;
-      d = d + 1 | 0;
-      a = b ^ b >>> 9;
-      b = c + (c << 3) | 0;
-      c = (c << 21 | c >>> 11);
-      c = c + t | 0;
-      return (t >>> 0) / 4294967296;
-    }
-}
 
 export function uuidtoNumber(uuid:string){
     let result = 0
@@ -803,26 +743,7 @@ export const isKnownUri = (uri:string) => {
             || uri.startsWith('embeded://')
 }
 
-export function parseKeyValue(template:string){
-    try {
-        if(!template){
-            return []
-        }
-    
-        const keyValue:[string, string][] = []
-    
-        for(const line of template.split('\n')){
-            const [key, value] = line.split('=')
-            if(key && value){
-                keyValue.push([key, value])
-            }
-        }
-    
-        return keyValue   
-    } catch (error) {
-        return []
-    }
-}
+export { parseKeyValue } from './util/keyValue'
 
 export type sidebarToggleGroup = {
     key?:string,
@@ -915,21 +836,7 @@ export const sortableOptions = {
 } as const
 
 
-export function pickHashRand(cid:number,word:string) {
-    let hashAddress = 5515
-    const rand = (word:string) => {
-        for (let counter = 0; counter<word.length; counter++){
-            hashAddress = ((hashAddress << 5) + hashAddress) + word.charCodeAt(counter)
-        }
-        return hashAddress
-    }
-    const randF = sfc32(rand(word), rand(word), rand(word), rand(word))
-    const v = cid % 1000
-    for (let i = 0; i < v; i++){
-        randF()
-    }
-    return randF()
-}
+export { pickHashRand, sfc32 } from './util/hashRand'
 
 export async function replaceAsync(string:string, regexp:RegExp, replacerFunction: (...args: string[]) => Promise<string>) {
     const replacements = await Promise.all(
@@ -1013,17 +920,6 @@ export function simplifySchema(schema:any, args:{
     return result
 
 }
-
-export const prebuiltAssetCommand = `
-<Image Tag Instruction>Insert HTML image tags between paragraphs based on context.
-Set src as keywords from the list below that matches current character, outfit, situation sentiment and etc.
-print as many different images as possible. Use only available keywords.
-if there are no matching keywords, try to put clostest matching image src.
-try to put at least 1 image per output.
-<keywords>{{join::{{chardisplayasset}}::,}}</keywords>
-Example: <img src="{{ele::{{chardisplayasset}}::0}}">
-<Image Tag Instruction>
-`
 
 export const jsonOutputTrimmer = (data:string) => {
     

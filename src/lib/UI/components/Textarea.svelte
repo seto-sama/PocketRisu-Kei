@@ -92,7 +92,8 @@
                 ondraft(draftValue)
                 scheduleCommit()
             }}
-            use:optionalLongpress
+            {@attach onLongPress && longpress(onLongPress)}
+            {@attach !readonly && onPopupEditorRequest(openPopupEditor)}
 ></textarea>
     </div>
     {#if showActionBar}
@@ -122,6 +123,7 @@
     import { DBState, selectedCharID, showPopupEditor } from 'src/ts/stores.svelte';
     import { Maximize2Icon, CopyIcon, CheckIcon, EraserIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
+    import { copyText } from 'src/ts/clipboard/keiClipboard.svelte'
     import { language } from 'src/lang'
     import IconButton from './IconButton.svelte'
     import IconButtonGroup from './IconButtonGroup.svelte'
@@ -129,6 +131,7 @@
     import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     import { longpress } from 'src/ts/gui/longtouch'
+    import { onPopupEditorRequest } from 'src/ts/gui/editableField'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
     import { INPUT_COMMIT_DEBOUNCE_MS, resolveInputCommitMode, type InputCommitMode } from 'src/ts/inputCommit'
     interface BaseProps {
@@ -282,12 +285,6 @@
         onResize: height => { autoHeight = `${height}px` },
     })
 
-    function optionalLongpress(node: HTMLElement) {
-        const action = onLongPress ? longpress(node, onLongPress) : undefined
-        return {
-            destroy: () => action?.destroy(),
-        }
-    }
 
     $effect(() => {
         const externalValue = value ?? ''
@@ -324,21 +321,7 @@
     const copyValue = async () => {
         const text = draftValue ?? ''
         try {
-            if(navigator.clipboard?.writeText){
-                await navigator.clipboard.writeText(text)
-            }
-            else {
-                // Some browsers do not expose the Clipboard API even in secure contexts.
-                const ta = document.createElement('textarea')
-                ta.value = text
-                ta.style.position = 'fixed'
-                ta.style.opacity = '0'
-                document.body.appendChild(ta)
-                ta.focus()
-                ta.select()
-                document.execCommand('copy')
-                document.body.removeChild(ta)
-            }
+            await copyText(text)
             copied = true
             if(copiedTimer) clearTimeout(copiedTimer)
             copiedTimer = setTimeout(() => { copied = false }, 1500)

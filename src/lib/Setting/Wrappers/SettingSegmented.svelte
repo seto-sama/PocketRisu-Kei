@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import ChoiceGroup from '../../UI/components/ChoiceGroup.svelte';
     import Help from 'src/lib/Others/Help.svelte';
@@ -13,23 +13,16 @@
 
     let { item, ctx }: Props = $props();
 
-    let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let localValue: any = $derived(getSettingValue(item, ctx));
 
-    // Sync: DB -> local
-    $effect(() => {
-        localValue = getSettingValue(item, ctx);
-    });
-
-    // Sync: local -> DB
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: any) {
+        localValue = val;
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 
     // Transform options: filter by condition + resolve labelKey translations
     let processedOptions = $derived((item.options?.segmentOptions ?? [])
@@ -43,7 +36,7 @@
     $effect(() => {
         const currentVal = untrack(() => localValue);
         if (processedOptions.length > 0 && currentVal !== undefined && !processedOptions.some(o => o.value === currentVal)) {
-            localValue = processedOptions[processedOptions.length - 1].value;
+            commitValue(processedOptions[processedOptions.length - 1].value);
         }
     });
 </script>
@@ -59,5 +52,5 @@
     className="mb-4"
     value={String(localValue)}
     options={processedOptions.map(opt => ({ ...opt, value: String(opt.value) }))}
-    onValueChange={(v) => { localValue = processedOptions.find(opt => String(opt.value) === v)?.value ?? v }}
+    onValueChange={(v) => { commitValue(processedOptions.find(opt => String(opt.value) === v)?.value ?? v) }}
 />

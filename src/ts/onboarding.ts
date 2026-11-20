@@ -3,7 +3,7 @@ import type { ChatWorkingCopyTarget } from './storage/chatWorkingCopy'
 import { createEntityId } from './id'
 import { getChatVarOf, setChatVarOf } from './parser/chatVar.svelte'
 import { commitTriggerChat, resolveTriggerOrigin } from './process/triggerOrigin'
-import { ReloadGUIPointer } from './stores.svelte'
+import { invalidateDisplay } from './stores.svelte'
 
 // Original RisuAI onboarding (450a598aa), adapted to Kei's chat selection and
 // target-chat commits.
@@ -116,7 +116,7 @@ export async function applyOnboardingAnswers(target: ChatWorkingCopyTarget, answ
     }
     // Rendered messages and background HTML may read the new variables.
     if (entries.length > 0) {
-        ReloadGUIPointer.update((value) => value + 1)
+        invalidateDisplay()
     }
     return true
 }

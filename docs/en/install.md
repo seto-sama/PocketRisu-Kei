@@ -4,12 +4,10 @@
 
 # Installation Guide
 
-PocketRisu can be installed in four ways.
+PocketRisu can be installed in two ways.
 
-- [1. Portable Package](#1-portable-package) — Pre-compiled binary. No Node.js required.
-- [2. Docker](#2-docker) — Container environment.
-- [3. Install Script](#3-install-script) — Automatic build from source. For Linux/macOS servers.
-- [4. Git Clone](#4-git-clone) — Manual source build. For developers / advanced users.
+- [1. Docker](#1-docker) — Container environment.
+- [2. Git Clone](#2-git-clone) — Clone and build from source.
 
 
 ## System Requirements
@@ -19,96 +17,14 @@ PocketRisu can be installed in four ways.
 | **CPU**     | 1 core              | 2+ cores                     |
 | **RAM**     | 1 GB (run only)     | 4+ GB (build included)       |
 | **Disk**    | 1 GB                | 2+ GB                        |
-| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (not required for portable/Docker) |
+| **Node.js** | 24.22.1+ (24.x) / 26.12.1+ (26.x) | (not required for Docker) |
 
-The portable package and Docker do not require a build step and can run on 1 GB of RAM. Direct builds (Git Clone, install script) consume significant memory during build, so 4 GB or more is recommended.
-
-
----
-
-## 1. Portable Package
-
-Download and run a pre-compiled binary. No Node.js, Docker, or other tools required. Supports Windows, macOS (Apple Silicon), and Linux (x64/ARM).
-
-### Download
-
-Get the file for your OS from the [Releases page](https://github.com/seto-sama/PocketRisu-Kei/releases).
-
-| OS                      | File                                      |
-| ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `PocketRisu-Kei-vX.X.X-win-x64.zip`       |
-| macOS (Apple Silicon)   | `PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz` |
-| Linux (x64)             | `PocketRisu-Kei-vX.X.X-linux-x64.tar.gz`  |
-| Linux (ARM)             | `PocketRisu-Kei-vX.X.X-linux-arm64.tar.gz` |
-
-### Run
-
-**Windows**
-
-Extract the zip and double-click `PocketRisu-Kei.exe`. A browser opens automatically at `http://localhost:6001`.
-
-**macOS**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-macos-arm64.tar.gz
-xattr -cr PocketRisu-Kei-vX.X.X-macos-arm64
-open PocketRisu-Kei-vX.X.X-macos-arm64/PocketRisu-Kei.app
-```
-
-The `xattr` command is a one-time step to bypass the "Apple cannot verify" warning.
-
-**Linux**
-
-```bash
-tar -xzf PocketRisu-Kei-vX.X.X-linux-*.tar.gz
-cd PocketRisu-Kei-vX.X.X-linux-*
-./start.sh
-```
-
-Open `http://localhost:6001` in your browser.
-
-### Headless Server (One-line Download)
-
-For Linux/macOS servers without a GUI, fetch and run the latest version in one command.
-
-**Linux (x64):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-linux-x64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-cd PocketRisu-Kei-v${VERSION}-linux-x64
-./start.sh
-```
-
-**Linux (ARM):** Replace `linux-x64` with `linux-arm64` in the command above.
-
-**macOS (Apple Silicon):**
-
-```bash
-RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-VERSION=${RELEASE_TAG#*v}
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-Kei-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu-kei.tar.gz
-tar -xzf pocketrisu-kei.tar.gz && rm pocketrisu-kei.tar.gz
-xattr -cr PocketRisu-Kei-v${VERSION}-macos-arm64
-cd PocketRisu-Kei-v${VERSION}-macos-arm64
-./start.sh
-```
-
-### Update
-
-Click "Update now" in the update popup on the web UI home screen, or run the update script in the installation folder.
-
-- **Windows**: Double-click `update.bat`
-- **macOS / Linux**: `./update.sh`
-
-Data in the `save/` folder is preserved.
+Docker does not require a build step and can run on 1 GB of RAM. Building from source (Git Clone) consumes significant memory during build, so 4 GB or more is recommended.
 
 
 ---
 
-## 2. Docker
+## 1. Docker
 
 Runs on a system with Docker or Docker Desktop installed.
 
@@ -142,11 +58,9 @@ All data (chats, characters, etc.) is stored in the Docker volume `risuai-save`.
 
 ---
 
-## 3. Install Script
+## 2. Git Clone
 
-Fetches the source and builds automatically with Node.js. Runs on Linux/macOS servers. Use this if you want to manage updates via `git pull`.
-
-### Prerequisites
+Clone the source and build it yourself.
 
 Node.js 24.x (24.22.1 or later) or 26.x (26.12.1 or later) is required:
 
@@ -156,45 +70,6 @@ node --version
 ```
 
 Install from the [official Node.js site](https://nodejs.org/) if not present.
-
-### Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
-```
-
-A status message is shown when installation finishes.
-
-### Start Server
-
-```bash
-cd ~/pocketrisu-kei
-pnpm runserver
-```
-
-Open `http://localhost:6001` in your browser.
-
-### Update
-
-```bash
-cd ~/pocketrisu-kei
-./update.sh
-```
-
-> If needed, refresh the update script before updating:
-> ```bash
-> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
-> ./update.sh
-> ```
->
-> Subsequent updates run with `./update.sh` as usual.
-
-
----
-
-## 4. Git Clone
-
-Manually clone and build the source. For developers who need to modify or debug code.
 
 ```bash
 git clone https://github.com/seto-sama/PocketRisu-Kei.git

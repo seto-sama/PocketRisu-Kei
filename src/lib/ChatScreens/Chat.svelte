@@ -50,24 +50,25 @@
     import { changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { runLuaInteractionTrigger } from 'src/ts/process/scriptings'
-    import { risuChatParser } from "src/ts/process/scripts"
+    import { parseChatDisplayMessage, risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
     import { commitTriggerChat } from 'src/ts/process/triggerOrigin'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
+    import { DBState, CurrentTriggerIdStore, invalidateChatMessageRender, renderRevision } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
 
     import { getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount, tick } from "svelte"
-    import { type Unsubscriber } from "svelte/store"
+    import { onMount, tick } from "svelte"
+    import type { Attachment } from "svelte/attachments"
     import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
-    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
+    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyError, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
+    import { getTranslationSourceKey, stripTranslationPlaceholders } from "../../ts/translator/translationMask"
     import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, type Chat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
-    import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
+    import { HideIconStore, selIdState } from "../../ts/stores.svelte"
     import Textarea from "../UI/components/Textarea.svelte"
     import ChatBody from './ChatBody.svelte'
     import { getParsedGuiHtml } from './guiHtmlRenderCache'
@@ -79,6 +80,7 @@
     import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
+    import { copyText, keiClipboardEnabled, writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
@@ -94,7 +96,7 @@
         ensureBookmarkCatalog,
     } from "src/ts/bookmarks/bookmarkService";
     import { canonicalizeInlayTokens } from "src/ts/util/inlayTokens";
-    import { addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
+    import { addChatInlaysToCharacterAssets, addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -121,6 +123,8 @@
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
     let autoTranslationSuppressed = $state(false)
+    // Set while a button/form trigger runs: an active translation stays only if cached.
+    let translationCacheOnly = $state(false)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
@@ -214,14 +218,12 @@
         try {
             const actions: { id: GeneratedImageAssetTarget, label: string }[] = [
                 { id: 'icon', label: language.charIcon },
-                { id: 'emotion', label: language.emotionImage },
                 { id: 'additional', label: language.additionalAssets },
             ]
             const selected = await alertConfirmMulti(language.addInlayImagePrompt, actions)
             if (selected < 0 || !actions[selected]) return
 
             await addGeneratedInlayToCharacter(currentMessage.data, currentCharacter, actions[selected].id)
-            currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
             await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
             notifySuccess(language.inlayImageAddedToAssets)
         }
@@ -229,6 +231,36 @@
             alertError(error instanceof GeneratedInlayAssetError
                 ? language.inlayGallery.inlayMissing
                 : error)
+        }
+        finally {
+            addingImageGenerationAsset = false
+        }
+    }
+
+    let minorMenuOpen = $state(false)
+
+    async function addChatImagesToAssets(event: MouseEvent) {
+        event.preventDefault()
+        // Right-click does not trigger the item's select, so the menu has to be closed by hand.
+        minorMenuOpen = false
+        if (addingImageGenerationAsset) return
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        if (currentCharacter?.type !== 'character') return
+        const messages = currentCharacter.chats[getChatPage(currentCharacter)]?.message
+        if (!messages) return
+
+        addingImageGenerationAsset = true
+        try {
+            const added = await addChatInlaysToCharacterAssets(messages.map(message => message.data), currentCharacter)
+            if (added === 0) {
+                notifyInfo(language.noChatImagesAddedToAssets)
+                return
+            }
+            await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
+            notifySuccess(language.chatImagesAddedToAssets.replace('{{count}}', String(added)))
+        }
+        catch (error) {
+            alertError(error)
         }
         finally {
             addingImageGenerationAsset = false
@@ -416,27 +448,18 @@
         })
     }
 
-    function getCbsCondition(){
-        try{
-            const cbsConditions:CbsConditions = {
-                firstmsg: firstMessage ?? false,
-                chatRole: DBState.db.characters[selIdState.selId].chats[getChatPage(DBState.db.characters[selIdState.selId])]?.message?.[idx]?.role ?? role ?? null,
-            }
-            return cbsConditions
-        }
-        catch(e){
-            return {
-                firstmsg: firstMessage ?? false,
-                chatRole: null,
-            }
+    function getCbsCondition(): CbsConditions {
+        const char = DBState.db.characters[selIdState.selId]
+        return {
+            firstmsg: firstMessage,
+            chatRole: char?.chats[getChatPage(char)]?.message?.[idx]?.role ?? role ?? null,
         }
     }
 
     async function getTranslationCacheKey(source = msgDisplay): Promise<string> {
-        if(DBState.db.translateBeforeHTMLFormatting){
-            return source
-        }
-        return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
+        return getTranslationSourceKey(DBState.db.translateBeforeHTMLFormatting
+            ? source
+            : await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition()))
     }
 
     function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
@@ -494,6 +517,7 @@
         await preserveMessagePosition(() => {
             editTranslationMode = false
             editTranslationCacheKey = null
+            translationRevision += 1
         })
     }
 
@@ -566,6 +590,7 @@
     function resetTranslationState() {
         translated = false
         retranslate = false
+        translationCacheOnly = false
     }
 
     // Reset translation when local edits or canonical sync replace the source,
@@ -588,7 +613,8 @@
         if (!identityChanged && !settledMessageChanged) return
         const preserveTranslation = !identityChanged
             && settledMessageChanged
-            && preservedTranslationMessage === nextSource.message
+            && (preservedTranslationMessage === nextSource.message
+                || translationCacheOnly && translated)
         preservedTranslationMessage = null
         if (preserveTranslation) {
             retranslate = false
@@ -664,7 +690,7 @@
     }
 
     function getDisplayMessage(message: string) {
-        return risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+        return parseChatDisplayMessage(message, {name, chatID: idx, cbsConditions: getCbsCondition()})
     }
 
     function displaya(message:string){
@@ -688,7 +714,7 @@
         'max-w-3xl'
     )
 
-    function trackFloatingToolbar(node: HTMLElement) {
+    const trackFloatingToolbar: Attachment<HTMLElement> = (node) => {
         const anchor = node.previousElementSibling as HTMLElement | null
         const scrollRoot = node.closest('.default-chat-screen') as HTMLElement | null
         if (!anchor || !scrollRoot || typeof IntersectionObserver === 'undefined') {
@@ -700,34 +726,23 @@
             floatingToolbarStuck = stuck
         })
 
-        return {
-            destroy() {
-                stopObserving()
-                floatingToolbarStuck = false
-            }
+        return () => {
+            stopObserving()
+            floatingToolbarStuck = false
         }
     }
 
     $effect.pre(() => {
+        // Script-driven display reloads can change the result without changing `message`.
+        void renderRevision.display
         displaya(message)
     });
 
-    const unsubscribers:Unsubscriber[] = []
-
-    onMount(()=>{
-        unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
-            displaya(message)
-        }))
-        unsubscribers.push(subscribeTranslationResume((taskKeys) => {
-            void reconcileCompletedTranslation(taskKeys).catch(error => {
-                console.error('[Translation] Failed to reconcile resumed message:', error)
-            })
-        }))
-    })
-
-    onDestroy(()=>{
-        unsubscribers.forEach(u => u())
-    })
+    onMount(() => subscribeTranslationResume((taskKeys) => {
+        void reconcileCompletedTranslation(taskKeys).catch(error => {
+            console.error('[Translation] Failed to reconcile resumed message:', error)
+        })
+    }))
 
     $effect(() => {
         const root = partialEditRoot
@@ -782,11 +797,39 @@
         chatId: string,
         run: () => Promise<{ chat: Chat, chatSaved?: boolean } | null | undefined>,
     ) {
-        resetTranslationState()
-        const result = await run()
-        if (result && (result.chatSaved || await commitTriggerChat({ characterId, chatId }, result.chat))) {
-            invalidateChatMessageRender(idx)
+        // Upstream keeps translation on across triggers. Keep it too, but only
+        // from cache, so trigger output never starts a new translation request.
+        translationCacheOnly = translated
+        // Read before the trigger can change the message; awaited after it.
+        const sourceKey = translated && DBState.db.translatorType === 'llm'
+            ? getTranslationCacheKey().catch(() => null)
+            : null
+        try {
+            const result = await run()
+            if (result && (result.chatSaved || await commitTriggerChat({ characterId, chatId }, result.chat))) {
+                invalidateChatMessageRender(idx)
+            }
+            // Let the committed message render while still cache-only.
+            await tick()
+            const resolvedSourceKey = await sourceKey
+            if (resolvedSourceKey) await keepTranslationLinkAcrossUntranslatableEdit(resolvedSourceKey)
+        } finally {
+            translationCacheOnly = false
         }
+    }
+
+    // Like the editor's keep-link option, for a trigger that only added or
+    // removed translate="no" elements (e.g. deleting an image slot).
+    async function keepTranslationLinkAcrossUntranslatableEdit(sourceKey: string) {
+        const targetKey = await getTranslationCacheKey()
+        if (
+            targetKey === sourceKey
+            || stripTranslationPlaceholders(targetKey) !== stripTranslationPlaceholders(sourceKey)
+            || !await copyLLMCache(sourceKey, targetKey)
+        ) return
+        translated = true
+        translationRevision += 1
+        await tick()
     }
 
     async function handleFormSubmitWithin(event: SubmitEvent) {
@@ -921,13 +964,13 @@
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
-            {@const diagnosticMessage = idx >= 0
+            {const diagnosticMessage = $derived(idx >= 0
                 ? DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message[idx]
-                : undefined}
-            {@const diagnosticGenerationInfo = diagnosticMessage
+                : undefined)}
+            {const diagnosticGenerationInfo = $derived(diagnosticMessage
                 ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
-                : messageGenerationInfo}
-            {@const modelLabel = diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable}
+                : messageGenerationInfo)}
+            {const modelLabel = $derived(diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable)}
             <IconButton
                 expanded
                 className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
@@ -982,7 +1025,7 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-floating-layer"
         class:chat-toolbar-is-stuck={floatingToolbarStuck}
-        use:trackFloatingToolbar
+        {@attach trackFloatingToolbar}
     >
         <div class="chat-toolbar-floating-card" style:--chat-toolbar-floating-bg={floatingToolbarBackground}>
             <div class="chat-message-actions chat-toolbar-actions">
@@ -1025,8 +1068,10 @@
         <Textarea bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
-    {:else if isComment}
-        <div class={{
+    {/if}
+    <!-- Stay mounted while editing: a remounted ChatBody is empty until its next commit frame. -->
+    {#if isComment}
+        <div hidden={currentTextEditActive} class={{
             "flex justify-center text-subtext italic": true,
             "branched-from-comment-text": isBranchedFromComment,
             "min-w-0 text-sm leading-5": isBranchedFromComment,
@@ -1034,8 +1079,8 @@
         }}>
 
             {#if msgDisplay.startsWith('{{specialcomment')}
-                {@const parts = msgDisplay.split('::')}
-                {@const type = parts[1]}
+                {const parts = $derived(msgDisplay.split('::'))}
+                {const type = $derived(parts[1])}
 
                 {#if type === 'branchedfrom'}
                     <button class="min-w-0 text-center text-primary hover:underline"
@@ -1052,16 +1097,17 @@
             {/if}
         </div>
     {:else if blankMessage}
-        <div class="w-full flex justify-center text-subtext italic mb-12">
+        <div hidden={currentTextEditActive} class="w-full flex justify-center text-subtext italic mb-12">
             {language.noMessage}
         </div>
     {:else}
         <!-- Preserve ChatBody during streaming to keep the reader's scroll anchor. -->
-        {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
-        {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
+        {const chatReloadPointer = $derived(`${renderRevision.display}|${isStreamingDisplay ? 0 : (renderRevision.messages[idx] ?? 0)}`)}
+        {const totalLengthPointer = $derived((idx > totalLength - 6) ? totalLength : 0)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
+            hidden={currentTextEditActive}
             bind:this={bodyRoot}
             onclick={async () => {
             if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
@@ -1087,6 +1133,7 @@
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
                 {autoTranslationSuppressed}
+                {translationCacheOnly}
                 {lastOutputAutoTranslationCandidate}
                 {adjacentSwipeMessages}
                 modelShortName={messageGenerationInfo?.model ?? ''}
@@ -1127,20 +1174,20 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {#if $mdViewport}
+                {#if mdViewport.current}
                     {@render ttsButton(false)}
                     {@render translationButton()}
                     {@render copyButton(false)}
                     {@render deleteButton(false)}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
-                        <PopupButton>
+                        <PopupButton bind:open={minorMenuOpen}>
                             {@render minorMenuItems()}
                         </PopupButton>
                     {/if}
                 {:else}
                     {@render translationButton()}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
-                        <PopupButton>
+                        <PopupButton bind:open={minorMenuOpen}>
                             {@render copyButton(true)}
                             {@render ttsButton(true)}
                             {@render deleteButton(true)}
@@ -1177,7 +1224,12 @@
 {#snippet copyButton(showNames:boolean)}
     {#if !blankMessage}
     <ChatAdaptiveAction menu={showNames} className="button-icon-copy" onclick={async ()=>{
-        if(window.navigator.clipboard.write){
+        if(keiClipboardEnabled()){
+            await copyText(msgDisplay)
+            notifyInfo(language.copied)
+            return
+        }
+        if(navigator.clipboard?.write){
             try {
                 alertWait(language.loading)
                 const root = document.querySelector(':root') as HTMLElement;
@@ -1388,16 +1440,16 @@
                 notifyInfo(language.copied)
                 return
             }
-            catch (e) {
+            catch {
                 alertClear()
-                window.navigator.clipboard.writeText(msgDisplay).then(() => {
-                    setStatusMessage(language.copied)
-                })
             }
         }
-        window.navigator.clipboard.writeText(msgDisplay).then(() => {
+        try {
+            await writeSystemClipboard(msgDisplay)
             setStatusMessage(language.copied)
-        })
+        } catch (error) {
+            notifyError(error)
+        }
     }}>
         <CopyIcon />
         {#if showNames}
@@ -1522,7 +1574,7 @@
 {#snippet minorMenuItems()}
     {#if idx > -1}
         {#if isImageGeneration}
-            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset} oncontextmenu={addChatImagesToAssets}>
                 <ImagePlusIcon />
                 <span>{language.addInlayImageToAssets}</span>
             </DropdownMenuItem>

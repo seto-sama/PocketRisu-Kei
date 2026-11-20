@@ -1,29 +1,11 @@
-// Gemini explicit context caching — core module (cachedContents API).
-//
-// Three independent pieces the adapter wiring composes per request:
-//   1. Runtime state store — in-module Map mirrored to localStorage
-//      ('pocketRisuGeminiCacheState'). NEVER persisted to the db: TTL-bound
-//      throwaway state must not leak into save folders or .bin backups.
-//   2. Pure decision functions — evaluateGeminiCacheBeforeRequest /
-//      decideGeminiCacheAfterResponse. No I/O, no module state, inputs are
-//      never mutated; the impure wiring acts on the returned decisions.
-//   3. cachedContents REST client — create/extend/remove against the same
-//      endpoint family as the chat request. Auth headers are injected by the
-//      caller (this module never resolves credentials) and every method
-//      resolves to a result object instead of throwing, so fire-and-forget
-//      call sites cannot take the chat down.
-//
-// Like the adapter layer this module must not import getDatabase (SSR cycle):
-// chat identity, config and credentials all arrive as arguments.
-// Design: .agent/notes/gemini-cache-keeper-internalization.md §4-3/§4-4.
+// Gemini cachedContents state, pure decisions, and REST client. State is
+// mirrored to localStorage only; callers provide identity and auth, and client
+// failures resolve as results so cache work cannot fail a chat request.
 
 const STORAGE_KEY = 'pocketRisuGeminiCacheState'
 
-// Consecutive prefix-hash invalidations before caching auto-disables for the
-// chat session (dynamic-prompt guard: a prefix that changes every turn would
-// only ever pay creation cost without hitting). Only genuine prefix mismatches
-// count — cache-API failures never do (the server is the authority on whether a
-// create can succeed; a transient failure must not disable a healthy session).
+// Repeated prefix mismatches disable caching for this chat session. API errors
+// do not count, since transient cache failures should not disable future tries.
 export const GEMINI_CACHE_INVALIDATION_LIMIT = 3
 
 export const GEMINI_CACHE_DEFAULTS = {
@@ -33,7 +15,6 @@ export const GEMINI_CACHE_DEFAULTS = {
     growthTokens: 4096,
 } as const
 
-// Shape of ModelPreset.promptCaching (additive optional preset field).
 export interface GeminiPromptCachingConfig {
     enabled: boolean
     ttlSec?: number
@@ -49,7 +30,7 @@ export interface ResolvedGeminiCacheConfig {
     growthTokens: number
 }
 
-// null = caching off. Non-finite / non-positive overrides fall back to defaults.
+// Null means caching is off; invalid overrides use defaults.
 export function resolveGeminiCacheConfig(
     config: GeminiPromptCachingConfig | undefined | null,
 ): ResolvedGeminiCacheConfig | null {
@@ -99,9 +80,6 @@ function loadEntries(): Map<string, GeminiCacheStateEntry> {
                 for (const [key, value] of Object.entries(parsed)) {
                     if (!isValidEntry(value) || value.expiresAt <= now) continue
                     entries.set(key, value)
-                    // The consecutive-invalidation guard is in-memory only and
-                    // resets on reload by design (see the session-guards block) —
-                    // nothing about it is restored here.
                 }
             }
         }
@@ -154,8 +132,7 @@ export function removeGeminiCacheEntry(key: string): void {
     if (store.delete(key)) persistEntries()
 }
 
-// State entry constructor for a freshly created cache. expiresAt prefers the
-// server-reported expireTime over the locally computed ttl.
+// Prefer the server expiry when constructing a fresh entry.
 export function buildGeminiCacheEntry(args: {
     cacheName: string
     modelId: string
@@ -200,10 +177,8 @@ export function isGeminiCacheSessionDisabled(key: string): boolean {
     return disabledSessions.has(key)
 }
 
-// Disables caching for the rest of this chat session. Two callers: the
-// dynamic-prompt guard (GEMINI_CACHE_INVALIDATION_LIMIT consecutive prefix
-// mismatches) and a 403 on cache creation (the project/key cannot use
-// cachedContents at all). Both are futile to keep retrying.
+// Disable for this session after repeated prefix mismatches or a cache-create
+// 403, which indicates this project/key cannot use cachedContents.
 export function disableGeminiCacheSession(key: string, reason = 'unrecoverable cache state'): void {
     if (disabledSessions.has(key)) return
     disabledSessions.add(key)
@@ -219,8 +194,7 @@ export function resetGeminiContextCacheRuntime(): void {
 
 // ─── hashing ────────────────────────────────────────────────────────────────
 
-// FNV-1a 32-bit over the UTF-16 code units — non-cryptographic, stable, and
-// cheap enough to run on every request. 8 hex chars.
+// Stable, non-cryptographic digest for cache hashes.
 function fnv1a32(text: string): string {
     let hash = 0x811c9dc5
     for (let i = 0; i < text.length; i++) {
@@ -230,9 +204,8 @@ function fnv1a32(text: string): string {
     return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
-// Identity of the cached prefix: systemInstruction + contents up to (excluding)
-// the boundary. systemInstruction normalizes to null so absent vs undefined
-// serialize identically.
+// Hash the system instruction and contents before the cache boundary. Normalize
+// an absent system instruction to null for stable serialization.
 export function computeGeminiPrefixHash(
     systemInstruction: unknown,
     contents: readonly unknown[],
@@ -244,8 +217,7 @@ export function computeGeminiPrefixHash(
     }))
 }
 
-// Caches are bound to the key/project that created them; the fingerprint
-// detects key-pool rotation without storing the credential itself.
+// Bind entries to the credential that created them without storing the secret.
 export function computeGeminiCredentialFp(credential: string): string {
     return fnv1a32(credential)
 }
@@ -343,12 +315,8 @@ export function decideGeminiCacheAfterResponse(
 ): GeminiCachePostDecision {
     const { pre, entry, now, promptTokens, boundaryIndex, config } = input
     if (pre.action === 'apply' && entry) {
-        // Confirmed hit. Recreate ONLY when the cacheable prefix actually
-        // advanced (a deeper cachePoint) AND the prompt grew past the threshold —
-        // folding the larger prefix into a fresh cache is worthwhile. A fixed
-        // cachePoint whose suffix merely grows must NOT regrow: the prefix is
-        // identical, so re-caching it wastes a creation. Otherwise extend the TTL
-        // when less than half of it remains.
+        // Recreate only when the cachePoint advances and the prompt crosses the
+        // growth threshold; a larger suffix alone does not change the prefix.
         const boundaryAdvanced = boundaryIndex !== null && boundaryIndex > entry.boundaryIndex
         const grown = boundaryAdvanced
             && promptTokens !== undefined
@@ -373,11 +341,8 @@ export function decideGeminiCacheAfterResponse(
     }
     // Bypass / miss / invalidated — consider creating a cache for next turn.
     if (promptTokens === undefined) return noCreate('no-usage')
-    // Cheap lower-bound filter on the observed whole-prompt tokens: if even the
-    // full prompt is below the minimum, the cached prefix (a subset) certainly
-    // is, so skip. We deliberately do NOT estimate the prefix's own token count —
-    // the server is the authority on the prefix minimum, and a create whose
-    // prefix turns out too small fails recoverably (caching just skips that turn).
+    // Skip if even the whole prompt is below the minimum. The server checks
+    // the actual cached prefix when creating the cache.
     if (promptTokens < config.minPromptTokens) return noCreate('below-min-tokens')
     if (input.consecutiveInvalidations >= GEMINI_CACHE_INVALIDATION_LIMIT) {
         return {
@@ -421,11 +386,9 @@ export function applyGeminiCacheToBody(
     return next
 }
 
-// Creation payload: the cache owns systemInstruction + contents up to the
-// boundary. v1 never caches tools (tool-enabled requests skip caching).
-// `model` is the full resource name in the shape the endpoint expects:
-// "models/{id}" for AI Studio, the "projects/.../models/{id}" path for Vertex
-// (computed by the caller via deriveGeminiCacheModel from the chat URL).
+// The cache owns the system instruction and contents before the boundary.
+// `model` uses the endpoint's resource shape: models/{id} on AI Studio and the
+// full projects/.../publishers/google/models/{id} path on Vertex.
 export function buildGeminiCacheCreateBody(args: {
     model: string
     ttlSec: number
@@ -446,23 +409,14 @@ export function buildGeminiCacheCreateBody(args: {
 
 // ─── cachedContents REST client ─────────────────────────────────────────────
 
-// Marker that distinguishes the Vertex AI native URL family from AI Studio.
-// Vertex chat URLs are ".../v1/projects/{p}/locations/{l}/publishers/google/
-// models/{id}:generateContent" (host is global aiplatform.googleapis.com or
-// regional {loc}-aiplatform.googleapis.com — both end up in the path the same
-// way, so this works off the path alone, never a hardcoded host).
+// Vertex URLs include the publisher segment; cachedContents lives at the
+// location root, so identify Vertex from its path rather than the host.
 const VERTEX_PUBLISHER_MARKER = '/publishers/google/models'
 
-// Derives the cachedContents collection URL from the prepared chat URL.
-//   AI Studio: ".../v1beta/models/{id}:generateContent" (or the bare
-//              ".../v1beta/models" base) → ".../v1beta/cachedContents".
-//   Vertex:    ".../v1/projects/{p}/locations/{l}/publishers/google/models/
-//              {id}:..." → ".../v1/projects/{p}/locations/{l}/cachedContents"
-//              (cachedContents is rooted at the location, not the publisher).
-// null = unrecognized shape, caller skips caching.
+// Derive the cachedContents collection from the chat URL; return null for
+// unrecognized endpoint shapes.
 export function deriveCachedContentsUrl(preparedUrl: string): string | null {
-    // Vertex must be checked first: its path also contains "/models/", so the
-    // Studio marker below would mis-cut it at the publisher segment.
+    // Check Vertex first because its path also contains "/models/".
     const vertexIdx = preparedUrl.indexOf(VERTEX_PUBLISHER_MARKER)
     if (vertexIdx >= 0) return `${preparedUrl.slice(0, vertexIdx)}/cachedContents`
     const marker = '/models/'
@@ -474,23 +428,12 @@ export function deriveCachedContentsUrl(preparedUrl: string): string | null {
     return null
 }
 
-// Derives the `model` field for a cachedContents creation body from the prepared
-// chat URL. The cache resource must name the same model the chat call targets,
-// in the shape that endpoint family expects:
-//   AI Studio: "models/{id}"
-//   Vertex:    "projects/{p}/locations/{l}/publishers/google/models/{id}"
-//              (the full resource path that lives in the chat URL).
-// Falls back to "models/{modelId}" for the Studio shape so behavior there is
-// unchanged. The id is taken from the URL for Vertex (it already carries the
-// percent-encoded model id) and from modelId otherwise.
+// Derive the model resource name in the endpoint's expected shape. Vertex uses
+// the full URL path; AI Studio uses models/{modelId}.
 export function deriveGeminiCacheModel(preparedUrl: string, modelId: string): string {
     const vertexIdx = preparedUrl.indexOf(VERTEX_PUBLISHER_MARKER)
     if (vertexIdx >= 0) {
-        // The resource name starts at "projects/" (the segment just before the
-        // publisher marker) and runs to the ":generateContent"/":streamGenerateContent"
-        // (and any "?alt=sse") suffix. Keying off "/projects/" — not a literal
-        // "/v1/" — keeps this version-agnostic, matching deriveCachedContentsUrl
-        // (Vertex historically also exposes /v1beta1/).
+        // Keep the complete Vertex resource path, without the generation method.
         const projectsIdx = preparedUrl.lastIndexOf('/projects/', vertexIdx)
         if (projectsIdx >= 0) {
             const afterSlash = preparedUrl.slice(projectsIdx + 1)
@@ -518,19 +461,15 @@ export interface GeminiCachedContentsClient {
     remove(cacheName: string): Promise<GeminiCacheClientResult>
 }
 
-// All methods resolve (never throw) so fire-and-forget call sites stay safe.
-// `headers` is the caller-injected auth + content type (typically the prepared
-// request headers of the chat call); this module never resolves credentials.
+// Use caller-provided auth headers; methods resolve results instead of throwing
+// so fire-and-forget cache operations cannot fail the chat request.
 export function createGeminiCachedContentsClient(opts: {
     cachedContentsUrl: string
     headers: Record<string, string>
     fetchImpl?: typeof fetch
 }): GeminiCachedContentsClient {
     const fetchImpl = opts.fetchImpl ?? globalThis.fetch
-    // Vertex vs AI Studio: the PATCH below needs different query params (see
-    // extend()). Detect by the resource PATH (".../locations/{l}/cachedContents",
-    // the Vertex shape) rather than the host — a supported endpointUrl override
-    // can route Vertex through a proxy / PSC domain that isn't aiplatform.*.
+    // Detect Vertex by its resource path so proxy endpoint hosts work too.
     const isVertex = /\/locations\/[^/]+\/cachedContents/.test(opts.cachedContentsUrl)
     const resourceUrl = (cacheName: string): string => {
         const id = cacheName.slice(cacheName.lastIndexOf('/') + 1)
@@ -570,9 +509,7 @@ export function createGeminiCachedContentsClient(opts: {
             }
         },
         async extend(cacheName, ttlSec) {
-            // Vertex's cachedContents.patch REQUIRES ?updateMask=ttl (returns 400
-            // without it); AI Studio's patch does not need it. Append only for
-            // Vertex so the Studio request stays byte-identical.
+            // Vertex requires updateMask=ttl; AI Studio does not.
             const url = isVertex
                 ? `${resourceUrl(cacheName)}?updateMask=ttl`
                 : resourceUrl(cacheName)

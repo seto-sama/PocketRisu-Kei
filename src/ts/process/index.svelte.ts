@@ -5,25 +5,24 @@ import { get, writable } from "svelte/store";
 import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat, initializeToggleValues, getToggleTemplate, getActiveBotPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { setMessageContent } from '../storage/messageContent';
-import { CharEmotion, selectedCharID } from "../stores.svelte";
-import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize, tokenizeNum } from "../tokenizer";
+import { selectedCharID } from "../stores.svelte";
+import { ChatTokenizer, getModelPresetChatTokenizerConfig, tokenize } from "../tokenizer";
 import { selectActiveChatMessages } from "../chatContextTokens";
 import { language } from "../../lang";
 import { alertError } from "../alert";
 import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { renderLorebookContent } from "./lorebookPrompt";
-import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
+import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax } from "../util";
+import { prebuiltAssetCommand } from "../assetPromptList";
 import { requestChatData } from "./request/request";
 import { shouldSuppressGenerationErrorModal } from './generationErrorPresentation';
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { sayTTS } from "./tts";
 import { createEntityId } from 'src/ts/id';
 import { runTrigger, type additonalSysPrompt } from "./triggers";
-import { HypaProcesser } from "./memory/hypamemory";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
-import { runInlayScreen } from "./inlayScreen";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatMaxContextTokens, resolveChatMaxResponseTokens, resolveChatModelBinding } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
@@ -31,7 +30,6 @@ import { type RevenantChatWorkflowContext, type RevenantWorkflowDependency, type
 import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
 import {
     cancelRevenantGeneration,
-    checkpointRevenantGeneration,
     registerRevenantGenerationMetadata,
     setRevenantGenerationLocallyObserved,
     updateRevenantGenerationMetadata,
@@ -253,7 +251,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return
         }
         chat.isStreaming = false
-        character.reloadKeys += 1
     }
 
     function throwError(error:string){
@@ -336,7 +333,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         ))
                         runtimeCharacter.chats[runtimeChatIndex] = appliedChat
                         markChatSyncApplied(appliedChat)
-                        runtimeCharacter.reloadKeys += 1
                     } else if (localChat && canonicalChat) {
                         window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
                             detail: { characterId: nowChatroom.chaId, chatId: outgoingChat.id, terminalCanonical: true },
@@ -486,7 +482,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             targetMessage,
             rerollSnapshot,
         })
-        character.reloadKeys += 1
     }
     function ensureLiveGenerationTarget(){
         const character = DBState.db.characters.find(item =>
@@ -659,13 +654,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let beforeDescriptionPrompts:OpenAIChat[] = []
     let afterDescriptionPrompts:OpenAIChat[] = []
 
-    if(DBState.db.chainOfThought && !DBState.db.promptSettings.customChainOfThought){
-        unformated.postEverything.push({
-            role: 'system',
-            content: `<instruction> - before respond everything, Think step by step as a ai assistant how would you respond inside <Thoughts> xml tag. this must be less than 5 paragraphs.</instruction>`
-        })
-    }
-
     {
         const description = risuChatParser(currentChar.desc, {chara: currentChar})
 
@@ -746,15 +734,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             role: 'system',
             content: risuChatParser(personaPromptText, {chara: currentChar})
         })
-    }
-    
-    if(currentChar.inlayViewScreen){
-        if(currentChar.viewScreen === 'emotion'){
-            unformated.postEverything.push({
-                role: 'system',
-                content: currentChar.newGenData.emotionInstructions.replaceAll('{{slot}}', currentChar.emotionImages.map((v) => v[0]).join(', '))
-            })
-        }
     }
 
     const postEverythingLorebooks = lorepmt.actives.filter(v => {
@@ -944,12 +923,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'plain':
-                case 'jailbreak':
-                case 'cot':{
+                case 'jailbreak':{
                     if((!DBState.db.jailbreakToggle) && (card.type === 'jailbreak')){
-                        continue
-                    }
-                    if((!DBState.db.chainOfThought) && (card.type === 'cot')){
                         continue
                     }
 
@@ -982,8 +957,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
-                    await tokenizeChatArray(prompts)
+                    await tokenizeChatArray(parseChatML(card.text) ?? [])
                     break
                 }
                 case 'chat':{
@@ -1445,12 +1419,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'plain':
-                case 'jailbreak':
-                case 'cot':{
+                case 'jailbreak':{
                     if((!DBState.db.jailbreakToggle) && (card.type === 'jailbreak')){
-                        continue
-                    }
-                    if((!DBState.db.chainOfThought) && (card.type === 'cot')){
                         continue
                     }
 
@@ -1481,8 +1451,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
-                    pushPrompts(prompts)
+                    pushPrompts(parseChatML(card.text) ?? [])
                     break
                 }
                 case 'chat':{
@@ -1711,12 +1680,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         selectedPersona: DBState.db.selectedPersona ?? 0,
                         showPersonaInSidebar: DBState.db.showPersonaInSidebar,
                         personas: structuredClone(DBState.db.personas ?? []),
-                        igpPrompt: DBState.db.igpPrompt ?? '',
                         notification: DBState.db.notification ?? false,
                         ttsEnabled: DBState.db.ttsEnabled ?? false,
                         ttsAutoSpeech: !arg.suppressTts && (DBState.db.ttsAutoSpeech ?? false),
-                        emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
-                        emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                     },
                     modules: structuredClone(getModules(currentChar, currentChat)),
                     moduleRegexScripts: structuredClone(getModuleRegexScripts(currentChar, currentChat)),
@@ -1726,7 +1692,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
                 resumeContext,
                 hypaEnabled,
-                igpEnabled: !!(DBState.db.igpPrompt ?? '').trim(),
                 // Main provider dispatch remains on the page that built the
                 // prompt. Plugin transports register their durable nativeFetch
                 // job through the same ordinary request path as HTTP adapters.
@@ -1781,7 +1746,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
 
         generationChat.isStreaming = true
-        currentChar.reloadKeys += 1
     }
 
     registerRevenantGenerationMetadata(messageChatId, {
@@ -1958,7 +1922,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     let result = ''
     let rawResult = ''
-    let emoChanged = false
     let resendChat = false
 
     async function finishSuccessfulWorkflow():Promise<true>{
@@ -1976,16 +1939,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             throw new Error('Generation chat is no longer available')
         }
         initialTarget.chat.isStreaming = true
-        initialTarget.character.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
         let streamDetached:boolean = arg.detachSignal?.aborted === true
         let streamFailure:unknown
         const abortReader = () => {
             streamAborted = true
-            // Workflow-owned streams are cancelled once, after the final
-            // partial checkpoint below. Standalone jobs retain their direct
-            // job cancellation path.
+            // Workflow-owned streams use workflow cancellation; standalone
+            // jobs are cancelled directly here.
             if(!workflowSession.workflowId){
                 void cancelRevenantGeneration(messageChatId).catch(error => {
                     console.error('[GenerationJob] Failed to cancel server generation:', error)
@@ -2025,9 +1986,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         result = ''
                     }
                     rawResult = result
-                    void checkpointRevenantGeneration(messageChatId, rawResult).catch(error => {
-                        console.error('[GenerationJob] Failed to checkpoint parsed response:', error)
-                    })
                     const liveTarget = ensureLiveGenerationTarget()
                     if(!liveTarget){
                         streamFailure = new Error('Generation chat is no longer available')
@@ -2047,9 +2005,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             break
                         }
                         setGenerationMessageContent(refreshedTarget.message, result2.data)
-                        emoChanged = result2.emoChanged
                     }
-                    liveTarget.character.reloadKeys += 1
                 }
                 if(readed.done){
                     break
@@ -2057,25 +2013,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
         }
         finally {
-            if (result) {
-                const checkpoint = checkpointRevenantGeneration(
-                    messageChatId,
-                    rawResult || result,
-                    true,
-                )
-                if(streamDetached){
-                    void checkpoint.catch(error => {
-                        console.error('[GenerationJob] Failed to flush detached response:', error)
-                    })
-                }
-                else{
-                    try {
-                        await checkpoint
-                    } catch (error) {
-                        console.error('[GenerationJob] Failed to flush parsed response:', error)
-                    }
-                }
-            }
             abortSignal.removeEventListener('abort', abortReader)
             arg.detachSignal?.removeEventListener('abort', detachReader)
             if(!streamDetached) finishStreamingDisplay()
@@ -2127,19 +2064,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         if(triggerResult && triggerResult.sendAIprompt){
             resendChat = true
         }
-        const inlayTarget = ensureLiveGenerationTarget()
-        if(!inlayTarget){
+        if(!ensureLiveGenerationTarget()){
             throw new Error('Generation chat is no longer available')
-        }
-        const inlayr = runInlayScreen(currentChar, inlayTarget.message.data)
-        setMessageContent(inlayTarget.message, inlayr.text)
-        if(inlayr.promise){
-            const t = await inlayr.promise
-            const refreshedInlayTarget = ensureLiveGenerationTarget()
-            if(!refreshedInlayTarget){
-                throw new Error('Generation chat is no longer available')
-            }
-            setMessageContent(refreshedInlayTarget.message, t)
         }
         if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
             await sayTTS(currentChar, result)
@@ -2170,9 +2096,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             const result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
             result = result2.data
-            const inlayResult = runInlayScreen(currentChar, result)
-            result = inlayResult.text
-            emoChanged = result2.emoChanged
             if(i===0){
                 const committedTarget = ensureLiveGenerationTarget()
                 if(!committedTarget) throw new Error('Generation target is missing')
@@ -2185,14 +2108,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     chatId: messageChatId,
                 })
                 setGenerationMessageContent(committedTarget.message, result)
-                if(inlayResult.promise){
-                    const p = await inlayResult.promise
-                    const refreshedTarget = ensureLiveGenerationTarget()
-                    if(!refreshedTarget) throw new Error('Generation target is missing')
-                    setGenerationMessageContent(refreshedTarget.message, p)
-                }
             }
-            DBState.db.characters[selectedChar].reloadKeys += 1
             if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
                 await sayTTS(currentChar, result)
             }
@@ -2213,30 +2129,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     await setWorkflowStep('output.transform', 'completed')
     await setWorkflowStep('trigger.output', 'completed')
     finishStreamingDisplay()
-
-    const igp = risuChatParser(DBState.db.igpPrompt ?? "")
-
-    if(igp){
-        await setWorkflowStep('igp', 'running')
-        const igpFormated = parseChatML(igp)
-        const rq = await requestChatData({
-            formated: igpFormated,
-            bias: {},
-            currentChar,
-            useStreaming: false,
-        },'emotion', abortSignal)
-
-        if(rq.type === 'success'){
-            const target = DBState.db.characters[selectedChar].chats[selectedChat].message.at(-1)
-            if (target) setMessageContent(target, target.data + rq.result)
-            await setWorkflowStep('igp', 'completed')
-        }
-        else{
-            const reason = rq.type === 'fail' ? rq.result : `unexpected_${rq.type}`
-            console.error('[GenerationWorkflow] IGP request failed:', reason)
-            await setWorkflowStep('igp', 'skipped', { reason })
-        }
-    }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start
 
@@ -2288,211 +2180,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
         } catch (error) {
             
-        }
-    }
-
-    if(req.special){
-        if(req.special.emotion){
-            let charemotions = get(CharEmotion)
-            let currentEmotion = currentChar.emotionImages
-
-            let tempEmotion = charemotions[currentChar.chaId]
-            if(!tempEmotion){
-                tempEmotion = []
-            }
-            if(tempEmotion.length > 4){
-                tempEmotion.splice(0, 1)
-            }
-
-            for(const emo of currentEmotion){
-                if(emo[0] === req.special.emotion){
-                    const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                    tempEmotion.push(emos)
-                    charemotions[currentChar.chaId] = tempEmotion
-                    CharEmotion.set(charemotions)
-                    emoChanged = true
-                    break
-                }
-            }
-        }
-    }
-
-    if(!currentChar.inlayViewScreen){
-        if(currentChar.viewScreen === 'emotion' && (!emoChanged) && (abortSignal.aborted === false)){
-
-            let currentEmotion = currentChar.emotionImages
-            let emotionList = currentEmotion.map((a) => {
-                return a[0]
-            })
-            let charemotions = get(CharEmotion)
-
-            let tempEmotion = charemotions[currentChar.chaId]
-            if(!tempEmotion){
-                tempEmotion = []
-            }
-            if(tempEmotion.length > 4){
-                tempEmotion.splice(0, 1)
-            }
-
-            if(DBState.db.emotionProcesser === 'embedding'){
-                const hypaProcesser = new HypaProcesser()
-                await hypaProcesser.addText(emotionList.map((v) => 'emotion:' + v))
-                let searched = (await hypaProcesser.similaritySearchScored(result)).map((v) => {
-                    v[0] = v[0].replace("emotion:",'')
-                    return v
-                })
-
-                for(let i =0;i<tempEmotion.length;i++){
-                    const emo = tempEmotion[i]
-                    const index = searched.findIndex((v) => {
-                        return v[0] === emo[0]
-                    })
-
-                    const modifier = ((5 - ((tempEmotion.length - (i + 1))))) / 200
-
-                    if(index !== -1){
-                        searched[index][1] -= modifier
-                    }
-                }
-
-                const emoresult = searched.sort((a,b) => {
-                    return b[1] - a[1]
-                }).map((v) => {
-                    return v[0]
-                })
-
-                for(const emo of currentEmotion){
-                    if(emo[0] === emoresult[0]){
-                        const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                        tempEmotion.push(emos)
-                        charemotions[currentChar.chaId] = tempEmotion
-                        CharEmotion.set(charemotions)
-                        break
-                    }
-                }
-
-                
-
-                return await finishSuccessfulWorkflow()
-            }
-
-            function shuffleArray(array:string[]) {
-                for (let i = array.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [array[i], array[j]] = [array[j], array[i]];
-                }
-                return array
-            }
-
-            let emobias:{[key:number]:number} = {}
-
-            for(const emo of emotionList){
-                const tokens = await tokenizeNum(emo)
-                for(const token of tokens){
-                    emobias[token] = 10
-                }
-            }
-
-            for(let i =0;i<tempEmotion.length;i++){
-                const emo = tempEmotion[i]
-
-                const tokens = await tokenizeNum(emo[0])
-                const modifier = 20 - ((tempEmotion.length - (i + 1)) * (20/4))
-
-                for(const token of tokens){
-                    emobias[token] -= modifier
-                    if(emobias[token] < -100){
-                        emobias[token] = -100
-                    }
-                }
-            }        
-
-            const promptbody:OpenAIChat[] = [
-                {
-                    role:'system',
-                    content: `${DBState.db.emotionPrompt2 || "From the list below, choose a word that best represents a character's outfit description, action, or emotion in their dialogue. Prioritize selecting words related to outfit first, then action, and lastly emotion. Print out the chosen word."}\n\n list: ${shuffleArray(emotionList).join(', ')} \noutput only one word.`
-                },
-                {
-                    role: 'user',
-                    content: `"Good morning, Master! Is there anything I can do for you today?"`
-                },
-                {
-                    role: 'assistant',
-                    content: 'happy'
-                },
-                {
-                    role: 'user',
-                    content: result
-                },
-            ]
-
-            const rq = await requestChatData({
-                formated: promptbody,
-                bias: emobias,
-                currentChar: currentChar,
-                maxTokens: 30,
-            }, 'emotion', abortSignal)
-
-            if(rq.type === 'fail'){
-                if(abortSignal.aborted){
-                    return await finishSuccessfulWorkflow()
-                }
-                throwError(rq.result)
-                return await finishSuccessfulWorkflow()
-            }
-            if(rq.type === 'streaming' || rq.type === 'multiline'){
-                if(abortSignal.aborted){
-                    return await finishSuccessfulWorkflow()
-                }
-                throwError('Unexpected response type')
-                return await finishSuccessfulWorkflow()
-            }
-            else{
-                emotionList = currentEmotion.map((a) => {
-                    return a[0]
-                })
-                try {
-                    const emotion:string = rq.result.replace(/ |\n/g,'').trim().toLocaleLowerCase()
-                    let emotionSelected = false
-                    for(const emo of currentEmotion){
-                        if(emo[0] === emotion){
-                            const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                            tempEmotion.push(emos)
-                            charemotions[currentChar.chaId] = tempEmotion
-                            CharEmotion.set(charemotions)
-                            emotionSelected = true
-                            break
-                        }
-                    }
-                    if(!emotionSelected){
-                        for(const emo of currentEmotion){
-                            if(emotion.includes(emo[0])){
-                                const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                                tempEmotion.push(emos)
-                                charemotions[currentChar.chaId] = tempEmotion
-                                CharEmotion.set(charemotions)
-                                emotionSelected = true
-                                break
-                            }
-                        }
-                    }
-                    if(!emotionSelected && emotionList.includes('neutral')){
-                        const emo = currentEmotion[emotionList.indexOf('neutral')]
-                        const emos:[string, string,number] = [emo[0], emo[1], Date.now()]
-                        tempEmotion.push(emos)
-                        charemotions[currentChar.chaId] = tempEmotion
-                        CharEmotion.set(charemotions)
-                        emotionSelected = true
-                    }
-                } catch (error) {
-                    throwError(language.errors.httpError + `${error}`)
-                    return await finishSuccessfulWorkflow()
-                }
-            }
-            
-            return await finishSuccessfulWorkflow()
-
-
         }
     }
 

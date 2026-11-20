@@ -16,6 +16,7 @@ export function formatPresetMessages(formated: OpenAIChat[], behavior: {
             while(formated.length > 0 && formated[0].role === 'system'){
                 if(systemPrompt){
                     systemPrompt.content += '\n\n' + formated[0].content
+                    if(formated[0].cachePoint) systemPrompt.cachePoint = true
                 }
                 else{
                     systemPrompt = formated[0]
@@ -26,7 +27,9 @@ export function formatPresetMessages(formated: OpenAIChat[], behavior: {
 
         for(let i=0;i<formated.length;i++){
             if(formated[i].role === 'system'){
-                formated[i].content = db.systemContentReplacement ? db.systemContentReplacement.replace('{{slot}}', formated[i].content) : `system: ${formated[i].content}`
+                if(db.systemContentReplacement){
+                    formated[i].content = db.systemContentReplacement.replace('{{slot}}', formated[i].content)
+                }
                 formated[i].role = (db.systemRoleReplacement === 'assistant' ? 'assistant' : 'user')
             }
         }

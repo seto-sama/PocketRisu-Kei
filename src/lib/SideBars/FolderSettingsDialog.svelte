@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
+    import { DBState } from 'src/ts/stores.svelte';
     import type { FolderDisplayMode, folder as CharacterFolder } from 'src/ts/storage/database.svelte';
     import { alertConfirm, alertError } from 'src/ts/alert';
     import { requestImmediateSave } from 'src/ts/globalApi.svelte';
@@ -67,7 +67,6 @@
         if (!settingsTarget || !await alertConfirm(language.chatFolderDeleteConfirm)) return;
         if (!deleteChatFolder(settingsTarget.characterId, settingsTarget.folderId)) return;
 
-        $ReloadGUIPointer += 1;
         void requestImmediateSave({ characterIds: [settingsTarget.characterId] });
         chatFolderSettingsTarget.set(null);
     }
@@ -133,9 +132,9 @@
                         </div>
                     {/snippet}
                 </SettingRow>
-                <SettingRow title={language.hideFolderOnRemoteAccess} className="border-0 py-0">
+                <SettingRow title={language.hideFolderInPrivacyGuard} className="border-0 py-0">
                     {#snippet control()}
-                        <Switch checked={!!target.localOnly} onCheckedChange={(localOnly) => updateTarget({ localOnly })} ariaLabel={language.hideFolderOnRemoteAccess} />
+                        <Switch checked={!!target.localOnly} onCheckedChange={(localOnly) => updateTarget({ localOnly })} ariaLabel={language.hideFolderInPrivacyGuard} />
                     {/snippet}
                 </SettingRow>
             </div>
@@ -143,7 +142,7 @@
         {#if mode === 'icon'}
             <div class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 rounded-md border border-darkborderc p-2 max-h-48 overflow-y-auto">
                 {#each FOLDER_ICON_NAMES as name (name)}
-                    {@const Icon = FOLDER_ICONS[name]}
+                    {const Icon = $derived(FOLDER_ICONS[name])}
                     <button type="button" class="flex aspect-square w-full items-center justify-center rounded-md {(target.icon ?? 'folder') === name ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-surface'}"
                         title={name} aria-label={name} aria-pressed={(target.icon ?? 'folder') === name} onclick={() => updateTarget({ icon: name === 'folder' ? undefined : name })}><Icon size={folderIconSize} /></button>
                 {/each}

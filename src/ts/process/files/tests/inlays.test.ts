@@ -88,7 +88,6 @@ vi.mock('src/ts/storage/nodeStorage', () => {
                 nodeStorageMap.set(entry.key, entry.value)
             }
         }
-        listItem = this.keys
     }
     return {
         ConflictError: MockConflictError,

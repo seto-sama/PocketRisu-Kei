@@ -316,7 +316,7 @@
                 {#if visibleCharacters.length > 0}
                     <HorizontalMasonry itemCount={visibleCharacters.length}>
                         {#snippet children(index)}
-                            {@const char = visibleCharacters[index]}
+                            {const char = $derived(visibleCharacters[index])}
                             <CharacterMasonryIcon
                                 src={char.image ? getFileSrc(char.image) : ''}
                                 hideImage={DBState.db.hideAllImages && !!char.image}
@@ -341,12 +341,12 @@
                     options={orderSortableOptions} onReorder={syncCharacterOrder} onDragEnd={finishOrderDrag}>
                     {#each listEntries as entry (entry.type === 'folder' ? `folder:${entry.folder.id}` : entry.character.chaId)}
                         {#if entry.type === 'folder'}
-                            {@const expanded = !!search.trim() || !collapsedFolders.has(entry.folder.id)}
-                            {@const displayMode = folderDisplayMode(entry.folder)}
-                            {@const CustomIcon = displayMode === 'icon' ? folderIconComponent(entry.folder.icon) : undefined}
-                            {@const FolderGlyph = CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon)}
+                            {const expanded = $derived(!!search.trim() || !collapsedFolders.has(entry.folder.id))}
+                            {const displayMode = $derived(folderDisplayMode(entry.folder))}
+                            {const CustomIcon = $derived(displayMode === 'icon' ? folderIconComponent(entry.folder.icon) : undefined)}
+                            {const FolderGlyph = $derived(CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon))}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
-                                <div class="risu-folder-header min-h-9 risu-selectable-row text-maintext">
+                                <div class="risu-folder-header min-h-9 risu-interactive-surface text-maintext">
                                     <button class="character-order-handle flex min-w-0 grow items-center py-1 text-left" aria-expanded={expanded} onclick={() => toggleFolder(entry.folder.id)}>
                                         {#if displayMode === 'image' && entry.folder.imgFile}
                                             <span

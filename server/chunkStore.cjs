@@ -1,5 +1,6 @@
 'use strict';
 
+const { toBuffer, withTransaction } = require('./sqlite.cjs');
 // Content-defined chunking for large kv values. Splits an opaque byte buffer
 // into content-addressed chunks so a small logical change rewrites only the
 // chunks that actually changed (dedup), and so no single SQLite value exceeds
@@ -83,99 +84,16 @@ function createChunkStore(db, opts = {}) {
         FROM chunks;
     `);
 
-    const insChunk = db.prepare('INSERT OR IGNORE INTO chunks (hash, data) VALUES (?, ?)');
-    const delManifest = db.prepare('DELETE FROM manifest_chunks WHERE manifest_key = ?');
-    const insManifest = db.prepare('INSERT INTO manifest_chunks (manifest_key, seq, hash) VALUES (?, ?, ?)');
-    const selManifest = db.prepare('SELECT hash FROM manifest_chunks WHERE manifest_key = ? ORDER BY seq');
-    const selChunk = db.prepare('SELECT data FROM chunks WHERE hash = ?');
-    const selPhysicalRow = db.prepare('SELECT value, LENGTH(value) AS n FROM kv WHERE key = ?');
-    const selManifestChunkSizes = db.prepare(
-        `SELECT m.hash, LENGTH(c.data) AS n
-         FROM manifest_chunks m
-         JOIN chunks c ON c.hash = m.hash
-         WHERE m.manifest_key = ?`,
-    );
-    const selSize = db.prepare(
-        'SELECT SUM(LENGTH(c.data)) AS n FROM manifest_chunks m JOIN chunks c ON c.hash = m.hash WHERE m.manifest_key = ?',
-    );
-    const selectCachedSize = db.prepare(
-        'SELECT logical_bytes AS n FROM chunk_value_sizes WHERE manifest_key = ?',
-    );
-    const upsertCachedSize = db.prepare(`
-      INSERT INTO chunk_value_sizes(manifest_key, logical_bytes) VALUES (?, ?)
+    const sql = db.createTagStore();
+    const markReclaimableDirty = () => sql.run`UPDATE chunk_store_stats SET reclaimable_dirty = 1 WHERE id = 1`;
+    const cacheSize = (key, bytes) => sql.run`
+      INSERT INTO chunk_value_sizes(manifest_key, logical_bytes) VALUES (${key}, ${bytes})
       ON CONFLICT(manifest_key) DO UPDATE SET logical_bytes = excluded.logical_bytes
-    `);
-    const deleteCachedSize = db.prepare(
-        'DELETE FROM chunk_value_sizes WHERE manifest_key = ?',
-    );
-    const deleteStaleCachedSizes = db.prepare(`
-      DELETE FROM chunk_value_sizes WHERE NOT EXISTS (
-        SELECT 1 FROM kv WHERE kv.key = chunk_value_sizes.manifest_key
-          AND kv.value = ?
-      )
-    `);
-    const selectChunkStats = db.prepare(`
-      SELECT chunk_count AS count, chunk_bytes AS bytes,
-             reclaimable_bytes AS reclaimableBytes,
-             reclaimable_dirty AS reclaimableDirty
-      FROM chunk_store_stats WHERE id = 1
-    `);
-    const addChunkStats = db.prepare(`
-      UPDATE chunk_store_stats
-      SET chunk_count = chunk_count + 1, chunk_bytes = chunk_bytes + ?
-      WHERE id = 1
-    `);
-    const replaceChunkStats = db.prepare(`
-      UPDATE chunk_store_stats
-      SET chunk_count = ?, chunk_bytes = ?,
-          reclaimable_bytes = ?, reclaimable_dirty = ?
-      WHERE id = 1
-    `);
-    const markReclaimableDirty = db.prepare(
-        'UPDATE chunk_store_stats SET reclaimable_dirty = 1 WHERE id = 1',
-    );
-    const updateReclaimable = db.prepare(`
-      UPDATE chunk_store_stats
-      SET reclaimable_bytes = ?, reclaimable_dirty = 0 WHERE id = 1
-    `);
-    // Bytes of chunks referenced by `key` but NOT by `baseKey` — i.e. what `key`
-    // uniquely keeps alive beyond the base. Used to size snapshots for the disk
-    // limit by their real marginal cost, not their (shared) logical size.
-    const selMarginal = db.prepare(
-        `SELECT COALESCE(SUM(LENGTH(c.data)), 0) AS n FROM chunks c
-         WHERE c.hash IN (SELECT hash FROM manifest_chunks WHERE manifest_key = ?)
-           AND c.hash NOT IN (SELECT hash FROM manifest_chunks WHERE manifest_key = ?)`,
-    );
-    const copyManifest = db.prepare(
-        'INSERT INTO manifest_chunks (manifest_key, seq, hash) SELECT ?, seq, hash FROM manifest_chunks WHERE manifest_key = ?',
-    );
-    const kvSet = db.prepare('INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)');
-    const kvGet = db.prepare('SELECT value FROM kv WHERE key = ?');
-    const kvDel = db.prepare('DELETE FROM kv WHERE key = ?');
-    // Defensive self-heal: drop any manifest that is not backed by a live chunked
-    // kv row — i.e. the key is gone OR its value is no longer the marker (some
-    // path wrote a raw value over it). Either way the manifest is stale and would
-    // pin its chunks forever; sweeping these first lets the damage be reclaimed.
-    const gcStaleManifests = db.prepare(
-        `DELETE FROM manifest_chunks WHERE NOT EXISTS (
-             SELECT 1 FROM kv WHERE kv.key = manifest_chunks.manifest_key AND kv.value = ?)`,
-    );
-    // Mark-sweep: the set of all hashes referenced by ANY manifest (live + every
-    // snapshot/backup) is the live set; anything else is unreachable. Recomputed
-    // from manifest_chunks each run — stateless, self-healing, can't over-delete.
-    const gcSweep = db.prepare('DELETE FROM chunks WHERE hash NOT IN (SELECT hash FROM manifest_chunks)');
-    // Bytes gc would reclaim right now: chunks referenced by no marker-backed
-    // (live) manifest. Counts true orphans + chunks held only by stale manifests.
-    // The kv check is correlated on key (PK lookup per manifest key, ~6 keys), NOT
-    // `value IN (SELECT … WHERE value = ?)` which full-scans every kv blob (seconds
-    // on a DB with thousands of assets, blocking the synchronous event loop).
-    const selReclaimable = db.prepare(
-        `SELECT COALESCE(SUM(LENGTH(data)), 0) AS b FROM chunks WHERE hash NOT IN
-         (SELECT hash FROM manifest_chunks mc
-          WHERE EXISTS (SELECT 1 FROM kv WHERE kv.key = mc.manifest_key AND kv.value = ?))`,
-    );
-
-    const isChunked = (value) => Buffer.isBuffer(value) && value.equals(CHUNK_MARKER);
+    `;
+    // Row facts without loading the stored bytes.
+    const rowInfo = key => sql.get`
+      SELECT value = ${CHUNK_MARKER} AS chunked, LENGTH(value) AS bytes FROM kv WHERE key = ${key}
+    `;
 
     // Atomic: clearing the old manifest, inserting new chunks, and writing the
     // marker all commit together. Orphaned chunks from a prior version are left
@@ -187,64 +105,59 @@ function createChunkStore(db, opts = {}) {
             : { raw: null, chunks: cdcSplit(buffer), logicalSize: buffer.length };
     }
 
-    const putPreparedValue = db.transaction((key, prepared) => {
-        delManifest.run(key);
-        if (prepared.raw) {
-            deleteCachedSize.run(key);
-            kvSet.run(key, prepared.raw, Date.now());
-            markReclaimableDirty.run();
-            return;
-        }
-        const chunks = prepared.chunks;
-        for (const c of chunks) {
-            if (insChunk.run(c.hash, c.data).changes > 0) addChunkStats.run(c.data.length);
-        }
-        for (let i = 0; i < chunks.length; i++) insManifest.run(key, i, chunks[i].hash);
-        kvSet.run(key, CHUNK_MARKER, Date.now());
-        upsertCachedSize.run(key, prepared.logicalSize);
-        markReclaimableDirty.run();
-    });
+    function putPreparedValue(key, prepared) {
+        withTransaction(db, () => {
+            sql.run`DELETE FROM manifest_chunks WHERE manifest_key = ${key}`;
+            if (prepared.raw) {
+                sql.run`DELETE FROM chunk_value_sizes WHERE manifest_key = ${key}`;
+            } else {
+                prepared.chunks.forEach(({ hash, data }, seq) => {
+                    if (sql.run`INSERT OR IGNORE INTO chunks (hash, data) VALUES (${hash}, ${data})`.changes > 0) {
+                        sql.run`UPDATE chunk_store_stats
+                          SET chunk_count = chunk_count + 1, chunk_bytes = chunk_bytes + ${data.length} WHERE id = 1`;
+                    }
+                    sql.run`INSERT INTO manifest_chunks (manifest_key, seq, hash) VALUES (${key}, ${seq}, ${hash})`;
+                });
+                cacheSize(key, prepared.logicalSize);
+            }
+            sql.run`INSERT OR REPLACE INTO kv (key, value, updated_at)
+              VALUES (${key}, ${prepared.raw ?? CHUNK_MARKER}, ${Date.now()})`;
+            markReclaimableDirty();
+        });
+    }
 
     function putValue(key, value) {
-        return putPreparedValue(key, prepareValue(value));
+        putPreparedValue(key, prepareValue(value));
     }
 
     function getValue(key) {
-        const row = kvGet.get(key);
+        const row = sql.get`SELECT value FROM kv WHERE key = ${key}`;
         if (!row) return null;
-        if (isChunked(row.value)) {
-            const rows = selManifest.all(key);
-            // A real chunked key always has manifest rows. If a non-chunked value
-            // happens to equal the marker byte-for-byte (astronomically unlikely),
-            // there are none — return it raw instead of an empty buffer. No extra
-            // cost for real chunked keys: they need this manifest lookup anyway.
-            if (rows.length === 0) return row.value;
-            return Buffer.concat(rows.map((r) => selChunk.get(r.hash).data));
-        }
-        return row.value;
+        if (!(row.value instanceof Uint8Array && CHUNK_MARKER.equals(row.value))) return toBuffer(row.value);
+        const chunks = sql.all`
+          SELECT c.data FROM manifest_chunks m LEFT JOIN chunks c ON c.hash = m.hash
+          WHERE m.manifest_key = ${key} ORDER BY m.seq
+        `;
+        // A real chunked key always has manifest rows. If a non-chunked value
+        // happens to equal the marker byte-for-byte (astronomically unlikely),
+        // there are none — return it raw instead of an empty buffer.
+        if (chunks.length === 0) return toBuffer(row.value);
+        if (chunks.some(chunk => chunk.data === null)) throw new Error(`Chunked value ${key} is missing chunk data`);
+        return Buffer.concat(chunks.map(chunk => chunk.data));
     }
 
     function sizeValue(key) {
-        const row = kvGet.get(key);
+        const row = rowInfo(key);
         if (!row) return null;
-        if (isChunked(row.value)) {
-            const cached = selectCachedSize.get(key)?.n;
-            if (cached !== undefined) return cached;
-            const size = Number(selSize.get(key).n ?? 0);
-            upsertCachedSize.run(key, size);
-            return size;
-        }
-        return row.value.length;
-    }
-
-    // Marginal disk cost of a (snapshot) key relative to baseKey (the live blob):
-    // raw value → its full length; chunked → bytes of chunks not shared with base.
-    // A snapshot identical to base costs ~0; a divergent one costs its real delta.
-    function snapshotCost(key, baseKey) {
-        const row = kvGet.get(key);
-        if (!row) return 0;
-        if (!isChunked(row.value)) return row.value.length;
-        return selMarginal.get(key, baseKey).n;
+        if (!row.chunked) return row.bytes;
+        const cached = sql.get`SELECT logical_bytes AS n FROM chunk_value_sizes WHERE manifest_key = ${key}`;
+        if (cached) return cached.n;
+        const size = Number(sql.get`
+          SELECT SUM(LENGTH(c.data)) AS n FROM manifest_chunks m JOIN chunks c ON c.hash = m.hash
+          WHERE m.manifest_key = ${key}
+        `.n ?? 0);
+        cacheSize(key, size);
+        return size;
     }
 
     // Physical value bytes retained by a set of keys. Every existing kv row is
@@ -261,81 +174,85 @@ function createChunkStore(db, opts = {}) {
         let bytes = 0;
         const chunkSizes = new Map();
         for (const key of new Set(keys)) {
-            const row = selPhysicalRow.get(key);
+            const row = rowInfo(key);
             if (!row) continue;
-            bytes += row.n;
-            if (!isChunked(row.value)) continue;
-            for (const chunk of selManifestChunkSizes.all(key)) {
-                chunkSizes.set(chunk.hash, chunk.n);
-            }
+            bytes += row.bytes;
+            if (!row.chunked) continue;
+            for (const chunk of sql.iterate`
+              SELECT m.hash, LENGTH(c.data) AS n FROM manifest_chunks m JOIN chunks c ON c.hash = m.hash
+              WHERE m.manifest_key = ${key}
+            `) chunkSizes.set(chunk.hash, chunk.n);
         }
         for (const size of chunkSizes.values()) bytes += size;
         return bytes;
     }
 
-    // Copy src's value to dst. For a chunked src, only the manifest (list of
-    // chunk hashes) is copied — chunks stay shared, so a snapshot costs ~nothing
-    // and never duplicates bytes. A missing source is a no-op.
-    const snapshotValue = db.transaction((srcKey, dstKey) => {
-        const row = kvGet.get(srcKey);
-        if (!row) return;
-        delManifest.run(dstKey);
-        if (isChunked(row.value)) {
-            copyManifest.run(dstKey, srcKey);
-            kvSet.run(dstKey, CHUNK_MARKER, Date.now());
-            const logicalSize = selectCachedSize.get(srcKey)?.n
-                ?? Number(selSize.get(srcKey).n ?? 0);
-            upsertCachedSize.run(srcKey, logicalSize);
-            upsertCachedSize.run(dstKey, logicalSize);
-        } else {
-            deleteCachedSize.run(dstKey);
-            kvSet.run(dstKey, row.value, Date.now());
-        }
-        markReclaimableDirty.run();
-    });
-
     // Remove a key entirely (its manifest + kv row). Chunks it referenced
     // become orphans, reclaimed by the next gc(). Used for snapshot rotation.
-    const dropValue = db.transaction((key) => {
-        delManifest.run(key);
-        deleteCachedSize.run(key);
-        kvDel.run(key);
-        markReclaimableDirty.run();
-    });
+    function dropValue(key) {
+        withTransaction(db, () => {
+            sql.run`DELETE FROM manifest_chunks WHERE manifest_key = ${key}`;
+            sql.run`DELETE FROM chunk_value_sizes WHERE manifest_key = ${key}`;
+            sql.run`DELETE FROM kv WHERE key = ${key}`;
+            markReclaimableDirty();
+        });
+    }
 
     // Reclaim unreferenced chunks. Returns the number deleted. Run opportunistically
     // (e.g. Optimize / periodic) — never on the hot save path.
     function gc() {
-        gcStaleManifests.run(CHUNK_MARKER);
-        deleteStaleCachedSizes.run(CHUNK_MARKER);
-        const changes = gcSweep.run().changes;
-        const totals = db.prepare(`
-          SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(data)), 0) AS bytes
-          FROM chunks
-        `).get();
-        replaceChunkStats.run(totals.count, totals.bytes, 0, 0);
+        // Defensive self-heal: drop any manifest that is not backed by a live chunked
+        // kv row — i.e. the key is gone OR its value is no longer the marker (some
+        // path wrote a raw value over it). Either way the manifest is stale and would
+        // pin its chunks forever; sweeping these first lets the damage be reclaimed.
+        sql.run`DELETE FROM manifest_chunks WHERE NOT EXISTS (
+          SELECT 1 FROM kv WHERE kv.key = manifest_chunks.manifest_key AND kv.value = ${CHUNK_MARKER})`;
+        sql.run`DELETE FROM chunk_value_sizes WHERE NOT EXISTS (
+          SELECT 1 FROM kv WHERE kv.key = chunk_value_sizes.manifest_key AND kv.value = ${CHUNK_MARKER})`;
+        // Mark-sweep: the set of all hashes referenced by ANY manifest (live + every
+        // snapshot/backup) is the live set; anything else is unreachable. Recomputed
+        // from manifest_chunks each run — stateless, self-healing, can't over-delete.
+        const { changes } = sql.run`DELETE FROM chunks WHERE hash NOT IN (SELECT hash FROM manifest_chunks)`;
+        sql.run`UPDATE chunk_store_stats
+          SET (chunk_count, chunk_bytes) = (SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM chunks),
+              reclaimable_bytes = 0, reclaimable_dirty = 0
+          WHERE id = 1`;
         return changes;
     }
 
+    const selectStats = () => sql.get`
+      SELECT chunk_count AS count, chunk_bytes AS bytes,
+             reclaimable_bytes AS reclaimableBytes, reclaimable_dirty AS reclaimableDirty
+      FROM chunk_store_stats WHERE id = 1
+    `;
+
     function reclaimableBytes() {
-        const stats = selectChunkStats.get();
+        const stats = selectStats();
         if (!stats.reclaimableDirty) return stats.reclaimableBytes;
-        const bytes = Number(selReclaimable.get(CHUNK_MARKER).b ?? 0);
-        updateReclaimable.run(bytes);
+        // Bytes gc would reclaim right now: chunks referenced by no marker-backed
+        // (live) manifest. Counts true orphans + chunks held only by stale manifests.
+        // The kv check is correlated on key (PK lookup per manifest key, ~6 keys), NOT
+        // `value IN (SELECT … WHERE value = ?)` which full-scans every kv blob (seconds
+        // on a DB with thousands of assets, blocking the synchronous event loop).
+        const bytes = Number(sql.get`
+          SELECT COALESCE(SUM(LENGTH(data)), 0) AS b FROM chunks WHERE hash NOT IN
+            (SELECT hash FROM manifest_chunks mc
+             WHERE EXISTS (SELECT 1 FROM kv WHERE kv.key = mc.manifest_key AND kv.value = ${CHUNK_MARKER}))
+        `.b ?? 0);
+        sql.run`UPDATE chunk_store_stats SET reclaimable_bytes = ${bytes}, reclaimable_dirty = 0 WHERE id = 1`;
         return bytes;
     }
 
     function stats() {
-        const row = selectChunkStats.get();
-        return { count: row.count, bytes: row.bytes };
+        const { count, bytes } = selectStats();
+        return { count, bytes };
     }
 
     // True only when the key is actually stored chunked right now (its kv value
     // is the marker) — not merely when a manifest exists. A raw value that
     // overwrote the marker (manifest not yet swept) reads as not-chunked.
     function isChunkedKey(key) {
-        const row = kvGet.get(key);
-        return !!row && isChunked(row.value);
+        return Boolean(rowInfo(key)?.chunked);
     }
 
     return {
@@ -344,9 +261,7 @@ function createChunkStore(db, opts = {}) {
         putPreparedValue,
         getValue,
         sizeValue,
-        snapshotCost,
         keySetPhysicalCost,
-        snapshotValue,
         dropValue,
         gc,
         reclaimableBytes,

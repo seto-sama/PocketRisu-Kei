@@ -24,7 +24,6 @@
         main:      rs?.kindMain ?? 'Main',
         translate: rs?.kindTranslate ?? 'Translate',
         memory:    rs?.kindMemory ?? 'Memory',
-        emotion:   rs?.kindEmotion ?? 'Emotion',
         sub:       rs?.kindSub ?? 'Sub',
         image:     rs?.kindImage ?? 'Image',
     }

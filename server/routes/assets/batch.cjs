@@ -38,7 +38,7 @@ function installAssetBatchRoutes(app, {
         }
         transaction(() => {
             for (const { key, value } of entries) kvSet(key, value);
-        })();
+        });
         res.json({ success: true, count: entries.length });
     });
 }

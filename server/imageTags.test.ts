@@ -1,11 +1,11 @@
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
-const { IMAGE_TAG_SOURCE, parseImageTags, searchImageTags, selectImageTagSource, createImageTagService } = createRequire(import.meta.url)('./imageTags.cjs')
+const { IMAGE_TAG_SOURCE, createImageTagService } = createRequire(import.meta.url)('./imageTags.cjs')
 const directories: string[] = []
 const csv = 'long hair,0,100,"긴 머리, 장발"\r\n'
     + 'hair,0,50,"머리"\r\n'
@@ -16,7 +16,7 @@ const csv = 'long hair,0,100,"긴 머리, 장발"\r\n'
 const initialTime = 1_800_000_000_000
 const day = 24 * 60 * 60 * 1000
 const checksum = (text: string) => createHash('sha256').update(text).digest('hex')
-function metadata(text = csv, revision = '1'.repeat(40), filename = 'danbooru-tags-kr-2026-10-05.csv') {
+function metadata(text = csv, revision = '1'.repeat(40), filename = 'with related tags/danbooru-tags-wrt-kr-2026-10-05.csv') {
     return { sha: revision, siblings: [{ rfilename: filename, size: Buffer.byteLength(text), lfs: { sha256: checksum(text) } }] }
 }
 async function directory() {
@@ -35,33 +35,40 @@ afterEach(async () => {
     await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
-it('parses descriptions faithfully and searches English, Korean and all five categories', () => {
-    const tags = parseImageTags('\uFEFF' + csv)
-    expect(searchImageTags(tags, 'HAIR').map(tag => tag.name)).toEqual(['hair', 'long hair'])
-    expect(searchImageTags(tags, 'long_hair')[0].name).toBe('long hair')
-    expect(searchImageTags(tags, '장발')[0].description).toBe('긴 머리, 장발')
-    expect(searchImageTags(tags, '미쿠')[0]).toMatchObject({ category: 4, description: '미쿠: "버추얼 싱어"\n캐릭터' })
-    expect(searchImageTags(tags, '토리야마 아키라')[0]).toMatchObject({ category: 1, name: 'toriyama_akira' })
-    expect(searchImageTags(tags, '동방프로젝트')[0]).toMatchObject({ category: 3, name: 'touhou' })
-    expect(searchImageTags(tags, '고해상도')[0]).toMatchObject({ category: 5, name: 'highres' })
-    expect(searchImageTags(tags, 'hair', 1)).toHaveLength(1)
+it('ranks name matches before description matches and parses quoted CSV fields', async () => {
+    const service = createImageTagService({ cacheDir: await directory(), ...remote() })
+    expect((await service.search('HAIR')).map(tag => tag.name)).toEqual(['hair', 'long hair'])
+    expect((await service.search('long_hair'))[0].name).toBe('long hair')
+    expect((await service.search('미쿠'))[0].description).toBe('미쿠: "버추얼 싱어"\n캐릭터')
 })
 
-it('selects the latest normal CSV, excluding category and provider variants', () => {
-    const files = metadata().siblings
-    files.push(...[
-        'danbooru-tags-kr-2026-10-10.csv',
-        'danbooru-tags-kr-2026-10-10-v2.csv',
-        'danbooru-tags-kr-2026-10-10-v10.csv',
-        'danbooru-tags-anima-kr-2026-12-31.csv',
-        'danbooru-tags-comfyui-kr-2026-12-31.csv',
-        'danbooru-tags-characters-kr-2026-12-31.csv',
-    ].map(rfilename => ({ ...files[0], rfilename })))
-    expect(selectImageTagSource({ ...metadata(), siblings: files }).filename)
-        .toBe('danbooru-tags-kr-2026-10-10-v10.csv')
+it('suggests NovelAI V5 tags first, deferring to the dataset for names it already has', async () => {
+    const { state, fetchImpl, now } = remote()
+    state.body = csv + 'visual novel sprite,5,9,스탠딩\n'
+    state.metadata = metadata(state.body)
+    const service = createImageTagService({ cacheDir: await directory(), fetchImpl, now })
+    expect((await service.search('high'))[0].name).toBe('high complexity')
+    expect((await service.search('visual novel sprite')).filter(tag => tag.name === 'visual novel sprite'))
+        .toEqual([expect.objectContaining({ count: 9 })])
+})
+
+it('downloads the latest related-tags CSV, ignoring plain, archived and variant files', async () => {
+    const { state, fetchImpl, now } = remote()
+    const file = state.metadata.siblings[0]
+    state.metadata.siblings = [
+        'with related tags/danbooru-tags-wrt-kr-2026-10-10-v2.csv',
+        'with related tags/danbooru-tags-wrt-kr-2026-10-10-v10.csv',
+        'with related tags/danbooru-tags-anima-wrt-kr-2026-12-31.csv',
+        'danbooru-tags-kr-2026-12-31.csv',
+        'old/2026-12-31/danbooru-tags-wrt-kr-2026-12-31.csv',
+    ].map(rfilename => ({ ...file, rfilename }))
+    await createImageTagService({ cacheDir: await directory(), fetchImpl, now }).search('hair')
+    expect(fetchImpl.mock.calls[1][0]).toMatch(/\/with%20related%20tags\/danbooru-tags-wrt-kr-2026-10-10-v10\.csv$/)
+
+    // Small files outside Git LFS carry a git blob hash instead of SHA-256.
     const blobId = createHash('sha1').update(`blob ${Buffer.byteLength(csv)}\0`).update(csv).digest('hex')
-    expect(selectImageTagSource({ sha: '1'.repeat(40), siblings: [{ rfilename: 'danbooru-tags-kr.csv', size: csv.length, blobId }] }))
-        .toMatchObject({ algorithm: 'git-sha1', checksum: blobId })
+    state.metadata.siblings = [{ rfilename: 'with related tags/danbooru-tags-wrt-kr.csv', size: csv.length, blobId }]
+    expect(await createImageTagService({ cacheDir: await directory(), fetchImpl, now }).search('hair')).not.toEqual([])
 })
 
 it('shares initial downloads and hydrates a fresh persistent cache offline after a restart', async () => {
@@ -74,7 +81,6 @@ it('shares initial downloads and hydrates a fresh persistent cache offline after
     expect(english[0].name).toBe('hair')
     expect(korean[0].name).toBe('long hair')
     expect(fetchImpl).toHaveBeenCalledTimes(2)
-    expect(fetchImpl.mock.calls[1][0]).toBe(`${IMAGE_TAG_SOURCE.repository}/resolve/${'1'.repeat(40)}/danbooru-tags-kr-2026-10-05.csv`)
     expect(await readFile(join(cacheDir, `${checksum(csv)}.csv`), 'utf8')).toBe(csv)
 
     const offlineFetch = vi.fn(() => { throw new Error('offline') })
@@ -123,14 +129,25 @@ it('checks once per day and keeps searches responsive while adopting a verified 
     fetchImpl.mockImplementationOnce(() => new Promise(resolve => { resolveMetadata = resolve }))
     state.time += 1
     state.body = updated
-    // The current CSV remains available even when the metadata request is pending.
     expect((await service.search('hair'))[0].name).toBe('hair')
     expect(await service.search('new tag')).toEqual([])
     expect(fetchImpl).toHaveBeenCalledTimes(3)
-    resolveMetadata!(Response.json(metadata(updated, '2'.repeat(40), 'danbooru-tags-kr-2026-10-12-v2.csv')))
+    resolveMetadata!(Response.json(metadata(updated, '2'.repeat(40), 'with related tags/danbooru-tags-wrt-kr-2026-10-12-v2.csv')))
     await vi.waitFor(async () => expect((await service.search('new tag'))[0]?.name).toBe('new tag'))
-    expect(fetchImpl.mock.calls[3][0]).toContain('/resolve/' + '2'.repeat(40) + '/danbooru-tags-kr-2026-10-12-v2.csv')
     await vi.waitFor(async () => expect(JSON.parse(await readFile(join(cacheDir, 'metadata.json'), 'utf8')).source.revision).toBe('2'.repeat(40)))
+})
+
+it('replaces a cache from the retired plain CSV filename and removes its file', async () => {
+    const cacheDir = await directory()
+    const legacy = 'old tag,0,1,옛 태그\n'
+    await writeFile(join(cacheDir, `${checksum(legacy)}.csv`), legacy)
+    await writeFile(join(cacheDir, 'metadata.json'), JSON.stringify({ schemaVersion: 1, checkedAt: initialTime, source: {
+        revision: '1'.repeat(40), filename: 'danbooru-tags-kr-2026-10-05.csv', algorithm: 'sha256', checksum: checksum(legacy),
+    } }))
+    const { fetchImpl, now } = remote()
+    const service = createImageTagService({ cacheDir, fetchImpl, now })
+    expect((await service.search('tag')).map(tag => tag.name)).not.toContain('old tag')
+    expect(await readdir(cacheDir)).toEqual([`${checksum(csv)}.csv`, 'metadata.json'])
 })
 
 it('does not redownload an unchanged CSV when the dataset revision changes', async () => {

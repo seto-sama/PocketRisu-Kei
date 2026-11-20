@@ -2,32 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const storeMocks = vi.hoisted(() => {
-    let reloadValue: Record<number, number> = {}
-    const ReloadChatPointer = {
-        subscribe(run: (value: Record<number, number>) => void) {
-            run(reloadValue)
-            return () => {}
-        },
-        set(value: Record<number, number>) {
-            reloadValue = value
-        },
-        update(updater: (value: Record<number, number>) => Record<number, number>) {
-            reloadValue = updater(reloadValue)
-        },
-    }
-    return {
-        DBState: { db: {} as any },
-        selIdState: { selId: 0 },
-        ReloadChatPointer,
-        invalidateChatMessageRender(messageIndex: number) {
-            ReloadChatPointer.update(value => ({
-                ...value,
-                [messageIndex]: (value[messageIndex] ?? 0) + 1,
-            }))
-        },
-    }
-})
+const storeMocks = vi.hoisted(() => ({
+    DBState: { db: {} as any },
+    selIdState: { selId: 0 },
+    invalidateChatMessageRender: vi.fn(),
+}))
 
 vi.mock('src/ts/stores.svelte', () => storeMocks)
 vi.mock('src/ts/gui/guisize', async () => {
@@ -39,9 +18,8 @@ vi.mock('src/ts/gui/guisize', async () => {
 })
 
 import { mount, tick, unmount } from 'svelte'
-import { get } from 'svelte/store'
 import PartialEditManager from './PartialEditManager.svelte'
-import { DBState, ReloadChatPointer } from 'src/ts/stores.svelte'
+import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte'
 import type { Message } from 'src/ts/storage/database.svelte'
 import { language } from 'src/lang'
 
@@ -118,7 +96,7 @@ beforeEach(() => {
             }],
         }],
     } as typeof DBState.db
-    ReloadChatPointer.set({})
+    vi.mocked(invalidateChatMessageRender).mockClear()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
         queueMicrotask(() => callback(0))
         return 1
@@ -172,7 +150,7 @@ describe('PartialEditManager', () => {
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('first message')
         expect(DBState.db.characters[0].chats[0].message[1].data).toBe('updated message')
         expect(DBState.db.characters[0].chats[0].message[1].swipes?.[0]).toBe('updated message')
-        expect(get(ReloadChatPointer)).toEqual({ 1: 1 })
+        expect(invalidateChatMessageRender).toHaveBeenCalledExactlyOnceWith(1)
     })
 
     it('does not treat the chat body root as an editable content block', async () => {
@@ -289,7 +267,7 @@ describe('PartialEditManager', () => {
         await tick()
 
         expect(messages.map(message => message.data)).toEqual(['original first', 'original second'])
-        expect(get(ReloadChatPointer)).toEqual({})
+        expect(invalidateChatMessageRender).not.toHaveBeenCalled()
         expect(saves[0]).not.toHaveBeenCalled()
         expect(saves[1]).toHaveBeenCalledOnce()
         expect((saves[1].mock.calls[0][0] as CustomEvent).detail).toEqual({
@@ -352,7 +330,7 @@ describe('PartialEditManager', () => {
         await tick()
 
         expect(messages[0].data).toBe('keep this')
-        expect(get(ReloadChatPointer)).toEqual({ 0: 1 })
+        expect(invalidateChatMessageRender).toHaveBeenCalledExactlyOnceWith(0)
     })
 
     it('does not offer partial editing for the first greeting', async () => {
@@ -392,7 +370,7 @@ describe('PartialEditManager', () => {
         await tick()
 
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('changed elsewhere')
-        expect(get(ReloadChatPointer)).toEqual({})
+        expect(invalidateChatMessageRender).not.toHaveBeenCalled()
         expect(document.body.querySelector('textarea')).toBeNull()
     })
 })

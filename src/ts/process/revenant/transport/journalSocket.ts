@@ -12,6 +12,8 @@ export interface RevenantJournalSocketOptions {
     auth: string
     signal?: AbortSignal
     recovery?: boolean
+    /** `events` streams the server's decoded events instead of provider bytes. */
+    format?: 'events'
     initialOffset?: number
     onProviderStarted?: (startedAt: number) => void
     onHeaders?: (status: number, headers: Record<string, string>) => void
@@ -25,7 +27,7 @@ export interface RevenantJournalSocketOptions {
 }
 
 /**
- * Opens one logical provider-byte stream over any number of WebSocket
+ * Opens one logical journal byte stream over any number of WebSocket
  * connections. Every reconnect requests the journal at the next byte offset;
  * replay overlap is trimmed before consumers see it.
  */
@@ -97,8 +99,9 @@ export function openRevenantJournalSocket(
             const connect = () => {
                 if (disposed || options.signal?.aborted) return
                 const recovery = options.recovery ? '&recovery=1' : ''
+                const format = options.format ? `&format=${options.format}` : ''
                 const socket = new WebSocket(
-                    `${wsBaseUrl}${recovery}&offset=${receivedBytes}`,
+                    `${wsBaseUrl}${recovery}${format}&offset=${receivedBytes}`,
                 )
                 ws = socket
                 socket.binaryType = 'arraybuffer'

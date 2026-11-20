@@ -12,7 +12,10 @@ import {
     normalizeHttpStatus,
     parseRetryAfterMs,
 } from './error'
+import { readDecodedChatResponse, readDecodedChatStream } from './decodedEvents'
+import { parseResponseJson } from './httpTransport'
 import { prepareAdapterRequest } from './resolveCredential'
+import type { LLMRequestInit } from '../../network/transportTypes'
 import type {
     AdapterChatMessage,
     AdapterChatOptions,
@@ -22,6 +25,7 @@ import type {
     AdapterImagePart,
     AdapterPreparedRequest,
     AdapterReasoningPart,
+    AdapterResponseDecoder,
     AdapterToolCall,
     AdapterToolDef,
     AdapterUsage,
@@ -60,16 +64,8 @@ export async function sendAmazonBedrockChatRequest(
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareAmazonBedrockBody(preset, options, credential, false)
-    const response = await fetchBedrock(prepared, options)
-    let raw: unknown
-    try {
-        raw = await response.json()
-    } catch (err) {
-        throw new ModelPresetAdapterError('parse', 'Failed to parse Amazon Bedrock JSON response', {
-            cause: err,
-        })
-    }
-    return parseAmazonBedrockResponse(raw)
+    const response = await fetchBedrock(prepared, options, { adapterKind: 'amazon-bedrock', stream: false })
+    return readDecodedChatResponse(response)
 }
 
 export async function* streamAmazonBedrockChatRequest(
@@ -78,13 +74,22 @@ export async function* streamAmazonBedrockChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareAmazonBedrockBody(preset, options, credential, true)
-    const response = await fetchBedrock(prepared, options)
+    const response = await fetchBedrock(prepared, options, { adapterKind: 'amazon-bedrock', stream: true })
     if (!response.body) {
         throw new ModelPresetAdapterError('parse', 'Amazon Bedrock stream response has no body')
     }
+    yield* readDecodedChatStream(response.body)
+}
 
+export function decodeAmazonBedrockResponse(body: string): AdapterChatResponse {
+    return parseAmazonBedrockResponse(parseResponseJson(body, 'Failed to parse Amazon Bedrock JSON response'))
+}
+
+export async function* decodeAmazonBedrockStream(
+    stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     try {
-        for await (const message of parseAwsEventStream(response.body)) {
+        for await (const message of parseAwsEventStream(stream)) {
             const messageType = message.headers[':message-type']
             if (messageType === 'exception' || messageType === 'error') {
                 throw bedrockStreamError(message)
@@ -152,16 +157,19 @@ async function prepareAmazonBedrockBody(
 async function fetchBedrock(
     prepared: AdapterPreparedRequest,
     options: AdapterChatOptions,
+    responseDecoder: AdapterResponseDecoder,
 ): Promise<Response> {
     const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const init: LLMRequestInit = {
+        method: prepared.method,
+        headers: prepared.headers,
+        body: JSON.stringify(prepared.body),
+        signal: options.abortSignal,
+        responseDecoder,
+    }
     let response: Response
     try {
-        response = await fetchImpl(prepared.url, {
-            method: prepared.method,
-            headers: prepared.headers,
-            body: JSON.stringify(prepared.body),
-            signal: options.abortSignal,
-        })
+        response = await fetchImpl(prepared.url, init)
     } catch (err) {
         throw normalizeFetchError(err)
     }
@@ -409,7 +417,6 @@ export function parseAmazonBedrockResponse(raw: unknown): AdapterChatResponse {
         providerEcho: structuredClone(content),
         finishReason: typeof raw.stopReason === 'string' ? raw.stopReason : undefined,
         usage: parseUsage(raw.usage),
-        raw,
     }
 }
 
@@ -427,18 +434,16 @@ export function parseAmazonBedrockStreamEvent(
             reasoningDelta: typeof reasoningContent?.text === 'string'
                 ? reasoningContent.text
                 : undefined,
-            raw,
         }
     }
     if (eventType === 'messageStop') {
         return {
             textDelta: '',
             finishReason: typeof raw.stopReason === 'string' ? raw.stopReason : undefined,
-            raw,
         }
     }
     if (eventType === 'metadata') {
-        return { textDelta: '', usage: parseUsage(raw.usage), raw }
+        return { textDelta: '', usage: parseUsage(raw.usage) }
     }
     return undefined
 }

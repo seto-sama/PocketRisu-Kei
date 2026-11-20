@@ -49,7 +49,7 @@
             <EmptyState layout="section" density="compact" />
         {:else}
             {#each results as result (result.key)}
-                <button class="flex flex-col items-start text-left px-2 py-2 rounded-md risu-interactive-surface-strong shrink-0" onclick={() => select(result)}>
+                <button class="flex flex-col items-start text-left px-2 py-2 rounded-md risu-interactive-surface shrink-0" onclick={() => select(result)}>
                     <span class="text-sm text-maintext">{result.label}</span>
                     {#if result.location}<span class="text-xs text-subtext">{result.location}</span>{/if}
                     {#if result.help}<span class="text-xs text-subtext line-clamp-2">{result.help}</span>{/if}

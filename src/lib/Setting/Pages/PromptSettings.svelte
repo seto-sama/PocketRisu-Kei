@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { SvelteSet } from "svelte/reactivity";
     import { PlusIcon, TriangleAlertIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import PromptDataItem from "src/lib/UI/PromptDataItem.svelte";
@@ -9,17 +10,19 @@
     import { DBState } from 'src/ts/stores.svelte';
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import { onDestroy, onMount } from "svelte";
+    import { getAbortSignal, onDestroy, onMount } from "svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
-    import ListActionBar from "../../UI/components/ListActionBar.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import ActionBar from "../../UI/components/ActionBar.svelte";
     import Alert from "../../UI/components/Alert.svelte";
     import SettingLayout from "../Wrappers/SettingLayout.svelte";
+    import Help from "../../Others/Help.svelte";
 
-    let warns: TemplateWarning[] = $state([])
+    const warns: TemplateWarning[] = $derived(templateCheck(DBState.db))
     let tokens = $state(0)
-    let extokens = $state(0)
-    let openedItems = $state(new Set<PromptItem>())
+    let rawTokens = $state(0)
+    const openedItems = new SvelteSet<PromptItem>()
     const promptProcessingItems: SettingItem[] = [
         { id: 'prompt.systemContentReplacement', type: 'text', labelKey: 'systemContentReplacement', helpKey: 'systemContentReplacement', bindKey: 'systemContentReplacement' },
         {
@@ -48,7 +51,6 @@
         { id: 'prompt.jsonSchema', type: 'textarea', labelKey: 'jsonSchema', helpKey: 'jsonSchema', bindKey: 'jsonSchema', condition: (ctx) => ctx.db.jsonSchemaEnabled },
         { id: 'prompt.extractJson', type: 'textarea', labelKey: 'extractJson', helpKey: 'extractJson', bindKey: 'extractJson', condition: (ctx) => ctx.db.jsonSchemaEnabled },
     ]
-    executeTokenize(DBState.db.promptTemplate)
 
   interface Props {
     onGoBack?: () => void;
@@ -58,9 +60,11 @@
 
   let { onGoBack = () => {}, mode = 'independent', subMenu = $bindable(0) }: Props = $props();
 
-    async function executeTokenize(prest: PromptItem[]){
-        tokens = await tokenizePreset(prest, true)
-        extokens = await tokenizePreset(prest, false)
+    async function executeTokenize(prest: PromptItem[], signal: AbortSignal){
+        const [parsed, raw] = await Promise.all([tokenizePreset(prest), tokenizePreset(prest, 'raw')])
+        if (signal.aborted) return
+        tokens = parsed
+        rawTokens = raw
     }
 
     function warningText(warning: TemplateWarning): string {
@@ -78,18 +82,16 @@
     }
 
     $effect.pre(() => {
-    warns = templateCheck(DBState.db)
-  });
-  $effect.pre(() => {
-    executeTokenize(DBState.db.promptTemplate)
+    // Snapshot synchronously so every block is tracked, not just those read before the first await.
+    executeTokenize($state.snapshot(DBState.db.promptTemplate), getAbortSignal())
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.ctrlKey && e.altKey && e.key === 'o') {
-      if (openedItems.size === DBState.db.promptTemplate.length) {
-        openedItems = new Set<PromptItem>()
-      } else {
-        openedItems = new Set(DBState.db.promptTemplate)
+      const openAll = openedItems.size !== DBState.db.promptTemplate.length
+      openedItems.clear()
+      if (openAll) {
+        for (const item of DBState.db.promptTemplate) openedItems.add(item)
       }
     }
   }
@@ -149,44 +151,35 @@
                     bind:promptItem={DBState.db.promptTemplate[originalIndex]}
                     isOpened={openedItems.has(prompt)}
                     onToggle={() => {
-                        const nextOpenedItems = new Set(openedItems)
-                        if (nextOpenedItems.has(prompt)) {
-                            nextOpenedItems.delete(prompt)
-                        } else {
-                            nextOpenedItems.add(prompt)
-                        }
-                        openedItems = nextOpenedItems
+                        if (!openedItems.delete(prompt)) openedItems.add(prompt)
                     }}
                     currentIndex={originalIndex}
                     onRemove={() => {
-                        let templates = DBState.db.promptTemplate
-                        templates.splice(originalIndex, 1)
-                        DBState.db.promptTemplate = templates
+                        DBState.db.promptTemplate.splice(originalIndex, 1)
                         openedItems.delete(prompt)
-                        openedItems = new Set(openedItems)
                     }}
                 />
         {/each}
     </SortableList>
 
-    <ListActionBar mode="footer">
-        <IconButton size="lg" onclick={() => {
-            let value = DBState.db.promptTemplate
-            value.push({
-                type: "plain",
-                text: "",
-                role: "system",
-                type2: 'normal'
-            })
-            DBState.db.promptTemplate = value
-        }}><PlusIcon /></IconButton>
-
-        <div class="ml-auto flex items-center gap-2 text-subtext text-sm">
-            <span>{tokens} {language.fixedTokens}</span>
-            <span aria-hidden="true">|</span>
-            <span>{extokens} {language.exactTokens}</span>
-        </div>
-    </ListActionBar>
+    <ActionBar mode="footer" className="justify-between">
+        <IconButtonGroup>
+            <IconButton size="lg" onclick={() => {
+                let value = DBState.db.promptTemplate
+                value.push({
+                    type: "plain",
+                    text: "",
+                    role: "system",
+                    type2: 'normal'
+                })
+                DBState.db.promptTemplate = value
+            }}><PlusIcon /></IconButton>
+        </IconButtonGroup>
+        <span class="flex items-center text-sm text-subtext">
+            {tokens}({rawTokens}) {language.tokens}
+            <Help key="promptTemplateTokens" name={language.tokens} />
+        </span>
+    </ActionBar>
 {:else}
     <SettingRenderer items={promptProcessingItems} layout="row" />
 

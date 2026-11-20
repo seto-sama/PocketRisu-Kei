@@ -1,14 +1,15 @@
 // @vitest-environment node
-import Database from './sqlite.cjs'
+import { openDatabase, withTransaction } from './sqlite.cjs'
+import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import bookmarkStorePkg from './bookmarkStore.cjs'
 
 const { createBookmarkStore } = bookmarkStorePkg as any
 
-const databases: Database.Database[] = []
+const databases: DatabaseSync[] = []
 
 function createStore() {
-    const database = new Database(':memory:')
+    const database = openDatabase(':memory:')
     databases.push(database)
     return createBookmarkStore(database)
 }
@@ -123,7 +124,7 @@ describe('SQLite bookmark store', () => {
     })
 
     it('commits and rolls back snapshot bodies with bookmark catalogs in one outer transaction', () => {
-        const database = new Database(':memory:')
+        const database = openDatabase(':memory:')
         databases.push(database)
         database.exec('CREATE TABLE snapshot_bodies (key TEXT PRIMARY KEY, value BLOB NOT NULL)')
         const store = createBookmarkStore(database)
@@ -133,7 +134,7 @@ describe('SQLite bookmark store', () => {
         const countBodies = database.prepare('SELECT COUNT(*) AS count FROM snapshot_bodies')
         const key = 'database/dbbackup-atomic.bin'
 
-        const createSnapshot = database.transaction((fail: boolean) => {
+        const createSnapshot = (fail: boolean) => withTransaction(database, () => {
             insertBody.run(key, Buffer.from('snapshot'))
             store.saveSnapshot(key)
             if (fail) throw new Error('injected failure')
@@ -147,7 +148,7 @@ describe('SQLite bookmark store', () => {
         expect(countBodies.get()).toEqual({ count: 1 })
         expect(store.restoreSnapshot(key)).toBe(true)
 
-        const deleteSnapshot = database.transaction((fail: boolean) => {
+        const deleteSnapshot = (fail: boolean) => withTransaction(database, () => {
             deleteBody.run(key)
             store.deleteSnapshot(key)
             if (fail) throw new Error('injected failure')

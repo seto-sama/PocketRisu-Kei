@@ -5,13 +5,12 @@
     import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
     import Input from "../UI/components/Input.svelte";
     import NumberInput from "../UI/components/NumberInput.svelte";
-    import { previewChatGuardToast, previewPersistFailureToast } from "src/ts/globalApi.svelte";
     import { alertConfirm, alertMd } from "src/ts/alert";
     import Accordion from "../UI/components/Accordion.svelte";
     import Button from "../UI/components/Button.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
-    import ListActionBar from "../UI/components/ListActionBar.svelte";
+    import ActionBar from "../UI/components/ActionBar.svelte";
     import { getChatToken, tokenize } from "src/ts/tokenizer";
     import { tokenizePreset } from "src/ts/process/prompt";
     
@@ -219,8 +218,8 @@
     {/each}
 </Accordion>
 {#if autopilotOpen}
-    <ListActionBar mode="footer" className="justify-between">
-        <div class="flex items-center">
+    <ActionBar mode="footer" className="justify-between">
+        <IconButtonGroup>
             <IconButton
                 aria-label={language.add}
                 title={language.add}
@@ -236,7 +235,7 @@
             >
                 <UploadIcon />
             </IconButton>
-        </div>
+        </IconButtonGroup>
         <Button
             variant="outline"
             size="sm"
@@ -245,7 +244,7 @@
         >
             {language.run}
         </Button>
-    </ListActionBar>
+    </ActionBar>
 {/if}
 
 

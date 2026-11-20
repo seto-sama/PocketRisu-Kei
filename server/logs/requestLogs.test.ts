@@ -118,8 +118,8 @@ describe('request log persistence', () => {
             const saveDirectory = path.join(process.cwd(), 'save');
             fs.mkdirSync(saveDirectory, { recursive: true });
             const legacyPath = path.join(saveDirectory, 'request-logs.db');
-            const Database = require(path.join(base, '../sqlite.cjs'));
-            const legacyDb = new Database(legacyPath);
+            const { openDatabase } = require(path.join(base, '../sqlite.cjs'));
+            const legacyDb = openDatabase(legacyPath);
             ${legacyTableSetup}
             require(path.join(base, 'requestLogLimits.cjs')).setRequestLogMaxBytes(2 * 1024 * 1024);
             const bodyBytes = 256 * 1024;
@@ -155,9 +155,9 @@ describe('request log persistence', () => {
             };
             const scriptDatabaseSize = () => {
                 const databases = require(databasesPath);
-                const script = databases.requestDb.pragma('database_list')
+                const script = databases.requestDb.prepare('PRAGMA database_list').all()
                     .find(database => database.name === 'request_script');
-                databases.requestDb.pragma('request_script.wal_checkpoint(TRUNCATE)');
+                databases.requestDb.exec('PRAGMA request_script.wal_checkpoint(TRUNCATE)');
                 return { path: script.file, bytes: fs.statSync(script.file).size };
             };
             const closeDatabases = () => {
@@ -265,10 +265,10 @@ describe('request log persistence', () => {
                 ...values, success: true, chatId: 'budget-chat',
             });
             const detail = id => logs.queryRequestLogById(id);
-            const scriptPath = database.pragma('database_list')
+            const scriptPath = database.prepare('PRAGMA database_list').all()
                 .find(entry => entry.name === 'request_script').file;
             const scriptFileBytes = () => {
-                database.pragma('request_script.wal_checkpoint(TRUNCATE)');
+                database.exec('PRAGMA request_script.wal_checkpoint(TRUNCATE)');
                 return fs.statSync(scriptPath).size;
             };
 
@@ -341,7 +341,7 @@ describe('request log persistence', () => {
                 count: logs.countRequestLogs(),
                 priorMetadata: detail('request-33'),
             };
-            database.pragma('request_script.wal_checkpoint(TRUNCATE)');
+            database.exec('PRAGMA request_script.wal_checkpoint(TRUNCATE)');
             database.close();
             databases.systemDb.close();
             process.stdout.write(JSON.stringify({
@@ -433,7 +433,7 @@ describe('request log persistence', () => {
 
             let { logs, contexts } = loadStores();
             let databases = require(databasesPath);
-            databases.requestDb.pragma('wal_autocheckpoint = 0');
+            databases.requestDb.exec('PRAGMA wal_autocheckpoint = 0');
             logs.setRequestLogMaxBytes(2 * mib);
             const twoMiB = logs.getRequestLogStorage();
             contexts.recordProviderContext({
@@ -443,7 +443,7 @@ describe('request log persistence', () => {
             for (let index = 1; index <= 3; index++) {
                 logs.addRequestLog(makeLog('quota-' + index, index));
             }
-            const scriptPath = databases.requestDb.pragma('database_list')
+            const scriptPath = databases.requestDb.prepare('PRAGMA database_list').all()
                 .find(entry => entry.name === 'request_script').file;
             const walPath = scriptPath + '-wal';
             const twoMiBState = {
@@ -477,7 +477,7 @@ describe('request log persistence', () => {
                 signature: contexts.queryProviderContexts(['signature-kept'], 'google-gemini', 'gemini'),
             };
             databases = require(databasesPath);
-            databases.requestDb.pragma('request_script.wal_checkpoint(TRUNCATE)');
+            databases.requestDb.exec('PRAGMA request_script.wal_checkpoint(TRUNCATE)');
             const activeDatabaseBytes = fs.statSync(scriptPath).size;
             closeDatabases();
             process.stdout.write(JSON.stringify({

@@ -1,6 +1,7 @@
 import { language } from 'src/lang'
 import { notifyError, notifySuccess } from 'src/ts/alert'
 import { forageStorage } from 'src/ts/storage/autoStorage'
+import { copyText } from 'src/ts/clipboard/keiClipboard.svelte'
 import {
     buildInlayReference,
     getInlayInfosBatch,
@@ -11,7 +12,7 @@ const pendingDownloads = new Map<string, Promise<void>>()
 
 export async function copyInlayReference(id: string): Promise<void> {
     try {
-        await navigator.clipboard.writeText(buildInlayReference(id))
+        await copyText(buildInlayReference(id))
         notifySuccess(language.copied)
     } catch (error) {
         notifyError(`${error}`)

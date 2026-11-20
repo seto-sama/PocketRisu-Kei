@@ -151,17 +151,17 @@
         <EmptyState title={language.noPlugins} description="" layout="section" />
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
-        {@const pluginUnsupported = !isSupportedPlugin(plugin)}
-        {@const memoryPowerLocked = pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore)}
-        {@const pluginPowerLocked = memoryPowerLocked || pluginUnsupported}
-        {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
-        {@const pluginPowerLabel = pluginUnsupported
+        {const pluginUnsupported = $derived(!isSupportedPlugin(plugin))}
+        {const memoryPowerLocked = $derived(pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore))}
+        {const pluginPowerLocked = $derived(memoryPowerLocked || pluginUnsupported)}
+        {const pluginPoweredOn = $derived(!!plugin.enabled && !pluginPowerLocked)}
+        {const pluginPowerLabel = $derived(pluginUnsupported
             ? language.pluginApiUnsupported
             : memoryPowerLocked
                 ? language.pluginMemoryDisabledForSession
                 : pluginPoweredOn
                     ? language.disablePlugin
-                    : language.enablePlugin}
+                    : language.enablePlugin)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}

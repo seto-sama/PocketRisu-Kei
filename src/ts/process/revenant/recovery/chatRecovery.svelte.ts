@@ -84,7 +84,6 @@ const recoveryStreamSubscriptions = new Map<string, {
 }>()
 
 function invalidateRecoveredMessage(character: character, messageIndex: number): void {
-    character.reloadKeys += 1
     invalidateChatMessageRender(messageIndex)
 }
 
@@ -132,7 +131,6 @@ export function clearRevenantRecoveryForChat(
     options: { preserveProjection?: boolean, cancelled?: boolean, failed?: boolean } = {},
 ): void {
     awaitChatGenerationCanonical(character.chaId, chat.id)
-    let changed = false
     finishRevenantChatRequestStatuses(
         chat.id,
         options.cancelled ? 'aborted' : options.failed ? 'failed' : 'done',
@@ -158,7 +156,6 @@ export function clearRevenantRecoveryForChat(
                 rerollSnapshot: subscription.rerollSnapshot,
             })
         }
-        changed = true
         subscription.unsubscribe()
         recoveryStreamSubscriptions.delete(jobId)
         endStatus(
@@ -167,28 +164,17 @@ export function clearRevenantRecoveryForChat(
             { now: Date.now() },
         )
     }
-    if (chat.isStreaming) {
-        chat.isStreaming = false
-        changed = true
-    }
+    if (chat.isStreaming) chat.isStreaming = false
     for (const message of chat.message) {
-        if (message.isRecovering !== undefined) {
-            delete message.isRecovering
-            changed = true
-        }
-        if (message.recoveryDisplayData !== undefined) {
-            delete message.recoveryDisplayData
-            changed = true
-        }
+        if (message.isRecovering !== undefined) delete message.isRecovering
+        if (message.recoveryDisplayData !== undefined) delete message.recoveryDisplayData
     }
-    if (changed) character.reloadKeys += 1
 }
 
 function auxiliaryRequestKind(jobType: string): RequestKind {
     switch (jobType) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'
-        case 'emotion': return 'emotion'
         default: return 'sub'
     }
 }
@@ -373,16 +359,14 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
             .filter(job => job.jobType !== 'translate')
             .forEach(job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
 
-        const recoveredLuaRuns = jobs.some(job => job.jobType === 'otherAx')
-            ? await recoverRevenantLuaJobsForChat(character, chat)
-            : 0
-        if (recoveredLuaRuns > 0) character.reloadKeys += 1
-        const recoveredSummaries = jobs.some(job => job.jobType === 'memory')
-            ? await recoverHypaV3SummaryJobs(character, chat, {
+        if (jobs.some(job => job.jobType === 'otherAx')) {
+            await recoverRevenantLuaJobsForChat(character, chat)
+        }
+        if (jobs.some(job => job.jobType === 'memory')) {
+            await recoverHypaV3SummaryJobs(character, chat, {
                 onJobUpdate: job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id),
             })
-            : 0
-        if (recoveredSummaries > 0) character.reloadKeys += 1
+        }
     })().catch(error => {
         console.warn('[GenerationJob] Auxiliary chat recovery unavailable:', error)
     }).finally(() => {
@@ -485,7 +469,6 @@ export async function recoverRevenantGenerationsForChat(
             })
             if (activeWorkflow) {
                 if (messageWasMaterialized) {
-                    await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'igp', 'skipped')
                     await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'postprocess', 'skipped')
                     await finishRevenantWorkflow(activeWorkflow.workflowId, 'completed')
                 }

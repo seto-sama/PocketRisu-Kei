@@ -66,7 +66,7 @@
     const headerClasses = $derived(cn(
         'w-full transition-colors [&>button]:cursor-pointer',
         appearance !== 'divided'
-            ? 'risu-folder-header risu-selectable-row'
+            ? 'risu-folder-header risu-interactive-surface'
             : 'flex min-h-6 items-center p-1',
         headerClass,
     ));

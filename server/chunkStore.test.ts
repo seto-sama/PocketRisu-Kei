@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import Database from './sqlite.cjs'
+import { openDatabase } from './sqlite.cjs'
 import pkg from './chunkStore.cjs'
 
 const { cdcSplit, createChunkStore } = pkg as {
@@ -12,9 +12,7 @@ const { cdcSplit, createChunkStore } = pkg as {
         putValue: (key: string, value: Buffer) => void
         getValue: (key: string) => Buffer | null
         sizeValue: (key: string) => number | null
-        snapshotCost: (key: string, baseKey: string) => number
         keySetPhysicalCost: (keys: string[]) => number
-        snapshotValue: (srcKey: string, dstKey: string) => void
         dropValue: (key: string) => void
         gc: () => number
         isChunkedKey: (key: string) => boolean
@@ -26,7 +24,7 @@ const { cdcSplit, createChunkStore } = pkg as {
 // Fresh in-memory DB with the same kv schema db.cjs creates (kv is db.cjs's
 // domain; chunkStore creates only its own chunks/manifest tables).
 function freshDb() {
-    const db = new Database(':memory:')
+    const db = openDatabase(':memory:')
     db.exec(
         'CREATE TABLE kv (key TEXT PRIMARY KEY, value BLOB NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0)',
     )
@@ -192,71 +190,15 @@ describe('createChunkStore — chunk-aware kv (injected :memory: db)', () => {
     })
 })
 
-describe('snapshotValue — 조각 공유 스냅샷', () => {
+describe('keySetPhysicalCost — 공유 데이터를 중복 없이 합산', () => {
     const T = { threshold: 1024 }
 
-    it('C1: 청킹 값 스냅샷 → 바이트 동일 + 조각 중복 없음(공유)', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const big = randomBytes(200_000)
-        store.putValue('live', big)
-        const before = countChunks(db)
-        store.snapshotValue('live', 'snap')
-        expect(countChunks(db)).toBe(before) // 조각 복사 안 함 — 공유
-        expect((store.getValue('snap') as Buffer).equals(big)).toBe(true)
-        expect((store.getValue('live') as Buffer).equals(big)).toBe(true)
-    })
-
-    it('C2: 스냅샷 후 live 변경 → 스냅샷은 옛 바이트 유지', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const bufA = randomBytes(200_000)
-        const bufB = randomBytes(200_000)
-        store.putValue('live', bufA)
-        store.snapshotValue('live', 'snap')
-        store.putValue('live', bufB) // live 갱신 (옛 조각은 GC 전까지 잔존)
-        expect((store.getValue('snap') as Buffer).equals(bufA)).toBe(true) // 스냅샷 불변
-        expect((store.getValue('live') as Buffer).equals(bufB)).toBe(true)
-    })
-
-    it('C3: 작은(raw) 값 스냅샷도 정확 복사', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const small = randomBytes(300)
-        store.putValue('live', small)
-        store.snapshotValue('live', 'snap')
-        expect((store.getValue('snap') as Buffer).equals(small)).toBe(true)
-    })
-
-    it('C4: 없는 src 스냅샷은 dst 무변경 (no-op)', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const original = seededBytes(300, 31)
-        store.putValue('snap', original)
-        store.snapshotValue('missing', 'snap') // src 없음
-        expect((store.getValue('snap') as Buffer).equals(original)).toBe(true)
-    })
-
-    it('C5: snapshotCost — live와 같으면 ~0, 갈라지면 델타, raw는 full, 없으면 0', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const v0 = randomBytes(200_000)
-        store.putValue('live', v0)
-        store.snapshotValue('live', 'snap')
-        expect(store.snapshotCost('snap', 'live')).toBe(0) // 동일 → 공유라 0
-        store.putValue('live', randomBytes(200_000)) // live 완전 교체 → snap 조각이 단독
-        expect(store.snapshotCost('snap', 'live')).toBeGreaterThan(150_000)
-        store.putValue('rawsnap', randomBytes(500)) // < 임계 → raw
-        expect(store.snapshotCost('rawsnap', 'live')).toBe(500)
-        expect(store.snapshotCost('missing', 'live')).toBe(0)
-    })
-
-    it('C6: keySetPhysicalCost — 공유 청크는 한 번, 각 marker/raw 행은 한 번 합산', () => {
+    it('keySetPhysicalCost — 공유 청크는 한 번, 각 marker/raw 행은 한 번 합산', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
         const shared = seededBytes(200_000, 41)
         store.putValue('snapA', shared)
-        store.snapshotValue('snapA', 'snapB')
+        store.putValue('snapB', shared)
         store.putValue('raw', seededBytes(500, 43))
 
         const uniqueChunkBytes = db.prepare(
@@ -271,13 +213,11 @@ describe('snapshotValue — 조각 공유 스냅샷', () => {
 
         expect(store.keySetPhysicalCost(['snapA', 'snapB', 'raw']))
             .toBe(uniqueChunkBytes + markerBytes + 500)
-        // 스냅샷별 snapshotCost 합은 공유 관계에 따라 달라지지만 집합 비용은
-        // 입력 순서 및 같은 키의 중복에 영향받지 않는다.
         expect(store.keySetPhysicalCost(['raw', 'snapB', 'snapA', 'snapA', 'missing']))
             .toBe(uniqueChunkBytes + markerBytes + 500)
     })
 
-    it('C7: keySetPhysicalCost — 부분 공유 청크를 고유 hash 기준으로 정확히 합산', () => {
+    it('keySetPhysicalCost — 부분 공유 청크를 고유 hash 기준으로 정확히 합산', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
         const before = seededBytes(300_000, 47)
@@ -309,7 +249,7 @@ describe('snapshotValue — 조각 공유 스냅샷', () => {
             .toBe(3 + (pkg as { CHUNK_MARKER: Buffer }).CHUNK_MARKER.length + snapBOnlyChunks)
     })
 
-    it('C8: keySetPhysicalCost — 빈 집합은 0, 비배열 입력은 거부', () => {
+    it('keySetPhysicalCost — 빈 집합은 0, 비배열 입력은 거부', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
         expect(store.keySetPhysicalCost([])).toBe(0)
@@ -349,7 +289,7 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
         const bufA = randomBytes(200_000)
         const bufB = randomBytes(200_000)
         store.putValue('live', bufA)
-        store.snapshotValue('live', 'snap') // snap → bufA
+        store.putValue('snap', bufA)
         store.putValue('live', bufB) // live → bufB, bufA는 이제 snap만 참조
         store.gc() // bufA 조각을 지우면 안 됨
         expect((store.getValue('snap') as Buffer).equals(bufA)).toBe(true) // 스냅샷 생존 ✓
@@ -373,10 +313,10 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
         const store = createChunkStore(db, T)
         const v0 = randomBytes(200_000)
         store.putValue('live', v0)
-        store.snapshotValue('live', 'snapA') // snapA → v0
+        store.putValue('snapA', v0)
         const v1 = Buffer.concat([v0.subarray(0, 100_000), randomBytes(120), v0.subarray(100_000)])
         store.putValue('live', v1)
-        store.snapshotValue('live', 'snapB') // snapB → v1
+        store.putValue('snapB', v1)
         store.dropValue('snapA') // 로테이션 = manifest까지 삭제
         store.gc()
         // snapB·live는 바이트 동일 유지
@@ -405,9 +345,8 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
     it('D7: kv 키 없는 stale manifest 자가치유 — 정리 + 누수 조각 회수, live 무사', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
+        store.putValue('snap', randomBytes(200_000))
         store.putValue('live', randomBytes(200_000))
-        store.snapshotValue('live', 'snap')
-        store.putValue('live', randomBytes(200_000)) // live 교체 → snap 조각이 snap 전용이 됨
         // 옛 버그 시뮬: manifest는 남기고 kv 행만 삭제 (raw kvDel이 하던 짓)
         db.prepare("DELETE FROM kv WHERE key = 'snap'").run()
         expect(countManifest(db, 'snap')).toBeGreaterThan(0) // stale manifest 잔존
@@ -421,9 +360,8 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
     it('D8: raw 값이 마커를 덮은 stale manifest도 자가치유 (kv 키는 있지만 마커 아님)', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
+        store.putValue('snap', randomBytes(200_000))
         store.putValue('live', randomBytes(200_000))
-        store.snapshotValue('live', 'snap')
-        store.putValue('live', randomBytes(200_000)) // snap 조각이 단독이 됨
         // 옛/누락 경로 시뮬: snap의 kv 값을 raw로 덮되 manifest는 남김
         db.prepare("UPDATE kv SET value = ? WHERE key = 'snap'").run(Buffer.from('raw not marker'))
         expect(countManifest(db, 'snap')).toBeGreaterThan(0)

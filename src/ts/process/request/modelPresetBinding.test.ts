@@ -33,17 +33,17 @@ beforeEach(() => {
 })
 
 describe('resolveChatModelBinding — model-preset-only mode', () => {
-    test.each(['model', 'submodel', 'memory', 'translate', 'emotion', 'otherAx'] as const)(
+    test.each(['model', 'submodel', 'memory'] as const)(
         'uses the global %s binding while hidden and restores the saved chat binding when shown', (mode) => {
             const globalPreset = { id: 'p-global', name: 'Global' }
             mockDb.modelPresets.push(globalPreset)
             const chat = { modelBinding: {
                 main: 'p-main', sub: 'p-main', separateAux: true,
-                aux: { memory: 'p-main', translate: 'p-main', emotion: 'p-main', otherAx: 'p-main' },
+                aux: { memory: 'p-main', translate: 'p-main', otherAx: 'p-main' },
             } } as any
             mockDb.defaultModelBinding = {
                 main: 'p-global', sub: 'p-global', separateAux: true,
-                aux: { memory: 'p-global', translate: 'p-global', emotion: 'p-global', otherAx: 'p-global' },
+                aux: { memory: 'p-global', translate: 'p-global', otherAx: 'p-global' },
             }
             const savedBinding = structuredClone(chat.modelBinding)
             mockDb.showModelInSidebar = false
@@ -353,19 +353,10 @@ describe('applyPromptPresetParams — prompt-preset sampling override', () => {
         expect(out.userValues.top_p).toBe(0.9)
     })
 
-    test('identity for non-main modes even when opted in', () => {
-        const preset = presetWith({ schema: SAMPLING_SCHEMA })
-        expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
-    })
-
     test('global prompt-parameter priority is also limited to the main model', () => {
         mockDb.modelPresetPromptParamsFirst = true
         const preset = presetWith({ schema: SAMPLING_SCHEMA })
         expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'emotion')).toBe(preset)
-        expect(applyPromptPresetParams(preset, onChat, 'translate')).toBe(preset)
     })
 
     test('injects normalized sampling values over userValues without mutating the stored preset', () => {

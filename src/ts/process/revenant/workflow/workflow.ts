@@ -112,7 +112,6 @@ export function createRevenantWorkflowResumeMetadata(
 export function createChatGenerationWorkflowPlan(options: {
     resumeContext: RevenantWorkflowResumeContext
     hypaEnabled: boolean
-    igpEnabled: boolean
     pluginProvider: boolean
 }): RevenantWorkflowPlanStep[] {
     return [
@@ -158,12 +157,6 @@ export function createChatGenerationWorkflowPlan(options: {
             key: 'trigger.output',
             kind: 'postprocess.trigger.output',
             recoveryPolicy: 'at_least_once',
-        },
-        {
-            key: 'igp',
-            kind: 'postprocess.igp',
-            recoveryPolicy: 'replay_output',
-            status: options.igpEnabled ? 'pending' : 'skipped',
         },
         {
             key: 'postprocess',

@@ -81,7 +81,6 @@ module.exports = {
     BACKUP_NOTE_MAX_LENGTH,
     BACKUP_NOTES_FILENAME,
     deleteBackupNote,
-    deleteBackupNotes,
     getBackupNote,
     normalizeBackupNote,
     readBackupNotes,

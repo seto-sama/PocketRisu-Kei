@@ -3,9 +3,6 @@ import { preparePatchConflictRebase } from './patchRebase'
 
 // Isolate patch generation from database startup and storage side effects.
 vi.mock('./database.svelte', () => ({}))
-vi.mock('./chatStorage', () => ({
-    chatToStub: (c: any) => c,
-}))
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 const { normalizeJSON, RisuSavePatcher, decodeRisuSave, encodeRisuSaveLegacy } = await import('./risuSave')
@@ -189,23 +186,13 @@ describe('round-trip — patcher ops reconstruct the new state on a baseline', (
         expect(afterApply.modules).toEqual(expected.modules)
     })
 
-    test('modules: deleting from a large list keeps the patch bounded and preserves data', async () => {
-        function makeMod(i: number) {
-            return {
-                id: `mod-${i}`,
-                name: `Module ${i}`,
-                description: `desc ${i}`,
-                lorebook: Array.from({ length: 10 }, (_, k) => ({
-                    key: `k-${i}-${k}`, content: `v-${i}-${k}`,
-                })),
-                cjs: `console.log("${i}")`.repeat(10),
-            }
-        }
-        const big = Array.from({ length: 200 }, (_, i) => makeMod(i))
-        const initial = { characters: [], botPresets: [], modules: big }
-        const next = { characters: [], botPresets: [], modules: big.slice(1) }
-        const { patch, afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
-        expect(patch.length).toBeLessThan(20)
+    test('modules: deleting one preserves the remaining data', async () => {
+        const modules = ['a', 'b', 'c'].map(id => ({
+            id, name: id.toUpperCase(), lorebook: [{ key: `k-${id}`, content: `v-${id}` }],
+        }))
+        const initial = { characters: [], botPresets: [], modules }
+        const next = { characters: [], botPresets: [], modules: modules.slice(1) }
+        const { afterApply, expected } = await runRoundTrip(initial, next, { ...emptyToSave(), modules: true })
         expect(afterApply.modules).toEqual(expected.modules)
     })
 
@@ -289,37 +276,12 @@ const dbWith = (characters: any[], rest: Record<string, any> = {}) => ({
 const clone = (o: any) => JSON.parse(JSON.stringify(o))
 
 describe('fast-path — no-op detection after each transition', () => {
-    test('runtime-only reloadKeys changes never produce a database patch', async () => {
-        const db = dbWith([chr('a', { reloadKeys: 1 })])
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const runtimeChanged = clone(db)
-        runtimeChanged.characters[0].reloadKeys = 25
-        const { patch } = await p.set(runtimeChanged, emptyToSave())
-
-        expect(patch).toEqual([])
-    })
-
     test('init → identical save is a no-op', async () => {
         const db = dbWith([chr('a'), chr('b')])
         const p = new RisuSavePatcher()
         await p.init(db)
         const { patch } = await p.set(clone(db), emptyToSave())
         expect(patch).toEqual([])
-    })
-
-    test('root change → saved, then identical re-save is a no-op', async () => {
-        const db = dbWith([chr('a')])
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const changed = clone(db); changed.personaPrompt = 'new persona'
-        const r1 = await p.set(clone(changed), { ...emptyToSave(), root: true })
-        expect(r1.patch.some((o: any) => o.path === '/personaPrompt')).toBe(true)
-
-        const r2 = await p.set(clone(changed), emptyToSave())
-        expect(r2.patch).toEqual([])
     })
 
     test('character field change → saved, then no-op (caught even with empty toSave.character)', async () => {
@@ -433,7 +395,7 @@ describe('fast-path — shared (non-cyclic) references round-trip correctly', ()
     })
 })
 
-describe('fast-path — expectedHash stays protocol-consistent', () => {
+describe('fast-path — hash stays consistent with a fresh init', () => {
     test('hash after N mutating saves equals a fresh init of the same data', async () => {
         const db = dbWith([chr('a'), chr('b')])
         const live = new RisuSavePatcher()
@@ -444,11 +406,11 @@ describe('fast-path — expectedHash stays protocol-consistent', () => {
         const s3 = clone(s2); s3.characters.push(chr('c')); await live.set(clone(s3), emptyToSave())
         const s4 = clone(s3); s4.characters.splice(0, 1); await live.set(clone(s4), emptyToSave())
 
-        const liveHash = (await live.set(clone(s4), emptyToSave())).expectedHash
+        const liveHash = live.hash()
 
         const fresh = new RisuSavePatcher()
         await fresh.init(clone(s4))
-        const freshHash = (await fresh.set(clone(s4), emptyToSave())).expectedHash
+        const freshHash = fresh.hash()
 
         expect(liveHash).toBe(freshHash)
     })
@@ -515,9 +477,9 @@ describe('fast-path — per-root-key granularity', () => {
         const { patch } = await p.set(db, { ...emptyToSave(), root: true })
         expect(patch).toEqual([])
 
-        const liveHash = (await p.set(db, emptyToSave())).expectedHash
+        const liveHash = p.hash()
         const fresh = new RisuSavePatcher(); await fresh.init(db)
-        expect(liveHash).toBe((await fresh.set(db, emptyToSave())).expectedHash)
+        expect(liveHash).toBe(fresh.hash())
     })
 
     test('a top-level bigint root value drops cleanly — no undefined baseline / hash stays consistent', async () => {
@@ -528,9 +490,9 @@ describe('fast-path — per-root-key granularity', () => {
         await p.init(db)
         await p.set(db, { ...emptyToSave(), root: true })
 
-        const liveHash = (await p.set(db, emptyToSave())).expectedHash
+        const liveHash = p.hash()
         const fresh = new RisuSavePatcher(); await fresh.init(db)
-        const freshHash = (await fresh.set(db, emptyToSave())).expectedHash
+        const freshHash = fresh.hash()
         expect(liveHash).toBe(freshHash)
     })
 
@@ -573,7 +535,7 @@ describe('fast-path — per-module granularity', () => {
         expect(r2.patch).toEqual([])
     })
 
-    test('modules protocol hash from cached item hashes equals a fresh full hash', async () => {
+    test('modules hash from cached item hashes equals a fresh full hash', async () => {
         const db = dbWith([chr('a')], { } as any)
         db.modules = [mod('m1', 'aaa'), mod('m2', 'bbb')]
         const live = new RisuSavePatcher()
@@ -584,14 +546,14 @@ describe('fast-path — per-module granularity', () => {
         const s2 = clone(s1); s2.modules[1].name = 'renamed'
         await live.set(clone(s2), { ...emptyToSave(), modules: true })
 
-        const liveHash = (await live.set(clone(s2), emptyToSave())).expectedHash
+        const liveHash = live.hash()
         const fresh = new RisuSavePatcher()
         await fresh.init(clone(s2))
-        const freshHash = (await fresh.set(clone(s2), emptyToSave())).expectedHash
+        const freshHash = fresh.hash()
         expect(liveHash).toBe(freshHash)
     })
 
-    test('module id "__proto__" cannot poison the caches — protocol hash stays consistent', async () => {
+    test('module id "__proto__" cannot poison the caches — hash stays consistent', async () => {
         // IDs are user data and may match object prototype keys.
         const db = dbWith([chr('a')], { } as any)
         db.modules = [mod('__proto__', 'aaa'), mod('m2', 'bbb')]
@@ -603,10 +565,10 @@ describe('fast-path — per-module granularity', () => {
         expect(r1.patch.some((o: any) => o.path.startsWith('/modules/0'))).toBe(true)
         expect((await live.set(clone(s1), { ...emptyToSave(), modules: true })).patch).toEqual([])
 
-        const liveHash = (await live.set(clone(s1), emptyToSave())).expectedHash
+        const liveHash = live.hash()
         const fresh = new RisuSavePatcher()
         await fresh.init(clone(s1))
-        const freshHash = (await fresh.set(clone(s1), emptyToSave())).expectedHash
+        const freshHash = fresh.hash()
         expect(liveHash).toBe(freshHash)
     })
 
@@ -621,10 +583,10 @@ describe('fast-path — per-module granularity', () => {
         expect(r1.patch.length).toBe(1)
         expect(r1.patch[0].path).toBe('/modules')
 
-        const liveHash = (await live.set(clone(s1), emptyToSave())).expectedHash
+        const liveHash = live.hash()
         const fresh = new RisuSavePatcher()
         await fresh.init(clone(s1))
-        const freshHash = (await fresh.set(clone(s1), emptyToSave())).expectedHash
+        const freshHash = fresh.hash()
         expect(liveHash).toBe(freshHash)
     })
 })

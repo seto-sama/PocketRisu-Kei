@@ -1,10 +1,12 @@
-import { Buffer } from 'buffer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { encode, decode } from 'msgpackr/index-no-eval'
+import { createDelta } from '../../../shared/guardedDelta.mjs'
 
 vi.mock('src/lang', () => ({ language: {} }))
+const alertPassword = vi.hoisted(() => vi.fn())
 vi.mock('../alert', () => ({
     alertInput: vi.fn(),
+    alertPassword,
     waitAlert: vi.fn(),
     notifyError: vi.fn(),
 }))
@@ -19,16 +21,43 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
+// Login state is page-wide, so auth tests start from a fresh module.
+async function unauthenticatedNodeStorage() {
+    vi.resetModules()
+    return (await import('./nodeStorage')).NodeStorage
+}
+
+it('shares one login across storage instances, so a retry after a wrong password is the last prompt', async () => {
+    // Privacy guard: the session cookie never stands in for a login.
+    const logins = ['wrong', 'right']
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+        if (url === '/api/test_auth') return Response.json({ status: 'incorrect' })
+        if (url === '/api/crypto') return new Response(`digest:${JSON.parse(String(init.body)).data}`)
+        if (url === '/api/login') {
+            return JSON.parse(String(init.body)).password === 'digest:right'
+                ? Response.json({ status: 'success', token: 'jwt' })
+                : Response.json({ code: 'AUTH_INVALID_PASSWORD' }, { status: 401 })
+        }
+        return Response.json({ ok: true })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    alertPassword.mockImplementation(async () => logins.shift())
+
+    const Storage = await unauthenticatedNodeStorage()
+    const main = new Storage()
+    await expect(main.createAuth()).rejects.toThrow()
+    await expect(main.createAuth()).resolves.toBe('jwt')
+    await expect(new Storage().createAuth()).resolves.toBe('jwt')
+    expect(alertPassword).toHaveBeenCalledTimes(2)
+})
+
 describe('NodeStorage patch transport', () => {
-    it('does not send an empty JSON Patch', async () => {
+    it('does not send an empty projection delta', async () => {
         const storage = new NodeStorage()
         const fetchMock = vi.fn()
         vi.stubGlobal('fetch', fetchMock)
 
-        await expect(storage.patchItem('database/database.bin', {
-            patch: [],
-            expectedHash: 'stale-hash',
-        })).resolves.toEqual({ success: true })
+        await expect(storage.patchDatabase({ changes: [] })).resolves.toEqual({ success: true })
         expect(fetchMock).not.toHaveBeenCalled()
     })
 
@@ -68,16 +97,12 @@ describe('NodeStorage patch transport', () => {
             headers: { 'content-type': 'application/json' },
         }))
         ;(storage as any).authFetch = authFetch
-        const payload = {
-            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
-            expectedHash: 'hash-4',
-        }
+        const payload = { changes: createDelta({ language: 'en' }, { language: 'ko' }) }
 
         await expect(storage.patchDatabase(payload)).resolves.toEqual({
             success: true,
             etag: 'db-etag-5',
             revision: 5,
-            persistWarning: undefined,
         })
         expect(authFetch).toHaveBeenCalledWith('/api/database', {
             method: 'PATCH',
@@ -105,10 +130,7 @@ describe('NodeStorage patch transport', () => {
         })
 
         await storage.getDatabaseProjection()
-        await storage.patchDatabase({
-            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
-            expectedHash: 'masked-hash',
-        })
+        await storage.patchDatabase({ changes: createDelta({ language: 'en' }, { language: 'ko' }) })
 
         const readHeader = authFetch.mock.calls[0][1].headers['x-risu-plugin-storage-exclusion']
         const patchHeader = authFetch.mock.calls[1][1].headers['x-risu-plugin-storage-exclusion']
@@ -146,9 +168,10 @@ describe('NodeStorage patch transport', () => {
 })
 
 it('retries shared authentication after header and response-body timeouts', async () => {
+    const Storage = await unauthenticatedNodeStorage()
     vi.useFakeTimers()
     try {
-        const storage = new NodeStorage()
+        const storage = new Storage()
         const fetchMock = vi.fn()
             .mockImplementationOnce(() => new Promise(() => {}))
             .mockResolvedValueOnce(new Response(new ReadableStream()))

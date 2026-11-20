@@ -5,11 +5,14 @@
     import { setMessageContent } from 'src/ts/storage/messageContent';
     import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
 
-    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon } from "@lucide/svelte";
+    import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon, ClipboardListIcon } from "@lucide/svelte";
+    import { openKeiClipboardPicker, keiClipboardEnabled } from 'src/ts/clipboard/keiClipboard.svelte';
+    import { onPopupEditorRequest } from 'src/ts/gui/editableField';
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
+    import type { Attachment } from 'svelte/attachments';
     import { autoSizeTextarea } from 'src/ts/gui/autoSizeTextarea.svelte'
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
@@ -261,8 +264,8 @@ import { isMobile } from 'src/ts/platform'
     function handleChatImageError(event: Event) {
         const target = event.target
         if (!(target instanceof HTMLImageElement) || !target.closest('[data-chat-index]')) return
-        // newImageHandlingBeta resolves bare asset names after their first failed load.
-        if (DBState.db.newImageHandlingBeta && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
+        // ChatBody owns bare asset names until it marks them unmatched with noimage.
+        if (!target.hasAttribute('noimage') && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
         replaceBrokenChatImage(target)
     }
 
@@ -327,7 +330,6 @@ import { isMobile } from 'src/ts/platform'
                 invalidateSwipeMessage(message, entry.messageIndex)
             } else if (currentChatSlot) {
                 currentChatSlot.message = currentChatSlot.message.filter((_, index) => index !== entry.messageIndex)
-                currentCharacter.reloadKeys += 1
             }
             void requestImmediateSave()
             const nextEntry = refreshInlayViewerEntries(deletedViewerIndex)
@@ -343,7 +345,7 @@ import { isMobile } from 'src/ts/platform'
         if (inlayViewerOpen && inlayViewerRoomKey !== currentChatRoomKey) closeInlayViewer()
     })
 
-    function trackComposerMetrics(node: HTMLElement) {
+    const trackComposerMetrics: Attachment<HTMLElement> = (node) => {
         const update = () => {
             composerHeight = node.getBoundingClientRect().height
             composerToolbarOffset = floorCssLengthToPhysicalPixel(
@@ -357,76 +359,51 @@ import { isMobile } from 'src/ts/platform'
             : new ResizeObserver(scheduler.schedule)
         resizeObserver?.observe(node)
         window.addEventListener('resize', scheduler.schedule)
-        update()
+        untrack(update)
 
-        return {
-            destroy() {
-                resizeObserver?.disconnect()
-                window.removeEventListener('resize', scheduler.schedule)
-                scheduler.cancel()
-            },
+        return () => {
+            resizeObserver?.disconnect()
+            window.removeEventListener('resize', scheduler.schedule)
+            scheduler.cancel()
         }
     }
 
-    function trackFixedComposerBounds(node: HTMLElement, enabled: boolean) {
+    const trackFixedComposerBounds = (enabled: boolean): Attachment<HTMLElement> => (node) => {
+        if (!enabled) return
         const update = () => {
             const bounds = node.getBoundingClientRect()
             if (bounds.left !== fixedComposerLeft) fixedComposerLeft = bounds.left
             if (bounds.width !== fixedComposerWidth) fixedComposerWidth = bounds.width
         }
         const scheduler = createFrameScheduler(update)
-        const observedElements: Element[] = []
-        for (let current: Element | null = node; current; current = current.parentElement) {
-            observedElements.push(current)
-        }
         let resizeObserver: ResizeObserver | null = null
-        let tracking = false
-
-        const start = () => {
-            if (tracking) return
-            tracking = true
-            if (typeof ResizeObserver === 'undefined') {
-                window.addEventListener('resize', scheduler.schedule)
-            }
-            else {
-                const observedWidths = new WeakMap<Element, number>()
-                resizeObserver = new ResizeObserver((entries) => {
-                    let horizontalLayoutChanged = false
-                    for (const entry of entries) {
-                        const width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
-                        if (observedWidths.get(entry.target) !== width) {
-                            observedWidths.set(entry.target, width)
-                            horizontalLayoutChanged = true
-                        }
-                    }
-                    if (horizontalLayoutChanged) scheduler.schedule()
-                })
-                for (const element of observedElements) {
-                    observedWidths.set(element, element.getBoundingClientRect().width)
-                    resizeObserver.observe(element)
-                }
-            }
-            update()
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', scheduler.schedule)
         }
-        const stop = () => {
-            if (!tracking) return
-            tracking = false
+        else {
+            const observedWidths = new WeakMap<Element, number>()
+            resizeObserver = new ResizeObserver((entries) => {
+                let horizontalLayoutChanged = false
+                for (const entry of entries) {
+                    const width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+                    if (observedWidths.get(entry.target) !== width) {
+                        observedWidths.set(entry.target, width)
+                        horizontalLayoutChanged = true
+                    }
+                }
+                if (horizontalLayoutChanged) scheduler.schedule()
+            })
+            for (let current: Element | null = node; current; current = current.parentElement) {
+                observedWidths.set(current, current.getBoundingClientRect().width)
+                resizeObserver.observe(current)
+            }
+        }
+        untrack(update)
+
+        return () => {
             resizeObserver?.disconnect()
-            resizeObserver = null
             window.removeEventListener('resize', scheduler.schedule)
             scheduler.cancel()
-        }
-
-        if (enabled) start()
-
-        return {
-            update(nextEnabled: boolean) {
-                if (nextEnabled) start()
-                else stop()
-            },
-            destroy() {
-                stop()
-            },
         }
     }
 
@@ -1118,7 +1095,6 @@ import { isMobile } from 'src/ts/platform'
     }
 
     function invalidateSwipeMessage(message: Message, idx?: number) {
-        DBState.db.characters[$selectedCharID].reloadKeys += 1
         invalidateChatMessageRender(idx ?? currentChat.indexOf(message))
     }
 
@@ -1170,7 +1146,6 @@ import { isMobile } from 'src/ts/platform'
             characterId: rerollCharacter.chaId,
             rerollSnapshot: prepared.rerollSnapshot,
         })
-        rerollCharacter.reloadKeys += 1
         const attempt = await sendChatMain(
             prepared.rerollSnapshot,
             generationTarget,
@@ -1185,7 +1160,6 @@ import { isMobile } from 'src/ts/platform'
             if (
                 foregroundContext.abortRequested
                 && applyCancelledRerollSession(
-                    rerollCharacter,
                     rerollChat,
                     foregroundContext.rerollSession,
                 )
@@ -1413,7 +1387,7 @@ import { isMobile } from 'src/ts/platform'
     class:pocketrisu-standard-chat-surface={DBState.db.theme === '' && $selectedCharID >= 0}
     style={customStyle}
     style:--chat-fixed-composer-height={DBState.db.fixedChatTextarea ? `${composerToolbarOffset}px` : '0px'}
-    use:trackFixedComposerBounds={DBState.db.fixedChatTextarea}
+    {@attach trackFixedComposerBounds(DBState.db.fixedChatTextarea)}
 >
     {#if currentCharacter?.type === 'character'}
         <ImageGenerationDialog
@@ -1535,7 +1509,7 @@ import { isMobile } from 'src/ts/platform'
                     class:chat-composer-sticky-backdrop={DBState.db.fixedChatTextarea && DBState.db.stickyChatToolbar && DBState.db.theme === ''}
                     style:left={DBState.db.fixedChatTextarea ? `${fixedComposerLeft}px` : undefined}
                     style:width={DBState.db.fixedChatTextarea ? `${fixedComposerWidth}px` : undefined}
-                    use:trackComposerMetrics
+                    {@attach trackComposerMetrics}
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
                 <!-- Plugins locate the composer through div[class*="items-stretch"]. -->
@@ -1605,6 +1579,11 @@ import { isMobile } from 'src/ts/platform'
                                         <CompassIcon /><span>{language.onboarding}</span>
                                     </DropdownMenu.Item>
                                 {/if}
+                                {#if keiClipboardEnabled()}
+                                    <DropdownMenu.Item onSelect={() => { openKeiClipboardPicker(inputEle) }}>
+                                        <ClipboardListIcon /><span>{language.keiClipboardHistory}</span>
+                                    </DropdownMenu.Item>
+                                {/if}
                                 <DropdownMenu.Item onSelect={openMessageInputPopupEditor}>
                                     <Maximize2Icon /><span>{language.chatInputPopupEditor}</span>
                                 </DropdownMenu.Item>
@@ -1623,6 +1602,7 @@ import { isMobile } from 'src/ts/platform'
                           placeholder={willResend ? language.resendLastMessage : language.enterMessageToPersona(activePersonaName)}
                           bind:value={messageInput}
                           bind:this={inputEle}
+                          {@attach onPopupEditorRequest(openMessageInputPopupEditor)}
                           onkeydown={(e) => {
                         if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
                             if(shouldSendOnEnter(e)){

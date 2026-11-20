@@ -166,4 +166,47 @@ describe('chat body translation task lifetime', () => {
         deferred.resolve('translated')
         await expect(result).rejects.toMatchObject({ name: 'AbortError' })
     })
+
+    it('puts the current widget into a cached translation keyed by the masked source', async () => {
+        const widget = '<div translate="no"><button risu-btn="lb-xnai-gen/0_1#op-new">new</button></div>'
+        const maskedKey = '<p>Hello</p><x-notrans n="0"></x-notrans>'
+        mocks.translateHTML.mockResolvedValueOnce('<p>Hallo</p><x-notrans n="0"></x-notrans>')
+        const controller = createChatBodyRenderController(() => {})
+
+        const html = await controller.renderTranslation({
+            data: 'source',
+            charArg: null,
+            chatId: 0,
+            retranslate: false,
+            translationCacheKey: maskedKey,
+            parseMarkdown: async () => `<p>Hello</p>${widget}`,
+            translationTaskKey: 'room:message:swipe:0',
+        })
+
+        expect(mocks.translateHTML.mock.calls[0][0]).toBe(maskedKey)
+        expect(html).toBe(`<p>Hallo</p>${widget}`)
+        controller.dispose()
+    })
+
+    it('translates raw text with masked tags and renders the current ones', async () => {
+        mocks.db.translateBeforeHTMLFormatting = true
+        const tag = '<lb-xnai translate="no" id="scene-1" operation="op-new" scene="1">{{inlay::new}}</lb-xnai>'
+        mocks.translateHTML.mockResolvedValueOnce('Hallo\n<x-notrans n="0"></x-notrans>')
+        const parseMarkdown = vi.fn(async (value: string) => value)
+        const controller = createChatBodyRenderController(() => {})
+
+        await controller.renderTranslation({
+            data: `Hello\n${tag}`,
+            charArg: null,
+            chatId: 0,
+            retranslate: false,
+            translationCacheKey: null,
+            parseMarkdown,
+            translationTaskKey: 'room:message:swipe:0',
+        })
+
+        expect(mocks.translateHTML.mock.calls[0][0]).toBe('Hello\n<x-notrans n="0"></x-notrans>')
+        expect(parseMarkdown).toHaveBeenCalledWith(`Hallo\n${tag}`, 'notrim')
+        controller.dispose()
+    })
 })

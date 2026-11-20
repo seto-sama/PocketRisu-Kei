@@ -1,7 +1,7 @@
 <script lang="ts">
-    import { getContext, type Snippet } from 'svelte'
+    import type { Snippet } from 'svelte'
     import type { HTMLAttributes } from 'svelte/elements'
-    import { overlayLayerContext, isTopOverlayLayer, type OverlayLayerGetter } from 'src/ts/gui/overlayStack'
+    import { getOverlayLayer, isTopOverlayLayer } from 'src/ts/gui/overlayStack'
     import { listenForOverlayEscape } from 'src/ts/gui/overlayDismiss'
 
     interface Props extends Omit<HTMLAttributes<HTMLDivElement>, 'onclick' | 'children'> {
@@ -22,7 +22,7 @@
         children,
         ...attributes
     }: Props = $props()
-    const layer = getContext<OverlayLayerGetter>(overlayLayerContext)
+    const layer = getOverlayLayer()
     let hasOpened = $state(false)
 
     $effect.pre(() => {

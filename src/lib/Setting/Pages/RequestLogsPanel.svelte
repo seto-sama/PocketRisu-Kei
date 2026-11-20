@@ -23,6 +23,7 @@
         type FetchLogSummary,
     } from 'src/ts/globalApi.svelte'
     import { language, getCurrentLocale } from 'src/lang'
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte'
     import { formatResponseBody } from 'src/ts/requestLogFormat'
     import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
@@ -200,7 +201,7 @@
 
     async function copyRequestLog(log: FetchLog) {
         try {
-            await navigator.clipboard.writeText(formatRequestLog(log))
+            await writeSystemClipboard(formatRequestLog(log))
             notifySuccess(language.systemLogsCopied)
         } catch (err) {
             notifyError(String(err))
@@ -307,7 +308,7 @@
                     </Collapsible.Trigger>
 
                     <Collapsible.Content class="bg-darkbg/60">
-                        {@const detail = requestLogDetails[log.id]}
+                        {const detail = $derived(requestLogDetails[log.id])}
                         {#if requestDetailLoading[log.id]}
                             <div class="p-4 text-sm text-subtext">{language.systemLogsLoading}</div>
                         {:else if requestDetailErrors[log.id]}

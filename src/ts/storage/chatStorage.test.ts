@@ -3,16 +3,7 @@ import { get } from 'svelte/store'
 
 const storageMocks = vi.hoisted(() => ({ fetchChatState: vi.fn() }))
 
-// Stub out the heavy reactive modules so loading chatStorage.ts doesn't trigger
-// unrelated $effect chains that fail in a stripped-down test environment.
-// Mirror the production isChatStub semantics including the hybrid guard so
-// the chat-data-loss tests below exercise the real intent.
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: storageMocks } }))
-vi.mock('./database.svelte', () => ({
-    isChatStub: (chat: any) => chat
-        && chat._stub === true
-        && !Array.isArray(chat.message),
-}))
 
 const {
     chatToStub,
@@ -217,13 +208,8 @@ describe('chat → stub → placeholder → stub round-trip', () => {
     })
 })
 
-// Hybrid corruption: a chat with `_stub: true` AND a real message array.
-// Came from v1.4.x disk corruption. The lazy-loading invariants assume
-// `_stub: true` means "metadata only", so the hybrid leaks Chat fields into
-// patcher diffs and trips the chat-data guard. The fix self-heals by
-// excluding hybrids from isChatStub (so chatToStub strips them properly)
-// and by stripping the corrupt _stub flag in convertStubsToPlaceholders
-// (preserving the real message data instead of resetting to placeholder).
+// Hybrid corruption (v1.4.x): `_stub: true` with a real message array. The
+// body must survive conversion and the corrupt flag must not come back.
 describe('hybrid corruption (chat with _stub:true + message)', () => {
     const hybridChat = (overrides: any = {}): any => ({
         message: [{ role: 'user', data: 'hello' }],
@@ -245,28 +231,14 @@ describe('hybrid corruption (chat with _stub:true + message)', () => {
         expect(result.name).toBe('h')
     })
 
-    test('convertStubsToPlaceholders keeps hybrid as a Chat with message preserved', () => {
+    test('convertStubsToPlaceholders keeps the hybrid body and drops the flag for good', () => {
         const [recovered] = convertStubsToPlaceholders([hybridChat()])
-        // _stub flag must be gone — leaving it would re-enter the hybrid loop.
+        // Resetting to a placeholder would discard the real messages.
         expect((recovered as any)._stub).toBeUndefined()
-        // Original message must survive — converting to a placeholder would
-        // reset it to [], which IS the data-loss bug we're guarding against.
-        expect(Array.isArray(recovered.message)).toBe(true)
-        expect(recovered.message.length).toBe(1)
-        expect(recovered.message[0].data).toBe('hello')
+        expect(recovered.message.map((m: any) => m.data)).toEqual(['hello'])
         expect(recovered.note).toBe('old note')
         expect(recovered.localLore.length).toBe(1)
-    })
-
-    test('hybrid round-trip self-heals: convert → chatToStub → no message leakage', () => {
-        // Simulate the actual v1.4.x bug path:
-        //   disk → decoded chat is hybrid → convertStubsToPlaceholders → patcher diff
-        const [recovered] = convertStubsToPlaceholders([hybridChat()])
-        const stub = chatToStub(recovered) as any
-        expect(stub._stub).toBe(true)
-        expect('message' in stub).toBe(false)
-        expect('note' in stub).toBe(false)
-        // Once stripped, the chat-data guard would see no chat-internal field
-        // ops in a baseline-vs-current diff between two of these stubs.
+        // The next save sends metadata only.
+        expect(chatToStub(recovered)).toEqual({ id: 'c-hybrid', name: 'h', _stub: true })
     })
 })

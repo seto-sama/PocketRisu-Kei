@@ -26,7 +26,6 @@ export function decodeGenerationRequest(message: Uint8Array) {
 }
 
 export function encodeJournalChunk(offset: number, bytes: Uint8Array) {
-    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid journal offset')
     return encodeBinaryMessage({ type: 'chunk', offset }, bytes)
 }
 
@@ -77,7 +76,7 @@ export function trimJournalReplay(
     chunkOffset: number,
     receivedBytes: number,
 ): Uint8Array | null {
-    if (!Number.isSafeInteger(chunkOffset) || chunkOffset < 0 || chunkOffset > receivedBytes) {
+    if (chunkOffset > receivedBytes) {
         throw new Error(`Generation journal gap at ${receivedBytes} (chunk starts at ${chunkOffset})`)
     }
     const overlap = receivedBytes - chunkOffset

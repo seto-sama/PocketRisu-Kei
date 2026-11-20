@@ -35,7 +35,7 @@ vi.mock(import('../../stores.svelte'), () => ({
 
 vi.mock(import('../../process/modules'), () => ({ getModuleAssets: () => [] }))
 vi.mock(import('../../process/scripts'), () => ({
-    processScriptFull: async (_char: unknown, data: string) => ({ data, emoChanged: false }),
+    processScriptFull: async (_char: unknown, data: string) => ({ data }),
 }))
 
 //#endregion

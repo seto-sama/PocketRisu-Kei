@@ -13,7 +13,7 @@ import { decodeRisuSave } from './risuSave'
 import { createDelta } from '../../../shared/guardedDelta.mjs'
 
 const bytes = new Uint8Array([1, 2, 3])
-const patch = { patch: [{ op: 'replace', path: '/language', value: 'ko' }], expectedHash: 'base' }
+const patch = { changes: createDelta({ language: 'en' }, { language: 'ko' }) }
 let storage: NodeStorage
 let fetchMock: ReturnType<typeof vi.fn>
 
@@ -290,24 +290,6 @@ it('never propagates unsolicited server text or ids from reference responses', a
     })))
     expect(await storage.scanContentReferences('translation', ['known', 'unused']))
         .toEqual({ kind: 'translation', scannedAt: 1, keys: ['known'] })
-})
-
-it('carries hash diagnostics through the existing patch request without another fetch', async () => {
-    const hashDiagnostics = { keys: { language: 'abc' }, characters: [{ id: 'a', hash: 'def' }] }
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-        code: 'DATABASE_HASH_MISMATCH', currentHash: '123', currentRevision: 9,
-        currentEtag: 'server', hashDiagnostics,
-    }), { status: 409 }))
-    expect(await storage.patchDatabase(patch)).toMatchObject({
-        conflict: true, conflictCode: 'DATABASE_HASH_MISMATCH', currentHash: '123',
-        revision: 9, hashDiagnostics,
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(decode(fetchMock.mock.calls[0][1].body)).toEqual(patch)
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-        hashDiagnostics: { keys: null, characters: [] },
-    }), { status: 409 }))
-    expect(await storage.patchDatabase(patch)).toMatchObject({ conflict: true, hashDiagnostics: undefined })
 })
 
 it('bounds auth preflight without dispatching a late chat request', async () => {

@@ -21,7 +21,7 @@ import type { ModelModeExtended } from './shared'
  *  - mode 'model'    → main slot.  unresolved → block (main is often expensive;
  *                      never silently fall back to a different model).
  *  - mode 'submodel' → sub slot.   unresolved → block.
- *  - aux modes (memory/emotion/translate/otherAx):
+ *  - aux modes (memory/translate/otherAx):
  *      separateAux on + slot resolves → that preset
  *      otherwise → fall back to sub slot ("use default sub model").
  *

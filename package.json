@@ -1,7 +1,7 @@
 {
   "name": "pocketrisu-kei",
   "private": true,
-  "version": "2.2.1",
+  "version": "2.3.0",
   "homepage": "https://github.com/seto-sama/PocketRisu-Kei",
   "repository": {
     "type": "git",
@@ -19,7 +19,7 @@
   "scripts": {
     "debug": "node server/debug.cjs",
     "dev": "node server/server.cjs --dev",
-    "build": "vite build --sourcemap",
+    "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:help": "node scripts/check-help-keys.mjs",

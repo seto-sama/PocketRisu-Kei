@@ -71,6 +71,8 @@ describe('compileModelPreset', () => {
         const source = preset('custom', {
             imageInput: true,
             toolUse: true,
+            foldSystemPrompt: false,
+            keepFirstSystemPrompt: false,
             userValues: {
                 customFormat: 'google-gemini',
                 customFlag_hasAudioInput: true,
@@ -83,6 +85,11 @@ describe('compileModelPreset', () => {
         expect(compiled.adapterKind).toBe('google-gemini')
         expect(compiled.sourcePreset).toBe(source)
         expect(compiled.preset).not.toBe(source)
+        expect(compiled.behavior).toMatchObject({
+            canFoldSystemPrompt: false,
+            foldSystemPrompt: true,
+            keepFirstSystemPrompt: true,
+        })
         expect(compiled.features).toMatchObject({
             tools: true,
             vision: true,

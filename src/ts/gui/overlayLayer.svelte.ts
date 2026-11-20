@@ -1,20 +1,17 @@
-import { getContext, setContext } from 'svelte'
 import {
     acquireOverlayLayer,
-    overlayLayerContext,
+    getOverlayLayer,
+    hasOverlayLayer,
     overlayLayerMinimum,
-    type OverlayLayerGetter,
+    setOverlayLayer,
 } from './overlayStack'
 
 /** Connects the overlay allocator to a Svelte component and its descendants. */
 export function provideOverlayLayer(isActive: () => boolean = () => true) {
-    const parentLayer = getContext<OverlayLayerGetter | undefined>(overlayLayerContext)
+    const parentLayer = hasOverlayLayer() ? getOverlayLayer() : undefined
     let allocatedZIndex = $state<number>()
 
-    setContext<OverlayLayerGetter>(
-        overlayLayerContext,
-        () => allocatedZIndex ?? parentLayer?.(),
-    )
+    setOverlayLayer(() => allocatedZIndex ?? parentLayer?.())
 
     $effect(() => {
         if (!isActive()) return

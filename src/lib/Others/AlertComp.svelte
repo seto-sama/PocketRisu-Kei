@@ -27,7 +27,8 @@
     import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getActiveBotPreset, getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
-    import { alertInput, alertConfirm, alertError, notifySuccess } from "src/ts/alert";
+    import { alertInput, alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
+    import { writeSystemClipboard } from 'src/ts/clipboard/keiClipboard.svelte';
     import { selectSingleImportFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
@@ -116,15 +117,12 @@
     }
 
     async function copyToClipboard(text: string, key: string) {
+        // Stack traces are copied for bug reports outside the app.
         try {
-            await navigator.clipboard.writeText(text)
-        } catch {
-            const textarea = document.createElement('textarea')
-            textarea.value = text
-            document.body.appendChild(textarea)
-            textarea.select()
-            document.execCommand('copy')
-            document.body.removeChild(textarea)
+            await writeSystemClipboard(text)
+        } catch (error) {
+            notifyError(error)
+            return
         }
         copiedKey = key
         setTimeout(() => {
@@ -197,7 +195,7 @@
 
 {#if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
+    <div {@attach overlayLayer} class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
@@ -212,7 +210,7 @@
             <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
                 {#if $alertStore.submsg === 'preset'}
-                    {@const activePromptPreset = getActiveBotPreset()}
+                    {const activePromptPreset = $derived(getActiveBotPreset())}
                     {#if cardExportType2 === 'preset' && (activePromptPreset?.image || (activePromptPreset?.regex?.length ?? 0) > 0)}
                         <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
@@ -435,11 +433,11 @@
     }}
 >
     {#if $alertStore.type === 'select'}
-        {@const hasDisplay = $alertStore.msg.startsWith('__DISPLAY__')}
-        {@const raw = hasDisplay ? $alertStore.msg.substring(11) : $alertStore.msg}
-        {@const parts = raw.split('||')}
-        {@const prompt = hasDisplay ? parts[0] : ''}
-        {@const options = hasDisplay ? parts.slice(1) : parts}
+        {const hasDisplay = $derived($alertStore.msg.startsWith('__DISPLAY__'))}
+        {const raw = $derived(hasDisplay ? $alertStore.msg.substring(11) : $alertStore.msg)}
+        {const parts = $derived(raw.split('||'))}
+        {const prompt = $derived(hasDisplay ? parts[0] : '')}
+        {const options = $derived(hasDisplay ? parts.slice(1) : parts)}
         <div class="flex flex-col gap-3">
             {#if prompt}
                 <p class="text-maintext">{prompt}</p>
@@ -475,6 +473,7 @@
         <Input
             bind:value={input}
             id="alert-input"
+            hideText={$alertStore.hideText}
             autocomplete="off"
             list="alert-input-list"
             fullwidth
@@ -528,7 +527,7 @@
     {#snippet title()}{language.togglePresetSelectTitle}{/snippet}
 
     {#if $togglePresetsOpenStore}
-        {@const currentPromptPresetName = getActiveBotPreset()?.name}
+        {const currentPromptPresetName = $derived(getActiveBotPreset()?.name)}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-subtext self-start cursor-pointer select-none">
                 <Switch bind:checked={togglePresetShowAll} />
@@ -538,15 +537,15 @@
             {#if !DBState.db.togglePresets?.length}
                 <EmptyState title={language.togglePresetEmpty} description="" layout="section" />
             {:else}
-                {@const filteredPresets = togglePresetShowAll
+                {const filteredPresets = $derived(togglePresetShowAll
                     ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))
-                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)}
+                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName))}
                 {#if filteredPresets.length === 0}
                     <EmptyState layout="section" />
                 {:else}
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}
-                            {@const renameController = new InlineEditableNameController()}
+                            {const renameController = $derived(new InlineEditableNameController())}
                             <div data-inline-rename-row class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-lightborderc/50 transition-shadow">
                                 <div
                                     role="button"

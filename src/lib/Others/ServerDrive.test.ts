@@ -7,33 +7,30 @@ import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
 import { apiErrorCodes } from 'src/ts/network/apiError'
 import { SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
 
-const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, downloadFile, showPopupEditor } = await vi.hoisted(async () => {
-    const { writable } = await import('svelte/store')
+const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, getCharacterImageFormat, showPopupEditor } = vi.hoisted(() => {
     return {
         storage: {
             listDrive: vi.fn(), driveMetadata: vi.fn(), renameDriveEntry: vi.fn(), copyDriveEntry: vi.fn(),
             createDriveDirectory: vi.fn(), uploadDriveFile: vi.fn(), downloadDriveFile: vi.fn(),
             deleteDriveEntry: vi.fn(), emptyDriveTrash: vi.fn(), driveThumbnailUrl: vi.fn(), readDriveFile: vi.fn(),
+            restoreDriveTrashEntry: vi.fn(), deleteDriveTrashEntry: vi.fn(),
         },
         notifyError: vi.fn(),
-        mdViewport: writable(true),
+        mdViewport: { current: true },
         chooseConflictComparison: vi.fn(),
         importFile: vi.fn(),
-        downloadFile: vi.fn(),
+        getCharacterImageFormat: vi.fn(),
         showPopupEditor: vi.fn(),
     }
 })
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { Init: async () => {}, realStorage: storage } }))
-vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport }))
+vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport, isTouchDevice: { current: false } }))
 vi.mock('src/ts/alert', () => ({ notifyError, notifySuccess: vi.fn() }))
 vi.mock('src/ts/storage/saveConflict', async importOriginal => {
     const original = await importOriginal<typeof import('src/ts/storage/saveConflict')>()
     return { ...original, chooseConflictComparison }
 })
-vi.mock('src/ts/characterCards', () => ({ importFile }))
-vi.mock('src/ts/download', async importOriginal => ({
-    ...await importOriginal<typeof import('src/ts/download')>(), downloadFile,
-}))
+vi.mock('src/ts/characterCards', () => ({ importFile, getCharacterImageFormat }))
 vi.mock('src/ts/parser/parser.svelte', () => ({ parseMarkdownSafe: (text: string) => text }))
 vi.mock('src/ts/stores.svelte', async () => {
     const { fromStore, writable } = await import('svelte/store')
@@ -144,7 +141,7 @@ beforeEach(async () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:drive-preview')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     localStorage.clear()
-    mdViewport.set(true)
+    mdViewport.current = true
     DBState.db.serverDriveShortcuts = []
     DBState.db.trashRetentionDays = 3
     rootEntries = [{ ...folder }]
@@ -256,14 +253,21 @@ it('falls back after a thumbnail error and requests a new URL after the entry ch
     await vi.waitFor(() => expect(thumbnail()?.getAttribute('src')).not.toBe(originalUrl))
 })
 
-it.each(['card.charx', 'card.png', 'prompt.risup', 'prompt.risupreset', 'addon.risum', 'character.json'])(
-    'imports %s through the existing file handler', async name => {
+function footerLabels(root: HTMLElement) {
+    return [...root.querySelectorAll('button')].map(element => element.textContent?.trim()).filter(Boolean)
+}
+
+it.each(['card.charx', 'prompt.risup', 'prompt.risupreset', 'addon.risum'])(
+    'previews %s without downloading and imports it only from the preview', async name => {
         const imported = { ...file, name, path: `Documents/${name}` }
         files = [...files, imported]
         storage.readDriveFile.mockResolvedValueOnce(new File(['contents'], name))
         await openDocuments()
 
         entry(name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+        const preview = await vi.waitFor(() => dialog(name))
+        expect(storage.readDriveFile).not.toHaveBeenCalled()
+        button(language.serverDrive.import, preview).click()
 
         await vi.waitFor(() => expect(importFile).toHaveBeenCalledOnce())
         expect(storage.readDriveFile).toHaveBeenCalledWith(imported.path, expect.any(AbortSignal))
@@ -273,36 +277,60 @@ it.each(['card.charx', 'card.png', 'prompt.risup', 'prompt.risupreset', 'addon.r
     },
 )
 
-it('previews ordinary images and releases the image URL when closed', async () => {
-    const image = { ...file, name: 'photo.png', path: 'Documents/photo.png' }
+it('shows the charx thumbnail and reports risum as unavailable', async () => {
+    const character = { ...file, name: 'card.charx', path: 'Documents/card.charx' }
+    const module = { ...file, name: 'addon.risum', path: 'Documents/addon.risum' }
+    files = [...files, character, module]
+    await openDocuments()
+
+    await contextMenu(character.name)
+    menuItem(language.preview).click()
+    const preview = await vi.waitFor(() => dialog(character.name))
+    expect(preview.querySelector('img')?.getAttribute('src')).toBe(storage.driveThumbnailUrl(character))
+    button(language.close, preview).click()
+    await vi.waitFor(() => expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1))
+
+    entry(module.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    const unavailable = await vi.waitFor(() => dialog(module.name))
+    expect(unavailable.textContent).toContain(language.serverDrive.previewUnavailable)
+    expect(footerLabels(unavailable)).toEqual(expect.arrayContaining([language.close, language.serverDrive.import]))
+    expect(footerLabels(unavailable)).not.toContain(language.download)
+    expect(storage.readDriveFile).not.toHaveBeenCalled()
+    expect(importFile).not.toHaveBeenCalled()
+})
+
+it.each(['photo.webp', 'photo.png'])('previews the ordinary image %s with only a close action', async name => {
+    const image = { ...file, name, path: `Documents/${name}` }
     files = [...files, image]
     storage.readDriveFile.mockResolvedValueOnce(new File(['image'], image.name))
-    importFile.mockResolvedValueOnce(false)
+    getCharacterImageFormat.mockResolvedValue(null)
     await openDocuments()
 
     entry(image.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
 
     await vi.waitFor(() => expect(dialog(image.name).querySelector('img')?.getAttribute('src')).toBe('blob:drive-preview'))
-    expect(importFile).toHaveBeenCalledWith(image.name, expect.any(File))
-    expect(downloadFile).not.toHaveBeenCalled()
-    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+    expect(footerLabels(dialog(image.name))).toEqual([language.close])
     button(language.close, dialog(image.name)).click()
     await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:drive-preview'))
     expect(dialog(language.serverDrive.title)).toBeDefined()
+    expect(importFile).not.toHaveBeenCalled()
 })
 
-it('previews a character PNG from the context menu without importing it', async () => {
+it('offers import for a character PNG and reuses the downloaded preview file', async () => {
     const image = { ...file, name: 'card.png', path: 'Documents/card.png' }
     files = [...files, image]
-    storage.readDriveFile.mockResolvedValueOnce(new File(['image'], image.name))
+    const downloaded = new File(['image'], image.name)
+    storage.readDriveFile.mockResolvedValueOnce(downloaded)
+    getCharacterImageFormat.mockResolvedValue('png')
     await openDocuments()
 
-    await contextMenu(image.name)
-    menuItem(language.preview).click()
-
+    entry(image.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     await vi.waitFor(() => expect(dialog(image.name).querySelector('img')).not.toBeNull())
     expect(importFile).not.toHaveBeenCalled()
-    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
+    button(language.serverDrive.import, dialog(image.name)).click()
+
+    await vi.waitFor(() => expect(importFile).toHaveBeenCalledExactlyOnceWith(image.name, downloaded))
+    expect(storage.readDriveFile).toHaveBeenCalledOnce()
 })
 
 it('orders folder actions and downloads folders through the download API', async () => {
@@ -376,12 +404,11 @@ it('duplicates a folder with a numbered name when copying it into its current pa
     expect(storage.renameDriveEntry).not.toHaveBeenCalled()
 })
 
-it('opens unsupported JSON in the popup editor after the existing importer declines it', async () => {
+it('shows JSON contents in the popup editor on double-click', async () => {
     const json = { ...file, name: 'notes.json', path: 'Documents/notes.json' }
     files = [...files, json]
     const contents = '{"note":"hello"}'
     storage.readDriveFile.mockResolvedValueOnce(new File([contents], json.name))
-    importFile.mockResolvedValueOnce(false)
     await openDocuments()
 
     entry(json.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
@@ -390,11 +417,10 @@ it('opens unsupported JSON in the popup editor after the existing importer decli
     const options = showPopupEditor.mock.calls[0][0]
     expect(options).toMatchObject({ value: contents, title: json.name, mode: 'plain', description: '', submitKind: 'download' })
     expect(options.onCommit).toBeUndefined()
-    expect(downloadFile).not.toHaveBeenCalled()
     expect(storage.downloadDriveFile).not.toHaveBeenCalled()
-    expect(importFile).toHaveBeenCalledOnce()
-    await expect(options.onSubmit()).resolves.toBe(false)
-    await vi.waitFor(() => expect(downloadFile).toHaveBeenCalledWith(json.name, expect.any(File)))
+    expect(importFile).not.toHaveBeenCalled()
+    expect(options.onSubmit()).toBe(false)
+    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledExactlyOnceWith(json.path))
     expect(storage.readDriveFile).toHaveBeenCalledOnce()
 })
 
@@ -402,7 +428,6 @@ it('places the truncated text notice in the popup editor description', async () 
     const text = { ...file, name: 'notes.txt', path: 'Documents/notes.txt' }
     files = [...files, text]
     storage.readDriveFile.mockResolvedValueOnce(new File(['x'.repeat(1024 * 1024 + 1)], text.name))
-    importFile.mockResolvedValueOnce(false)
     await openDocuments()
 
     entry(text.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
@@ -421,17 +446,16 @@ it.each([
     const binary = { ...file, name, path: `Documents/${name}` }
     files = [...files, binary]
     storage.readDriveFile.mockResolvedValueOnce(new File([contents], binary.name))
-    importFile.mockResolvedValueOnce(false)
     await openDocuments()
 
     entry(binary.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
 
     await vi.waitFor(() => expect(dialog(binary.name).textContent).toContain(language.serverDrive.previewUnavailable))
-    expect(downloadFile).not.toHaveBeenCalled()
+    expect(storage.downloadDriveFile).not.toHaveBeenCalled()
     expect(dialog(binary.name).querySelector('iframe')).toBeNull()
     expect(URL.createObjectURL).not.toHaveBeenCalled()
     button(language.download, dialog(binary.name)).click()
-    await vi.waitFor(() => expect(downloadFile).toHaveBeenCalledWith(binary.name, expect.any(File)))
+    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledExactlyOnceWith(binary.path))
 })
 
 it('aborts a pending file read when the explorer unmounts before import', async () => {
@@ -446,6 +470,7 @@ it('aborts a pending file read when the explorer unmounts before import', async 
     await openDocuments()
 
     entry(character.name).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    button(language.serverDrive.import, await vi.waitFor(() => dialog(character.name))).click()
     await vi.waitFor(() => expect(storage.readDriveFile).toHaveBeenCalledOnce())
     const pendingRead = storage.readDriveFile.mock.results[0].value as Promise<File>
     await unmount(component)
@@ -1070,15 +1095,46 @@ it('confirms moving to trash and removes shortcuts only after deletion succeeds'
     await vi.waitFor(() => expect(DBState.db.serverDriveShortcuts).toEqual(['Photos']))
 })
 
+it('restores, downloads and permanently deletes trash entries, and leaves the trash from its icon', async () => {
+    const trashed = (name: string) => ({ ...file, name, path: `${trashPath}/${name}` })
+    trashEntries = [trashed('report.txt'), trashed('old.txt')]
+    storage.restoreDriveTrashEntry.mockImplementation(async (path: string) => { trashEntries = trashEntries.filter(entry => entry.path !== path) })
+    storage.deleteDriveTrashEntry.mockImplementation(async (path: string) => { trashEntries = trashEntries.filter(entry => entry.path !== path) })
+    await openDocuments()
+    button(language.trash).click()
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('old.txt'))
+    await vi.waitFor(() => expect(entry('old.txt').disabled).toBe(false))
+    const address = document.querySelector(`nav[aria-label="${language.serverDrive.path}"]`)!
+    expect(address.textContent).not.toContain(trashPath)
+    await contextMenu('report.txt')
+    menuItem(language.download).click()
+    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledWith(`${trashPath}/report.txt`))
+    await tick()
+    await contextMenu('report.txt')
+    menuItem(language.serverDrive.restoreFromTrash).click()
+    await vi.waitFor(() => expect(storage.restoreDriveTrashEntry).toHaveBeenCalledWith(`${trashPath}/report.txt`))
+    await vi.waitFor(() => expect(document.querySelector('main')?.textContent).not.toContain('report.txt'))
+
+    await tick()
+    await contextMenu('old.txt')
+    menuItem(language.serverDrive.deleteForever).click()
+    await tick()
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(language.serverDrive.deleteForeverConfirm.replace('{count}', '1'))
+    button(language.serverDrive.deleteForever, document.querySelector('[role="alertdialog"]')!).click()
+    await vi.waitFor(() => expect(storage.deleteDriveTrashEntry).toHaveBeenCalledWith(`${trashPath}/old.txt`))
+    expect(storage.deleteDriveEntry).not.toHaveBeenCalled()
+
+    const railTrash = button(language.trash, document.querySelector(`[role="navigation"][aria-label="${language.serverDrive.shortcuts}"]`)!)
+    await vi.waitFor(() => expect(railTrash.disabled).toBe(false))
+    railTrash.click()
+    await vi.waitFor(() => expect(storage.listDrive).toHaveBeenLastCalledWith('Documents', expect.anything()))
+})
+
 it('browses the drive trash and only empties it after confirmation', async () => {
     trashEntries = [{ ...file, path: `${trashPath}/report.txt` }]
     button(language.trash).click()
     await vi.waitFor(() => expect(document.querySelector('main')?.textContent).toContain('report.txt'))
     expect(button(language.serverDrive.upload).disabled).toBe(true)
-    await contextMenu('report.txt')
-    expect(menuItem(language.serverDrive.rename).getAttribute('aria-disabled')).toBe('true')
-    menuItem(language.download).click()
-    await vi.waitFor(() => expect(storage.downloadDriveFile).toHaveBeenCalledWith(`${trashPath}/report.txt`))
     button(language.emptyTrash).click()
     await tick()
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(language.serverDrive.emptyTrashConfirm)
@@ -1098,7 +1154,7 @@ it('browses the drive trash and only empties it after confirmation', async () =>
 it('uses the mobile navigation toolbar and refreshes the current folder from the left rail', async () => {
     await unmount(component)
     document.body.replaceChildren()
-    mdViewport.set(false)
+    mdViewport.current = false
     await mountDrive()
 
     await openDocuments()
@@ -1114,6 +1170,7 @@ it('uses the mobile navigation toolbar and refreshes the current folder from the
     const railButtons = [...shortcuts.querySelectorAll<HTMLButtonElement>('button')]
         .map(element => element.getAttribute('aria-label'))
     expect(railButtons).toEqual([
+        language.serverDrive.privateFolder,
         language.serverDrive.upload,
         language.serverDrive.refresh,
         language.trash,

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { decodingFetch } from './__testDecodingFetch'
 import { resetGeminiContextCacheRuntime } from '../cache/geminiContextCache'
 import {
     resetGeminiCacheWiringRuntime,
@@ -7,13 +8,14 @@ import {
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
 import { createThoughtSignatureCollector, restoreThoughtSignatures, type ThoughtSignatureContext } from './thoughtSignatures'
-import { decodeRevenantGenerationJournal } from '../../process/revenant/transport/journalDecoder'
+import { decodeAdapterResponseBody } from './responseDecoder'
+import { createDecodedChatProjection } from './decodedEvents'
 import { expandAdapterMessages, toAdapterMessage } from '../../process/request/modelPresetMessages'
 import { formatPresetMessages } from '../../process/request/formatMessages'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
+import { compileModelPreset } from '../runtime/compilePreset'
 
-// Minimal SA JSON that parseServiceAccountJson accepts; the token exchange is
-// stubbed (see stubServiceAccountToken) so no signing/network happens.
+// Minimal service-account fixture; server transport resolves signing credentials.
 const VERTEX_SA_JSON = JSON.stringify({
     type: 'service_account',
     project_id: 'my-proj',
@@ -111,7 +113,7 @@ function captureFetch(response: Response | (() => Response)): {
     calls: CapturedCall[]
 } {
     const calls: CapturedCall[] = []
-    const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
         const headers = init?.headers as Record<string, string> | undefined
         const body = init?.body != null ? JSON.parse(init.body as string) : {}
@@ -122,9 +124,71 @@ function captureFetch(response: Response | (() => Response)): {
             body,
         })
         return typeof response === 'function' ? response() : response
-    }
+    })
     return { fetchImpl, calls }
 }
+
+async function sendCompiledGeminiRequest(
+    promptMessages: Parameters<typeof formatPresetMessages>[0],
+    db: Parameters<typeof formatPresetMessages>[2],
+) {
+    const preset = makePreset({ foldSystemPrompt: false, keepFirstSystemPrompt: false })
+    const compiled = compileModelPreset(preset)
+    const formatted = formatPresetMessages(structuredClone(promptMessages), compiled.behavior, db)
+    const { fetchImpl, calls } = captureFetch(
+        jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+    )
+    await sendGoogleChatRequest(
+        preset,
+        { messages: formatted.map(message => toAdapterMessage(message)), fetchImpl },
+        { apiKey: 'k' },
+    )
+    return { body: calls[0].body, formatted }
+}
+
+describe('Gemini compiled system prompt formatting', () => {
+    test.each([
+        ['user', '', 'user', 'Late instruction.', 'Reminder: be concise.'],
+        ['assistant', '', 'model', 'Late instruction.', 'Reminder: be concise.'],
+        ['user', 'Instruction: {{slot}}', 'user', 'Instruction: Late instruction.', 'Instruction: Reminder: be concise.'],
+    ] as const)(
+        'keeps leading systems native for replacement role %s with template %s',
+        async (systemRoleReplacement, systemContentReplacement, expectedRole, lateInstruction, reminder) => {
+            const { body, formatted } = await sendCompiledGeminiRequest([
+                { role: 'system', content: 'Be helpful.' },
+                { role: 'system', content: 'Follow the safety rules.', cachePoint: true },
+                { role: 'user', content: 'Question?' },
+                { role: 'assistant', content: 'Earlier answer.' },
+                { role: 'system', content: 'Late instruction.' },
+                { role: 'system', content: 'Reminder: be concise.' },
+            ], { systemRoleReplacement, systemContentReplacement })
+
+            expect(formatted[0].cachePoint).toBe(true)
+            expect(body.systemInstruction).toEqual({
+                parts: [{ text: 'Be helpful.\n\nFollow the safety rules.' }],
+            })
+            expect(body.contents).toEqual([
+                { role: 'user', parts: [{ text: 'Question?' }] },
+                { role: 'model', parts: [{ text: 'Earlier answer.' }] },
+                { role: expectedRole, parts: [{ text: lateInstruction }] },
+                { role: expectedRole, parts: [{ text: reminder }] },
+            ])
+        },
+    )
+
+    test('omits systemInstruction when there is no leading system', async () => {
+        const { body } = await sendCompiledGeminiRequest([
+            { role: 'user', content: 'Question?' },
+            { role: 'system', content: 'Late instruction.' },
+        ], { systemRoleReplacement: 'assistant', systemContentReplacement: '' })
+
+        expect(body.systemInstruction).toBeUndefined()
+        expect(body.contents).toEqual([
+            { role: 'user', parts: [{ text: 'Question?' }] },
+            { role: 'model', parts: [{ text: 'Late instruction.' }] },
+        ])
+    })
+})
 
 describe('sendGoogleChatRequest (non-stream)', () => {
     test('embeds modelId in URL path, uses x-goog-api-key, and sends contents + systemInstruction', async () => {
@@ -220,18 +284,6 @@ describe('sendGoogleChatRequest (non-stream)', () => {
         ])
     })
 
-    test('omits systemInstruction when no system messages', async () => {
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
-        )
-        await sendGoogleChatRequest(
-            makePreset(),
-            { messages: [{ role: 'user', content: 'x' }], fetchImpl },
-            { apiKey: 'k' },
-        )
-        expect(calls[0].body.systemInstruction).toBeUndefined()
-    })
-
     test('serializes tool turns: functionCall on model, grouped functionResponse on user', async () => {
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
@@ -254,7 +306,7 @@ describe('sendGoogleChatRequest (non-stream)', () => {
             { apiKey: 'k' },
         )
         const contents = calls[0].body.contents as Array<Record<string, unknown>>
-        // model turn carries functionCall parts (id echoed); first has its signature.
+        // The first model functionCall keeps its thought signature.
         expect(contents[1]).toEqual({
             role: 'model',
             parts: [
@@ -262,7 +314,7 @@ describe('sendGoogleChatRequest (non-stream)', () => {
                 { functionCall: { id: 'c2', name: 'b', args: {} } },
             ],
         })
-        // both tool results collapse into one user turn of functionResponse parts (id echoed).
+        // Both tool results share a user turn and echo their call IDs.
         expect(contents[2]).toEqual({
             role: 'user',
             parts: [
@@ -312,7 +364,7 @@ describe('sendGoogleChatRequest (non-stream)', () => {
     })
 
     test('round-trips Gemini provider call id on both functionCall and functionResponse', async () => {
-        // Parse keeps the real id.
+        // Parsing preserves the provider ID.
         const { fetchImpl } = captureFetch(
             jsonResponse({ candidates: [{ content: { parts: [{ functionCall: { id: 'fc-7', name: 'a', args: {} } }] } }] }),
         )
@@ -323,7 +375,7 @@ describe('sendGoogleChatRequest (non-stream)', () => {
         )
         expect(r.toolCalls![0].id).toBe('fc-7')
 
-        // Serialize echoes it on both sides (id matching for same-name parallel calls).
+        // Follow-up functionCall and functionResponse parts echo that ID.
         const { fetchImpl: f2, calls } = captureFetch(
             jsonResponse({ candidates: [{ content: { parts: [{ text: 'done' }] } }] }),
         )
@@ -356,7 +408,7 @@ describe('sendGoogleChatRequest (non-stream)', () => {
     })
 
     test('resends model parts verbatim via providerEcho (preserves text-part thoughtSignature)', async () => {
-        // Gemini can attach a signature to a plain text part; it must come back exactly.
+        // Gemini may attach a signature to a text part as well as a function call.
         const rawParts = [
             { text: 'visible answer', thoughtSignature: 'TS-on-text' },
             { functionCall: { name: 'a', args: {} }, thoughtSignature: 'FS' },
@@ -626,10 +678,10 @@ describe('streamGoogleChatRequest', () => {
                 controller.error(abort)
             },
         })
-        const fetchImpl: typeof fetch = async () => new Response(stream, {
+        const fetchImpl: typeof fetch = decodingFetch(async () => new Response(stream, {
             status: 200,
             headers: { 'Content-Type': 'text/event-stream' },
-        })
+        }))
         const gen = streamGoogleChatRequest(
             makePreset(),
             { messages: messagesWithSystem, fetchImpl },
@@ -798,19 +850,6 @@ describe('vision (Stage 3)', () => {
             mediaResolution: 'MEDIA_RESOLUTION_MEDIUM',
         })
     })
-
-    test('a text-only user turn keeps a single text part (no regression)', async () => {
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
-        )
-        await sendGoogleChatRequest(
-            makePreset(),
-            { messages: [{ role: 'user', content: 'plain' }], fetchImpl },
-            { apiKey: 'k' },
-        )
-        const contents = calls[0].body.contents as Array<Record<string, unknown>>
-        expect(contents[0]).toEqual({ role: 'user', parts: [{ text: 'plain' }] })
-    })
 })
 
 describe('context caching wiring', () => {
@@ -828,16 +867,14 @@ describe('context caching wiring', () => {
         return { promptCaching: { enabled: true }, chatKey: 'chat-1', task: 'model', presetId: 'preset-google' }
     }
 
-    // Routes chat calls to `chatResponse` and answers the cachedContents API
-    // (POST create / PATCH extend / DELETE remove) like the real endpoint, with
-    // sequential cache names so assertions can pin them down.
+    // Route chat and cachedContents calls through one fake endpoint.
     function routedFetch(chatResponse: () => Response): {
         fetchImpl: typeof fetch
         calls: CapturedCall[]
     } {
         const calls: CapturedCall[] = []
         let created = 0
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
             calls.push({
                 url,
@@ -853,7 +890,7 @@ describe('context caching wiring', () => {
                 return jsonResponse({})
             }
             return chatResponse()
-        }
+        })
         return { fetchImpl, calls }
     }
 
@@ -864,7 +901,7 @@ describe('context caching wiring', () => {
         })
     }
 
-    // system + cachePoint on the first user turn → wire boundary = 1 content.
+    // Cache the first user turn after the system instruction.
     const turnOneMessages: AdapterChatMessage[] = [
         { role: 'system', content: 'You are factual.' },
         { role: 'user', content: 'turn 1', cachePoint: true },
@@ -879,11 +916,9 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        // The chat request itself is untouched (full contents + systemInstruction).
         expect(calls[0].body.cachedContent).toBeUndefined()
         expect(calls[0].body.contents).toHaveLength(3)
         expect(calls[0].body.systemInstruction).toBeDefined()
-        // Fire-and-forget creation lands after the response returned.
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
@@ -897,13 +932,8 @@ describe('context caching wiring', () => {
         })
     })
 
-    // Vertex native: same google-gemini adapter, but service-account auth and a
-    // publisher-rooted chat URL. The cache layer must derive the location-rooted
-    // cachedContents URL and the full "projects/.../models/{id}" resource name
-    // from that URL (host is never hardcoded), and reuse the Bearer auth.
+    // Service-account auth also exercises Gemini's Vertex endpoint shape.
     function makeVertexPreset(): ModelPreset {
-        // The wire model id resolves from the snapshot schema default
-        // ('gemini-demo'), so the publisher URL carries that id.
         return makePreset({
             profileSnapshot: makeSnapshot({
                 providerBaseId: 'vertex-gemini-native',
@@ -923,7 +953,6 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: VERTEX_SA_JSON },
         )
-        // Chat call hits the Vertex publisher URL with Bearer auth.
         expect(calls[0].url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global'
             + '/publishers/google/models/gemini-demo:generateContent',
@@ -932,7 +961,6 @@ describe('context caching wiring', () => {
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
-        // cachedContents is rooted at the location, not the publisher segment.
         expect(calls[1].url).toBe(
             'https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global/cachedContents',
         )
@@ -996,7 +1024,6 @@ describe('context caching wiring', () => {
             { role: 'user', parts: [{ text: 'turn 3' }] },
         ])
         expect(calls[2].body.systemInstruction).toBeUndefined()
-        // Fresh hit (full TTL remaining, no growth) → no extend/recreate calls.
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(3)
     })
@@ -1021,7 +1048,6 @@ describe('context caching wiring', () => {
             { messages: editedMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        // Recreation is also fire-and-forget: wait for DELETE + chat + POST.
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(5)
         const remove = calls.find((c) => c.method === 'DELETE')
@@ -1048,8 +1074,7 @@ describe('context caching wiring', () => {
         )
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
-        // Reroll: identical prompt — the cache boundary equals the contents
-        // length, so applying would leave contents empty. Must send uncached.
+        // An end-of-prompt boundary leaves no suffix to send.
         await sendGoogleChatRequest(
             makePreset(),
             { messages, fetchImpl, cache: makeCacheContext() },
@@ -1073,10 +1098,6 @@ describe('context caching wiring', () => {
         expect(calls[0].body.cachedContent).toBeUndefined()
     })
 
-    // A cachePoint carried only by a system message (cache card landing on the
-    // system role) used to be dropped when system → systemInstruction, silently
-    // disabling caching. It now folds into a boundary-0 (systemInstruction-only)
-    // cache: the create POST holds an empty contents prefix + systemInstruction.
     const systemOnlyCachePoint: AdapterChatMessage[] = [
         { role: 'system', content: 'You are factual.', cachePoint: true },
         { role: 'user', content: 'turn 1' },
@@ -1089,10 +1110,8 @@ describe('context caching wiring', () => {
             { messages: systemOnlyCachePoint, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        // Turn 1 sends uncached (full contents + systemInstruction).
         expect(calls[0].body.cachedContent).toBeUndefined()
         expect(calls[0].body.systemInstruction).toBeDefined()
-        // Fire-and-forget creation: cache the systemInstruction only (no contents).
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
@@ -1125,8 +1144,6 @@ describe('context caching wiring', () => {
             { messages: turnTwo, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        // boundary 0 → the cache holds only the systemInstruction; the chat call
-        // strips systemInstruction and sends the FULL contents as the suffix.
         expect(calls[2].body.cachedContent).toBe('cachedContents/created-1')
         expect(calls[2].body.systemInstruction).toBeUndefined()
         expect(calls[2].body.contents).toEqual([
@@ -1151,9 +1168,7 @@ describe('context caching wiring', () => {
         )
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
-        // The chat cachePoint (boundary 1) is the larger cacheable prefix: the
-        // create body holds systemInstruction + the first user turn, not just
-        // the systemInstruction.
+        // The deeper chat boundary wins over the system-only boundary.
         expect(calls[1].method).toBe('POST')
         expect(calls[1].body).toEqual({
             model: 'models/gemini-demo',
@@ -1180,10 +1195,8 @@ describe('context caching wiring', () => {
     })
 
     test('a cache-API failure never disturbs the chat (creation POST fails, response still resolves)', async () => {
-        // Chat call always 200; the cachedContents POST fails. The first turn must
-        // resolve normally and the failed create must not surface on the chat path.
         const calls: CapturedCall[] = []
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
             calls.push({
                 url,
@@ -1193,66 +1206,61 @@ describe('context caching wiring', () => {
             })
             if (url.includes('/cachedContents')) return jsonResponse({}, { status: 403 })
             return chatJson(10_000)()
-        }
+        })
         const result = await sendGoogleChatRequest(
             makePreset(),
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
         expect(result.text).toBe('ok')
-        // chat (1) + failed create POST (2). No retry, no extra chat call.
         await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         const chatCalls = calls.filter((c) => c.url.includes(':generateContent'))
         expect(chatCalls).toHaveLength(1)
     })
 
-    test('an applied cache the server evicted falls back to an uncached chat (no thrown error)', async () => {
-        // Turn 1 creates the cache; turn 2 applies it but the server has evicted
-        // it → 404 on the cached chat call. The adapter must drop the cache and
-        // retry uncached so the turn succeeds.
-        let createdName = ''
-        const calls: CapturedCall[] = []
-        const fetchImpl: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-            const body = init?.body != null ? JSON.parse(init.body as string) : {}
-            calls.push({ url, method: (init?.method ?? 'GET') as string, headers: (init?.headers as Record<string, string>) ?? {}, body })
-            if (url.includes('/cachedContents')) {
-                if (init?.method === 'POST') {
-                    createdName = 'cachedContents/evicted-1'
-                    return jsonResponse({ name: createdName })
+    test.each([403, 404] as const)(
+        'retries an applied cache rejected with HTTP %i without cachedContent',
+        async status => {
+            const createdName = 'cachedContents/evicted-1'
+            const calls: CapturedCall[] = []
+            const fetchImpl: typeof fetch = decodingFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+                const body = init?.body != null ? JSON.parse(init.body as string) : {}
+                calls.push({ url, method: (init?.method ?? 'GET') as string, headers: (init?.headers as Record<string, string>) ?? {}, body })
+                if (url.includes('/cachedContents')) {
+                    if (init?.method === 'POST') {
+                        return jsonResponse({ name: createdName })
+                    }
+                    return jsonResponse({})
                 }
-                return jsonResponse({})
-            }
-            // A chat call carrying the evicted cachedContent → 404. Uncached → 200.
-            if (body.cachedContent) return jsonResponse({ error: { message: 'cache not found' } }, { status: 404 })
-            return chatJson(10_000)()
-        }
-        await sendGoogleChatRequest(
-            makePreset(),
-            { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
-            { apiKey: 'k' },
-        )
-        await settleGeminiCacheTasks()
-        expect(calls.some((c) => c.method === 'POST')).toBe(true)
-        const turnTwoMessages: AdapterChatMessage[] = [
-            ...turnOneMessages,
-            { role: 'assistant', content: 'reply 2' },
-            { role: 'user', content: 'turn 3' },
-        ]
-        const result = await sendGoogleChatRequest(
-            makePreset(),
-            { messages: turnTwoMessages, fetchImpl, cache: makeCacheContext() },
-            { apiKey: 'k' },
-        )
-        // The turn succeeds via the uncached retry rather than throwing the 404.
-        expect(result.text).toBe('ok')
-        // The cached attempt (404) then an uncached retry (200) both fired.
-        const turn2Chats = calls.filter((c, i) => i >= 2 && c.url.includes(':generateContent'))
-        expect(turn2Chats).toHaveLength(2)
-        expect(turn2Chats[0].body.cachedContent).toBe(createdName)
-        expect(turn2Chats[1].body.cachedContent).toBeUndefined()
-    })
+                if (body.cachedContent) return jsonResponse({ error: { message: 'cache not found' } }, { status })
+                return chatJson(10_000)()
+            })
+            await sendGoogleChatRequest(
+                makePreset(),
+                { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
+                { apiKey: 'k' },
+            )
+            await settleGeminiCacheTasks()
+            expect(calls.some((c) => c.method === 'POST')).toBe(true)
+            const turnTwoMessages: AdapterChatMessage[] = [
+                ...turnOneMessages,
+                { role: 'assistant', content: 'reply 2' },
+                { role: 'user', content: 'turn 3' },
+            ]
+            const result = await sendGoogleChatRequest(
+                makePreset(),
+                { messages: turnTwoMessages, fetchImpl, cache: makeCacheContext() },
+                { apiKey: 'k' },
+            )
+            expect(result.text).toBe('ok')
+            const turn2Chats = calls.filter((c, i) => i >= 2 && c.url.includes(':generateContent'))
+            expect(turn2Chats).toHaveLength(2)
+            expect(turn2Chats[0].body.cachedContent).toBe(createdName)
+            expect(turn2Chats[1].body.cachedContent).toBeUndefined()
+        },
+    )
 
     test('parses cachedContentTokenCount into usage.cachedTokens', async () => {
         const { fetchImpl } = captureFetch(jsonResponse({
@@ -1272,16 +1280,17 @@ describe('context caching wiring', () => {
 describe('persisted Gemini thought context', () => {
     test('keeps an empty signature part through edits and reverts using the response UUID', async () => {
         let context: ThoughtSignatureContext | undefined
-        const content = await decodeRevenantGenerationJournal(
-            { jobId: 'job', chatId: 'response', adapterKind: 'google-gemini', streaming: true,
-                status: 'generated', responseStatus: 200, createdAt: 1, updatedAt: 2 },
+        const projection = createDecodedChatProjection()
+        await decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
             new Response([
                 'data: {"candidates":[{"content":{"parts":[{"text":"original"}]}}]}\n\n',
                 'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
             ].join('')).body!,
-            undefined, undefined, value => { context = value },
+            event => projection.apply(event),
+            value => { context = value },
         )
-        expect(content).toBe('original')
+        expect(projection.content()).toBe('original')
         const records = [{ responseId: 'response', adapterKind: 'google-gemini', model: 'gemini-demo', turns: [context!] }]
         for (const text of ['edited by plugin', 'original']) {
             const history = formatPresetMessages([
@@ -1300,6 +1309,20 @@ describe('persisted Gemini thought context', () => {
             ])
             expect(messages[0].thoughtContext).toBeUndefined()
         }
+    })
+
+    test('reports the context of complete frames when the journal is truncated', async () => {
+        let context: ThoughtSignatureContext | undefined
+        await expect(decodeAdapterResponseBody(
+            { adapterKind: 'google-gemini', stream: true },
+            new Response([
+                'data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"opaque"}]}}]}\n\n',
+                'data: {"candidates":[',
+            ].join('')).body!,
+            () => {},
+            value => { context = value },
+        )).rejects.toThrow()
+        expect(context?.geminiParts).toEqual([{ text: '', thoughtSignature: 'opaque' }])
     })
 
     test('restores parallel and sequential tool rounds before their results', async () => {

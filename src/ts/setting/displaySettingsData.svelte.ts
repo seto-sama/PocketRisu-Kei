@@ -73,20 +73,6 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         keywords: ['waifu', 'width'],
     },
     {
-        id: 'display.waifuWidth2',
-        type: 'slider',
-        labelKey: 'waifuWidth2',
-        helpKey: 'waifuWidth2',
-        bindKey: 'waifuWidth2',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 20,
-            max: 150,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
-    },
-    {
         id: 'display.customBackground',
         type: 'custom',
         componentId: 'CustomBackgroundToggle',
@@ -312,6 +298,7 @@ export const displaySizeSettingsItems: SettingItem[] = [
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
+    { id: 'display.hideRecentChats', type: 'check', labelKey: 'hideRecentChats', helpKey: 'hideRecentChats', bindKey: 'hideRecentChats', keywords: ['recent', 'chats', 'conversation', 'list', 'hide'] },
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
     {
         id: 'display.hidePublicStats',
