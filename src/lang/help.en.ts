@@ -284,8 +284,6 @@ export const helpEn = {
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
-        newImageHandlingBeta:
-            "Adds the asset prompt option to character settings, which instructs the model to insert the character's image assets into responses.",
         useServerDriveForFileImport:
             "Open Server Drive when loading files. When this setting is off, the device's file browser opens; right-click a button that loads files to open Server Drive.",
         returnCSSError:

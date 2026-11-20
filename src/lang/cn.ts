@@ -929,7 +929,6 @@ export const languageChinese = {
     "assetPrompt": "资源提示词",
     "assetPromptIncluded": "已包含在资源提示词中。点击以排除。",
     "assetPromptExcluded": "已从资源提示词中排除。点击以包含。",
-    "newImageHandlingBeta": "添加资源提示词部分",
     "bookmarks": "书签",
     "noBookmarks": "无书签",
     "bookmarkAskNameOrDefault": "输入书签名称。如果未输入，将自动分配。",

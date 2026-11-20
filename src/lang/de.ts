@@ -929,7 +929,6 @@ export const languageGerman = {
     "assetPrompt": "Asset-Anweisung",
     "assetPromptIncluded": "In der Asset-Anweisung enthalten. Zum Ausschließen klicken.",
     "assetPromptExcluded": "Von der Asset-Anweisung ausgeschlossen. Zum Einschließen klicken.",
-    "newImageHandlingBeta": "Asset-Anweisungsbereich hinzufügen",
     "bookmarks": "Lesezeichen",
     "noBookmarks": "Keine Lesezeichen",
     "bookmarkAskNameOrDefault": "Lesezeichennamen eingeben. Wenn nichts eingegeben wird, wird er automatisch zugewiesen.",

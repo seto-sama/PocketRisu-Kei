@@ -56,15 +56,12 @@ export interface BootBackupPromptData {
 }
 export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 
-// Independent sub-tab indices for settings pages.
+// Stores rather than component state so routing and settings search can open a page on a given tab.
 export const AddonSubmenuIndex = writable(0)
 export const SystemSubmenuIndex = writable(0)
 export const AdminStatsSubmenuIndex = writable(0)
-// Shared tab state allows the model settings button to open the Sidebar tab.
 export const AccessibilitySubmenuIndex = writable(0)
 export const HotkeySubmenuIndex = writable(0)
-// Shared tab state lets settings search deep-link into pages that previously
-// kept their selected tab as component-local state.
 export const DisplaySubmenuIndex = writable(0)
 export const AdvancedSubmenuIndex = writable(0)
 export const LanguageSubmenuIndex = writable(0)
@@ -195,6 +192,7 @@ export function createSimpleCharacter(char:character){
         additionalAssets: char.additionalAssets,
         emotionImages: char.emotionImages,
         triggerscript: char.triggerscript,
+        prebuiltAssetStyle: char.prebuiltAssetStyle,
     }
 
     return simpleChar

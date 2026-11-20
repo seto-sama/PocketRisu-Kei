@@ -631,7 +631,6 @@ export function migrateEmotionImagesToAssets(cha:character): void {
             cha.additionalAssets.push(emotionImageToAsset([name, path]))
         }
         cha.prebuiltAssetCommand = true
-        getDatabase().newImageHandlingBeta = true
     }
     if(legacy.emotionImages !== undefined) delete legacy.emotionImages
     if(legacy.viewScreen !== undefined) delete legacy.viewScreen

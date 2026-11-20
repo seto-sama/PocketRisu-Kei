@@ -264,8 +264,8 @@ import { isMobile } from 'src/ts/platform'
     function handleChatImageError(event: Event) {
         const target = event.target
         if (!(target instanceof HTMLImageElement) || !target.closest('[data-chat-index]')) return
-        // newImageHandlingBeta resolves bare asset names after their first failed load.
-        if (DBState.db.newImageHandlingBeta && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
+        // ChatBody owns bare asset names until it marks them unmatched with noimage.
+        if (!target.hasAttribute('noimage') && !/^([a-z][a-z\d+.-]*:|\/)/i.test(target.getAttribute('src') ?? '')) return
         replaceBrokenChatImage(target)
     }
 

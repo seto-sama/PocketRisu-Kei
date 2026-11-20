@@ -1148,10 +1148,7 @@ export interface Database{
      * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
      * 'button': only the send button (Enter newline). Replaces sendWithEnter. */
     sendKeyPC: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
-    /** Mobile send-key mode. Same options as sendKeyPC for users with a
-     * Bluetooth/external keyboard. 'enter': Enter sends (Shift+Enter newline);
-     * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
-     * 'button': only the send button (Enter newline). */
+    /** Mobile send-key mode, for Bluetooth/external keyboards. Same options as sendKeyPC. */
     sendKeyMobile: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
     fixedChatTextarea:boolean
     clickToEdit: boolean
@@ -1168,7 +1165,7 @@ export interface Database{
     inlayImageQuality:number
     classicMaxWidth: boolean,
     useAdditionalAssetsPreview:boolean,
-    memoryAlgorithmType:string // To enable new memory module/algorithms
+    memoryAlgorithmType:string
     ooba:OobaSettings
     ainconfig: AINsettings
     personaPrompt:string
@@ -1400,7 +1397,6 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
-    newImageHandlingBeta?: boolean
     /** Idle minutes before privacy guard returns to the password prompt; -1000 turns it off. */
     privacyGuardIdleLockMinutes:number
     showFirstMessagePages:boolean

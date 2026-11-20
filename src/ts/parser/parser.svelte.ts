@@ -565,25 +565,38 @@ const assetPromptTagRegex = /<assets\s+src\s*=\s*["']([^"']*)["'][^>]*>(?:\s*<\/
 const assetPromptMarker = '\uE9b5'
 const assetPromptExtensionRegex = new RegExp(`\\.(?:${imageAssetExtensions.join('|')})$`, 'i')
 
+// NFKC because default names are file names (NFD Hangul from macOS) and models
+// swap full-width and half-width punctuation.
 function normalizeAssetPromptName(name: string): string {
-    return name.toLocaleLowerCase().replace(/[\s_-]/g, '').replace(assetPromptExtensionRegex, '')
+    return name.normalize('NFKC').toLocaleLowerCase().replace(/[\s_-]/g, '').replace(assetPromptExtensionRegex, '')
 }
 
-// Asset-prompt tags (<assets src="Name">) draw only assets that exist; case, spaces,
-// separators and file extensions are ignored, and unknown names draw nothing.
-function resolveAssetPromptTags(data: string, char: simpleCharacterArgument|character) {
-    if(char.type === 'simple' || !/<assets\s/i.test(data)){
-        return data
-    }
+function assetPromptKeys(char: simpleCharacterArgument|character) {
     const names = new Map<string, string>()
     for(const key of Object.keys(ensureAssetsCache(char))){
         const normalized = normalizeAssetPromptName(key)
         if(!names.has(normalized)) names.set(normalized, key)
     }
+    return names
+}
+
+// Unlike {{img::}}, an unknown asset-prompt name draws nothing instead of a missing-image notice.
+function resolveAssetPromptTags(data: string, char: simpleCharacterArgument|character) {
+    if(!/<assets\s/i.test(data)){
+        return data
+    }
+    const names = assetPromptKeys(char)
     return data.replace(assetPromptTagRegex, (_full, name: string) => {
         const key = names.get(normalizeAssetPromptName(name))
         return key ? `{{img::${assetPromptMarker}${key}}}` : ''
     })
+}
+
+export async function resolveBareAssetSrc(name: string, char: simpleCharacterArgument|character): Promise<string|null> {
+    const assetPaths = ensureAssetsCache(char)
+    const key = assetPromptKeys(char).get(normalizeAssetPromptName(name))
+    const match = key ? assetPaths[key] : getClosestMatch(char, name.toLocaleLowerCase(), assetPaths)
+    return match ? getFileSrcCached(match.srcPaths[0]) : null
 }
 
 const imageCBS = ['img', 'image', 'emotion', 'asset', 'bg', 'raw', 'path', 'source']
@@ -671,7 +684,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             case 'img':
             case 'emotion':
                 if(fromAssetPrompt){
-                    const dynamic = (char as character).prebuiltAssetStyle === 'dynamic' ? ' x-risu-asset-prompt-image-dynamic' : ''
+                    const dynamic = char.prebuiltAssetStyle === 'dynamic' ? ' x-risu-asset-prompt-image-dynamic' : ''
                     return `<img class="x-risu-asset-prompt-image${dynamic}" src="${p}" alt="${p}" style="${assetWidthString} "/>`
                 }
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>`
@@ -749,7 +762,7 @@ function getClosestMatch(char: simpleCharacterArgument|character, name:string, a
     return assetPaths[closest]
 }
 
-export function getDistance(a:string, b:string) {
+function getDistance(a:string, b:string) {
     const h = a.length + 1
     const w = b.length + 1
     let d = new Int16Array(h * w)
@@ -1390,6 +1403,7 @@ export interface simpleCharacterArgument{
     name?: string,
     emotionImages?: [string, string][]
     triggerscript?: triggerscript[]
+    prebuiltAssetStyle?: string
 }
 
 function parseThoughtsAndTools(data:string, inlineThoughts = false){

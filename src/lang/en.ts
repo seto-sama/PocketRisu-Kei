@@ -1900,7 +1900,6 @@ export const languageEnglish = {
     assetPrompt: "Asset Prompt",
     assetPromptIncluded: "Included in the asset prompt. Click to exclude.",
     assetPromptExcluded: "Excluded from the asset prompt. Click to include.",
-    newImageHandlingBeta: "Add Asset Prompt Section",
     useServerDriveForFileImport: "Use Server Drive when loading files",
     bookmarks: "Bookmarks",
     noBookmarks: "No Bookmarks",

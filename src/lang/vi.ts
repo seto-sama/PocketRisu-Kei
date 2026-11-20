@@ -929,7 +929,6 @@ export const languageVietnamese = {
     "assetPrompt": "Lời nhắc tài sản",
     "assetPromptIncluded": "Đã có trong lời nhắc tài sản. Nhấn để loại bỏ.",
     "assetPromptExcluded": "Đã bị loại khỏi lời nhắc tài sản. Nhấn để thêm vào.",
-    "newImageHandlingBeta": "Thêm mục lời nhắc tài sản",
     "bookmarks": "Dấu trang",
     "noBookmarks": "Không có dấu trang",
     "bookmarkAskNameOrDefault": "Nhập tên dấu trang. Nếu không nhập, nó sẽ được gán tự động.",

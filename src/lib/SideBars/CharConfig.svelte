@@ -296,14 +296,12 @@
         {/if}
 
         <SettingsList spacing="none" className="mb-2">
-            {#if DBState.db.newImageHandlingBeta}
-                <SettingsList variant="row">
-                    <span class="min-w-0 text-maintext">
-                        {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
-                    </span>
-                    <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
-                </SettingsList>
-            {/if}
+            <SettingsList variant="row">
+                <span class="min-w-0 text-maintext">
+                    {language.insertAssetPrompt}<Help key="insertAssetPrompt" name={language.insertAssetPrompt}/>
+                </span>
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].prebuiltAssetCommand}/>
+            </SettingsList>
             <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">
                     {language.assetStyle}<Help key="assetStyle" name={language.assetStyle}/>

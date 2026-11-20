@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import type { character } from './storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({
-    db: { characters: [] as character[], newImageHandlingBeta: false },
+    db: { characters: [] as character[] },
     alertAddCharacter: vi.fn(),
     selectFileByDom: vi.fn(),
     importCharacterProcess: vi.fn(),
@@ -117,7 +117,6 @@ it('moves legacy emotion images into additional assets and enables the asset pro
         ['sad', 'assets/sad', 'png'],
     ])
     expect(char.prebuiltAssetCommand).toBe(true)
-    expect(mocks.db.newImageHandlingBeta).toBe(true)
     expect(char).not.toHaveProperty('emotionImages')
     expect(char).not.toHaveProperty('viewScreen')
     expect(char).not.toHaveProperty('inlayViewScreen')

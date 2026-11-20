@@ -1,13 +1,10 @@
 <script lang="ts">
-    import { isDebugEnabled } from 'src/ts/debug'
     import isEqual from "fast-deep-equal"
     import { DBState } from 'src/ts/stores.svelte'
     import { alertError } from "../../ts/alert"
     import { onDestroy, tick } from 'svelte'
-    import { addMetadataToElement, getDistance, isChatImagePreloadingEnabled, prepareMarkdownSource, preloadInlayAssets, preloadInlayAssetsWhenNear, preloadRenderedChatImages, renderPreparedMarkdown, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
-    import { getModuleAssets } from "src/ts/process/modules";
+    import { addMetadataToElement, isChatImagePreloadingEnabled, prepareMarkdownSource, preloadInlayAssets, preloadInlayAssetsWhenNear, preloadRenderedChatImages, renderPreparedMarkdown, replaceBrokenChatImage, resolveBareAssetSrc, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
-    import { getFileSrc } from "src/ts/globalApi.svelte";
     import { createChatBodyRenderController, translationLoadingHTML } from "./chatBodyRenderController.svelte";
     import type { RevenantChatTranslationRecovery, RevenantChatTranslationRecoverySnapshot } from "src/ts/process/revenant/recovery";
     import { getLLMTranslationCacheRevision } from "src/ts/translator/translator";
@@ -527,85 +524,38 @@
         }
     }
 
+    // Bare asset names in <img src> come from older asset prompts and bot HTML.
     const checkImg = () => {
-        if(!DBState.db.newImageHandlingBeta || !bodyRoot){
+        if(!bodyRoot){
             return
         }
-        const imgs = bodyRoot.querySelectorAll('img:not([src^="data:"]):not([src^="http:"]):not([src^="https:"]):not([src^="blob:"]):not([src^="file:"]):not([src^="/"]):not([noimage])') as NodeListOf<HTMLImageElement>
-        
-        if (imgs.length > 0) {
-            const currentCharacter = getCurrentCharacter()
-            const styl = currentCharacter.prebuiltAssetStyle
-            const assets = getModuleAssets().concat(currentCharacter.additionalAssets ?? [])
-            const normalizedAssets = assets.map((asset) => {
-                return {
-                    name: asset[0].toLocaleLowerCase(),
-                    path: asset[1]
-                }
-            })
-            const exactAssets = new Map(normalizedAssets.map((asset) => [asset.name, asset.path]))
-
-            imgs.forEach(async (img) => {
-                const name = img.getAttribute('src')?.toLocaleLowerCase() || ''
-                if (isDebugEnabled()) {
-                    console.debug(name)
-                }
-
-                if(
-                    name.length > 200 ||
-                    name.includes(':')
-                ){
-                    img.setAttribute('noimage', 'true')
-                    return
-                }
-                
-                const foundAsset = exactAssets.get(name)
-                if (isDebugEnabled()) {
-                    console.debug('Checking image:', name, 'Assets:', assets)
-                }
-                if(foundAsset){
-                    img.classList.add('root-loaded-image')
-                    img.classList.add('root-loaded-image-' + styl)
-                    img.src = await getFileSrc(foundAsset)
-                    return
-                }
-
-                if(name.length < 3){
-                    img.setAttribute('noimage', 'true')
-                    return
-                }
-                const prefixLoc = name.lastIndexOf('.')
-                const prefix = prefixLoc > 0 ? name.substring(0, prefixLoc) : ''
-                let currentDistance = 1000
-                let currentFound = ''
-                for(const asset of normalizedAssets){
-                    if(!asset.name.startsWith(prefix)){
-                        continue
-                    }
-                    const distance = getDistance(name, asset.name)
-                    if(distance < currentDistance){
-                        currentDistance = distance
-                        currentFound = asset.path
-                    }
-                }
-                if(currentFound){
-                    const got = await getFileSrc(currentFound)
-                    const name2 = img.getAttribute('src')?.toLocaleLowerCase() || ''
-                    if(name === name2){
-                        img.setAttribute('src', got)
-                    }
-
-                    if(img.classList.length === 0){
-                        img.classList.add('root-loaded-image')
-                        img.classList.add('root-loaded-image-' + styl)
-                    }
-                    img.removeAttribute('noimage')
-                }
-                else{
-                    img.setAttribute('noimage', 'true')
-                }
-            })
+        const imgs = bodyRoot.querySelectorAll('img:not([src^="data:"]):not([src^="http:"]):not([src^="https:"]):not([src^="blob:"]):not([src^="file:"]):not([src^="/"]):not([noimage]):not([data-asset-lookup])') as NodeListOf<HTMLImageElement>
+        if(imgs.length === 0){
+            return
         }
+        const currentCharacter = getCurrentCharacter()
+        const styl = currentCharacter.prebuiltAssetStyle
+        imgs.forEach(async (img) => {
+            const name = img.getAttribute('src') ?? ''
+            img.setAttribute('data-asset-lookup', '')
+            const src = name.length <= 200 && !name.includes(':')
+                ? await resolveBareAssetSrc(name, currentCharacter)
+                : null
+            img.removeAttribute('data-asset-lookup')
+            if(img.getAttribute('src') !== name){
+                return
+            }
+            if(!src){
+                img.setAttribute('noimage', 'true')
+                // A load that already failed was skipped by the chat error handler while this lookup ran.
+                if(img.complete && img.naturalWidth === 0) replaceBrokenChatImage(img)
+                return
+            }
+            if(img.classList.length === 0){
+                img.classList.add('root-loaded-image', 'root-loaded-image-' + styl)
+            }
+            img.src = src
+        })
     }
 
     let markParsingResult = $derived.by(() => {

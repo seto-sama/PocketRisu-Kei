@@ -22,7 +22,7 @@ vi.mock(import('../../process/scripts'), () => ({
     processScriptFull: async (_char: unknown, data: string) => ({ data }),
 }))
 
-import { prepareMarkdownSource, resetAssetsCache, type simpleCharacterArgument } from '../parser.svelte'
+import { prepareMarkdownSource, resetAssetsCache, resolveBareAssetSrc, type simpleCharacterArgument } from '../parser.svelte'
 
 function makeCharacter(id: string): simpleCharacterArgument {
     return {
@@ -65,19 +65,21 @@ describe('character asset cache ownership', () => {
     })
 
     it('draws asset-prompt image tags only for assets that exist', async () => {
-        const char = {
-            type: 'character', chaId: 'asset-prompt', name: 'asset-prompt', customscript: [],
-            prebuiltAssetCommand: true, additionalAssets: [['Ares_angry', 'ares-angry.png', 'png']],
-        } as unknown as character
-        const html = await prepareMarkdownSource('<assets src="Ares angry">\n\n<assets src="Ares sad"></assets>', char)
+        // Chat messages render with the simple character argument.
+        const char: simpleCharacterArgument = {
+            type: 'simple', chaId: 'asset-prompt', name: 'asset-prompt', customscript: [],
+            additionalAssets: [['Miku_angry', 'miku-angry.png', 'png']],
+        }
+        const html = await prepareMarkdownSource('<assets src="Miku angry">\n\n<assets src="Miku sad"></assets>', char)
         const document = new DOMParser().parseFromString(html, 'text/html')
-        expect(Array.from(document.querySelectorAll('img'), image => image.getAttribute('src'))).toEqual(['/resolved/ares-angry.png'])
+        expect(Array.from(document.querySelectorAll('img'), image => image.getAttribute('src'))).toEqual(['/resolved/miku-angry.png'])
         expect(document.querySelector('assets')).toBeNull()
     })
 
     it.each([
-        ['Ares_angry.svg', ' ares-angry.svg ', 'svg', true],
-        ['A.res_angry.png', 'Ares angry', 'png', false],
+        ['Miku_angry.svg', ' miku-angry.svg ', 'svg', true],
+        ['Mi.ku_angry.png', 'Miku angry', 'png', false],
+        ['하츠네 미쿠（평상복）_bored'.normalize('NFD'), '하츠네 미쿠 (평상복) bored', 'png', true],
     ])('matches asset-prompt name %s against %s exactly after normalization', async (name, requested, ext, matches) => {
         const char = {
             type: 'character', chaId: name, name, customscript: [],
@@ -86,5 +88,14 @@ describe('character asset cache ownership', () => {
         const html = await prepareMarkdownSource(`<assets src="${requested}">`, char)
         const image = new DOMParser().parseFromString(html, 'text/html').querySelector('img')
         expect(image?.getAttribute('src') ?? null).toBe(matches ? `/resolved/asset.${ext}` : null)
+    })
+
+    it('resolves bare <img src> asset names without falling back to an unrelated asset', async () => {
+        const char: simpleCharacterArgument = {
+            type: 'simple', chaId: 'bare-src', name: 'bare-src', customscript: [],
+            additionalAssets: [['Hatsune Miku_bored', 'bored.png', 'png']],
+        }
+        expect(await resolveBareAssetSrc('hatsune miku bored.png', char)).toBe('/resolved/bored.png')
+        expect(await resolveBareAssetSrc('unknown', char)).toBeNull()
     })
 })

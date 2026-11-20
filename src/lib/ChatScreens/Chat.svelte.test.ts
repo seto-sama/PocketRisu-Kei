@@ -119,7 +119,8 @@ vi.mock('../../ts/alert', () => ({
 vi.mock('../../ts/parser/parser.svelte', () => ({
     ParseMarkdown: parserMocks.ParseMarkdown,
     addMetadataToElement: (value: string) => value,
-    getDistance: () => 0,
+    replaceBrokenChatImage: vi.fn(),
+    resolveBareAssetSrc: vi.fn(async () => null),
     isChatImagePreloadingEnabled: () => parserMocks.imagePreloadingEnabled,
     postTranslationParse: (value: string) => value,
     prepareMarkdownSource: parserMocks.prepareMarkdownSource,

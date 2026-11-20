@@ -1994,7 +1994,6 @@ export const languageKorean = {
   assetPrompt: "에셋 프롬프트",
   assetPromptIncluded: "에셋 프롬프트에 포함됨. 클릭하면 제외합니다.",
   assetPromptExcluded: "에셋 프롬프트에서 제외됨. 클릭하면 포함합니다.",
-  newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
   useServerDriveForFileImport: "파일 불러오기 시 서버 드라이브 사용",
   bookmarks: "북마크",
   noBookmarks: "북마크 없음",

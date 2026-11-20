@@ -929,7 +929,6 @@ export const languageSpanish = {
     "assetPrompt": "Prompt de activo",
     "assetPromptIncluded": "Incluido en el prompt de activo. Haz clic para excluirlo.",
     "assetPromptExcluded": "Excluido del prompt de activo. Haz clic para incluirlo.",
-    "newImageHandlingBeta": "Añadir sección de prompt de activo",
     "bookmarks": "Marcadores",
     "noBookmarks": "Sin Marcadores",
     "bookmarkAskNameOrDefault": "Ingresa el nombre del marcador. Si no se ingresa, se asignará automáticamente.",

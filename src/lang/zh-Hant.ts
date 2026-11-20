@@ -997,7 +997,6 @@ export const languageChineseTraditional = {
     "assetPrompt": "資源提示詞",
     "assetPromptIncluded": "已包含在資源提示詞中。點擊以排除。",
     "assetPromptExcluded": "已從資源提示詞中排除。點擊以包含。",
-    "newImageHandlingBeta": "新增資源提示詞區塊",
     "bookmarks": "書籤",
     "noBookmarks": "無書籤",
     "bookmarkAskNameOrDefault": "輸入書籤名稱。若未輸入，將自動分配名稱。",
