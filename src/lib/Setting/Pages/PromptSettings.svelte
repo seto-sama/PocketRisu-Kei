@@ -16,10 +16,11 @@
     import ActionBar from "../../UI/components/ActionBar.svelte";
     import Alert from "../../UI/components/Alert.svelte";
     import SettingLayout from "../Wrappers/SettingLayout.svelte";
+    import Help from "../../Others/Help.svelte";
 
     let warns: TemplateWarning[] = $state([])
     let tokens = $state(0)
-    let extokens = $state(0)
+    let rawTokens = $state(0)
     let openedItems = $state(new Set<PromptItem>())
     const promptProcessingItems: SettingItem[] = [
         { id: 'prompt.systemContentReplacement', type: 'text', labelKey: 'systemContentReplacement', helpKey: 'systemContentReplacement', bindKey: 'systemContentReplacement' },
@@ -49,7 +50,6 @@
         { id: 'prompt.jsonSchema', type: 'textarea', labelKey: 'jsonSchema', helpKey: 'jsonSchema', bindKey: 'jsonSchema', condition: (ctx) => ctx.db.jsonSchemaEnabled },
         { id: 'prompt.extractJson', type: 'textarea', labelKey: 'extractJson', helpKey: 'extractJson', bindKey: 'extractJson', condition: (ctx) => ctx.db.jsonSchemaEnabled },
     ]
-    executeTokenize(DBState.db.promptTemplate)
 
   interface Props {
     onGoBack?: () => void;
@@ -59,9 +59,14 @@
 
   let { onGoBack = () => {}, mode = 'independent', subMenu = $bindable(0) }: Props = $props();
 
+    let tokenizeSequence = 0
     async function executeTokenize(prest: PromptItem[]){
-        tokens = await tokenizePreset(prest, true)
-        extokens = await tokenizePreset(prest, false)
+        const sequence = ++tokenizeSequence
+        const [parsed, raw] = await Promise.all([tokenizePreset(prest), tokenizePreset(prest, 'raw')])
+        if (sequence === tokenizeSequence) {
+            tokens = parsed
+            rawTokens = raw
+        }
     }
 
     function warningText(warning: TemplateWarning): string {
@@ -82,7 +87,8 @@
     warns = templateCheck(DBState.db)
   });
   $effect.pre(() => {
-    executeTokenize(DBState.db.promptTemplate)
+    // Snapshot synchronously so every block is tracked, not just those read before the first await.
+    executeTokenize($state.snapshot(DBState.db.promptTemplate))
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -183,12 +189,10 @@
                 DBState.db.promptTemplate = value
             }}><PlusIcon /></IconButton>
         </IconButtonGroup>
-
-        <div class="ml-auto flex items-center gap-2 text-subtext text-sm">
-            <span>{tokens} {language.fixedTokens}</span>
-            <span aria-hidden="true">|</span>
-            <span>{extokens} {language.exactTokens}</span>
-        </div>
+        <span class="flex items-center text-sm text-subtext">
+            {tokens}({rawTokens}) {language.tokens}
+            <Help key="promptTemplateTokens" name={language.tokens} />
+        </span>
     </ActionBar>
 {:else}
     <SettingRenderer items={promptProcessingItems} layout="row" />

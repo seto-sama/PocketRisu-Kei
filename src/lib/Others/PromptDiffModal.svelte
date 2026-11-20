@@ -2,7 +2,8 @@
     import { onDestroy } from "svelte"
     import { XIcon } from "@lucide/svelte"
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
-    import type { PromptItem, PromptItemPlain, PromptItemChatML, PromptItemTyped, PromptItemAuthorNote, PromptItemChat } from "src/ts/process/prompt.ts";
+    import type { PromptItem } from "src/ts/process/prompt";
+    import { promptRoleLabel, promptType2Label, promptTypeLabel } from "src/ts/process/promptLabels";
     import Checkbox from "../UI/components/Checkbox.svelte";
     import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
     import Slider from "../UI/components/Slider.svelte";
@@ -31,22 +32,16 @@
 // Types
 // -----------------------------------------------------------------------------
     type DiffCounts = { modifiedCount: number; addedCount: number; removedCount: number }
-    type PromptKind = 'plain' | 'chatml' | 'typed' | 'authorNote' | 'chat'
     type SimpleDiff = 'same' | 'add' | 'remove'
 
     type PromptCard = {
-        kind: PromptKind
-        role?: 'system' | 'bot' | 'user' | 'unknown'
+        type: PromptItem['type']
         header: string
         name: string
         body: string | null
     }
 
     type PromptLine = {
-        kind: PromptKind
-        header: string
-        name: string
-        id: number
         lineRole: 'name' | 'header' | 'body'
         text: string
     }
@@ -246,7 +241,6 @@
     })
 
     $effect(() => {
-        if (!firstCards || !secondCards) return
         diffStyle
         expandedRanges = []
         void recomputeDiff(firstCards, secondCards)
@@ -332,107 +326,52 @@
 // Data shaping (prompt → cards/lines/raw)
 // -----------------------------------------------------------------------------
     function getPromptCards(id: number): PromptCard[] {
-        const isPromptItemPlain = (item: PromptItem): item is PromptItemPlain =>
-            item.type === 'plain' || item.type === 'jailbreak' || item.type === 'cot'
-       
-        const isPromptItemChatML = (item: PromptItem): item is PromptItemChatML =>
-            item.type === 'chatML'
-        
-        const isPromptItemTyped = (item: PromptItem): item is PromptItemTyped =>
-            item.type === 'persona' ||
-            item.type === 'description' ||
-            item.type === 'lorebook' ||
-            item.type === 'postEverything' ||
-            item.type === 'memory'
-        
-        const isPromptItemAuthorNote = (item: PromptItem): item is PromptItemAuthorNote =>
-            item.type === 'authornote'
-        
-        const isPromptItemChat = (item: PromptItem): item is PromptItemChat =>
-            item.type === 'chat'
-        
-        const db = getDatabase()
-        const formated = db.botPresets[id].promptTemplate
-        const cards: PromptCard[] = []
+        const preset = getDatabase().botPresets[id]
+        const sendChatAsSystem = !!preset.promptSettings?.sendChatAsSystem
 
-        for(let i=0;i<formated.length;i++){
-            const item = formated[i]
+        return (preset.promptTemplate ?? []).map((item): PromptCard => {
+            const card = (body: string | null | undefined, ...details: (string | null | false | undefined)[]): PromptCard => ({
+                type: item.type,
+                name: item.name || promptTypeLabel(item.type),
+                header: [promptTypeLabel(item.type), ...details].filter(Boolean).join(' · '),
+                body: body || null,
+            })
 
-            switch (true) {
-                case isPromptItemPlain(item):{
-                    cards.push({
-                        kind: 'plain',
-                        name: item.name ?? formatPromptDiffText(language.promptDiff.unnamedPrompt, { type: item.type.toUpperCase() }),
-                        role: item.role ?? 'unknown',
-                        header: `${item.type}; ${item.type2}`,
-                        body: item.text ? item.text : null,
-                    })
-                    break
-                }
-
-                case isPromptItemChatML(item):{
-                    cards.push({
-                        kind: 'chatml',
-                        name: item.name ?? item.type.toUpperCase(),
-                        header: `${item.type}`,
-                        body: item.text ? item.text : null,
-                    })
-                    break
-                }
-
-                case isPromptItemTyped(item):{
-                    cards.push({
-                        kind: 'typed',
-                        name: item.name ?? item.type.toUpperCase(),
-                        header: `${item.type}`,
-                        body: item.innerFormat ? item.innerFormat : null,
-                    })
-                    break
-                }
-
-                case isPromptItemAuthorNote(item):{
-                    cards.push({
-                        kind: 'authorNote',
-                        name: item.name ?? item.type.toUpperCase(),
-                        role: item.role ?? 'system',
-                        header: `${item.type}`,
-                        body: item.innerFormat ? item.innerFormat : null,
-                    })
-                    break
-                }
-
-                case isPromptItemChat(item):{
-                    cards.push({
-                        kind: 'chat',
-                        name: item.name ?? item.type.toUpperCase(),
-                        header: `${item.type}`,
-                        body: `${item.rangeStart} - ${item.rangeEnd}`,
-                    })
-                    break
-                }
+            switch (item.type) {
+                case 'plain':
+                case 'jailbreak':
+                    return card(item.text, promptType2Label(item.type2), promptRoleLabel(item.role))
+                case 'chatML':
+                    return card(item.text)
+                case 'postEverything':
+                    return card(item.innerFormat)
+                case 'persona':
+                case 'description':
+                case 'lorebook':
+                case 'memory':
+                case 'authornote':
+                    return card(item.innerFormat, item.role && promptRoleLabel(item.role))
+                case 'chat':
+                    return card(
+                        `${item.rangeStart} - ${item.rangeEnd}`,
+                        sendChatAsSystem && item.chatAsOriginalOnSystem && language.chatAsOriginalOnSystem,
+                    )
+                case 'cache':
+                    return card(null, `${language.depth} ${item.depth}`, promptRoleLabel(item.role))
             }
-
-        }
-
-        return cards
+        })
     }
 
     function cardsToLines(cards: PromptCard[]): PromptLine[] {
         const out: PromptLine[] = []
 
-        for (const [id, c] of cards.entries()) {
-            const meta = {
-                kind: c.kind,
-                header: c.header,
-                name: c.name,
-                id,
-            }
-            out.push({ ...meta, lineRole: 'name', text: c.name })
-            out.push({ ...meta, lineRole: 'header', text: c.header })
+        for (const c of cards) {
+            out.push({ lineRole: 'name', text: c.name })
+            out.push({ lineRole: 'header', text: c.header })
 
             if (c.body != null) {
                 for (const line of c.body.split('\n')) {
-                    out.push({ ...meta, lineRole: 'body', text: line })
+                    out.push({ lineRole: 'body', text: line })
                 }
             }
         }
@@ -449,7 +388,6 @@
     })
 
     async function recomputeDiff(firstCards: PromptCard[], secondCards: PromptCard[]) {
-        if (!firstCards || !secondCards) return
         const runId = ++diffRunId
 
         const cr = await computeCardViewDiff(firstCards, secondCards, diffStyle)
@@ -530,7 +468,7 @@
     async function computeDiffCardLine(prompt1: PromptCard[], prompt2: PromptCard[]): Promise<CardDiffSummary> {
         const diff = await loadDiffModule()
         const arrayDiffs = diff.diffArrays(prompt1, prompt2, {
-            comparator: (x, y) => x.body === y.body && x.header === y.header && x.kind === y.kind && x.name === y.name
+            comparator: (x, y) => x.type === y.type && x.name === y.name && x.header === y.header && x.body === y.body
         })
 
         const parts: CardDiffSummaryPart[] = []
@@ -550,7 +488,7 @@
                     for (let j = 0; j < n; j++) {
                         const left = leftParts[j]
                         const right = rightParts[j]
-                        if (left.header === right.header) {
+                        if (left.type === right.type) {
                             parts.push({ k: 'modify', left, right })
                             modifiedCount++
                         }
@@ -1256,11 +1194,8 @@
   {/if}
 {/snippet}
 
-{#snippet renderCardMeta(part: DiffPart | null | undefined, type: string, side: Side | null)}
-  <div class="flex min-w-0 items-start gap-2">
-    <span class="text-[10px] uppercase tracking-wide text-subtext">{type}</span>
-
-    <div class="min-w-0">
+{#snippet renderCardMeta(part: DiffPart | null | undefined, variant: 'name' | 'header', side: Side | null)}
+  <div class={variant === 'name' ? 'min-w-0 text-base' : 'min-w-0 text-xs text-subtext'}>
     {#if part && part.src === 'linebyline'}
       {#if part.k === 'modify'}
         {#if diffStyle === 'line'}
@@ -1307,7 +1242,7 @@
         <div
           class={`whitespace-pre-wrap ${
             part.k === 'same'
-              ? 'text-maintext'
+              ? ''
               : part.k === 'add'
               ? 'text-success'
               : 'text-danger'
@@ -1317,9 +1252,8 @@
         </div>
       {/if}
     {:else}
-      <div class="text-xs text-subtext italic">{formatPromptDiffText(language.promptDiff.missingField, { field: type })}</div>
+      <div class="text-xs text-subtext italic">{formatPromptDiffText(language.promptDiff.missingField, { field: variant === 'name' ? language.promptDiff.name : language.promptDiff.type })}</div>
     {/if}
-    </div>
   </div>
 {/snippet}
 
@@ -1401,8 +1335,8 @@
 {/snippet}
 
 {#snippet renderCardStatus(cardPart: CardBodyDiff)}
-  {@const c = cardPart.bodyLines?.counts ?? ({ modifiedCount: 0, addedCount: 0, removedCount: 0 })}
-  {@const cardChangeCount = (c.modifiedCount ?? 0) + (c.addedCount ?? 0) + (c.removedCount ?? 0)}
+  {@const c = cardPart.bodyLines.counts}
+  {@const cardChangeCount = c.modifiedCount + c.addedCount + c.removedCount}
 
   {@const statusLabel =
     cardPart.k === 'modify' ? language.promptDiff.modified
@@ -1419,7 +1353,7 @@
     </Badge>
     <div class="flex items-center gap-3 text-[11px] text-subtext">
       <span>{formatPromptDiffText(language.promptDiff.changeCount, { count: cardChangeCount })}</span>
-      <span class="tabular-nums">~{c.modifiedCount ?? 0} / +{c.addedCount ?? 0} / -{c.removedCount ?? 0}</span>
+      <span class="tabular-nums">~{c.modifiedCount} / +{c.addedCount} / -{c.removedCount}</span>
     </div>
   </div>
 {/snippet}
@@ -1486,7 +1420,6 @@
     </div>
 
     <div class="min-h-0 overflow-y-auto p-4">
-      <!-- card view -->
       {#if formatStyle === 'card'}
         {#if cardDiffResult}
           <div class="mb-3 flex items-center gap-2 text-xs text-subtext">
@@ -1511,16 +1444,14 @@
               <div class="prompt-diff-hover bg-lightbg border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
                 <!-- name / header / card diff -->
                 <div class="flex items-start justify-between gap-2">
-                  <div class="flex min-w-0 flex-col gap-2">
-                    {@render renderCardMeta(namePart, language.promptDiff.name, null)}
-                    {@render renderCardMeta(headerPart, language.promptDiff.type, null)}
+                  <div class="flex min-w-0 flex-col gap-0.5">
+                    {@render renderCardMeta(namePart, 'name', null)}
+                    {@render renderCardMeta(headerPart, 'header', null)}
                   </div>
 
-                  <!-- card diff -->
                   {@render renderCardStatus(cardPart)}
                 </div>
 
-                <!-- body -->
                 <div class="mt-2 border-t border-darkborderc pt-2 font-mono text-sm leading-5">
                   {#if bodyParts.length === 0}
                     <div class="text-subtext italic">{language.promptDiff.noBodyContent}</div>
@@ -1542,10 +1473,10 @@
                           {@const part = line.part}
                             {#if part.k !== 'modify'}
                               {@render renderSimpleLine(part)}
-                            {:else} <!-- modify -->
+                            {:else}
                               {@render renderModify(part, idx)}
                             {/if}
-                          {:else} <!-- modifyGroup -->
+                          {:else}
                             {@render renderModifyGroup(line.parts)}
                           {/if}
                         {/each}
@@ -1556,7 +1487,7 @@
               </div>
               {:else} <!-- split view -->
                 {@const scope = `card-${idx}`}
-                {@const lines = cardPart.bodyLines?.parts ?? []}
+                {@const lines = cardPart.bodyLines.parts}
                 {@const namePart = lines[0] ?? null}
                 {@const headerPart = lines[1] ?? null}
                 {@const bodyParts = lines.slice(2)}
@@ -1578,9 +1509,9 @@
                     <div class="p-3">
                       {#if leftExists && namePart && headerPart}
                         <div class="flex items-start justify-between gap-2">
-                          <div class="flex min-w-0 flex-col gap-2">
-                            {@render renderCardMeta(namePart, language.promptDiff.name, 'left')}
-                            {@render renderCardMeta(headerPart, language.promptDiff.type, 'left')}
+                          <div class="flex min-w-0 flex-col gap-0.5">
+                            {@render renderCardMeta(namePart, 'name', 'left')}
+                            {@render renderCardMeta(headerPart, 'header', 'left')}
                           </div>
                           {@render renderCardStatus(cardPart)}
                         </div>
@@ -1595,9 +1526,9 @@
                     <div class="p-3">
                       {#if rightExists && namePart && headerPart}
                         <div class="flex items-start justify-between gap-2">
-                          <div class="flex min-w-0 flex-col gap-2">
-                            {@render renderCardMeta(namePart, language.promptDiff.name, 'right')}
-                            {@render renderCardMeta(headerPart, language.promptDiff.type, 'right')}
+                          <div class="flex min-w-0 flex-col gap-0.5">
+                            {@render renderCardMeta(namePart, 'name', 'right')}
+                            {@render renderCardMeta(headerPart, 'header', 'right')}
                           </div>
                           {@render renderCardStatus(cardPart)}
                         </div>
@@ -1666,10 +1597,10 @@
                     {@const part = line.part}
                     {#if part.k !== 'modify'}
                       {@render renderSimpleLine(part)}
-                    {:else} <!-- modify -->
+                    {:else}
                       {@render renderModify(part, idx)}
                     {/if}
-                  {:else} <!-- modifyGroup -->
+                  {:else}
                     {@render renderModifyGroup(line.parts)}
                   {/if}
                 {/each}

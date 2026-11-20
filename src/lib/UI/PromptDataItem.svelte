@@ -1,9 +1,10 @@
 <script lang="ts">
-    import type { PromptItem, PromptItemChat, PromptRole } from "src/ts/process/prompt";
+    import type { PromptItem, PromptItemCache, PromptItemChat, PromptItemPlain, PromptRole } from "src/ts/process/prompt";
     import SelectOption from "./components/SelectOption.svelte";
     import Textarea from "./components/Textarea.svelte";
     import Select from "./components/Select.svelte";
     import { language } from "src/lang";
+    import { promptRoleLabel, promptType2Label, promptTypeLabel } from "src/ts/process/promptLabels";
     import NumberInput from "./components/NumberInput.svelte";
     import { TrashIcon } from "@lucide/svelte";
     import Input from "./components/Input.svelte";
@@ -49,65 +50,13 @@
         return role === 'user' || role === 'bot' || role === 'system'
     }
 
+    const promptTypes: PromptItem['type'][] = ['plain', 'jailbreak', 'chat', 'persona', 'description', 'authornote', 'lorebook', 'memory', 'postEverything', 'chatML', 'cache']
+    const promptType2s: PromptItemPlain['type2'][] = ['normal', 'main', 'globalNote']
+    const promptRoles: PromptRole[] = ['user', 'bot', 'system']
+    const cacheRoles: PromptItemCache['role'][] = ['all', 'user', 'assistant', 'system']
+
     function getName(promptItem:PromptItem){
-
-        if(promptItem.name){
-            return promptItem.name
-        }
-
-        if(promptItem.type === 'plain'){
-            return language.formating.plain
-        }
-        if(promptItem.type === 'jailbreak'){
-            return language.formating.jailbreak
-        }
-        if(promptItem.type === 'chat'){
-            return language.Chat
-        }
-        if(promptItem.type === 'persona'){
-            return language.formating.personaPrompt
-        }
-        if(promptItem.type === 'description'){
-            return language.formating.description
-        }
-        if(promptItem.type === 'authornote'){
-            return language.formating.authorNote
-        }
-        if(promptItem.type === 'lorebook'){
-            return language.formating.lorebook
-        }
-        if(promptItem.type === 'memory'){
-            return language.formating.memory
-        }
-        if(promptItem.type === 'postEverything'){
-            return language.formating.postEverything
-        }
-        if(promptItem.type === 'cot'){
-            return language.cot
-        }
-        if(promptItem.type === 'chatML'){
-            return 'ChatML'
-        }
-        return ""
-    }
-
-    function replacePrompt(prompt:PromptItem){
-        if(JSON.stringify(promptItem) === JSON.stringify(prompt)){
-            return
-        }
-
-        const ind = DBState.db.promptTemplate.findIndex((item, index) => {
-            return JSON.stringify(item) === JSON.stringify(prompt)
-        })
-
-        if(ind !== -1){
-            DBState.db.promptTemplate.splice(ind, 1)
-        }
-        const myInd = DBState.db.promptTemplate.findIndex((item, index) => {
-            return JSON.stringify(item) === JSON.stringify(promptItem)
-        })
-        DBState.db.promptTemplate.splice(myInd, 0, prompt)
-
+        return promptItem.name || promptTypeLabel(promptItem.type)
     }
 
 </script>
@@ -138,9 +87,12 @@
         <div data-disclosure-label>{language.type}</div>
         <div data-disclosure-control>
             <Select bind:value={promptItem.type} onchange={() => {
-                if(promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'){
+                if(promptItem.type === 'plain' || promptItem.type === 'jailbreak'){
                     promptItem.text = ""
                     promptItem.role = "system"
+                }
+                if(promptItem.type === 'chatML'){
+                    promptItem.text = ""
                 }
                 if(promptItem.type === 'cache'){
                     promptItem.depth = 1
@@ -154,33 +106,21 @@
                     promptItem.role = 'system'
                 }
             }}>
-                <SelectOption value="plain">{language.formating.plain}</SelectOption>
-                <SelectOption value="jailbreak">{language.formating.jailbreak}</SelectOption>
-                <SelectOption value="chat">{language.Chat}</SelectOption>
-                <SelectOption value="persona">{language.formating.personaPrompt}</SelectOption>
-                <SelectOption value="description">{language.formating.description}</SelectOption>
-                <SelectOption value="authornote">{language.formating.authorNote}</SelectOption>
-                <SelectOption value="lorebook">{language.formating.lorebook}</SelectOption>
-                <SelectOption value="memory">{language.formating.memory}</SelectOption>
-                <SelectOption value="postEverything">{language.formating.postEverything}</SelectOption>
-                <SelectOption value="chatML">chatML</SelectOption>
-                <SelectOption value="cache">{language.cachePoint}</SelectOption>
-
-                {#if DBState.db.promptSettings.customChainOfThought}
-                    <SelectOption value="cot">{language.cot}</SelectOption>
-                {/if}
+                {#each promptTypes as type}
+                    <SelectOption value={type}>{promptTypeLabel(type)}</SelectOption>
+                {/each}
             </Select>
         </div>
     </div>
 
-    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'}
+    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.specialType}</div>
             <div data-disclosure-control>
                 <Select bind:value={promptItem.type2}>
-                    <SelectOption value="normal">{language.noSpecialType}</SelectOption>
-                    <SelectOption value="main">{language.mainPrompt}</SelectOption>
-                    <SelectOption value="globalNote">{language.globalNote}</SelectOption>
+                    {#each promptType2s as type2}
+                        <SelectOption value={type2}>{promptType2Label(type2) ?? language.noSpecialType}</SelectOption>
+                    {/each}
                 </Select>
             </div>
         </div>
@@ -193,14 +133,14 @@
         </div>
     {/if}
 
-    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'}
+    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.role}</div>
             <div data-disclosure-control>
                 <Select bind:value={promptItem.role}>
-                    <SelectOption value="user">{language.user}</SelectOption>
-                    <SelectOption value="assistant">{language.character}</SelectOption>
-                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                    {#each promptRoles as role}
+                        <SelectOption value={role}>{promptRoleLabel(role)}</SelectOption>
+                    {/each}
                 </Select>
             </div>
         </div>
@@ -209,10 +149,9 @@
             <div data-disclosure-label>{language.role}</div>
             <div data-disclosure-control>
                 <Select bind:value={promptItem.role}>
-                    <SelectOption value="all">{language.all}</SelectOption>
-                    <SelectOption value="user">{language.user}</SelectOption>
-                    <SelectOption value="bot">{language.character}</SelectOption>
-                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                    {#each cacheRoles as role}
+                        <SelectOption value={role}>{promptRoleLabel(role)}</SelectOption>
+                    {/each}
                 </Select>
             </div>
         </div>
@@ -225,20 +164,15 @@
                         promptItem.role = event.currentTarget.value as PromptRole
                     }
                 }}>
-                    <SelectOption value="user">{language.user}</SelectOption>
-                    <SelectOption value="bot">{language.character}</SelectOption>
-                    <SelectOption value="system">{language.systemPrompt}</SelectOption>
+                    {#each promptRoles as role}
+                        <SelectOption value={role}>{promptRoleLabel(role)}</SelectOption>
+                    {/each}
                 </Select>
             </div>
         </div>
     {/if}
 
-    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'}
-        <div data-disclosure-field>
-            <div data-disclosure-label>{language.prompt}</div>
-            <div data-disclosure-control><Textarea bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>
-        </div>
-    {:else if promptItem.type === 'chatML'}
+    {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'chatML'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.prompt}</div>
             <div data-disclosure-control><Textarea bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>

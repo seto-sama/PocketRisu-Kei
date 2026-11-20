@@ -227,9 +227,16 @@ function normalizePromptTemplate(
             continue
         }
         switch(item.type){
-            case 'plain':
-            case 'jailbreak':
             case 'cot':{
+                // Kei has no CoT toggle, so upstream CoT blocks become plain prompts.
+                item.type = 'plain'
+                item.type2 ??= 'normal'
+                item.name ||= 'CoT'
+                item.role = normalizePromptRole(item.role) ?? 'system'
+                break
+            }
+            case 'plain':
+            case 'jailbreak':{
                 item.role = normalizePromptRole(item.role) ?? 'system'
                 break
             }
@@ -656,7 +663,6 @@ export function setDatabase(data:Database){
         sendChatAsSystem: false,
         sendName: false,
         utilOverride: false,
-        customChainOfThought: false,
         maxThoughtTagDepth: -1
     }
     if (data.sdProvider === 'kei') data.sdProvider = ''
@@ -1219,7 +1225,6 @@ export interface Database{
         projectId: string
     }
     mistralKey?:string
-    chainOfThought?:boolean
     genTime:number
     promptSettings: PromptSettings
     top_k:number

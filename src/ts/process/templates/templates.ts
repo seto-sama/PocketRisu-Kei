@@ -382,8 +382,7 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "sendChatAsSystem": false,
       "sendName": false,
       "utilOverride": false,
-      "maxThoughtTagDepth": -1,
-      "customChainOfThought": false
+      "maxThoughtTagDepth": -1
     },
     "repetition_penalty": 1,
     "min_p": 0,

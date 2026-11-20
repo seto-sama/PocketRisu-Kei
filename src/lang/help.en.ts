@@ -67,6 +67,7 @@ export const helpEn = {
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
         systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
         legacySettings: "These prompts are no longer used and are not included in requests.",
+        promptTemplateTokens: "Shown as `parsed(raw)`.\n\n- **parsed**: tokens after CBS is processed. `{{char}}` and `{{user}}` are replaced with fixed placeholder names.\n- **raw**: tokens of the text before CBS is processed.\n\nOnly text written in the prompt template is counted. Content filled in at request time is excluded, such as the character description, lorebook, author's note text, global note replacement, and chat history.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -100,7 +101,6 @@ export const helpEn = {
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
         showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
         disableToggleBinding: "Show the binding feature that pins toggle values to individual chats.",
-        chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
             "Total number of main response generations. After the first response, the normal reroll action runs automatically and sequentially. Automatic rerolls stop when a generation calls a tool, and TTS is not played for automatic rerolls. Higher values increase requests and cost.",
@@ -118,7 +118,6 @@ export const helpEn = {
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",
-        customChainOfThought: "Warning: chain of thought toggle is no longer recommended to use. put chain of thought prompt in other prompt entries instead.",
         onboarding:
             "Onboarding lets users pick options before a chat starts, like a short form. Each answer is saved to a chat variable, usable with `{{getvar::name}}` or triggers.\n\nUntil the user finishes or skips it, the chat shows a banner that opens the onboarding. It can be reopened from the chat menu.\n\n**Form** mode builds choices and text questions. Multiple-choice answers are saved as a JSON array.\n\n**HTML** mode lets you write your own layout. CBS and additional assets work, and it is sanitized like chat messages with `<style>` support. Add `risu-change-var-name=\"varname\"` and `risu-change-var-value=\"value\"` to any element to set the variable when it is clicked; the clicked element gets the `selected` class. On `<input>`, `<select>` and `<textarea>`, the variable follows the input's value. Choices are saved when the user presses Done, so CBS such as `{{getvar::name}}` inside the onboarding shows the value from before it was opened.",
         customPromptTemplateToggle:

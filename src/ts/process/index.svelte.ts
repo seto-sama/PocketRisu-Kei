@@ -657,13 +657,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let beforeDescriptionPrompts:OpenAIChat[] = []
     let afterDescriptionPrompts:OpenAIChat[] = []
 
-    if(DBState.db.chainOfThought && !DBState.db.promptSettings.customChainOfThought){
-        unformated.postEverything.push({
-            role: 'system',
-            content: `<instruction> - before respond everything, Think step by step as a ai assistant how would you respond inside <Thoughts> xml tag. this must be less than 5 paragraphs.</instruction>`
-        })
-    }
-
     {
         const description = risuChatParser(currentChar.desc, {chara: currentChar})
 
@@ -933,12 +926,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'plain':
-                case 'jailbreak':
-                case 'cot':{
+                case 'jailbreak':{
                     if((!DBState.db.jailbreakToggle) && (card.type === 'jailbreak')){
-                        continue
-                    }
-                    if((!DBState.db.chainOfThought) && (card.type === 'cot')){
                         continue
                     }
 
@@ -971,8 +960,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
-                    await tokenizeChatArray(prompts)
+                    await tokenizeChatArray(parseChatML(card.text) ?? [])
                     break
                 }
                 case 'chat':{
@@ -1434,12 +1422,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'plain':
-                case 'jailbreak':
-                case 'cot':{
+                case 'jailbreak':{
                     if((!DBState.db.jailbreakToggle) && (card.type === 'jailbreak')){
-                        continue
-                    }
-                    if((!DBState.db.chainOfThought) && (card.type === 'cot')){
                         continue
                     }
 
@@ -1470,8 +1454,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
-                    pushPrompts(prompts)
+                    pushPrompts(parseChatML(card.text) ?? [])
                     break
                 }
                 case 'chat':{

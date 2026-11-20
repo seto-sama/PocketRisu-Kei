@@ -1,5 +1,6 @@
 import { isDebugEnabled } from 'src/ts/debug'
-import { tokenizeAccurate } from "../tokenizer";
+import { tokenize, tokenizeAccurate } from "../tokenizer";
+import { parseChatMLCore } from "../parser/chatMLCore";
 import type { botPreset } from "../storage/database.svelte";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
 
@@ -11,7 +12,6 @@ export type PromptSettings = {
     sendChatAsSystem: boolean
     sendName: boolean
     utilOverride: boolean
-    customChainOfThought?: boolean
     maxThoughtTagDepth?: number
     trimStartNewChat?: boolean
 }
@@ -19,7 +19,7 @@ export type PromptSettings = {
 export type PromptRole = 'user'|'bot'|'system'
 
 export interface PromptItemPlain {
-    type: 'plain'|'jailbreak'|'cot';
+    type: 'plain'|'jailbreak';
     type2: 'normal'|'globalNote'|'main'
     text: string;
     role: PromptRole;
@@ -64,13 +64,16 @@ export interface PromptItemCache {
 
 }
 
-export async function tokenizePreset(prompts:PromptItem[], consti:boolean = false){
+export async function tokenizePreset(prompts:PromptItem[], mode:'parsed'|'raw' = 'parsed'){
+    const count = (text:string) => mode === 'raw'
+        ? tokenize(text.replace('{{slot}}', ''))
+        : tokenizeAccurate(text, true)
     let total = 0
     for(const prompt of prompts){
         switch(prompt.type){
             case 'plain':
             case 'jailbreak':{
-                total += await tokenizeAccurate(prompt.text, consti)
+                total += await count(prompt.text)
                 break
             }
             case 'persona':
@@ -80,7 +83,14 @@ export async function tokenizePreset(prompts:PromptItem[], consti:boolean = fals
             case 'authornote':
             case 'memory':{
                 if(prompt.innerFormat){
-                    total += await tokenizeAccurate(prompt.innerFormat, consti)
+                    total += await count(prompt.innerFormat)
+                }
+                break
+            }
+            case 'chatML':{
+                // Parse only; count() renders CBS.
+                for(const message of parseChatMLCore(prompt.text, (text) => text) ?? []){
+                    total += await count(message.content)
                 }
                 break
             }
