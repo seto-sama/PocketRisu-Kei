@@ -8,7 +8,7 @@
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
     import { ensureChatHydrated } from "src/ts/storage/chatStorage";
-    import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
+    import { DBState } from 'src/ts/stores.svelte';
     import { selectedCharID, chatDeselected } from "src/ts/stores.svelte";
 
     import Button from "../UI/components/Button.svelte";
@@ -107,7 +107,6 @@
         const folder = chara.chatFolders[index]
         if (!folder) return
         folder.folded = !folder.folded
-        $ReloadGUIPointer += 1
     }
 
     function createNewFolder() {
@@ -117,7 +116,6 @@
             name: `New Folder ${folders.length + 1}`,
             folded: false,
         }, ...folders]
-        $ReloadGUIPointer += 1
     }
 
     async function createNewChat() {
@@ -132,7 +130,6 @@
         }
         try {
             await createPersistedChat(chara, newChat)
-            $ReloadGUIPointer += 1
         } catch (error) {
             alertError(error)
         }
@@ -183,7 +180,6 @@
             return
         }
         changeChatTo(0)
-        $ReloadGUIPointer += 1
         chara.chats = chara.chats.filter(item => item.id !== chatId)
         void requestImmediateSave()
     }

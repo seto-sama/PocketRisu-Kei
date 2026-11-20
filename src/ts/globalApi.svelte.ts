@@ -8,7 +8,7 @@ import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
-import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
+import { botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, invalidateChatRoom, claimLoadingOverlay, dismissClaimedLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
@@ -394,7 +394,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
     $effect.root(() => {
 
-        let selIdState = $state(0)
         let knownCharacterIds = new Set<string>((getDatabase()?.characters ?? []).map((character) => character?.chaId).filter(Boolean))
         let didInitRootEffect = false
         let didInitBotPresetEffect = false
@@ -406,10 +405,6 @@ export async function saveDb(onReady?: () => Promise<void>) {
 
         const debounceTime = 500;
         let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-
-        selectedCharID.subscribe((v) => {
-            selIdState = v
-        })
 
         function saveTimeoutExecute() {
             if (syncApplying) return
@@ -515,23 +510,23 @@ export async function saveDb(onReady?: () => Promise<void>) {
             }
             knownCharacterIds = currentCharacterIdSet
 
-            if (DBState?.db?.characters?.[selIdState]) {
-                const activeCharacter = DBState.db.characters[selIdState]
-                for (const key in DBState.db.characters[selIdState]) {
+            if (DBState?.db?.characters?.[selIdState.selId]) {
+                const activeCharacter = DBState.db.characters[selIdState.selId]
+                for (const key in DBState.db.characters[selIdState.selId]) {
                     // Exclude chats — chat changes are tracked via chat-specific server save, not database.bin
                     if (key !== 'chats' && isClientWritableCharacterField(key)) {
-                        deepTouch(DBState.db.characters[selIdState][key])
+                        deepTouch(DBState.db.characters[selIdState.selId][key])
                     }
                 }
                 // Track stub metadata and chat ordering for database.bin persistence.
-                deepTouch(DBState.db.characters[selIdState].chats.map(c => ({
+                deepTouch(DBState.db.characters[selIdState.selId].chats.map(c => ({
                     id: c.id,
                     name: c.name,
                     lastDate: c.lastDate,
                     folderId: c.folderId,
                 })))
-                if (changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
-                    changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                if (changeTracker.character[0] !== DBState.db.characters[selIdState.selId]?.chaId) {
+                    changeTracker.character.unshift(DBState.db.characters[selIdState.selId]?.chaId)
                 }
                 if (!syncApplying) {
                     const knownChatIds = knownChatIdsByCharacter.get(activeCharacter.chaId) ?? new Set<string>()
@@ -555,7 +550,7 @@ export async function saveDb(onReady?: () => Promise<void>) {
             saveTimeoutExecute()
         })
         $effect(() => {
-            const activeChar = DBState?.db?.characters?.[selIdState]
+            const activeChar = DBState?.db?.characters?.[selIdState.selId]
             const activeChat = activeChar?.chats?.[getChatPage(activeChar)]
             if (activeChat) {
                 deepTouch(activeChat)
@@ -1085,12 +1080,10 @@ export async function saveDb(onReady?: () => Promise<void>) {
                     }
                 }
 
-                let activeCharID = -1
-                try { selectedCharID.subscribe(v => { activeCharID = v })() } catch {}
                 console.debug('[Save:guard-debug] context:', {
                     baselineCharsLen,
                     currentCharsLen,
-                    selectedCharID: activeCharID,
+                    selectedCharID: selIdState.selId,
                     totalDangerousOps: dangerous.length,
                     uniqueAffectedChats: seen.size,
                 })
@@ -1850,7 +1843,7 @@ export function changeChatTo(IdOrIndex: string | number) {
             loadTogglesFromChat(newChat)
         }
     }
-    ChatRoomReloadPointer.set(Math.random())
+    invalidateChatRoom()
 }
 
 export function createChatCopyName(

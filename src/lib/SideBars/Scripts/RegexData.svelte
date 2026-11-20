@@ -1,7 +1,7 @@
 <script lang="ts">
     import { TrashIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { ReloadGUIPointer } from "src/ts/stores.svelte";
+    import { invalidateDisplay } from "src/ts/stores.svelte";
     import { alertConfirm } from "src/ts/alert";
     import type { customscript } from "src/ts/storage/database.svelte";
     import Input from "../../UI/components/Input.svelte";
@@ -128,7 +128,7 @@
         if (!changedType) return;
 
         onToggleType(changedType);
-        $ReloadGUIPointer += 1;
+        invalidateDisplay();
     }
 
     function toggleOpen(){
@@ -169,7 +169,7 @@
                 value.comment = e.currentTarget.value
                 onSharedChange()
             }} onchange={(e) => {
-                $ReloadGUIPointer += 1
+                invalidateDisplay()
             }} />
         </div>
     </div>
@@ -187,7 +187,7 @@
         <div data-disclosure-control>
             <Textarea autocomplete="off" bind:value={value.out} onInput={(e) => {
                 onSharedChange()
-                $ReloadGUIPointer += 1
+                invalidateDisplay()
             }} />
         </div>
     </div>

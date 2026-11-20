@@ -1,5 +1,5 @@
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte'
-import { get, writable } from "svelte/store";
+import { fromStore, get, writable } from "svelte/store";
 import type { character, Database } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
 import type { alertData } from "./alert";
@@ -72,17 +72,46 @@ export const PromptPresetSubmenuIndex = writable(0)
 export const OtherBotsSubmenuIndex = writable(0)
 export const InlayGallerySubmenuIndex = writable(0)
 export const ModelPresetListTabIndex = writable(0)
-export const ReloadGUIPointer = writable(0)
+
+// Message and background rendering runs through async regex/CBS/Lua pipelines
+// whose inputs Svelte cannot track, so script APIs (Lua `reloadDisplay` /
+// `reloadChat`, trigger `v2UpdateGUI` / `v2UpdateChatAt`) and edits that change
+// rendered output bump these revisions explicitly.
+let displayRevision = $state(0)
+let chatRoomRevision = $state(0)
+let messageRevisions = $state.raw<Record<number, number>>({})
+
+export const renderRevision = {
+    get display() { return displayRevision },
+    get chatRoom() { return chatRoomRevision },
+    get messages() { return messageRevisions },
+}
+
+function resetChatRenderState() {
+    messageRevisions = {}
+    resetScriptCache()
+}
+
+/** Re-renders every message and the background HTML. */
+export function invalidateDisplay() {
+    resetChatRenderState()
+    displayRevision++
+}
+
 // Room switches need background/script-cache refreshes, but they must not
 // invalidate every room's parsed-message cache like a real GUI/script edit.
-export const ChatRoomReloadPointer = writable(0)
-export const ReloadChatPointer = writable({} as Record<number, number>)
-export function invalidateChatMessageRender(messageIndex: number) {
-    ReloadChatPointer.update(pointers => ({
-        ...pointers,
-        [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
-    }))
+export function invalidateChatRoom() {
+    resetChatRenderState()
+    chatRoomRevision++
 }
+
+export function invalidateChatMessageRender(messageIndex: number) {
+    messageRevisions = {
+        ...messageRevisions,
+        [messageIndex]: (messageRevisions[messageIndex] ?? 0) + 1,
+    }
+}
+
 export const ScrollToMessageStore = $state({
     value: -1,
     exact: false,
@@ -133,9 +162,11 @@ export const hypaV3ProgressStore = writable({
     msg: '',
     subMsg: '',
 })
-export const selIdState = $state({
-    selId: -1
-})
+const selectedCharIDState = fromStore(selectedCharID)
+// Reactive view of `selectedCharID` for `.svelte.ts` code that cannot use `$selectedCharID`.
+export const selIdState = {
+    get selId() { return selectedCharIDState.current },
+}
 
 
 CustomCSSStore.subscribe((css) => {
@@ -311,27 +342,21 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.open = true
 }
 
-const resetChatRenderState = () => {
-    ReloadChatPointer.set({})
-    resetScriptCache()
-}
-ReloadGUIPointer.subscribe(resetChatRenderState)
-ChatRoomReloadPointer.subscribe(resetChatRenderState)
+
+selectedCharID.subscribe((id) => {
+    const char = DBState?.db?.characters?.[id]
+    if (char && DBState.db.hypaV3 && DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.alwaysToggleOn) {
+        if (char.chats?.[getChatPage(char)]) {
+            char.chats[getChatPage(char)].supaMemory = true
+        }
+    }
+})
 
 $effect.root(() => {
-    selectedCharID.subscribe((v) => {
-        selIdState.selId = v
-
-        if (DBState?.db?.characters?.[selIdState.selId]) {
-            if (DBState.db.hypaV3 && DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.alwaysToggleOn) {
-                const char = DBState.db.characters[selIdState.selId]
-                if (char?.chats?.[getChatPage(char)]) {
-                    char.chats[getChatPage(char)].supaMemory = true
-                }
-            }
-        }
-    })
     $effect(() => {
+        // Nothing to sync before the database loads. Bailing out here also keeps the
+        // first flush from reaching modules still initializing in the import cycle.
+        if (!DBState.db.characters) return
         try { deepTouch(DBState.db.modules) } catch (e) {
             console.warn('[ModuleUpdate] deepTouch(modules) failed:', e)
             return

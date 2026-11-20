@@ -4,8 +4,7 @@ import { getChatVarOf, getGlobalChatVar, setChatVarOf } from "../parser/chatVar.
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
 import { LuaEngine, LuaFactory } from "wasmoon";
 import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type triggerscript } from "../storage/database.svelte";
-import { get } from "svelte/store";
-import { ReloadChatPointer, ReloadGUIPointer } from "../stores.svelte";
+import { invalidateChatMessageRender, invalidateDisplay } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm, notifyError } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
 import { generateImageThroughWorkflow } from "./revenant/workflow/imageWorkflow";
@@ -244,14 +243,11 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('reloadDisplay', (id:string) => {
-                ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
+                invalidateDisplay()
             })
 
             addEffect('reloadChat', (id: string, index: number) => {
-                ReloadChatPointer.update((v) => {
-                    v[index] = (v[index] ?? 0) + 1
-                    return v
-                })
+                invalidateChatMessageRender(index)
             })
 
             //Low Level Access

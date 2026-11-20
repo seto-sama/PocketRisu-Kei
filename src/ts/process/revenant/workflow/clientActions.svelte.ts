@@ -10,7 +10,7 @@ import { chooseConflictComparison, SaveConflictCancelledError } from '../../../s
 import { presentSaveConflict } from '../../../gui/saveConflictPresentation'
 import type { MergeConflict } from '../../../storage/patchRebase'
 import { language } from '../../../../lang'
-import { ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
+import { invalidateChatMessageRender, invalidateDisplay } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
 import { getInlayAsset, writeInlayImage } from '../../files/inlays'
@@ -228,7 +228,7 @@ async function executeClientAction(
                     else alertNormal(String(effect.message ?? ''))
                 }
                 else if (effect.kind === 'reload.display') {
-                    ReloadGUIPointer.update(value => value + 1)
+                    invalidateDisplay()
                 }
                 else if (effect.kind === 'reload.chat') {
                     invalidateChatMessageRender(Number.isInteger(effect.index)

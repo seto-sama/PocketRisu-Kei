@@ -5,7 +5,7 @@ import { getDatabase, type Chat, type character } from "../storage/database.svel
 import { tokenize } from "../tokenizer";
 import { getModuleTriggers } from "./modules";
 import { get } from "svelte/store";
-import { ReloadChatPointer, ReloadGUIPointer, CurrentTriggerIdStore } from "../stores.svelte";
+import { CurrentTriggerIdStore, invalidateChatMessageRender, invalidateDisplay } from "../stores.svelte";
 import { resolveTriggerOrigin } from './triggerOrigin';
 import { processMultiCommand } from "./command";
 import { parseKeyValue, sleep } from "../util";
@@ -1317,12 +1317,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         Array.isArray(payload.options) ? payload.options.map(String) : [],
                         String(payload.message ?? ''),
                     )
-                    case 'ui.reload-display': ReloadGUIPointer.set(get(ReloadGUIPointer) + 1); break
-                    case 'ui.reload-chat': ReloadChatPointer.update(value => {
-                        const chatIndex = Number(payload.index) || 0
-                        value[chatIndex] = (value[chatIndex] ?? 0) + 1
-                        return value
-                    }); break
+                    case 'ui.reload-display': invalidateDisplay(); break
+                    case 'ui.reload-chat': invalidateChatMessageRender(Number(payload.index) || 0); break
                     case 'utility.wait': await sleep(Number(payload.durationMs) || 0); break
                     case 'utility.similarity': {
                         const processer = new HypaProcesser()
@@ -1475,7 +1471,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         caculatedTokens += await tokenize(additonalSysPrompt.promptend)
     }
     if(varChanged){
-        ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
+        invalidateDisplay()
     }
 
     if (shouldSetTriggerId && mode !== 'manual') {

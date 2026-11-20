@@ -54,13 +54,12 @@
     import { runTrigger } from 'src/ts/process/triggers'
     import { commitTriggerChat } from 'src/ts/process/triggerOrigin'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
+    import { DBState, CurrentTriggerIdStore, invalidateChatMessageRender, renderRevision } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
 
     import { getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount, tick } from "svelte"
+    import { onMount, tick } from "svelte"
     import type { Attachment } from "svelte/attachments"
-    import { type Unsubscriber } from "svelte/store"
     import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
@@ -69,7 +68,7 @@
     import { getTranslationSourceKey, stripTranslationPlaceholders } from "../../ts/translator/translationMask"
     import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, type Chat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
-    import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
+    import { HideIconStore, selIdState } from "../../ts/stores.svelte"
     import Textarea from "../UI/components/Textarea.svelte"
     import ChatBody from './ChatBody.svelte'
     import { getParsedGuiHtml } from './guiHtmlRenderCache'
@@ -704,25 +703,16 @@
     }
 
     $effect.pre(() => {
+        // Script-driven display reloads can change the result without changing `message`.
+        void renderRevision.display
         displaya(message)
     });
 
-    const unsubscribers:Unsubscriber[] = []
-
-    onMount(()=>{
-        unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
-            displaya(message)
-        }))
-        unsubscribers.push(subscribeTranslationResume((taskKeys) => {
-            void reconcileCompletedTranslation(taskKeys).catch(error => {
-                console.error('[Translation] Failed to reconcile resumed message:', error)
-            })
-        }))
-    })
-
-    onDestroy(()=>{
-        unsubscribers.forEach(u => u())
-    })
+    onMount(() => subscribeTranslationResume((taskKeys) => {
+        void reconcileCompletedTranslation(taskKeys).catch(error => {
+            console.error('[Translation] Failed to reconcile resumed message:', error)
+        })
+    }))
 
     $effect(() => {
         const root = partialEditRoot
@@ -1082,7 +1072,7 @@
         </div>
     {:else}
         <!-- Preserve ChatBody during streaming to keep the reader's scroll anchor. -->
-        {const chatReloadPointer = $derived(`${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`)}
+        {const chatReloadPointer = $derived(`${renderRevision.display}|${isStreamingDisplay ? 0 : (renderRevision.messages[idx] ?? 0)}`)}
         {const totalLengthPointer = $derived((idx > totalLength - 6) ? totalLength : 0)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -9,7 +9,7 @@
     import Switch from "../../../UI/components/Switch.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
-    import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
+    import { DBState, invalidateDisplay, selectedCharID } from "src/ts/stores.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
     import { movePresetItem } from "src/ts/preset/collection";
 
@@ -80,7 +80,7 @@
             chat.modules = chat.modules.filter((id) => id !== moduleId);
             character.modules = character.modules.filter((id) => id !== moduleId);
         }
-        $ReloadGUIPointer += 1;
+        invalidateDisplay();
     }
 
     function toggleScoped(moduleId: string, event: MouseEvent) {
@@ -100,7 +100,7 @@
         } else {
             character.modules = [...character.modules, moduleId];
         }
-        $ReloadGUIPointer += 1;
+        invalidateDisplay();
     }
 
     function moveModule(fromIndex: number, toIndex: number) {

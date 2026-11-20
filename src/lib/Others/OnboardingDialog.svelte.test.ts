@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushSync, mount, tick, unmount } from 'svelte'
-import { writable } from 'svelte/store'
 import type { character, Chat } from 'src/ts/storage/database.svelte'
 
 const mocks = vi.hoisted(() => ({ applyOnboardingAnswers: vi.fn(async () => true) }))
@@ -9,7 +8,7 @@ vi.mock('src/ts/onboarding', async (importOriginal) => ({
     ...await importOriginal<typeof import('src/ts/onboarding')>(),
     applyOnboardingAnswers: mocks.applyOnboardingAnswers,
 }))
-vi.mock('src/ts/stores.svelte', () => ({ ReloadGUIPointer: writable(0) }))
+vi.mock('src/ts/stores.svelte', () => ({ invalidateDisplay: vi.fn() }))
 vi.mock('src/ts/process/triggerOrigin', () => ({}))
 vi.mock('src/ts/parser/chatVar.svelte', () => ({
     getChatVarOf: (chat: Chat, key: string) => String(chat.scriptstate?.[`$${key}`] ?? ''),

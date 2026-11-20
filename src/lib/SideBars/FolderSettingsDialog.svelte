@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
+    import { DBState } from 'src/ts/stores.svelte';
     import type { FolderDisplayMode, folder as CharacterFolder } from 'src/ts/storage/database.svelte';
     import { alertConfirm, alertError } from 'src/ts/alert';
     import { requestImmediateSave } from 'src/ts/globalApi.svelte';
@@ -67,7 +67,6 @@
         if (!settingsTarget || !await alertConfirm(language.chatFolderDeleteConfirm)) return;
         if (!deleteChatFolder(settingsTarget.characterId, settingsTarget.folderId)) return;
 
-        $ReloadGUIPointer += 1;
         void requestImmediateSave({ characterIds: [settingsTarget.characterId] });
         chatFolderSettingsTarget.set(null);
     }
