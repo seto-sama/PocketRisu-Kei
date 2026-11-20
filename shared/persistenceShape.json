@@ -1,7 +1,6 @@
 {
   "chatMetadataFields": ["id", "name", "lastDate", "folderId", "modules"],
   "runtimeOnlyChatFields": ["isStreaming", "_placeholder", "_stub"],
-  "runtimeOnlyCharacterFields": ["reloadKeys"],
   "legacyCharacterFields": ["chatPage"],
   "serverOwnedCharacterFields": ["lastInteraction"],
   "serverOwnedRootFields": {

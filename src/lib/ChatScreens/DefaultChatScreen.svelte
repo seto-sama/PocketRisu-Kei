@@ -330,7 +330,6 @@ import { isMobile } from 'src/ts/platform'
                 invalidateSwipeMessage(message, entry.messageIndex)
             } else if (currentChatSlot) {
                 currentChatSlot.message = currentChatSlot.message.filter((_, index) => index !== entry.messageIndex)
-                currentCharacter.reloadKeys += 1
             }
             void requestImmediateSave()
             const nextEntry = refreshInlayViewerEntries(deletedViewerIndex)
@@ -1096,7 +1095,6 @@ import { isMobile } from 'src/ts/platform'
     }
 
     function invalidateSwipeMessage(message: Message, idx?: number) {
-        DBState.db.characters[$selectedCharID].reloadKeys += 1
         invalidateChatMessageRender(idx ?? currentChat.indexOf(message))
     }
 
@@ -1148,7 +1146,6 @@ import { isMobile } from 'src/ts/platform'
             characterId: rerollCharacter.chaId,
             rerollSnapshot: prepared.rerollSnapshot,
         })
-        rerollCharacter.reloadKeys += 1
         const attempt = await sendChatMain(
             prepared.rerollSnapshot,
             generationTarget,
@@ -1163,7 +1160,6 @@ import { isMobile } from 'src/ts/platform'
             if (
                 foregroundContext.abortRequested
                 && applyCancelledRerollSession(
-                    rerollCharacter,
                     rerollChat,
                     foregroundContext.rerollSession,
                 )

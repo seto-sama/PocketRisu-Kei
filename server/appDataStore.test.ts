@@ -146,7 +146,7 @@ describe('relational app data projection', () => {
     it('excludes device selection from writes and previously stored character rows', () => {
         const { sqlite, store } = createStore()
         const source = sampleDatabase()
-        Object.assign(source.characters[0], { chatPage: 1, reloadKeys: 42 })
+        Object.assign(source.characters[0], { chatPage: 1 })
         store.replaceFromProjection(source)
         const packr = new Packr({ useRecords: false })
         const unpackr = new Unpackr({ useRecords: false })
@@ -158,7 +158,7 @@ describe('relational app data projection', () => {
         expect(store.syncStartupProjection(incoming).changed).toBe(false)
 
         sqlite.prepare('UPDATE app_characters SET payload = ?').run(
-            packr.pack({ ...metadata, chatPage: 2, reloadKeys: 42 }),
+            packr.pack({ ...metadata, chatPage: 2 }),
         )
         expect(store.exportProjection().characters[0]).not.toHaveProperty('chatPage')
         expect(store.exportProjection({ includeMessages: false }).characters[0]).not.toHaveProperty('chatPage')

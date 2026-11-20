@@ -147,7 +147,6 @@ describe('chat reroll preparation', () => {
     })
 
     it('promotes a cancelled partial into a swipe and restores trailing messages', () => {
-        const character = { reloadKeys: 0 } as any
         const chat = {
             id: 'room-1',
             isStreaming: true,
@@ -157,7 +156,7 @@ describe('chat reroll preparation', () => {
             ],
         } as any
 
-        expect(applyCancelledRerollSession(character, chat, {
+        expect(applyCancelledRerollSession(chat, {
             originalTargetChatId: 'answer-1',
             savedSwipes: ['old answer'],
             generatedMessageIndex: 1,
@@ -170,6 +169,5 @@ describe('chat reroll preparation', () => {
         })
         expect(chat.message[2]).toMatchObject({ isComment: true })
         expect(chat.isStreaming).toBe(false)
-        expect(character.reloadKeys).toBe(1)
     })
 })

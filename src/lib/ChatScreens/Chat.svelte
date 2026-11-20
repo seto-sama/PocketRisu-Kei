@@ -224,7 +224,6 @@
             if (selected < 0 || !actions[selected]) return
 
             await addGeneratedInlayToCharacter(currentMessage.data, currentCharacter, actions[selected].id)
-            currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
             await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
             notifySuccess(language.inlayImageAddedToAssets)
         }

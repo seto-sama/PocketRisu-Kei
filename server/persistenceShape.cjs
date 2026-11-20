@@ -2,16 +2,13 @@
 
 const persistenceShape = require('../shared/persistenceShape.json');
 
-const runtimeOnlyCharacterFields = new Set([
-    ...persistenceShape.runtimeOnlyCharacterFields,
-    ...persistenceShape.legacyCharacterFields,
-]);
+const nonPersistentCharacterFields = new Set(persistenceShape.legacyCharacterFields);
 const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields);
 const serverOwnedRootFields = persistenceShape.serverOwnedRootFields;
 
 function removeRuntimeCharacterFields(character) {
     if (!character || typeof character !== 'object') return character;
-    for (const key of runtimeOnlyCharacterFields) delete character[key];
+    for (const key of nonPersistentCharacterFields) delete character[key];
     return character;
 }
 

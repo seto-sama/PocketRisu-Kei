@@ -7,7 +7,6 @@ import { get } from 'svelte/store';
 import { checkNullish, parseToggleSyntax, selectMultipleImportFiles, selectSingleImportFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
-import { initializeCharacterRuntimeState } from './persistenceShape';
 import { getChatPage, initializeChatSelection } from './chatSelection.svelte';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
@@ -876,7 +875,6 @@ export function setDatabase(data:Database){
 function installDatabase(data: Database) {
     normalizePromptPresetSelection(data)
     for (const character of data.characters ?? []) {
-        initializeCharacterRuntimeState(character)
         initializeChatSelection(character)
         for (const chat of character.chats ?? []) {
             if (!isChatStub(chat)) normalizeChat(chat)
@@ -1538,7 +1536,6 @@ export interface character{
     additionalAssets?:[string, string, string][]
     replaceGlobalNote:string
     backgroundHTML?:string
-    reloadKeys?:number
     backgroundCSS?:string
     license?:string
     private?:boolean

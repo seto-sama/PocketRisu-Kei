@@ -251,7 +251,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return
         }
         chat.isStreaming = false
-        character.reloadKeys += 1
     }
 
     function throwError(error:string){
@@ -334,7 +333,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         ))
                         runtimeCharacter.chats[runtimeChatIndex] = appliedChat
                         markChatSyncApplied(appliedChat)
-                        runtimeCharacter.reloadKeys += 1
                     } else if (localChat && canonicalChat) {
                         window.dispatchEvent(new CustomEvent('risu-sync-refresh-requested', {
                             detail: { characterId: nowChatroom.chaId, chatId: outgoingChat.id, terminalCanonical: true },
@@ -484,7 +482,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             targetMessage,
             rerollSnapshot,
         })
-        character.reloadKeys += 1
     }
     function ensureLiveGenerationTarget(){
         const character = DBState.db.characters.find(item =>
@@ -1749,7 +1746,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
 
         generationChat.isStreaming = true
-        currentChar.reloadKeys += 1
     }
 
     registerRevenantGenerationMetadata(messageChatId, {
@@ -1943,7 +1939,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             throw new Error('Generation chat is no longer available')
         }
         initialTarget.chat.isStreaming = true
-        initialTarget.character.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
         let streamDetached:boolean = arg.detachSignal?.aborted === true
@@ -2011,7 +2006,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         }
                         setGenerationMessageContent(refreshedTarget.message, result2.data)
                     }
-                    liveTarget.character.reloadKeys += 1
                 }
                 if(readed.done){
                     break
@@ -2115,7 +2109,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 })
                 setGenerationMessageContent(committedTarget.message, result)
             }
-            DBState.db.characters[selectedChar].reloadKeys += 1
             if(!arg.suppressTts && DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
                 await sayTTS(currentChar, result)
             }

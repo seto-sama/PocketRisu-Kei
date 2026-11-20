@@ -8,10 +8,10 @@ const {
 } = require('./generationInputMetadata.cjs')
 
 describe('generation input metadata', () => {
-    it('updates durable activity metadata and drops runtime render state', () => {
+    it('updates durable activity metadata and drops legacy device state', () => {
         const database = {
             statics: { messages: 4, imports: 2 },
-            characters: [{ chaId: 'character', reloadKeys: 99, lastInteraction: 1 }],
+            characters: [{ chaId: 'character', chatPage: 2, lastInteraction: 1 }],
         }
 
         expect(applyGenerationInputMetadata(database, 'character', 1234)).toEqual({

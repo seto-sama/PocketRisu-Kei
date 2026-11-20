@@ -1,10 +1,7 @@
 import persistenceShape from '../../../shared/persistenceShape.json'
 
 /** One ownership manifest is consumed by both browser and Node persistence. */
-const nonPersistentCharacterFields = new Set([
-    ...persistenceShape.runtimeOnlyCharacterFields,
-    ...persistenceShape.legacyCharacterFields,
-])
+const nonPersistentCharacterFields = new Set(persistenceShape.legacyCharacterFields)
 const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields)
 const serverOwnedRootFields = persistenceShape.serverOwnedRootFields as Record<string, string[]>
 
@@ -18,7 +15,7 @@ export function isClientWritableCharacterField(key: string): boolean {
     return !nonPersistentCharacterFields.has(key) && !serverOwnedCharacterFields.has(key)
 }
 
-export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'reloadKeys' | 'chatPage'> {
+export function characterToPersistentShape<T extends Record<string, any>>(character: T): Omit<T, 'chatPage'> {
     const persistent = { ...character }
     for (const key of nonPersistentCharacterFields) delete persistent[key]
     return persistent
@@ -79,9 +76,4 @@ export function characterWithServerBaseline(character: any, baseline: any) {
         }
     }
     return next
-}
-
-export function initializeCharacterRuntimeState<T>(character: T & { reloadKeys?: number }): T & { reloadKeys?: number } {
-    if (!Number.isFinite(character.reloadKeys)) character.reloadKeys = 0
-    return character
 }

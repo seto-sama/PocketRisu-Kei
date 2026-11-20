@@ -276,18 +276,6 @@ const dbWith = (characters: any[], rest: Record<string, any> = {}) => ({
 const clone = (o: any) => JSON.parse(JSON.stringify(o))
 
 describe('fast-path — no-op detection after each transition', () => {
-    test('runtime-only reloadKeys changes never produce a database patch', async () => {
-        const db = dbWith([chr('a', { reloadKeys: 1 })])
-        const p = new RisuSavePatcher()
-        await p.init(db)
-
-        const runtimeChanged = clone(db)
-        runtimeChanged.characters[0].reloadKeys = 25
-        const { patch } = await p.set(runtimeChanged, emptyToSave())
-
-        expect(patch).toEqual([])
-    })
-
     test('init → identical save is a no-op', async () => {
         const db = dbWith([chr('a'), chr('b')])
         const p = new RisuSavePatcher()

@@ -2,18 +2,16 @@ import { describe, expect, it } from 'vitest'
 import {
     characterToClientWriteShape,
     characterToPersistentShape,
-    initializeCharacterRuntimeState,
     isClientWritableCharacterField,
     rootValueToClientWriteShape,
     visitClientWritableRootValues,
 } from './persistenceShape'
 
 describe('character persistence shape', () => {
-    it('removes runtime and legacy fields without changing the source character', () => {
+    it('removes legacy fields without changing the source character', () => {
         const character = {
             chaId: 'character',
             name: 'Name',
-            reloadKeys: 42,
             chatPage: 3,
             lastInteraction: 123,
         }
@@ -23,7 +21,6 @@ describe('character persistence shape', () => {
             name: 'Name',
             lastInteraction: 123,
         })
-        expect(character.reloadKeys).toBe(42)
         expect(character.chatPage).toBe(3)
     })
 
@@ -31,7 +28,6 @@ describe('character persistence shape', () => {
         expect(characterToClientWriteShape({
             chaId: 'character',
             name: 'Name',
-            reloadKeys: 42,
             chatPage: 3,
             lastInteraction: 123,
         })).toEqual({
@@ -43,7 +39,6 @@ describe('character persistence shape', () => {
             imports: 2,
         })).toEqual({ imports: 2 })
         expect(isClientWritableCharacterField('name')).toBe(true)
-        expect(isClientWritableCharacterField('reloadKeys')).toBe(false)
         expect(isClientWritableCharacterField('chatPage')).toBe(false)
         expect(isClientWritableCharacterField('lastInteraction')).toBe(false)
     })
@@ -63,12 +58,5 @@ describe('character persistence shape', () => {
 
         expect(visited).toEqual([2])
         expect(messagesRead).toBe(false)
-    })
-
-    it('restores device defaults after loading a persistent character', () => {
-        expect(initializeCharacterRuntimeState({ chaId: 'character' })).toEqual({
-            chaId: 'character',
-            reloadKeys: 0,
-        })
     })
 })
