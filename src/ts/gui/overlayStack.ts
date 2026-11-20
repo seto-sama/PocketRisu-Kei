@@ -1,6 +1,9 @@
+import { createContext } from 'svelte'
+import type { Attachment } from 'svelte/attachments'
+
 export type OverlayLayerGetter = () => number | undefined
 
-export const overlayLayerContext = Symbol('risu-overlay-layer')
+export const [getOverlayLayer, setOverlayLayer, hasOverlayLayer] = createContext<OverlayLayerGetter>()
 // Leaves ample room above static application chrome and common local z-indexes.
 export const overlayLayerMinimum = 1000
 
@@ -42,11 +45,9 @@ export function acquireOverlayLayer(options: {
 }
 
 /** Svelte action for legacy overlay roots that do not use a portal component. */
-export function overlayLayer(node: HTMLElement) {
+export const overlayLayer: Attachment<HTMLElement> = (node) => {
     const lease = acquireOverlayLayer()
     node.style.setProperty('--risu-overlay-z', lease.zIndex.toString())
     node.dataset.risuOverlayLayer = lease.zIndex.toString()
-    return {
-        destroy: lease.release,
-    }
+    return lease.release
 }

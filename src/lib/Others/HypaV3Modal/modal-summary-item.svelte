@@ -421,10 +421,10 @@
     <IconButtonGroup>
       <span
         class="inline-flex"
-        use:handleDualAction={{
+        {@attach handleDualAction({
           onMainAction: () => toggleTranslate(false),
           onAlternativeAction: () => toggleTranslate(true),
-        }}
+        })}
       >
         <IconButton tabindex={-1}>
           <LanguagesIcon />
@@ -507,10 +507,10 @@
         <IconButtonGroup>
           <span
             class="inline-flex"
-            use:handleDualAction={{
+            {@attach handleDualAction({
               onMainAction: () => toggleTranslateRerolled(false),
               onAlternativeAction: () => toggleTranslateRerolled(true),
-            }}
+            })}
           >
             <IconButton tabindex={-1}>
               <LanguagesIcon />
@@ -586,10 +586,10 @@
       <IconButtonGroup>
         <span
           class="inline-flex"
-          use:handleDualAction={{
+          {@attach handleDualAction({
             onMainAction: () => toggleTranslateExpandedMessage(false),
             onAlternativeAction: () => toggleTranslateExpandedMessage(true),
-          }}
+          })}
         >
           <IconButton tabindex={-1}>
             <LanguagesIcon />

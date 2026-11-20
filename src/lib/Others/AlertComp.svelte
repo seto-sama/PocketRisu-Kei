@@ -197,7 +197,7 @@
 
 {#if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
+    <div {@attach overlayLayer} class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>

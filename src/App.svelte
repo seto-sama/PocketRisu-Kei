@@ -41,6 +41,7 @@
     import Toaster from './lib/UI/components/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
     import { onDestroy } from 'svelte'
+    import type { Attachment } from 'svelte/attachments'
     import { createKeepAliveAudio } from './ts/keepAliveAudio'
     import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
@@ -88,15 +89,13 @@
         event.stopPropagation()
     }
 
-    function focusOverlay(node: HTMLElement) {
+    const focusOverlay: Attachment<HTMLElement> = (node) => {
         let active = true
         queueMicrotask(() => {
             if (active) node.focus({ preventScroll: true })
         })
-        return {
-            destroy() {
-                active = false
-            },
+        return () => {
+            active = false
         }
     }
 
@@ -190,7 +189,7 @@
                 <div
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
-                    use:focusOverlay
+                    {@attach focusOverlay}
                     onkeydown={handleDialogKeydown}
                     role="dialog"
                     aria-modal="true"
@@ -216,7 +215,7 @@
             <div
                 class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
-                use:focusOverlay
+                {@attach focusOverlay}
                 onkeydown={handleDialogKeydown}
                 role="dialog"
                 aria-modal="true"

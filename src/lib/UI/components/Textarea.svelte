@@ -92,7 +92,7 @@
                 ondraft(draftValue)
                 scheduleCommit()
             }}
-            use:optionalLongpress
+            {@attach onLongPress && longpress(onLongPress)}
 ></textarea>
     </div>
     {#if showActionBar}
@@ -282,12 +282,6 @@
         onResize: height => { autoHeight = `${height}px` },
     })
 
-    function optionalLongpress(node: HTMLElement) {
-        const action = onLongPress ? longpress(node, onLongPress) : undefined
-        return {
-            destroy: () => action?.destroy(),
-        }
-    }
 
     $effect(() => {
         const externalValue = value ?? ''

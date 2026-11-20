@@ -215,7 +215,7 @@
                                 onpointerdown={event => event.preventDefault()}
                                 onclick={() => choose(suggestion)}
                             >
-                                <span use:completionContent={suggestion}></span>
+                                <span {@attach completionContent(suggestion)}></span>
                             </button>
                         {/each}
                     </div>

@@ -806,7 +806,7 @@
           <div
             class="h-px w-full"
             aria-hidden="true"
-            use:observeRecentChatsSentinel={filteredRecentChars.length}
+            {@attach observeRecentChatsSentinel(filteredRecentChars.length)}
           ></div>
         {/if}
         {/if}

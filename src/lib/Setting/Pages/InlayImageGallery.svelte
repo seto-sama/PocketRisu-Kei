@@ -563,7 +563,7 @@
         </div>
 
         {#if hasMore}
-          <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
+          <div {@attach observePagingSentinel(sortedItems.length)} class="flex items-center justify-center py-10">
             <LoaderCircleIcon class="size-7 animate-spin text-primary" />
           </div>
         {/if}

@@ -140,7 +140,7 @@ vi.mock('src/ts/imageGeneration/addInlayToCharacter', () => ({
     GeneratedInlayAssetError: class GeneratedInlayAssetError extends Error {},
 }))
 vi.mock('src/ts/characters', () => ({ getCharImage: (value: string) => value }))
-vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => ({ destroy() {} }) }))
+vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => () => {} }))
 // The real display decision runs; only server-side job recovery is stubbed out.
 vi.mock('src/ts/process/revenant/auxiliary', async importOriginal => ({
     ...await importOriginal<typeof import('src/ts/process/revenant/auxiliary')>(),

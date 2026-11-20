@@ -59,6 +59,7 @@
 
     import { getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
+    import type { Attachment } from "svelte/attachments"
     import { type Unsubscriber } from "svelte/store"
     import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
@@ -684,7 +685,7 @@
         'max-w-3xl'
     )
 
-    function trackFloatingToolbar(node: HTMLElement) {
+    const trackFloatingToolbar: Attachment<HTMLElement> = (node) => {
         const anchor = node.previousElementSibling as HTMLElement | null
         const scrollRoot = node.closest('.default-chat-screen') as HTMLElement | null
         if (!anchor || !scrollRoot || typeof IntersectionObserver === 'undefined') {
@@ -696,11 +697,9 @@
             floatingToolbarStuck = stuck
         })
 
-        return {
-            destroy() {
-                stopObserving()
-                floatingToolbarStuck = false
-            }
+        return () => {
+            stopObserving()
+            floatingToolbarStuck = false
         }
     }
 
@@ -1006,7 +1005,7 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-floating-layer"
         class:chat-toolbar-is-stuck={floatingToolbarStuck}
-        use:trackFloatingToolbar
+        {@attach trackFloatingToolbar}
     >
         <div class="chat-toolbar-floating-card" style:--chat-toolbar-floating-bg={floatingToolbarBackground}>
             <div class="chat-message-actions chat-toolbar-actions">

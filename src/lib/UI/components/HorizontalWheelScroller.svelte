@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
+    import type { Attachment } from 'svelte/attachments';
     import type { HTMLAttributes } from 'svelte/elements';
 
     const DEFAULT_SMOOTHING_MS = 70;
@@ -28,8 +29,8 @@
         ...rest
     }: Props = $props();
 
-    function horizontalWheel(node: HTMLDivElement, initiallyEnabled: boolean) {
-        let wheelEnabled = initiallyEnabled;
+    const horizontalWheel = (enabled: boolean): Attachment<HTMLDivElement> => (node) => {
+        if (!enabled) return;
         let animationFrame: number | null = null;
         let targetScrollLeft = node.scrollLeft;
         let previousTimestamp: number | null = null;
@@ -94,7 +95,7 @@
         }
 
         function handleWheel(event: WheelEvent) {
-            if (!wheelEnabled || node.scrollWidth <= node.clientWidth) return;
+            if (node.scrollWidth <= node.clientWidth) return;
 
             // Keep native trackpad and horizontal-wheel scrolling. Only map a
             // predominantly vertical wheel gesture onto the horizontal axis.
@@ -125,24 +126,18 @@
         node.addEventListener('pointerdown', handleDirectManipulation, { passive: true });
         node.addEventListener('scroll', handleScroll, { passive: true });
 
-        return {
-            update(nextEnabled: boolean) {
-                wheelEnabled = nextEnabled;
-                if (!wheelEnabled) stopAnimation();
-            },
-            destroy() {
-                stopAnimation();
-                node.removeEventListener('wheel', handleWheel);
-                node.removeEventListener('pointerdown', handleDirectManipulation);
-                node.removeEventListener('scroll', handleScroll);
-            },
+        return () => {
+            stopAnimation();
+            node.removeEventListener('wheel', handleWheel);
+            node.removeEventListener('pointerdown', handleDirectManipulation);
+            node.removeEventListener('scroll', handleScroll);
         };
-    }
+    };
 </script>
 
 <div
     bind:this={element}
-    use:horizontalWheel={enabled}
+    {@attach horizontalWheel(enabled)}
     class={className}
     {...rest}
 >

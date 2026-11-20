@@ -7,6 +7,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
+    import type { Attachment } from 'svelte/attachments';
     import FullscreenImageViewer from './components/FullscreenImageViewer.svelte';
     import AssetViewerActions from './components/AssetViewerActions.svelte';
     import IconButton from './components/IconButton.svelte';
@@ -97,30 +98,18 @@
         return assetObserver;
     }
 
-    function lazyLoadAssetPreview(
-        node: HTMLElement,
-        options: { path: string, enabled: boolean },
-    ) {
-        function observe({ path, enabled }: typeof options) {
-            assetObserver?.unobserve(node);
-            observedAssetPaths.set(node, path);
-            if(!enabled || assetFilePaths[path]){
-                return;
-            }
-            const observer = getAssetObserver();
-            if(observer){
-                observer.observe(node);
-            }
-            else {
-                loadAssetPreview(path);
-            }
+    const lazyLoadAssetPreview = (path: string, enabled: boolean): Attachment<HTMLElement> => (node) => {
+        observedAssetPaths.set(node, path);
+        if(!enabled || assetFilePaths[path]){
+            return;
         }
-
-        observe(options);
-        return {
-            update: observe,
-            destroy: () => assetObserver?.unobserve(node),
-        };
+        const observer = getAssetObserver();
+        if(!observer){
+            loadAssetPreview(path);
+            return;
+        }
+        observer.observe(node);
+        return () => observer.unobserve(node);
     }
 
     onDestroy(() => {
@@ -264,7 +253,7 @@
             <div class="flex min-w-0 items-start gap-2 py-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
                     class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
-                    use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
+                    {@attach lazyLoadAssetPreview(asset[1], DBState.db.useAdditionalAssetsPreview)}
                 >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
                         {#if previewableImageExtensions.includes(extension)}
@@ -329,7 +318,7 @@
             </div>
         {/each}
         {#if hasMoreAssets}
-            <div use:observePagingSentinel={assets.length} class="h-px w-full" aria-hidden="true"></div>
+            <div {@attach observePagingSentinel(assets.length)} class="h-px w-full" aria-hidden="true"></div>
         {/if}
     {/if}
 </div>
