@@ -487,6 +487,7 @@
         await preserveMessagePosition(() => {
             editTranslationMode = false
             editTranslationCacheKey = null
+            translationRevision += 1
         })
     }
 
@@ -1048,8 +1049,10 @@
         <Textarea bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
-    {:else if isComment}
-        <div class={{
+    {/if}
+    <!-- Stay mounted while editing: a remounted ChatBody is empty until its next commit frame. -->
+    {#if isComment}
+        <div hidden={currentTextEditActive} class={{
             "flex justify-center text-subtext italic": true,
             "branched-from-comment-text": isBranchedFromComment,
             "min-w-0 text-sm leading-5": isBranchedFromComment,
@@ -1075,7 +1078,7 @@
             {/if}
         </div>
     {:else if blankMessage}
-        <div class="w-full flex justify-center text-subtext italic mb-12">
+        <div hidden={currentTextEditActive} class="w-full flex justify-center text-subtext italic mb-12">
             {language.noMessage}
         </div>
     {:else}
@@ -1085,6 +1088,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
+            hidden={currentTextEditActive}
             bind:this={bodyRoot}
             onclick={async () => {
             if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){

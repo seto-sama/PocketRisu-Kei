@@ -66,7 +66,7 @@ vi.mock('../storage/persistentKv', () => ({
     writePersistentJson: mocks.writePersistentJson,
 }))
 
-import { getLLMCache, runPromptTranslator, runTranslator, translate, translateHTML, translateVox } from './translator'
+import { copyLLMCache, getLLMCache, importLLMCacheFromJSON, runPromptTranslator, runTranslator, translate, translateHTML, translateVox } from './translator'
 
 describe('translation lifecycle', () => {
     beforeEach(() => {
@@ -170,5 +170,17 @@ describe('translation lifecycle', () => {
         ]))
 
         await expect(getLLMCache('legacy-empty')).resolves.toBeNull()
+    })
+
+    it('never links a translation to a blank source', async () => {
+        mocks.readPersistentJsonBatch.mockResolvedValue(new Map([
+            ['', { key: '', value: 'stray translation' }],
+            ['source', { key: 'source', value: 'translated' }],
+        ]))
+
+        await expect(getLLMCache('')).resolves.toBeNull()
+        await expect(copyLLMCache('source', ' ')).resolves.toBe(false)
+        await expect(importLLMCacheFromJSON({ '': 'stray translation' })).resolves.toEqual({ count: 0, failed: 1 })
+        expect(mocks.writePersistentJson).not.toHaveBeenCalled()
     })
 })
