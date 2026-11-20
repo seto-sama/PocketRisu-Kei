@@ -725,6 +725,8 @@ export const languageEnglish = {
     addInlayImageToAssets: "Add to Assets",
     addInlayImagePrompt: "Where would you like to add this inlay image?",
     inlayImageAddedToAssets: "The inlay image was added to the character.",
+    chatImagesAddedToAssets: "Added {{count}} chat image(s) to the additional assets.",
+    noChatImagesAddedToAssets: "No new images to add in this chat.",
     translator: "Translator",
     disabled: "Disabled",
     noPluginSelected: "Model selected as plugin, but no plugin selected.",

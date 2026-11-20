@@ -10,6 +10,17 @@ export function getFirstInlayId(value: string): string | undefined {
     return firstInlayTokenRegex.exec(value)?.[2];
 }
 
+export function getInlayIds(data: string | readonly string[]): string[] {
+    const sources = typeof data === 'string' ? [data] : data
+    const ids = new Set<string>()
+    for (const source of sources) {
+        for (const match of source.matchAll(inlayTokenRegex)) {
+            ids.add(match[2])
+        }
+    }
+    return [...ids]
+}
+
 /** Canonicalize newly saved legacy display-only references without migrating stored chats. */
 export function canonicalizeInlayTokens(value: string): string {
     return value.replace(inlayTokenRegex, (token, type: string, id: string) =>

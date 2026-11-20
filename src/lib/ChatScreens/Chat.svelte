@@ -96,7 +96,7 @@
         ensureBookmarkCatalog,
     } from "src/ts/bookmarks/bookmarkService";
     import { canonicalizeInlayTokens } from "src/ts/util/inlayTokens";
-    import { addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
+    import { addChatInlaysToCharacterAssets, addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -232,6 +232,36 @@
             alertError(error instanceof GeneratedInlayAssetError
                 ? language.inlayGallery.inlayMissing
                 : error)
+        }
+        finally {
+            addingImageGenerationAsset = false
+        }
+    }
+
+    let minorMenuOpen = $state(false)
+
+    async function addChatImagesToAssets(event: MouseEvent) {
+        event.preventDefault()
+        // Right-click does not trigger the item's select, so the menu has to be closed by hand.
+        minorMenuOpen = false
+        if (addingImageGenerationAsset) return
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        if (currentCharacter?.type !== 'character') return
+        const messages = currentCharacter.chats[getChatPage(currentCharacter)]?.message
+        if (!messages) return
+
+        addingImageGenerationAsset = true
+        try {
+            const added = await addChatInlaysToCharacterAssets(messages.map(message => message.data), currentCharacter)
+            if (added === 0) {
+                notifyInfo(language.noChatImagesAddedToAssets)
+                return
+            }
+            await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
+            notifySuccess(language.chatImagesAddedToAssets.replace('{{count}}', String(added)))
+        }
+        catch (error) {
+            alertError(error)
         }
         finally {
             addingImageGenerationAsset = false
@@ -1151,14 +1181,14 @@
                     {@render copyButton(false)}
                     {@render deleteButton(false)}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
-                        <PopupButton>
+                        <PopupButton bind:open={minorMenuOpen}>
                             {@render minorMenuItems()}
                         </PopupButton>
                     {/if}
                 {:else}
                     {@render translationButton()}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
-                        <PopupButton>
+                        <PopupButton bind:open={minorMenuOpen}>
                             {@render copyButton(true)}
                             {@render ttsButton(true)}
                             {@render deleteButton(true)}
@@ -1545,7 +1575,7 @@
 {#snippet minorMenuItems()}
     {#if idx > -1}
         {#if isImageGeneration}
-            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset} oncontextmenu={addChatImagesToAssets}>
                 <ImagePlusIcon />
                 <span>{language.addInlayImageToAssets}</span>
             </DropdownMenuItem>

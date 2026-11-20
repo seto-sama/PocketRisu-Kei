@@ -15,7 +15,7 @@ import { calcString } from '../process/infunctions';
 import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
 
 import { getInlayAssetUrl, getInlayInfosBatch, type InlayAsset } from '../process/files/inlays';
-import { INLAY_VIEWER_ID_ATTRIBUTE, inlayTokenRegex } from '../util/inlayTokens';
+import { getInlayIds, INLAY_VIEWER_ID_ATTRIBUTE, inlayTokenRegex } from '../util/inlayTokens';
 import { getModuleAssets, getModuleLorebooks, getModules } from '../process/modules';
 import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.min.css'
@@ -1257,17 +1257,6 @@ async function processInlayQueue() {
     }
 
     isResolvingPlaceholders = false
-}
-
-function getInlayIds(data: string | readonly string[]): string[] {
-    const sources = typeof data === 'string' ? [data] : data
-    const ids = new Set<string>()
-    for (const source of sources) {
-        for (const match of source.matchAll(inlayTokenRegex)) {
-            ids.add(match[2])
-        }
-    }
-    return [...ids]
 }
 
 async function ensureInlayAssetsCached(ids: readonly string[]): Promise<void> {

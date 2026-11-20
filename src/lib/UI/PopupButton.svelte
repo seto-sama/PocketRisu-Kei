@@ -4,15 +4,17 @@
     import IconButton from "./components/IconButton.svelte";
     import * as DropdownMenu from "./components/dropdown-menu";
 
-    const {
-        children
+    let {
+        children,
+        open = $bindable(false),
     }:{
         children: import("svelte").Snippet
+        open?: boolean
     } = $props();
-    
+
 </script>
 
-<DropdownMenu.Root>
+<DropdownMenu.Root bind:open>
     <DropdownMenu.Trigger>
         {#snippet child({ props })}
             <IconButton {...props} size="lg" className="button-icon-menu" aria-label={language.menu}>

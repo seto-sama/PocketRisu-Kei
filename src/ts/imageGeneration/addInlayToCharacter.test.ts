@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { sha256Hex } from '../hash'
 import type { character } from '../storage/database.svelte'
-import { addGeneratedInlayToCharacter } from './addInlayToCharacter'
+import { addChatInlaysToCharacterAssets, addGeneratedInlayToCharacter } from './addInlayToCharacter'
 
 const mocks = vi.hoisted(() => ({
     getInlayAssetBlob: vi.fn(),
@@ -68,5 +69,31 @@ describe('addGeneratedInlayToCharacter', () => {
         await expect(addGeneratedInlayToCharacter('plain text', createCharacter(), 'icon'))
             .rejects.toThrow()
         expect(mocks.saveAsset).not.toHaveBeenCalled()
+    })
+})
+
+describe('addChatInlaysToCharacterAssets', () => {
+    it('adds each new chat image once, skipping non-images and uploads of existing assets', async () => {
+        const currentCharacter = createCharacter()
+        currentCharacter.additionalAssets = [['existing', `assets/${await sha256Hex(new TextEncoder().encode('existing'))}.webp`, 'webp']]
+        mocks.getInlayMeta.mockReset().mockResolvedValue(null)
+        mocks.getInlayAssetBlob.mockReset().mockImplementation(async (id: string) => ({
+            data: new Blob([id]),
+            ext: 'webp',
+            name: `${id}.webp`,
+            type: id === 'video' ? 'video' : 'image',
+        }))
+        mocks.saveAsset.mockReset().mockImplementation(async (_bytes: Uint8Array, id: string, ext: string) =>
+            `assets/${id}.${ext}`)
+
+        const added = await addChatInlaysToCharacterAssets([
+            '{{inlayed::a}} {{inlay::video}}',
+            '{{inlayeddata::existing}} {{inlayed::b}}',
+            '{{inlayed::a}}',
+        ], currentCharacter)
+
+        expect(added).toBe(2)
+        expect(currentCharacter.additionalAssets.map(asset => asset[0])).toEqual(['existing', 'a', 'b'])
+        expect(mocks.saveAsset).toHaveBeenCalledTimes(2)
     })
 })

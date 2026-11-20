@@ -776,6 +776,8 @@ export const languageKorean = {
   addInlayImageToAssets: "에셋에 넣기",
   addInlayImagePrompt: "이 인레이 이미지를 어디에 추가하시겠습니까?",
   inlayImageAddedToAssets: "인레이 이미지를 캐릭터에 추가했습니다.",
+  chatImagesAddedToAssets: "이미지 {{count}}개를 추가 에셋에 넣었습니다.",
+  noChatImagesAddedToAssets: "이 채팅에 새로 넣을 이미지가 없습니다.",
   translator: "번역기",
   disabled: "비활성화됨",
   noPluginSelected: "플러그인이 선택되었지만, 플러그인이 없습니다.",
