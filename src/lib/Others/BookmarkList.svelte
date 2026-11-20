@@ -129,7 +129,7 @@
     itemRenameable
 >
     {#snippet itemContent(index, renameController)}
-        {@const bookmark = bookmarks[index]}
+        {const bookmark = $derived(bookmarks[index])}
         {#if bookmark}
             <BookmarkIcon class="mr-2 shrink-0" size={18} />
             <InlineEditableName

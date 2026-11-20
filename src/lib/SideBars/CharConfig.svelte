@@ -364,11 +364,11 @@
         <OnboardingEditor character={DBState.db.characters[$selectedCharID] as character} />
     {/if}
 {:else if $CharConfigSubMenu === 6}
-    {@const licenseRestricted =
-        DBState.db.characters[$selectedCharID].license === 'CC BY-NC-SA 4.0'
+    {const licenseRestricted =
+        $derived(DBState.db.characters[$selectedCharID].license === 'CC BY-NC-SA 4.0'
         || DBState.db.characters[$selectedCharID].license === 'CC BY-SA 4.0'
         || DBState.db.characters[$selectedCharID].license === 'CC BY-ND 4.0'
-        || DBState.db.characters[$selectedCharID].license === 'CC BY-NC-ND 4.0'
+        || DBState.db.characters[$selectedCharID].license === 'CC BY-NC-ND 4.0')
     }
 
     <span class="text-maintext">{language.creator}</span>
@@ -412,7 +412,7 @@
     }}>{language.convertToModule}</Button>
 
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
-        {@const char = DBState.db.characters[$selectedCharID] as character}
+        {const char = $derived(DBState.db.characters[$selectedCharID] as character)}
         <div class="mt-6 border-t border-darkborderc pt-4">
             <h3 class="text-lg font-bold mb-3">{language.characterPackage}</h3>
             {#key $selectedCharID}

@@ -9,7 +9,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import { onDestroy, onMount } from "svelte";
+    import { getAbortSignal, onDestroy, onMount } from "svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
@@ -59,14 +59,11 @@
 
   let { onGoBack = () => {}, mode = 'independent', subMenu = $bindable(0) }: Props = $props();
 
-    let tokenizeSequence = 0
-    async function executeTokenize(prest: PromptItem[]){
-        const sequence = ++tokenizeSequence
+    async function executeTokenize(prest: PromptItem[], signal: AbortSignal){
         const [parsed, raw] = await Promise.all([tokenizePreset(prest), tokenizePreset(prest, 'raw')])
-        if (sequence === tokenizeSequence) {
-            tokens = parsed
-            rawTokens = raw
-        }
+        if (signal.aborted) return
+        tokens = parsed
+        rawTokens = raw
     }
 
     function warningText(warning: TemplateWarning): string {
@@ -88,7 +85,7 @@
   });
   $effect.pre(() => {
     // Snapshot synchronously so every block is tracked, not just those read before the first await.
-    executeTokenize($state.snapshot(DBState.db.promptTemplate))
+    executeTokenize($state.snapshot(DBState.db.promptTemplate), getAbortSignal())
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {

@@ -143,7 +143,7 @@
         {#if mode === 'icon'}
             <div class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 rounded-md border border-darkborderc p-2 max-h-48 overflow-y-auto">
                 {#each FOLDER_ICON_NAMES as name (name)}
-                    {@const Icon = FOLDER_ICONS[name]}
+                    {const Icon = $derived(FOLDER_ICONS[name])}
                     <button type="button" class="flex aspect-square w-full items-center justify-center rounded-md {(target.icon ?? 'folder') === name ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-surface'}"
                         title={name} aria-label={name} aria-pressed={(target.icon ?? 'folder') === name} onclick={() => updateTarget({ icon: name === 'folder' ? undefined : name })}><Icon size={folderIconSize} /></button>
                 {/each}

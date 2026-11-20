@@ -137,8 +137,8 @@
         </button>
 
         {#each categories as category}
-          {@const renameController = new InlineEditableNameController()}
-          {@const count = hypaV3Data.summaries.filter(s => (s.categoryId || '') === category.id).length}
+          {const renameController = $derived(new InlineEditableNameController())}
+          {const count = $derived(hypaV3Data.summaries.filter(s => (s.categoryId || '') === category.id).length)}
           <div
             data-inline-rename-row
             class="flex min-h-11 items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-maintext transition-colors {filterState.selectedCategoryFilter === category.id

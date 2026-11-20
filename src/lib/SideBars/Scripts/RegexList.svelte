@@ -100,7 +100,7 @@
             {/if}
         {/if}
         {#each scriptGroups as group}
-            {@const customscript = group.scripts[0]}
+            {const customscript = $derived(group.scripts[0])}
             {#if matchesSearch(group)}
                 <RegexData
                     {embedded}

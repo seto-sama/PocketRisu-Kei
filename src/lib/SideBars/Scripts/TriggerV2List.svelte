@@ -385,7 +385,7 @@
         {/if}
         {#each value as trigger, i}
             {#if i > 0}
-                {@const topLevelDividerIndexes = getTriggerV2TopLevelDividerIndexes(trigger.effect)}
+                {const topLevelDividerIndexes = $derived(getTriggerV2TopLevelDividerIndexes(trigger.effect))}
                 <DisclosureList
                     variant="item"
                     open={openedTriggers.has(trigger)}

@@ -945,13 +945,13 @@
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
-            {@const diagnosticMessage = idx >= 0
+            {const diagnosticMessage = $derived(idx >= 0
                 ? DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message[idx]
-                : undefined}
-            {@const diagnosticGenerationInfo = diagnosticMessage
+                : undefined)}
+            {const diagnosticGenerationInfo = $derived(diagnosticMessage
                 ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
-                : messageGenerationInfo}
-            {@const modelLabel = diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable}
+                : messageGenerationInfo)}
+            {const modelLabel = $derived(diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable)}
             <IconButton
                 expanded
                 className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
@@ -1060,8 +1060,8 @@
         }}>
 
             {#if msgDisplay.startsWith('{{specialcomment')}
-                {@const parts = msgDisplay.split('::')}
-                {@const type = parts[1]}
+                {const parts = $derived(msgDisplay.split('::'))}
+                {const type = $derived(parts[1])}
 
                 {#if type === 'branchedfrom'}
                     <button class="min-w-0 text-center text-primary hover:underline"
@@ -1083,8 +1083,8 @@
         </div>
     {:else}
         <!-- Preserve ChatBody during streaming to keep the reader's scroll anchor. -->
-        {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
-        {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
+        {const chatReloadPointer = $derived(`${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`)}
+        {const totalLengthPointer = $derived((idx > totalLength - 6) ? totalLength : 0)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"

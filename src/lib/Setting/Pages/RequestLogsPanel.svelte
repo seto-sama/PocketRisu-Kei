@@ -307,7 +307,7 @@
                     </Collapsible.Trigger>
 
                     <Collapsible.Content class="bg-darkbg/60">
-                        {@const detail = requestLogDetails[log.id]}
+                        {const detail = $derived(requestLogDetails[log.id])}
                         {#if requestDetailLoading[log.id]}
                             <div class="p-4 text-sm text-subtext">{language.systemLogsLoading}</div>
                         {:else if requestDetailErrors[log.id]}

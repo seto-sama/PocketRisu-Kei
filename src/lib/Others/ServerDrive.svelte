@@ -802,7 +802,7 @@
                     </IconButton>
                     {@render folderDropdown(addressRoot)}
                     {#each parts.slice(addressRootDepth) as part, index}
-                        {@const path = parts.slice(0, addressRootDepth + index + 1).join('/')}
+                        {const path = $derived(parts.slice(0, addressRootDepth + index + 1).join('/'))}
                         <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
@@ -822,7 +822,7 @@
             <ContextMenu.Root onOpenChange={(open) => { if (open) { selectedPaths = []; selectionAnchor = null } }}>
                 <ContextMenu.Trigger disabled={disabled || !!loadError}>
                     {#snippet child({ props })}
-                        {@const areaProps = props as HTMLAttributes<HTMLElement>}
+                        {const areaProps = $derived(props as HTMLAttributes<HTMLElement>)}
                         <main {...areaProps} {...dropProps(currentPath)} bind:this={fileArea} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading} data-drive-files tabindex="-1"
                             onpointerdown={(event) => {
                                 if ((event.target as Element).closest('[data-drive-entry]')) return
@@ -947,7 +947,7 @@
 </Dialog>
 
 {#if preview}
-    {@const { entry, file, importable } = preview}
+    {const { entry, file, importable } = $derived(preview)}
     {#key preview}
         <ServerDrivePreview {entry} {file} thumbnailUrl={thumbnailUrl(entry)} busy={disabled}
             onImport={importable ? () => { void importEntry(entry, file) } : undefined}

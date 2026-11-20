@@ -510,14 +510,14 @@
             </IconButton>
         {/snippet}
         {#snippet itemContent(index)}
-            {@const item = presets[index]}
+            {const item = $derived(presets[index])}
             <span class="grow min-w-0 truncate">
                 <span>{item.name}</span>
                 {#if item.moduleName}<span class="text-subtext"> / {item.moduleName}</span>{/if}
             </span>
         {/snippet}
         {#snippet itemActions(index)}
-            {@const item = presets[index]}
+            {const item = $derived(presets[index])}
             <IconButton onclick={() => startEdit(item)} aria-label={language.edit} title={language.edit}>
                 <SquarePenIcon />
             </IconButton>

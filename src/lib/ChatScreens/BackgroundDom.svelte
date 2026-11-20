@@ -27,7 +27,7 @@
     {#if selIdState.selId > -1}
         {#key `${$ReloadGUIPointer}|${$ChatRoomReloadPointer}`}
             {#await ParseMarkdown(risuChatParser((backgroundHTML || '') + '\n' + ($moduleBackgroundEmbedding || ''), {chara:currentChar}), currentChar, 'back') then md}
-                {@const background = splitBackgroundAudio(md)}
+                {const background = $derived(splitBackgroundAudio(md))}
                 <div class="absolute top-0 left-0 w-full h-full">
                     {@html background.content}
                 </div>

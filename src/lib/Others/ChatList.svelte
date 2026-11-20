@@ -149,7 +149,7 @@
         itemRenameable
     >
         {#snippet itemContent(index, renameController)}
-            {@const chat = character.chats[index]}
+            {const chat = $derived(character.chats[index])}
             {#if chat}
                 <InlineEditableName
                     controller={renameController}

@@ -175,7 +175,7 @@
     itemRenameable={folderManagement}
 >
     {#snippet itemContent(index, renameController)}
-        {@const rmodule = DBState.db.modules[index]}
+        {const rmodule = $derived(DBState.db.modules[index])}
         {#if rmodule.mcp}
             <WaypointsIcon size={18} class="mr-2 shrink-0 text-subtext" />
         {/if}

@@ -183,7 +183,7 @@
                     {#each actions as action}
                         <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled} data-file-picker={action.filePicker || undefined}>
                             {#if action.icon}
-                                {@const ActionIcon = action.icon}
+                                {const ActionIcon = $derived(action.icon)}
                                 <ActionIcon />
                             {/if}
                             {action.label}
@@ -193,7 +193,7 @@
             {:else if actionLabel && onAction}
                 <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled} data-file-picker={actionFilePicker || undefined}>
                     {#if actionIcon}
-                        {@const ActionIcon = actionIcon}
+                        {const ActionIcon = $derived(actionIcon)}
                         <ActionIcon />
                     {/if}
                     {actionLabel}
@@ -218,7 +218,7 @@
                     {#each actions as action}
                         <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled} data-file-picker={action.filePicker || undefined}>
                             {#if action.icon}
-                                {@const ActionIcon = action.icon}
+                                {const ActionIcon = $derived(action.icon)}
                                 <ActionIcon />
                             {/if}
                             {action.label}
@@ -228,7 +228,7 @@
             {:else if actionLabel && onAction}
                 <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled} data-file-picker={actionFilePicker || undefined}>
                     {#if actionIcon}
-                        {@const ActionIcon = actionIcon}
+                        {const ActionIcon = $derived(actionIcon)}
                         <ActionIcon />
                     {/if}
                     {actionLabel}

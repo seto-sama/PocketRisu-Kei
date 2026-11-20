@@ -550,7 +550,7 @@
                       <SettingsIcon />
                     </BarIcon>
                   {:else}
-                    {@const menu = pluginMenuForKey(menuKey)}
+                    {const menu = $derived(pluginMenuForKey(menuKey))}
                     {#if menu}
                       <BarIcon
                         onClick={() => {
@@ -792,7 +792,7 @@
         {:else}
         <HorizontalMasonry itemCount={displayedRecentChars.length} className="mt-2">
           {#snippet children(index)}
-            {@const rc = displayedRecentChars[index]}
+            {const rc = $derived(displayedRecentChars[index])}
             <CharacterMasonryIcon
               src={rc.image ? getFileSrc(rc.image) : ""}
               hideImage={DBState.db.hideAllImages && !!rc.image}

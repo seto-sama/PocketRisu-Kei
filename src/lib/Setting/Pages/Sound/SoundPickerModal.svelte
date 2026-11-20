@@ -58,7 +58,7 @@
 
     <div class="flex flex-col gap-1 pr-1">
         {#each bundledSoundIds as id}
-            {@const selected = value === id || (!value && id === 'silent')}
+            {const selected = $derived(value === id || (!value && id === 'silent'))}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />
@@ -75,7 +75,7 @@
         {/each}
 
         {#each DBState.db.customSounds ?? [] as s (s.id)}
-            {@const selected = value === s.path}
+            {const selected = $derived(value === s.path)}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />

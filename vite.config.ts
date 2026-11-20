@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
 import wasm from 'vite-plugin-wasm'
 import tailwindcss from '@tailwindcss/vite'
 import { localFontsPlugin } from './vite.localFonts.ts'
@@ -30,14 +30,7 @@ const rolldownOptions = {
 export default defineConfig({
   plugins: [
     localFontsPlugin(),
-    svelte({
-      configFile: false,
-      preprocess: vitePreprocess(),
-      onwarn(warning, handler) {
-        if (warning.code.startsWith('a11y-')) return
-        handler(warning)
-      },
-    }),
+    svelte(),
     tailwindcss(),
     wasm(),
   ],

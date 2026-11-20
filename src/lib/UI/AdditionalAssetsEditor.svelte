@@ -260,7 +260,7 @@
         <EmptyState title={language.noAssets} description="" layout="inline" />
     {:else}
         {#each displayedAssets as asset, i}
-            {@const extension = extensionOf(asset)}
+            {const extension = $derived(extensionOf(asset))}
             <div class="flex min-w-0 items-start gap-2 py-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
                     class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
@@ -313,7 +313,7 @@
 
                 <IconButtonGroup direction="vertical" size="sm" className="self-center">
                     {#if showExclusionToggle}
-                        {@const exclusionLabel = excludedPaths.includes(asset[1]) ? language.assetPromptExcluded : language.assetPromptIncluded}
+                        {const exclusionLabel = $derived(excludedPaths.includes(asset[1]) ? language.assetPromptExcluded : language.assetPromptIncluded)}
                         <IconButton onclick={() => toggleExcluded(asset[1])} title={exclusionLabel} aria-label={exclusionLabel}>
                             {#if excludedPaths.includes(asset[1])}
                                 <ImageOffIcon />

@@ -92,7 +92,7 @@
     >
         <span class="wheel-edge" style:height={`${edgeSpace}px`} aria-hidden="true"></span>
         {#each options as option}
-            {@const selected = option.value === selectedValue}
+            {const selected = $derived(option.value === selectedValue)}
             <button
                 type="button"
                 role="option"

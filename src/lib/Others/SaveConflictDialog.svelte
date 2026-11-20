@@ -206,10 +206,10 @@
     <div class="flex min-h-0 flex-col gap-4 pr-1">
         <div class="grid grid-cols-2 gap-x-3">
             {#each comparisonSides as side}
-                {@const label = side === 'server'
+                {const label = $derived(side === 'server'
                     ? activeDialog?.serverLabel ?? language.saveConflict.server
-                    : activeDialog?.localLabel ?? language.saveConflict.local}
-                {@const selectedCount = choices.filter((_, index) => sideSelected(index, side)).length}
+                    : activeDialog?.localLabel ?? language.saveConflict.local)}
+                {const selectedCount = $derived(choices.filter((_, index) => sideSelected(index, side)).length)}
                 <div class="flex min-w-0 items-center rounded-xl border border-darkborderc bg-lightbg px-3 py-2">
                     <Checkbox
                         name={label}
@@ -231,9 +231,9 @@
                 {#if activeDialog?.multiple}
                     <div class="mb-2 grid grid-cols-2 gap-x-3">
                         {#each comparisonSides as side}
-                            {@const label = side === 'server'
+                            {const label = $derived(side === 'server'
                                 ? activeDialog.serverLabel ?? language.saveConflict.server
-                                : activeDialog.localLabel ?? language.saveConflict.local}
+                                : activeDialog.localLabel ?? language.saveConflict.local)}
                             <Checkbox
                                 name={label}
                                 check={sideSelected(index, side)}

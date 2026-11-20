@@ -694,7 +694,7 @@
 
         <div class="match-list">
             {#each matches as match, i}
-                {@const matchedText = matchingState.sourceData.slice(match.start, match.end)}
+                {const matchedText = $derived(matchingState.sourceData.slice(match.start, match.end))}
                 <button type="button" class="match-item" onclick={() => selectMatchAtIndex(i)}>
                     <div class="match-meta">
                         <span class="text-sm text-subtext">
@@ -736,7 +736,7 @@
             {@render MatchConfidenceBadge(matchingState.selectedRange)}
         {/snippet}
         {#if matchingState.selectedRange}
-            {@const matchedText = matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end)}
+            {const matchedText = $derived(matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end))}
             <div class="partial-delete-preview">
                 {matchedText.slice(0, 200)}{matchedText.length > 200 ? '...' : ''}
             </div>

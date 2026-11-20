@@ -260,8 +260,8 @@
         {:else}
             <DisclosureList appearance="folder" className="gap-2">
                 {#each groupedByProvider as group (group.id)}
-                    {@const expanded = isProviderExpanded(group.id)}
-                    {@const FolderGlyph = expanded ? FolderOpenIcon : FolderIcon}
+                    {const expanded = $derived(isProviderExpanded(group.id))}
+                    {const FolderGlyph = $derived(expanded ? FolderOpenIcon : FolderIcon)}
                     <DisclosureList
                         variant="item"
                         appearance="folder"
@@ -277,8 +277,8 @@
                             <span class="ml-2 text-xs text-subtext">{group.entries.length}</span>
                         {/snippet}
                         {#each group.entries as entry (entry.profile.id)}
-                            {@const { profile, baseProvider } = entry}
-                            {@const localizedDesc = localizeDescription(profile)}
+                            {const { profile, baseProvider } = $derived(entry)}
+                            {const localizedDesc = $derived(localizeDescription(profile))}
                             <Button
                                 variant="outline"
                                 data-tree-item
