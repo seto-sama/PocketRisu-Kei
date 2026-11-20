@@ -93,6 +93,7 @@
                 scheduleCommit()
             }}
             {@attach onLongPress && longpress(onLongPress)}
+            {@attach !readonly && onPopupEditorRequest(openPopupEditor)}
 ></textarea>
     </div>
     {#if showActionBar}
@@ -129,6 +130,7 @@
     import { listImageTagBundles } from 'src/ts/imageGeneration/tagBundles'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     import { longpress } from 'src/ts/gui/longtouch'
+    import { onPopupEditorRequest } from 'src/ts/gui/editableField'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
     import { INPUT_COMMIT_DEBOUNCE_MS, resolveInputCommitMode, type InputCommitMode } from 'src/ts/inputCommit'
     interface BaseProps {

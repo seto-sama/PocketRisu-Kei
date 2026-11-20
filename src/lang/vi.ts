@@ -890,7 +890,6 @@ export const languageVietnamese = {
         "translate": "Dịch",
         "remove": "Xóa",
         "edit": "Chỉnh sửa",
-        "copy": "Sao chép",
         "settings": "Cài đặt",
         "home": "Trang chủ",
         "presets": "Liên kết prompt",

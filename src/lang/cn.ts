@@ -890,7 +890,6 @@ export const languageChinese = {
         "translate": "翻译",
         "remove": "移除",
         "edit": "编辑",
-        "copy": "复制",
         "settings": "设置",
         "home": "主页",
         "presets": "提示词绑定",

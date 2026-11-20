@@ -890,7 +890,6 @@ export const languageSpanish = {
         "translate": "Traducir",
         "remove": "Eliminar",
         "edit": "Editar",
-        "copy": "Copiar",
         "settings": "Configuración",
         "home": "Inicio",
         "presets": "Vinculación de prompt",

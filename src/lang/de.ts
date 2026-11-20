@@ -890,7 +890,6 @@ export const languageGerman = {
         "translate": "Übersetzen",
         "remove": "Entfernen",
         "edit": "Bearbeiten",
-        "copy": "Kopieren",
         "settings": "Einstellungen",
         "home": "Startseite",
         "presets": "Prompt-Bindung",

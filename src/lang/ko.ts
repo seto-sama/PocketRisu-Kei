@@ -1938,7 +1938,6 @@ export const languageKorean = {
     translate: "번역",
     remove: "삭제",
     edit: "편집",
-    copy: "복사",
     settings: "설정",
     home: "홈",
     presets: "프롬프트 바인딩",

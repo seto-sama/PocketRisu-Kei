@@ -3,13 +3,15 @@ export interface Hotkey {
     ctrl?: boolean
     shift?: boolean
     alt?: boolean
+    /** The Win / Super / ⌘ key. */
+    meta?: boolean
     disabled?: boolean
     action: string
 }
 
 export const hotkeyActionGroups = {
     chatInput: ['focusInput'],
-    toolbar: ['translate', 'edit', 'copy', 'remove', 'reroll', 'unreroll'],
+    toolbar: ['translate', 'edit', 'remove', 'reroll', 'unreroll'],
     menu: ['home', 'settings', 'quickMenu', 'previewRequest', 'toggleLog'],
     features: ['popupEditor', 'toggleCSS'],
     sidebar: [
@@ -29,9 +31,11 @@ export function hotkeyMatches(hotkey: Hotkey | undefined, event: KeyboardEvent):
     if ((hotkey.ctrl ?? false) !== event.ctrlKey) return false
     if ((hotkey.alt ?? false) !== event.altKey) return false
     if ((hotkey.shift ?? false) !== event.shiftKey) return false
+    if ((hotkey.meta ?? false) !== event.metaKey) return false
     if (hotkey.key.toLowerCase() !== event.key.toLowerCase()) return false
 
-    if (!hotkey.ctrl && !hotkey.alt && !hotkey.shift) {
+    // Shift alone only types capitals, so a Shift-only hotkey must not swallow text entry.
+    if (!hotkey.ctrl && !hotkey.alt && !hotkey.meta) {
         const activeElement = document.activeElement as HTMLElement | null
         if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') return false
     }
@@ -44,7 +48,6 @@ export const defaultHotkeys: Hotkey[] = [
     { key: 't', ctrl: true, alt: true, action: 'translate' },
     { key: 'd', ctrl: true, alt: true, action: 'remove' },
     { key: 'e', ctrl: true, alt: true, action: 'edit' },
-    { key: 'c', ctrl: true, alt: true, action: 'copy' },
     { key: 's', ctrl: true, action: 'settings' },
     { key: 'h', ctrl: true, action: 'home' },
     { key: 'p', ctrl: true, action: 'presets' },

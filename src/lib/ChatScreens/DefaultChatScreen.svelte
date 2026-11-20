@@ -6,6 +6,7 @@
     import { removeActiveSwipe } from 'src/ts/storage/messageSwipes';
 
     import { ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, XIcon, BrainIcon, ArrowDownIcon, Maximize2Icon, WandSparklesIcon, CompassIcon } from "@lucide/svelte";
+    import { onPopupEditorRequest } from 'src/ts/gui/editableField';
     import * as DropdownMenu from '../UI/components/dropdown-menu';
     import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
@@ -1599,6 +1600,7 @@ import { isMobile } from 'src/ts/platform'
                           placeholder={willResend ? language.resendLastMessage : language.enterMessageToPersona(activePersonaName)}
                           bind:value={messageInput}
                           bind:this={inputEle}
+                          {@attach onPopupEditorRequest(openMessageInputPopupEditor)}
                           onkeydown={(e) => {
                         if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
                             if(shouldSendOnEnter(e)){

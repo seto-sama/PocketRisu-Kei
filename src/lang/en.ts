@@ -1856,7 +1856,6 @@ export const languageEnglish = {
         translate: "Translate",
         remove: "Remove",
         edit: "Edit",
-        copy: "Copy",
         settings: "Settings",
         home: "Home",
         presets: "Prompt Binding",

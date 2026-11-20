@@ -957,7 +957,6 @@ export const languageChineseTraditional = {
         "translate": "翻譯",
         "remove": "移除",
         "edit": "編輯",
-        "copy": "複製",
         "settings": "設定",
         "home": "首頁",
         "presets": "提示詞綁定",
